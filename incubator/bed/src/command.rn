@@ -9,6 +9,11 @@ pub type Command = enum {
     WriteQuit,
     Edit: []u8,
     WriteAs: []u8,
+    Split,
+    CloseWindow,
+    OnlyWindow,
+    SetNumber: bool,
+    SetRelativeNumber: bool,
     Unknown,
 };
 
@@ -40,6 +45,27 @@ pub fn parse(line: []u8) Command {
     }
     if (text.eq("wq!")) {
         return .WriteQuit;
+    }
+    if (text.eq("split")) {
+        return .Split;
+    }
+    if (text.eq("close")) {
+        return .CloseWindow;
+    }
+    if (text.eq("only")) {
+        return .OnlyWindow;
+    }
+    if (text.eq("set number") or text.eq("set nu")) {
+        return .{ SetNumber: true };
+    }
+    if (text.eq("set nonumber") or text.eq("set nonu")) {
+        return .{ SetNumber: false };
+    }
+    if (text.eq("set relativenumber") or text.eq("set rnu")) {
+        return .{ SetRelativeNumber: true };
+    }
+    if (text.eq("set norelativenumber") or text.eq("set nornu")) {
+        return .{ SetRelativeNumber: false };
     }
     if (text.starts_with("e ")) {
         let path = tail_after(text, 1);

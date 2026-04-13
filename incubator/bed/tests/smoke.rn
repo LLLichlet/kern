@@ -67,6 +67,31 @@ fn check_command_parse() void {
         .WriteQuit => {}
         _ => test.fail("expected :wq! to parse as write-quit", .{}),
     }
+
+    match (command.parse("split")) {
+        .Split => {}
+        _ => test.fail("expected :split to parse as split", .{}),
+    }
+
+    match (command.parse("close")) {
+        .CloseWindow => {}
+        _ => test.fail("expected :close to parse as close-window", .{}),
+    }
+
+    match (command.parse("only")) {
+        .OnlyWindow => {}
+        _ => test.fail("expected :only to parse as only-window", .{}),
+    }
+
+    match (command.parse("set number")) {
+        .{ SetNumber: enabled } => test.assert(enabled, "expected :set number to enable numbers", .{}),
+        _ => test.fail("expected :set number to parse as number option", .{}),
+    }
+
+    match (command.parse("set relativenumber")) {
+        .{ SetRelativeNumber: enabled } => test.assert(enabled, "expected :set relativenumber to enable relative numbers", .{}),
+        _ => test.fail("expected :set relativenumber to parse as relative-number option", .{}),
+    }
 }
 
 fn check_buffer_editing() void {
@@ -168,6 +193,7 @@ fn check_editor_normal_mode_subset() void {
 
     state..&.handle_key(gpa, .{ Byte: b'g' });
     state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: b'0' });
     test.eq(state..&.cursor_row(), usize.{0});
     test.eq(state..&.line(0), "X");
     test.eq(state..&.line(1), "one two!");
@@ -280,6 +306,123 @@ fn check_command_line_viewport_render() void {
     test.assert(state..&.render_into(gpa, frame, true), "expected command viewport render to succeed", .{});
     test.assert(contains(frame.as_str(), ":efghij"), "expected long command render to scroll visible slice", .{});
     test.assert(contains(frame.as_str(), "\x1b[2;8H"), "expected command cursor to remain visible at right edge", .{});
+}
+
+fn check_insert_tab_and_line_number_render() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{8}, usize.{32}), "expected resize for tab and number render test", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'i' });
+    state..&.handle_key(gpa, .{ Byte: b'\t' });
+    type_text(state..&, gpa, "a");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "b");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "c");
+    state..&.handle_key(gpa, .Escape);
+
+    test.eq(state..&.line(0), "    a");
+
+    state..&.handle_key(gpa, .{ Byte: b':' });
+    type_text(state..&, gpa, "set number");
+    state..&.handle_key(gpa, .Enter);
+    state..&.handle_key(gpa, .{ Byte: b':' });
+    type_text(state..&, gpa, "set relativenumber");
+    state..&.handle_key(gpa, .Enter);
+
+    state..&.handle_key(gpa, .{ Byte: b'k' });
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+    test.assert(state..&.render_into(gpa, frame, true), "expected line number render to succeed", .{});
+    test.assert(contains(frame.as_str(), "1     a"), "expected relative numbering to show distance for first line", .{});
+    test.assert(contains(frame.as_str(), "2 b"), "expected current line to keep absolute number when number is enabled", .{});
+    test.assert(contains(frame.as_str(), "1 c"), "expected relative numbering to show distance for later lines", .{});
+}
+
+fn check_split_window_and_window_commands() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{12}, usize.{40}), "expected resize for split-window test", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state..&, gpa, "one");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "two");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "three");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "four");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "five");
+    state..&.handle_key(gpa, .Escape);
+
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b's' });
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b'w' });
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+    test.assert(state..&.render_into(gpa, frame, true), "expected split-window render to succeed", .{});
+    test.assert(contains(frame.as_str(), "[window W2/2]"), "expected render to include the inactive lower window separator", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"), "expected status line to show active editor window label", .{});
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b'o' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected :only-style window close render to succeed", .{});
+    test.assert(!contains(frame.as_str(), "[window W2/2]"), "expected only-window command to remove the second split", .{});
+}
+
+fn check_additional_jump_keys() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{6}, usize.{40}), "expected resize for jump-key test", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state..&, gpa, "(abc)");
+    state..&.handle_key(gpa, .Enter);
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "para");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "tail");
+    state..&.handle_key(gpa, .Escape);
+
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: b'0' });
+    state..&.handle_key(gpa, .{ Byte: b'%' });
+    expect_cursor(state..&, usize.{0}, usize.{4}, "expected % to jump to matching delimiter");
+
+    state..&.handle_key(gpa, .{ Byte: b'0' });
+    state..&.handle_key(gpa, .{ Byte: b'}' });
+    expect_cursor(state..&, usize.{2}, usize.{0}, "expected } to jump to next paragraph start");
+    state..&.handle_key(gpa, .{ Byte: b'{' });
+    expect_cursor(state..&, usize.{0}, usize.{0}, "expected { to jump back to previous paragraph start");
+
+    state..&.handle_key(gpa, .{ Byte: b'G' });
+    state..&.handle_key(gpa, .{ Byte: 2 });
+    expect_cursor(state..&, usize.{0}, usize.{0}, "expected ctrl-b to page upward");
+    state..&.handle_key(gpa, .{ Byte: 6 });
+    expect_cursor(state..&, usize.{3}, usize.{0}, "expected ctrl-f to page downward");
 }
 
 fn check_prompt_history_navigation() void {
@@ -405,6 +548,9 @@ fn main() i32 {
     check_editor_normal_mode_subset();
     check_editor_extended_normal_motions();
     check_command_line_viewport_render();
+    check_insert_tab_and_line_number_render();
+    check_split_window_and_window_commands();
+    check_additional_jump_keys();
     check_prompt_history_navigation();
     check_cursor_shape_changes_with_mode();
     check_shell_prompt_and_output_render();

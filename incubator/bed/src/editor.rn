@@ -15,10 +15,13 @@ use ..mode.Mode;
 const NO_NAME = "[No Name]";
 const PROMPT_HISTORY_LIMIT = usize.{32};
 const OUTPUT_HISTORY_LIMIT = usize.{16};
+const TAB_STOP = usize.{4};
 
 type PendingNormal = enum {
     None,
     G,
+    Z,
+    CtrlW,
     FindForward,
     TillForward,
     FindBackward,
@@ -50,6 +53,12 @@ type ShellOutputEntry = struct {
     command: String = String.{},
     text: String = String.{},
     status: i32 = 0,
+};
+
+type EditorView = struct {
+    cursor: Cursor = Cursor.{ row: 0, col: 0 },
+    preferred_col: usize = 0,
+    scroll_row: usize = 0,
 };
 
 impl *mut ShellOutputEntry {
@@ -187,14 +196,115 @@ fn push_i32(out: *mut String, alloc: *mut Allocator, value: i32) bool {
     return ansi.push_usize(out, alloc, value as usize);
 }
 
+fn decimal_width(value: usize) usize {
+    let mut width = usize.{1};
+    let mut current = value;
+    for (; current >= 10; ) {
+        current /= 10;
+        width += 1;
+    }
+    return width;
+}
+
+fn abs_diff_usize(lhs: usize, rhs: usize) usize {
+    if (lhs >= rhs) {
+        return lhs - rhs;
+    }
+    return rhs - lhs;
+}
+
+fn push_spaces(out: *mut String, alloc: *mut Allocator, count: usize) bool {
+    for (let mut i = usize.{0}; i < count; i += 1) {
+        if (!out.push_char(alloc, b' ')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn editor_gutter_width(text_buffer: *TextBuffer, show_line_numbers: bool, relative_line_numbers: bool) usize {
+    if (!show_line_numbers and !relative_line_numbers) {
+        return 0;
+    }
+    return decimal_width(text_buffer.line_count()) + 1;
+}
+
+fn render_editor_rows(
+    out: *mut String,
+    alloc: *mut Allocator,
+    text_buffer: *TextBuffer,
+    scroll_row: usize,
+    cursor_row: usize,
+    rows: usize,
+    cols: usize,
+    fill_tilde: bool,
+    show_line_numbers: bool,
+    relative_line_numbers: bool,
+) bool {
+    let gutter = editor_gutter_width(text_buffer, show_line_numbers, relative_line_numbers);
+    let text_cols = if (cols > gutter) cols - gutter else 0;
+
+    for (let mut screen_row = usize.{0}; screen_row < rows; screen_row += 1) {
+        let row = scroll_row + screen_row;
+        if (row < text_buffer.line_count()) {
+            if (gutter > 0) {
+                let number = if (relative_line_numbers) {
+                    if (row == cursor_row) {
+                        if (show_line_numbers) row + 1 else 0
+                    } else {
+                        abs_diff_usize(row, cursor_row)
+                    }
+                } else {
+                    row + 1
+                };
+                let digits = decimal_width(number);
+                if (!push_spaces(out, alloc, gutter - digits - 1)) {
+                    return false;
+                }
+                if (!ansi.push_usize(out, alloc, number)) {
+                    return false;
+                }
+                if (!out.push_char(alloc, b' ')) {
+                    return false;
+                }
+            }
+            if (!push_rendered_line(out, alloc, text_buffer.line(row), text_cols)) {
+                return false;
+            }
+        } else {
+            if (gutter > 0 and !push_spaces(out, alloc, gutter)) {
+                return false;
+            }
+            if (fill_tilde and !out.push_char(alloc, b'~')) {
+                return false;
+            }
+        }
+
+        if (!ansi.clear_line(out, alloc)) {
+            return false;
+        }
+        if (screen_row + 1 < rows and !ansi.new_line(out, alloc)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /// The single-window editor core for the first `bed` milestone.
 pub type Editor = struct {
     buffer: TextBuffer,
     cursor: Cursor = Cursor.{ row: 0, col: 0 },
     preferred_col: usize = 0,
     scroll_row: usize = 0,
+    split_cursor: Cursor = Cursor.{ row: 0, col: 0 },
+    split_preferred_col: usize = 0,
+    split_scroll_row: usize = 0,
+    active_window: usize = 0,
+    window_count: usize = 1,
     screen_rows: usize = 24,
     screen_cols: usize = 80,
+    show_line_numbers: bool = false,
+    relative_line_numbers: bool = false,
     mode: Mode = .Normal,
     pending_normal: PendingNormal = .None,
     pending_count: usize = 0,
@@ -294,6 +404,72 @@ impl *mut Editor {
             .Editor => return "EDITOR",
             .Output => return "OUTPUT",
         }
+    }
+
+    fn active_cursor() *mut Cursor {
+        if (self.active_window == 0) {
+            return self.cursor..&;
+        }
+        return self.split_cursor..&;
+    }
+
+    fn active_preferred_col() *mut usize {
+        if (self.active_window == 0) {
+            return self.preferred_col..&;
+        }
+        return self.split_preferred_col..&;
+    }
+
+    fn active_scroll_row() *mut usize {
+        if (self.active_window == 0) {
+            return self.scroll_row..&;
+        }
+        return self.split_scroll_row..&;
+    }
+
+    fn view(index: usize) EditorView {
+        if (index == 0) {
+            return .{
+                cursor: self.cursor,
+                preferred_col: self.preferred_col,
+                scroll_row: self.scroll_row,
+            };
+        }
+        return .{
+            cursor: self.split_cursor,
+            preferred_col: self.split_preferred_col,
+            scroll_row: self.split_scroll_row,
+        };
+    }
+
+    fn view_cursor(index: usize) Cursor {
+        return self.view(index).cursor;
+    }
+
+    fn view_scroll_row(index: usize) usize {
+        return self.view(index).scroll_row;
+    }
+
+    fn set_view(index: usize, view: EditorView) void {
+        if (index == 0) {
+            self.cursor = view.cursor;
+            self.preferred_col = view.preferred_col;
+            self.scroll_row = view.scroll_row;
+            return;
+        }
+        self.split_cursor = view.cursor;
+        self.split_preferred_col = view.preferred_col;
+        self.split_scroll_row = view.scroll_row;
+    }
+
+    fn active_window_label() []u8 {
+        if (self.window_count <= 1) {
+            return "W1/1";
+        }
+        if (self.active_window == 0) {
+            return "W1/2";
+        }
+        return "W2/2";
     }
 
     fn reset_prompt_history_nav() void {
@@ -484,18 +660,19 @@ impl *mut Editor {
     }
 
     fn clamp_cursor() void {
+        let cursor = self.active_cursor();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
-            self.cursor = .{ row: 0, col: 0 };
+            cursor.* = .{ row: 0, col: 0 };
             return;
         }
 
-        if (self.cursor.row >= lines) {
-            self.cursor.row = lines - 1;
+        if (cursor.row >= lines) {
+            cursor.row = lines - 1;
         }
-        let line_len = self.buffer.&.line_len(self.cursor.row);
-        if (self.cursor.col > line_len) {
-            self.cursor.col = line_len;
+        let line_len = self.buffer.&.line_len(cursor.row);
+        if (cursor.col > line_len) {
+            cursor.col = line_len;
         }
     }
 
@@ -527,8 +704,24 @@ impl *mut Editor {
         return main_rows - output_rows - 1;
     }
 
+    fn window_rows(index: usize) usize {
+        let rows = self.editor_rows();
+        if (self.window_count <= 1 or rows == 0) {
+            return rows;
+        }
+        if (rows <= 2) {
+            return if (index == 0) rows else 0;
+        }
+        let upper = (rows - 1) / usize.{2};
+        let lower = rows - upper - 1;
+        if (index == 0) {
+            return upper;
+        }
+        return lower;
+    }
+
     fn view_rows() usize {
-        return self.editor_rows();
+        return self.window_rows(self.active_window);
     }
 
     fn page_step() usize {
@@ -559,21 +752,20 @@ impl *mut Editor {
     }
 
     fn ensure_cursor_visible(term_rows: usize) void {
-        let view_rows = if (self.output_split_rows(term_rows) == 0) {
-            self.main_rows(term_rows)
-        } else {
-            self.editor_rows()
-        };
+        let _ = term_rows;
+        let cursor = self.active_cursor();
+        let scroll_row = self.active_scroll_row();
+        let view_rows = self.view_rows();
         if (view_rows == 0) {
-            self.scroll_row = self.cursor.row;
+            scroll_row.* = cursor.row;
             return;
         }
 
-        if (self.cursor.row < self.scroll_row) {
-            self.scroll_row = self.cursor.row;
+        if (cursor.row < scroll_row.*) {
+            scroll_row.* = cursor.row;
         }
-        if (self.cursor.row >= self.scroll_row + view_rows) {
-            self.scroll_row = self.cursor.row - view_rows + 1;
+        if (cursor.row >= scroll_row.* + view_rows) {
+            scroll_row.* = cursor.row - view_rows + 1;
         }
     }
 
@@ -593,7 +785,9 @@ impl *mut Editor {
     }
 
     fn remember_preferred_col() void {
-        self.preferred_col = self.cursor.col;
+        let cursor = self.active_cursor();
+        let preferred_col = self.active_preferred_col();
+        preferred_col.* = cursor.col;
     }
 
     fn remember_output_preferred_col() void {
@@ -601,30 +795,35 @@ impl *mut Editor {
     }
 
     fn move_to_row(row: usize) void {
+        let cursor = self.active_cursor();
+        let scroll_row = self.active_scroll_row();
+        let preferred_col = self.active_preferred_col();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
-            self.cursor = .{ row: 0, col: 0 };
-            self.scroll_row = 0;
-            self.preferred_col = 0;
+            cursor.* = .{ row: 0, col: 0 };
+            scroll_row.* = 0;
+            preferred_col.* = 0;
             return;
         }
 
-        self.cursor.row = if (row < lines) row else lines - 1;
-        let line_len = self.buffer.&.line_len(self.cursor.row);
-        self.cursor.col = if (self.preferred_col < line_len) self.preferred_col else line_len;
+        cursor.row = if (row < lines) row else lines - 1;
+        let line_len = self.buffer.&.line_len(cursor.row);
+        cursor.col = if (preferred_col.* < line_len) preferred_col.* else line_len;
     }
 
     fn move_left() void {
-        if (self.cursor.col > 0) {
-            self.cursor.col -= 1;
+        let cursor = self.active_cursor();
+        if (cursor.col > 0) {
+            cursor.col -= 1;
         }
         self.remember_preferred_col();
     }
 
     fn move_right() void {
-        let line_len = self.buffer.&.line_len(self.cursor.row);
-        if (self.cursor.col < line_len) {
-            self.cursor.col += 1;
+        let cursor = self.active_cursor();
+        let line_len = self.buffer.&.line_len(cursor.row);
+        if (cursor.col < line_len) {
+            cursor.col += 1;
         }
         self.remember_preferred_col();
     }
@@ -705,21 +904,24 @@ impl *mut Editor {
     }
 
     fn move_up() void {
-        if (self.cursor.row > 0) {
-            self.move_to_row(self.cursor.row - 1);
+        let cursor = self.active_cursor();
+        if (cursor.row > 0) {
+            self.move_to_row(cursor.row - 1);
         }
         self.clamp_cursor();
     }
 
     fn move_down() void {
-        if (self.cursor.row + 1 < self.buffer.&.line_count()) {
-            self.move_to_row(self.cursor.row + 1);
+        let cursor = self.active_cursor();
+        if (cursor.row + 1 < self.buffer.&.line_count()) {
+            self.move_to_row(cursor.row + 1);
         }
         self.clamp_cursor();
     }
 
     fn move_line_start() void {
-        self.cursor.col = 0;
+        let cursor = self.active_cursor();
+        cursor.col = 0;
         self.remember_preferred_col();
     }
 
@@ -735,12 +937,14 @@ impl *mut Editor {
     }
 
     fn move_line_end() void {
-        self.cursor.col = self.buffer.&.line_len(self.cursor.row);
+        let cursor = self.active_cursor();
+        cursor.col = self.buffer.&.line_len(cursor.row);
         self.remember_preferred_col();
     }
 
     fn move_first_non_blank() void {
-        self.cursor.col = self.first_non_blank_col(self.cursor.row);
+        let cursor = self.active_cursor();
+        cursor.col = self.first_non_blank_col(cursor.row);
         self.remember_preferred_col();
     }
 
@@ -772,13 +976,14 @@ impl *mut Editor {
     }
 
     fn move_word_forward_blank() void {
+        let cursor = self.active_cursor();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
             return;
         }
 
-        let mut row = self.cursor.row;
-        let mut col = self.cursor.col;
+        let mut row = cursor.row;
+        let mut col = cursor.col;
         let line = self.buffer.&.line(row);
         if (col < #line and !self.is_space_byte(line.[col])) {
             for (; col < #line and !self.is_space_byte(line.[col]); col += 1) {}
@@ -788,12 +993,12 @@ impl *mut Editor {
             let next_line = self.buffer.&.line(row);
             for (; col < #next_line and self.is_space_byte(next_line.[col]); col += 1) {}
             if (col < #next_line) {
-                self.cursor = .{ row: row, col: col };
+                cursor.* = .{ row: row, col: col };
                 return;
             }
             if (row + 1 >= lines) {
-                self.cursor.row = lines - 1;
-                self.cursor.col = self.buffer.&.line_len(lines - 1);
+                cursor.row = lines - 1;
+                cursor.col = self.buffer.&.line_len(lines - 1);
                 return;
             }
             row += 1;
@@ -802,13 +1007,14 @@ impl *mut Editor {
     }
 
     fn move_word_backward_blank() void {
+        let cursor = self.active_cursor();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
             return;
         }
 
-        let mut row = self.cursor.row;
-        let mut col = self.cursor.col;
+        let mut row = cursor.row;
+        let mut col = cursor.col;
 
         for (;;) {
             if (col > 0) {
@@ -816,7 +1022,7 @@ impl *mut Editor {
                 break;
             }
             if (row == 0) {
-                self.cursor = .{ row: 0, col: 0 };
+                cursor.* = .{ row: 0, col: 0 };
                 return;
             }
             row -= 1;
@@ -837,7 +1043,7 @@ impl *mut Editor {
                 continue;
             }
             if (row == 0) {
-                self.cursor = .{ row: 0, col: 0 };
+                cursor.* = .{ row: 0, col: 0 };
                 return;
             }
             row -= 1;
@@ -850,12 +1056,12 @@ impl *mut Editor {
 
         for (;;) {
             if (col == 0) {
-                self.cursor = .{ row: row, col: 0 };
+                cursor.* = .{ row: row, col: 0 };
                 return;
             }
             let line = self.buffer.&.line(row);
             if (self.is_space_byte(line.[col - 1])) {
-                self.cursor = .{ row: row, col: col };
+                cursor.* = .{ row: row, col: col };
                 return;
             }
             col -= 1;
@@ -863,13 +1069,14 @@ impl *mut Editor {
     }
 
     fn move_word_end_blank() void {
+        let cursor = self.active_cursor();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
             return;
         }
 
-        let mut row = self.cursor.row;
-        let mut col = self.cursor.col;
+        let mut row = cursor.row;
+        let mut col = cursor.col;
         for (;;) {
             let line = self.buffer.&.line(row);
             if (col < #line and !self.is_space_byte(line.[col])) {
@@ -880,8 +1087,8 @@ impl *mut Editor {
                 break;
             }
             if (row + 1 >= lines) {
-                self.cursor.row = lines - 1;
-                self.cursor.col = self.buffer.&.line_len(lines - 1);
+                cursor.row = lines - 1;
+                cursor.col = self.buffer.&.line_len(lines - 1);
                 return;
             }
             row += 1;
@@ -890,17 +1097,18 @@ impl *mut Editor {
 
         let line = self.buffer.&.line(row);
         for (; col + 1 < #line and !self.is_space_byte(line.[col + 1]); col += 1) {}
-        self.cursor = .{ row: row, col: col };
+        cursor.* = .{ row: row, col: col };
     }
 
     fn move_word_forward() void {
+        let cursor = self.active_cursor();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
             return;
         }
 
-        let mut row = self.cursor.row;
-        let mut col = self.cursor.col;
+        let mut row = cursor.row;
+        let mut col = cursor.col;
         for (;;) {
             let line = self.buffer.&.line(row);
             if (col < #line) {
@@ -912,15 +1120,15 @@ impl *mut Editor {
                     for (; col < #line and self.word_class(line.[col]) == u8.{0}; col += 1) {}
                 }
                 if (col < #line) {
-                    self.cursor = .{ row: row, col: col };
+                    cursor.* = .{ row: row, col: col };
                     self.remember_preferred_col();
                     return;
                 }
             }
 
             if (row + 1 >= lines) {
-                self.cursor.row = lines - 1;
-                self.cursor.col = self.buffer.&.line_len(lines - 1);
+                cursor.row = lines - 1;
+                cursor.col = self.buffer.&.line_len(lines - 1);
                 self.remember_preferred_col();
                 return;
             }
@@ -930,20 +1138,21 @@ impl *mut Editor {
     }
 
     fn move_word_backward() void {
+        let cursor = self.active_cursor();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
             return;
         }
 
-        let mut row = self.cursor.row;
-        let mut col = self.cursor.col;
+        let mut row = cursor.row;
+        let mut col = cursor.col;
         for (;;) {
             if (col > 0) {
                 col -= 1;
                 break;
             }
             if (row == 0) {
-                self.cursor = .{ row: 0, col: 0 };
+                cursor.* = .{ row: 0, col: 0 };
                 self.remember_preferred_col();
                 return;
             }
@@ -965,7 +1174,7 @@ impl *mut Editor {
                 continue;
             }
             if (row == 0) {
-                self.cursor = .{ row: 0, col: 0 };
+                cursor.* = .{ row: 0, col: 0 };
                 self.remember_preferred_col();
                 return;
             }
@@ -981,12 +1190,12 @@ impl *mut Editor {
         let class = self.word_class(line.[col]);
         for (;;) {
             if (col == 0) {
-                self.cursor = .{ row: row, col: 0 };
+                cursor.* = .{ row: row, col: 0 };
                 self.remember_preferred_col();
                 return;
             }
             if (self.word_class(line.[col - 1]) != class) {
-                self.cursor = .{ row: row, col: col };
+                cursor.* = .{ row: row, col: col };
                 self.remember_preferred_col();
                 return;
             }
@@ -995,19 +1204,20 @@ impl *mut Editor {
     }
 
     fn move_word_end() void {
+        let cursor = self.active_cursor();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
             return;
         }
 
-        let mut row = self.cursor.row;
-        let mut col = self.cursor.col;
+        let mut row = cursor.row;
+        let mut col = cursor.col;
         for (;;) {
             let line = self.buffer.&.line(row);
             if (col < #line and self.word_class(line.[col]) != u8.{0}) {
                 let class = self.word_class(line.[col]);
                 for (; col + 1 < #line and self.word_class(line.[col + 1]) == class; col += 1) {}
-                self.cursor = .{ row: row, col: col };
+                cursor.* = .{ row: row, col: col };
                 self.remember_preferred_col();
                 return;
             }
@@ -1015,13 +1225,13 @@ impl *mut Editor {
             if (col < #line) {
                 let class = self.word_class(line.[col]);
                 for (; col + 1 < #line and self.word_class(line.[col + 1]) == class; col += 1) {}
-                self.cursor = .{ row: row, col: col };
+                cursor.* = .{ row: row, col: col };
                 self.remember_preferred_col();
                 return;
             }
             if (row + 1 >= lines) {
-                self.cursor.row = lines - 1;
-                self.cursor.col = self.buffer.&.line_len(lines - 1);
+                cursor.row = lines - 1;
+                cursor.col = self.buffer.&.line_len(lines - 1);
                 self.remember_preferred_col();
                 return;
             }
@@ -1031,20 +1241,21 @@ impl *mut Editor {
     }
 
     fn move_word_end_backward() void {
+        let cursor = self.active_cursor();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
             return;
         }
 
-        let mut row = self.cursor.row;
-        let mut col = self.cursor.col;
+        let mut row = cursor.row;
+        let mut col = cursor.col;
         for (;;) {
             if (col > 0) {
                 col -= 1;
                 break;
             }
             if (row == 0) {
-                self.cursor = .{ row: 0, col: 0 };
+                cursor.* = .{ row: 0, col: 0 };
                 self.remember_preferred_col();
                 return;
             }
@@ -1059,7 +1270,7 @@ impl *mut Editor {
         for (;;) {
             let line = self.buffer.&.line(row);
             if (self.word_class(line.[col]) != u8.{0}) {
-                self.cursor = .{ row: row, col: col };
+                cursor.* = .{ row: row, col: col };
                 self.remember_preferred_col();
                 return;
             }
@@ -1068,7 +1279,7 @@ impl *mut Editor {
                 continue;
             }
             if (row == 0) {
-                self.cursor = .{ row: 0, col: 0 };
+                cursor.* = .{ row: 0, col: 0 };
                 self.remember_preferred_col();
                 return;
             }
@@ -1082,20 +1293,21 @@ impl *mut Editor {
     }
 
     fn move_word_end_backward_blank() void {
+        let cursor = self.active_cursor();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
             return;
         }
 
-        let mut row = self.cursor.row;
-        let mut col = self.cursor.col;
+        let mut row = cursor.row;
+        let mut col = cursor.col;
         for (;;) {
             if (col > 0) {
                 col -= 1;
                 break;
             }
             if (row == 0) {
-                self.cursor = .{ row: 0, col: 0 };
+                cursor.* = .{ row: 0, col: 0 };
                 self.remember_preferred_col();
                 return;
             }
@@ -1110,7 +1322,7 @@ impl *mut Editor {
         for (;;) {
             let line = self.buffer.&.line(row);
             if (!self.is_space_byte(line.[col])) {
-                self.cursor = .{ row: row, col: col };
+                cursor.* = .{ row: row, col: col };
                 self.remember_preferred_col();
                 return;
             }
@@ -1119,7 +1331,7 @@ impl *mut Editor {
                 continue;
             }
             if (row == 0) {
-                self.cursor = .{ row: 0, col: 0 };
+                cursor.* = .{ row: 0, col: 0 };
                 self.remember_preferred_col();
                 return;
             }
@@ -1133,9 +1345,10 @@ impl *mut Editor {
     }
 
     fn page_up() void {
+        let cursor = self.active_cursor();
         let step = self.page_step();
-        if (self.cursor.row > step) {
-            self.move_to_row(self.cursor.row - step);
+        if (cursor.row > step) {
+            self.move_to_row(cursor.row - step);
         } else {
             self.move_to_row(0);
         }
@@ -1144,16 +1357,17 @@ impl *mut Editor {
     }
 
     fn page_down() void {
+        let cursor = self.active_cursor();
         let step = self.page_step();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
-            self.cursor.row = 0;
+            cursor.row = 0;
             return;
         }
 
         let last_row = lines - 1;
-        if (self.cursor.row + step < last_row) {
-            self.move_to_row(self.cursor.row + step);
+        if (cursor.row + step < last_row) {
+            self.move_to_row(cursor.row + step);
         } else {
             self.move_to_row(last_row);
         }
@@ -1199,28 +1413,32 @@ impl *mut Editor {
     }
 
     fn half_page_up() void {
+        let scroll_row = self.active_scroll_row();
         let step = self.half_page_step();
-        if (self.scroll_row > step) {
-            self.scroll_row -= step;
+        if (scroll_row.* > step) {
+            scroll_row.* -= step;
         } else {
-            self.scroll_row = 0;
+            scroll_row.* = 0;
         }
-        self.move_to_row(self.scroll_row);
+        self.move_to_row(scroll_row.*);
         self.clamp_cursor();
     }
 
     fn half_page_down() void {
+        let cursor = self.active_cursor();
+        let scroll_row = self.active_scroll_row();
+        let preferred_col = self.active_preferred_col();
         let step = self.half_page_step();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
-            self.cursor = .{ row: 0, col: 0 };
-            self.preferred_col = 0;
+            cursor.* = .{ row: 0, col: 0 };
+            preferred_col.* = 0;
             return;
         }
 
         let last_row = lines - 1;
-        let next = if (self.scroll_row + step < last_row) self.scroll_row + step else last_row;
-        self.scroll_row = next;
+        let next = if (scroll_row.* + step < last_row) scroll_row.* + step else last_row;
+        scroll_row.* = next;
         self.move_to_row(next);
         self.clamp_cursor();
     }
@@ -1253,14 +1471,18 @@ impl *mut Editor {
     }
 
     fn goto_screen_row(screen_row: usize) void {
+        let cursor = self.active_cursor();
+        let preferred_col = self.active_preferred_col();
+        let scroll_row = self.active_scroll_row();
         let lines = self.buffer.&.line_count();
         if (lines == 0) {
-            self.cursor = .{ row: 0, col: 0 };
-            self.preferred_col = 0;
+            cursor.* = .{ row: 0, col: 0 };
+            preferred_col.* = 0;
+            scroll_row.* = 0;
             return;
         }
 
-        let target = self.scroll_row + screen_row;
+        let target = scroll_row.* + screen_row;
         self.move_to_row(target);
         self.ensure_cursor_visible(self.screen_rows);
         self.clamp_cursor();
@@ -1325,13 +1547,14 @@ impl *mut Editor {
     }
 
     fn find_forward(target: u8, till: bool) bool {
-        let line = self.buffer.&.line(self.cursor.row);
-        let start = if (self.cursor.col < #line) self.cursor.col + 1 else #line;
+        let cursor = self.active_cursor();
+        let line = self.buffer.&.line(cursor.row);
+        let start = if (cursor.col < #line) cursor.col + 1 else #line;
         for (let mut i = start; i < #line; i += 1) {
             if (line.[i] != target) {
                 continue;
             }
-            self.cursor.col = if (till and i > 0) i - 1 else i;
+            cursor.col = if (till and i > 0) i - 1 else i;
             self.remember_preferred_col();
             return true;
         }
@@ -1339,15 +1562,16 @@ impl *mut Editor {
     }
 
     fn find_backward(target: u8, till: bool) bool {
-        let line = self.buffer.&.line(self.cursor.row);
-        if (#line == 0 or self.cursor.col == 0) {
+        let cursor = self.active_cursor();
+        let line = self.buffer.&.line(cursor.row);
+        if (#line == 0 or cursor.col == 0) {
             return false;
         }
 
-        let mut i = if (self.cursor.col <= #line) self.cursor.col - 1 else #line - 1;
+        let mut i = if (cursor.col <= #line) cursor.col - 1 else #line - 1;
         for (;;) {
             if (line.[i] == target) {
-                self.cursor.col = if (till) i + 1 else i;
+                cursor.col = if (till) i + 1 else i;
                 self.remember_preferred_col();
                 return true;
             }
@@ -1463,6 +1687,11 @@ impl *mut Editor {
         self.cursor = .{ row: 0, col: 0 };
         self.preferred_col = 0;
         self.scroll_row = 0;
+        self.split_cursor = .{ row: 0, col: 0 };
+        self.split_preferred_col = 0;
+        self.split_scroll_row = 0;
+        self.active_window = 0;
+        self.window_count = 1;
         self.active_pane = .Editor;
     }
 
@@ -1486,6 +1715,258 @@ impl *mut Editor {
 
         self.replace_buffer(alloc, next);
         self.set_message(alloc, "opened");
+    }
+
+    fn set_number_option(alloc: *mut Allocator, enabled: bool) void {
+        self.show_line_numbers = enabled;
+        if (enabled) {
+            self.set_message(alloc, "set number");
+        } else {
+            self.set_message(alloc, "set nonumber");
+        }
+    }
+
+    fn set_relative_number_option(alloc: *mut Allocator, enabled: bool) void {
+        self.relative_line_numbers = enabled;
+        if (enabled) {
+            self.set_message(alloc, "set relativenumber");
+        } else {
+            self.set_message(alloc, "set norelativenumber");
+        }
+    }
+
+    fn split_window(alloc: *mut Allocator) void {
+        let _ = alloc;
+        if (self.window_count >= 2) {
+            self.set_message(alloc, "window limit reached");
+            return;
+        }
+        self.set_view(1, self.view(self.active_window));
+        self.window_count = 2;
+        self.active_window = 1;
+        self.active_pane = .Editor;
+        self.set_message(alloc, "split window");
+    }
+
+    fn close_active_window(alloc: *mut Allocator) void {
+        if (self.window_count <= 1) {
+            self.set_message(alloc, "last window");
+            return;
+        }
+        if (self.active_window == 1) {
+            self.split_cursor = .{ row: 0, col: 0 };
+            self.split_preferred_col = 0;
+            self.split_scroll_row = 0;
+            self.active_window = 0;
+        } else {
+            self.cursor = self.split_cursor;
+            self.preferred_col = self.split_preferred_col;
+            self.scroll_row = self.split_scroll_row;
+            self.split_cursor = .{ row: 0, col: 0 };
+            self.split_preferred_col = 0;
+            self.split_scroll_row = 0;
+            self.active_window = 0;
+        }
+        self.window_count = 1;
+        self.active_pane = .Editor;
+        self.set_message(alloc, "closed window");
+    }
+
+    fn only_window(alloc: *mut Allocator) void {
+        if (self.window_count <= 1) {
+            self.set_message(alloc, "already only");
+            return;
+        }
+        if (self.active_window == 1) {
+            self.cursor = self.split_cursor;
+            self.preferred_col = self.split_preferred_col;
+            self.scroll_row = self.split_scroll_row;
+        }
+        self.split_cursor = .{ row: 0, col: 0 };
+        self.split_preferred_col = 0;
+        self.split_scroll_row = 0;
+        self.window_count = 1;
+        self.active_window = 0;
+        self.active_pane = .Editor;
+        self.set_message(alloc, "only window");
+    }
+
+    fn focus_next_window() void {
+        if (self.window_count <= 1) {
+            return;
+        }
+        self.active_window = if (self.active_window == 0) 1 else 0;
+    }
+
+    fn line_is_blank(row: usize) bool {
+        let line = self.buffer.&.line(row);
+        for (let mut i = usize.{0}; i < #line; i += 1) {
+            if (!self.is_space_byte(line.[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn move_paragraph_forward() void {
+        let cursor = self.active_cursor();
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            return;
+        }
+
+        let mut row = cursor.row;
+        if (!self.line_is_blank(row)) {
+            for (; row + 1 < lines and !self.line_is_blank(row); row += 1) {}
+        }
+        for (; row + 1 < lines and self.line_is_blank(row); row += 1) {}
+        cursor.row = if (row < lines) row else lines - 1;
+        cursor.col = self.first_non_blank_col(cursor.row);
+        self.ensure_cursor_visible(self.screen_rows);
+        self.remember_preferred_col();
+    }
+
+    fn move_paragraph_backward() void {
+        let cursor = self.active_cursor();
+        if (self.buffer.&.line_count() == 0) {
+            return;
+        }
+        if (cursor.row == 0) {
+            cursor.col = self.first_non_blank_col(0);
+            self.ensure_cursor_visible(self.screen_rows);
+            self.remember_preferred_col();
+            return;
+        }
+
+        let mut row = cursor.row - 1;
+        for (; row > 0 and self.line_is_blank(row); row -= 1) {}
+        for (; row > 0 and !self.line_is_blank(row - 1); row -= 1) {}
+        cursor.row = row;
+        cursor.col = self.first_non_blank_col(row);
+        self.ensure_cursor_visible(self.screen_rows);
+        self.remember_preferred_col();
+    }
+
+    fn match_delimiter(byte: u8) u8 {
+        match (byte) {
+            b'(' => return b')',
+            b')' => return b'(',
+            b'[' => return b']',
+            b']' => return b'[',
+            b'{' => return b'}',
+            b'}' => return b'{',
+            _ => return 0,
+        }
+    }
+
+    fn is_open_delimiter(byte: u8) bool {
+        return byte == b'(' or byte == b'[' or byte == b'{';
+    }
+
+    fn jump_match_delimiter() void {
+        let cursor = self.active_cursor();
+        let line = self.buffer.&.line(cursor.row);
+        if (cursor.col >= #line) {
+            return;
+        }
+
+        let current = line.[cursor.col];
+        let target = self.match_delimiter(current);
+        if (target == 0) {
+            return;
+        }
+
+        let forward = self.is_open_delimiter(current);
+        let mut depth = usize.{0};
+        if (forward) {
+            for (let mut row = cursor.row; row < self.buffer.&.line_count(); row += 1) {
+                let text = self.buffer.&.line(row);
+                let start = if (row == cursor.row) cursor.col else 0;
+                for (let mut col = start; col < #text; col += 1) {
+                    let byte = text.[col];
+                    if (byte == current) {
+                        depth += 1;
+                    } else if (byte == target) {
+                        depth -= 1;
+                        if (depth == 0) {
+                            cursor.row = row;
+                            cursor.col = col;
+                            self.ensure_cursor_visible(self.screen_rows);
+                            self.remember_preferred_col();
+                            return;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        let mut row = cursor.row;
+        for (;;) {
+            let text = self.buffer.&.line(row);
+            let mut col = if (row == cursor.row) cursor.col + 1 else #text;
+            for (; col > 0; ) {
+                col -= 1;
+                let byte = text.[col];
+                if (byte == current) {
+                    depth += 1;
+                } else if (byte == target) {
+                    depth -= 1;
+                    if (depth == 0) {
+                        cursor.row = row;
+                        cursor.col = col;
+                        self.ensure_cursor_visible(self.screen_rows);
+                        self.remember_preferred_col();
+                        return;
+                    }
+                }
+            }
+            if (row == 0) {
+                break;
+            }
+            row -= 1;
+        }
+    }
+
+    fn align_cursor_top() void {
+        let cursor = self.active_cursor();
+        let scroll_row = self.active_scroll_row();
+        scroll_row.* = cursor.row;
+    }
+
+    fn align_cursor_bottom() void {
+        let cursor = self.active_cursor();
+        let scroll_row = self.active_scroll_row();
+        let rows = self.view_rows();
+        if (rows <= 1 or cursor.row + 1 <= rows) {
+            scroll_row.* = 0;
+            return;
+        }
+        scroll_row.* = cursor.row - rows + 1;
+    }
+
+    fn align_cursor_middle() void {
+        let cursor = self.active_cursor();
+        let scroll_row = self.active_scroll_row();
+        let rows = self.view_rows();
+        if (rows <= 1 or cursor.row < rows / usize.{2}) {
+            scroll_row.* = 0;
+            return;
+        }
+        scroll_row.* = cursor.row - rows / usize.{2};
+    }
+
+    fn insert_tab(alloc: *mut Allocator) void {
+        let cursor = self.active_cursor();
+        let spaces = TAB_STOP - (cursor.col % TAB_STOP);
+        for (let mut i = usize.{0}; i < spaces; i += 1) {
+            if (!self.buffer..&.insert_byte(alloc, cursor.row, cursor.col, b' ')) {
+                self.set_message(alloc, "insert failed");
+                return;
+            }
+            cursor.col += 1;
+        }
+        self.remember_preferred_col();
     }
 
     fn run_command(alloc: *mut Allocator) void {
@@ -1518,6 +1999,11 @@ impl *mut Editor {
                     let _ = self.save_current(alloc);
                 }
             },
+            .Split => self.split_window(alloc),
+            .CloseWindow => self.close_active_window(alloc),
+            .OnlyWindow => self.only_window(alloc),
+            .{ SetNumber: enabled } => self.set_number_option(alloc, enabled),
+            .{ SetRelativeNumber: enabled } => self.set_relative_number_option(alloc, enabled),
             .Unknown => self.set_message(alloc, "unknown command"),
         }
 
@@ -1643,7 +2129,7 @@ impl *mut Editor {
         }
     }
 
-    fn handle_pending_normal_key(key: Key) bool {
+    fn handle_pending_normal_key(alloc: *mut Allocator, key: Key) bool {
         match (self.pending_normal) {
             .None => return false,
             .G => {
@@ -1676,6 +2162,79 @@ impl *mut Editor {
                             for (let mut i = usize.{0}; i < count; i += 1) {
                                 self.move_word_end_backward();
                             }
+                            return true;
+                        },
+                        _ => {
+                            self.clear_pending_count();
+                            return false;
+                        },
+                    },
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
+                }
+            },
+            .Z => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => match (byte) {
+                        b'z' => {
+                            self.clear_pending_count();
+                            self.align_cursor_middle();
+                            return true;
+                        },
+                        b't' => {
+                            self.clear_pending_count();
+                            self.align_cursor_top();
+                            return true;
+                        },
+                        b'b' => {
+                            self.clear_pending_count();
+                            self.align_cursor_bottom();
+                            return true;
+                        },
+                        _ => {
+                            self.clear_pending_count();
+                            return false;
+                        },
+                    },
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
+                }
+            },
+            .CtrlW => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => match (byte) {
+                        b'w' => {
+                            self.clear_pending_count();
+                            self.focus_next_window();
+                            return true;
+                        },
+                        b's' => {
+                            self.clear_pending_count();
+                            self.split_window(alloc);
+                            return true;
+                        },
+                        b'q' => {
+                            self.clear_pending_count();
+                            self.close_active_window(alloc);
+                            return true;
+                        },
+                        b'o' => {
+                            self.clear_pending_count();
+                            self.only_window(alloc);
                             return true;
                         },
                         _ => {
@@ -1790,7 +2349,7 @@ impl *mut Editor {
             return;
         }
 
-        if (self.handle_pending_normal_key(key)) {
+        if (self.handle_pending_normal_key(alloc, key)) {
             return;
         }
 
@@ -1828,9 +2387,10 @@ impl *mut Editor {
                 self.move_line_end();
             },
             .Delete => {
+                let cursor = self.active_cursor();
                 let count = self.consume_count_or_one();
                 for (let mut i = usize.{0}; i < count; i += 1) {
-                    let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+                    let _ = self.buffer..&.delete_at(alloc, cursor.row, cursor.col);
                 }
                 self.clamp_cursor();
                 self.remember_preferred_col();
@@ -1902,6 +2462,7 @@ impl *mut Editor {
                     self.move_line_end();
                 },
                 b'g' => self.pending_normal = .G,
+                b'z' => self.pending_normal = .Z,
                 b'G' => {
                     let count = self.consume_count_or_zero();
                     if (count == 0) {
@@ -1992,23 +2553,41 @@ impl *mut Editor {
                     self.move_line_end();
                     self.mode = .Insert;
                 },
+                b'{' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_paragraph_backward();
+                    }
+                },
+                b'}' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_paragraph_forward();
+                    }
+                },
+                b'%' => {
+                    self.clear_pending_count();
+                    self.jump_match_delimiter();
+                },
                 b':' => self.enter_command(),
                 b'>' => self.enter_shell(),
                 b'\t' => self.toggle_pane(alloc),
                 b'Q' => self.close_output(alloc),
                 b'x' => {
+                    let cursor = self.active_cursor();
                     let count = self.consume_count_or_one();
                     for (let mut i = usize.{0}; i < count; i += 1) {
-                        let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+                        let _ = self.buffer..&.delete_at(alloc, cursor.row, cursor.col);
                     }
                     self.clamp_cursor();
                     self.remember_preferred_col();
                 },
                 b'o' => {
+                    let cursor = self.active_cursor();
                     self.clear_pending_count();
-                    if (self.buffer..&.insert_blank_line_below(alloc, self.cursor.row)) {
-                        self.cursor.row += 1;
-                        self.cursor.col = 0;
+                    if (self.buffer..&.insert_blank_line_below(alloc, cursor.row)) {
+                        cursor.row += 1;
+                        cursor.col = 0;
                         self.remember_preferred_col();
                         self.mode = .Insert;
                     } else {
@@ -2016,13 +2595,20 @@ impl *mut Editor {
                     }
                 },
                 b'O' => {
+                    let cursor = self.active_cursor();
                     self.clear_pending_count();
-                    if (self.buffer..&.insert_blank_line_above(alloc, self.cursor.row)) {
-                        self.cursor.col = 0;
+                    if (self.buffer..&.insert_blank_line_above(alloc, cursor.row)) {
+                        cursor.col = 0;
                         self.remember_preferred_col();
                         self.mode = .Insert;
                     } else {
                         self.set_message(alloc, "insert failed");
+                    }
+                },
+                2 => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.page_up();
                     }
                 },
                 4 => {
@@ -2031,11 +2617,21 @@ impl *mut Editor {
                         self.half_page_down();
                     }
                 },
+                6 => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.page_down();
+                    }
+                },
                 21 => {
                     let count = self.consume_count_or_one();
                     for (let mut i = usize.{0}; i < count; i += 1) {
                         self.half_page_up();
                     }
+                },
+                23 => {
+                    self.clear_pending_count();
+                    self.pending_normal = .CtrlW;
                 },
                 _ => self.clear_pending_count(),
             }
@@ -2045,7 +2641,7 @@ impl *mut Editor {
     }
 
     fn handle_output_key(alloc: *mut Allocator, key: Key) void {
-        if (self.handle_pending_normal_key(key)) {
+        if (self.handle_pending_normal_key(alloc, key)) {
             return;
         }
 
@@ -2172,10 +2768,22 @@ impl *mut Editor {
                 b'Q' => self.close_output(alloc),
                 b'[' => self.show_prev_output_history(alloc),
                 b']' => self.show_next_output_history(alloc),
+                2 => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.output_page_up();
+                    }
+                },
                 4 => {
                     let count = self.consume_count_or_one();
                     for (let mut i = usize.{0}; i < count; i += 1) {
                         self.output_half_page_down();
+                    }
+                },
+                6 => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.output_page_down();
                     }
                 },
                 21 => {
@@ -2206,28 +2814,36 @@ impl *mut Editor {
             .Home => self.move_line_start(),
             .End => self.move_line_end(),
             .Delete => {
-                let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+                let cursor = self.active_cursor();
+                let _ = self.buffer..&.delete_at(alloc, cursor.row, cursor.col);
                 self.remember_preferred_col();
             },
             .PageUp => self.page_up(),
             .PageDown => self.page_down(),
             .Backspace => {
-                self.cursor = self.buffer..&.delete_backward(alloc, self.cursor.row, self.cursor.col);
+                let cursor = self.active_cursor();
+                cursor.* = self.buffer..&.delete_backward(alloc, cursor.row, cursor.col);
                 self.remember_preferred_col();
             },
             .Enter => {
-                if (self.buffer..&.split_line(alloc, self.cursor.row, self.cursor.col)) {
-                    self.cursor.row += 1;
-                    self.cursor.col = 0;
+                let cursor = self.active_cursor();
+                if (self.buffer..&.split_line(alloc, cursor.row, cursor.col)) {
+                    cursor.row += 1;
+                    cursor.col = 0;
                     self.remember_preferred_col();
                 } else {
                     self.set_message(alloc, "split failed");
                 }
             },
             .{ Byte: byte } => {
+                if (byte == b'\t') {
+                    self.insert_tab(alloc);
+                    return;
+                }
                 if (byte >= u8.{32} and byte != u8.{127}) {
-                    if (self.buffer..&.insert_byte(alloc, self.cursor.row, self.cursor.col, byte)) {
-                        self.cursor.col += 1;
+                    let cursor = self.active_cursor();
+                    if (self.buffer..&.insert_byte(alloc, cursor.row, cursor.col, byte)) {
+                        cursor.col += 1;
                         self.remember_preferred_col();
                     } else {
                         self.set_message(alloc, "insert failed");
@@ -2306,6 +2922,14 @@ impl *mut Editor {
         if (!push_truncated(out, alloc, self.active_pane_label(), remaining..&)) {
             return false;
         }
+        if (self.active_pane == .Editor and self.window_count > 1) {
+            if (!push_truncated(out, alloc, " ", remaining..&)) {
+                return false;
+            }
+            if (!push_truncated(out, alloc, self.active_window_label(), remaining..&)) {
+                return false;
+            }
+        }
         if (!push_truncated(out, alloc, "]", remaining..&)) {
             return false;
         }
@@ -2376,6 +3000,23 @@ impl *mut Editor {
         return true;
     }
 
+    fn render_window_separator(alloc: *mut Allocator, cols: usize, out: *mut String, index: usize) bool {
+        let mut remaining = cols;
+        let active = self.active_pane == .Editor and self.active_window == index;
+        let prefix = if (active) "[WINDOW " else "[window ";
+        if (!push_truncated(out, alloc, prefix, remaining..&)) {
+            return false;
+        }
+        if (index == 0) {
+            if (!push_truncated(out, alloc, "W1/2", remaining..&)) {
+                return false;
+            }
+        } else if (!push_truncated(out, alloc, "W2/2", remaining..&)) {
+            return false;
+        }
+        return push_truncated(out, alloc, "]", remaining..&);
+    }
+
     /// Renders the full visible editor frame into `out`.
     pub fn render_into(alloc: *mut Allocator, out: *mut String, full_redraw: bool) bool {
         out.clear();
@@ -2397,14 +3038,70 @@ impl *mut Editor {
         let main_rows = self.main_rows(rows);
         let output_rows = self.output_rows();
         let editor_rows = self.editor_rows();
-        if (output_rows == 0) {
-            if (!render_buffer_rows(out, alloc, self.buffer.&, self.scroll_row, main_rows, cols, true)) {
+        if (self.window_count <= 1 or editor_rows == 0) {
+            let editor_view_rows = if (output_rows == 0) main_rows else editor_rows;
+            if (!render_editor_rows(
+                out,
+                alloc,
+                self.buffer.&,
+                self.view_scroll_row(0),
+                self.view_cursor(0).row,
+                editor_view_rows,
+                cols,
+                true,
+                self.show_line_numbers,
+                self.relative_line_numbers,
+            )) {
                 return false;
             }
         } else {
-            if (!render_buffer_rows(out, alloc, self.buffer.&, self.scroll_row, editor_rows, cols, true)) {
+            let top_rows = self.window_rows(0);
+            let bottom_rows = self.window_rows(1);
+            if (!render_editor_rows(
+                out,
+                alloc,
+                self.buffer.&,
+                self.view_scroll_row(0),
+                self.view_cursor(0).row,
+                top_rows,
+                cols,
+                true,
+                self.show_line_numbers,
+                self.relative_line_numbers,
+            )) {
                 return false;
             }
+            if (bottom_rows > 0 or output_rows > 0) {
+                if (top_rows > 0 and !ansi.new_line(out, alloc)) {
+                    return false;
+                }
+                if (!self.render_window_separator(alloc, cols, out, 1)) {
+                    return false;
+                }
+                if (!ansi.clear_line(out, alloc)) {
+                    return false;
+                }
+                if (bottom_rows > 0 and !ansi.new_line(out, alloc)) {
+                    return false;
+                }
+            }
+            if (bottom_rows > 0 and !render_editor_rows(
+                out,
+                alloc,
+                self.buffer.&,
+                self.view_scroll_row(1),
+                self.view_cursor(1).row,
+                bottom_rows,
+                cols,
+                true,
+                self.show_line_numbers,
+                self.relative_line_numbers,
+            )) {
+                return false;
+            }
+        }
+
+        if (output_rows > 0) {
             if (editor_rows > 0 and !ansi.new_line(out, alloc)) {
                 return false;
             }
@@ -2440,10 +3137,17 @@ impl *mut Editor {
             let clamped = if (visible > max_row) max_row else visible;
             editor_rows + clamped + 2
         } else {
-            let visible = if (self.cursor.row < self.scroll_row) usize.{0} else self.cursor.row - self.scroll_row;
-            let max_row = if (editor_rows == 0) usize.{0} else editor_rows - 1;
+            let view_index = self.active_window;
+            let view = self.view(view_index);
+            let rows_for_window = self.window_rows(view_index);
+            let visible = if (view.cursor.row < view.scroll_row) usize.{0} else view.cursor.row - view.scroll_row;
+            let max_row = if (rows_for_window == 0) usize.{0} else rows_for_window - 1;
             let clamped = if (visible > max_row) max_row else visible;
-            clamped + 1
+            if (self.window_count > 1 and view_index == 1) {
+                self.window_rows(0) + clamped + 2
+            } else {
+                clamped + 1
+            }
         };
 
         let raw_col = if (self.mode == .Command) {
@@ -2456,7 +3160,8 @@ impl *mut Editor {
         } else if (self.active_pane == .Output and output_rows > 0) {
             self.output_cursor.col + 1
         } else {
-            self.cursor.col + 1
+            let gutter = editor_gutter_width(self.buffer.&, self.show_line_numbers, self.relative_line_numbers);
+            self.active_cursor().col + gutter + 1
         };
         let cursor_col = if (raw_col > cols) cols else raw_col;
         let wants_bar_cursor = self.mode != .Normal;
@@ -2480,12 +3185,12 @@ impl *mut Editor {
 
     /// Returns the current cursor row.
     pub fn cursor_row() usize {
-        return self.cursor.row;
+        return self.active_cursor().row;
     }
 
     /// Returns the current cursor column.
     pub fn cursor_col() usize {
-        return self.cursor.col;
+        return self.active_cursor().col;
     }
 
     /// Returns one visible buffer line.

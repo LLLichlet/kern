@@ -271,6 +271,25 @@ fn check_command_line_viewport_render() void {
     test.assert(contains(frame.as_str(), "\x1b[2;8H"), "expected command cursor to remain visible at right edge", .{});
 }
 
+fn check_shell_prompt_and_output_render() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{8}, usize.{32}), "expected resize for shell render test", .{});
+    state..&.handle_key(gpa, .{ Byte: b'>' });
+    type_text(state..&, gpa, "echo hi");
+    state..&.handle_key(gpa, .Enter);
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+    test.assert(state..&.render_into(gpa, frame, true), "expected shell render to succeed", .{});
+    test.assert(contains(frame.as_str(), "> echo hi [exit 0]"), "expected output separator to include shell command and exit status", .{});
+    test.assert(contains(frame.as_str(), "hi"), "expected shell output to render in split pane", .{});
+}
+
 fn main() i32 {
     check_command_parse();
     check_buffer_editing();
@@ -279,5 +298,6 @@ fn main() i32 {
     check_editor_normal_mode_subset();
     check_editor_extended_normal_motions();
     check_command_line_viewport_render();
+    check_shell_prompt_and_output_render();
     return 0;
 }

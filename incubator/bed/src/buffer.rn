@@ -83,6 +83,32 @@ pub fn open(alloc: *mut Allocator, path: []u8) Result[TextBuffer, Error] {
     return .{ Ok: buffer };
 }
 
+/// Creates a buffer from in-memory text without touching the filesystem.
+pub fn from_text(alloc: *mut Allocator, path: []u8, text: []u8) Result[TextBuffer, Error] {
+    let mut buffer = TextBuffer.{};
+    if (!buffer.path..&.clone_from(alloc, path)) {
+        return .{ Err: .OutOfMemory };
+    }
+
+    let mut start = usize.{0};
+    for (let mut i = usize.{0}; i < #text; i += 1) {
+        if (text.[i] != b'\n') {
+            continue;
+        }
+        if (!push_line(alloc, buffer.lines..&, text.[start .. i])) {
+            buffer..&.deinit(alloc);
+            return .{ Err: .OutOfMemory };
+        }
+        start = i + 1;
+    }
+
+    if (!push_line(alloc, buffer.lines..&, text.[start .. #text])) {
+        buffer..&.deinit(alloc);
+        return .{ Err: .OutOfMemory };
+    }
+    return .{ Ok: buffer };
+}
+
 impl *mut TextBuffer {
     /// Releases every owned line plus the stored path.
     pub fn deinit(alloc: *mut Allocator) void {

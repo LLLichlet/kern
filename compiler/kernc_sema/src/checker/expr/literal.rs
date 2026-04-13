@@ -112,25 +112,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         if let Some(exp) = expected_ty {
             let norm = self.resolve_tv(exp);
-            let kind = self.ctx.type_registry.get(norm).clone();
 
             // Reuse the expected numeric type when the context already constrained it.
             if self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm) {
                 res_ty = exp;
-            } else if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = kind
-            {
-                let elem_norm = self.resolve_tv(elem);
-                let elem_kind = self.ctx.type_registry.get(elem_norm).clone();
-
-                // Integer literals can directly materialize plain raw pointers,
-                // but not fat pointers like `*Trait` or `*Fn`, which require
-                // dedicated lowering to construct both data and metadata parts.
-                if !matches!(
-                    elem_kind,
-                    TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
-                ) {
-                    res_ty = exp;
-                }
             }
         }
         res_ty
@@ -178,7 +163,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let exp_norm = self.resolve_tv(expected);
         let kind_enum = self.ctx.type_registry.get(exp_norm).clone();
 
-        // Intercept fat-pointer construction for trait objects and closure objects.
+        // Intercept pointer construction before aggregate routing.
         if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } =
             kind_enum
         {
@@ -219,7 +204,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return TypeId::ERROR;
                     }
                 }
-                _ => {} // Plain pointers continue through the normal aggregate checks.
+                _ => {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "raw pointers cannot be initialized with `.{...}`",
+                        )
+                        .with_hint(
+                            "use a real pointer-producing operation or an explicit cast such as `addr as *T`",
+                        )
+                        .emit();
+                    return TypeId::ERROR;
+                }
             }
         }
 

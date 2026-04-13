@@ -44,11 +44,11 @@ const GPA_CHUNK_HEADER_SIZE = @sizeOf[BackingChunk]();
 /// A reusable allocator with free-list recycling and generation checks.
 pub type GPA = struct {
     backing: *mut Allocator,
-    free_list: *mut FreeBlock = 0,
-    chunks: *mut BackingChunk = 0,
+    free_list: *mut FreeBlock = 0 as *mut FreeBlock,
+    chunks: *mut BackingChunk = 0 as *mut BackingChunk,
     chunk_size: usize = 4096,
     generation: usize = 1,
-    active: *mut AllocationHeader = 0,
+    active: *mut AllocationHeader = 0 as *mut AllocationHeader,
 };
 
 fn gpa_max_usize(lhs: usize, rhs: usize) usize {
@@ -131,7 +131,7 @@ impl *mut GPA : Allocator {
     }
 
     fn link_active(header: *mut AllocationHeader) void {
-        header.prev_active = 0;
+        header.prev_active = 0 as *mut AllocationHeader;
         header.next_active = self.active;
         if ((self.active as usize) != 0) {
             self.active.prev_active = header;
@@ -150,8 +150,8 @@ impl *mut GPA : Allocator {
             header.next_active.prev_active = header.prev_active;
         }
 
-        header.prev_active = 0;
-        header.next_active = 0;
+        header.prev_active = 0 as *mut AllocationHeader;
+        header.next_active = 0 as *mut AllocationHeader;
     }
 
     fn free_block_overlaps_active(block: *mut FreeBlock) bool {
@@ -172,7 +172,7 @@ impl *mut GPA : Allocator {
     }
 
     fn insert_free_block(block: *mut FreeBlock) void {
-        let mut prev = *mut FreeBlock.{0};
+        let mut prev = 0 as *mut FreeBlock;
         let mut curr = self.free_list;
 
         for (; (curr as usize) != 0 and (curr as usize) < (block as usize); ) {
@@ -202,7 +202,7 @@ impl *mut GPA : Allocator {
     fn alloc_from_free_list(layout: Layout) Option[*mut u8] {
         let payload_size = gpa_allocation_size(layout);
         let align = gpa_request_align(layout);
-        let mut prev = *mut FreeBlock.{0};
+        let mut prev = 0 as *mut FreeBlock;
         let mut curr = self.free_list;
 
         for (; (curr as usize) != 0; ) {
@@ -350,8 +350,8 @@ impl *mut GPA : Allocator {
     /// pointers handed out before `reset` become invalid.
     pub fn reset() void {
         self.generation += 1;
-        self.free_list = 0;
-        self.active = 0;
+        self.free_list = 0 as *mut FreeBlock;
+        self.active = 0 as *mut AllocationHeader;
 
         let mut chunk = self.chunks;
         for (; (chunk as usize) != 0; ) {
@@ -374,9 +374,9 @@ impl *mut GPA : Allocator {
             chunk = next;
         }
 
-        self.chunks = 0;
-        self.free_list = 0;
-        self.active = 0;
+        self.chunks = 0 as *mut BackingChunk;
+        self.free_list = 0 as *mut FreeBlock;
+        self.active = 0 as *mut AllocationHeader;
     }
 
     pub fn clear() void {

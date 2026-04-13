@@ -106,7 +106,7 @@ type Ref = struct {
 };
 
 type Holder = struct {
-    slot: *mut i32 = 0,
+    slot: *mut i32 = 0 as *mut i32,
 };
 
 impl *mut Holder {

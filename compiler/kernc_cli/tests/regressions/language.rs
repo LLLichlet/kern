@@ -137,6 +137,77 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_direct_raw_pointer_literals_but_accepts_explicit_casts() {
+    let rejected = compile_source(
+        r#"
+fn main() i32 {
+    let ptr = *mut i32.{0};
+    return if ((ptr as usize) == 0) 0 else 1;
+}
+"#,
+    );
+
+    assert!(
+        !rejected.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&rejected.stdout),
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("raw pointers cannot be initialized with `.{...}`"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+
+    let accepted = build_and_run_source(
+        r#"
+fn main() i32 {
+    let ptr = 0 as *mut i32;
+    return if ((ptr as usize) == 0) 0 else 1;
+}
+"#,
+    );
+
+    assert_eq!(
+        accepted.status.code(),
+        Some(0),
+        "explicit pointer cast regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&accepted.stdout),
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+}
+
+#[test]
+fn explicit_generic_pointer_casts_instantiate_target_types() {
+    let output = build_and_run_source(
+        r#"
+type Boxed[T] = struct {
+    ptr: *mut T,
+};
+
+fn clear[T](value: *mut Boxed[T]) void {
+    value.ptr = 0 as *mut T;
+}
+
+fn main() i32 {
+    let mut boxed = Boxed[i32].{ ptr: 1 as *mut i32 };
+    clear[i32](boxed..&);
+    return if ((boxed.ptr as usize) == 0) 0 else 1;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "generic pointer cast regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn match_value_patterns_accept_type_qualified_scalar_literals() {
     let output = build_and_run_source(
         r#"

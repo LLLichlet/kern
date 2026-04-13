@@ -11,7 +11,7 @@ static mut WINDOWS_ARG_BUF = [32768]mut u8.{undef};
 static mut WINDOWS_ARG_WIDE_BUF = [32768]mut u16.{undef};
 
 #[if(os == "windows")]
-static mut WINDOWS_ARGV_PTRS = [65]mut *u8.{undef};
+static mut WINDOWS_ARGV_PTRS = [65]mut *u8.{0 as *u8};
 
 #[if(runtime_entry == "rt" and os == "linux")]
 #[export_name("_start")]
@@ -199,6 +199,6 @@ fn kern_entry_windows() i32 {
         out_len += 1;
     }
 
-    WINDOWS_ARGV_PTRS.[argc] = 0;
+    WINDOWS_ARGV_PTRS.[argc] = 0 as *u8;
     return __kern_main_adapter(argc as i32, WINDOWS_ARGV_PTRS.[0]..& as **u8);
 }

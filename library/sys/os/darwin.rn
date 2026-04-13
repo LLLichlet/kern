@@ -184,7 +184,7 @@ const S_IFREG = u16.{32768};
 const DT_DIR = u8.{4};
 const DT_REG = u8.{8};
 
-static mut PROCESS_ENV = **u8.{undef};
+static mut PROCESS_ENV = 0 as **u8;
 static mut PROCESS_ENV_READY = false;
 
 /// Returns the sentinel value used for invalid Darwin handles.
@@ -202,11 +202,11 @@ fn match_environment_name(entry: *u8, name: *u8) *u8 {
             if (entry_byte == b'=') {
                 return entry + i + 1;
             }
-            return 0;
+            return 0 as *u8;
         }
 
         if (entry_byte != name_byte or entry_byte == 0 or entry_byte == b'=') {
-            return 0;
+            return 0 as *u8;
         }
 
         i += 1;
@@ -237,18 +237,18 @@ pub fn init_process_env(argc: i32, argv: **u8) void {
 /// Returns the zero-terminated value for one environment variable.
 pub fn find_environment_value(name: *u8) *u8 {
     if (!PROCESS_ENV_READY) {
-        return 0;
+        return 0 as *u8;
     }
 
     let mut envp = PROCESS_ENV;
     if ((envp as usize) == 0) {
-        return 0;
+        return 0 as *u8;
     }
 
     for (;;) {
         let entry = envp.*;
         if ((entry as usize) == 0) {
-            return 0;
+            return 0 as *u8;
         }
 
         let value = match_environment_name(entry, name);
@@ -263,7 +263,7 @@ pub fn find_environment_value(name: *u8) *u8 {
 /// Returns the process environment block initialized by the runtime entry layer.
 pub fn environment_entries() **u8 {
     if (!PROCESS_ENV_READY) {
-        return 0;
+        return 0 as **u8;
     }
     return PROCESS_ENV;
 }

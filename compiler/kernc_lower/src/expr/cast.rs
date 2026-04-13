@@ -59,12 +59,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         span: Span,
     ) -> MastExpr {
-        let target_ty = self
+        let raw_target_ty = self
             .ctx
             .node_types
             .get(&target.id)
             .copied()
             .unwrap_or(concrete_ty);
+        let target_ty = self.substitute_type_with_map(raw_target_ty, subst_map);
         let l = self.lower_expr(lhs, subst_map, None);
         let cast_kind = self.determine_cast_kind(l.ty, target_ty);
 

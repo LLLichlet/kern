@@ -474,8 +474,8 @@ impl[K, V] *mut Map[K, V]
     /// Releases the backing table allocation.
     pub fn deinit(alloc: *mut Allocator) void {
         self.free_table(alloc, self.ctrl, self.capacity);
-        self.ctrl = 0;
-        self.entries = 0;
+        self.ctrl = 0 as *mut u8;
+        self.entries = 0 as *mut Entry[K, V];
         self.capacity = 0;
         self.len = 0;
         self.tombstones = 0;

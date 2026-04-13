@@ -41,7 +41,7 @@ impl[K, V] *mut Tree[K, V]
 
         let mut i = 0;
         for (; i < MAX_CHILDREN; i += 1) {
-            set_child[K, V](node, i, 0);
+            set_child[K, V](node, i, 0 as *mut Node[K, V]);
         }
 
         return .{ Some: node };
@@ -217,7 +217,7 @@ impl[K, V] *mut Tree[K, V]
     /// Releases every node in the tree.
     pub fn deinit(alloc: *mut Allocator) void {
         self.deinit_node(alloc, self.root);
-        self.root = 0;
+        self.root = 0 as *mut Node[K, V];
         self.len = 0;
     }
 

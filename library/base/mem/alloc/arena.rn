@@ -20,7 +20,7 @@ const ARENA_CHUNK_HEADER_SIZE = @sizeOf[Chunk]();
 /// A bump allocator that grows in chunks from a backing allocator.
 pub type Arena = struct {
     backing: *mut Allocator,
-    current: *mut Chunk = 0,
+    current: *mut Chunk = 0 as *mut Chunk,
     chunk_size: usize = 4096,
     next_chunk_size: usize = 4096,
     generation: usize = 0,
@@ -179,7 +179,7 @@ impl *mut Arena : Allocator {
 
         if (mark.current == usize.{0}) {
             self.release_chain(self.current);
-            self.current = 0;
+            self.current = 0 as *mut Chunk;
             self.next_chunk_size = mark.next_chunk_size;
             self.generation += 1;
             return true;
@@ -198,7 +198,7 @@ impl *mut Arena : Allocator {
             if ((newer_tail as usize) == 0) {
                 return false;
             }
-            newer_tail.next = 0;
+            newer_tail.next = 0 as *mut Chunk;
             self.release_chain(self.current);
             self.current = target;
         }
@@ -220,7 +220,7 @@ impl *mut Arena : Allocator {
         let keep = self.current;
         let rest = keep.next;
         keep.used = ARENA_CHUNK_HEADER_SIZE;
-        keep.next = 0;
+        keep.next = 0 as *mut Chunk;
         self.release_chain(rest);
         self.current = keep;
         self.next_chunk_size = arena_max_usize(
@@ -247,7 +247,7 @@ impl *mut Arena : Allocator {
     pub fn deinit() void {
         self.generation += 1;
         self.release_chain(self.current);
-        self.current = 0;
+        self.current = 0 as *mut Chunk;
         self.next_chunk_size = arena_default_chunk_size(self.chunk_size);
     }
 

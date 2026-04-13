@@ -170,7 +170,7 @@ pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
 /// stores the root pointer and entry count.
 pub type Tree[K, V] where K: Ord[K] = struct {
     /// The root node pointer, or null when the tree is empty.
-    pub root: *mut Node[K, V] = 0,
+    pub root: *mut Node[K, V] = 0 as *mut Node[K, V],
     /// The number of key-value pairs stored in the tree.
     pub len: usize = 0,
 };

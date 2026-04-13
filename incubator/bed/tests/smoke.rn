@@ -88,6 +88,11 @@ fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
     }
 }
 
+fn ctrl_w(state: *mut editor.Editor, gpa: *mut GPA, key: u8) void {
+    state.handle_key(gpa, .{ Byte: 23 });
+    state.handle_key(gpa, .{ Byte: key });
+}
+
 fn expect_cursor(state: *mut editor.Editor, row: usize, col: usize, label: []u8) void {
     test.assert(state.cursor_row() == row, label, .{});
     test.assert(state.cursor_col() == col, label, .{});
@@ -560,6 +565,56 @@ fn check_multi_window_cycle_and_close() void {
     test.assert(contains(frame.as_str(), "[window W2/2]") or contains(frame.as_str(), "[WINDOW W2/2]"), "expected two-window layout after closing one split", .{});
 }
 
+fn check_ctrl_w_navigation_commands() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{16}, usize.{48}), "expected resize for ctrl-w navigation test", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state..&, gpa, "one");
+    state..&.handle_key(gpa, .Escape);
+
+    ctrl_w(state..&, gpa, b's');
+    ctrl_w(state..&, gpa, b's');
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+
+    ctrl_w(state..&, gpa, b'p');
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w p to succeed", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"), "expected ctrl-w p to jump to the previous active window", .{});
+
+    ctrl_w(state..&, gpa, b'p');
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after second ctrl-w p to succeed", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected ctrl-w p to toggle back to the newer window", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'2' });
+    ctrl_w(state..&, gpa, b'w');
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after counted ctrl-w w to succeed", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"), "expected 2 ctrl-w w to jump to the second window", .{});
+
+    ctrl_w(state..&, gpa, b'W');
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w W to succeed", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w W to cycle backward", .{});
+
+    ctrl_w(state..&, gpa, b'b');
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w b to succeed", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected ctrl-w b to jump to the bottom-right window", .{});
+
+    ctrl_w(state..&, gpa, b't');
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w t to succeed", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w t to jump to the top-left window", .{});
+}
+
 fn check_vsplit_layout_and_window_resize_commands() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
@@ -675,6 +730,71 @@ fn check_nested_split_tree_layout() void {
     test.assert(bottom_line > 0 and bottom_line < usize.{10}, "expected bottom-right pane to render on a later editor row", .{});
     test.assert(contains(nested_line, "B0") and !contains(nested_line, "T0"), "expected bottom-right pane to render independently under the top-right pane", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected active window label to reflect the nested third window", .{});
+}
+
+fn check_ctrl_w_rearrange_commands() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    let path_left = "/tmp/bed-tree-left.txt";
+    let path_top = "/tmp/bed-tree-top.txt";
+    let path_bottom = "/tmp/bed-tree-bottom.txt";
+
+    let _ = fs.remove_file_if_exists(gpa, path_left);
+    let _ = fs.remove_file_if_exists(gpa, path_top);
+    let _ = fs.remove_file_if_exists(gpa, path_bottom);
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_left);
+    };
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_top);
+    };
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_bottom);
+    };
+
+    let _ = test.expect_ok(fs.write_all(gpa, path_left, "L0\nL1\nL2\nL3"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_top, "T0\nT1"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_bottom, "B0\nB1"));
+
+    let mut state = test.expect_ok(editor.open(gpa, path_left));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{12}, usize.{52}), "expected resize for ctrl-w rearrange test", .{});
+    run_ex_command(state..&, gpa, "vsplit");
+    run_ex_command(state..&, gpa, "e /tmp/bed-tree-top.txt");
+    ctrl_w(state..&, gpa, b's');
+    run_ex_command(state..&, gpa, "e /tmp/bed-tree-bottom.txt");
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+
+    ctrl_w(state..&, gpa, b'H');
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w H to succeed", .{});
+    let first_left = line_slice(frame.as_str(), 0);
+    test.assert(contains(first_left, "B0") and contains(first_left, "L0"), "expected ctrl-w H to keep both active and existing content visible", .{});
+    test.assert(find_index(first_left, "B0") < find_index(first_left, "L0"), "expected ctrl-w H to move the active window to the far left", .{});
+
+    ctrl_w(state..&, gpa, b'L');
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w L to succeed", .{});
+    let first_right = line_slice(frame.as_str(), 0);
+    test.assert(contains(first_right, "B0") and contains(first_right, "L0"), "expected ctrl-w L to keep both active and existing content visible", .{});
+    test.assert(find_index(first_right, "L0") < find_index(first_right, "B0"), "expected ctrl-w L to move the active window to the far right", .{});
+
+    ctrl_w(state..&, gpa, b'K');
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w K to succeed", .{});
+    let first_top = line_slice(frame.as_str(), 0);
+    test.assert(contains(first_top, "B0"), "expected ctrl-w K to move the active window to the top row", .{});
+    test.assert(!contains(first_top, "L0"), "expected ctrl-w K top row to belong to the moved active window", .{});
+
+    ctrl_w(state..&, gpa, b'J');
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w J to succeed", .{});
+    let first_bottom = line_slice(frame.as_str(), 0);
+    let moved_line = find_line_with(frame.as_str(), "B0", usize.{10});
+    test.assert(contains(first_bottom, "L0"), "expected ctrl-w J to leave the original layout at the top", .{});
+    test.assert(moved_line > 0 and moved_line < usize.{10}, "expected ctrl-w J to move the active window below the original layout", .{});
 }
 
 fn check_additional_jump_keys() void {
@@ -841,8 +961,10 @@ fn main() i32 {
     check_split_window_and_window_commands();
     check_split_window_keeps_window_local_buffers();
     check_multi_window_cycle_and_close();
+    check_ctrl_w_navigation_commands();
     check_vsplit_layout_and_window_resize_commands();
     check_nested_split_tree_layout();
+    check_ctrl_w_rearrange_commands();
     check_additional_jump_keys();
     check_prompt_history_navigation();
     check_cursor_shape_changes_with_mode();

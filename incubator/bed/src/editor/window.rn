@@ -6,6 +6,18 @@ const MIN_WINDOW_ROWS = usize.{3};
 const MIN_WINDOW_COLS = usize.{16};
 
 impl *mut Editor {
+    fn activate_window(index: usize) void {
+        if (index >= self.window_count or index == self.active_window) {
+            return;
+        }
+        self.previous_window = self.active_window;
+        self.active_window = index;
+    }
+
+    fn reset_window_history() void {
+        self.previous_window = self.active_window;
+    }
+
     fn window(index: usize) WindowState {
         return self.windows.&.as_slice().[index];
     }
@@ -145,6 +157,17 @@ impl *mut Editor {
 
     fn sync_window_count() void {
         self.window_count = self.windows.len;
+        if (self.window_count == 0) {
+            self.active_window = 0;
+            self.previous_window = 0;
+            return;
+        }
+        if (self.active_window >= self.window_count) {
+            self.active_window = self.window_count - 1;
+        }
+        if (self.previous_window >= self.window_count) {
+            self.previous_window = self.active_window;
+        }
     }
 
     fn reset_layout_weights() void {
@@ -763,6 +786,7 @@ impl *mut Editor {
         }
         self.reset_view(window_index);
         self.active_window = window_index;
+        self.reset_window_history();
         self.active_pane = .Editor;
     }
 
@@ -863,7 +887,7 @@ impl *mut Editor {
         self.set_window_layout_node(active_window, first_index);
         self.set_window_layout_node(new_window_index, second_index);
         self.sync_window_count();
-        self.active_window = new_window_index;
+        self.activate_window(new_window_index);
         self.reset_layout_weights();
         self.active_pane = .Editor;
         self.set_message(alloc, "split window");
@@ -913,6 +937,7 @@ impl *mut Editor {
         self.reindex_window_nodes(active_window);
         self.sync_window_count();
         self.active_window = next_active;
+        self.reset_window_history();
         self.reset_layout_weights();
         self.active_pane = .Editor;
         self.set_message(alloc, "closed window");
@@ -952,9 +977,16 @@ impl *mut Editor {
         self.layout_root = 0;
         self.active_window = 0;
         self.sync_window_count();
+        self.reset_window_history();
         self.reset_layout_weights();
         self.active_pane = .Editor;
         self.set_message(alloc, "only window");
+    }
+
+    fn focus_window_number(index: usize) void {
+        if (index < self.window_count) {
+            self.activate_window(index);
+        }
     }
 
     fn focus_prev_window() void {
@@ -962,9 +994,9 @@ impl *mut Editor {
             return;
         }
         if (self.active_window == 0) {
-            self.active_window = self.window_count - 1;
+            self.activate_window(self.window_count - 1);
         } else {
-            self.active_window -= 1;
+            self.activate_window(self.active_window - 1);
         }
     }
 
@@ -972,7 +1004,20 @@ impl *mut Editor {
         if (self.window_count <= 1) {
             return;
         }
-        self.active_window = if (self.active_window + 1 < self.window_count) self.active_window + 1 else 0;
+        let next = if (self.active_window + 1 < self.window_count) self.active_window + 1 else 0;
+        self.activate_window(next);
+    }
+
+    fn focus_previous_window() void {
+        if (self.window_count <= 1) {
+            return;
+        }
+        if (self.previous_window < self.window_count and self.previous_window != self.active_window) {
+            let previous = self.previous_window;
+            self.activate_window(previous);
+            return;
+        }
+        self.focus_prev_window();
     }
 
     fn rect_center2_row(rect: WindowRect) usize {
@@ -981,6 +1026,44 @@ impl *mut Editor {
 
     fn rect_center2_col(rect: WindowRect) usize {
         return rect.col * 2 + rect.cols - 1;
+    }
+
+    fn rect_end_row(rect: WindowRect) usize {
+        return rect.row + rect.rows;
+    }
+
+    fn rect_end_col(rect: WindowRect) usize {
+        return rect.col + rect.cols;
+    }
+
+    fn focus_top_left_window() void {
+        let mut best_index = usize.{0};
+        let mut best_rect = self.window_rect(0);
+        for (let mut index = usize.{1}; index < self.window_count; index += 1) {
+            let rect = self.window_rect(index);
+            if (rect.row < best_rect.row or (rect.row == best_rect.row and rect.col < best_rect.col)) {
+                best_index = index;
+                best_rect = rect;
+            }
+        }
+        self.activate_window(best_index);
+    }
+
+    fn focus_bottom_right_window() void {
+        let mut best_index = usize.{0};
+        let mut best_rect = self.window_rect(0);
+        for (let mut index = usize.{1}; index < self.window_count; index += 1) {
+            let rect = self.window_rect(index);
+            let rect_end_row = self.rect_end_row(rect);
+            let best_end_row = self.rect_end_row(best_rect);
+            let rect_end_col = self.rect_end_col(rect);
+            let best_end_col = self.rect_end_col(best_rect);
+            if (rect_end_row > best_end_row or (rect_end_row == best_end_row and rect_end_col > best_end_col)) {
+                best_index = index;
+                best_rect = rect;
+            }
+        }
+        self.activate_window(best_index);
     }
 
     fn focus_window_in_direction(axis: LayoutAxis, forward: bool) void {
@@ -1039,7 +1122,7 @@ impl *mut Editor {
         }
 
         if (has_best) {
-            self.active_window = best_index;
+            self.activate_window(best_index);
         } else if (forward) {
             self.focus_next_window();
         } else {
@@ -1061,6 +1144,84 @@ impl *mut Editor {
 
     fn focus_down_window() void {
         self.focus_window_in_direction(.Rows, true);
+    }
+
+    fn move_active_window_to_edge(axis: LayoutAxis, place_first: bool) void {
+        if (self.window_count <= 1) {
+            return;
+        }
+
+        let leaf_index = self.active_layout_node();
+        let leaf = self.layout_node(leaf_index);
+        if (!leaf.has_parent) {
+            return;
+        }
+
+        let parent_index = leaf.parent;
+        let parent = self.layout_node(parent_index);
+        let sibling_index = if (parent.first == leaf_index) parent.second else parent.first;
+        let promoted_weight = self.layout_node(parent_index).weight;
+
+        if (parent.has_parent) {
+            self.update_parent_child(parent.parent, parent_index, sibling_index);
+            let sibling = self.layout_node_mut(sibling_index);
+            sibling.parent = parent.parent;
+            sibling.has_parent = true;
+            sibling.weight = promoted_weight;
+        } else {
+            self.layout_root = sibling_index;
+            let sibling = self.layout_node_mut(sibling_index);
+            sibling.has_parent = false;
+            sibling.parent = 0;
+            sibling.weight = 1;
+        }
+
+        let old_root = self.layout_root;
+        let first = if (place_first) leaf_index else old_root;
+        let second = if (place_first) old_root else leaf_index;
+
+        let split = self.layout_node_mut(parent_index);
+        split.alive = true;
+        split.has_parent = false;
+        split.parent = 0;
+        split.is_leaf = false;
+        split.axis = axis;
+        split.first = first;
+        split.second = second;
+        split.weight = 1;
+        split.window_index = 0;
+
+        let first_node = self.layout_node_mut(first);
+        first_node.alive = true;
+        first_node.has_parent = true;
+        first_node.parent = parent_index;
+        first_node.weight = 1;
+
+        let second_node = self.layout_node_mut(second);
+        second_node.alive = true;
+        second_node.has_parent = true;
+        second_node.parent = parent_index;
+        second_node.weight = 1;
+
+        self.layout_root = parent_index;
+        self.reset_layout_weights();
+        self.active_pane = .Editor;
+    }
+
+    fn move_active_window_far_left() void {
+        self.move_active_window_to_edge(.Cols, true);
+    }
+
+    fn move_active_window_far_right() void {
+        self.move_active_window_to_edge(.Cols, false);
+    }
+
+    fn move_active_window_far_top() void {
+        self.move_active_window_to_edge(.Rows, true);
+    }
+
+    fn move_active_window_far_bottom() void {
+        self.move_active_window_to_edge(.Rows, false);
     }
 
     fn adjust_active_window_axis(axis: LayoutAxis, delta: i32) void {

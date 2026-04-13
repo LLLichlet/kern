@@ -1,0 +1,246 @@
+use base.Result;
+use base.coll.{List, String};
+use base.mem.alloc.Allocator;
+use mode.Mode;
+use std.fs;
+use ..buffer;
+use ..buffer.{Cursor, Error as BufferError, TextBuffer};
+
+pub const NO_NAME = "[No Name]";
+pub const PROMPT_HISTORY_LIMIT = usize.{32};
+pub const OUTPUT_HISTORY_LIMIT = usize.{16};
+pub const TAB_STOP = usize.{4};
+
+pub type PendingNormal = enum {
+    None,
+    G,
+    Z,
+    CtrlW,
+    FindForward,
+    TillForward,
+    FindBackward,
+    TillBackward,
+};
+
+pub type PromptKind = enum {
+    Ex,
+    Shell,
+};
+
+pub type Pane = enum {
+    Editor,
+    Output,
+};
+
+pub type FindDirection = enum {
+    Forward,
+    Backward,
+};
+
+pub type FindState = struct {
+    pub direction: FindDirection = .Forward,
+    pub till: bool = false,
+    pub target: u8 = 0,
+};
+
+pub type ShellOutputEntry = struct {
+    pub command: String = String.{},
+    pub text: String = String.{},
+    pub status: i32 = 0,
+};
+
+pub type BufferSlot = struct {
+    pub text: TextBuffer = TextBuffer.{},
+    pub ref_count: usize = 0,
+};
+
+pub type EditorView = struct {
+    pub cursor: Cursor = Cursor.{ row: 0, col: 0 },
+    pub preferred_col: usize = 0,
+    pub scroll_row: usize = 0,
+};
+
+pub type LayoutAxis = enum {
+    Rows,
+    Cols,
+};
+
+pub type LayoutNode = struct {
+    pub alive: bool = true,
+    pub has_parent: bool = false,
+    pub parent: usize = 0,
+    pub is_leaf: bool = true,
+    pub axis: LayoutAxis = .Rows,
+    pub first: usize = 0,
+    pub second: usize = 0,
+    pub weight: usize = 1,
+    pub window_index: usize = 0,
+};
+
+pub type WindowRect = struct {
+    pub row: usize = 1,
+    pub col: usize = 1,
+    pub rows: usize = 0,
+    pub cols: usize = 0,
+};
+
+pub type WindowState = struct {
+    pub view: EditorView = EditorView.{},
+    pub buffer_index: usize = 0,
+    pub layout_node: usize = 0,
+};
+
+impl *mut ShellOutputEntry {
+    fn deinit(alloc: *mut Allocator) void {
+        self.command..&.deinit(alloc);
+        self.text..&.deinit(alloc);
+        self.* = ShellOutputEntry.{};
+    }
+}
+
+fn deinit_string_list(alloc: *mut Allocator, items: *mut List[String]) void {
+    let slice = items.as_mut_slice();
+    for (let mut i = usize.{0}; i < #slice; i += 1) {
+        slice.[i]..&.deinit(alloc);
+    }
+    items.deinit(alloc);
+}
+
+pub fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], limit: usize) void {
+    for (; items.len > limit; ) {
+        let .{ Some: removed } = items.remove(0) else return;
+        let mut owned = removed;
+        owned..&.deinit(alloc);
+    }
+}
+
+fn deinit_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry]) void {
+    let slice = items.as_mut_slice();
+    for (let mut i = usize.{0}; i < #slice; i += 1) {
+        slice.[i]..&.deinit(alloc);
+    }
+    items.deinit(alloc);
+}
+
+pub fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry], limit: usize) void {
+    for (; items.len > limit; ) {
+        let .{ Some: removed } = items.remove(0) else return;
+        let mut owned = removed;
+        owned..&.deinit(alloc);
+    }
+}
+
+pub fn open_path(alloc: *mut Allocator, path: []u8) Result[TextBuffer, BufferError] {
+    let exists = match (fs.exists(alloc, path)) {
+        .{ Ok: present } => present,
+        .{ Err: err } => return .{ Err: .{ Fs: err } },
+    };
+    if (exists) {
+        return buffer.open(alloc, path);
+    }
+    return buffer.empty(alloc, path);
+}
+
+/// The single-window editor core for the first `bed` milestone.
+pub type Editor = struct {
+    pub buffers: List[BufferSlot] = List[BufferSlot].{},
+    pub windows: List[WindowState] = List[WindowState].{},
+    pub layout_nodes: List[LayoutNode] = List[LayoutNode].{},
+    pub layout_root: usize = 0,
+    pub active_window: usize = 0,
+    pub previous_window: usize = 0,
+    pub window_count: usize = 1,
+    pub screen_rows: usize = 24,
+    pub screen_cols: usize = 80,
+    pub show_line_numbers: bool = false,
+    pub relative_line_numbers: bool = false,
+    pub mode: Mode = .Normal,
+    pub pending_normal: PendingNormal = .None,
+    pub pending_count: usize = 0,
+    pub has_pending_count: bool = false,
+    pub has_last_find: bool = false,
+    pub last_find: FindState = FindState.{},
+    pub prompt_kind: PromptKind = .Ex,
+    pub command_line: String = String.{},
+    pub command_col: usize = 0,
+    pub ex_history: List[String] = List[String].{},
+    pub shell_history: List[String] = List[String].{},
+    pub prompt_history_index: usize = 0,
+    pub has_prompt_history_index: bool = false,
+    pub prompt_history_draft: String = String.{},
+    pub active_pane: Pane = .Editor,
+    pub has_output: bool = false,
+    pub output: TextBuffer = TextBuffer.{},
+    pub output_cursor: Cursor = Cursor.{ row: 0, col: 0 },
+    pub output_preferred_col: usize = 0,
+    pub output_scroll_row: usize = 0,
+    pub output_history: List[ShellOutputEntry] = List[ShellOutputEntry].{},
+    pub output_history_index: usize = 0,
+    pub output_command: String = String.{},
+    pub output_status: i32 = 0,
+    pub message: String = String.{},
+    pub wants_quit: bool = false,
+};
+
+fn editor_with_buffer(alloc: *mut Allocator, text_buffer: TextBuffer) Result[Editor, BufferError] {
+    let mut editor = Editor.{};
+    if (!editor.layout_nodes..&.push(alloc, .{ window_index: 0 })) {
+        return .{ Err: .OutOfMemory };
+    }
+    if (!editor.buffers..&.push(alloc, .{ text: text_buffer, ref_count: 1 })) {
+        editor.layout_nodes..&.deinit(alloc);
+        return .{ Err: .OutOfMemory };
+    }
+    if (!editor.windows..&.push(alloc, .{ view: EditorView.{}, buffer_index: 0, layout_node: 0 })) {
+        let buffers = editor.buffers..&.as_mut_slice();
+        buffers.[0].text..&.deinit(alloc);
+        editor.buffers..&.deinit(alloc);
+        editor.layout_nodes..&.deinit(alloc);
+        return .{ Err: .OutOfMemory };
+    }
+    return .{ Ok: editor };
+}
+
+/// Creates a new unnamed editor.
+pub fn empty(alloc: *mut Allocator) Result[Editor, BufferError] {
+    let text_buffer = match (buffer.empty(alloc, "")) {
+        .{ Ok: value } => value,
+        .{ Err: err } => return .{ Err: err },
+    };
+    return editor_with_buffer(alloc, text_buffer);
+}
+
+/// Opens one path into an editor, creating a new named buffer when absent.
+pub fn open(alloc: *mut Allocator, path: []u8) Result[Editor, BufferError] {
+    let text_buffer = match (open_path(alloc, path)) {
+        .{ Ok: value } => value,
+        .{ Err: err } => return .{ Err: err },
+    };
+    return editor_with_buffer(alloc, text_buffer);
+}
+
+impl *mut Editor {
+    /// Releases the full editor state.
+    pub fn deinit(alloc: *mut Allocator) void {
+        let buffers = self.buffers..&.as_mut_slice();
+        for (let mut i = usize.{0}; i < #buffers; i += 1) {
+            if (buffers.[i].ref_count > 0) {
+                buffers.[i].text..&.deinit(alloc);
+            }
+        }
+        self.buffers..&.deinit(alloc);
+        self.windows..&.deinit(alloc);
+        self.layout_nodes..&.deinit(alloc);
+        if (self.has_output) {
+            self.output..&.deinit(alloc);
+        }
+        self.command_line..&.deinit(alloc);
+        deinit_string_list(alloc, self.ex_history..&);
+        deinit_string_list(alloc, self.shell_history..&);
+        self.prompt_history_draft..&.deinit(alloc);
+        deinit_output_history(alloc, self.output_history..&);
+        self.output_command..&.deinit(alloc);
+        self.message..&.deinit(alloc);
+        self.* = Editor.{};
+    }
+}

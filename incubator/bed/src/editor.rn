@@ -2204,6 +2204,14 @@ impl *mut Editor {
             self.cursor.col + 1
         };
         let cursor_col = if (raw_col > cols) cols else raw_col;
+        let wants_bar_cursor = self.mode != .Normal;
+        if (wants_bar_cursor) {
+            if (!ansi.cursor_bar(out, alloc)) {
+                return false;
+            }
+        } else if (!ansi.cursor_block(out, alloc)) {
+            return false;
+        }
         if (!ansi.show_cursor(out, alloc)) {
             return false;
         }

@@ -47,6 +47,21 @@ pub fn show_cursor(out: *mut String, alloc: *mut Allocator) bool {
     return out.push_str(alloc, "\x1b[?25h");
 }
 
+/// Selects a steady block cursor shape.
+pub fn cursor_block(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[2 q");
+}
+
+/// Selects a steady thin bar cursor shape.
+pub fn cursor_bar(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[6 q");
+}
+
+/// Restores the terminal default cursor shape.
+pub fn reset_cursor_shape(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[0 q");
+}
+
 /// Clears the full visible screen and homes the cursor.
 pub fn clear_screen(out: *mut String, alloc: *mut Allocator) bool {
     return out.push_str(alloc, "\x1b[2J\x1b[H");

@@ -282,6 +282,33 @@ fn check_command_line_viewport_render() void {
     test.assert(contains(frame.as_str(), "\x1b[2;8H"), "expected command cursor to remain visible at right edge", .{});
 }
 
+fn check_cursor_shape_changes_with_mode() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{4}, usize.{16}), "expected resize for cursor shape test", .{});
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+
+    test.assert(state..&.render_into(gpa, frame, true), "expected normal-mode render to succeed", .{});
+    test.assert(contains(frame.as_str(), "\x1b[2 q"), "expected normal mode to render block cursor", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'i' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected insert-mode render to succeed", .{});
+    test.assert(contains(frame.as_str(), "\x1b[6 q"), "expected insert mode to render bar cursor", .{});
+
+    state..&.handle_key(gpa, .Escape);
+    state..&.handle_key(gpa, .{ Byte: b':' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected command-mode render to succeed", .{});
+    test.assert(contains(frame.as_str(), "\x1b[6 q"), "expected command mode to render bar cursor", .{});
+}
+
 fn check_shell_prompt_and_output_render() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
@@ -322,6 +349,7 @@ fn main() i32 {
     check_editor_normal_mode_subset();
     check_editor_extended_normal_motions();
     check_command_line_viewport_render();
+    check_cursor_shape_changes_with_mode();
     check_shell_prompt_and_output_render();
     return 0;
 }

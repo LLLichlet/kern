@@ -144,14 +144,19 @@ impl CompilerDriver {
             };
         }
 
-        let item_definition_spans = nodes
+        let node_def_ids = nodes.keys().copied().collect::<std::collections::HashSet<_>>();
+        let mut definition_span_to_def_id = nodes
             .values()
-            .map(|node| (node.def_id, node.name_span))
+            .map(|node| (node.name_span, node.def_id))
             .collect::<std::collections::HashMap<_, _>>();
-        let definition_span_to_def_id = item_definition_spans
-            .iter()
-            .map(|(&def_id, &span)| (span, def_id))
-            .collect::<std::collections::HashMap<_, _>>();
+        for (_name, info) in ctx.scopes.all_symbols() {
+            let Some(def_id) = info.def_id else {
+                continue;
+            };
+            if node_def_ids.contains(&def_id) {
+                definition_span_to_def_id.insert(info.span, def_id);
+            }
+        }
         let mut reachable = nodes
             .values()
             .filter(|node| node.is_root)

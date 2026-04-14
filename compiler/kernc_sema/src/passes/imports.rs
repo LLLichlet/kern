@@ -336,12 +336,20 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             return false;
         }
 
-        // 3. Reexports still require the underlying definition to be public.
+        // 3. Cross-module reexports establish a new visibility boundary.
+        // If the scope entry resolves to a definition owned by another module,
+        // the current scope's binding visibility is the authority.
         let def_id = match symbol_info.def_id {
             Some(id) => id,
             None => return true,
         };
+        let owner_module = self.ctx.def_parent_module(def_id).unwrap_or(target_mod);
+        if owner_module != target_mod {
+            return true;
+        }
 
+        // 4. Direct definitions, and same-module aliases of them, still obey
+        // the underlying item's declared visibility.
         let def = &self.ctx.defs[def_id.0 as usize];
         let vis = match def {
             Def::Function(d) => d.vis,
@@ -356,8 +364,6 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             Def::Module(_) => Visibility::Public,
             Def::Impl(_) => return true,
         };
-
-        let owner_module = self.ctx.def_parent_module(def_id).unwrap_or(target_mod);
         self.ctx
             .visibility_allows_access(vis, owner_module, Some(current_mod))
     }

@@ -716,7 +716,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if uses_odr_linkage {
             return MastLinkage::LinkOnceOdr;
         }
-        if is_extern || vis == Visibility::Public || self.has_export_name_attr(attrs) {
+        if is_extern || !vis.is_private() || self.has_export_name_attr(attrs) {
             MastLinkage::External
         } else {
             MastLinkage::Internal
@@ -729,7 +729,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         is_extern: bool,
         attrs: &[ast::Attribute],
     ) -> MastLinkage {
-        if is_extern || vis == Visibility::Public || self.has_export_name_attr(attrs) {
+        if is_extern || !vis.is_private() || self.has_export_name_attr(attrs) {
             MastLinkage::External
         } else {
             MastLinkage::Internal

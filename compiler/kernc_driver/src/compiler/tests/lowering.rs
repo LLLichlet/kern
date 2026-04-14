@@ -1132,10 +1132,11 @@ fn lowering_respects_visibility_for_linkage() {
     let main = root.join("main.rn");
     let source = concat!(
         "fn private_helper() i32 { return 1; }\n",
+        "pub.. fn parent_helper() i32 { return 3; }\n",
         "pub fn public_helper() i32 { return private_helper(); }\n",
         "#[export_name(\"bridge\")]\n",
         "fn named_export() i32 { return 2; }\n",
-        "extern fn main() i32 { return public_helper() + named_export(); }\n",
+        "extern fn main() i32 { return public_helper() + named_export() + parent_helper(); }\n",
     );
     fs::write(&main, source).unwrap();
 
@@ -1158,6 +1159,11 @@ fn lowering_respects_visibility_for_linkage() {
         .iter()
         .find(|function| function.name.contains("public_helper"))
         .expect("expected public helper");
+    let parent_helper = module
+        .functions
+        .iter()
+        .find(|function| function.name.contains("parent_helper"))
+        .expect("expected pub.. helper");
     let named_export = module
         .functions
         .iter()
@@ -1166,6 +1172,7 @@ fn lowering_respects_visibility_for_linkage() {
 
     assert_eq!(private_helper.linkage, kernc_mast::MastLinkage::Internal);
     assert_eq!(public_helper.linkage, kernc_mast::MastLinkage::External);
+    assert_eq!(parent_helper.linkage, kernc_mast::MastLinkage::External);
     assert_eq!(named_export.linkage, kernc_mast::MastLinkage::External);
 
     let _ = fs::remove_dir_all(&root);

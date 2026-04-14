@@ -642,6 +642,45 @@ pub fn shared() i32 {
 }
 
 #[test]
+fn public_reexport_promotes_pub_super_items_to_outer_modules() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_public_reexport",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod middle;
+
+fn main() i32 {
+    return middle.shared();
+}
+"#,
+            ),
+            (
+                "middle.rn",
+                r#"
+mod leaf;
+
+pub use .leaf.shared as shared;
+"#,
+            ),
+            (
+                "leaf.rn",
+                r#"
+pub.. fn shared() i32 {
+    return 0;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn sibling_module_cannot_access_pub_super_items() {
     let output = compile_source_tree_with_args(
         "kernc_pub_super_sibling_rejected",

@@ -10,11 +10,11 @@ pub fn push_usize(out: *mut String, alloc: *mut Allocator, value: usize) bool {
     }
 
     let digits = [32]mut u8.{undef};
-    let mut len = usize.{0};
+    let mut len = 0;
     let mut current = value;
     for (; current > 0; ) {
-        digits.[len] = b'0' + (current % usize.{10}) as u8;
-        current /= usize.{10};
+        digits.[len] = b'0' + (current % 10) as u8;
+        current /= 10;
         len += 1;
     }
 

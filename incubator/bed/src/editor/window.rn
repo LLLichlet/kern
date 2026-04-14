@@ -2,8 +2,8 @@ use base.coll.List;
 use base.mem.alloc.Allocator;
 use ..{BufferSlot, Cursor, Editor, EditorView, LayoutAxis, LayoutNode, TextBuffer, WindowRect, WindowState};
 
-const MIN_WINDOW_ROWS = usize.{3};
-const MIN_WINDOW_COLS = usize.{16};
+const MIN_WINDOW_ROWS = 3;
+const MIN_WINDOW_COLS = 16;
 
 impl *mut Editor {
     fn activate_window(index: usize) void {
@@ -83,7 +83,7 @@ impl *mut Editor {
 
     fn store_buffer_slot(alloc: *mut Allocator, text: TextBuffer, index_out: *mut usize) bool {
         let slots = self.buffers..&.as_mut_slice();
-        for (let mut i = usize.{0}; i < #slots; i += 1) {
+        for (let mut i = 0; i < #slots; i += 1) {
             if (slots.[i].ref_count == 0) {
                 slots.[i] = .{ text: text, ref_count: 1 };
                 index_out.* = i;
@@ -114,7 +114,7 @@ impl *mut Editor {
     fn append_layout_node(alloc: *mut Allocator, node: LayoutNode) usize {
         let index = self.layout_nodes.len;
         if (!self.layout_nodes..&.push(alloc, node)) {
-            return usize.{0};
+            return 0;
         }
         return index;
     }
@@ -172,7 +172,7 @@ impl *mut Editor {
 
     fn reset_layout_weights() void {
         let nodes = self.layout_nodes..&.as_mut_slice();
-        for (let mut i = usize.{0}; i < #nodes; i += 1) {
+        for (let mut i = 0; i < #nodes; i += 1) {
             if (nodes.[i].alive) {
                 nodes.[i].weight = 1;
             }
@@ -314,7 +314,7 @@ impl *mut Editor {
         if (!self.has_output or main_rows < 3) {
             return 0;
         }
-        return (main_rows - 1) / usize.{2};
+        return (main_rows - 1) / 2;
     }
 
     fn output_rows() usize {
@@ -536,7 +536,7 @@ impl *mut Editor {
 
     fn first_non_blank_col(row: usize) usize {
         let line = self.active_buffer().line(row);
-        for (let mut i = usize.{0}; i < #line; i += 1) {
+        for (let mut i = 0; i < #line; i += 1) {
             let byte = line.[i];
             if (byte != b' ' and byte != b'\t') {
                 return i;
@@ -628,7 +628,7 @@ impl *mut Editor {
         if (rows <= 1) {
             return 1;
         }
-        return rows / usize.{2};
+        return rows / 2;
     }
 
     fn half_page_up() void {
@@ -717,7 +717,7 @@ impl *mut Editor {
             self.goto_screen_row(0);
             return;
         }
-        self.goto_screen_row(rows / usize.{2});
+        self.goto_screen_row(rows / 2);
     }
 
     fn goto_screen_bottom() void {
@@ -753,7 +753,7 @@ impl *mut Editor {
             self.output_goto_screen_row(0);
             return;
         }
-        self.output_goto_screen_row(rows / usize.{2});
+        self.output_goto_screen_row(rows / 2);
     }
 
     fn output_goto_screen_bottom() void {
@@ -774,7 +774,7 @@ impl *mut Editor {
             slot.text..&.deinit(alloc);
             slot.text = incoming;
         } else {
-            let mut next_index = usize.{0};
+            let mut next_index = 0;
             if (!self.store_buffer_slot(alloc, incoming, next_index..&)) {
                 incoming..&.deinit(alloc);
                 self.set_message(alloc, "out of memory");
@@ -809,7 +809,7 @@ impl *mut Editor {
 
     fn reindex_window_nodes(removed_window: usize) void {
         let nodes = self.layout_nodes..&.as_mut_slice();
-        for (let mut i = usize.{0}; i < #nodes; i += 1) {
+        for (let mut i = 0; i < #nodes; i += 1) {
             if (!nodes.[i].alive or !nodes.[i].is_leaf) {
                 continue;
             }
@@ -950,7 +950,7 @@ impl *mut Editor {
         }
         let keep_index = self.active_window;
         let keep = self.window(keep_index);
-        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
+        for (let mut index = 0; index < self.windows.len; index += 1) {
             if (index == keep_index) {
                 continue;
             }
@@ -1037,9 +1037,9 @@ impl *mut Editor {
     }
 
     fn focus_top_left_window() void {
-        let mut best_index = usize.{0};
+        let mut best_index = 0;
         let mut best_rect = self.window_rect(0);
-        for (let mut index = usize.{1}; index < self.window_count; index += 1) {
+        for (let mut index = 1; index < self.window_count; index += 1) {
             let rect = self.window_rect(index);
             if (rect.row < best_rect.row or (rect.row == best_rect.row and rect.col < best_rect.col)) {
                 best_index = index;
@@ -1050,9 +1050,9 @@ impl *mut Editor {
     }
 
     fn focus_bottom_right_window() void {
-        let mut best_index = usize.{0};
+        let mut best_index = 0;
         let mut best_rect = self.window_rect(0);
-        for (let mut index = usize.{1}; index < self.window_count; index += 1) {
+        for (let mut index = 1; index < self.window_count; index += 1) {
             let rect = self.window_rect(index);
             let rect_end_row = self.rect_end_row(rect);
             let best_end_row = self.rect_end_row(best_rect);
@@ -1070,10 +1070,10 @@ impl *mut Editor {
         let active_rect = self.active_window_rect();
         let mut best_index = self.active_window;
         let mut has_best = false;
-        let mut best_primary = usize.{0};
-        let mut best_secondary = usize.{0};
+        let mut best_primary = 0;
+        let mut best_secondary = 0;
 
-        for (let mut index = usize.{0}; index < self.window_count; index += 1) {
+        for (let mut index = 0; index < self.window_count; index += 1) {
             if (index == self.active_window) {
                 continue;
             }

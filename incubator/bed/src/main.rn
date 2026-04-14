@@ -41,7 +41,7 @@ fn main(argc: i32, argv: **u8) i32 {
     let gpa = GPA.{ backing: page }..&;
     let args = proc.args(argc, argv);
 
-    let mut editor_state = if (args.len() > usize.{1}) {
+    let mut editor_state = if (args.len() > 1) {
         let path = match (args.get(1)) {
             .{ Some: value } => value,
             .None => "",
@@ -85,8 +85,8 @@ fn main(argc: i32, argv: **u8) i32 {
     defer last_frame.deinit(gpa);
     let mut pending_render = true;
     let mut full_redraw = true;
-    let mut last_rows = usize.{0};
-    let mut last_cols = usize.{0};
+    let mut last_rows = 0;
+    let mut last_cols = 0;
 
     let mut ui_active = false;
     defer {
@@ -104,7 +104,7 @@ fn main(argc: i32, argv: **u8) i32 {
     for (; !editor_state..&.should_quit(); ) {
         let size = match (term.stdout_size()) {
             .{ Ok: value } => value,
-            .{ Err: _ } => term.Size.{ rows: usize.{24}, cols: usize.{80} },
+            .{ Err: _ } => term.Size.{ rows: 24, cols: 80 },
         };
         if (size.rows != last_rows or size.cols != last_cols) {
             last_rows = size.rows;

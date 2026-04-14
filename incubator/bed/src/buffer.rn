@@ -269,7 +269,7 @@ impl *mut TextBuffer {
         let mut text = String.{};
         defer text..&.deinit(alloc);
 
-        for (let mut i = usize.{0}; i < self.lines.len; i += 1) {
+        for (let mut i = 0; i < self.lines.len; i += 1) {
             if (!text..&.push_str(alloc, self.line(i))) {
                 return .{ Err: .OutOfMemory };
             }

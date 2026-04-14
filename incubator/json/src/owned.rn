@@ -43,7 +43,7 @@ use ..parser.{
     skip_ws,
 };
 
-pub type OwnedValue = enum {
+pub.. type OwnedValue = enum {
     Null,
     Bool: bool,
     Number: String,
@@ -76,17 +76,17 @@ const OWNED_VALUE_BLOCK_ENTRIES_OFFSET =
     (@sizeOf[OwnedValueNodeBlock]() + (OWNED_VALUE_ENTRIES_ALIGN - usize.{1}))
     & ~(OWNED_VALUE_ENTRIES_ALIGN - usize.{1});
 
-pub type OwnedArray = struct {
+pub.. type OwnedArray = struct {
     pub items: List[*mut OwnedValue] = List[*mut OwnedValue].{},
     nodes: OwnedValuePool = OwnedValuePool.{},
 };
 
-pub type OwnedObjectEntry = struct {
+pub.. type OwnedObjectEntry = struct {
     pub key: String = String.{},
     pub value: *mut OwnedValue,
 };
 
-pub type OwnedObject = struct {
+pub.. type OwnedObject = struct {
     pub entries: List[OwnedObjectEntry] = List[OwnedObjectEntry].{},
     nodes: OwnedValuePool = OwnedValuePool.{},
 };
@@ -924,7 +924,7 @@ fn clone_owned_object(alloc: *mut Allocator, value: Value) OwnedObject!Materiali
     };
 }
 
-pub fn clone_owned_value(alloc: *mut Allocator, value: Value) OwnedValue!MaterializeError {
+pub.. fn clone_owned_value(alloc: *mut Allocator, value: Value) OwnedValue!MaterializeError {
     return match (value.kind) {
         .Null => .{ Ok: OwnedValue.Null },
         .Bool => .{ Ok: .{ Bool: value.raw == "true" } },
@@ -947,7 +947,7 @@ pub fn clone_owned_value(alloc: *mut Allocator, value: Value) OwnedValue!Materia
     };
 }
 
-pub fn clone_owned_value_in_arena(arena: *mut Arena, value: Value) OwnedValue!MaterializeError {
+pub.. fn clone_owned_value_in_arena(arena: *mut Arena, value: Value) OwnedValue!MaterializeError {
     return match (value.kind) {
         .Null => .{ Ok: OwnedValue.Null },
         .Bool => .{ Ok: .{ Bool: value.raw == "true" } },

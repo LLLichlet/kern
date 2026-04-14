@@ -9,7 +9,7 @@
 use base.mem.Layout;
 
 /// The interface implemented by allocation backends.
-pub type Allocator = trait {
+pub.. type Allocator = trait {
     /// Allocates memory for the requested layout.
     ///
     /// Returns:

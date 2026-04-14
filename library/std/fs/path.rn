@@ -8,7 +8,7 @@ use base.coll.{String, List};
 use ..types.Error;
 
 /// Returns `true` when `byte` is treated as a path separator on the current platform.
-pub fn is_path_separator(byte: u8) bool {
+pub.. fn is_path_separator(byte: u8) bool {
     #[if(os == "windows")]
     {
         return byte == b'/' or byte == b'\\';
@@ -18,7 +18,7 @@ pub fn is_path_separator(byte: u8) bool {
 }
 
 /// Returns the preferred path separator for the current platform.
-pub fn path_separator_byte() u8 {
+pub.. fn path_separator_byte() u8 {
     #[if(os == "windows")]
     {
         return b'\\';
@@ -49,7 +49,7 @@ fn preferred_separator_byte(path: []u8) u8 {
 ///
 /// Note:
 /// on Windows this includes drive prefixes and UNC roots.
-pub fn root_prefix_len(path: []u8) usize {
+pub.. fn root_prefix_len(path: []u8) usize {
     let len = #path;
     if (len == 0) {
         return 0;
@@ -93,7 +93,7 @@ pub fn root_prefix_len(path: []u8) usize {
 }
 
 /// Removes trailing separators while preserving the root prefix.
-pub fn trim_trailing_separators(path: []u8) []u8 {
+pub.. fn trim_trailing_separators(path: []u8) []u8 {
     let prefix_len = root_prefix_len(path);
     let mut end = #path;
     for (; end > prefix_len; ) {
@@ -106,7 +106,7 @@ pub fn trim_trailing_separators(path: []u8) []u8 {
 }
 
 /// Builds `base/name` using the preferred separator for `base`.
-pub fn build_child_path(alloc: *mut Allocator, base: []u8, name: []u8) String!Error {
+pub.. fn build_child_path(alloc: *mut Allocator, base: []u8, name: []u8) String!Error {
     let mut out = String.{};
     let sep = preferred_separator_byte(base);
     if (!out..&.push_str(alloc, base)) {
@@ -161,7 +161,7 @@ fn last_separator(path: []u8) ?usize {
 }
 
 /// Returns the final path component.
-pub fn file_name(path: []u8) ?[]u8 {
+pub.. fn file_name(path: []u8) ?[]u8 {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
     if (#trimmed == 0 or #trimmed == prefix_len) {
@@ -175,7 +175,7 @@ pub fn file_name(path: []u8) ?[]u8 {
 }
 
 /// Returns the parent directory of a path.
-pub fn parent(path: []u8) ?[]u8 {
+pub.. fn parent(path: []u8) ?[]u8 {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
     if (#trimmed == 0 or #trimmed == prefix_len) {
@@ -194,7 +194,7 @@ pub fn parent(path: []u8) ?[]u8 {
 }
 
 /// Returns the extension of the final path component without the dot.
-pub fn extension(path: []u8) ?[]u8 {
+pub.. fn extension(path: []u8) ?[]u8 {
     let name = match (file_name(path)) {
         .{ Some: name } => name,
         .None => return .None,
@@ -215,7 +215,7 @@ pub fn extension(path: []u8) ?[]u8 {
 }
 
 /// Returns the final path component without its extension.
-pub fn file_stem(path: []u8) ?[]u8 {
+pub.. fn file_stem(path: []u8) ?[]u8 {
     let name = match (file_name(path)) {
         .{ Some: name } => name,
         .None => return .None,
@@ -239,7 +239,7 @@ pub fn file_stem(path: []u8) ?[]u8 {
 ///
 /// Note:
 /// absolute `child` paths replace `base`.
-pub fn join(alloc: *mut Allocator, base: []u8, child: []u8) String!Error {
+pub.. fn join(alloc: *mut Allocator, base: []u8, child: []u8) String!Error {
     if (root_prefix_len(child) > 0) {
         let mut out = String.{};
         if (!out..&.push_str(alloc, child)) {
@@ -274,7 +274,7 @@ pub fn join(alloc: *mut Allocator, base: []u8, child: []u8) String!Error {
 ///
 /// This function does not consult the filesystem, so symbolic links and missing
 /// path segments are left uninterpreted.
-pub fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
+pub.. fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
     let prefix_len = root_prefix_len(path);
     let sep = preferred_separator_byte(path);
     let segments = List[[]u8].{}..&;
@@ -349,7 +349,7 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
 ///
 /// Errors:
 /// returns `InvalidPath` when `name` is empty.
-pub fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) String!Error {
+pub.. fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) String!Error {
     if (#name == 0) {
         return .{ Err: .InvalidPath };
     }
@@ -371,7 +371,7 @@ pub fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) String!Erro
 /// Returns `path` with its extension replaced by `ext`.
 ///
 /// An empty `ext` removes the extension entirely.
-pub fn with_extension(alloc: *mut Allocator, path: []u8, ext: []u8) String!Error {
+pub.. fn with_extension(alloc: *mut Allocator, path: []u8, ext: []u8) String!Error {
     let stem = match (file_stem(path)) {
         .{ Some: stem } => stem,
         .None => return .{ Err: .InvalidPath },

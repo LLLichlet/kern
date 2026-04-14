@@ -8,7 +8,7 @@ use base.coll.List;
 mod query;
 
 /// An owned growable string buffer.
-pub type String = struct {
+pub.. type String = struct {
     raw: List[u8] = List[u8].{},
 };
 

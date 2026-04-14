@@ -7,7 +7,7 @@ use ..{
     Value,
 };
 
-pub type ParsedSpan = struct {
+pub.. type ParsedSpan = struct {
     pub kind: Kind,
     pub next: usize,
 };
@@ -21,7 +21,7 @@ fn first_non_digit_mask_bits(chunk: u8x16) usize {
 }
 
 #[inline(always)]
-pub fn skip_ws(text: []u8, start: usize) usize {
+pub.. fn skip_ws(text: []u8, start: usize) usize {
     let len = #text;
     let mut index = start;
 
@@ -83,7 +83,7 @@ pub fn skip_ws(text: []u8, start: usize) usize {
 }
 
 #[inline(always)]
-pub fn is_digit(byte: u8) bool {
+pub.. fn is_digit(byte: u8) bool {
     return byte >= b'0' and byte <= b'9';
 }
 
@@ -123,14 +123,14 @@ fn scan_digits(text: []u8, start: usize) usize {
     return index;
 }
 
-pub fn slice_string_text(raw: []u8) []u8 {
+pub.. fn slice_string_text(raw: []u8) []u8 {
     if (#raw < 2) {
         return "";
     }
     return raw.[1 .. #raw - 1];
 }
 
-pub fn parse_literal(
+pub.. fn parse_literal(
     text: []u8,
     start: usize,
     literal: []u8,
@@ -148,7 +148,7 @@ pub fn parse_literal(
     } };
 }
 
-pub fn parse_string_end(text: []u8, start: usize) usize!ParseError {
+pub.. fn parse_string_end(text: []u8, start: usize) usize!ParseError {
     let mut index = start + 1;
     for (; index < #text; ) {
         let byte = text.[index];
@@ -196,7 +196,7 @@ pub fn parse_string_end(text: []u8, start: usize) usize!ParseError {
     return .{ Err: .{ UnterminatedString: start } };
 }
 
-pub fn parse_number_end(text: []u8, start: usize) usize!ParseError {
+pub.. fn parse_number_end(text: []u8, start: usize) usize!ParseError {
     let len = #text;
     let mut index = start;
     if (text.[index] == b'-') {
@@ -329,7 +329,7 @@ fn parse_object_end(text: []u8, start: usize) usize!ParseError {
     }
 }
 
-pub fn parse_value_span_from_value_start(text: []u8, index: usize) ParsedSpan!ParseError {
+pub.. fn parse_value_span_from_value_start(text: []u8, index: usize) ParsedSpan!ParseError {
     if (index >= #text) {
         return .{ Err: ParseError.UnexpectedEof };
     }
@@ -367,7 +367,7 @@ pub fn parse_value_span_from_value_start(text: []u8, index: usize) ParsedSpan!Pa
     };
 }
 
-pub fn parse_value_span(text: []u8, start: usize) ParsedSpan!ParseError {
+pub.. fn parse_value_span(text: []u8, start: usize) ParsedSpan!ParseError {
     let index = skip_ws(text, start);
     if (index >= #text) {
         return if (start == 0) {

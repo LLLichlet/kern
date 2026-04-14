@@ -6,12 +6,12 @@ use std.fs;
 use ..buffer;
 use ..buffer.{Cursor, Error as BufferError, TextBuffer};
 
-pub const NO_NAME = "[No Name]";
-pub const PROMPT_HISTORY_LIMIT = 32;
-pub const OUTPUT_HISTORY_LIMIT = 16;
-pub const TAB_STOP = 4;
+pub.. const NO_NAME = "[No Name]";
+pub.. const PROMPT_HISTORY_LIMIT = 32;
+pub.. const OUTPUT_HISTORY_LIMIT = 16;
+pub.. const TAB_STOP = 4;
 
-pub type PendingNormal = enum {
+pub.. type PendingNormal = enum {
     None,
     G,
     Z,
@@ -22,50 +22,50 @@ pub type PendingNormal = enum {
     TillBackward,
 };
 
-pub type PromptKind = enum {
+pub.. type PromptKind = enum {
     Ex,
     Shell,
 };
 
-pub type Pane = enum {
+pub.. type Pane = enum {
     Editor,
     Output,
 };
 
-pub type FindDirection = enum {
+pub.. type FindDirection = enum {
     Forward,
     Backward,
 };
 
-pub type FindState = struct {
+pub.. type FindState = struct {
     pub direction: FindDirection = .Forward,
     pub till: bool = false,
     pub target: u8 = 0,
 };
 
-pub type ShellOutputEntry = struct {
+pub.. type ShellOutputEntry = struct {
     pub command: String = String.{},
     pub text: String = String.{},
     pub status: i32 = 0,
 };
 
-pub type BufferSlot = struct {
+pub.. type BufferSlot = struct {
     pub text: TextBuffer = TextBuffer.{},
     pub ref_count: usize = 0,
 };
 
-pub type EditorView = struct {
+pub.. type EditorView = struct {
     pub cursor: Cursor = Cursor.{ row: 0, col: 0 },
     pub preferred_col: usize = 0,
     pub scroll_row: usize = 0,
 };
 
-pub type LayoutAxis = enum {
+pub.. type LayoutAxis = enum {
     Rows,
     Cols,
 };
 
-pub type LayoutNode = struct {
+pub.. type LayoutNode = struct {
     pub alive: bool = true,
     pub free_next: ?usize = .None,
     pub has_parent: bool = false,
@@ -78,14 +78,14 @@ pub type LayoutNode = struct {
     pub window_index: usize = 0,
 };
 
-pub type WindowRect = struct {
+pub.. type WindowRect = struct {
     pub row: usize = 1,
     pub col: usize = 1,
     pub rows: usize = 0,
     pub cols: usize = 0,
 };
 
-pub type WindowState = struct {
+pub.. type WindowState = struct {
     pub alive: bool = true,
     pub free_next: ?usize = .None,
     pub view: EditorView = EditorView.{},
@@ -109,7 +109,7 @@ fn deinit_string_list(alloc: *mut Allocator, items: *mut List[String]) void {
     items.deinit(alloc);
 }
 
-pub fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], limit: usize) void {
+pub.. fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], limit: usize) void {
     if (items.len <= limit) {
         return;
     }
@@ -134,7 +134,7 @@ fn deinit_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntr
     items.deinit(alloc);
 }
 
-pub fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry], limit: usize) void {
+pub.. fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry], limit: usize) void {
     if (items.len <= limit) {
         return;
     }
@@ -151,7 +151,7 @@ pub fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEn
     items.truncate(kept);
 }
 
-pub fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
+pub.. fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
     let exists = match (fs.exists(alloc, path)) {
         .{ Ok: present } => present,
         .{ Err: err } => return .{ Err: .{ Fs: err } },
@@ -163,7 +163,7 @@ pub fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
 }
 
 /// The single-window editor core for the first `bed` milestone.
-pub type Editor = struct {
+pub.. type Editor = struct {
     pub buffers: List[BufferSlot] = List[BufferSlot].{},
     pub windows: List[WindowState] = List[WindowState].{},
     pub first_free_window: ?usize = .None,
@@ -225,13 +225,13 @@ fn editor_with_buffer(alloc: *mut Allocator, text_buffer: TextBuffer) Editor!Buf
 }
 
 /// Creates a new unnamed editor.
-pub fn empty(alloc: *mut Allocator) Editor!BufferError {
+pub.. fn empty(alloc: *mut Allocator) Editor!BufferError {
     let text_buffer = buffer.empty(alloc, "").!;
     return editor_with_buffer(alloc, text_buffer);
 }
 
 /// Opens one path into an editor, creating a new named buffer when absent.
-pub fn open(alloc: *mut Allocator, path: []u8) Editor!BufferError {
+pub.. fn open(alloc: *mut Allocator, path: []u8) Editor!BufferError {
     let text_buffer = open_path(alloc, path).!;
     return editor_with_buffer(alloc, text_buffer);
 }

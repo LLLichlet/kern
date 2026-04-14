@@ -15,7 +15,7 @@ Kern is built on the observation that languages often trade off abstraction capa
 * **Explicit over Implicit:** Mutability is a property of storage, not the type itself (`let mut x`). Pointer math is strictly typed. All type conversions require the explicit `as` operator. Return values cannot be silently ignored.
 * **Zero-Cost Abstractions:** Features like monomorphized Generics, Algebraic Data Types (`enum`), and strictly Stateless Lambdas compile down to highly optimized, flat LLVM IR with zero runtime overhead.
 * **Mechanism Trinity:** Kern relies on three core mechanisms to maintain its philosophy: a strictly explicit module tree (`mod`), strongly-typed zero-cost generics, and precise state management via exhaustive `match` blocks.
-* **Freestanding by Default:** Kern assumes nothing about your target environment. It is a pure bare-metal compiler with zero OS dependencies鈥攊deal for kernel development.
+* **Freestanding by Default:** Kern assumes nothing about your target environment. It is a pure bare-metal compiler with zero OS dependencies, which makes it suitable for kernel and firmware work.
 
 ## Compiler Architecture (Workspace)
 
@@ -99,15 +99,18 @@ extern fn start() ! {
 }
 ```
 
-## Roadmap & Current Status
+## Current Status
 
-The compiler is currently in its **`v0.6.x`** series, focused on release engineering, cross-platform distribution, and continued standard library maturation.
+The current repository state targets **`v0.7.0`**.
 
-  * **[Delivered] v0.1.x - v0.3.x:** Core stabilization, basic generics, initial LLVM backend, inline assembly (`@asm`), and basic AST attributes.
-  * **[Delivered] v0.4.x (Language Core & Modules):** Implementation of the explicit module tree system (`mod`), core language unifications (unified `enum` types, exhaustive `match` branching, explicit `as` conversions), and the initial cross-platform freestanding standard library (`std`).
-  * **[Delivered] v0.5.x (Workspace, Cross-Platform & Stdlib Stabilization):** Complete decoupled compiler workspace (`kernc_*`), native Windows support, hosted/freestanding link profiles, stronger test coverage, and substantial `std` growth.
-  * **[Current-Focus] v0.6.x (Release Engineering, LSP & Editor Preview):** Hardened release automation, macOS distribution support, broader standard library ergonomics, continued compiler/runtime polish, and first-party editor integration via `kern-lsp` plus an early VS Code extension preview.
-  * **[Future] v0.7.x (Ecosystem, Tooling & Self-Hosting):** `craft` package management and build orchestration, expanding the native Kern toolchain, comprehensive standard library maturation, and exploring initial steps toward compiler self-hosting (tentative).
+The shipped toolchain surface is:
+
+* `kernc`: the compiler and linker driver
+* `craft`: the package manager and build orchestrator
+* `kern-lsp`: the language server
+* `base`, `sys`, `rt`, and `std`: the official library layers
+
+The project is still experimental, but the repository documentation now describes the current implementation rather than a rolling roadmap.
 
 ## Installation
 
@@ -156,12 +159,11 @@ This produces `kernc`, `craft`, and `kern-lsp` in `target/release/`.
 
 ## Documentation
 
-  * **[Kern Tutorial](docs/tutorial/README.md)**: A practical multi-chapter guide for learning the language, using `kernc`, understanding `craft`, driving `kern-lsp`, and navigating the repository.
   * **[The `kernc` Compiler Guide](docs/kernc.md)**: CLI usage, driver modes, linking profiles, and build-system integration guidance.
   * **[Runtime And Library Architecture](docs/runtime-architecture.md)**: the `base`/`sys`/`rt`/`std` split, hosted versus freestanding, and why libc is optional rather than foundational.
   * **[Kern Language Design Document](docs/design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for the current version.
-  * **[The `craft` Design Draft](docs/craft.md)**: The proposed package manager, lockfile, manifest, and build-planning architecture.
-  * *(Coming Soon)* **The Kern Type System**: A guide to understanding Kern's Contextual Top-Down Bidirectional Type Checking and ConstEval models.
+  * **[`craft` Package And Build Guide](docs/craft.md)**: the current package, lockfile, dependency-resolution, and build-planning model.
+  * **[Source Style Guide](docs/style.md)**: repository-level guidance for writing Kern code clearly and consistently.
 
 ## Contributing
 

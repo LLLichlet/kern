@@ -1184,7 +1184,7 @@ impl IndexedDocumentView {
 
 impl DocumentObjectEntry {
     pub fn key_eq(name: []u8) bool {
-        return self.key.eq(name);
+        return self.key == name;
     }
 
     pub fn bool_value() ?bool {
@@ -1250,7 +1250,7 @@ impl DocumentObjectEntry {
 
 impl DocumentObjectEntryRef {
     pub fn key_eq(name: []u8) bool {
-        return self.key.eq(name);
+        return self.key == name;
     }
 
     pub fn bool_value() ?bool {

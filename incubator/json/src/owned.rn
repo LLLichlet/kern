@@ -133,7 +133,7 @@ fn owned_value_pool_next_capacity(current: usize) usize {
 
 impl OwnedObjectEntry {
     pub fn key_eq(name: []u8) bool {
-        return self.key.&.as_str().eq(name);
+        return self.key.&.as_str() == name;
     }
 
     pub fn bool_value() ?bool {
@@ -927,7 +927,7 @@ fn clone_owned_object(alloc: *mut Allocator, value: Value) OwnedObject!Materiali
 pub fn clone_owned_value(alloc: *mut Allocator, value: Value) OwnedValue!MaterializeError {
     return match (value.kind) {
         .Null => .{ Ok: OwnedValue.Null },
-        .Bool => .{ Ok: .{ Bool: value.raw.eq("true") } },
+        .Bool => .{ Ok: .{ Bool: value.raw == "true" } },
         .Number => match (clone_number_text(alloc, value.raw)) {
             .{ Ok: number } => .{ Ok: .{ Number: number } },
             .{ Err: err } => .{ Err: err },
@@ -950,7 +950,7 @@ pub fn clone_owned_value(alloc: *mut Allocator, value: Value) OwnedValue!Materia
 pub fn clone_owned_value_in_arena(arena: *mut Arena, value: Value) OwnedValue!MaterializeError {
     return match (value.kind) {
         .Null => .{ Ok: OwnedValue.Null },
-        .Bool => .{ Ok: .{ Bool: value.raw.eq("true") } },
+        .Bool => .{ Ok: .{ Bool: value.raw == "true" } },
         .Number => match (clone_number_text_in_arena(arena, value.raw)) {
             .{ Ok: number } => .{ Ok: .{ Number: number } },
             .{ Err: err } => .{ Err: err },

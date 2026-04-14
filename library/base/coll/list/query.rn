@@ -63,7 +63,7 @@ impl[T] *List[T]
         let items = self.as_slice();
         if (#items != #other) return false;
         for (let mut i = 0; i < #items; i += 1) {
-            if (!items.[i].eq(other.[i])) {
+            if (items.[i] != other.[i]) {
                 return false;
             }
         }

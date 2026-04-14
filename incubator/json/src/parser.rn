@@ -139,7 +139,7 @@ pub fn parse_literal(
     if (start + #literal > #text) {
         return .{ Err: ParseError.UnexpectedEof };
     }
-    if (!text.[start .. start + #literal].eq(literal)) {
+    if (text.[start .. start + #literal] != literal) {
         return .{ Err: .{ InvalidLiteral: start } };
     }
     return .{ Ok: ParsedSpan.{

@@ -32,43 +32,43 @@ pub fn parse(line: []u8) Command {
         return .None;
     }
 
-    if (text.eq("q")) {
+    if (text == "q") {
         return .Quit;
     }
-    if (text.eq("q!")) {
+    if (text == "q!") {
         return .ForceQuit;
     }
-    if (text.eq("w")) {
+    if (text == "w") {
         return .Write;
     }
-    if (text.eq("wq")) {
+    if (text == "wq") {
         return .WriteQuit;
     }
-    if (text.eq("wq!")) {
+    if (text == "wq!") {
         return .WriteQuit;
     }
-    if (text.eq("split")) {
+    if (text == "split") {
         return .Split;
     }
-    if (text.eq("vsplit") or text.eq("vs")) {
+    if (text == "vsplit" or text == "vs") {
         return .VSplit;
     }
-    if (text.eq("close")) {
+    if (text == "close") {
         return .CloseWindow;
     }
-    if (text.eq("only")) {
+    if (text == "only") {
         return .OnlyWindow;
     }
-    if (text.eq("set number") or text.eq("set nu")) {
+    if (text == "set number" or text == "set nu") {
         return .{ SetNumber: true };
     }
-    if (text.eq("set nonumber") or text.eq("set nonu")) {
+    if (text == "set nonumber" or text == "set nonu") {
         return .{ SetNumber: false };
     }
-    if (text.eq("set relativenumber") or text.eq("set rnu")) {
+    if (text == "set relativenumber" or text == "set rnu") {
         return .{ SetRelativeNumber: true };
     }
-    if (text.eq("set norelativenumber") or text.eq("set nornu")) {
+    if (text == "set norelativenumber" or text == "set nornu") {
         return .{ SetRelativeNumber: false };
     }
     if (text.starts_with("e ")) {

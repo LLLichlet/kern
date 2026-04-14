@@ -997,7 +997,7 @@ impl PackedIndexedObjectView {
 
 impl PackedObjectEntry {
     pub fn key_eq(name: []u8) bool {
-        return self.key.eq(name);
+        return self.key == name;
     }
 
     pub fn bool_value() ?bool {
@@ -1232,7 +1232,7 @@ impl PackedValue {
         for (let mut i = usize.{0}; i < node.data1; i += 1) {
             let entry = entries.[node.data0 + i];
             let key = packed_text_slice(state, entry.key);
-            if (key.eq(name)) {
+            if (key == name) {
                 return .{ Some: PackedObjectEntry.{
                     key: key,
                     value: wrap_packed_value(state, entry.value),
@@ -1253,7 +1253,7 @@ impl PackedValue {
         for (let mut i = usize.{0}; i < node.data1; i += 1) {
             let entry = entries.[node.data0 + i];
             let key = packed_text_slice(state, entry.key);
-            if (key.eq(name)) {
+            if (key == name) {
                 found = .{ Some: PackedObjectEntry.{
                     key: key,
                     value: wrap_packed_value(state, entry.value),
@@ -1273,7 +1273,7 @@ impl PackedValue {
         let mut total = usize.{0};
         for (let mut i = usize.{0}; i < node.data1; i += 1) {
             let entry = entries.[node.data0 + i];
-            if (packed_text_slice(state, entry.key).eq(name)) {
+            if (packed_text_slice(state, entry.key) == name) {
                 total += 1;
             }
         }
@@ -1291,7 +1291,7 @@ impl PackedValue {
         for (let mut i = usize.{0}; i < node.data1; i += 1) {
             let entry = entries.[node.data0 + i];
             let key = packed_text_slice(state, entry.key);
-            if (!key.eq(name)) {
+            if (key != name) {
                 continue;
             }
             if (total < #out) {

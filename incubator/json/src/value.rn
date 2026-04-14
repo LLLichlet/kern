@@ -233,7 +233,7 @@ impl *mut ObjectCursor {
 
 impl ObjectEntry {
     pub fn key_eq(name: []u8) bool {
-        return self.key_text.eq(name);
+        return self.key_text == name;
     }
 
     pub fn bool_value() ?bool {
@@ -377,7 +377,7 @@ impl Value {
         if (self.kind != Kind.Bool) {
             return .None;
         }
-        return .{ Some: self.raw.eq("true") };
+        return .{ Some: self.raw == "true" };
     }
 
     pub fn number_text() ?[]u8 {
@@ -631,7 +631,7 @@ impl Value {
             }
             let .{ Ok: span } = parse_value_span_from_value_start(text, value_start)
                 else .{ Err: err } => return .{ Err: err };
-            if (key_text.eq(name)) {
+            if (key_text == name) {
                 return .{ Ok: .{ Some: ObjectEntry.{
                     key_raw: key_raw,
                     key_text: key_text,

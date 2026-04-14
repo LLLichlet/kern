@@ -129,7 +129,7 @@ impl[T] []T
     pub fn eq(other: []T) bool {
         if (#self != #other) return false;
         for (let mut i = 0; i < #self; i += 1) {
-            if (!self.[i].eq(other.[i])) {
+            if (self.[i] != other.[i]) {
                 return false;
             }
         }
@@ -141,7 +141,7 @@ impl[T] []T
     pub fn starts_with(prefix: []T) bool {
         if (#prefix > #self) return false;
         for (let mut i = 0; i < #prefix; i += 1) {
-            if (!self.[i].eq(prefix.[i])) {
+            if (self.[i] != prefix.[i]) {
                 return false;
             }
         }
@@ -154,7 +154,7 @@ impl[T] []T
         if (#suffix > #self) return false;
         let start = #self - #suffix;
         for (let mut i = 0; i < #suffix; i += 1) {
-            if (!self.[start + i].eq(suffix.[i])) {
+            if (self.[start + i] != suffix.[i]) {
                 return false;
             }
         }
@@ -175,13 +175,13 @@ impl[T] []T
         let last_start = #self - needle_len;
         let first = needle.[0];
         for (let mut i = 0; i <= last_start; i += 1) {
-            if (!self.[i].eq(first)) {
+            if (self.[i] != first) {
                 continue;
             }
 
             let mut matched = true;
             for (let mut j = 1; j < needle_len; j += 1) {
-                if (!self.[i + j].eq(needle.[j])) {
+                if (self.[i + j] != needle.[j]) {
                     matched = false;
                     break;
                 }

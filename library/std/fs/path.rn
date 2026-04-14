@@ -291,13 +291,13 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
         for (; index < #path and !is_path_separator(path.[index]); index += 1) {}
         let segment = path.[start .. index];
 
-        if (segment.eq(".")) {
+        if (segment == ".") {
             continue;
         }
 
-        if (segment.eq("..")) {
+        if (segment == "..") {
             let can_pop = segments.last().is_some_and(.[](last: []u8) bool {
-                return !last.eq("..");
+                return last != "..";
             });
             if (can_pop) {
                 let _ = segments.pop();

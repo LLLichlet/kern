@@ -91,7 +91,7 @@ impl *String {
 
 impl String : Eq[String] {
     pub fn eq(other: String) bool {
-        return self.&.as_str().eq(other.&.as_str());
+        return self.&.as_str() == other.&.as_str();
     }
 }
 

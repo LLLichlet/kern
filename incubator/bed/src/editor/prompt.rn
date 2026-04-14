@@ -50,7 +50,7 @@ impl *mut Editor {
         let history = self.prompt_history_mut();
         if (history.len > 0) {
             let last = history.as_slice().[history.len - 1].&.as_str();
-            if (last.eq(line)) {
+            if (last == line) {
                 return;
             }
         }

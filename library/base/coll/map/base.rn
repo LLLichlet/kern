@@ -80,7 +80,7 @@ pub fn key_hash[K](key: K) u64
 pub fn keys_equal[K](lhs: K, rhs: K) bool
     where K: Eq[K] + Hash[K],
 {
-    return lhs.eq(rhs);
+    return lhs == rhs;
 }
 
 /// Finds the slot index for a key and precomputed hash.

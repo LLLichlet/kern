@@ -300,7 +300,8 @@ impl CompilerDriver {
                         || ctx.resolve(function.name) == "main";
                     let preserve_package_export_root = self.options.metadata_output.is_some()
                         && (function.vis == Visibility::Public || exported_via_pub_use);
-                    let is_lower_root = function.is_extern
+                    let is_lower_root = !function.vis.is_private()
+                        || function.is_extern
                         || self.item_has_export_name(&function.attributes, ctx)
                         || ctx.resolve(function.name) == "main"
                         || exported_from_root_module
@@ -349,7 +350,8 @@ impl CompilerDriver {
                                 ReachabilityItemKind::Constant
                             },
                             is_root,
-                            is_lower_root: global.is_extern
+                            is_lower_root: !global.vis.is_private()
+                                || global.is_extern
                                 || self.item_has_export_name(&global.attributes, ctx)
                                 || exported_from_root_module
                                 || preserve_package_export_root,

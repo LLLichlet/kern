@@ -1178,6 +1178,61 @@ fn lowering_respects_visibility_for_linkage() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn lowering_keeps_pub_super_imported_helpers_reachable() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_lower_pub_super_import_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(root.join("left")).unwrap();
+    fs::create_dir_all(root.join("right")).unwrap();
+    let main = root.join("main.rn");
+    fs::write(
+        &main,
+        concat!(
+            "mod left;\n",
+            "mod right;\n",
+            "extern fn main() i32 { return right.value(); }\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("left").join("init.rn"),
+        "pub.. fn helper() i32 { return 7; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("right").join("init.rn"),
+        concat!(
+            "use ..left.helper;\n",
+            "pub fn value() i32 { return helper(); }\n",
+        ),
+    )
+    .unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let mut session = Session::new();
+    let mut ctx = driver
+        .analyze(&mut session, main.to_str().unwrap())
+        .expect("expected sema context");
+    let module = driver
+        .lower_module(&mut ctx)
+        .expect("expected lowered module");
+
+    let helper = module
+        .functions
+        .iter()
+        .find(|function| function.name.contains("helper"))
+        .expect("expected imported pub.. helper to be lowered");
+    assert_eq!(helper.linkage, kernc_mast::MastLinkage::External);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
 fn count_calls_to_block(block: &MastBlock, target: MonoId) -> usize {
     let mut total = 0;
     for stmt in &block.stmts {

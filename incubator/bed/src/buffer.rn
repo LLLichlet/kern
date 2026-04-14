@@ -1,6 +1,5 @@
 //! Line-oriented text buffer editing.
 
-use base.Result;
 use base.coll.{List, String};
 use base.mem.alloc.Allocator;
 use std.fs;
@@ -38,7 +37,7 @@ fn push_line(alloc: *mut Allocator, lines: *mut List[String], text: []u8) bool {
 }
 
 /// Creates an empty single-line buffer.
-pub fn empty(alloc: *mut Allocator, path: []u8) Result[TextBuffer, Error] {
+pub fn empty(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
     let mut buffer = TextBuffer.{};
     if (!buffer.path..&.clone_from(alloc, path)) {
         return .{ Err: .OutOfMemory };
@@ -51,7 +50,7 @@ pub fn empty(alloc: *mut Allocator, path: []u8) Result[TextBuffer, Error] {
 }
 
 /// Opens a file into a line-oriented buffer.
-pub fn open(alloc: *mut Allocator, path: []u8) Result[TextBuffer, Error] {
+pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
     let mut storage = match (fs.read_to_string(alloc, path)) {
         .{ Ok: text } => text,
         .{ Err: err } => return .{ Err: .{ Fs: err } },
@@ -84,7 +83,7 @@ pub fn open(alloc: *mut Allocator, path: []u8) Result[TextBuffer, Error] {
 }
 
 /// Creates a buffer from in-memory text without touching the filesystem.
-pub fn from_text(alloc: *mut Allocator, path: []u8, text: []u8) Result[TextBuffer, Error] {
+pub fn from_text(alloc: *mut Allocator, path: []u8, text: []u8) TextBuffer!Error {
     let mut buffer = TextBuffer.{};
     if (!buffer.path..&.clone_from(alloc, path)) {
         return .{ Err: .OutOfMemory };
@@ -262,7 +261,7 @@ impl *mut TextBuffer {
     }
 
     /// Writes the full buffer back to its current path.
-    pub fn write(alloc: *mut Allocator) Result[bool, Error] {
+    pub fn write(alloc: *mut Allocator) bool!Error {
         if (!self.has_path()) {
             return .{ Err: .MissingPath };
         }

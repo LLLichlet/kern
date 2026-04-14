@@ -1,7 +1,5 @@
 //! Terminal input decoding.
 
-use base.Option;
-use base.Result;
 use std.fs;
 
 /// The normalized key events used by `bed`.
@@ -24,12 +22,9 @@ pub type Key = enum {
     Byte: u8,
 };
 
-fn read_optional_byte(stdin: *mut fs.File) Result[Option[u8], fs.Error] {
+fn read_optional_byte(stdin: *mut fs.File) ?u8!fs.Error {
     let buf = [1]mut u8.{undef};
-    let read = match (stdin.read(buf..[0 .. 1])) {
-        .{ Ok: count } => count,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let read = stdin.read(buf..[0 .. 1]).!;
     if (read == 0) {
         return .{ Ok: .None };
     }
@@ -61,18 +56,12 @@ pub fn map_csi_tilde(param: usize) Key {
     }
 }
 
-fn read_escape_sequence(stdin: *mut fs.File) Result[Key, fs.Error] {
-    let second = match (read_optional_byte(stdin)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => return .{ Err: err },
-    };
+fn read_escape_sequence(stdin: *mut fs.File) Key!fs.Error {
+    let second = read_optional_byte(stdin).!;
     let .{ Some: second_byte } = second else return .{ Ok: .Escape };
 
     if (second_byte == b'O') {
-        let third = match (read_optional_byte(stdin)) {
-            .{ Ok: value } => value,
-            .{ Err: err } => return .{ Err: err },
-        };
+        let third = read_optional_byte(stdin).!;
         let .{ Some: third_byte } = third else return .{ Ok: .Escape };
         return .{ Ok: map_csi_final(third_byte) };
     }
@@ -81,10 +70,7 @@ fn read_escape_sequence(stdin: *mut fs.File) Result[Key, fs.Error] {
         return .{ Ok: .Escape };
     }
 
-    let third = match (read_optional_byte(stdin)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let third = read_optional_byte(stdin).!;
     let .{ Some: third_byte } = third else return .{ Ok: .Escape };
 
     if (third_byte >= b'A' and third_byte <= b'Z') {
@@ -97,10 +83,7 @@ fn read_escape_sequence(stdin: *mut fs.File) Result[Key, fs.Error] {
 
     let mut param = (third_byte - b'0') as usize;
     for (;;) {
-        let next = match (read_optional_byte(stdin)) {
-            .{ Ok: value } => value,
-            .{ Err: err } => return .{ Err: err },
-        };
+        let next = read_optional_byte(stdin).!;
         let .{ Some: next_byte } = next else return .{ Ok: .Escape };
 
         if (next_byte >= b'0' and next_byte <= b'9') {
@@ -110,10 +93,7 @@ fn read_escape_sequence(stdin: *mut fs.File) Result[Key, fs.Error] {
 
         if (next_byte == b';') {
             for (;;) {
-                let tail = match (read_optional_byte(stdin)) {
-                    .{ Ok: value } => value,
-                    .{ Err: err } => return .{ Err: err },
-                };
+                let tail = read_optional_byte(stdin).!;
                 let .{ Some: tail_byte } = tail else return .{ Ok: .Escape };
                 if (tail_byte >= b'0' and tail_byte <= b'9') {
                     continue;
@@ -131,12 +111,8 @@ fn read_escape_sequence(stdin: *mut fs.File) Result[Key, fs.Error] {
 }
 
 /// Reads one normalized key from raw terminal input.
-pub fn read_key(stdin: *mut fs.File) Result[Key, fs.Error] {
-    let first = match (read_optional_byte(stdin)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => return .{ Err: err },
-    };
-
+pub fn read_key(stdin: *mut fs.File) Key!fs.Error {
+    let first = read_optional_byte(stdin).!;
     let .{ Some: byte } = first else return .{ Ok: .NoInput };
     if (byte == u8.{3}) {
         return .{ Ok: .CtrlC };

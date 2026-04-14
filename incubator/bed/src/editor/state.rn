@@ -1,4 +1,3 @@
-use base.Result;
 use base.coll.{List, String};
 use base.mem.alloc.Allocator;
 use mode.Mode;
@@ -130,7 +129,7 @@ pub fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEn
     }
 }
 
-pub fn open_path(alloc: *mut Allocator, path: []u8) Result[TextBuffer, BufferError] {
+pub fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
     let exists = match (fs.exists(alloc, path)) {
         .{ Ok: present } => present,
         .{ Err: err } => return .{ Err: .{ Fs: err } },
@@ -182,7 +181,7 @@ pub type Editor = struct {
     pub wants_quit: bool = false,
 };
 
-fn editor_with_buffer(alloc: *mut Allocator, text_buffer: TextBuffer) Result[Editor, BufferError] {
+fn editor_with_buffer(alloc: *mut Allocator, text_buffer: TextBuffer) Editor!BufferError {
     let mut editor = Editor.{};
     if (!editor.layout_nodes..&.push(alloc, .{ window_index: 0 })) {
         return .{ Err: .OutOfMemory };
@@ -202,20 +201,14 @@ fn editor_with_buffer(alloc: *mut Allocator, text_buffer: TextBuffer) Result[Edi
 }
 
 /// Creates a new unnamed editor.
-pub fn empty(alloc: *mut Allocator) Result[Editor, BufferError] {
-    let text_buffer = match (buffer.empty(alloc, "")) {
-        .{ Ok: value } => value,
-        .{ Err: err } => return .{ Err: err },
-    };
+pub fn empty(alloc: *mut Allocator) Editor!BufferError {
+    let text_buffer = buffer.empty(alloc, "").!;
     return editor_with_buffer(alloc, text_buffer);
 }
 
 /// Opens one path into an editor, creating a new named buffer when absent.
-pub fn open(alloc: *mut Allocator, path: []u8) Result[Editor, BufferError] {
-    let text_buffer = match (open_path(alloc, path)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => return .{ Err: err },
-    };
+pub fn open(alloc: *mut Allocator, path: []u8) Editor!BufferError {
+    let text_buffer = open_path(alloc, path).!;
     return editor_with_buffer(alloc, text_buffer);
 }
 

@@ -5,8 +5,6 @@
 //! validate, slice, and normalize JSON payloads before deciding whether to own
 //! or decode them further.
 
-use base.Option;
-use base.Result;
 
 mod decoder;
 mod document;
@@ -169,100 +167,100 @@ pub type ErrorLocation = struct {
 pub fn clone_decoded_string_raw(
     alloc: *mut base.mem.alloc.Allocator,
     raw: []u8,
-) Result[base.coll.String, StringDecodeError] {
+) base.coll.String!StringDecodeError {
     return decoder.clone_decoded_string_raw(alloc, raw);
 }
 
-pub fn decoded_string_size_raw(raw: []u8) Result[usize, StringDecodeError] {
+pub fn decoded_string_size_raw(raw: []u8) usize!StringDecodeError {
     return decoder.decoded_string_size_raw(raw);
 }
 
-pub fn write_decoded_string_raw(raw: []u8, out: []mut u8) Result[usize, StringDecodeError] {
+pub fn write_decoded_string_raw(raw: []u8, out: []mut u8) usize!StringDecodeError {
     return decoder.write_decoded_string_raw(raw, out);
 }
 
-pub fn parse_u64_raw(raw: []u8) Result[u64, NumberDecodeError] {
+pub fn parse_u64_raw(raw: []u8) u64!NumberDecodeError {
     return number.parse_u64_raw(raw);
 }
 
-pub fn parse_u32_raw(raw: []u8) Result[u32, NumberDecodeError] {
+pub fn parse_u32_raw(raw: []u8) u32!NumberDecodeError {
     return number.parse_u32_raw(raw);
 }
 
-pub fn parse_i64_raw(raw: []u8) Result[i64, NumberDecodeError] {
+pub fn parse_i64_raw(raw: []u8) i64!NumberDecodeError {
     return number.parse_i64_raw(raw);
 }
 
-pub fn parse_i32_raw(raw: []u8) Result[i32, NumberDecodeError] {
+pub fn parse_i32_raw(raw: []u8) i32!NumberDecodeError {
     return number.parse_i32_raw(raw);
 }
 
-pub fn parse_u16_raw(raw: []u8) Result[u16, NumberDecodeError] {
+pub fn parse_u16_raw(raw: []u8) u16!NumberDecodeError {
     return number.parse_u16_raw(raw);
 }
 
-pub fn parse_i16_raw(raw: []u8) Result[i16, NumberDecodeError] {
+pub fn parse_i16_raw(raw: []u8) i16!NumberDecodeError {
     return number.parse_i16_raw(raw);
 }
 
-pub fn parse_u8_raw(raw: []u8) Result[u8, NumberDecodeError] {
+pub fn parse_u8_raw(raw: []u8) u8!NumberDecodeError {
     return number.parse_u8_raw(raw);
 }
 
-pub fn parse_i8_raw(raw: []u8) Result[i8, NumberDecodeError] {
+pub fn parse_i8_raw(raw: []u8) i8!NumberDecodeError {
     return number.parse_i8_raw(raw);
 }
 
-pub fn parse_usize_raw(raw: []u8) Result[usize, NumberDecodeError] {
+pub fn parse_usize_raw(raw: []u8) usize!NumberDecodeError {
     return number.parse_usize_raw(raw);
 }
 
-pub fn parse_isize_raw(raw: []u8) Result[isize, NumberDecodeError] {
+pub fn parse_isize_raw(raw: []u8) isize!NumberDecodeError {
     return number.parse_isize_raw(raw);
 }
 
-pub fn parse_f64_raw(raw: []u8) Result[f64, FloatDecodeError] {
+pub fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
     return number.parse_f64_raw(raw);
 }
 
-pub fn parse_f32_raw(raw: []u8) Result[f32, FloatDecodeError] {
+pub fn parse_f32_raw(raw: []u8) f32!FloatDecodeError {
     return number.parse_f32_raw(raw);
 }
 
 pub fn clone_owned(
     alloc: *mut base.mem.alloc.Allocator,
     value: Value,
-) Result[OwnedValue, MaterializeError] {
+) OwnedValue!MaterializeError {
     return owned.clone_owned_value(alloc, value);
 }
 
 pub fn clone_owned_document(
     value: Value,
-) Result[OwnedDocument, MaterializeError] {
+) OwnedDocument!MaterializeError {
     return document.clone_owned_document(value);
 }
 
 pub fn clone_indexed_object_document(
     value: Value,
-) Result[IndexedObjectDocument, IndexedObjectDocumentError] {
+) IndexedObjectDocument!IndexedObjectDocumentError {
     return document.clone_indexed_object_document(value);
 }
 
-pub fn error_offset(err: ParseError) Option[usize] {
+pub fn error_offset(err: ParseError) ?usize {
     return parser.error_offset(err);
 }
 
-pub fn locate_error(text: []u8, err: ParseError) Option[ErrorLocation] {
+pub fn locate_error(text: []u8, err: ParseError) ?ErrorLocation {
     return parser.locate_error(text, err);
 }
 
-pub fn parse(text: []u8) Result[Value, ParseError] {
+pub fn parse(text: []u8) Value!ParseError {
     return parser.parse(text);
 }
 
 pub fn parse_owned_document(
     text: []u8,
-) Result[OwnedDocument, MaterializeError] {
+) OwnedDocument!MaterializeError {
     let .{ Ok: value } = parse(text)
         else .{ Err: err } => return .{ Err: .{ Parse: err } };
     return clone_owned_document(value);
@@ -270,7 +268,7 @@ pub fn parse_owned_document(
 
 pub fn parse_indexed_object_document(
     text: []u8,
-) Result[IndexedObjectDocument, IndexedObjectDocumentError] {
+) IndexedObjectDocument!IndexedObjectDocumentError {
     let .{ Ok: value } = parse(text)
         else .{ Err: err } => return .{ Err: .{ Materialize: .{ Parse: err } } };
     return clone_indexed_object_document(value);
@@ -278,33 +276,33 @@ pub fn parse_indexed_object_document(
 
 pub fn parse_packed_document(
     text: []u8,
-) Result[PackedDocument, MaterializeError] {
+) PackedDocument!MaterializeError {
     return packed.parse_packed_document(text);
 }
 
 pub fn parse_packed_indexed_object_document(
     text: []u8,
-) Result[PackedIndexedObjectDocument, PackedIndexedObjectDocumentError] {
+) PackedIndexedObjectDocument!PackedIndexedObjectDocumentError {
     return packed.parse_packed_indexed_object_document(text);
 }
 
-pub fn parse_prefix(text: []u8) Result[ParsedPrefix, ParseError] {
+pub fn parse_prefix(text: []u8) ParsedPrefix!ParseError {
     return parser.parse_prefix(text);
 }
 
-pub fn parse_value(text: []u8) Result[ParsedValue, ParseError] {
+pub fn parse_value(text: []u8) ParsedValue!ParseError {
     return parser.parse_value(text);
 }
 
-pub fn validate(text: []u8) Result[void, ParseError] {
+pub fn validate(text: []u8) void!ParseError {
     return parser.validate(text);
 }
 
-pub fn compact_size(value: Value) Result[usize, ParseError] {
+pub fn compact_size(value: Value) usize!ParseError {
     return renderer.compact_size(value);
 }
 
-pub fn render_compact(value: Value, out: []mut u8) Result[usize, RenderError] {
+pub fn render_compact(value: Value, out: []mut u8) usize!RenderError {
     return renderer.render_compact(value, out);
 }
 
@@ -312,6 +310,6 @@ pub fn compact_size_owned(value: *mut OwnedValue) usize {
     return renderer.compact_size_owned(value);
 }
 
-pub fn render_compact_owned(value: *mut OwnedValue, out: []mut u8) Result[usize, OwnedRenderError] {
+pub fn render_compact_owned(value: *mut OwnedValue, out: []mut u8) usize!OwnedRenderError {
     return renderer.render_compact_owned(value, out);
 }

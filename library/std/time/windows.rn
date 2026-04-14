@@ -19,7 +19,7 @@ fn performance_frequency() u64 {
     return frequency as u64;
 }
 
-pub fn monotonic_now_nanos() u64 {
+pub.. fn monotonic_now_nanos() u64 {
     let freq = performance_frequency();
     if (freq == 0) {
         return 0;
@@ -46,7 +46,7 @@ pub fn monotonic_now_nanos() u64 {
     return nanos_from_secs + nanos_from_rem;
 }
 
-pub fn sleep_nanos(nanos: u64) void {
+pub.. fn sleep_nanos(nanos: u64) void {
     if (nanos == 0) {
         return;
     }

@@ -24,7 +24,7 @@ fn eq_usize_range(lhs: *usize, rhs: *usize, len: usize) bool {
 }
 
 #[inline]
-pub fn bytes_eq(lhs: []u8, rhs: []u8) bool {
+pub.. fn bytes_eq(lhs: []u8, rhs: []u8) bool {
     if (#lhs != #rhs) {
         return false;
     }
@@ -152,31 +152,31 @@ impl []u8 {
 }
 
 /// Returns the first index of `byte` in `text`.
-pub fn find_byte(text: []u8, byte: u8) ?usize {
+pub.. fn find_byte(text: []u8, byte: u8) ?usize {
     return text.find_byte(byte);
 }
 
 /// Returns `true` when `text` contains `byte`.
-pub fn contains_byte(text: []u8, byte: u8) bool {
+pub.. fn contains_byte(text: []u8, byte: u8) bool {
     return text.contains_byte(byte);
 }
 
 /// Returns the last index of `byte` in `text`.
-pub fn rfind_byte(text: []u8, byte: u8) ?usize {
+pub.. fn rfind_byte(text: []u8, byte: u8) ?usize {
     return text.rfind_byte(byte);
 }
 
 /// Trims ASCII whitespace from the start of `text`.
-pub fn trim_ascii_start(text: []u8) []u8 {
+pub.. fn trim_ascii_start(text: []u8) []u8 {
     return text.trim_ascii_start();
 }
 
 /// Trims ASCII whitespace from the end of `text`.
-pub fn trim_ascii_end(text: []u8) []u8 {
+pub.. fn trim_ascii_end(text: []u8) []u8 {
     return text.trim_ascii_end();
 }
 
 /// Trims ASCII whitespace from both ends of `text`.
-pub fn trim_ascii(text: []u8) []u8 {
+pub.. fn trim_ascii(text: []u8) []u8 {
     return text.trim_ascii();
 }

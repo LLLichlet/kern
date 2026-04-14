@@ -6,7 +6,7 @@
 use base.num.USIZE_MAX;
 
 /// The size and alignment required for an allocation.
-pub type Layout = struct {
+pub.. type Layout = struct {
     /// The number of bytes required by the allocation.
     pub size: usize,
     /// The byte alignment required by the allocation.
@@ -23,7 +23,7 @@ impl Layout {
 /// Returns the layout of a single `T`.
 ///
 /// This is a compile-time query and does not allocate.
-pub const fn layout_of[T]() Layout {
+pub.. const fn layout_of[T]() Layout {
     return .{
         size: @sizeOf[T](),
         align: @alignOf[T](),
@@ -34,7 +34,7 @@ pub const fn layout_of[T]() Layout {
 ///
 /// Returns:
 /// `None` when the total size would overflow `usize`.
-pub const fn array_layout_of[T](count: usize) ?Layout {
+pub.. const fn array_layout_of[T](count: usize) ?Layout {
     let elem = layout_of[T]();
     if (elem.size == 0) {
         return .{

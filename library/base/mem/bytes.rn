@@ -1,5 +1,5 @@
 /// Moves `len` bytes from `src` to `dest`, correctly handling overlap.
-pub fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
+pub.. fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
     let d_addr = dest as usize;
     let s_addr = src as usize;
 

@@ -177,10 +177,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         );
                     }
                 }
-                TypeKind::TraitObject(trait_def_id, trait_args) => {
+                TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) => {
                     self.collect_trait_object_method_candidates(
                         trait_def_id,
                         &trait_args,
+                        &assoc_bindings,
                         receiver_ty,
                         &mut candidates,
                     );
@@ -224,6 +225,15 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         None
+    }
+
+    pub fn resolve_impl_applicability_for_type(
+        &mut self,
+        receiver_ty: TypeId,
+        impl_id: DefId,
+    ) -> Option<Vec<TypeId>> {
+        let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
+        self.resolve_impl_applicability(receiver_norm, impl_id)
     }
 
     fn search_types(&mut self, receiver_ty: TypeId) -> SearchTypes {
@@ -641,12 +651,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         candidates: &mut Vec<MemberCandidate>,
     ) {
         self.for_each_matching_bound_trait_object(search_norm, env, |this, bound_norm| {
-            if let TypeKind::TraitObject(trait_def_id, trait_args) =
+            if let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
                 this.ctx.type_registry.get(bound_norm).clone()
             {
                 this.collect_trait_object_method_candidates(
                     trait_def_id,
                     &trait_args,
+                    &assoc_bindings,
                     receiver_ty,
                     candidates,
                 );
@@ -955,6 +966,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         trait_def_id: DefId,
         trait_args: &[TypeId],
+        assoc_bindings: &[(DefId, TypeId)],
         receiver_ty: TypeId,
         candidates: &mut Vec<MemberCandidate>,
     ) {
@@ -962,6 +974,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         self.collect_trait_methods_in_hierarchy(
             trait_def_id,
             trait_args,
+            assoc_bindings,
             receiver_ty,
             &mut visited,
             candidates,
@@ -976,7 +989,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
         let trait_object_ty = self.ctx.type_registry.normalize(trait_object_ty);
-        let TypeKind::TraitObject(trait_def_id, trait_args) =
+        let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
             self.ctx.type_registry.get(trait_object_ty).clone()
         else {
             return None;
@@ -991,6 +1004,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         let resolution = self.resolve_trait_method_in_hierarchy(
             trait_def_id,
             &trait_args,
+            &assoc_bindings,
             member_name,
             receiver_ty,
             &mut visited,
@@ -1008,6 +1022,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         trait_def_id: DefId,
         trait_args: &[TypeId],
+        assoc_bindings: &[(DefId, TypeId)],
         receiver_ty: TypeId,
         visited: &mut FastHashSet<DefId>,
         candidates: &mut Vec<MemberCandidate>,
@@ -1065,6 +1080,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
                 method_ty = subst.substitute(method_ty);
             }
+            method_ty = self.materialize_trait_assoc_placeholders(
+                method_ty,
+                receiver_ty,
+                trait_def_id,
+                trait_args,
+                assoc_bindings,
+            );
 
             push_member_candidate(
                 candidates,
@@ -1079,21 +1101,38 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             );
         }
 
+        let assoc_binding_map = assoc_bindings
+            .iter()
+            .copied()
+            .collect::<FastHashMap<_, _>>();
+
         for &super_ty in &trait_def.resolved_supertraits {
             let inst_super_ty = if let Some(trait_arg_map) = trait_arg_map.as_ref() {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
-                subst.substitute(super_ty)
-            } else {
+                let substituted = subst.substitute(super_ty);
+                crate::checker::substitute_associated_types(
+                    &mut self.ctx.type_registry,
+                    substituted,
+                    &assoc_binding_map,
+                )
+            } else if assoc_binding_map.is_empty() {
                 super_ty
+            } else {
+                crate::checker::substitute_associated_types(
+                    &mut self.ctx.type_registry,
+                    super_ty,
+                    &assoc_binding_map,
+                )
             };
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
 
-            if let TypeKind::TraitObject(super_def_id, super_args) =
+            if let TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) =
                 self.ctx.type_registry.get(inst_super_norm).clone()
             {
                 self.collect_trait_methods_in_hierarchy(
                     super_def_id,
                     &super_args,
+                    &super_assoc_bindings,
                     receiver_ty,
                     visited,
                     candidates,
@@ -1106,6 +1145,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         trait_def_id: DefId,
         trait_args: &[TypeId],
+        assoc_bindings: &[(DefId, TypeId)],
         member_name: SymbolId,
         receiver_ty: TypeId,
         visited: &mut FastHashSet<DefId>,
@@ -1138,6 +1178,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             )
         };
 
+        let assoc_binding_map = assoc_bindings
+            .iter()
+            .copied()
+            .collect::<FastHashMap<_, _>>();
+
         if let Some((_, method_ty)) = trait_def
             .resolved_methods
             .iter()
@@ -1165,6 +1210,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
                 method_ty = subst.substitute(method_ty);
             }
+            method_ty = self.materialize_trait_assoc_placeholders(
+                method_ty,
+                receiver_ty,
+                trait_def_id,
+                trait_args,
+                assoc_bindings,
+            );
 
             return Some(MemberResolution {
                 candidate: MemberCandidate {
@@ -1178,7 +1230,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 owner_trait_ty: Some(
                     self.ctx
                         .type_registry
-                        .intern(TypeKind::TraitObject(trait_def_id, trait_args.to_vec())),
+                        .intern(TypeKind::TraitObject(
+                            trait_def_id,
+                            trait_args.to_vec(),
+                            assoc_bindings.to_vec(),
+                        )),
                 ),
             });
         }
@@ -1187,17 +1243,29 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         for &super_ty in &trait_def.resolved_supertraits {
             let inst_super_ty = if let Some(trait_arg_map) = trait_arg_map.as_ref() {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
-                subst.substitute(super_ty)
-            } else {
+                let substituted = subst.substitute(super_ty);
+                crate::checker::substitute_associated_types(
+                    &mut self.ctx.type_registry,
+                    substituted,
+                    &assoc_binding_map,
+                )
+            } else if assoc_binding_map.is_empty() {
                 super_ty
+            } else {
+                crate::checker::substitute_associated_types(
+                    &mut self.ctx.type_registry,
+                    super_ty,
+                    &assoc_binding_map,
+                )
             };
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
 
-            if let TypeKind::TraitObject(super_def_id, super_args) =
+            if let TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) =
                 self.ctx.type_registry.get(inst_super_norm).clone()
                 && let Some(resolution) = self.resolve_trait_method_in_hierarchy(
                     super_def_id,
                     &super_args,
+                    &super_assoc_bindings,
                     member_name,
                     receiver_ty,
                     visited,
@@ -1233,6 +1301,452 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         matches.into_iter().next()
+    }
+
+    fn materialize_trait_assoc_placeholders(
+        &mut self,
+        ty: TypeId,
+        receiver_ty: TypeId,
+        trait_def_id: DefId,
+        trait_args: &[TypeId],
+        assoc_bindings: &[(DefId, TypeId)],
+    ) -> TypeId {
+        let assoc_binding_map = assoc_bindings
+            .iter()
+            .copied()
+            .collect::<FastHashMap<_, _>>();
+        let substituted = crate::checker::substitute_associated_types(
+            &mut self.ctx.type_registry,
+            ty,
+            &assoc_binding_map,
+        );
+        self.project_unbound_trait_assoc_types(
+            substituted,
+            receiver_ty,
+            trait_def_id,
+            trait_args,
+        )
+    }
+
+    fn project_unbound_trait_assoc_types(
+        &mut self,
+        ty: TypeId,
+        receiver_ty: TypeId,
+        trait_def_id: DefId,
+        trait_args: &[TypeId],
+    ) -> TypeId {
+        let kind = self.ctx.type_registry.get(ty).clone();
+        match kind {
+            TypeKind::Primitive(_)
+            | TypeKind::Simd { .. }
+            | TypeKind::Error
+            | TypeKind::Module(_)
+            | TypeKind::TypeVar(_)
+            | TypeKind::Param(_) => ty,
+            TypeKind::Associated(assoc_def_id, assoc_args) => {
+                let new_assoc_args = assoc_args
+                    .into_iter()
+                    .map(|arg| {
+                        self.project_unbound_trait_assoc_types(
+                            arg,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let belongs_to_trait = matches!(
+                    self.ctx.defs.get(assoc_def_id.0 as usize),
+                    Some(Def::AssociatedType(assoc_def))
+                        if assoc_def.parent_trait == Some(trait_def_id)
+                );
+                if belongs_to_trait {
+                    self.ctx.type_registry.intern(TypeKind::Projection {
+                        target: receiver_ty,
+                        trait_def_id,
+                        trait_args: trait_args.to_vec(),
+                        assoc_def_id,
+                        assoc_args: new_assoc_args,
+                    })
+                } else {
+                    self.ctx
+                        .type_registry
+                        .intern(TypeKind::Associated(assoc_def_id, new_assoc_args))
+                }
+            }
+            TypeKind::Pointer { is_mut, elem } => {
+                let new_elem = self.project_unbound_trait_assoc_types(
+                    elem,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut,
+                    elem: new_elem,
+                })
+            }
+            TypeKind::VolatilePtr { is_mut, elem } => {
+                let new_elem = self.project_unbound_trait_assoc_types(
+                    elem,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                    is_mut,
+                    elem: new_elem,
+                })
+            }
+            TypeKind::Slice { is_mut, elem } => {
+                let new_elem = self.project_unbound_trait_assoc_types(
+                    elem,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::Slice {
+                    is_mut,
+                    elem: new_elem,
+                })
+            }
+            TypeKind::Array { is_mut, elem, len } => {
+                let new_elem = self.project_unbound_trait_assoc_types(
+                    elem,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::Array {
+                    is_mut,
+                    elem: new_elem,
+                    len,
+                })
+            }
+            TypeKind::ArrayInfer { is_mut, elem } => {
+                let new_elem = self.project_unbound_trait_assoc_types(
+                    elem,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::ArrayInfer {
+                    is_mut,
+                    elem: new_elem,
+                })
+            }
+            TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } => {
+                let new_params = params
+                    .into_iter()
+                    .map(|param| {
+                        self.project_unbound_trait_assoc_types(
+                            param,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                let new_ret = self.project_unbound_trait_assoc_types(
+                    ret,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::Function {
+                    params: new_params,
+                    ret: new_ret,
+                    is_variadic,
+                })
+            }
+            TypeKind::Def(def_id, args) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.project_unbound_trait_assoc_types(
+                            arg,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                self.ctx.type_registry.intern(TypeKind::Def(def_id, new_args))
+            }
+            TypeKind::Enum(def_id, args) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.project_unbound_trait_assoc_types(
+                            arg,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                self.ctx.type_registry.intern(TypeKind::Enum(def_id, new_args))
+            }
+            TypeKind::EnumPayload(def_id, args) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.project_unbound_trait_assoc_types(
+                            arg,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::EnumPayload(def_id, new_args))
+            }
+            TypeKind::TraitObject(def_id, args, assoc_bindings) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.project_unbound_trait_assoc_types(
+                            arg,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                let new_assoc_bindings = assoc_bindings
+                    .into_iter()
+                    .map(|(assoc_def_id, assoc_ty)| {
+                        (
+                            assoc_def_id,
+                            self.project_unbound_trait_assoc_types(
+                                assoc_ty,
+                                receiver_ty,
+                                trait_def_id,
+                                trait_args,
+                            ),
+                        )
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::TraitObject(def_id, new_args, new_assoc_bindings))
+            }
+            TypeKind::Projection {
+                target,
+                trait_def_id: projection_trait_def_id,
+                trait_args: projection_trait_args,
+                assoc_def_id,
+                assoc_args,
+            } => {
+                let new_target = self.project_unbound_trait_assoc_types(
+                    target,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                let new_trait_args = projection_trait_args
+                    .into_iter()
+                    .map(|arg| {
+                        self.project_unbound_trait_assoc_types(
+                            arg,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                let new_assoc_args = assoc_args
+                    .into_iter()
+                    .map(|arg| {
+                        self.project_unbound_trait_assoc_types(
+                            arg,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                self.ctx.type_registry.intern(TypeKind::Projection {
+                    target: new_target,
+                    trait_def_id: projection_trait_def_id,
+                    trait_args: new_trait_args,
+                    assoc_def_id,
+                    assoc_args: new_assoc_args,
+                })
+            }
+            TypeKind::ClosureInterface { params, ret } => {
+                let new_params = params
+                    .into_iter()
+                    .map(|param| {
+                        self.project_unbound_trait_assoc_types(
+                            param,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                let new_ret = self.project_unbound_trait_assoc_types(
+                    ret,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::ClosureInterface {
+                    params: new_params,
+                    ret: new_ret,
+                })
+            }
+            TypeKind::AnonymousState {
+                closure_node_id,
+                captures,
+                params,
+                ret,
+            } => {
+                let new_captures = captures
+                    .into_iter()
+                    .map(|capture| {
+                        self.project_unbound_trait_assoc_types(
+                            capture,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                let new_params = params
+                    .into_iter()
+                    .map(|param| {
+                        self.project_unbound_trait_assoc_types(
+                            param,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                let new_ret = self.project_unbound_trait_assoc_types(
+                    ret,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::AnonymousState {
+                    closure_node_id,
+                    captures: new_captures,
+                    params: new_params,
+                    ret: new_ret,
+                })
+            }
+            TypeKind::Alias(name, target) => {
+                let new_target = self.project_unbound_trait_assoc_types(
+                    target,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::Alias(name, new_target))
+            }
+            TypeKind::FnDef(def_id, args) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.project_unbound_trait_assoc_types(
+                            arg,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        )
+                    })
+                    .collect();
+                self.ctx.type_registry.intern(TypeKind::FnDef(def_id, new_args))
+            }
+            TypeKind::AnonymousStruct(is_extern, fields) => {
+                let new_fields = fields
+                    .into_iter()
+                    .map(|field| crate::ty::AnonymousField {
+                        name: field.name,
+                        ty: self.project_unbound_trait_assoc_types(
+                            field.ty,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        ),
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousStruct(is_extern, new_fields))
+            }
+            TypeKind::AnonymousUnion(is_extern, fields) => {
+                let new_fields = fields
+                    .into_iter()
+                    .map(|field| crate::ty::AnonymousField {
+                        name: field.name,
+                        ty: self.project_unbound_trait_assoc_types(
+                            field.ty,
+                            receiver_ty,
+                            trait_def_id,
+                            trait_args,
+                        ),
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousUnion(is_extern, new_fields))
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                let new_backing_ty = enum_def.backing_ty.map(|backing_ty| {
+                    self.project_unbound_trait_assoc_types(
+                        backing_ty,
+                        receiver_ty,
+                        trait_def_id,
+                        trait_args,
+                    )
+                });
+                let new_variants = enum_def
+                    .variants
+                    .into_iter()
+                    .map(|variant| crate::ty::AnonymousVariant {
+                        name: variant.name,
+                        name_span: variant.name_span,
+                        payload_ty: variant.payload_ty.map(|payload_ty| {
+                            self.project_unbound_trait_assoc_types(
+                                payload_ty,
+                                receiver_ty,
+                                trait_def_id,
+                                trait_args,
+                            )
+                        }),
+                        explicit_value: variant.explicit_value,
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnum(crate::ty::AnonymousEnum {
+                        backing_ty: new_backing_ty,
+                        builtin: enum_def.builtin,
+                        variants: new_variants,
+                    }))
+            }
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let new_enum_ty = self.project_unbound_trait_assoc_types(
+                    enum_ty,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnumPayload(new_enum_ty))
+            }
+        }
     }
 
     fn apply_generics_to_field(

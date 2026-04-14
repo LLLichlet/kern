@@ -580,7 +580,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Add[T, T]"),
+        stderr.contains("Add[T, Out = T]"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -680,7 +680,7 @@ fn main() i32 {
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Neg[T]"), "unexpected stderr:\n{}", stderr);
+    assert!(stderr.contains("Neg[Out = T]"), "unexpected stderr:\n{}", stderr);
 }
 
 #[test]
@@ -773,14 +773,16 @@ type Vec2 = struct {
     y: i32,
 };
 
-impl Vec2 : Add[Vec2, Vec2] {
+impl Vec2 : Add[Vec2] {
+    type Out = Vec2;
+
     pub fn add(other: Vec2) Vec2 {
         return Vec2.{ x: self.x + other.x, y: self.y + other.y };
     }
 }
 
 fn plus[T](lhs: T, rhs: T) T
-    where T: Add[T, T],
+    where T: Add[T, Out = T],
 {
     return lhs + rhs;
 }
@@ -797,6 +799,57 @@ fn main() i32 {
 }
 "#,
         &["--library-bundle", "std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_projection_return_types_from_generic_trait_bounds() {
+    let output = build_and_run(
+        "kernc_trait_projection_return_type",
+        r#"
+type Add[Rhs] = trait {
+    type Out;
+    add: fn(Rhs) Out,
+};
+
+type Vec2 = struct {
+    x: i32,
+    y: i32,
+};
+
+impl Vec2 : Add[i32] {
+    type Out = Vec2;
+
+    fn add(rhs: i32) Vec2 {
+        return Vec2.{ x: self.x + rhs, y: self.y + rhs };
+    }
+}
+
+fn plus_one[T](value: T) T.Add[i32].Out
+    where T: Add[i32],
+{
+    return value.add(1);
+}
+
+fn main() i32 {
+    let out = plus_one(Vec2.{ x: 2, y: 5 });
+    if (out.x != 3) {
+        return 1;
+    }
+    if (out.y != 6) {
+        return 2;
+    }
+    return 0;
+}
+"#,
+        &[],
     );
 
     assert!(

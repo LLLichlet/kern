@@ -330,6 +330,99 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_unsupported_object_pointer_addition_forms_after_trait_routing() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let .{ Some: lhs } = 1 as ?*mut i32 else @trap();
+    let .{ Some: rhs } = 2 as ?*mut i32 else @trap();
+    let _ = lhs + rhs;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted unsupported `*T + *T` arithmetic:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("operator `+` is not available for `*mut i32` and `*mut i32`"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn keeps_object_pointer_offset_arithmetic_available_through_operator_impls() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let .{ Some: ptr } = 100 as ?*mut i32 else @trap();
+    let next = ptr + usize.{7};
+    let prev = next - usize.{3};
+    return (prev as usize) as i32;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(116),
+        "object-pointer arithmetic regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn keeps_zero_sized_object_pointer_offsets_stable_through_operator_impls() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let .{ Some: ptr } = 77 as ?*mut void else @trap();
+    let next = ptr + usize.{9};
+    let prev = next - usize.{4};
+    return if ((prev as usize) == 77) 0 else 1;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "zero-sized object-pointer arithmetic regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn keeps_builtin_address_pointer_arithmetic_for_volatile_pointers() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let ptr = 9 as ^mut i32;
+    let next = ptr + usize.{5};
+    let prev = next - usize.{2};
+    return (prev as usize) as i32;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(12),
+        "address-pointer arithmetic regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_direct_volatile_to_object_pointer_casts() {
     let output = compile_source(
         r#"

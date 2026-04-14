@@ -88,7 +88,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 elem_ty.array_type(len as u32).into()
             }
 
-            TypeKind::TraitObject(_, _) | TypeKind::Slice { .. } => {
+            TypeKind::TraitObject(..) | TypeKind::Slice { .. } => {
                 let ptr_ty = self.context.ptr_type(AddressSpace::default());
                 let len_ty = self.context.i64_type();
                 self.context

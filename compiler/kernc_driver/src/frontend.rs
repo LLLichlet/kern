@@ -754,17 +754,24 @@ impl CachedAstRebinder<'_> {
         self.rebind_span(&mut ty.span);
 
         match &mut ty.kind {
-            ast::TypeKind::Path {
-                segments,
-                segment_spans,
-                generics,
-            } => {
-                self.rebind_symbols(segments);
-                for span in segment_spans {
-                    self.rebind_span(span);
-                }
-                for generic in generics {
-                    self.rebind_type_node(generic);
+            ast::TypeKind::Path { segments } => {
+                for segment in segments {
+                    segment.name = self.rebind_symbol(segment.name);
+                    self.rebind_span(&mut segment.name_span);
+                    for arg in &mut segment.args {
+                        match arg {
+                            ast::TypeArg::Positional(generic) => self.rebind_type_node(generic),
+                            ast::TypeArg::AssocBinding {
+                                name,
+                                name_span,
+                                value,
+                            } => {
+                                *name = self.rebind_symbol(*name);
+                                self.rebind_span(name_span);
+                                self.rebind_type_node(value);
+                            }
+                        }
+                    }
                 }
             }
             ast::TypeKind::Optional { inner } => self.rebind_type_node(inner),
@@ -1223,14 +1230,20 @@ mod tests {
         visit: &mut impl FnMut(kernc_utils::SymbolId),
     ) {
         match &ty.kind {
-            ast::TypeKind::Path {
-                segments, generics, ..
-            } => {
+            ast::TypeKind::Path { segments } => {
                 for segment in segments {
-                    visit(*segment);
-                }
-                for generic in generics {
-                    collect_type_identifier_symbols(generic, visit);
+                    visit(segment.name);
+                    for arg in &segment.args {
+                        match arg {
+                            ast::TypeArg::Positional(generic) => {
+                                collect_type_identifier_symbols(generic, visit);
+                            }
+                            ast::TypeArg::AssocBinding { name, value, .. } => {
+                                visit(*name);
+                                collect_type_identifier_symbols(value, visit);
+                            }
+                        }
+                    }
                 }
             }
             ast::TypeKind::Optional { inner } => collect_type_identifier_symbols(inner, visit),

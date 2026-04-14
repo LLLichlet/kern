@@ -589,16 +589,22 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
     ty.id = NodeId(0);
     ty.span = Span::default();
     match &mut ty.kind {
-        ast::TypeKind::Path {
-            generics,
-            segment_spans,
-            ..
-        } => {
-            for span in segment_spans {
-                *span = Span::default();
-            }
-            for generic in generics {
-                normalize_type_for_body_only_comparison(generic);
+        ast::TypeKind::Path { segments } => {
+            for segment in segments {
+                segment.name_span = Span::default();
+                for arg in &mut segment.args {
+                    match arg {
+                        ast::TypeArg::Positional(generic) => {
+                            normalize_type_for_body_only_comparison(generic);
+                        }
+                        ast::TypeArg::AssocBinding {
+                            name_span, value, ..
+                        } => {
+                            *name_span = Span::default();
+                            normalize_type_for_body_only_comparison(value);
+                        }
+                    }
+                }
             }
         }
         ast::TypeKind::Optional { inner } => normalize_type_for_body_only_comparison(inner),

@@ -815,23 +815,50 @@ impl CompilerDriver {
 
     fn describe_type_node(&self, ctx: &SemaContext<'_>, ty: &ast::TypeNode) -> String {
         match &ty.kind {
-            ast::TypeKind::Path {
-                segments, generics, ..
-            } => {
+            ast::TypeKind::Path { segments } => {
                 let mut rendered = segments
                     .iter()
-                    .map(|segment| ctx.resolve(*segment).to_string())
+                    .map(|segment| ctx.resolve(segment.name).to_string())
                     .collect::<Vec<_>>()
                     .join(".");
-                if !generics.is_empty() {
-                    let generic_text = generics
-                        .iter()
-                        .map(|generic| self.describe_type_node(ctx, generic))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    rendered.push('[');
-                    rendered.push_str(&generic_text);
-                    rendered.push(']');
+                for (index, segment) in segments.iter().enumerate() {
+                    if !segment.args.is_empty() {
+                        let generic_text = segment
+                            .args
+                            .iter()
+                            .map(|arg| match arg {
+                                ast::TypeArg::Positional(generic) => {
+                                    self.describe_type_node(ctx, generic)
+                                }
+                                ast::TypeArg::AssocBinding { name, value, .. } => format!(
+                                    "{} = {}",
+                                    ctx.resolve(*name),
+                                    self.describe_type_node(ctx, value)
+                                ),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let split_at = segments[..=index]
+                            .iter()
+                            .map(|segment| ctx.resolve(segment.name).to_string())
+                            .collect::<Vec<_>>()
+                            .join(".");
+                        rendered = split_at;
+                        rendered.push('[');
+                        rendered.push_str(&generic_text);
+                        rendered.push(']');
+                        if index + 1 < segments.len() {
+                            rendered.push('.');
+                            rendered.push_str(
+                                &segments[index + 1..]
+                                    .iter()
+                                    .map(|segment| ctx.resolve(segment.name).to_string())
+                                    .collect::<Vec<_>>()
+                                    .join("."),
+                            );
+                        }
+                        break;
+                    }
                 }
                 rendered
             }

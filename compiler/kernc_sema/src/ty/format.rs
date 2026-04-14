@@ -53,9 +53,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
             }
             TypeKind::TypeVar(vid) => format!("?T{}", vid),
 
-            TypeKind::Def(def_id, generics)
-            | TypeKind::TraitObject(def_id, generics)
-            | TypeKind::Enum(def_id, generics) => {
+            TypeKind::Def(def_id, generics) | TypeKind::Enum(def_id, generics) => {
                 let def = &self.ctx.defs[def_id.0 as usize];
                 let name = def
                     .name()
@@ -66,6 +64,26 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 } else {
                     let gen_strs: Vec<String> = generics.iter().map(|g| self.format(*g)).collect();
                     format!("{}[{}]", name, gen_strs.join(", "))
+                }
+            }
+            TypeKind::TraitObject(def_id, generics, assoc_bindings) => {
+                let def = &self.ctx.defs[def_id.0 as usize];
+                let name = def
+                    .name()
+                    .map(|sym| self.ctx.resolve(sym))
+                    .unwrap_or("<anonymous>");
+                if generics.is_empty() && assoc_bindings.is_empty() {
+                    name.to_string()
+                } else {
+                    let mut parts = generics.iter().map(|g| self.format(*g)).collect::<Vec<_>>();
+                    for (assoc_def_id, ty) in assoc_bindings {
+                        let assoc_name = self.ctx.defs[assoc_def_id.0 as usize]
+                            .name()
+                            .map(|sym| self.ctx.resolve(sym))
+                            .unwrap_or("<associated>");
+                        parts.push(format!("{} = {}", assoc_name, self.format(*ty)));
+                    }
+                    format!("{}[{}]", name, parts.join(", "))
                 }
             }
 
@@ -97,6 +115,40 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                     let gen_strs: Vec<String> = generics.iter().map(|g| self.format(*g)).collect();
                     format!("{}[{}]", name, gen_strs.join(", "))
                 }
+            }
+            TypeKind::Projection {
+                target,
+                trait_def_id,
+                trait_args,
+                assoc_def_id,
+                assoc_args,
+            } => {
+                let trait_name = self.ctx.defs[trait_def_id.0 as usize]
+                    .name()
+                    .map(|sym| self.ctx.resolve(sym))
+                    .unwrap_or("<trait>");
+                let assoc_name = self.ctx.defs[assoc_def_id.0 as usize]
+                    .name()
+                    .map(|sym| self.ctx.resolve(sym))
+                    .unwrap_or("<associated>");
+                let mut out = self.format(*target);
+                out.push('.');
+                out.push_str(trait_name);
+                if !trait_args.is_empty() {
+                    let args = trait_args.iter().map(|arg| self.format(*arg)).collect::<Vec<_>>();
+                    out.push('[');
+                    out.push_str(&args.join(", "));
+                    out.push(']');
+                }
+                out.push('.');
+                out.push_str(assoc_name);
+                if !assoc_args.is_empty() {
+                    let args = assoc_args.iter().map(|arg| self.format(*arg)).collect::<Vec<_>>();
+                    out.push('[');
+                    out.push_str(&args.join(", "));
+                    out.push(']');
+                }
+                out
             }
 
             TypeKind::Function {

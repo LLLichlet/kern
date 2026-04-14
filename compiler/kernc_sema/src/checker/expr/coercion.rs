@@ -67,11 +67,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         act_kind: &TypeKind,
     ) -> bool {
         if let TypeKind::TypeVar(vid) = act_kind {
-            self.type_vars[*vid as usize] = Some(exp);
+            self.bind_type_var(*vid, exp);
             return true;
         }
         if let TypeKind::TypeVar(vid) = exp_kind {
-            self.type_vars[*vid as usize] = Some(act);
+            self.bind_type_var(*vid, act);
             return true;
         }
         false
@@ -191,7 +191,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        let TypeKind::TraitObject(source_def_id, source_args) =
+        let TypeKind::TraitObject(source_def_id, source_args, _) =
             self.ctx.type_registry.get(source_norm).clone()
         else {
             return None;
@@ -813,11 +813,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         match (gen_kind, con_kind) {
             (TypeKind::TypeVar(vid), _) => {
-                self.type_vars[vid as usize] = Some(concrete_ty);
+                self.bind_type_var(vid, concrete_ty);
                 true
             }
             (_, TypeKind::TypeVar(vid)) => {
-                self.type_vars[vid as usize] = Some(generic_ty);
+                self.bind_type_var(vid, generic_ty);
                 true
             }
             (TypeKind::Param(name), _) => {
@@ -918,16 +918,31 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .zip(c_args.iter())
                     .all(|(ga, ca)| self.unify(*ga, *ca, map))
             }
-            (TypeKind::TraitObject(g_id, g_args), TypeKind::TraitObject(c_id, c_args))
-                if g_id == c_id =>
-            {
+            (
+                TypeKind::TraitObject(g_id, g_args, g_assoc_bindings),
+                TypeKind::TraitObject(c_id, c_args, c_assoc_bindings),
+            ) if g_id == c_id => {
                 if g_args.len() != c_args.len() {
                     return false;
                 }
-                g_args
+                if !g_args
                     .iter()
                     .zip(c_args.iter())
                     .all(|(ga, ca)| self.unify(*ga, *ca, map))
+                {
+                    return false;
+                }
+
+                let concrete_assoc_bindings = c_assoc_bindings
+                    .into_iter()
+                    .collect::<FastHashMap<_, _>>();
+                g_assoc_bindings.into_iter().all(|(assoc_def_id, generic_assoc_ty)| {
+                    let Some(&concrete_assoc_ty) = concrete_assoc_bindings.get(&assoc_def_id)
+                    else {
+                        return false;
+                    };
+                    self.unify(generic_assoc_ty, concrete_assoc_ty, map)
+                })
             }
             (
                 TypeKind::ClosureInterface {
@@ -972,6 +987,37 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .zip(cp.iter())
                         .all(|(g, c)| self.unify(*g, *c, map))
                     && self.unify(gr, cr, map)
+            }
+            (TypeKind::AnonymousEnum(ge), TypeKind::AnonymousEnum(ce)) => {
+                if ge.builtin != ce.builtin
+                    || ge.backing_ty.is_some() != ce.backing_ty.is_some()
+                    || ge.variants.len() != ce.variants.len()
+                {
+                    return false;
+                }
+
+                if let (Some(g_backing), Some(c_backing)) = (ge.backing_ty, ce.backing_ty)
+                    && !self.unify(g_backing, c_backing, map)
+                {
+                    return false;
+                }
+
+                ge.variants.iter().zip(ce.variants.iter()).all(|(gv, cv)| {
+                    if gv.name != cv.name
+                        || gv.explicit_value != cv.explicit_value
+                        || gv.payload_ty.is_some() != cv.payload_ty.is_some()
+                    {
+                        return false;
+                    }
+
+                    match (gv.payload_ty, cv.payload_ty) {
+                        (Some(g_payload), Some(c_payload)) => {
+                            self.unify(g_payload, c_payload, map)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+                })
             }
             _ => gen_norm == con_norm,
         }
@@ -1052,16 +1098,230 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut curr = ty;
         loop {
             let norm = self.ctx.type_registry.normalize(curr);
-            if let TypeKind::TypeVar(vid) = self.ctx.type_registry.get(norm) {
-                if let Some(target) = self.type_vars[*vid as usize] {
-                    curr = target;
-                } else {
-                    return norm; // Unresolved inference variables remain as-is.
+            match self.ctx.type_registry.get(norm).clone() {
+                TypeKind::TypeVar(vid) => {
+                    let Some(slot) = self.type_vars.get(vid as usize) else {
+                        return norm;
+                    };
+                    if let Some(target) = *slot {
+                        curr = target;
+                    } else {
+                        return norm; // Unresolved inference variables remain as-is.
+                    }
                 }
-            } else {
-                return norm;
+                TypeKind::Projection { .. } => {
+                    if let Some(projected) = self.try_normalize_projection(norm) {
+                        curr = projected;
+                    } else {
+                        return norm;
+                    }
+                }
+                _ => return norm,
             }
         }
+    }
+
+    fn try_normalize_projection(&mut self, projection_ty: TypeId) -> Option<TypeId> {
+        let TypeKind::Projection {
+            target,
+            trait_def_id,
+            trait_args,
+            assoc_def_id,
+            assoc_args,
+        } = self.ctx.type_registry.get(projection_ty).clone()
+        else {
+            return None;
+        };
+
+        if !assoc_args.is_empty() {
+            return None;
+        }
+
+        let target_norm = self.resolve_tv(target);
+        if let TypeKind::TraitObject(target_trait_def_id, _, assoc_bindings) =
+            self.ctx.type_registry.get(target_norm).clone()
+            && target_trait_def_id == trait_def_id
+            && let Some((_, assoc_ty)) = assoc_bindings
+                .iter()
+                .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+        {
+            return Some(self.resolve_tv(*assoc_ty));
+        }
+
+        if let Some(bound_ty) = self.projection_assoc_from_env_bounds(
+            target_norm,
+            trait_def_id,
+            &trait_args,
+            assoc_def_id,
+        ) {
+            return Some(self.resolve_tv(bound_ty));
+        }
+
+        if let Some(bound_ty) = self.projection_assoc_from_global_impls(
+            target_norm,
+            trait_def_id,
+            &trait_args,
+            assoc_def_id,
+        ) {
+            return Some(self.resolve_tv(bound_ty));
+        }
+
+        None
+    }
+
+    fn projection_assoc_from_env_bounds(
+        &mut self,
+        target_ty: TypeId,
+        trait_def_id: DefId,
+        trait_args: &[TypeId],
+        assoc_def_id: DefId,
+    ) -> Option<TypeId> {
+        if self.ctx.active_bounds.is_empty() {
+            return None;
+        }
+
+        let expected_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def_id,
+            trait_args.to_vec(),
+            Vec::new(),
+        ));
+        let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
+        let mut map = FastHashMap::default();
+
+        for (env_target, env_bounds) in unsafe { &*active_bounds_ptr } {
+            map.clear();
+            let matched = *env_target == target_ty || self.unify(*env_target, target_ty, &mut map);
+            if !matched {
+                continue;
+            }
+
+            for bound in env_bounds.iter().copied() {
+                let inst_bound = {
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    subst.substitute(bound)
+                };
+                let inst_bound_norm = self.resolve_tv(inst_bound);
+                let TypeKind::TraitObject(bound_trait_def_id, _, assoc_bindings) =
+                    self.ctx.type_registry.get(inst_bound_norm).clone()
+                else {
+                    continue;
+                };
+                if bound_trait_def_id != trait_def_id {
+                    continue;
+                }
+
+                let mut trait_map = FastHashMap::default();
+                if !self.unify(expected_trait_ty, inst_bound_norm, &mut trait_map) {
+                    continue;
+                }
+
+                if let Some((_, assoc_ty)) = assoc_bindings
+                    .iter()
+                    .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+                {
+                    return Some(*assoc_ty);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn projection_assoc_from_global_impls(
+        &mut self,
+        target_ty: TypeId,
+        trait_def_id: DefId,
+        trait_args: &[TypeId],
+        assoc_def_id: DefId,
+    ) -> Option<TypeId> {
+        let expected_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def_id,
+            trait_args.to_vec(),
+            Vec::new(),
+        ));
+        let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impls.as_slice());
+
+        for impl_id in unsafe { &*trait_impl_ids_ptr }.iter().copied() {
+            let Some(impl_ptr) =
+                self.ctx
+                    .defs
+                    .get(impl_id.0 as usize)
+                    .and_then(|def| match def {
+                        Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                        _ => None,
+                    })
+            else {
+                continue;
+            };
+
+            {
+                let mut resolver = TypeResolver::new(self.ctx);
+                resolver.ensure_impl_signature_types_resolved(impl_id);
+            }
+
+            let impl_def = unsafe { &*impl_ptr };
+            let Some(trait_ast) = &impl_def.trait_type else {
+                continue;
+            };
+
+            let impl_target_ty = self
+                .ctx
+                .node_types
+                .get(&impl_def.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let impl_trait_ty = self
+                .ctx
+                .node_types
+                .get(&trait_ast.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+
+            if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
+                continue;
+            }
+
+            let mut map = FastHashMap::default();
+            if !self.unify(impl_target_ty, target_ty, &mut map) {
+                continue;
+            }
+
+            let inst_trait_ty = {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                subst.substitute(impl_trait_ty)
+            };
+            let inst_trait_norm = self.resolve_tv(inst_trait_ty);
+            let TypeKind::TraitObject(bound_trait_def_id, _, assoc_bindings) =
+                self.ctx.type_registry.get(inst_trait_norm).clone()
+            else {
+                continue;
+            };
+            if bound_trait_def_id != trait_def_id {
+                continue;
+            }
+
+            let mut trait_map = FastHashMap::default();
+            if !self.unify(expected_trait_ty, inst_trait_norm, &mut trait_map) {
+                continue;
+            }
+
+            if let Some((_, assoc_ty)) = assoc_bindings
+                .iter()
+                .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+            {
+                return Some(*assoc_ty);
+            }
+        }
+
+        None
+    }
+
+    fn bind_type_var(&mut self, vid: u32, ty: TypeId) {
+        let vid = vid as usize;
+        if self.type_vars.len() <= vid {
+            self.type_vars.resize(vid + 1, None);
+        }
+        self.type_vars[vid] = Some(ty);
     }
 
     /// Decay an array into a slice when the element types are compatible.
@@ -1142,7 +1402,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let source_norm = self.resolve_tv(source_ty);
         let target_norm = self.resolve_tv(target_trait_ty);
 
-        let TypeKind::TraitObject(trait_def_id, trait_args) =
+        let TypeKind::TraitObject(trait_def_id, trait_args, _) =
             self.ctx.type_registry.get(target_norm).clone()
         else {
             return false;
@@ -1274,7 +1534,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                         if inst_norm == target_norm
                             || inst_env_bound == target_trait_ty
-                            || self.unify(inst_env_bound, target_trait_ty, &mut trait_map)
+                            || self.unify(target_trait_ty, inst_env_bound, &mut trait_map)
                         {
                             return true;
                         }
@@ -1303,7 +1563,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                     if inst_norm == target_norm
                         || inst_env_bound == target_trait_ty
-                        || self.unify(inst_env_bound, target_trait_ty, &mut trait_map)
+                        || self.unify(target_trait_ty, inst_env_bound, &mut trait_map)
                     {
                         return true;
                     }
@@ -1389,7 +1649,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                 if inst_norm == target_norm
                     || instantiated_trait_ty == target_trait_ty
-                    || self.unify(instantiated_trait_ty, target_trait_ty, &mut trait_map)
+                    || self.unify(target_trait_ty, instantiated_trait_ty, &mut trait_map)
                 {
                     return true;
                 }

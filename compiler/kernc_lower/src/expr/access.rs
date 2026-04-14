@@ -127,7 +127,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(TypeId::ERROR);
         let expr_ty = self.substitute_type_with_map(expr_ty, subst_map);
-        let norm_expr = self.ctx.type_registry.normalize(expr_ty);
+        let norm_expr = self.normalize_concrete_type(expr_ty);
 
         if matches!(
             self.ctx.type_registry.get(norm_expr),
@@ -154,7 +154,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut deref_expr = l.clone();
 
         loop {
-            let norm = self.ctx.type_registry.normalize(base_ty);
+            let norm = self.normalize_concrete_type(base_ty);
             match self.ctx.type_registry.get(norm) {
                 TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                     base_ty = *elem;
@@ -165,7 +165,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        let norm_base = self.ctx.type_registry.normalize(base_ty);
+        let norm_base = self.normalize_concrete_type(base_ty);
 
         if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(norm_base).clone() {
             let mod_scope = match &self.ctx.defs[mod_def_id.0 as usize] {
@@ -329,7 +329,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         field_name: SymbolId,
         span: Span,
     ) -> usize {
-        let norm = self.ctx.type_registry.normalize(struct_ty);
+        let norm = self.normalize_concrete_type(struct_ty);
         let cache_key = (norm, field_name);
         if let Some(&field_idx) = self.field_index_cache.get(&cache_key) {
             return field_idx;

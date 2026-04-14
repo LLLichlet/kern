@@ -26,7 +26,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         supertraits: &mut Vec<TypeId>,
     ) {
         let trait_norm = self.ctx.type_registry.normalize(trait_ty);
-        let TypeKind::TraitObject(trait_def_id, trait_args) =
+        let TypeKind::TraitObject(trait_def_id, trait_args, _) =
             self.ctx.type_registry.get(trait_norm).clone()
         else {
             self.ctx.emit_ice(
@@ -103,7 +103,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         method_name: SymbolId,
     ) -> Option<usize> {
         let trait_norm = self.ctx.type_registry.normalize(trait_ty);
-        let TypeKind::TraitObject(trait_def_id, _) = self.ctx.type_registry.get(trait_norm).clone()
+        let TypeKind::TraitObject(trait_def_id, _, _) = self.ctx.type_registry.get(trait_norm).clone()
         else {
             return None;
         };
@@ -128,7 +128,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
         self.measure_phase("  lower_create_vtable", |this| {
             let trait_def_id = match this.ctx.type_registry.get(norm_trait) {
-                TypeKind::TraitObject(id, _) => *id,
+                TypeKind::TraitObject(id, _, _) => *id,
                 other => {
                     return this.build_invalid_vtable(
                         key,
@@ -241,7 +241,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .copied()
                     .unwrap_or(TypeId::ERROR);
 
-                if let TypeKind::TraitObject(i_trait_id, _) = self.ctx.type_registry.get(i_trait_ty)
+                if let TypeKind::TraitObject(i_trait_id, _, _) = self.ctx.type_registry.get(i_trait_ty)
                     && *i_trait_id == target_trait_id
                 {
                     let i_target_ty = self

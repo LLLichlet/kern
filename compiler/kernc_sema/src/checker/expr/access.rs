@@ -584,7 +584,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return self
                             .ctx
                             .type_registry
-                            .intern(TypeKind::TraitObject(def_id, vec![]));
+                            .intern(TypeKind::TraitObject(def_id, vec![], Vec::new()));
                     }
                     _ => {}
                 }
@@ -1207,6 +1207,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field: SymbolId,
         span: Span,
     ) -> Option<crate::query::MemberResolution> {
+        let lhs_ty = self.resolve_tv(lhs_ty);
         let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
         let current_module_id = self.cached_current_module_id();
         let mut query = MemberQuery::new(self.ctx);

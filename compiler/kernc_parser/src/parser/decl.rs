@@ -715,9 +715,11 @@ impl<'a> Parser<'a> {
                 id: self.new_id(),
                 span: expr.span,
                 kind: TypeKind::Path {
-                    segments: vec![id],
-                    segment_spans: vec![expr.span],
-                    generics: Vec::new(),
+                    segments: vec![TypePathSegment {
+                        name: id,
+                        name_span: expr.span,
+                        args: Vec::new(),
+                    }],
                 },
             }),
             ExprKind::FieldAccess {
@@ -726,14 +728,12 @@ impl<'a> Parser<'a> {
                 field_span,
             } => {
                 let mut base = self.expr_to_type(*lhs)?;
-                if let TypeKind::Path {
-                    ref mut segments,
-                    ref mut segment_spans,
-                    ..
-                } = base.kind
-                {
-                    segments.push(field);
-                    segment_spans.push(field_span);
+                if let TypeKind::Path { ref mut segments } = base.kind {
+                    segments.push(TypePathSegment {
+                        name: field,
+                        name_span: field_span,
+                        args: Vec::new(),
+                    });
                     base.span = base.span.to(expr.span);
                     Ok(base)
                 } else {
@@ -743,11 +743,12 @@ impl<'a> Parser<'a> {
             }
             ExprKind::GenericInstantiation { target, types } => {
                 let mut base = self.expr_to_type(*target)?;
-                if let TypeKind::Path {
-                    ref mut generics, ..
-                } = base.kind
-                {
-                    *generics = types;
+                if let TypeKind::Path { ref mut segments } = base.kind {
+                    let Some(last) = segments.last_mut() else {
+                        self.add_error(expr.span, "Invalid generic type target".to_string());
+                        return Err(ParseError);
+                    };
+                    last.args = types.into_iter().map(TypeArg::Positional).collect();
                     base.span = base.span.to(expr.span);
                     Ok(base)
                 } else {

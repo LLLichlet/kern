@@ -301,7 +301,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     fn builtin_trait_ty_by_id(&mut self, trait_def_id: DefId, args: Vec<TypeId>) -> TypeId {
         self.ctx
             .type_registry
-            .intern(TypeKind::TraitObject(trait_def_id, args))
+            .intern(TypeKind::TraitObject(trait_def_id, args, Vec::new()))
     }
 
     fn inject_builtin_trait(&mut self, spec: BuiltinTraitSpec<'_>) -> DefId {
@@ -361,11 +361,137 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         def_id
     }
 
+    fn inject_binary_operator_trait_with_assoc_out(&mut self, trait_name: &str, method_name: &str) {
+        let name_id = self.ctx.intern(trait_name);
+        let method_name_id = self.ctx.intern(method_name);
+        let out_name_id = self.ctx.intern("Out");
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        let rhs = self.new_builtin_param("Rhs");
+        let rhs_ty = self.ctx.type_registry.intern(TypeKind::Param(rhs.name));
+        let out_assoc_id = DefId(def_id.0 + 1);
+        let out_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Associated(out_assoc_id, vec![]));
+        let self_ty = self.builtin_trait_ty_by_id(def_id, vec![]);
+        let sig = self.ctx.type_registry.intern(TypeKind::Function {
+            params: vec![self_ty, rhs_ty],
+            ret: out_ty,
+            is_variadic: false,
+        });
+
+        self.ctx.add_def(Def::Trait(TraitDef {
+            id: def_id,
+            name: name_id,
+            vis: Visibility::Public,
+            is_imported: false,
+            generics: vec![rhs],
+            where_clauses: vec![],
+            supertraits: vec![],
+            resolved_supertraits: vec![],
+            assoc_types: vec![out_assoc_id],
+            methods: vec![],
+            resolved_methods: vec![(method_name_id, sig)],
+            span: Span::default(),
+            is_builtin: true,
+            docs: None,
+        }));
+        self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
+            id: out_assoc_id,
+            name: out_name_id,
+            parent_trait: Some(def_id),
+            parent_impl: None,
+            is_imported: false,
+            generics: vec![],
+            bounds: vec![],
+            where_clauses: vec![],
+            target: None,
+            resolved_bounds: vec![],
+            span: Span::default(),
+            docs: None,
+        }));
+        self.ctx.register_builtin_def(name_id, def_id);
+
+        let info = SymbolInfo {
+            kind: SymbolKind::Trait,
+            node_id: self.ctx.next_node_id(),
+            type_id: self.builtin_trait_ty_by_id(def_id, vec![]),
+            def_id: Some(def_id),
+            span: Default::default(),
+            is_pub: true,
+            is_mut: false,
+        };
+        let root_scope = ScopeId(0);
+        self.ctx.scopes.set_current_scope(root_scope);
+        let _ = self.ctx.scopes.define(name_id, info);
+    }
+
+    fn inject_unary_operator_trait_with_assoc_out(&mut self, trait_name: &str, method_name: &str) {
+        let name_id = self.ctx.intern(trait_name);
+        let method_name_id = self.ctx.intern(method_name);
+        let out_name_id = self.ctx.intern("Out");
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        let out_assoc_id = DefId(def_id.0 + 1);
+        let out_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Associated(out_assoc_id, vec![]));
+        let self_ty = self.builtin_trait_ty_by_id(def_id, vec![]);
+        let sig = self.ctx.type_registry.intern(TypeKind::Function {
+            params: vec![self_ty],
+            ret: out_ty,
+            is_variadic: false,
+        });
+
+        self.ctx.add_def(Def::Trait(TraitDef {
+            id: def_id,
+            name: name_id,
+            vis: Visibility::Public,
+            is_imported: false,
+            generics: vec![],
+            where_clauses: vec![],
+            supertraits: vec![],
+            resolved_supertraits: vec![],
+            assoc_types: vec![out_assoc_id],
+            methods: vec![],
+            resolved_methods: vec![(method_name_id, sig)],
+            span: Span::default(),
+            is_builtin: true,
+            docs: None,
+        }));
+        self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
+            id: out_assoc_id,
+            name: out_name_id,
+            parent_trait: Some(def_id),
+            parent_impl: None,
+            is_imported: false,
+            generics: vec![],
+            bounds: vec![],
+            where_clauses: vec![],
+            target: None,
+            resolved_bounds: vec![],
+            span: Span::default(),
+            docs: None,
+        }));
+        self.ctx.register_builtin_def(name_id, def_id);
+
+        let info = SymbolInfo {
+            kind: SymbolKind::Trait,
+            node_id: self.ctx.next_node_id(),
+            type_id: self.builtin_trait_ty_by_id(def_id, vec![]),
+            def_id: Some(def_id),
+            span: Default::default(),
+            is_pub: true,
+            is_mut: false,
+        };
+        let root_scope = ScopeId(0);
+        self.ctx.scopes.set_current_scope(root_scope);
+        let _ = self.ctx.scopes.define(name_id, info);
+    }
+
     fn inject_operator_traits(&mut self) {
         let rhs = self.new_builtin_param("Rhs");
-        let out = self.new_builtin_param("Out");
         let rhs_ty = self.ctx.type_registry.intern(TypeKind::Param(rhs.name));
-        let out_ty = self.ctx.type_registry.intern(TypeKind::Param(out.name));
 
         self.inject_builtin_trait(BuiltinTraitSpec {
             name: "Eq",
@@ -430,16 +556,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             ("Shl", "shl", "@shl"),
             ("Shr", "shr", "@shr"),
         ] {
-            self.inject_builtin_trait(BuiltinTraitSpec {
-                name: spec.0,
-                generics: vec![rhs.clone(), out.clone()],
-                supertraits: vec![],
-                methods: vec![BuiltinMethodSpec {
-                    name: spec.1,
-                    params: vec![rhs_ty],
-                    ret: out_ty,
-                }],
-            });
+            self.inject_binary_operator_trait_with_assoc_out(spec.0, spec.1);
         }
 
         for spec in [
@@ -447,16 +564,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             ("BitNot", "bit_not", "@bitNot"),
             ("Not", "not", "@not"),
         ] {
-            self.inject_builtin_trait(BuiltinTraitSpec {
-                name: spec.0,
-                generics: vec![out.clone()],
-                supertraits: vec![],
-                methods: vec![BuiltinMethodSpec {
-                    name: spec.1,
-                    params: vec![],
-                    ret: out_ty,
-                }],
-            });
+            self.inject_unary_operator_trait_with_assoc_out(spec.0, spec.1);
         }
     }
 
@@ -577,14 +685,12 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
         let ret_type_id = self.ctx.next_node_id();
         self.ctx.node_types.insert(ret_type_id, ret_ty);
-        let method_def_id = DefId(self.ctx.defs.len() as u32 + 1);
         let name_id = self.ctx.intern(method_name);
         let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
             params: sig_params,
             ret: ret_ty,
             is_variadic: false,
         });
-
         self.ctx.add_def(Def::Impl(ImplDef {
             id: impl_id,
             parent_module: None,
@@ -594,11 +700,67 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             target_type: target_node,
             trait_type: Some(trait_node),
             assoc_types: vec![],
-            methods: vec![method_def_id],
+            methods: vec![],
             span: Span::default(),
         }));
         self.ctx.global_impls.push(impl_id);
         self.ctx.trait_impls.push(impl_id);
+
+        let assoc_specs = match self.ctx.defs.get(trait_def_id.0 as usize) {
+            Some(Def::Trait(trait_def)) => {
+                let generic_count = trait_def.generics.len();
+                let assoc_args = trait_args
+                    .iter()
+                    .skip(generic_count)
+                    .copied()
+                    .collect::<Vec<_>>();
+                trait_def
+                    .assoc_types
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .filter_map(|(assoc_index, trait_assoc_id)| {
+                        match self.ctx.defs.get(trait_assoc_id.0 as usize) {
+                            Some(Def::AssociatedType(trait_assoc_def)) => Some((
+                                trait_assoc_def.name,
+                                assoc_args.get(assoc_index).copied().unwrap_or(ret_ty),
+                            )),
+                            _ => None,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            }
+            _ => vec![],
+        };
+        let mut assoc_type_ids = Vec::with_capacity(assoc_specs.len());
+        for (assoc_name, assoc_target_ty) in assoc_specs {
+            let assoc_target_node_id = self.ctx.next_node_id();
+            self.ctx
+                .node_types
+                .insert(assoc_target_node_id, assoc_target_ty);
+            let assoc_def_id = DefId(self.ctx.defs.len() as u32);
+            self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
+                id: assoc_def_id,
+                name: assoc_name,
+                parent_trait: Some(trait_def_id),
+                parent_impl: Some(impl_id),
+                is_imported: false,
+                generics: vec![],
+                bounds: vec![],
+                where_clauses: vec![],
+                target: Some(TypeNode {
+                    id: assoc_target_node_id,
+                    span: Span::default(),
+                    kind: ast::TypeKind::Infer,
+                }),
+                resolved_bounds: vec![],
+                span: Span::default(),
+                docs: None,
+            }));
+            assoc_type_ids.push(assoc_def_id);
+        }
+        let method_def_id = DefId(self.ctx.defs.len() as u32);
+
         self.ctx.add_def(Def::Function(FunctionDef {
             id: method_def_id,
             name: name_id,
@@ -624,6 +786,41 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             docs: None,
             attributes: vec![],
         }));
+        let trait_assoc_ids = self
+            .ctx
+            .defs
+            .get(trait_def_id.0 as usize)
+            .and_then(|def| match def {
+                Def::Trait(trait_def) => Some(trait_def.assoc_types.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let canonical_assoc_bindings = trait_assoc_ids
+            .into_iter()
+            .zip(assoc_type_ids.iter().copied())
+            .map(|(trait_assoc_id, impl_assoc_id)| {
+                let target_ty = match self.ctx.defs.get(impl_assoc_id.0 as usize) {
+                    Some(Def::AssociatedType(assoc_def)) => assoc_def
+                        .target
+                        .as_ref()
+                        .and_then(|target| self.ctx.node_types.get(&target.id).copied())
+                        .unwrap_or(TypeId::ERROR),
+                    _ => TypeId::ERROR,
+                };
+                (trait_assoc_id, target_ty)
+            })
+            .collect();
+        let canonical_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def_id,
+            trait_args,
+            canonical_assoc_bindings,
+        ));
+        self.ctx.node_types.insert(trait_id, canonical_trait_ty);
+
+        if let Some(Def::Impl(impl_def)) = self.ctx.defs.get_mut(impl_id.0 as usize) {
+            impl_def.assoc_types = assoc_type_ids;
+            impl_def.methods = vec![method_def_id];
+        }
         self.ctx
             .impl_methods_by_name
             .entry(name_id)
@@ -681,7 +878,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             self.inject_operator_impl(
                 ty,
                 descriptor.name,
-                vec![ty, ty],
+                vec![ty],
                 descriptor.method_name,
                 vec![ty],
                 ty,
@@ -698,7 +895,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             self.inject_operator_impl(
                 ty,
                 descriptor.name,
-                vec![ty, ty],
+                vec![ty],
                 descriptor.method_name,
                 vec![ty],
                 ty,
@@ -714,7 +911,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_operator_impl(
             ty,
             descriptor.name,
-            vec![ty],
+            vec![],
             descriptor.method_name,
             vec![],
             ty,

@@ -239,9 +239,11 @@ impl CompilerDriver {
             id: ctx.next_node_id(),
             span,
             kind: ast::TypeKind::Path {
-                segments: vec![ctx.intern("i32")],
-                segment_spans: vec![span],
-                generics: Vec::new(),
+                segments: vec![ast::TypePathSegment {
+                    name: ctx.intern("i32"),
+                    name_span: span,
+                    args: Vec::new(),
+                }],
             },
         }
     }
@@ -251,9 +253,11 @@ impl CompilerDriver {
             id: ctx.next_node_id(),
             span,
             kind: ast::TypeKind::Path {
-                segments: vec![ctx.intern("u8")],
-                segment_spans: vec![span],
-                generics: Vec::new(),
+                segments: vec![ast::TypePathSegment {
+                    name: ctx.intern("u8"),
+                    name_span: span,
+                    args: Vec::new(),
+                }],
             },
         }
     }

@@ -6,6 +6,7 @@ use kernc_mast::*;
 use kernc_sema::LayoutEngine;
 use kernc_sema::checker::{ConstEvaluator, ConstValue, Substituter};
 use kernc_sema::def::{Def, DefId};
+use kernc_sema::query::MemberQuery;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{AtomicOrdering, AtomicRmwOp, NodeId, Span, SymbolId};
 
@@ -25,6 +26,41 @@ pub(crate) struct MethodCallSite {
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn receiver_search_types(&mut self, receiver_ty: TypeId) -> Vec<TypeId> {
+        let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
+        let mut search_tys = vec![receiver_norm];
+
+        let downgraded = match self.ctx.type_registry.get(receiver_norm).clone() {
+            TypeKind::Pointer { is_mut: true, elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem,
+                }))
+            }
+            TypeKind::VolatilePtr { is_mut: true, elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                    is_mut: false,
+                    elem,
+                }))
+            }
+            TypeKind::Slice { is_mut: true, elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::Slice {
+                    is_mut: false,
+                    elem,
+                }))
+            }
+            _ => None,
+        };
+
+        if let Some(down_ty) = downgraded
+            && !search_tys.contains(&down_ty)
+        {
+            search_tys.push(down_ty);
+        }
+
+        search_tys
+    }
+
     fn intrinsic_name_for_lowering(&mut self, callee_ty: TypeId) -> Option<String> {
         let norm = self.ctx.type_registry.normalize(callee_ty);
         let TypeKind::FnDef(def_id, _) = self.ctx.type_registry.get(norm).clone() else {
@@ -41,7 +77,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     fn builtin_trait_name(&mut self, trait_ty: TypeId) -> Option<String> {
         let norm = self.ctx.type_registry.normalize(trait_ty);
-        let TypeKind::TraitObject(def_id, _) = self.ctx.type_registry.get(norm).clone() else {
+        let TypeKind::TraitObject(def_id, _, _) = self.ctx.type_registry.get(norm).clone() else {
             return None;
         };
         let Def::Trait(trait_def) = &self.ctx.defs[def_id.0 as usize] else {
@@ -86,10 +122,30 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | TypeKind::Enum(_, args)
             | TypeKind::EnumPayload(_, args)
             | TypeKind::Associated(_, args)
-            | TypeKind::TraitObject(_, args)
             | TypeKind::FnDef(_, args) => args
                 .into_iter()
                 .any(|arg| self.type_contains_generic_placeholders(arg)),
+            TypeKind::TraitObject(_, args, assoc_bindings) => {
+                args.into_iter()
+                    .any(|arg| self.type_contains_generic_placeholders(arg))
+                    || assoc_bindings.into_iter().any(|(_, ty)| {
+                        self.type_contains_generic_placeholders(ty)
+                    })
+            }
+            TypeKind::Projection {
+                target,
+                trait_args,
+                assoc_args,
+                ..
+            } => {
+                self.type_contains_generic_placeholders(target)
+                    || trait_args
+                        .into_iter()
+                        .any(|arg| self.type_contains_generic_placeholders(arg))
+                    || assoc_args
+                        .into_iter()
+                        .any(|arg| self.type_contains_generic_placeholders(arg))
+            }
             TypeKind::Function { params, ret, .. } => {
                 params
                     .into_iter()
@@ -128,6 +184,37 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | TypeKind::Simd { .. }
             | TypeKind::Error
             | TypeKind::Module(_) => false,
+        }
+    }
+
+    fn trait_ty_satisfies_requirement(
+        &mut self,
+        required_trait_ty: TypeId,
+        candidate_trait_ty: TypeId,
+    ) -> bool {
+        let required_norm = self.ctx.type_registry.normalize(required_trait_ty);
+        let candidate_norm = self.ctx.type_registry.normalize(candidate_trait_ty);
+
+        match (
+            self.ctx.type_registry.get(required_norm).clone(),
+            self.ctx.type_registry.get(candidate_norm).clone(),
+        ) {
+            (
+                TypeKind::TraitObject(required_def_id, required_args, required_assoc_bindings),
+                TypeKind::TraitObject(candidate_def_id, candidate_args, candidate_assoc_bindings),
+            ) if required_def_id == candidate_def_id && required_args == candidate_args => {
+                required_assoc_bindings.into_iter().all(|(required_assoc_id, required_assoc_ty)| {
+                    let Some((_, candidate_assoc_ty)) = candidate_assoc_bindings
+                        .iter()
+                        .find(|(candidate_assoc_id, _)| *candidate_assoc_id == required_assoc_id)
+                    else {
+                        return false;
+                    };
+                    self.ctx.type_registry.normalize(required_assoc_ty)
+                        == self.ctx.type_registry.normalize(*candidate_assoc_ty)
+                })
+            }
+            _ => required_norm == candidate_norm,
         }
     }
 
@@ -278,7 +365,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(TypeId::ERROR);
         let norm_trait_ty = self.ctx.type_registry.normalize(trait_ty);
-        let TypeKind::TraitObject(trait_def_id, _) =
+        let TypeKind::TraitObject(trait_def_id, _, _) =
             self.ctx.type_registry.get(norm_trait_ty).clone()
         else {
             return None;
@@ -1385,6 +1472,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             // After monomorphization, find the concrete impl globally.
             let mut target_func_id = None;
             let mut resolved_impl_args = Vec::new();
+            let mut resolved_self_ty = None;
             let owner_trait_norm = self.ctx.type_registry.normalize(owner_trait_ty);
             let owner_trait_filter = !self.type_contains_generic_placeholders(owner_trait_ty)
                 && matches!(
@@ -1402,6 +1490,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.measure_phase("              lower_call_bound_impl_lookup", |this| {
                     // Safety: method-name indexes are immutable while lowering reads semantic defs.
                     let method_ids = unsafe { &*method_ids_ptr };
+                    let receiver_search_tys = this.receiver_search_types(norm_base);
                     for &method_id in method_ids {
                         let Some(impl_id) =
                             this.ctx
@@ -1429,132 +1518,55 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                         // Safety: lowering only reads semantic definition storage.
                         let impl_def = unsafe { &*impl_ptr };
-                        let impl_target_raw = this
-                            .ctx
-                            .node_types
-                            .get(&impl_def.target_type.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR);
-                        let norm_impl_target = this.ctx.type_registry.normalize(impl_target_raw);
-
-                        // Non-generic impl.
-                        if impl_def.generics.is_empty() {
-                            let mut matched = false;
-
-                            // Exact match: `*mut i32 == *mut i32` or `*i32 == *i32`.
-                            if norm_base == norm_impl_target {
-                                matched = true;
-                            }
-                            // Safe downgrade: allow `*mut i32` to use methods defined on `impl *i32`.
-                            else if let TypeKind::Pointer { is_mut: true, elem } =
-                                this.ctx.type_registry.get(norm_base).clone()
+                        let mut matched_receiver_ty = None;
+                        let mut candidate_impl_args = None;
+                        for search_ty in receiver_search_tys.iter().copied() {
+                            if let Some(args) = MemberQuery::new(this.ctx)
+                                .resolve_impl_applicability_for_type(search_ty, impl_id)
                             {
-                                let const_ptr = this.ctx.type_registry.intern(TypeKind::Pointer {
-                                    is_mut: false,
-                                    elem,
-                                });
-                                if const_ptr == norm_impl_target {
-                                    matched = true;
-                                }
-                            }
-
-                            if matched {
-                                if owner_trait_filter {
-                                    let Some(trait_ast) = &impl_def.trait_type else {
-                                        continue;
-                                    };
-                                    let impl_trait_ty = this
-                                        .ctx
-                                        .node_types
-                                        .get(&trait_ast.id)
-                                        .copied()
-                                        .unwrap_or(TypeId::ERROR);
-                                    if this.ctx.type_registry.normalize(impl_trait_ty)
-                                        != owner_trait_norm
-                                    {
-                                        continue;
-                                    }
-                                }
-                                target_func_id = Some(method_id);
+                                matched_receiver_ty = Some(search_ty);
+                                candidate_impl_args = Some(args);
+                                break;
                             }
                         }
-                        // Generic impl matching.
-                        else {
-                            // Strip matching pointer layers so generic arguments can be recovered from the underlying `Def`.
-                            let mut check_base = norm_base;
-                            let mut check_impl = norm_impl_target;
-                            let mut matched_ptr = false;
+                        let Some(candidate_impl_args) = candidate_impl_args else {
+                            continue;
+                        };
 
-                            // Handle pointer downgrade and pointer peeling together.
-                            if let TypeKind::Pointer {
-                                is_mut: base_mut,
-                                elem: base_elem,
-                            } = this.ctx.type_registry.get(check_base).clone()
+                        if owner_trait_filter {
+                            let Some(trait_ast) = &impl_def.trait_type else {
+                                continue;
+                            };
+                            let impl_trait_ty = this
+                                .ctx
+                                .node_types
+                                .get(&trait_ast.id)
+                                .copied()
+                                .unwrap_or(TypeId::ERROR);
+                            let mut subst_map = HashMap::new();
+                            for (param, arg) in impl_def
+                                .generics
+                                .iter()
+                                .zip(candidate_impl_args.iter().copied())
                             {
-                                if let TypeKind::Pointer {
-                                    is_mut: impl_mut,
-                                    elem: impl_elem,
-                                } = this.ctx.type_registry.get(check_impl).clone()
-                                {
-                                    // Allow exact matches and safe `*mut T -> *T` downgrades.
-                                    if base_mut == impl_mut || (base_mut && !impl_mut) {
-                                        check_base = base_elem;
-                                        check_impl = impl_elem;
-                                        matched_ptr = true;
-                                    }
-                                }
+                                subst_map.insert(param.name, arg);
+                            }
+                            let inst_trait_ty = if subst_map.is_empty() {
+                                impl_trait_ty
                             } else {
-                                matched_ptr = true; // If neither side is a pointer, keep checking normally.
-                            }
-
-                            if matched_ptr
-                                && let TypeKind::Def(base_def_id, base_args) =
-                                    this.ctx.type_registry.get(check_base).clone()
-                                && let TypeKind::Def(impl_def_id, impl_raw_args) =
-                                    this.ctx.type_registry.get(check_impl).clone()
-                                && base_def_id == impl_def_id
-                                && base_args.len() == impl_raw_args.len()
+                                let mut subst =
+                                    Substituter::new(&mut this.ctx.type_registry, &subst_map);
+                                subst.substitute(impl_trait_ty)
+                            };
+                            if !this.trait_ty_satisfies_requirement(owner_trait_norm, inst_trait_ty)
                             {
-                                if owner_trait_filter {
-                                    let Some(trait_ast) = &impl_def.trait_type else {
-                                        continue;
-                                    };
-                                    let impl_trait_ty = this
-                                        .ctx
-                                        .node_types
-                                        .get(&trait_ast.id)
-                                        .copied()
-                                        .unwrap_or(TypeId::ERROR);
-                                    let mut subst_map = HashMap::new();
-                                    if let TypeKind::Def(_, impl_args) =
-                                        this.ctx.type_registry.get(norm_impl_target).clone()
-                                        && impl_def.generics.len() == impl_args.len()
-                                    {
-                                        for (param, arg) in
-                                            impl_def.generics.iter().zip(base_args.iter().copied())
-                                        {
-                                            subst_map.insert(param.name, arg);
-                                        }
-                                    }
-                                    let inst_trait_ty = if subst_map.is_empty() {
-                                        impl_trait_ty
-                                    } else {
-                                        let mut subst = Substituter::new(
-                                            &mut this.ctx.type_registry,
-                                            &subst_map,
-                                        );
-                                        subst.substitute(impl_trait_ty)
-                                    };
-                                    if this.ctx.type_registry.normalize(inst_trait_ty)
-                                        != owner_trait_norm
-                                    {
-                                        continue;
-                                    }
-                                }
-                                resolved_impl_args = base_args.clone();
-                                target_func_id = Some(method_id);
+                                continue;
                             }
                         }
+
+                        resolved_impl_args = candidate_impl_args;
+                        resolved_self_ty = matched_receiver_ty;
+                        target_func_id = Some(method_id);
 
                         if target_func_id.is_some() {
                             break;
@@ -1567,7 +1579,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let mut final_recv = recv;
 
                 // Normalize pointer-type differences for LLVM by inserting a bitcast after safe downgrades.
-                if let Some(exp_self) = call.expected_self_ty
+                let expected_self_ty = resolved_self_ty.or(call.expected_self_ty);
+                if let Some(exp_self) = expected_self_ty
                     && final_recv.ty != exp_self
                 {
                     final_recv = MastExpr::new(

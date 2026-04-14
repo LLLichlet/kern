@@ -450,8 +450,41 @@ impl<'a> SemaContext<'a> {
         let def_id = self.builtin_def(name)?;
         Some(
             self.type_registry
-                .intern(crate::ty::TypeKind::TraitObject(def_id, args)),
+                .intern(crate::ty::TypeKind::TraitObject(def_id, args, Vec::new())),
         )
+    }
+
+    pub fn builtin_trait_ty_with_assoc(
+        &mut self,
+        name: &str,
+        generics: Vec<TypeId>,
+        assoc_bindings: Vec<(&str, TypeId)>,
+    ) -> Option<TypeId> {
+        let def_id = self.builtin_def(name)?;
+        let resolved_assoc_bindings = match self.defs.get(def_id.0 as usize) {
+            Some(Def::Trait(trait_def)) => assoc_bindings
+                .into_iter()
+                .filter_map(|(assoc_name, ty)| {
+                    trait_def.assoc_types.iter().copied().find_map(|assoc_id| {
+                        let assoc_def = match self.defs.get(assoc_id.0 as usize) {
+                            Some(Def::AssociatedType(assoc_def)) => assoc_def,
+                            _ => return None,
+                        };
+                        if self.resolve(assoc_def.name) == assoc_name {
+                            Some((assoc_id, ty))
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        Some(self.type_registry.intern(crate::ty::TypeKind::TraitObject(
+            def_id,
+            generics,
+            resolved_assoc_bindings,
+        )))
     }
 
     pub fn configured_runtime_entry(&self) -> RuntimeEntry {
@@ -598,7 +631,7 @@ impl<'a> SemaContext<'a> {
             }
             crate::ty::TypeKind::Def(def_id, gen_args)
             | crate::ty::TypeKind::Enum(def_id, gen_args)
-            | crate::ty::TypeKind::TraitObject(def_id, gen_args) => {
+            | crate::ty::TypeKind::TraitObject(def_id, gen_args, _) => {
                 let base_name = self.def_qualified_name(def_id);
 
                 if gen_args.is_empty() {

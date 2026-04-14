@@ -94,7 +94,16 @@ pub enum TypeKind {
     EnumPayload(DefId, Vec<TypeId>),
 
     /// Trait object fat pointer `{ data_ptr, vtable }`.
-    TraitObject(DefId, Vec<TypeId>),
+    TraitObject(DefId, Vec<TypeId>, Vec<(DefId, TypeId)>),
+
+    /// Associated type projection such as `T.Add[U].Out`.
+    Projection {
+        target: TypeId,
+        trait_def_id: DefId,
+        trait_args: Vec<TypeId>,
+        assoc_def_id: DefId,
+        assoc_args: Vec<TypeId>,
+    },
 
     /// Closure call interface, `Fn(Args) Ret`.
     ClosureInterface {

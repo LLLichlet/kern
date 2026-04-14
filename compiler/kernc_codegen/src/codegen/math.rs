@@ -41,6 +41,64 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
+    fn is_address_pointer_type(&self, ty: TypeId) -> bool {
+        matches!(
+            self.type_registry.get(self.type_registry.normalize(ty)),
+            TypeKind::VolatilePtr { .. }
+        )
+    }
+
+    fn address_offset_int(
+        &self,
+        value: IntValue<'ctx>,
+        ty: TypeId,
+        name: &str,
+    ) -> IntValue<'ctx> {
+        let target_ty = self.context.i64_type();
+        if value.get_type() == target_ty {
+            return value;
+        }
+
+        if self.is_signed_int(ty) {
+            self.builder
+                .build_int_s_extend(value, target_ty, name)
+                .unwrap()
+        } else {
+            self.builder
+                .build_int_z_extend(value, target_ty, name)
+                .unwrap()
+        }
+    }
+
+    fn compile_address_ptr_offset(
+        &self,
+        ptr_val: crate::values::PointerValue<'ctx>,
+        int_val: IntValue<'ctx>,
+        int_ty: TypeId,
+        subtract: bool,
+    ) -> BasicValueEnum<'ctx> {
+        let addr_ty = self.context.i64_type();
+        let base = self
+            .builder
+            .build_ptr_to_int(ptr_val, addr_ty, "addr_ptr_base")
+            .unwrap();
+        let offset = self.address_offset_int(int_val, int_ty, "addr_ptr_offset");
+        let addr = if subtract {
+            self.builder
+                .build_int_sub(base, offset, "addr_ptr_sub")
+                .unwrap()
+        } else {
+            self.builder
+                .build_int_add(base, offset, "addr_ptr_add")
+                .unwrap()
+        };
+
+        self.builder
+            .build_int_to_ptr(addr, ptr_val.get_type(), "addr_ptr_result")
+            .unwrap()
+            .into()
+    }
+
     pub(crate) fn is_signed_int(&self, ty: TypeId) -> bool {
         let norm = self.type_registry.normalize(ty);
         if let TypeKind::Primitive(p) = self.type_registry.get(norm) {
@@ -326,7 +384,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         use BinaryOperator::*;
         match op {
             Add => {
-                let (ptr_val, int_val) = if l_val.is_pointer_value() {
+                let (ptr_val, int_val, ptr_ty, int_ty) = if l_val.is_pointer_value() {
                     if !r_val.is_int_value() {
                         self.sess.emit_ice(
                             span,
@@ -334,7 +392,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         );
                         return self.zero_i8_value();
                     }
-                    (l_val.into_pointer_value(), r_val.into_int_value())
+                    (l_val.into_pointer_value(), r_val.into_int_value(), lhs_ty, rhs_ty)
                 } else {
                     if !l_val.is_int_value() {
                         self.sess.emit_ice(
@@ -343,14 +401,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         );
                         return self.zero_i8_value();
                     }
-                    (r_val.into_pointer_value(), l_val.into_int_value())
+                    (r_val.into_pointer_value(), l_val.into_int_value(), rhs_ty, lhs_ty)
                 };
 
-                let ptr_ty = if l_val.is_pointer_value() {
-                    lhs_ty
-                } else {
-                    rhs_ty
-                };
+                if self.is_address_pointer_type(ptr_ty) {
+                    return self.compile_address_ptr_offset(ptr_val, int_val, int_ty, false);
+                }
+
                 let Some(elem_llvm_ty) = self.ptr_elem_llvm_type(ptr_ty, span, "pointer addition")
                 else {
                     return self.zero_i8_value();
@@ -367,6 +424,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 if l_val.is_pointer_value() && r_val.is_pointer_value() {
                     let l_ptr = l_val.into_pointer_value();
                     let r_ptr = r_val.into_pointer_value();
+                    if self.is_address_pointer_type(lhs_ty) {
+                        let addr_ty = self.context.i64_type();
+                        let l_addr = self
+                            .builder
+                            .build_ptr_to_int(l_ptr, addr_ty, "addr_ptr_lhs")
+                            .unwrap();
+                        let r_addr = self
+                            .builder
+                            .build_ptr_to_int(r_ptr, addr_ty, "addr_ptr_rhs")
+                            .unwrap();
+                        return self
+                            .builder
+                            .build_int_sub(l_addr, r_addr, "addr_ptr_diff")
+                            .unwrap()
+                            .into();
+                    }
                     let Some(elem_sema_ty) = self.type_registry.get_elem_type(lhs_ty) else {
                         self.sess.emit_ice(
                             span,
@@ -388,6 +461,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 } else {
                     let ptr_val = l_val.into_pointer_value();
                     let int_val = r_val.into_int_value();
+                    if self.is_address_pointer_type(lhs_ty) {
+                        return self.compile_address_ptr_offset(ptr_val, int_val, rhs_ty, true);
+                    }
                     let neg_int = self.builder.build_int_neg(int_val, "neg_offset").unwrap();
                     let Some(elem_llvm_ty) =
                         self.ptr_elem_llvm_type(lhs_ty, span, "pointer subtraction")

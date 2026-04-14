@@ -10,11 +10,10 @@ pub struct TypeNode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeKind {
-    /// Path type reference such as `i32`, `std.io.File`, or `Map[K, V]`.
+    /// Segmented type path or projection chain such as `i32`, `std.io.File`,
+    /// `Map[K, V]`, or `T.Add[U].Out`.
     Path {
-        segments: Vec<SymbolId>,
-        segment_spans: Vec<Span>,
-        generics: Vec<TypeNode>,
+        segments: Vec<TypePathSegment>,
     },
 
     /// Builtin optional type `?T`.
@@ -98,6 +97,23 @@ pub enum TypeKind {
     ClosureInterface {
         params: Vec<TypeNode>,
         ret: Option<Box<TypeNode>>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypePathSegment {
+    pub name: SymbolId,
+    pub name_span: Span,
+    pub args: Vec<TypeArg>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeArg {
+    Positional(TypeNode),
+    AssocBinding {
+        name: SymbolId,
+        name_span: Span,
+        value: TypeNode,
     },
 }
 

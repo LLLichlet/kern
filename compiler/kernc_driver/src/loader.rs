@@ -314,16 +314,23 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         referenced: &mut FastHashSet<SymbolId>,
     ) {
         match &ty.kind {
-            ast::TypeKind::Path {
-                segments, generics, ..
-            } => {
-                if let Some(&root) = segments.first()
-                    && alias_names.contains(&root)
+            ast::TypeKind::Path { segments } => {
+                if let Some(root) = segments.first()
+                    && alias_names.contains(&root.name)
                 {
-                    referenced.insert(root);
+                    referenced.insert(root.name);
                 }
-                for generic in generics {
-                    Self::collect_type_alias_references(generic, alias_names, referenced);
+                for segment in segments {
+                    for arg in &segment.args {
+                        match arg {
+                            ast::TypeArg::Positional(generic) => {
+                                Self::collect_type_alias_references(generic, alias_names, referenced);
+                            }
+                            ast::TypeArg::AssocBinding { value, .. } => {
+                                Self::collect_type_alias_references(value, alias_names, referenced);
+                            }
+                        }
+                    }
                 }
             }
             ast::TypeKind::Optional { inner } => {

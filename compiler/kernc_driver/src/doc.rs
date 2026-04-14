@@ -1301,13 +1301,15 @@ mod tests {
                 end,
             },
             kind: ast::TypeKind::Path {
-                segments: vec![segment],
-                segment_spans: vec![Span {
-                    file: file_id,
-                    start,
-                    end,
+                segments: vec![ast::TypePathSegment {
+                    name: segment,
+                    name_span: Span {
+                        file: file_id,
+                        start,
+                        end,
+                    },
+                    args: Vec::new(),
                 }],
-                generics: Vec::new(),
             },
         }
     }

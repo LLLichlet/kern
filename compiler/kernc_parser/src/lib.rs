@@ -329,10 +329,10 @@ fn main() i32 {
         else {
             panic!("expected generic struct data init");
         };
-        let ast::TypeKind::Path { generics, .. } = &type_node.kind else {
+        let ast::TypeKind::Path { segments } = &type_node.kind else {
             panic!("expected instantiated path type");
         };
-        assert_eq!(generics.len(), 1);
+        assert_eq!(segments.last().map(|segment| segment.args.len()), Some(1));
         assert_eq!(fields.len(), 2);
 
         let ast::StmtKind::ExprStmt(second_stmt) = &stmts[1].kind else {

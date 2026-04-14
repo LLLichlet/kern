@@ -10,6 +10,7 @@ use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::SemaContext;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId, EnumDef, FunctionDef, Visibility};
+use kernc_sema::query::MemberQuery;
 use kernc_sema::scope::ScopeId;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
@@ -94,6 +95,116 @@ type StructLayoutMapping = (Vec<usize>, Vec<usize>);
 type NamedStructLayoutKey = (DefId, Vec<TypeId>);
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    pub(crate) fn normalize_concrete_type(&mut self, ty: TypeId) -> TypeId {
+        let mut curr = ty;
+        loop {
+            let norm = self.ctx.type_registry.normalize(curr);
+            let Some(next) = self.try_normalize_projection_type(norm) else {
+                return norm;
+            };
+            if next == norm {
+                return norm;
+            }
+            curr = next;
+        }
+    }
+
+    fn try_normalize_projection_type(&mut self, ty: TypeId) -> Option<TypeId> {
+        let TypeKind::Projection {
+            target,
+            trait_def_id,
+            trait_args,
+            assoc_def_id,
+            assoc_args,
+        } = self.ctx.type_registry.get(ty).clone()
+        else {
+            return None;
+        };
+
+        if !assoc_args.is_empty() {
+            return None;
+        }
+
+        let target_norm = self.normalize_concrete_type(target);
+        if let TypeKind::TraitObject(target_trait_def_id, target_trait_args, assoc_bindings) =
+            self.ctx.type_registry.get(target_norm).clone()
+            && target_trait_def_id == trait_def_id
+            && target_trait_args == trait_args
+            && let Some((_, assoc_ty)) = assoc_bindings
+                .iter()
+                .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+        {
+            return Some(*assoc_ty);
+        }
+
+        let trait_impl_ids = self.ctx.trait_impls.clone();
+        for impl_id in trait_impl_ids {
+            let Some(impl_ptr) =
+                self.ctx
+                    .defs
+                    .get(impl_id.0 as usize)
+                    .and_then(|def| match def {
+                        Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                        _ => None,
+                    })
+            else {
+                continue;
+            };
+
+            let Some(impl_args) =
+                MemberQuery::new(self.ctx).resolve_impl_applicability_for_type(target_norm, impl_id)
+            else {
+                continue;
+            };
+
+            let impl_def = unsafe { &*impl_ptr };
+            let Some(trait_ast) = &impl_def.trait_type else {
+                continue;
+            };
+            let impl_trait_ty = self
+                .ctx
+                .node_types
+                .get(&trait_ast.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            if impl_trait_ty == TypeId::ERROR {
+                continue;
+            }
+
+            let mut subst_map = HashMap::new();
+            for (param, arg) in impl_def.generics.iter().zip(impl_args.iter().copied()) {
+                subst_map.insert(param.name, arg);
+            }
+            let inst_trait_ty = if subst_map.is_empty() {
+                impl_trait_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                subst.substitute(impl_trait_ty)
+            };
+
+            let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) =
+                self.ctx
+                    .type_registry
+                    .get(self.ctx.type_registry.normalize(inst_trait_ty))
+                    .clone()
+            else {
+                continue;
+            };
+            if bound_trait_def_id != trait_def_id || bound_trait_args != trait_args {
+                continue;
+            }
+
+            if let Some((_, assoc_ty)) = assoc_bindings
+                .iter()
+                .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+            {
+                return Some(*assoc_ty);
+            }
+        }
+
+        None
+    }
+
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
         let module_name = ctx
             .root_module
@@ -177,11 +288,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         ty: TypeId,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> TypeId {
-        if subst_map.is_empty() || ty == TypeId::ERROR {
+        if ty == TypeId::ERROR {
             ty
         } else {
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
-            subst.substitute(ty)
+            let substituted = if subst_map.is_empty() {
+                ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
+                subst.substitute(ty)
+            };
+            self.normalize_concrete_type(substituted)
         }
     }
 

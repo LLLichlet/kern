@@ -1801,7 +1801,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             TypeKind::FnDef(id, args)
             | TypeKind::Def(id, args)
             | TypeKind::Enum(id, args)
-            | TypeKind::TraitObject(id, args) => Some((*id, args.clone())),
+            | TypeKind::TraitObject(id, args, _) => Some((*id, args.clone())),
             _ => {
                 self.ctx
                     .struct_error(
@@ -2455,7 +2455,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             TypeKind::TraitObject(..) => self
                 .ctx
                 .type_registry
-                .intern(TypeKind::TraitObject(def_id, arg_tys)),
+                .intern(TypeKind::TraitObject(def_id, arg_tys, Vec::new())),
             _ => self
                 .ctx
                 .type_registry

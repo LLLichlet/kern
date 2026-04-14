@@ -4,7 +4,7 @@ mod subst;
 
 pub use constexpr::{ConstEvaluator, ConstValue, ScriptHost};
 pub(crate) use expr::ExprChecker;
-pub use subst::Substituter;
+pub use subst::{Substituter, substitute_associated_types};
 
 use crate::context::SemaContext;
 use crate::def::{Def, DefId, FunctionDef, GlobalDef, ImplDef};

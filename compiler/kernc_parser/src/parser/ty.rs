@@ -257,43 +257,77 @@ impl<'a> Parser<'a> {
         &mut self,
         start_token: kernc_lexer::Token,
     ) -> ParseResult<TypeNode> {
-        let first_id = self.intern_token(start_token);
         let mut span = start_token.span;
-
-        let mut segments = vec![first_id];
-        let mut segment_spans = vec![start_token.span];
+        let mut segments = vec![self.parse_type_path_segment_after_name(start_token)?];
+        span = span.to(segments.last().unwrap().name_span);
+        if let Some(last_arg_span) = segments
+            .last()
+            .and_then(|segment| segment.args.last())
+            .map(|arg| match arg {
+                TypeArg::Positional(ty) => ty.span,
+                TypeArg::AssocBinding { value, .. } => value.span,
+            })
+        {
+            span = span.to(last_arg_span);
+        }
 
         while self.match_token(&[TokenType::Dot]) {
             let id_token = self.expect(TokenType::Identifier)?;
-            segments.push(self.intern_token(id_token));
-            segment_spans.push(id_token.span);
-            span = span.to(id_token.span);
-        }
-
-        // Parse optional type arguments such as `List[T]`.
-        let mut generics = Vec::new();
-        if self.check(TokenType::LBracket) {
-            generics = self.parse_type_args()?;
-            span = span.to(self.stream.prev_span());
+            let segment = self.parse_type_path_segment_after_name(id_token)?;
+            span = span.to(segment.name_span);
+            if let Some(last_arg_span) = segment.args.last().map(|arg| match arg {
+                TypeArg::Positional(ty) => ty.span,
+                TypeArg::AssocBinding { value, .. } => value.span,
+            }) {
+                span = span.to(last_arg_span);
+            }
+            segments.push(segment);
         }
 
         Ok(TypeNode {
             id: self.new_id(),
             span,
-            kind: TypeKind::Path {
-                segments,
-                segment_spans,
-                generics,
-            },
+            kind: TypeKind::Path { segments },
         })
     }
 
-    fn parse_type_args(&mut self) -> ParseResult<Vec<TypeNode>> {
+    fn parse_type_path_segment_after_name(
+        &mut self,
+        name_token: kernc_lexer::Token,
+    ) -> ParseResult<TypePathSegment> {
+        let name = self.intern_token(name_token);
+        let args = if self.check(TokenType::LBracket) {
+            self.parse_type_args()?
+        } else {
+            Vec::new()
+        };
+        Ok(TypePathSegment {
+            name,
+            name_span: name_token.span,
+            args,
+        })
+    }
+
+    fn parse_type_args(&mut self) -> ParseResult<Vec<TypeArg>> {
         self.expect(TokenType::LBracket)?;
         let mut args = Vec::new();
         if !self.check(TokenType::RBracket) {
             loop {
-                args.push(self.parse_type()?);
+                if self.check(TokenType::Identifier)
+                    && self.stream.peek_tag_nth(1) == TokenType::Assign
+                {
+                    let name_token = self.advance();
+                    let name = self.intern_token(name_token);
+                    self.expect(TokenType::Assign)?;
+                    let value = self.parse_type()?;
+                    args.push(TypeArg::AssocBinding {
+                        name,
+                        name_span: name_token.span,
+                        value,
+                    });
+                } else {
+                    args.push(TypeArg::Positional(self.parse_type()?));
+                }
                 if !self.continue_after_comma(&[TokenType::RBracket]) {
                     break;
                 }

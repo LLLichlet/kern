@@ -85,10 +85,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         match op {
             BinaryOperator::Add | BinaryOperator::Subtract => {
-                if is_l_ptr || is_r_ptr {
-                    return true;
-                }
-
                 (self.ctx.type_registry.is_integer(l_norm)
                     && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)
@@ -224,12 +220,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             expected_ty.unwrap_or_else(|| self.fresh_type_var())
         };
 
-        let trait_args = if returns_bool {
-            vec![rhs_ty]
+        let target_trait_ty = if returns_bool {
+            self.ctx.builtin_trait_ty(trait_name, vec![rhs_ty])
         } else {
-            vec![rhs_ty, out_ty]
+            self.ctx
+                .builtin_trait_ty_with_assoc(trait_name, vec![rhs_ty], vec![("Out", out_ty)])
         };
-        let Some(target_trait_ty) = self.ctx.builtin_trait_ty(trait_name, trait_args) else {
+        let Some(target_trait_ty) = target_trait_ty else {
             self.ctx.emit_ice(
                 lhs.span,
                 format!("missing builtin operator trait `{}`", trait_name),
@@ -238,7 +235,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         if self.check_trait_impl(lhs_ty, target_trait_ty) {
-            out_ty
+            self.resolve_tv(out_ty)
         } else {
             let bound_hint = self.ctx.ty_to_string(target_trait_ty);
             self.ctx
@@ -295,7 +292,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         let out_ty = expected_ty.unwrap_or_else(|| self.fresh_type_var());
-        let Some(target_trait_ty) = self.ctx.builtin_trait_ty(trait_name, vec![out_ty]) else {
+        let Some(target_trait_ty) = self
+            .ctx
+            .builtin_trait_ty_with_assoc(trait_name, vec![], vec![("Out", out_ty)])
+        else {
             self.ctx.emit_ice(
                 operand.span,
                 format!("missing builtin operator trait `{}`", trait_name),
@@ -304,7 +304,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         if self.check_trait_impl(operand_ty, target_trait_ty) {
-            out_ty
+            self.resolve_tv(out_ty)
         } else {
             let bound_hint = self.ctx.ty_to_string(target_trait_ty);
             self.ctx
@@ -336,10 +336,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let l_norm = self.resolve_tv(lhs_ty);
 
         // 2. Detect pointer arithmetic up front.
-        let is_l_ptr = matches!(
-            self.ctx.type_registry.get(l_norm),
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
-        );
+        let is_l_obj_ptr = matches!(self.ctx.type_registry.get(l_norm), TypeKind::Pointer { .. });
+        let is_l_addr_ptr =
+            matches!(self.ctx.type_registry.get(l_norm), TypeKind::VolatilePtr { .. });
+        let is_l_ptr = is_l_obj_ptr || is_l_addr_ptr;
 
         // 3. Derive the expected type for the right operand.
         // Pointer addition and subtraction must not force integer literals to become pointers.
@@ -360,30 +360,30 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 6. Detect whether the right operand is also a pointer.
-        let is_r_ptr = matches!(
-            self.ctx.type_registry.get(r_norm),
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
-        );
+        let is_r_obj_ptr = matches!(self.ctx.type_registry.get(r_norm), TypeKind::Pointer { .. });
+        let is_r_addr_ptr =
+            matches!(self.ctx.type_registry.get(r_norm), TypeKind::VolatilePtr { .. });
+        let is_r_ptr = is_r_obj_ptr || is_r_addr_ptr;
 
         use BinaryOperator::*;
         match op {
             Add | Subtract => {
-                if is_l_ptr || is_r_ptr {
+                if is_l_addr_ptr || is_r_addr_ptr {
                     if op == Add {
-                        // `ptr + int` or `int + ptr`.
-                        if is_l_ptr && (r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE) {
+                        // `^ptr + int` or `int + ^ptr`.
+                        if is_l_addr_ptr && (r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE) {
                             return l_norm;
                         }
-                        if is_r_ptr && (l_norm == TypeId::USIZE || l_norm == TypeId::ISIZE) {
+                        if is_r_addr_ptr && (l_norm == TypeId::USIZE || l_norm == TypeId::ISIZE) {
                             return r_norm;
                         }
                     } else if op == Subtract {
-                        // ptr - int
-                        if is_l_ptr && (r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE) {
+                        // `^ptr - int`
+                        if is_l_addr_ptr && (r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE) {
                             return l_norm;
                         }
-                        // `ptr - ptr` yields an offset.
-                        if is_l_ptr && is_r_ptr {
+                        // `^ptr - ^ptr` yields an offset.
+                        if is_l_addr_ptr && is_r_addr_ptr {
                             if l_norm == r_norm {
                                 return TypeId::ISIZE; // Pointer subtraction yields a signed offset.
                             } else {
@@ -401,7 +401,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                     // Reject invalid pointer arithmetic combinations.
                     self.ctx.struct_error(lhs.span, "invalid pointer arithmetic")
-                        .with_hint("pointer arithmetic requires `usize` or `isize` offsets, or subtraction between identical pointer types")
+                        .with_hint("address arithmetic is only builtin for `^T`/`^mut T`, using `usize`/`isize` offsets or subtraction between identical address-pointer types")
                         .emit();
                     return TypeId::ERROR;
                 }

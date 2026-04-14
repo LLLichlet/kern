@@ -1,4 +1,4 @@
-# Kern Language Design (v0.6.7)
+# Kern Language Design (v0.7.0)
 
 ## Table of Contents
 
@@ -67,7 +67,7 @@ To achieve "high abstraction, low policy", Kern provides three core mechanisms:
 
 SIMD is part of the language, not a library abstraction and not an alias for arrays or slices. A type like `f32x4` is a first-class builtin type in its own right.
 
-The fixed-width SIMD family currently uses these source forms:
+The fixed-width SIMD family uses these source forms:
 
   * Signed integer vectors: `i8xN`, `i16xN`, `i32xN`, `i64xN`, `i128xN`, `isizexN`
   * Unsigned integer vectors: `u8xN`, `u16xN`, `u32xN`, `u64xN`, `u128xN`, `usizexN`
@@ -91,27 +91,59 @@ In Kern, **mutability is a property of storage, not an intrinsic part of the bas
       * This is the same style of split that Kern uses for pointers: `*mut T` grants write access through the pointer, while `let mut p` only controls whether the pointer variable itself may be rebound.
   * **Top-Down Bidirectional Flow**: Kern uses contextual typing. Literals like `10` are "type-neutral" and absorb the **Expected Type** flowing down from declarations or function signatures.
 
-### 2.3 Pointers and Volatility
+### 2.3 Pointers, Nullability, and Volatility
 
-Pointers explicitly carry mutability permissions for the memory they point to.
+Pointers explicitly carry mutability permissions and pointer-family semantics.
 
-In Kern, a pointer is still just a first-class value type. It can be stored, passed, returned, compared, initialized explicitly, participate in arithmetic, and be used as the target of an `impl` block like any other concrete type. Kern does not model pointers as a hidden borrow/reference system in the Rust or C++ sense.
+In Kern, a pointer is still a first-class value type. It can be stored, passed,
+returned, compared, used as the target of an `impl` block, and manipulated with
+ordinary explicit syntax. Kern does not model pointers as a hidden
+borrow/reference system.
 
-  * **Normal Pointers**:
-      * `*T`: Immutable pointer. Allows reading from `T`.
-      * `*mut T`: Mutable pointer. Allows reading and writing to `T`.
-  * **Volatile Pointers**: Used for hardware MMIO.
-      * `^T`: Immutable volatile pointer.
-      * `^mut T`: Mutable volatile pointer.
-  * **Address-of Operator (`.&` / `..&`)**:
-      * `obj.&`: Obtains an immutable pointer (`*T`).
-      * `obj..&`: Obtains a mutable pointer (`*mut T`). This is only valid if `obj` is a mutable location (e.g., declared with `let mut`).
-  * **Dereference**: `ptr.*` (postfix).
-  * **Pointer Arithmetic**: Kern natively supports pointer arithmetic via the `+` and `-` operators.
-      * **Implicit Scaling**: Offsets are implicitly scaled by the element size (`@sizeOf[T]()`).
-      * **Strict Types**: When adding or subtracting an offset, the integer operand **must** be of type `usize` or `isize` (implicit promotion from smaller integers is forbidden to prevent bugs).
-      * **Pointer Subtraction**: Subtracting two identical pointer types (`ptr1 - ptr2`) yields an `isize` representing the distance in elements between them.
-      * **Property Retention**: The resulting pointer strictly inherits all modifiers of the base pointer (e.g., `let next = mmio_ptr + 1;` where `mmio_ptr` is `^mut u32`, guarantees `next` is also `^mut u32`).
+Kern uses three pointer families:
+
+  * **Object Pointers**:
+      * `*T`: immutable non-null object pointer
+      * `*mut T`: mutable non-null object pointer
+      * these are the ordinary pointer family used for real object access
+  * **Nullable Object Pointers**:
+      * `?*T`
+      * `?*mut T`
+      * this is the only canonical null model for object pointers
+      * `?*T.None` is the canonical null value
+  * **Address / Volatile Pointers**:
+      * `^T`: immutable address / volatile pointer
+      * `^mut T`: mutable address / volatile pointer
+      * these are the raw-address family used for MMIO, fixed hardware
+        addresses, and other address-oriented boundaries
+      * unlike object pointers, they may represent address `0`
+
+The cast boundary is intentionally explicit:
+
+  * `usize as ^T` enters pointer space as a raw address / volatile pointer
+  * `usize as ?*T` or `usize as ?*mut T` performs the nullable object-pointer
+    null-filtering conversion directly
+  * direct `usize as *T` or `usize as *mut T` is forbidden
+
+Core operators remain simple:
+
+  * **Address-of (`.&` / `..&`)**:
+      * `obj.&` obtains `*T`
+      * `obj..&` obtains `*mut T` and requires a mutable location
+  * **Dereference**: `ptr.*` (postfix)
+
+Pointer arithmetic on object pointers remains available, but it is routed
+through ordinary builtin operator traits and the canonical `base.mem.ptr`
+implementations rather than through hidden compiler-only pointer magic.
+
+  * `ptr + n` and `ptr - n` for `*T` / `*mut T` use `Add[usize]`,
+    `Add[isize]`, `Sub[usize]`, and `Sub[isize]`
+  * offsets are scaled by the element size (`@sizeOf[T]()`)
+  * the offset operand must be `usize` or `isize`
+  * subtracting two identical object pointer types yields an `isize` distance
+    measured in elements
+  * byte-wise stepping is explicit through helper methods such as
+    `ptr.byte_add(...)` and `ptr.byte_sub(...)`
 
 ### 2.4 Arrays and Slices
 
@@ -162,7 +194,7 @@ While Kern strictly enforces "explicit over implicit" (forbidding implicit integ
 
 BNC is a zero-cost compiler mechanism that naturally "decays" or "packages" a rigidly known compile-time type into a dynamic interface pointer when passing across function boundaries or assignments, without requiring the explicit `as` keyword.
 
-Kern currently relies on four common BNC pathways:
+Kern relies on four common BNC pathways:
 1. **Array to Slice Decay**: A fixed-size array `[N]T` naturally converts into a dynamic slice `[]T`. The compiler automatically extracts the memory address and synthesizes the fat pointer's length metadata using the compile-time `N`.
 2. **Stateless Closure to Function Pointer**: An anonymous closure with an explicitly empty capture list (`.[]`) has a memory footprint of `0`. It naturally decays into a standard C-ABI stateless function pointer `fn(Args) Ret` (See Section 11.3).
 3. **Named Struct to Anonymous Struct Decay**: A named structural type (e.g., `type Vector = struct { x: i32, y: i32 }`) naturally decays into an equivalent Anonymous Struct (`struct { x: i32, y: i32 }`) or its pointer variant when passed across a boundary. This enables secure "Duck Typing" without boilerplate. 
@@ -292,7 +324,9 @@ No active鈥慺ield tracking; no default values.
 
 ### 5.3 Simple Enum (formerly Enums)
 
-In Kern v0.5.0, C-style integer constant sets and complex Algebraic Enum Types are unified under the `enum` keyword. For simple sets, the backing type can be explicitly defined (defaults to `u32`).
+Kern uses the `enum` keyword for both simple C-style enumerations and payload
+carrying tagged unions. For simple sets, the backing type can be explicitly
+defined (defaults to `u32`).
 
 ```kern
 type Color: u8 = enum {
@@ -318,7 +352,7 @@ let color = match (raw_data) {
 
 ### 5.4 Conversions
 
-In Kern v0.5.0, type conversions are explicitly and uniformly handled by the `as` operator.
+Type conversions are explicitly and uniformly handled by the `as` operator.
 
   * **Numeric Conversions**: `as` is used for all safe and unsafe numeric conversions, including bit-width truncation, zero/sign-extension, and integer/floating-point conversions (e.g., `i32 as u8`, `f32 as i32`).
   * **Pointer Reinterpretation**: `as` preserves the physical bit pattern when casting between pointer types or between pointers and `usize`/`isize`.
@@ -364,10 +398,18 @@ impl *mut Point {
 ### 6.4 Traits
 
 Traits define a VTable contract. Methods implicitly receive a `self` reference.
+Traits may also declare associated types.
 
 ```kern
 type Writer = trait {
     write: fn([]u8) usize,
+};
+```
+
+```kern
+type Add[Rhs] = trait {
+    type Out;
+    add: fn(Rhs) Out,
 };
 ```
 
@@ -379,17 +421,32 @@ This distinction is deliberate:
   * **Clear generic constraints**: Generic code can state exactly which operations it needs, instead of relying on ad-hoc template-like behavior.
   * **Freestanding consistency**: Builtin operations remain available even when no standard library is linked.
 
-Builtin traits currently split into two categories:
+Builtin traits split into two categories:
 
-  * **Capability traits**: These describe operators and can participate in overload resolution. Examples include `Eq[Rhs]`, `Lt[Rhs]`, `Add[Rhs, Out]`, `Sub[Rhs, Out]`, `Mul[Rhs, Out]`, `Div[Rhs, Out]`, `Rem[Rhs, Out]`, `BitAnd[Rhs, Out]`, `BitOr[Rhs, Out]`, `BitXor[Rhs, Out]`, `Shl[Rhs, Out]`, `Shr[Rhs, Out]`, `Neg[Out]`, `BitNot[Out]`, and `Not[Out]`.
-  * **Marker traits**: These classify type families but do not imply operator capability by themselves. Kern currently provides `Integer`, `SignedInteger`, `UnsignedInteger`, and `Float`.
+  * **Capability traits**: These describe operators and can participate in overload resolution. Equality and ordering use direct boolean-returning traits such as `Eq[Rhs]`, `Lt[Rhs]`, `Le[Rhs]`, `Gt[Rhs]`, and `Ge[Rhs]`. Arithmetic, bitwise, shift, and unary value operators use associated-result traits such as `Add[Rhs]`, `Sub[Rhs]`, `Mul[Rhs]`, `Div[Rhs]`, `Rem[Rhs]`, `BitAnd[Rhs]`, `BitOr[Rhs]`, `BitXor[Rhs]`, `Shl[Rhs]`, `Shr[Rhs]`, `Neg`, `BitNot`, and `Not`, each with an associated type `Out`.
+  * **Marker traits**: These classify type families but do not imply operator capability by themselves. Kern provides `Integer`, `SignedInteger`, `UnsignedInteger`, and `Float`.
 
-The important rule is that marker traits are **not** shorthand for operator support. For example, `where T: Float` does not imply `T: Add[T, T]`, and `where T: SignedInteger` does not imply `T: Neg[T]`. Generic code should constrain the exact capability it intends to use.
+The important rule is that marker traits are **not** shorthand for operator support. For example, `where T: Float` does not imply `where T: Add[T]`, and `where T: SignedInteger` does not imply `where T: Neg`. Generic code should constrain the exact capability it intends to use.
 
 This keeps the system explicit:
 
   * use `Integer` / `SignedInteger` / `UnsignedInteger` / `Float` when classification is the point;
   * use `Eq`, `Add`, `Neg`, and other operator traits when behavior is the point.
+
+Associated types use direct names inside the owning trait or impl body, but in
+ordinary type positions they must be projected through an explicit receiver and
+trait path:
+
+```kern
+fn plus_one[T](value: T) T.Add[i32].Out
+    where T: Add[i32],
+{
+    return value.add(1);
+}
+```
+
+This keeps the owning trait visible at the projection site and avoids
+unqualified `T.Out` ambiguity when multiple trait bounds are in scope.
 
 ### 6.4.1 Builtin Operators and Overloading Boundaries
 
@@ -519,7 +576,8 @@ let a = if (b < 10) i32.{10} else i32.{20};
 
 ### 7.2 Match Expressions
 
-Enhanced pattern matching and branching. In Kern v0.5.0, `match` completely replaces `switch` for all branching logic (integers, strings, and `enum` variants). No fallthrough.
+Enhanced pattern matching and branching. `match` replaces `switch` for all
+branching logic (integers, strings, and `enum` variants). No fallthrough.
 
   * **Ranges**: `..` defines a left-closed, right-open range. `..=` defines a fully inclusive range.
 
@@ -575,7 +633,10 @@ When a block `{ ... }` evaluates as an expression and contains `defer` statement
 
 ## 8\. Modules
 
-Kern's module system is designed to be explicit, highly predictable, and strictly controlled by the programmer. In v0.4.0, Kern transitioned to an explicit module tree declaration model to support robust visibility control, re-exports, and conditional compilation.
+Kern's module system is designed to be explicit, highly predictable, and
+strictly controlled by the programmer. It uses an explicit module tree
+declaration model to support robust visibility control, re-exports, and
+conditional compilation.
 
 ### 8.1 Explicit Module Tree (`mod`)
 
@@ -709,36 +770,61 @@ extern {
 
 ## 10\. Enum Types (`enum`) and Pattern Matching
 
-Kern v0.5.0 unifies all tagged unions and enumerations under the `enum` keyword, paired exclusively with `match` for branching.
+Kern uses `enum` for all tagged unions and enumerations, paired exclusively
+with `match` for branching.
 
 ### 10.1 Defining Enum Types
 
 Use the `enum` keyword to define tagged unions with payloads (Algebraic Enum Types).
 
 ```kern
-pub type Option[T] = enum {
-    Some: T,
-    None,
+type Message = enum {
+    Data: i32,
+    Closed,
 };
 ```
 
-### 10.2 Elided Initialization Syntax
+### 10.2 Builtin Optional and Result Carriers
+
+Kern provides builtin carrier type families for optional values and
+result-carrying values:
+
+  * optional: `?T`
+  * result: `T!E`
+
+These are canonical language forms, not library aliases that happen to enjoy
+special treatment.
+
+```kern
+let present = ?i32.{ Some: 7 };
+let absent = ?i32.None;
+
+let ok = i32![]u8.{ Ok: 7 };
+let err = i32![]u8.{ Err: "bad" };
+```
+
+Kern also provides direct propagation operators:
+
+  * `value.?` propagates `None`
+  * `value.!` propagates `Err`
+
+### 10.3 Elided Initialization Syntax
 
 Where the target type context is strictly explicit (e.g., function returns, arguments, explicit variable declarations), **any type** (including Enum, Arrays, and Structs) can be initialized using the elided literal syntax `.{ ... }`.
 
 ```kern
-fn safe_divide(a: i32, b: i32) Result[i32, i32] {
+fn safe_divide(a: i32, b: i32) i32!i32 {
     if (b == 0) return .{ Err: -1 }; 
     return .{ Ok: a / b };
 }
 ```
 
-### 10.3 Pattern Matching (`match`)
+### 10.4 Pattern Matching (`match`)
 
 Pattern matching is the only way to access the payload of a `enum` variant. Bindings within a match arm can be made mutable.
 
 ```kern
-match (opt) {
+match (value) {
     .{ Some: mut val } => {
         val += 1; 
         printf("%d\n\0", val);
@@ -1098,7 +1184,7 @@ Kern keeps SIMD as a builtin type family first, and reserves `@...` intrinsics o
 
 These are value intrinsics, not control-flow forms. Their operands are all evaluated normally before the intrinsic is applied.
 
-The rearrangement helpers above are specified purely in terms of lane order. In the current implementation they lower to fixed `@simdShuffle` masks rather than backend-specific bespoke nodes.
+The rearrangement helpers above are specified purely in terms of lane order. They lower to fixed `@simdShuffle` masks rather than backend-specific bespoke nodes.
 
 ```kern
 let a = f32x4.{ 1.0, 2.0, 3.0, 4.0 };

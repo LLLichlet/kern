@@ -1,13 +1,14 @@
 # The `craft` Package Manager and Builder
 
-This document describes the current architecture and design rules for `craft`, the dedicated Kern package manager and build orchestrator.
+This document describes the current architecture and operating model of
+`craft`, the Kern package manager and build orchestrator.
 
 `craft` is intentionally separate from `kernc`.
 
 - `kernc` compiles and links explicit inputs.
 - `craft` discovers packages, evaluates package configuration, resolves dependencies, manages lockfiles, derives build plans, and executes those plans.
 
-The goal is not to imitate Cargo or Zig mechanically. The goal is to preserve Kern's core values:
+`craft` follows Kern's core values:
 
 - orthogonality
 - explicit phase boundaries
@@ -31,8 +32,8 @@ The goal is not to imitate Cargo or Zig mechanically. The goal is to preserve Ke
 - managing local package/source caches
 
 All machine-local state owned by `craft` lives under `.craft/`. That tree is
-derived state, not part of the reproducibility surface, and should not be
-checked into version control.
+derived state, not part of the reproducibility surface, and does not belong in
+version control.
 
 `craft` maintains a root `.gitignore` entry for `.craft/` next to `Craft.toml`
 when it creates local state. The ignore rule belongs at the package or
@@ -41,7 +42,7 @@ directory itself should be ignored as one unit.
 
 If a repository already tracked files under `.craft/`, that is a one-time VCS
 cleanup problem rather than a build reproducibility input, and those entries
-should be removed from the index.
+are expected to be removed from the index.
 
 `craft` is not responsible for:
 
@@ -77,7 +78,7 @@ This split is intentional.
 - atomic file replacement prevents readers from observing truncated or partially
   rewritten state files
 
-When adding new `.craft/` state, the default policy should be:
+When adding new `.craft/` state, the default policy is:
 
 1. decide whether the state is workspace-wide, output-wide, or private to one
    action
@@ -149,7 +150,8 @@ This is intentional. `craft` is not a compiler pass. It is a top-level toolchain
 
 `Craft.toml` is the static declaration source.
 
-It should remain readable and sufficient for ordinary packages. Most packages should not need either script file.
+It stays readable and sufficient for ordinary packages. Most packages do not
+need either script file.
 
 The current schema direction includes:
 
@@ -176,7 +178,7 @@ Example:
 [package]
 name = "http"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 publish = false
 
 [runtime]
@@ -474,7 +476,7 @@ pub fn build(b: *mut builder.Builder) void {
 Important:
 
 - generated source files participate in compilation through the generated root
-- `build.rn` currently replaces a unit source root; it does not implicitly add sibling modules into the original package `src/` tree
+- `build.rn` replaces a unit source root; it does not implicitly add sibling modules into the original package `src/` tree
 - if you want `mod build_info;` to resolve against a generated file, copy or generate the entry source under the generated root as well, then bind that output with `set_source_root(...)` or `set_source_root_from(...)`
 
 ## Generated Files And Staged Actions
@@ -501,7 +503,7 @@ Staged actions:
 - remain visible in the derived build plan and CLI output
 - are bound to units as either `compile_inputs` or `artifact_outputs`
 
-The staged action model currently has two explicit phases:
+The staged action model has two explicit phases:
 
 - `pre_compile`
 - `post_link`
@@ -511,7 +513,7 @@ This phase split matters:
 - `pre_compile` actions materialize inputs required before compiling the unit
 - `post_link` actions materialize files or directories that belong next to the final artifact
 
-The current staged action kinds are:
+The staged action kinds are:
 
 - `WriteFile`
 - `RunTool`
@@ -656,9 +658,9 @@ When `craft` launches a runtime target for `run` or `test`, it also injects:
 
 That audit output is part of the design, not decoration.
 
-## Design Rules
+## Operating Rules
 
-The system should continue to follow these rules:
+The system follows these rules:
 
 - no implicit host-environment dependence
 - no hidden pre-lock side effects
@@ -667,37 +669,4 @@ The system should continue to follow these rules:
 - explicit build edges over ad hoc script behavior
 - readable lockfiles over opaque hashes alone
 
-Where behavior must vary, it should vary through explicit inputs and explicit phases.
-
-## Implementation Status
-
-The current implementation already includes:
-
-- manifest parsing and validation
-- workspace discovery
-- package graph normalization
-- `craft.rn` evaluation
-- feature-aware elaboration
-- explicit environment input tracking for elaboration
-- deterministic lockfile generation and freshness checks
-- source fetching for external packages
-- explicit build-plan derivation
-- `build.rn` execution through generated files and staged actions
-- compile/link execution through `kernc_driver`
-- build/test/run command flow through the same planning model
-
-This means `craft` is already structured around the intended architecture rather than being a temporary script runner.
-
-## Expansion Areas
-
-The remaining work should extend this model, not bypass it.
-
-Natural next steps include:
-
-- richer git and workspace flows
-- more complete workspace ergonomics
-- additional explicit build-graph nodes where justified
-- improved packaging and install flows
-- stronger cache/index modeling around the same deterministic plan structure
-
-The standard for future additions is simple: if a capability cannot be expressed cleanly with explicit inputs, explicit phases, and explicit graph effects, it should not be added.
+Where behavior varies, it varies through explicit inputs and explicit phases.

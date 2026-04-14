@@ -2,7 +2,10 @@
 
 This document describes how to use `kernc`, the Kern compiler driver.
 
-`kernc` is intentionally positioned as a compiler and linker driver, not as a package manager. It should be able to accept enough explicit configuration to fit into many build environments, while leaving dependency resolution, package graphs, caching, and workspace orchestration to a future dedicated package manager.
+`kernc` is a compiler and linker driver, not a package manager. It accepts
+enough explicit configuration to fit into different build environments, while
+leaving dependency resolution, package graphs, caching, and workspace
+orchestration to higher-level tooling such as `craft`.
 
 ## Scope and Responsibilities
 
@@ -21,7 +24,9 @@ This document describes how to use `kernc`, the Kern compiler driver.
 - Performing artifact caching across packages or targets.
 - Acting as a lockfile-aware package manager.
 
-In practice, this means a future package manager should decide what to build and in which order, while `kernc` should execute a well-defined compile or link action with explicit parameters.
+In practice, higher-level tooling decides what to build and in which order,
+while `kernc` executes a well-defined compile or link action with explicit
+parameters.
 
 ## Command Synopsis
 
@@ -101,7 +106,8 @@ Use `--module-path <name=path>` to map a module root name to a physical path:
 kernc --module-path std=./library/std app.rn
 ```
 
-This is the core mechanism for wiring module roots into the compiler. It is intentionally explicit and package-manager-friendly.
+This is the core mechanism for wiring module roots into the compiler. It is
+intentionally explicit and easy for package tools to drive.
 
 ### Runtime And Library Axes
 
@@ -145,7 +151,7 @@ The `rt` companion-root rule is startup wiring, not ordinary name injection:
 
 Each root then falls back to a path relative to the current executable and finally to `library/<name>` in the repository layout.
 
-The intended model is:
+The model is:
 
 - library choice is independent from startup ownership
 - libc linkage is independent from whether `std` is available
@@ -325,7 +331,8 @@ kernc --link-only \
   -o app
 ```
 
-This is especially useful for build scripts and future package-manager integration.
+This is especially useful for build scripts and for `craft` or other external
+build tooling.
 
 ## Recommended Usage Patterns
 
@@ -346,9 +353,9 @@ kernc -c --target x86_64-unknown-linux-gnu app.rn -o app.o
 kernc --link-only --link-input app.o --entry-symbol boot_main --link-arg ... -o app
 ```
 
-### Future Package Manager Integration
+### Build Tool Integration
 
-A future package manager should treat `kernc` as an execution backend:
+Package tools treat `kernc` as an execution backend:
 
 1. Resolve the package graph.
 2. Build the dependency order.

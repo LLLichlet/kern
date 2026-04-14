@@ -1,8 +1,10 @@
 # Runtime And Library Architecture
 
-This document defines the runtime and library split introduced after the v0.6.7 `main` cleanup.
+This document defines the runtime and library split used by the current 0.7.0 toolchain.
 
-The goal is to keep Kern freestanding by default while making hosted startup, toolchain-owned startup, libc usage, and standard-library selection explicit and orthogonal.
+This document describes the current split that keeps Kern freestanding by
+default while making hosted startup, toolchain-owned startup, libc usage, and
+standard-library selection explicit and orthogonal.
 
 ## Design Goals
 
@@ -19,7 +21,7 @@ The goal is to keep Kern freestanding by default while making hosted startup, to
 In Kern, "freestanding" is a statement about dependency direction, not a statement
 about whether useful libraries exist.
 
-The intended dependency graph is:
+The dependency graph is:
 
 - the language and compiler stand on their own
 - `base` stands on its own
@@ -84,9 +86,8 @@ shipped toolchain libraries.
 This is alias wiring only. It is not a prelude and it does not put names into
 scope without `use`.
 
-Today this is still coarse-grained. That is acceptable for the current
-migration, but the architecture is deliberately shaped so future bundles or
-presets can be added without redefining startup semantics.
+This bundle axis stays coarse-grained on purpose: startup semantics stay
+separate from library selection.
 
 ### `sys` / `rt` Implementation Choice
 
@@ -162,13 +163,15 @@ The practical rule is:
 
 As part of this cleanup, legacy mirror modules such as `std.coll`, `std.mem`, `std.cmp`, `std.hash`, `std.num`, `std.cffi`, `std.os`, and `std.rt` are removed. Code should import `base.*`, `sys.*`, or `rt.*` directly when it needs those boundaries.
 
-Kern should not grow a Rust-style semantic split where the compiler secretly relies on a special crate boundary. Library layering remains a normal toolchain and package-architecture problem.
+Kern does not use a Rust-style semantic split where the compiler secretly
+relies on a special crate boundary. Library layering remains a normal toolchain
+and package-architecture problem.
 
 ## Tooling Model
 
 ### `kernc`
 
-`kernc` should expose the raw axes directly:
+`kernc` exposes the raw axes directly:
 
 - `--runtime-entry`
 - `--runtime-libc`
@@ -179,7 +182,7 @@ Kern should not grow a Rust-style semantic split where the compiler secretly rel
 
 ### `craft`
 
-`craft` should own package-level defaults through `Craft.toml`:
+`craft` owns package-level defaults through `Craft.toml`:
 
 ```toml
 [runtime]
@@ -188,44 +191,13 @@ libc = false
 bundle = "std"
 ```
 
-This is the correct place for project policy. Most users should set runtime/library intent in `Craft.toml`, not by manually repeating low-level `kernc` flags in every build invocation.
+This is the place for project policy. Most users set runtime/library intent in
+`Craft.toml` rather than repeating low-level `kernc` flags in every build
+invocation.
 
-The current implementation supports package-level `[runtime]` configuration. Future work should add clearer workspace/profile inheritance and named presets.
+## Summary
 
-## Current Implementation Status
-
-Done in this refactor:
-
-- `CompileOptions` uses structured runtime/library fields directly
-- `kernc` exposes the structured CLI flags directly
-- `Craft.toml` supports a package-level `[runtime]` section
-- `rt` owns startup/runtime glue
-- `sys` owns platform/provider boundaries
-- `std` is layered on top of `base` and `sys` without mirroring their namespaces
-- `rt` is treated as a runtime companion layer injected only when a runtime entry contract is selected
-- official `base`/`sys` aliases are injected only by explicit library-bundle selection, not implicitly by runtime flags
-
-## Next Steps
-
-### Policy centralization
-
-Next:
-
-- let `craft` define profile/workspace runtime presets
-- keep `kernc` explicit and mostly stateless
-- reduce ad hoc per-command policy in downstream tools such as LSP
-
-### Finer-grained library packaging
-
-Later:
-
-- define whether `std` stays one bundle or exposes finer library presets
-- keep those presets ordinary tooling/library policy
-- avoid reintroducing hidden compiler coupling
-
-## Current Direction Summary
-
-The intended steady state is simple:
+The model is simple:
 
 - Kern the language is freestanding.
 - `main` is a special root symbol only when a runtime entry contract is selected.

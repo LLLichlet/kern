@@ -2146,6 +2146,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (TypeId::ERROR, None, None);
             };
             let fn_name_id = function.name;
+            let skip_expected_return_inference = matches!(
+                self.ctx.resolve(fn_name_id),
+                "@simdReduceAdd"
+                    | "@simdReduceMul"
+                    | "@simdReduceAnd"
+                    | "@simdReduceOr"
+                    | "@simdReduceXor"
+                    | "@simdReduceMin"
+                    | "@simdReduceMax"
+            );
             let generics = function.generics.as_slice();
             let generics_count = generics.len();
 
@@ -2255,7 +2265,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
 
             // 2. Infer from the surrounding expected call type when it is already constrained.
-            if let Some(expected_ty) = expected_ty {
+            if let Some(expected_ty) = expected_ty
+                && !skip_expected_return_inference
+            {
                 let expected_norm = self.resolve_tv(expected_ty);
                 if expected_norm != TypeId::ERROR {
                     self.unify(raw_ret, expected_ty, &mut map);

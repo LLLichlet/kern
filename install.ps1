@@ -8,8 +8,8 @@ try {
     $ReleaseInfo = Invoke-RestMethod -Uri $ApiUrl
     $Version = $ReleaseInfo.tag_name
 } catch {
-    Write-Host "Warning: Failed to fetch latest version. Falling back to v0.6.4" -ForegroundColor Yellow
-    $Version = "v0.6.4"
+    Write-Host "Warning: Failed to fetch latest version. Falling back to v0.7.0" -ForegroundColor Yellow
+    $Version = "v0.7.0"
 }
 
 $Target = "x86_64-windows-msvc"

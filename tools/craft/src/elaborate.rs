@@ -903,7 +903,7 @@ env = ["{env_name}"]
 use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {{
-    if (p.env("{env_name}") != .None) {{
+    if (p.env("{env_name}") != plan.EnvValue.None) {{
         p.cfg_bool("env_present", true);
     }}
 }}

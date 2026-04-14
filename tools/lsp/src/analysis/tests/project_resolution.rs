@@ -250,7 +250,7 @@ pub fn craft(p: *mut plan.Plan) void {{
         p.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
     }}
 
-    if (p.env(\"{env_name}\") != .None) {{
+    if (p.env(\"{env_name}\") != plan.EnvValue.None) {{
         p.cfg_bool(\"is_dev_env\", true);
     }}
 }}
@@ -389,7 +389,7 @@ pub fn craft(p: *mut plan.Plan) void {{
         p.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
     }}
 
-    if (p.env(\"{env_name}\") != .None) {{
+    if (p.env(\"{env_name}\") != plan.EnvValue.None) {{
         p.cfg_bool(\"is_dev_env\", true);
     }}
 }}

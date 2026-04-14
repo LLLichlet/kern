@@ -1171,7 +1171,6 @@ fn compile_only_preserve_objects_keeps_base_runtime_generic_definitions() {
 
     for symbol in [
         "_K4base4coll4list36PmutQ4base4coll4list4ListEI7unknownE15ensure_capacityI2u8E",
-        "_K4base4coll5slice5query8Sunknown2eqI2u8E",
         "_K4base3mem6layout9layout_ofI2u8E",
     ] {
         assert!(
@@ -1181,6 +1180,23 @@ fn compile_only_preserve_objects_keeps_base_runtime_generic_definitions() {
             "expected preserved CGU objects to define `{symbol}`, nm output was:\n{stdout}"
         );
     }
+
+    assert!(
+        [
+            "_K4base4coll5slice5query8Sunknown11starts_withI2u8E",
+            "_K4base4coll5slice5query8Sunknown9ends_withI2u8E",
+            "_K4base4coll5slice5query8Sunknown4findI2u8E",
+            "_K4base4coll5slice5query8Sunknown8containsI2u8E",
+            "_K4base4coll5slice5query8Sunknown7lex_cmpI2u8E",
+        ]
+        .into_iter()
+        .any(|symbol| {
+            stdout
+                .lines()
+                .any(|line| !line.contains(":                 U ") && line.contains(symbol))
+        }),
+        "expected preserved CGU objects to define at least one generic slice query helper, nm output was:\n{stdout}"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }

@@ -570,6 +570,181 @@ pub fn value() i32 {
 }
 
 #[test]
+fn parent_module_can_access_pub_super_items() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_parent_access",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod inner;
+
+use .inner.parent_only as parent_only_import;
+
+fn main() i32 {
+    return inner.parent_only() + parent_only_import();
+}
+"#,
+            ),
+            (
+                "inner.rn",
+                r#"
+pub.. fn parent_only() i32 {
+    return 0;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn parent_module_can_access_pub_super_reexports() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_reexport",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod middle;
+
+fn main() i32 {
+    return middle.shared();
+}
+"#,
+            ),
+            (
+                "middle.rn",
+                r#"
+mod leaf;
+
+pub.. use .leaf.shared as shared;
+"#,
+            ),
+            (
+                "leaf.rn",
+                r#"
+pub fn shared() i32 {
+    return 0;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn sibling_module_cannot_access_pub_super_items() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_sibling_rejected",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod left;
+mod right;
+
+fn main() i32 {
+    return right.value();
+}
+"#,
+            ),
+            (
+                "left.rn",
+                r#"
+pub.. fn helper() i32 {
+    return 0;
+}
+"#,
+            ),
+            (
+                "right.rn",
+                r#"
+use ..left.helper as helper;
+
+pub fn value() i32 {
+    return helper();
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted sibling access to pub.. item:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Symbol `helper` is not visible from this module"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn grandparent_module_cannot_access_pub_super_items() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_grandparent_rejected",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod outer;
+
+fn main() i32 {
+    return outer.mid.helper();
+}
+"#,
+            ),
+            (
+                "outer.rn",
+                r#"
+pub mod mid;
+"#,
+            ),
+            (
+                "mid.rn",
+                r#"
+pub.. fn helper() i32 {
+    return 0;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted grandparent access to pub.. item:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("module has no visible member `helper`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn successful_compile_prints_unused_binding_warnings() {
     let source = r#"
 fn helper(_: i32, unused_param: i32, used_param: i32) i32 {

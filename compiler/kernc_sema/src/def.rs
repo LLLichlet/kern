@@ -1,6 +1,7 @@
 use crate::scope::ScopeId;
 use crate::ty::TypeId;
 use kernc_ast as ast;
+pub use kernc_ast::Visibility;
 use kernc_utils::{FileId, Span, SymbolId};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -8,23 +9,6 @@ use std::path::PathBuf;
 /// Identifier for a semantic definition collected from the AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DefId(pub u32);
-
-/// Public visibility marker for top-level semantic items.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Visibility {
-    Public,
-    Private,
-}
-
-impl From<bool> for Visibility {
-    fn from(is_pub: bool) -> Self {
-        if is_pub {
-            Visibility::Public
-        } else {
-            Visibility::Private
-        }
-    }
-}
 
 /// Unified representation for every top-level semantic definition.
 /// The collect pass lowers AST declarations into these records.
@@ -86,7 +70,7 @@ pub struct ImportDef {
     pub path_kind: ast::UsePathKind,
     pub path: Vec<SymbolId>,
     pub target: ast::UseTarget,
-    pub is_reexport: bool, // pub use ...
+    pub vis: Visibility,
     pub span: Span,
 }
 

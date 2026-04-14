@@ -10,6 +10,7 @@ use crate::def::{Def, DefId};
 use crate::scope::{ScopeId, SymbolTable};
 use crate::semantic::{SemanticDefinition, SemanticSymbolKind};
 use crate::ty::{TypeFormatter, TypeId, TypeRegistry};
+use kernc_ast::Visibility;
 
 type NamedFieldQueryKey = (Option<DefId>, DefId, Vec<TypeId>, SymbolId);
 type NamedFieldQueryValue = Option<crate::query::MemberCandidate>;
@@ -260,7 +261,7 @@ impl<'a> SemaContext<'a> {
                 type_id: TypeId::ERROR,
                 def_id: Some(mod_id),
                 span: kernc_utils::Span::default(),
-                is_pub: true,
+                vis: Visibility::Public,
                 is_mut: false,
             };
 
@@ -350,6 +351,29 @@ impl<'a> SemaContext<'a> {
 
     pub fn semantic_definitions(&self) -> impl Iterator<Item = &SemanticDefinition> {
         self.semantic_definitions.values()
+    }
+
+    pub fn module_parent(&self, module_id: DefId) -> Option<DefId> {
+        match self.defs.get(module_id.0 as usize) {
+            Some(Def::Module(module)) => module.parent,
+            _ => None,
+        }
+    }
+
+    pub fn visibility_allows_access(
+        &self,
+        vis: Visibility,
+        owner_module: DefId,
+        current_module: Option<DefId>,
+    ) -> bool {
+        match vis {
+            Visibility::Public => true,
+            Visibility::Private => current_module == Some(owner_module),
+            Visibility::Super => {
+                current_module == Some(owner_module)
+                    || current_module == self.module_parent(owner_module)
+            }
+        }
     }
 
     pub fn register_builtin_def(&mut self, name: SymbolId, def_id: DefId) {

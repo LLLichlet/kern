@@ -452,7 +452,7 @@ impl CachedAstRebinder<'_> {
                 }
                 self.rebind_type_node(target);
             }
-            ast::DeclKind::ModDecl { .. } => {}
+            ast::DeclKind::ModDecl => {}
             ast::DeclKind::Use { path, target, .. } => {
                 self.rebind_symbols(path);
                 self.rebind_use_target(target);

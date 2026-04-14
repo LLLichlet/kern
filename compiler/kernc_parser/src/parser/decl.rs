@@ -5,6 +5,22 @@ use kernc_lexer::TokenType;
 use kernc_utils::Span;
 
 impl<'a> Parser<'a> {
+    fn parse_visibility(&mut self) -> (Visibility, Span) {
+        if !self.match_token(&[TokenType::Pub]) {
+            let span = self.peek().span;
+            return (Visibility::Private, span);
+        }
+
+        let mut span = self.stream.prev_span();
+        let vis = if self.match_token(&[TokenType::DotDot]) {
+            span = span.to(self.stream.prev_span());
+            Visibility::Super
+        } else {
+            Visibility::Public
+        };
+        (vis, span)
+    }
+
     pub(super) fn parse_generic_params(&mut self) -> ParseResult<Vec<GenericParam>> {
         if self.check(TokenType::LBracket) && self.stream.peek_tag_nth(1) == TokenType::RBracket {
             return Ok(Vec::new());
@@ -139,16 +155,11 @@ impl<'a> Parser<'a> {
             }
             return Ok(None);
         }
-        let is_pub = self.match_token(&[TokenType::Pub]);
-        let start_span = if is_pub {
-            self.stream.prev_span()
-        } else {
-            self.peek().span
-        };
+        let (vis, start_span) = self.parse_visibility();
         let is_extern = self.match_token(&[TokenType::Extern]);
 
         if is_extern && (self.check(TokenType::LBrace) || self.check(TokenType::StringLiteral)) {
-            if is_pub {
+            if vis != Visibility::Private {
                 self.add_error(start_span, "Extern blocks cannot be pub".to_string());
             }
             let mut decl = self.parse_extern_block(start_span)?;
@@ -159,20 +170,20 @@ impl<'a> Parser<'a> {
 
         let token = self.peek();
         let decl_res = match token.tag {
-            TokenType::Mod => Ok(Some(self.parse_mod_decl(start_span, is_pub)?)),
-            TokenType::Fn => Ok(Some(self.parse_fn_decl(start_span, is_pub, is_extern)?)),
+            TokenType::Mod => Ok(Some(self.parse_mod_decl(start_span, vis)?)),
+            TokenType::Fn => Ok(Some(self.parse_fn_decl(start_span, vis, is_extern)?)),
             TokenType::Const if self.stream.peek_tag_nth(1) == TokenType::Fn => {
-                Ok(Some(self.parse_fn_decl(start_span, is_pub, is_extern)?))
+                Ok(Some(self.parse_fn_decl(start_span, vis, is_extern)?))
             }
             TokenType::Type => Ok(Some(
-                self.parse_type_alias_decl(start_span, is_pub, is_extern)?,
+                self.parse_type_alias_decl(start_span, vis, is_extern)?,
             )),
             TokenType::Const | TokenType::Static => Ok(Some(
-                self.parse_global_var_decl(start_span, is_pub, is_extern)?,
+                self.parse_global_var_decl(start_span, vis, is_extern)?,
             )),
-            TokenType::Use => Ok(Some(self.parse_use_decl(start_span, is_pub)?)),
+            TokenType::Use => Ok(Some(self.parse_use_decl(start_span, vis)?)),
             TokenType::Impl => {
-                if is_pub {
+                if vis != Visibility::Private {
                     self.add_error(start_span, "impl blocks cannot be pub".to_string());
                 }
                 Ok(Some(self.parse_impl_decl(start_span)?))
@@ -227,7 +238,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_mod_decl(&mut self, start: Span, is_pub: bool) -> ParseResult<Decl> {
+    fn parse_mod_decl(&mut self, start: Span, vis: Visibility) -> ParseResult<Decl> {
         self.advance(); // Consume `mod`.
 
         let name_token = self.expect(TokenType::Identifier)?;
@@ -241,14 +252,19 @@ impl<'a> Parser<'a> {
             span: start.to(end),
             name_span: name_token.span,
             name: name_id,
-            is_pub,
+            vis,
             docs: None,
             attributes: vec![],
-            kind: DeclKind::ModDecl { is_pub },
+            kind: DeclKind::ModDecl,
         })
     }
 
-    fn parse_fn_decl(&mut self, start: Span, is_pub: bool, is_extern: bool) -> ParseResult<Decl> {
+    fn parse_fn_decl(
+        &mut self,
+        start: Span,
+        vis: Visibility,
+        is_extern: bool,
+    ) -> ParseResult<Decl> {
         let is_const = self.match_token(&[TokenType::Const]);
         self.expect(TokenType::Fn)?;
         let name = self.expect(TokenType::Identifier)?;
@@ -283,7 +299,7 @@ impl<'a> Parser<'a> {
             span: start.to(end),
             name_span: name.span,
             name: name_id,
-            is_pub,
+            vis,
             docs: None,
             attributes: vec![],
             kind: DeclKind::Function {
@@ -324,22 +340,17 @@ impl<'a> Parser<'a> {
                 }
                 break;
             }
-            let is_pub = self.match_token(&[TokenType::Pub]);
-            let d_start = if is_pub {
-                self.stream.prev_span()
-            } else {
-                self.peek().span
-            };
+            let (vis, d_start) = self.parse_visibility();
 
             if self.check(TokenType::Fn)
                 || (self.check(TokenType::Const) && self.stream.peek_tag_nth(1) == TokenType::Fn)
             {
-                let mut d = self.parse_fn_decl(d_start, is_pub, true)?;
+                let mut d = self.parse_fn_decl(d_start, vis, true)?;
                 d.docs = docs;
                 d.attributes = attributes;
                 decls.push(d);
             } else if self.check(TokenType::Static) {
-                let mut d = self.parse_global_var_decl(d_start, is_pub, true)?;
+                let mut d = self.parse_global_var_decl(d_start, vis, true)?;
                 d.docs = docs;
                 d.attributes = attributes;
                 decls.push(d);
@@ -355,7 +366,7 @@ impl<'a> Parser<'a> {
             span: start.to(end.span),
             name_span: start,
             name,
-            is_pub: false,
+            vis: Visibility::Private,
             docs: None,
             attributes: vec![],
             kind: DeclKind::ExternBlock { abi, decls },
@@ -391,24 +402,19 @@ impl<'a> Parser<'a> {
                 }
                 break;
             }
-            let is_pub = self.match_token(&[TokenType::Pub]);
-            let d_start = if is_pub {
-                self.stream.prev_span()
-            } else {
-                self.peek().span
-            };
+            let (vis, d_start) = self.parse_visibility();
             if self.check(TokenType::Fn)
                 || (self.check(TokenType::Const) && self.stream.peek_tag_nth(1) == TokenType::Fn)
             {
-                let mut d = self.parse_fn_decl(d_start, is_pub, false)?;
+                let mut d = self.parse_fn_decl(d_start, vis, false)?;
                 d.docs = docs;
                 d.attributes = attributes;
                 decls.push(d);
             } else if self.check(TokenType::Type) {
-                if is_pub {
+                if vis != Visibility::Private {
                     self.add_error(d_start, "Associated type definitions inside `impl` blocks cannot be `pub`".to_string());
                 }
-                let mut d = self.parse_type_alias_decl(d_start, false, false)?;
+                let mut d = self.parse_type_alias_decl(d_start, Visibility::Private, false)?;
                 d.docs = docs;
                 d.attributes = attributes;
                 decls.push(d);
@@ -424,7 +430,7 @@ impl<'a> Parser<'a> {
             span: start.to(end.span),
             name_span: start,
             name,
-            is_pub: false,
+            vis: Visibility::Private,
             docs: None,
             attributes: vec![],
             kind: DeclKind::Impl {
@@ -440,7 +446,7 @@ impl<'a> Parser<'a> {
     fn parse_global_var_decl(
         &mut self,
         start: Span,
-        is_pub: bool,
+        vis: Visibility,
         is_extern: bool,
     ) -> ParseResult<Decl> {
         let kw = self.advance();
@@ -490,7 +496,7 @@ impl<'a> Parser<'a> {
             span: start.to(end),
             name_span: name.span,
             name: name_id,
-            is_pub,
+            vis,
             docs: None,
             attributes: vec![],
             kind: DeclKind::Var {
@@ -505,7 +511,7 @@ impl<'a> Parser<'a> {
     fn parse_type_alias_decl(
         &mut self,
         start: Span,
-        is_pub: bool,
+        vis: Visibility,
         is_extern: bool,
     ) -> ParseResult<Decl> {
         self.advance(); // Consume `type`.
@@ -576,7 +582,7 @@ impl<'a> Parser<'a> {
             span: start.to(end),
             name_span: name.span,
             name: name_id,
-            is_pub,
+            vis,
             docs: None,
             attributes: vec![],
             kind: DeclKind::TypeAlias {
@@ -589,7 +595,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_use_decl(&mut self, start: Span, is_pub: bool) -> ParseResult<Decl> {
+    fn parse_use_decl(&mut self, start: Span, vis: Visibility) -> ParseResult<Decl> {
         self.advance(); // Consume `use`.
 
         // 1. Parse the import root marker, if any.
@@ -650,15 +656,10 @@ impl<'a> Parser<'a> {
                 .map(|_| self.stream.prev_span())
                 .unwrap_or(start),
             name,
-            is_pub,
+            vis,
             docs: None,
             attributes: vec![],
-            kind: DeclKind::Use {
-                kind,
-                path,
-                target,
-                is_reexport: is_pub,
-            },
+            kind: DeclKind::Use { kind, path, target },
         })
     }
 

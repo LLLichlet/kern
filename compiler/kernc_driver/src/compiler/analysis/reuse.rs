@@ -300,7 +300,7 @@ fn normalize_decl_for_reuse_comparison(decl: &mut ast::Decl) {
                 normalize_decl_for_reuse_comparison(child);
             }
         }
-        ast::DeclKind::ModDecl { .. } => {}
+        ast::DeclKind::ModDecl => {}
     }
 }
 
@@ -423,7 +423,7 @@ fn rebind_decl_sequence<'a>(
                     return false;
                 }
             }
-            ast::DeclKind::Use { .. } | ast::DeclKind::ModDecl { .. } => {}
+            ast::DeclKind::Use { .. } | ast::DeclKind::ModDecl => {}
         }
     }
 
@@ -530,7 +530,7 @@ fn normalize_decl_for_body_only_comparison(decl: &mut ast::Decl) {
                 normalize_decl_for_body_only_comparison(child);
             }
         }
-        ast::DeclKind::ModDecl { .. } => {}
+        ast::DeclKind::ModDecl => {}
     }
 }
 

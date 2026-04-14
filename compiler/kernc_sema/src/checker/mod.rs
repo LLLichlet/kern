@@ -11,7 +11,7 @@ use crate::def::{Def, DefId, FunctionDef, GlobalDef, ImplDef};
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
-use kernc_ast as ast;
+use kernc_ast::{self as ast, Visibility};
 use kernc_utils::Span;
 use std::time::{Duration, Instant};
 
@@ -515,7 +515,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 type_id: param_ty,
                 def_id: None,
                 span: f.span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             };
             if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
@@ -523,7 +523,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     info.span,
                     SemanticSymbolKind::TypeParameter,
                     info.is_mut,
-                    info.is_pub,
+                    info.vis.is_public(),
                 );
             }
         }
@@ -562,7 +562,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     type_id: param_tys[i],
                     def_id: None,
                     span: param_ast.pattern.name_span,
-                    is_pub: false,
+                    vis: Visibility::Private,
                     is_mut: param_ast.pattern.is_mut,
                 };
                 if self
@@ -575,7 +575,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         info.span,
                         SemanticSymbolKind::Parameter,
                         info.is_mut,
-                        info.is_pub,
+                        info.vis.is_public(),
                     );
                 }
             }
@@ -634,7 +634,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 type_id: param_ty,
                 def_id: None,
                 span: s.span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             };
             if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
@@ -642,7 +642,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     info.span,
                     SemanticSymbolKind::TypeParameter,
                     info.is_mut,
-                    info.is_pub,
+                    info.vis.is_public(),
                 );
             }
         }
@@ -698,7 +698,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 type_id: param_ty,
                 def_id: None,
                 span: u.span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             };
             if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
@@ -706,7 +706,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     info.span,
                     SemanticSymbolKind::TypeParameter,
                     info.is_mut,
-                    info.is_pub,
+                    info.vis.is_public(),
                 );
             }
         }
@@ -763,7 +763,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 type_id: param_ty,
                 def_id: None,
                 span: i.span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             };
             if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
@@ -771,7 +771,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     info.span,
                     SemanticSymbolKind::TypeParameter,
                     info.is_mut,
-                    info.is_pub,
+                    info.vis.is_public(),
                 );
             }
         }
@@ -814,7 +814,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 type_id: target_ty,
                 def_id: None,
                 span: i.span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             },
         );

@@ -100,7 +100,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                             self.ctx
                                 .struct_error(
                                     import.span,
-                                    format!("Symbol `{}` is private", name_str),
+                                    format!("Symbol `{}` is not visible from this module", name_str),
                                 )
                                 .emit();
                         }
@@ -112,7 +112,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                         current_scope,
                         name_to_bind,
                         symbol_info.clone(),
-                        import.is_reexport,
+                        import.vis,
                         import.span,
                         emit_errors,
                     );
@@ -176,7 +176,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                                     .struct_error(
                                         member.span,
                                         format!(
-                                            "Symbol `{}` is private and cannot be imported",
+                                            "Symbol `{}` is not visible from this module and cannot be imported",
                                             name_str
                                         ),
                                     )
@@ -191,7 +191,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                             current_scope,
                             name_to_bind,
                             symbol_info.clone(),
-                            import.is_reexport,
+                            import.vis,
                             member.span,
                             emit_errors,
                         );
@@ -329,7 +329,10 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         }
 
         // 2. Respect the symbol's immediate visibility flag in the target scope.
-        if !symbol_info.is_pub {
+        if !self
+            .ctx
+            .visibility_allows_access(symbol_info.vis, target_mod, Some(current_mod))
+        {
             return false;
         }
 
@@ -354,7 +357,9 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             Def::Impl(_) => return true,
         };
 
-        matches!(vis, Visibility::Public)
+        let owner_module = self.ctx.def_parent_module(def_id).unwrap_or(target_mod);
+        self.ctx
+            .visibility_allows_access(vis, owner_module, Some(current_mod))
     }
 
     // ==========================================
@@ -404,11 +409,11 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         target_scope: ScopeId,
         name: SymbolId,
         mut info: SymbolInfo,
-        is_reexport: bool,
+        vis: Visibility,
         span: Span,
         emit_errors: bool,
     ) {
-        info.is_pub = is_reexport;
+        info.vis = vis;
         info.span = span;
 
         let prev_scope = self.ctx.scopes.current_scope_id();

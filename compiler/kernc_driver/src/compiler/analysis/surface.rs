@@ -144,7 +144,7 @@ impl CompilerDriver {
                         kind: self.semantic_kind_from_scope_symbol_kind(info.kind, def_id, ctx),
                         role: AnalysisSemanticRole::Definition,
                         is_mut: info.is_mut,
-                        is_pub: info.is_pub,
+                        is_pub: info.vis.is_public(),
                     },
                 ))
             })
@@ -662,7 +662,7 @@ impl CompilerDriver {
                 detail: None,
                 children: Vec::new(),
             }),
-            ast::DeclKind::ModDecl { .. } => Some(AnalysisSymbol {
+            ast::DeclKind::ModDecl => Some(AnalysisSymbol {
                 name,
                 kind: AnalysisSymbolKind::Namespace,
                 span: decl.span,
@@ -742,7 +742,7 @@ impl CompilerDriver {
                 detail: None,
                 children: Vec::new(),
             }),
-            ast::DeclKind::ModDecl { .. } => Some(AnalysisSymbol {
+            ast::DeclKind::ModDecl => Some(AnalysisSymbol {
                 name,
                 kind: AnalysisSymbolKind::Namespace,
                 span: decl.span,

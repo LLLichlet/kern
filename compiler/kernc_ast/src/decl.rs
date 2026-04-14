@@ -1,13 +1,30 @@
 use super::{Attribute, BindingPattern, DocBlock, Expr, TypeNode};
 use kernc_utils::{NodeId, Span, SymbolId};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Visibility {
+    Private,
+    Super,
+    Public,
+}
+
+impl Visibility {
+    pub fn is_public(self) -> bool {
+        matches!(self, Self::Public)
+    }
+
+    pub fn is_private(self) -> bool {
+        matches!(self, Self::Private)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Decl {
     pub id: NodeId,
     pub span: Span,
     pub name_span: Span,
     pub name: SymbolId,
-    pub is_pub: bool,
+    pub vis: Visibility,
     pub docs: Option<DocBlock>,
     pub attributes: Vec<Attribute>,
     pub kind: DeclKind,
@@ -54,14 +71,13 @@ pub enum DeclKind {
     },
 
     /// Module declaration: `mod name;`
-    ModDecl { is_pub: bool },
+    ModDecl,
 
     /// Import declaration.
     Use {
         kind: UsePathKind,
         path: Vec<SymbolId>,
         target: UseTarget,
-        is_reexport: bool,
     },
 
     /// Extern block.

@@ -73,7 +73,7 @@ struct SymbolDefSpec {
     node_id: NodeId,
     def_id: Option<DefId>,
     span: Span,
-    is_pub: bool,
+    vis: Visibility,
     is_mut: bool,
 }
 
@@ -140,17 +140,16 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     kind,
                     path,
                     target,
-                    is_reexport,
                 } => {
                     imports.push(ImportDef {
                         path_kind: *kind,
                         path: path.clone(),
                         target: target.clone(),
-                        is_reexport: *is_reexport,
+                        vis: decl.vis,
                         span: decl.span,
                     });
                 }
-                DeclKind::ModDecl { is_pub } => {
+                DeclKind::ModDecl => {
                     if let Some(&sub_id) = submodules.get(&decl.name) {
                         self.define_symbol(SymbolDefSpec {
                             name: decl.name,
@@ -158,7 +157,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                             node_id: decl.id,
                             def_id: Some(sub_id),
                             span: decl.name_span,
-                            is_pub: *is_pub,
+                            vis: decl.vis,
                             is_mut: false,
                         });
                     }
@@ -232,7 +231,6 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                             kind,
                             path,
                             target,
-                            is_reexport,
                         },
                     span,
                     ..
@@ -241,15 +239,16 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         path_kind: kind,
                         path,
                         target,
-                        is_reexport,
+                        vis: decl.vis,
                         span,
                     });
                 }
                 Decl {
-                    kind: DeclKind::ModDecl { is_pub },
+                    kind: DeclKind::ModDecl,
                     id,
                     name,
                     name_span,
+                    vis,
                     ..
                 } => {
                     if let Some(&sub_id) = submodules.get(&name) {
@@ -259,7 +258,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                             node_id: id,
                             def_id: Some(sub_id),
                             span: name_span,
-                            is_pub,
+                            vis,
                             is_mut: false,
                         });
                     }
@@ -305,7 +304,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         force_extern: bool,
         impl_generics: &[ast::GenericParam],
     ) -> Option<DefId> {
-        let vis = decl.is_pub.into();
+        let vis = decl.vis;
 
         match &decl.kind {
             DeclKind::Function {
@@ -393,7 +392,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             }
             // Already handled by `collect_ast`.
             DeclKind::Use { .. } => None,
-            DeclKind::ModDecl { .. } => None,
+            DeclKind::ModDecl => None,
         }
     }
 
@@ -404,7 +403,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         force_extern: bool,
         impl_generics: &[ast::GenericParam],
     ) -> Option<DefId> {
-        let vis = decl.is_pub.into();
+        let vis = decl.vis;
         let Decl {
             id,
             span,
@@ -500,7 +499,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 None
             }
             DeclKind::Use { .. } => None,
-            DeclKind::ModDecl { .. } => None,
+            DeclKind::ModDecl => None,
         }
     }
 
@@ -566,7 +565,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 node_id: decl.id,
                 def_id: Some(def_id),
                 span: decl.name_span,
-                is_pub: spec.vis == Visibility::Public,
+                vis: spec.vis,
                 is_mut: false,
             });
         }
@@ -655,7 +654,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 node_id,
                 def_id: Some(def_id),
                 span: name_span,
-                is_pub: vis == Visibility::Public,
+                vis,
                 is_mut: false,
             });
         }
@@ -698,15 +697,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         } else {
             SymbolKind::Const
         };
-        let is_pub = vis == Visibility::Public;
-
         self.define_symbol(SymbolDefSpec {
             name: decl.name,
             kind: sym_kind,
             node_id: decl.id,
             def_id: Some(def_id),
             span: decl.name_span,
-            is_pub,
+            vis,
             is_mut,
         });
 
@@ -763,7 +760,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             node_id,
             def_id: Some(def_id),
             span: name_span,
-            is_pub: vis == Visibility::Public,
+            vis,
             is_mut,
         });
 
@@ -957,7 +954,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             node_id: decl.id,
             def_id: Some(def_id),
             span: decl.name_span,
-            is_pub: spec.vis == Visibility::Public,
+            vis: spec.vis,
             is_mut: false,
         });
 
@@ -1111,7 +1108,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             node_id,
             def_id: Some(def_id),
             span: name_span,
-            is_pub: vis == Visibility::Public,
+            vis,
             is_mut: false,
         });
 
@@ -1349,7 +1346,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             type_id: TypeId::ERROR, // Types are resolved later.
             def_id: spec.def_id,
             span: spec.span, // Preserve the definition site for diagnostics.
-            is_pub: spec.is_pub,
+            vis: spec.vis,
             is_mut: spec.is_mut,
         };
 
@@ -1384,7 +1381,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 node_id: generic_node_id,
                 def_id: None,
                 span: param.span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             });
         }

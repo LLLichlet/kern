@@ -1,5 +1,6 @@
 use crate::def::DefId;
 use crate::ty::TypeId;
+use kernc_ast::Visibility;
 use kernc_utils::{FastHashMap, NodeId, Span, SymbolId};
 
 /// Globally unique scope identifier.
@@ -31,7 +32,7 @@ pub struct SymbolInfo {
     pub type_id: TypeId,       // Semantic type assigned to the symbol.
     pub def_id: Option<DefId>, // Optional backing definition-table entry.
     pub span: Span,
-    pub is_pub: bool,
+    pub vis: Visibility,
     pub is_mut: bool,
 }
 

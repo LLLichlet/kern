@@ -5,7 +5,7 @@ use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::ty::{
     AnonymousEnum, AnonymousField, AnonymousVariant, BuiltinAnonymousEnumKind, TypeId, TypeKind,
 };
-use kernc_ast as ast;
+use kernc_ast::{self as ast, Visibility};
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
@@ -432,7 +432,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     .intern(TypeKind::Associated(assoc_id, vec![])),
                 def_id: Some(assoc_id),
                 span: assoc_def.span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             };
             self.ctx.scopes.set_current_scope(scope);
@@ -488,7 +488,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     .intern(TypeKind::Associated(assoc_id, vec![])),
                 def_id: Some(assoc_id),
                 span: assoc_def.span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             };
             self.ctx.scopes.set_current_scope(scope);
@@ -2158,7 +2158,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 type_id: param_ty,
                 def_id: None,
                 span: param.span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             };
             let _ = self.ctx.scopes.define(param.name, info);
@@ -2186,7 +2186,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             type_id: target_ty,
             def_id: None,
             span,
-            is_pub: false,
+            vis: Visibility::Private,
             is_mut: false,
         };
         // Allow shadowing here so generic bindings can override outer names.

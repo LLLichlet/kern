@@ -739,4 +739,29 @@ type Grouped = *mut (i32![]u8);
         };
         assert!(matches!(elem.kind, ast::TypeKind::Result { .. }));
     }
+
+    #[test]
+    fn parses_super_visibility_with_and_without_space() {
+        let source = r#"
+pub..fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+pub .. use .helper as parent_helper;
+
+fn helper() i32 {
+    return 0;
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+        assert_eq!(module.decls[0].vis, ast::Visibility::Super);
+        assert_eq!(module.decls[1].vis, ast::Visibility::Super);
+        assert_eq!(module.decls[2].vis, ast::Visibility::Private);
+    }
 }

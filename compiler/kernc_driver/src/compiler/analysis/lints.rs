@@ -16,7 +16,7 @@ impl ScopeExportFacts {
                 continue;
             };
             definition_spans.insert(def_id, info.span);
-            if info.is_pub {
+            if info.vis.is_public() {
                 public_spans_by_def_id
                     .entry(def_id)
                     .or_default()
@@ -38,7 +38,7 @@ impl ScopeExportFacts {
                 let Some(def_id) = info.def_id else {
                     continue;
                 };
-                if info.is_pub {
+                if info.vis.is_public() {
                     root_public_spans_by_def_id
                         .entry(def_id)
                         .or_default()

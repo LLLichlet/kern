@@ -6,7 +6,7 @@ use crate::passes::TypeResolver;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
-use kernc_ast::{self as ast, Expr, ExprKind};
+use kernc_ast::{self as ast, Expr, ExprKind, Visibility};
 use kernc_utils::{AtomicOrdering, FastHashMap, Span};
 use std::time::Instant;
 
@@ -2732,7 +2732,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 type_id: ty,
                 def_id: None,
                 span: cap_span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: false,
             };
             if self.ctx.scopes.define(name, info.clone()).is_ok() {
@@ -2740,7 +2740,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     info.span,
                     SemanticSymbolKind::Variable,
                     info.is_mut,
-                    info.is_pub,
+                    info.vis.is_public(),
                 );
             }
         }
@@ -2757,7 +2757,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 type_id: param_tys[i],
                 def_id: None,
                 span: param.pattern.name_span,
-                is_pub: false,
+                vis: Visibility::Private,
                 is_mut: param.pattern.is_mut,
             };
             if self
@@ -2770,7 +2770,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     info.span,
                     SemanticSymbolKind::Parameter,
                     info.is_mut,
-                    info.is_pub,
+                    info.vis.is_public(),
                 );
             }
         }

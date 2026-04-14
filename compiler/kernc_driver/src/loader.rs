@@ -224,7 +224,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 }
                 Self::collect_type_alias_references(target, alias_names, referenced);
             }
-            ast::DeclKind::ModDecl { .. } => {}
+            ast::DeclKind::ModDecl => {}
             ast::DeclKind::Use {
                 kind, path, target, ..
             } => {
@@ -875,7 +875,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
         let mut submodules = HashMap::new();
         for decl in &ast.decls {
-            if let ast::DeclKind::ModDecl { .. } = &decl.kind {
+            if let ast::DeclKind::ModDecl = &decl.kind {
                 let resolve_started = Instant::now();
                 let resolved = self.resolve_submodule_path(&dir_path, decl);
                 self.timings.resolve_submodule_paths += resolve_started.elapsed();

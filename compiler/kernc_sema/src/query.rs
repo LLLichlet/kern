@@ -316,7 +316,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         };
 
         for (name, info) in self.ctx.scopes.symbols_in_scope(module_def.scope_id) {
-            if !info.is_pub && current_module_id != Some(module_def_id) {
+            if !self
+                .ctx
+                .visibility_allows_access(info.vis, module_def_id, current_module_id)
+            {
                 continue;
             }
 
@@ -364,7 +367,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             .scopes
             .resolve_in(module_def.scope_id, member_name)
             .cloned()?;
-        if !info.is_pub && current_module_id != Some(module_def_id) {
+        if !self
+            .ctx
+            .visibility_allows_access(info.vis, module_def_id, current_module_id)
+        {
             return None;
         }
 

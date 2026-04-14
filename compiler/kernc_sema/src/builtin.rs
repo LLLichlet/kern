@@ -352,7 +352,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             type_id: self.builtin_trait_ty_by_id(def_id, vec![]),
             def_id: Some(def_id),
             span: Default::default(),
-            is_pub: true,
+            vis: Visibility::Public,
             is_mut: false,
         };
         let root_scope = ScopeId(0);
@@ -419,7 +419,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             type_id: self.builtin_trait_ty_by_id(def_id, vec![]),
             def_id: Some(def_id),
             span: Default::default(),
-            is_pub: true,
+            vis: Visibility::Public,
             is_mut: false,
         };
         let root_scope = ScopeId(0);
@@ -482,7 +482,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             type_id: self.builtin_trait_ty_by_id(def_id, vec![]),
             def_id: Some(def_id),
             span: Default::default(),
-            is_pub: true,
+            vis: Visibility::Public,
             is_mut: false,
         };
         let root_scope = ScopeId(0);
@@ -981,7 +981,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 .intern(TypeKind::FnDef(def_id, vec![])),
             def_id: Some(def_id),
             span: Span::default(),
-            is_pub: true, // All builtin intrinsics are globally visible.
+            vis: Visibility::Public, // All builtin intrinsics are globally visible.
             is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
@@ -1046,7 +1046,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 .intern(TypeKind::FnDef(def_id, vec![])),
             def_id: Some(def_id),
             span: Default::default(),
-            is_pub: true,
+            vis: Visibility::Public,
             is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
@@ -1105,7 +1105,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 .intern(TypeKind::FnDef(def_id, vec![])),
             def_id: Some(def_id),
             span: Default::default(),
-            is_pub: true,
+            vis: Visibility::Public,
             is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
@@ -1203,7 +1203,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 .intern(TypeKind::FnDef(def_id, vec![])),
             def_id: Some(def_id),
             span: Default::default(),
-            is_pub: true,
+            vis: Visibility::Public,
             is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
@@ -1273,7 +1273,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 .intern(TypeKind::FnDef(def_id, vec![])),
             def_id: Some(def_id),
             span: Default::default(),
-            is_pub: true,
+            vis: Visibility::Public,
             is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
@@ -1396,7 +1396,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                     .intern(TypeKind::FnDef(def_id, vec![])),
                 def_id: Some(def_id),
                 span: Default::default(),
-                is_pub: true,
+                vis: Visibility::Public,
                 is_mut: false,
             },
         );
@@ -2160,7 +2160,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                     .intern(TypeKind::FnDef(def_id, vec![])),
                 def_id: Some(def_id),
                 span: Default::default(),
-                is_pub: true,
+                vis: Visibility::Public,
                 is_mut: false,
             },
         );
@@ -2210,7 +2210,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                     type_id: TypeId::ERROR,
                     def_id: Some(def_id),
                     span: Span::default(),
-                    is_pub: false,
+                    vis: Visibility::Private,
                     is_mut: false,
                 },
             );

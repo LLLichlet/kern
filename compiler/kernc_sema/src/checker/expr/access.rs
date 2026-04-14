@@ -6,7 +6,7 @@ use crate::query::{MemberQuery, MemberQueryEnv};
 use crate::scope::{SymbolInfo, SymbolKind};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
-use kernc_ast::{self as ast, Expr, TypeNode};
+use kernc_ast::{self as ast, Expr, TypeNode, Visibility};
 use kernc_utils::{DiagnosticCode, FastHashSet, NodeId, Span, SymbolId};
 use std::time::Instant;
 
@@ -53,7 +53,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         self.ctx
-            .record_symbol_definition(info.span, semantic_kind, info.is_mut, info.is_pub);
+            .record_symbol_definition(info.span, semantic_kind, info.is_mut, info.vis.is_public());
     }
 
     fn build_generic_arg_map(
@@ -103,7 +103,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             type_id: ty,
             def_id: None,
             span: binding.name_span,
-            is_pub: false,
+            vis: Visibility::Private,
             is_mut: binding.is_mut,
         };
         self.define_local_symbol(binding.name, info, SemanticSymbolKind::Variable);
@@ -816,7 +816,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             type_id: init_ty,
             def_id: None,
             span: pattern.name_span,
-            is_pub: false,
+            vis: Visibility::Private,
             is_mut: pattern.is_mut,
         };
         self.define_local_symbol(pattern.name, info, SemanticSymbolKind::Static);
@@ -1086,7 +1086,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 );
                 return TypeId::ERROR;
             };
-            if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field) {
+            if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field).cloned() {
+                let current_module_id = self.cached_current_module_id();
+                if !self
+                    .ctx
+                    .visibility_allows_access(target_info.vis, mod_def_id, current_module_id)
+                {
+                    let field_name = self.ctx.resolve(field);
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!("module has no visible member `{}`", field_name),
+                        )
+                        .emit();
+                    self.ctx.expr_timing_stats.access_field_module += started.elapsed();
+                    return TypeId::ERROR;
+                }
                 let definition_span = target_info.span;
                 let target_kind = target_info.kind;
                 let target_def_id = target_info.def_id;
@@ -1146,7 +1161,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.ctx
                     .struct_error(
                         span,
-                        format!("module has no public member `{}`", field_name),
+                        format!("module has no visible member `{}`", field_name),
                     )
                     .emit();
                 self.ctx.expr_timing_stats.access_field_module += started.elapsed();

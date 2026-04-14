@@ -146,7 +146,7 @@ impl *mut Arena : Allocator {
             return .None;
         }
 
-        let .{ Some: current } = self.current else return .None;
+        let current = self.current.?;
         return self.alloc_from_chunk(current, layout);
     }
 

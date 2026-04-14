@@ -584,7 +584,7 @@ impl[T] *mut List[T] {
         if (self.cap < new_len) {
             if (@sizeOf[T]() != 0 and old_len == 0 and self.cap == 0) {
                 let layout = self.fixed_layout(count, @sizeOf[T]());
-                let .{ Some: new_ptr_u8 } = arena.alloc(layout) else return .None;
+                let new_ptr_u8 = arena.alloc(layout).?;
                 self.ptr = new_ptr_u8 as *mut T;
                 self.cap = count;
             } else if (!self.ensure_capacity_exact_in_arena(arena, new_len)) {

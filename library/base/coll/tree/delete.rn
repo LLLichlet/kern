@@ -270,7 +270,7 @@ impl[K, V] *mut Tree[K, V]
 
     /// Removes the value stored for `key`.
     pub fn remove(alloc: *mut Allocator, key: K) ?V {
-        let .{ Some: root } = self.root else return .None;
+        let root = self.root.?;
 
         let mut removed_value = ?V.None;
         let removed = removed_value..&;

@@ -217,7 +217,7 @@ impl Args {
 
     /// Returns one argument as a borrowed UTF-8 byte slice.
     pub fn get(index: usize) ?[]u8 {
-        let .{ Some: arg } = self.raw(index) else return .None;
+        let arg = self.raw(index).?;
         return .{ Some: arg.[0 .. abi.cstr.len(arg)] };
     }
 }

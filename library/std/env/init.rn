@@ -57,16 +57,16 @@ fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) ?String {
 
 #[if(os == "linux" or os == "darwin")]
 fn get_posix(alloc: *mut Allocator, name: []u8) ?String {
-    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .None;
+    let c_name = abi.cstr.alloc_z(alloc, name).?;
     defer abi.cstr.free_z(alloc, name, c_name);
 
-    let .{ Some: value_ptr } = os.find_environment_value(c_name) else return .None;
+    let value_ptr = os.find_environment_value(c_name).?;
     return clone_c_value(alloc, value_ptr, abi.cstr.len(value_ptr));
 }
 
 #[if(os == "windows")]
 fn get_windows(alloc: *mut Allocator, name: []u8) ?String {
-    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .None;
+    let c_name = abi.cstr.alloc_z(alloc, name).?;
     defer abi.cstr.free_z(alloc, name, c_name);
 
     let required = os.get_environment_variable(c_name, 0, 0) as usize;
@@ -74,8 +74,8 @@ fn get_windows(alloc: *mut Allocator, name: []u8) ?String {
         return .None;
     }
 
-    let .{ Some: layout } = array_layout_of[u8](required) else return .None;
-    let .{ Some: buffer } = alloc.alloc(layout) else return .None;
+    let layout = array_layout_of[u8](required).?;
+    let buffer = alloc.alloc(layout).?;
     defer alloc.free(buffer, layout);
 
     let written = os.get_environment_variable(c_name, buffer, required as u32) as usize;

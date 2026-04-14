@@ -1044,6 +1044,33 @@ impl *mut Editor {
         }
 
         match (key) {
+            .CtrlB => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.page_up();
+                }
+            },
+            .CtrlD => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.half_page_down();
+                }
+            },
+            .CtrlF => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.page_down();
+                }
+            },
+            .CtrlU => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.half_page_up();
+                }
+            },
+            .CtrlW => {
+                self.pending_normal = .CtrlW;
+            },
             .ArrowLeft => {
                 let count = self.consume_count_or_one();
                 for (let mut i = 0; i < count; i += 1) {
@@ -1299,33 +1326,6 @@ impl *mut Editor {
                         self.set_message(alloc, "insert failed");
                     }
                 },
-                2 => {
-                    let count = self.consume_count_or_one();
-                    for (let mut i = 0; i < count; i += 1) {
-                        self.page_up();
-                    }
-                },
-                4 => {
-                    let count = self.consume_count_or_one();
-                    for (let mut i = 0; i < count; i += 1) {
-                        self.half_page_down();
-                    }
-                },
-                6 => {
-                    let count = self.consume_count_or_one();
-                    for (let mut i = 0; i < count; i += 1) {
-                        self.page_down();
-                    }
-                },
-                21 => {
-                    let count = self.consume_count_or_one();
-                    for (let mut i = 0; i < count; i += 1) {
-                        self.half_page_up();
-                    }
-                },
-                23 => {
-                    self.pending_normal = .CtrlW;
-                },
                 _ => self.clear_pending_count(),
             }
             },
@@ -1339,6 +1339,30 @@ impl *mut Editor {
         }
 
         match (key) {
+            .CtrlB => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_page_up();
+                }
+            },
+            .CtrlD => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_half_page_down();
+                }
+            },
+            .CtrlF => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_page_down();
+                }
+            },
+            .CtrlU => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_half_page_up();
+                }
+            },
             .ArrowLeft => {
                 let count = self.consume_count_or_one();
                 for (let mut i = 0; i < count; i += 1) {
@@ -1461,30 +1485,6 @@ impl *mut Editor {
                 b'Q' => self.close_output(alloc),
                 b'[' => self.show_prev_output_history(alloc),
                 b']' => self.show_next_output_history(alloc),
-                2 => {
-                    let count = self.consume_count_or_one();
-                    for (let mut i = 0; i < count; i += 1) {
-                        self.output_page_up();
-                    }
-                },
-                4 => {
-                    let count = self.consume_count_or_one();
-                    for (let mut i = 0; i < count; i += 1) {
-                        self.output_half_page_down();
-                    }
-                },
-                6 => {
-                    let count = self.consume_count_or_one();
-                    for (let mut i = 0; i < count; i += 1) {
-                        self.output_page_down();
-                    }
-                },
-                21 => {
-                    let count = self.consume_count_or_one();
-                    for (let mut i = 0; i < count; i += 1) {
-                        self.output_half_page_up();
-                    }
-                },
                 _ => self.clear_pending_count(),
             }
             },

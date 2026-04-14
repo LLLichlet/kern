@@ -89,7 +89,7 @@ fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
 }
 
 fn ctrl_w(state: *mut editor.Editor, gpa: *mut GPA, key: u8) void {
-    state.handle_key(gpa, .{ Byte: 23 });
+    state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: key });
 }
 
@@ -337,7 +337,7 @@ fn check_editor_extended_normal_motions() void {
     test.assert(state..&.resize(usize.{5}, usize.{80}), "expected resize for screen motion test", .{});
     state..&.handle_key(gpa, .{ Byte: b'g' });
     state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: 4 });
+    state..&.handle_key(gpa, .CtrlD);
     expect_cursor(state..&, usize.{2}, usize.{2}, "expected ctrl-d to move half a screen down");
     state..&.handle_key(gpa, .{ Byte: b'L' });
     expect_cursor(state..&, usize.{5}, usize.{4}, "expected L to jump to bottom visible row");
@@ -345,7 +345,7 @@ fn check_editor_extended_normal_motions() void {
     expect_cursor(state..&, usize.{2}, usize.{2}, "expected H to jump to top visible row");
     state..&.handle_key(gpa, .{ Byte: b'M' });
     expect_cursor(state..&, usize.{4}, usize.{4}, "expected M to jump to middle visible row");
-    state..&.handle_key(gpa, .{ Byte: 21 });
+    state..&.handle_key(gpa, .CtrlU);
     expect_cursor(state..&, usize.{0}, usize.{4}, "expected ctrl-u to move half a screen up");
 
     state..&.handle_key(gpa, .{ Byte: b'0' });
@@ -441,10 +441,10 @@ fn check_split_window_and_window_commands() void {
     state..&.handle_key(gpa, .{ Byte: b'g' });
     state..&.handle_key(gpa, .{ Byte: b'g' });
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b's' });
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'w' });
 
     let frame = String.{}..&;
@@ -453,7 +453,7 @@ fn check_split_window_and_window_commands() void {
     test.assert(contains(frame.as_str(), "[window W2/2]"), "expected render to include the inactive lower window separator", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"), "expected status line to show active editor window label", .{});
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'o' });
     frame.clear();
     test.assert(state..&.render_into(gpa, frame, true), "expected :only-style window close render to succeed", .{});
@@ -483,7 +483,7 @@ fn check_split_window_keeps_window_local_buffers() void {
 
     test.assert(state..&.resize(usize.{10}, usize.{48}), "expected resize for window-local buffer test", .{});
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b's' });
     run_ex_command(state..&, gpa, "e /tmp/bed-window-b.txt");
 
@@ -494,17 +494,17 @@ fn check_split_window_keeps_window_local_buffers() void {
     test.assert(contains(frame.as_str(), path_b), "expected active lower window to track the edited file", .{});
     test.eq(state..&.line(0), "beta");
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
     test.assert(state..&.render_into(gpa, frame, true), "expected render after switching back to upper window to succeed", .{});
     test.assert(contains(frame.as_str(), path_a), "expected upper window to keep the original file", .{});
     test.eq(state..&.line(0), "alpha");
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'w' });
     test.eq(state..&.line(0), "beta");
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'q' });
 
     frame.clear();
@@ -532,9 +532,9 @@ fn check_multi_window_cycle_and_close() void {
     type_text(state..&, gpa, "four");
     state..&.handle_key(gpa, .Escape);
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b's' });
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b's' });
 
     let frame = String.{}..&;
@@ -545,19 +545,19 @@ fn check_multi_window_cycle_and_close() void {
     test.assert(contains(frame.as_str(), "[WINDOW W3/3]"), "expected render to include the active third window separator", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected status line to show the third active window", .{});
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
     test.assert(state..&.render_into(gpa, frame, true), "expected render after cycling to first window to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w w to wrap back to the first window", .{});
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
     test.assert(state..&.render_into(gpa, frame, true), "expected render after cycling to second window to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"), "expected ctrl-w w to advance to the second window", .{});
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'q' });
     frame.clear();
     test.assert(state..&.render_into(gpa, frame, true), "expected render after closing one of three windows to succeed", .{});
@@ -615,6 +615,25 @@ fn check_ctrl_w_navigation_commands() void {
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w t to jump to the top-left window", .{});
 }
 
+fn check_window_and_layout_slots_are_reused() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{12}, usize.{48}), "expected resize for slot reuse test", .{});
+
+    for (let mut i = usize.{0}; i < 8; i += 1) {
+        ctrl_w(state..&, gpa, b's');
+        test.eq(state..&.window_slots(), usize.{2});
+        test.eq(state..&.layout_node_slots(), usize.{3});
+        ctrl_w(state..&, gpa, b'q');
+        test.eq(state..&.window_slots(), usize.{2});
+        test.eq(state..&.layout_node_slots(), usize.{3});
+    }
+}
+
 fn check_vsplit_layout_and_window_resize_commands() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
@@ -651,19 +670,19 @@ fn check_vsplit_layout_and_window_resize_commands() void {
     test.assert(left_index < first_newline and right_index < first_newline, "expected vertical layout to render both windows on the first row", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected status line to show the second active window in vsplit", .{});
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'h' });
     frame.clear();
     test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w h to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"), "expected ctrl-w h to focus the left window", .{});
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'l' });
     frame.clear();
     test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w l to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected ctrl-w l to focus the right window", .{});
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'>' });
     frame.clear();
     test.assert(state..&.render_into(gpa, frame, true), "expected render after growing vsplit window to succeed", .{});
@@ -673,7 +692,7 @@ fn check_vsplit_layout_and_window_resize_commands() void {
     let first_grown_newline = find_byte(grown, b'\n');
     test.assert(left_grown < first_grown_newline and right_grown < first_grown_newline, "expected resize to preserve the vertical layout on the first row", .{});
 
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b'=' });
     frame.clear();
     test.assert(state..&.render_into(gpa, frame, true), "expected render after equalizing windows to succeed", .{});
@@ -714,7 +733,7 @@ fn check_nested_split_tree_layout() void {
     test.assert(state..&.resize(usize.{12}, usize.{52}), "expected resize for nested split tree test", .{});
     run_ex_command(state..&, gpa, "vsplit");
     run_ex_command(state..&, gpa, "e /tmp/bed-tree-top.txt");
-    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .CtrlW);
     state..&.handle_key(gpa, .{ Byte: b's' });
     run_ex_command(state..&, gpa, "e /tmp/bed-tree-bottom.txt");
 
@@ -828,9 +847,9 @@ fn check_additional_jump_keys() void {
     expect_cursor(state..&, usize.{0}, usize.{0}, "expected { to jump back to previous paragraph start");
 
     state..&.handle_key(gpa, .{ Byte: b'G' });
-    state..&.handle_key(gpa, .{ Byte: 2 });
+    state..&.handle_key(gpa, .CtrlB);
     expect_cursor(state..&, usize.{0}, usize.{0}, "expected ctrl-b to page upward");
-    state..&.handle_key(gpa, .{ Byte: 6 });
+    state..&.handle_key(gpa, .CtrlF);
     expect_cursor(state..&, usize.{3}, usize.{0}, "expected ctrl-f to page downward");
 }
 
@@ -961,6 +980,7 @@ fn main() i32 {
     check_split_window_and_window_commands();
     check_split_window_keeps_window_local_buffers();
     check_multi_window_cycle_and_close();
+    check_window_and_layout_slots_are_reused();
     check_ctrl_w_navigation_commands();
     check_vsplit_layout_and_window_resize_commands();
     check_nested_split_tree_layout();

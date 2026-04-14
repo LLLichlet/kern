@@ -18,7 +18,12 @@ pub type Key = enum {
     ArrowDown,
     ArrowLeft,
     ArrowRight,
+    CtrlB,
     CtrlC,
+    CtrlD,
+    CtrlF,
+    CtrlU,
+    CtrlW,
     Byte: u8,
 };
 
@@ -114,8 +119,23 @@ fn read_escape_sequence(stdin: *mut fs.File) Key!fs.Error {
 pub fn read_key(stdin: *mut fs.File) Key!fs.Error {
     let first = read_optional_byte(stdin).!;
     let .{ Some: byte } = first else return .{ Ok: .NoInput };
+    if (byte == 2) {
+        return .{ Ok: .CtrlB };
+    }
     if (byte == 3) {
         return .{ Ok: .CtrlC };
+    }
+    if (byte == 4) {
+        return .{ Ok: .CtrlD };
+    }
+    if (byte == 6) {
+        return .{ Ok: .CtrlF };
+    }
+    if (byte == 21) {
+        return .{ Ok: .CtrlU };
+    }
+    if (byte == 23) {
+        return .{ Ok: .CtrlW };
     }
     if (byte == b'\r' or byte == b'\n') {
         return .{ Ok: .Enter };

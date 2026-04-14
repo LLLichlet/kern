@@ -1,4 +1,5 @@
 use base.coll.{List, String};
+use base.mem.memmove;
 use base.mem.alloc.Allocator;
 use mode.Mode;
 use std.fs;
@@ -66,6 +67,7 @@ pub type LayoutAxis = enum {
 
 pub type LayoutNode = struct {
     pub alive: bool = true,
+    pub free_next: ?usize = .None,
     pub has_parent: bool = false,
     pub parent: usize = 0,
     pub is_leaf: bool = true,
@@ -84,6 +86,8 @@ pub type WindowRect = struct {
 };
 
 pub type WindowState = struct {
+    pub alive: bool = true,
+    pub free_next: ?usize = .None,
     pub view: EditorView = EditorView.{},
     pub buffer_index: usize = 0,
     pub layout_node: usize = 0,
@@ -106,11 +110,20 @@ fn deinit_string_list(alloc: *mut Allocator, items: *mut List[String]) void {
 }
 
 pub fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], limit: usize) void {
-    for (; items.len > limit; ) {
-        let .{ Some: removed } = items.remove(0) else return;
-        let mut owned = removed;
-        owned..&.deinit(alloc);
+    if (items.len <= limit) {
+        return;
     }
+    let remove_count = items.len - limit;
+    let slice = items.as_mut_slice();
+    for (let mut i = 0; i < remove_count; i += 1) {
+        slice.[i]..&.deinit(alloc);
+    }
+    let kept = items.len - remove_count;
+    if (kept > 0) {
+        let bytes = kept * @sizeOf[String]();
+        let _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);
+    }
+    items.truncate(kept);
 }
 
 fn deinit_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry]) void {
@@ -122,11 +135,20 @@ fn deinit_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntr
 }
 
 pub fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry], limit: usize) void {
-    for (; items.len > limit; ) {
-        let .{ Some: removed } = items.remove(0) else return;
-        let mut owned = removed;
-        owned..&.deinit(alloc);
+    if (items.len <= limit) {
+        return;
     }
+    let remove_count = items.len - limit;
+    let slice = items.as_mut_slice();
+    for (let mut i = 0; i < remove_count; i += 1) {
+        slice.[i]..&.deinit(alloc);
+    }
+    let kept = items.len - remove_count;
+    if (kept > 0) {
+        let bytes = kept * @sizeOf[ShellOutputEntry]();
+        let _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);
+    }
+    items.truncate(kept);
 }
 
 pub fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
@@ -144,7 +166,9 @@ pub fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
 pub type Editor = struct {
     pub buffers: List[BufferSlot] = List[BufferSlot].{},
     pub windows: List[WindowState] = List[WindowState].{},
+    pub first_free_window: ?usize = .None,
     pub layout_nodes: List[LayoutNode] = List[LayoutNode].{},
+    pub first_free_layout_node: ?usize = .None,
     pub layout_root: usize = 0,
     pub active_window: usize = 0,
     pub previous_window: usize = 0,

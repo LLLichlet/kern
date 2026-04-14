@@ -237,7 +237,7 @@ impl *mut Editor {
             if (!push_truncated(out, alloc, " ", remaining..&)) {
                 return false;
             }
-            if (!push_window_label(out, alloc, self.active_window, self.window_count, remaining..&)) {
+            if (!push_window_label(out, alloc, self.window_ordinal(self.active_window), self.window_count, remaining..&)) {
                 return false;
             }
         }
@@ -318,7 +318,7 @@ impl *mut Editor {
         if (!push_truncated(out, alloc, prefix, remaining..&)) {
             return false;
         }
-        if (!push_window_label(out, alloc, index, self.window_count, remaining..&)) {
+        if (!push_window_label(out, alloc, self.window_ordinal(index), self.window_count, remaining..&)) {
             return false;
         }
         return push_truncated(out, alloc, "]", remaining..&);
@@ -341,9 +341,9 @@ impl *mut Editor {
         return true;
     }
 
-    fn render_col_window_separator(alloc: *mut Allocator, out: *mut String, left_index: usize) bool {
+    fn render_col_window_separator(alloc: *mut Allocator, out: *mut String, left_index: usize, right_index: usize) bool {
         let active = self.active_pane == .Editor
-            and (self.active_window == left_index or self.active_window == left_index + 1);
+            and (self.active_window == left_index or self.active_window == right_index);
         let byte = if (active) b'#' else b'|';
         return out.push_char(alloc, byte);
     }
@@ -400,7 +400,12 @@ impl *mut Editor {
                 if (!self.render_layout_row(alloc, out, node.first, first_rect, row_in_rect)) {
                     return false;
                 }
-                if (!self.render_col_window_separator(alloc, out, self.first_window_in_node(node.first))) {
+                if (!self.render_col_window_separator(
+                    alloc,
+                    out,
+                    self.first_window_in_node(node.first),
+                    self.first_window_in_node(node.second),
+                )) {
                     return false;
                 }
                 return self.render_layout_row(alloc, out, node.second, second_rect, row_in_rect);

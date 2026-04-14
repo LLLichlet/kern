@@ -6,8 +6,15 @@ const MIN_WINDOW_ROWS = 3;
 const MIN_WINDOW_COLS = 16;
 
 impl *mut Editor {
+    fn is_live_window(index: usize) bool {
+        if (index >= self.windows.len) {
+            return false;
+        }
+        return self.window(index).alive;
+    }
+
     fn activate_window(index: usize) void {
-        if (index >= self.window_count or index == self.active_window) {
+        if (!self.is_live_window(index) or index == self.active_window) {
             return;
         }
         self.previous_window = self.active_window;
@@ -25,6 +32,72 @@ impl *mut Editor {
     fn window_mut(index: usize) *mut WindowState {
         let windows = self.windows..&.as_mut_slice();
         return windows.[index]..&;
+    }
+
+    fn first_live_window() ?usize {
+        for (let mut i = 0; i < self.windows.len; i += 1) {
+            if (self.window(i).alive) {
+                return .{ Some: i };
+            }
+        }
+        return .None;
+    }
+
+    fn last_live_window() ?usize {
+        for (let mut i = self.windows.len; i > 0; ) {
+            i -= 1;
+            if (self.window(i).alive) {
+                return .{ Some: i };
+            }
+        }
+        return .None;
+    }
+
+    fn next_live_window_after(index: usize) ?usize {
+        for (let mut i = index + 1; i < self.windows.len; i += 1) {
+            if (self.window(i).alive) {
+                return .{ Some: i };
+            }
+        }
+        return .None;
+    }
+
+    fn prev_live_window_before(index: usize) ?usize {
+        for (let mut i = index; i > 0; ) {
+            i -= 1;
+            if (self.window(i).alive) {
+                return .{ Some: i };
+            }
+        }
+        return .None;
+    }
+
+    fn nth_live_window(ordinal: usize) ?usize {
+        let mut seen = 0;
+        for (let mut i = 0; i < self.windows.len; i += 1) {
+            if (!self.window(i).alive) {
+                continue;
+            }
+            if (seen == ordinal) {
+                return .{ Some: i };
+            }
+            seen += 1;
+        }
+        return .None;
+    }
+
+    fn window_ordinal(index: usize) usize {
+        let mut ordinal = 0;
+        for (let mut i = 0; i < self.windows.len; i += 1) {
+            if (!self.window(i).alive) {
+                continue;
+            }
+            if (i == index) {
+                return ordinal;
+            }
+            ordinal += 1;
+        }
+        return 0;
     }
 
     fn buffer_slot(index: usize) BufferSlot {
@@ -102,6 +175,35 @@ impl *mut Editor {
         return window.view..&;
     }
 
+    fn allocate_window_slot(alloc: *mut Allocator, window: WindowState) ?usize {
+        match (self.first_free_window) {
+            .{ Some: index } => {
+                let next = self.window(index).free_next;
+                self.first_free_window = next;
+                let slot = self.window_mut(index);
+                slot.* = window;
+                return .{ Some: index };
+            },
+            .None => {
+                let index = self.windows.len;
+                if (!self.windows..&.push(alloc, window)) {
+                    return .None;
+                }
+                return .{ Some: index };
+            },
+        }
+    }
+
+    fn release_window_slot(index: usize) void {
+        let window = self.window_mut(index);
+        window.alive = false;
+        window.free_next = self.first_free_window;
+        window.view = EditorView.{};
+        window.buffer_index = 0;
+        window.layout_node = 0;
+        self.first_free_window = .{ Some: index };
+    }
+
     fn set_window_layout_node(index: usize, layout_node: usize) void {
         let window = self.window_mut(index);
         window.layout_node = layout_node;
@@ -111,12 +213,30 @@ impl *mut Editor {
         return self.window(self.active_window).layout_node;
     }
 
-    fn append_layout_node(alloc: *mut Allocator, node: LayoutNode) usize {
-        let index = self.layout_nodes.len;
-        if (!self.layout_nodes..&.push(alloc, node)) {
-            return 0;
+    fn allocate_layout_node(alloc: *mut Allocator, node: LayoutNode) ?usize {
+        match (self.first_free_layout_node) {
+            .{ Some: index } => {
+                let next = self.layout_node(index).free_next;
+                self.first_free_layout_node = next;
+                let slot = self.layout_node_mut(index);
+                slot.* = node;
+                return .{ Some: index };
+            },
+            .None => {
+                let index = self.layout_nodes.len;
+                if (!self.layout_nodes..&.push(alloc, node)) {
+                    return .None;
+                }
+                return .{ Some: index };
+            },
         }
-        return index;
+    }
+
+    fn release_layout_node(index: usize) void {
+        let node = self.layout_node_mut(index);
+        node.alive = false;
+        node.free_next = self.first_free_layout_node;
+        self.first_free_layout_node = .{ Some: index };
     }
 
     fn active_cursor() *mut Cursor {
@@ -156,16 +276,24 @@ impl *mut Editor {
     }
 
     fn sync_window_count() void {
-        self.window_count = self.windows.len;
-        if (self.window_count == 0) {
+        let first_live = self.first_live_window();
+        let .{ Some: first } = first_live else {
+            self.window_count = 0;
             self.active_window = 0;
             self.previous_window = 0;
             return;
+        };
+        let mut count = 0;
+        for (let mut i = 0; i < self.windows.len; i += 1) {
+            if (self.window(i).alive) {
+                count += 1;
+            }
         }
-        if (self.active_window >= self.window_count) {
-            self.active_window = self.window_count - 1;
+        self.window_count = count;
+        if (!self.is_live_window(self.active_window)) {
+            self.active_window = first;
         }
-        if (self.previous_window >= self.window_count) {
+        if (!self.is_live_window(self.previous_window)) {
             self.previous_window = self.active_window;
         }
     }
@@ -538,7 +666,7 @@ impl *mut Editor {
         let line = self.active_buffer().line(row);
         for (let mut i = 0; i < #line; i += 1) {
             let byte = line.[i];
-            if (byte != b' ' and byte != b'\t') {
+            if (!self.is_space_byte(byte)) {
                 return i;
             }
         }
@@ -807,18 +935,6 @@ impl *mut Editor {
         }
     }
 
-    fn reindex_window_nodes(removed_window: usize) void {
-        let nodes = self.layout_nodes..&.as_mut_slice();
-        for (let mut i = 0; i < #nodes; i += 1) {
-            if (!nodes.[i].alive or !nodes.[i].is_leaf) {
-                continue;
-            }
-            if (nodes.[i].window_index > removed_window) {
-                nodes.[i].window_index -= 1;
-            }
-        }
-    }
-
     fn split_window(alloc: *mut Allocator, axis: LayoutAxis) void {
         if (!self.can_split(axis)) {
             self.set_message(alloc, "window limit reached");
@@ -827,22 +943,26 @@ impl *mut Editor {
         let active_window = self.active_window;
         let buffer_index = self.window(self.active_window).buffer_index;
         self.retain_buffer_slot(buffer_index);
-        let new_window_index = self.windows.len;
-        if (!self.windows..&.push(alloc, .{
+        let new_window_index = match (self.allocate_window_slot(alloc, .{
+            alive: true,
+            free_next: .None,
             view: self.view(active_window),
             buffer_index: buffer_index,
             layout_node: 0,
         })) {
-            self.release_buffer_slot(alloc, buffer_index);
-            self.set_message(alloc, "out of memory");
-            return;
-        }
+            .{ Some: index } => index,
+            .None => {
+                self.release_buffer_slot(alloc, buffer_index);
+                self.set_message(alloc, "out of memory");
+                return;
+            },
+        };
 
         let split_index = self.active_layout_node();
         let inherited_weight = self.layout_node(split_index).weight;
-        let first_index = self.layout_nodes.len;
-        if (!self.layout_nodes..&.push(alloc, .{
+        let first_index = match (self.allocate_layout_node(alloc, .{
             alive: true,
+            free_next: .None,
             has_parent: true,
             parent: split_index,
             is_leaf: true,
@@ -852,14 +972,17 @@ impl *mut Editor {
             weight: 1,
             window_index: active_window,
         })) {
-            let _ = self.windows..&.remove(new_window_index);
-            self.release_buffer_slot(alloc, buffer_index);
-            self.set_message(alloc, "out of memory");
-            return;
-        }
-        let second_index = self.layout_nodes.len;
-        if (!self.layout_nodes..&.push(alloc, .{
+            .{ Some: index } => index,
+            .None => {
+                self.release_window_slot(new_window_index);
+                self.release_buffer_slot(alloc, buffer_index);
+                self.set_message(alloc, "out of memory");
+                return;
+            },
+        };
+        let second_index = match (self.allocate_layout_node(alloc, .{
             alive: true,
+            free_next: .None,
             has_parent: true,
             parent: split_index,
             is_leaf: true,
@@ -869,12 +992,15 @@ impl *mut Editor {
             weight: 1,
             window_index: new_window_index,
         })) {
-            let _ = self.layout_nodes..&.remove(first_index);
-            let _ = self.windows..&.remove(new_window_index);
-            self.release_buffer_slot(alloc, buffer_index);
-            self.set_message(alloc, "out of memory");
-            return;
-        }
+            .{ Some: index } => index,
+            .None => {
+                self.release_layout_node(first_index);
+                self.release_window_slot(new_window_index);
+                self.release_buffer_slot(alloc, buffer_index);
+                self.set_message(alloc, "out of memory");
+                return;
+            },
+        };
 
         let split = self.layout_node_mut(split_index);
         split.is_leaf = false;
@@ -908,10 +1034,7 @@ impl *mut Editor {
         let parent_index = leaf.parent;
         let parent = self.layout_node(parent_index);
         let sibling_index = if (parent.first == leaf_index) parent.second else parent.first;
-        let mut next_active = self.first_window_in_node(sibling_index);
-        if (next_active > active_window) {
-            next_active -= 1;
-        }
+        let next_active = self.first_window_in_node(sibling_index);
         let buffer_index = self.window(self.active_window).buffer_index;
         self.release_buffer_slot(alloc, buffer_index);
         let promoted_weight = self.layout_node(parent_index).weight;
@@ -928,13 +1051,10 @@ impl *mut Editor {
             sibling.parent = 0;
             sibling.weight = 1;
         }
-        let leaf_node = self.layout_node_mut(leaf_index);
-        leaf_node.alive = false;
-        let parent_node = self.layout_node_mut(parent_index);
-        parent_node.alive = false;
+        self.release_layout_node(leaf_index);
+        self.release_layout_node(parent_index);
 
-        let _ = self.windows..&.remove(active_window);
-        self.reindex_window_nodes(active_window);
+        self.release_window_slot(active_window);
         self.sync_window_count();
         self.active_window = next_active;
         self.reset_window_history();
@@ -951,7 +1071,7 @@ impl *mut Editor {
         let keep_index = self.active_window;
         let keep = self.window(keep_index);
         for (let mut index = 0; index < self.windows.len; index += 1) {
-            if (index == keep_index) {
+            if (index == keep_index or !self.window(index).alive) {
                 continue;
             }
             let buffer_index = self.window(index).buffer_index;
@@ -960,8 +1080,10 @@ impl *mut Editor {
 
         self.windows..&.deinit(alloc);
         self.windows = List[WindowState].{};
+        self.first_free_window = .None;
         self.layout_nodes..&.deinit(alloc);
         self.layout_nodes = List[LayoutNode].{};
+        self.first_free_layout_node = .None;
         if (!self.layout_nodes..&.push(alloc, .{ window_index: 0 })) {
             self.set_message(alloc, "out of memory");
             return;
@@ -984,8 +1106,9 @@ impl *mut Editor {
     }
 
     fn focus_window_number(index: usize) void {
-        if (index < self.window_count) {
-            self.activate_window(index);
+        match (self.nth_live_window(index)) {
+            .{ Some: slot } => self.activate_window(slot),
+            .None => {}
         }
     }
 
@@ -993,10 +1116,12 @@ impl *mut Editor {
         if (self.window_count <= 1) {
             return;
         }
-        if (self.active_window == 0) {
-            self.activate_window(self.window_count - 1);
-        } else {
-            self.activate_window(self.active_window - 1);
+        match (self.prev_live_window_before(self.active_window)) {
+            .{ Some: previous } => self.activate_window(previous),
+            .None => {
+                let .{ Some: last } = self.last_live_window() else return;
+                self.activate_window(last);
+            },
         }
     }
 
@@ -1004,15 +1129,20 @@ impl *mut Editor {
         if (self.window_count <= 1) {
             return;
         }
-        let next = if (self.active_window + 1 < self.window_count) self.active_window + 1 else 0;
-        self.activate_window(next);
+        match (self.next_live_window_after(self.active_window)) {
+            .{ Some: next } => self.activate_window(next),
+            .None => {
+                let .{ Some: first } = self.first_live_window() else return;
+                self.activate_window(first);
+            },
+        }
     }
 
     fn focus_previous_window() void {
         if (self.window_count <= 1) {
             return;
         }
-        if (self.previous_window < self.window_count and self.previous_window != self.active_window) {
+        if (self.is_live_window(self.previous_window) and self.previous_window != self.active_window) {
             let previous = self.previous_window;
             self.activate_window(previous);
             return;
@@ -1037,9 +1167,13 @@ impl *mut Editor {
     }
 
     fn focus_top_left_window() void {
-        let mut best_index = 0;
-        let mut best_rect = self.window_rect(0);
-        for (let mut index = 1; index < self.window_count; index += 1) {
+        let .{ Some: first } = self.first_live_window() else return;
+        let mut best_index = first;
+        let mut best_rect = self.window_rect(first);
+        for (let mut index = 0; index < self.windows.len; index += 1) {
+            if (!self.window(index).alive or index == first) {
+                continue;
+            }
             let rect = self.window_rect(index);
             if (rect.row < best_rect.row or (rect.row == best_rect.row and rect.col < best_rect.col)) {
                 best_index = index;
@@ -1050,9 +1184,13 @@ impl *mut Editor {
     }
 
     fn focus_bottom_right_window() void {
-        let mut best_index = 0;
-        let mut best_rect = self.window_rect(0);
-        for (let mut index = 1; index < self.window_count; index += 1) {
+        let .{ Some: first } = self.first_live_window() else return;
+        let mut best_index = first;
+        let mut best_rect = self.window_rect(first);
+        for (let mut index = 0; index < self.windows.len; index += 1) {
+            if (!self.window(index).alive or index == first) {
+                continue;
+            }
             let rect = self.window_rect(index);
             let rect_end_row = self.rect_end_row(rect);
             let best_end_row = self.rect_end_row(best_rect);
@@ -1073,8 +1211,8 @@ impl *mut Editor {
         let mut best_primary = 0;
         let mut best_secondary = 0;
 
-        for (let mut index = 0; index < self.window_count; index += 1) {
-            if (index == self.active_window) {
+        for (let mut index = 0; index < self.windows.len; index += 1) {
+            if (!self.window(index).alive or index == self.active_window) {
                 continue;
             }
             let rect = self.window_rect(index);
@@ -1269,5 +1407,13 @@ impl *mut Editor {
 
     pub fn cursor_col() usize {
         return self.active_cursor().col;
+    }
+
+    pub fn layout_node_slots() usize {
+        return self.layout_nodes.len;
+    }
+
+    pub fn window_slots() usize {
+        return self.windows.len;
     }
 }

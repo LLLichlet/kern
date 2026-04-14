@@ -681,9 +681,9 @@ pub.. fn shared() i32 {
 }
 
 #[test]
-fn sibling_module_cannot_access_pub_super_items() {
+fn sibling_module_can_access_pub_super_items() {
     let output = compile_source_tree_with_args(
-        "kernc_pub_super_sibling_rejected",
+        "kernc_pub_super_sibling_access",
         "main.rn",
         &[
             (
@@ -719,19 +719,50 @@ pub fn value() i32 {
         &["-c"],
     );
 
-    assert!(
-        !output.status.success(),
-        "kernc unexpectedly accepted sibling access to pub.. item:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn descendant_module_can_access_pub_super_items() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_descendant_access",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod left;
+
+fn main() i32 {
+    return left.deep.value();
+}
+"#,
+            ),
+            (
+                "left.rn",
+                r#"
+pub mod deep;
+
+pub.. fn helper() i32 {
+    return 0;
+}
+"#,
+            ),
+            (
+                "deep.rn",
+                r#"
+use ..helper;
+
+pub fn value() i32 {
+    return helper();
+}
+"#,
+            ),
+        ],
+        &["-c"],
     );
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("Symbol `helper` is not visible from this module"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert_success(&output, "kernc");
 }
 
 #[test]
@@ -778,6 +809,66 @@ pub.. fn helper() i32 {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("module has no visible member `helper`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn module_outside_parent_subtree_cannot_access_pub_super_items() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_outside_subtree_rejected",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod outer;
+mod peer;
+
+fn main() i32 {
+    return peer.value();
+}
+"#,
+            ),
+            (
+                "outer.rn",
+                r#"
+pub mod mid;
+"#,
+            ),
+            (
+                "mid.rn",
+                r#"
+pub.. fn helper() i32 {
+    return 0;
+}
+"#,
+            ),
+            (
+                "peer.rn",
+                r#"
+use ..outer.mid.helper as helper;
+
+pub fn value() i32 {
+    return helper();
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted access outside the parent subtree:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Symbol `helper` is not visible from this module"),
         "unexpected stderr:\n{}",
         stderr
     );

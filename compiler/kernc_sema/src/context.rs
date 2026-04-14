@@ -360,6 +360,21 @@ impl<'a> SemaContext<'a> {
         }
     }
 
+    pub fn module_is_same_or_descendant_of(
+        &self,
+        module_id: DefId,
+        ancestor_module_id: DefId,
+    ) -> bool {
+        let mut current = Some(module_id);
+        while let Some(module_id) = current {
+            if module_id == ancestor_module_id {
+                return true;
+            }
+            current = self.module_parent(module_id);
+        }
+        false
+    }
+
     pub fn visibility_allows_access(
         &self,
         vis: Visibility,
@@ -370,8 +385,13 @@ impl<'a> SemaContext<'a> {
             Visibility::Public => true,
             Visibility::Private => current_module == Some(owner_module),
             Visibility::Super => {
-                current_module == Some(owner_module)
-                    || current_module == self.module_parent(owner_module)
+                let Some(current_module) = current_module else {
+                    return false;
+                };
+                let Some(parent_module) = self.module_parent(owner_module) else {
+                    return false;
+                };
+                self.module_is_same_or_descendant_of(current_module, parent_module)
             }
         }
     }

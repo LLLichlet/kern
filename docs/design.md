@@ -644,7 +644,7 @@ Files and directories do not implicitly become part of the compilation unit just
 
   * **File Modules**: `mod utils;` instructs the compiler to look for `utils.rn`.
   * **Directory Modules**: If `utils` is a directory, the compiler looks for `utils/init.rn`.
-  * **Visibility**: By default, modules are private. Use `pub mod utils;` to expose a module publicly, or `pub.. mod utils;` to expose it only to the parent module.
+  * **Visibility**: By default, modules are private. Use `pub mod utils;` to expose a module publicly, or `pub.. mod utils;` to expose it to the parent module subtree.
 
 <!-- end list -->
 
@@ -678,7 +678,7 @@ Paths are navigated strictly:
 
 ### 8.3 Facade Pattern and Re-exports (`pub use`)
 
-Kern supports the Facade pattern via `pub use`. This allows you to construct a clean, unified public API while keeping the internal module layout complex and conditionally compiled. Kern also supports `pub..` on items and re-exports when an API should be visible only to the immediate parent module.
+Kern supports the Facade pattern via `pub use`. This allows you to construct a clean, unified public API while keeping the internal module layout complex and conditionally compiled. Kern also supports `pub..` on items and re-exports when an API should be visible throughout the parent module subtree without being public outside it.
 
 ```kern
 // sys/os/init.rn
@@ -689,7 +689,7 @@ mod linux;
 #[if(os == "linux")]
 pub use .linux.{Handle, get_stdout_handle, write, exit};
 
-// Re-export a helper only to the parent facade layer.
+// Re-export a helper to the parent facade subtree.
 pub.. use .linux.write as write_linux;
 ```
 

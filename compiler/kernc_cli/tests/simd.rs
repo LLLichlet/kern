@@ -2,6 +2,7 @@ use kernc_cli::test_support::{
     build_and_run, compile_source_with_args as compile_with_args,
     emit_llvm_ir_with_args as emit_ir_with_args,
 };
+use kernc_utils::config::resolve_base_path;
 
 fn compile_source(source: &str) -> std::process::Output {
     compile_with_args("kernc_simd_test", source, &[])
@@ -957,8 +958,12 @@ fn main() i32 {
 
 #[test]
 fn emits_ir_for_simd_shuffle_load_store_and_target_features() {
-    let output = emit_llvm_ir(
+    let base_arg = format!("base={}", resolve_base_path().display());
+    let output = emit_ir_with_args(
+        "kernc_simd_test",
         r#"
+use base.mem;
+
 #[target_feature("avx2,fma")]
 fn remix(ptr: *mut f32) f32 {
     let a = @simdLoad[f32x4](ptr, 4);
@@ -973,6 +978,7 @@ fn main() i32 {
     return remix(data.[0]..&) as i32;
 }
 "#,
+        &["--module-path", base_arg.as_str()],
     );
 
     assert!(

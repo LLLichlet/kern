@@ -171,7 +171,7 @@ pub fn clone_owned_document(
 ) OwnedDocument!MaterializeError {
     let page = Page.{}..&;
     let layout = layout_of[OwnedDocumentState]();
-    let .{ Some: raw } = page.alloc(layout) else return .{ Err: MaterializeError.OutOfMemory };
+    let raw = page.alloc(layout).ok_or(MaterializeError.OutOfMemory).!;
     let state = raw as *mut OwnedDocumentState;
     state.page = Page.{};
     state.arena = Arena.{ backing: state.page..& };
@@ -196,8 +196,8 @@ pub fn clone_indexed_object_document(
 ) IndexedObjectDocument!IndexedObjectDocumentError {
     let page = Page.{}..&;
     let layout = layout_of[IndexedObjectDocumentState]();
-    let .{ Some: raw } = page.alloc(layout)
-        else return .{ Err: .{ Materialize: MaterializeError.OutOfMemory } };
+    let raw = page.alloc(layout)
+        .ok_or(IndexedObjectDocumentError.{ Materialize: MaterializeError.OutOfMemory }).!;
     let state = raw as *mut IndexedObjectDocumentState;
     state.page = Page.{};
     state.arena = Arena.{ backing: state.page..& };

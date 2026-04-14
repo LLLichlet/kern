@@ -852,39 +852,34 @@ impl Value {
         }
         let .{ Ok: item } = self.get_index(index)
             else .{ Err: err } => return .{ Err: .{ Parse: err } };
-        let .{ Some: item } = item else return .{ Err: .OutOfRange };
-        return .{ Ok: item };
+        return item.ok_or(IndexDecodeError.OutOfRange);
     }
 
     pub fn require_bool_index(index: usize) bool!IndexDecodeError {
         let .{ Ok: value } = self.require_index(index)
             else .{ Err: err } => return .{ Err: err };
-        let .{ Some: out } = require_bool_value(value) else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return require_bool_value(value).ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_number_text_index(index: usize) ([]u8)!IndexDecodeError {
         let .{ Ok: value } = self.require_index(index)
             else .{ Err: err } => return .{ Err: err };
-        let .{ Some: out } = require_number_text_value(value)
-            else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return require_number_text_value(value)
+            .ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_string_raw_index(index: usize) ([]u8)!IndexDecodeError {
         let .{ Ok: value } = self.require_index(index)
             else .{ Err: err } => return .{ Err: err };
-        let .{ Some: out } = require_string_raw_value(value)
-            else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return require_string_raw_value(value)
+            .ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_string_text_index(index: usize) ([]u8)!IndexDecodeError {
         let .{ Ok: value } = self.require_index(index)
             else .{ Err: err } => return .{ Err: err };
-        let .{ Some: out } = require_string_text_value(value)
-            else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return require_string_text_value(value)
+            .ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_decoded_string_size_index(index: usize) usize!IndexDecodeError {
@@ -920,17 +915,13 @@ impl Value {
     pub fn require_array_index(index: usize) Value!IndexDecodeError {
         let .{ Ok: value } = self.require_index(index)
             else .{ Err: err } => return .{ Err: err };
-        let .{ Some: out } = require_array_value(value)
-            else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return require_array_value(value).ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_object_index(index: usize) Value!IndexDecodeError {
         let .{ Ok: value } = self.require_index(index)
             else .{ Err: err } => return .{ Err: err };
-        let .{ Some: out } = require_object_value(value)
-            else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return require_object_value(value).ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_u64_index(index: usize) u64!IndexDecodeError {
@@ -938,8 +929,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.u64_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_u32_index(index: usize) u32!IndexDecodeError {
@@ -947,8 +937,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.u32_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_u16_index(index: usize) u16!IndexDecodeError {
@@ -956,8 +945,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.u16_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_u8_index(index: usize) u8!IndexDecodeError {
@@ -965,8 +953,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.u8_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_i64_index(index: usize) i64!IndexDecodeError {
@@ -974,8 +961,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.i64_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_i32_index(index: usize) i32!IndexDecodeError {
@@ -983,8 +969,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.i32_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_i16_index(index: usize) i16!IndexDecodeError {
@@ -992,8 +977,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.i16_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_i8_index(index: usize) i8!IndexDecodeError {
@@ -1001,8 +985,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.i8_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_usize_index(index: usize) usize!IndexDecodeError {
@@ -1010,8 +993,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.usize_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_isize_index(index: usize) isize!IndexDecodeError {
@@ -1019,8 +1001,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.isize_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_f64_index(index: usize) f64!IndexDecodeError {
@@ -1028,8 +1009,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.f64_value()
             else .{ Err: err } => return .{ Err: .{ Float: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn require_f32_index(index: usize) f32!IndexDecodeError {
@@ -1037,8 +1017,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = value.f32_value()
             else .{ Err: err } => return .{ Err: .{ Float: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(IndexDecodeError.{ UnexpectedKind: value.kind });
     }
 
     pub fn array_len() ?usize!ParseError {
@@ -1362,8 +1341,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.u64_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_u32_field(name: []u8) u32!BorrowedFieldDecodeError {
@@ -1371,8 +1349,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.u32_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_u16_field(name: []u8) u16!BorrowedFieldDecodeError {
@@ -1380,8 +1357,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.u16_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_u8_field(name: []u8) u8!BorrowedFieldDecodeError {
@@ -1389,8 +1365,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.u8_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_i64_field(name: []u8) i64!BorrowedFieldDecodeError {
@@ -1398,8 +1373,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.i64_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_i32_field(name: []u8) i32!BorrowedFieldDecodeError {
@@ -1407,8 +1381,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.i32_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_i16_field(name: []u8) i16!BorrowedFieldDecodeError {
@@ -1416,8 +1389,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.i16_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_i8_field(name: []u8) i8!BorrowedFieldDecodeError {
@@ -1425,8 +1397,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.i8_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_usize_field(name: []u8) usize!BorrowedFieldDecodeError {
@@ -1434,8 +1405,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.usize_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_isize_field(name: []u8) isize!BorrowedFieldDecodeError {
@@ -1443,8 +1413,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.isize_value()
             else .{ Err: err } => return .{ Err: .{ Number: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_f64_field(name: []u8) f64!BorrowedFieldDecodeError {
@@ -1452,8 +1421,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.f64_value()
             else .{ Err: err } => return .{ Err: .{ Float: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn require_f32_field(name: []u8) f32!BorrowedFieldDecodeError {
@@ -1461,8 +1429,7 @@ impl Value {
             else .{ Err: err } => return .{ Err: err };
         let .{ Ok: out } = entry.value.f32_value()
             else .{ Err: err } => return .{ Err: .{ Float: err } };
-        let .{ Some: out } = out else return .{ Err: .{ UnexpectedKind: entry.value.kind } };
-        return .{ Ok: out };
+        return out.ok_or(BorrowedFieldDecodeError.{ UnexpectedKind: entry.value.kind });
     }
 
     pub fn get_last_field(name: []u8) ?ObjectEntry!ParseError {

@@ -6,7 +6,6 @@
 //! Design:
 //! keep allocation policy outside the type system and force layout bookkeeping to stay explicit.
 
-use base.Option;
 use base.mem.Layout;
 
 /// The interface implemented by allocation backends.
@@ -15,7 +14,7 @@ pub type Allocator = trait {
     ///
     /// Returns:
     /// `None` when the allocator cannot satisfy the request.
-    alloc: fn(Layout) Option[*mut u8],
+    alloc: fn(Layout) ?*mut u8,
     /// Frees a block previously returned from `alloc`.
     ///
     /// Safety:

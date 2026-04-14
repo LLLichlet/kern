@@ -21,7 +21,7 @@ fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
     // `u64` uses at most 20 decimal digits and avoids zero-initialization here.
     let buf = [20]mut u8.{undef};
     let mut i = 20;
-    let mut curr = u64.{val};
+    let mut curr = val;
 
     for (; curr > 0; ) {
         i -= 1;
@@ -38,7 +38,7 @@ fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
 
 /// Writes a signed integer in base 10.
 fn write_i64_to_writer(val: i64, writer: *mut Writer) void {
-    if (val < i64.{0}) {
+    if (val < 0) {
         let _ = writer.write("-");
         // Preserves the bit-pattern while converting to the unsigned domain.
         let unsigned_val = val as u64;

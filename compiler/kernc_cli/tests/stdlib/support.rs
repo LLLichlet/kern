@@ -177,9 +177,8 @@ fn runs_test_option_and_result_helpers() {
         "kernc_std_test_option_result_helpers",
         r#"
 use std.test;
-use base.{Option, Result};
 
-fn parse(flag: bool) Result[usize, i32] {
+fn parse(flag: bool) usize!i32 {
     if (flag) {
         return .{ Ok: 7 };
     }
@@ -187,9 +186,9 @@ fn parse(flag: bool) Result[usize, i32] {
 }
 
 fn main() i32 {
-    let some = test.expect_some(Option[usize].{ Some: 9 });
+    let some = test.expect_some(?usize.{ Some: 9 });
     test.eq(some, usize.{9});
-    test.expect_none(Option[usize].None);
+    test.expect_none(?usize.None);
 
     let ok = test.expect_ok(parse(true));
     test.eq(ok, usize.{7});
@@ -220,10 +219,9 @@ fn test_expect_some_failure_aborts_with_message() {
         "kernc_std_test_expect_some_fail",
         r#"
 use std.test;
-use base.Option;
 
 fn main() i32 {
-    let _ = test.expect_some(Option[usize].None);
+    let _ = test.expect_some(?usize.None);
     return 0;
 }
 "#,
@@ -311,10 +309,9 @@ fn test_expect_err_failure_aborts_with_message() {
         "kernc_std_test_expect_err_fail",
         r#"
 use std.test;
-use base.Result;
 
 fn main() i32 {
-    let _ = test.expect_err(Result[usize, i32].{ Ok: 3 });
+    let _ = test.expect_err(usize!i32.{ Ok: 3 });
     return 0;
 }
 "#,

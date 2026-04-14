@@ -7,13 +7,12 @@ fn runs_hosted_program_with_fs_create_followed_by_another_result_match() {
 
     let output = build_and_run_hosted(&format!(
         r#"
-use base.Result;
 use std.fs;
 use sys.os;
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
-fn ok_bool() Result[bool, os.Error] {{
+fn ok_bool() bool!os.Error {{
     return .{{ Ok: true }};
 }}
 

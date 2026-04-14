@@ -3,7 +3,6 @@
 //! This module keeps TTY checks, raw mode, and viewport sizing explicit while
 //! building on top of the provider boundary in `sys.os`.
 
-use base.Result;
 use sys.os;
 
 /// Terminal errors surfaced through `std.term`.
@@ -23,8 +22,8 @@ pub type RawMode = struct {
 };
 
 fn normalized_size(size: Size) Size {
-    let rows = if (size.rows == 0) usize.{24} else size.rows;
-    let cols = if (size.cols == 0) usize.{80} else size.cols;
+    let rows = if (size.rows == 0) 24 else size.rows;
+    let cols = if (size.cols == 0) 80 else size.cols;
     return .{ rows: rows, cols: cols };
 }
 
@@ -39,7 +38,7 @@ pub fn stdout_is_terminal() bool {
 }
 
 /// Enables raw mode on standard input.
-pub fn stdin_raw_mode() Result[RawMode, Error] {
+pub fn stdin_raw_mode() RawMode!Error {
     let handle = os.get_stdin_handle();
     if (!os.is_terminal(handle)) {
         return .{ Err: .NotTerminal };
@@ -52,7 +51,7 @@ pub fn stdin_raw_mode() Result[RawMode, Error] {
 }
 
 /// Returns the current visible size for standard output.
-pub fn stdout_size() Result[Size, Error] {
+pub fn stdout_size() Size!Error {
     let handle = os.get_stdout_handle();
     if (!os.is_terminal(handle)) {
         return .{ Err: .NotTerminal };
@@ -66,7 +65,7 @@ pub fn stdout_size() Result[Size, Error] {
 
 impl *mut RawMode {
     /// Restores the terminal to the state captured before raw mode was enabled.
-    pub fn restore() Result[bool, Error] {
+    pub fn restore() bool!Error {
         if (!self.active) {
             return .{ Ok: true };
         }

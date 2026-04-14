@@ -45,7 +45,6 @@ fn main() i32 {
 fn runs_hosted_program_using_list_slice_and_string_algorithms() {
     let output = build_and_run_hosted(
         r#"
-use base.{Option};
 use base.coll.{List, String, find_byte, rfind_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
 use base.cmp.{LESS, GREATER, EQUAL};
 use base.mem.alloc.GPA;
@@ -191,7 +190,7 @@ fn main() i32 {
     if (list.count(.[](value: i32) bool { return value >= 3; }) != 2) {
         return 36;
     }
-    let mapped_big = match (list.find_map(.[](value: i32) Option[i32] {
+    let mapped_big = match (list.find_map(.[](value: i32) ?i32 {
         if (value > 3) {
             return .{ Some: value * 10 };
         }
@@ -650,12 +649,11 @@ fn main() i32 {
 fn runs_hosted_program_using_option_and_result_closure_methods() {
     let output = build_and_run_hosted(
         r#"
-use base.{Option, Result};
 
 fn main() i32 {
     let mut seen = i32.{0};
 
-    let option = Option[i32].{ Some: 7 };
+    let option = ?i32.{ Some: 7 };
     let mapped = match (option.map(.[seen = seen..&](value: i32) i32 {
         seen.* += value;
         return value * 3;
@@ -674,7 +672,7 @@ fn main() i32 {
         return 3;
     }
 
-    let none = Option[i32].None;
+    let none = ?i32.None;
     let fallback_default = .[seen = seen..&]() i32 {
         seen.* += 10;
         return 99;
@@ -687,7 +685,7 @@ fn main() i32 {
         return 4;
     }
 
-    let option_fallback = none.or_else(.[seen = seen..&]() Option[i32] {
+    let option_fallback = none.or_else(.[seen = seen..&]() ?i32 {
         seen.* += 100;
         return .{ Some: 123 };
     });
@@ -699,12 +697,12 @@ fn main() i32 {
         return 6;
     }
 
-    let result = Result[i32, i32].{ Ok: 5 };
+    let result = i32!i32.{ Ok: 5 };
     let mapped_result = result.map(.[seen = seen..&](value: i32) i32 {
         seen.* += value;
         return value + 1;
     });
-    let chained = match (mapped_result.and_then(.[](value: i32) Result[i32, i32] {
+    let chained = match (mapped_result.and_then(.[](value: i32) i32!i32 {
         return .{ Ok: value * 2 };
     })) {
         .{ Ok: value } => value,
@@ -715,14 +713,14 @@ fn main() i32 {
     }
 
     let mut err_seen = i32.{0};
-    let _ = Result[i32, i32].{ Err: 4 }.inspect_err(.[err_seen = err_seen..&](err: i32) void {
+    let _ = i32!i32.{ Err: 4 }.inspect_err(.[err_seen = err_seen..&](err: i32) void {
         err_seen.* = err;
     });
     if (err_seen != 4) {
         return 9;
     }
 
-    let recovered = match (Result[i32, i32].{ Err: 8 }.or_else(.[](err: i32) Result[i32, i32] {
+    let recovered = match (i32!i32.{ Err: 8 }.or_else(.[](err: i32) i32!i32 {
         return .{ Ok: err + 2 };
     })) {
         .{ Ok: value } => value,

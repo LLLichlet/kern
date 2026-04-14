@@ -5,8 +5,6 @@
 //! Design:
 //! keep libc-backed OS calls explicit and close to the platform ABI.
 
-use base.Option;
-use base.Result;
 use base.mem.non_null_ptr_from_addr;
 use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
@@ -194,7 +192,7 @@ pub fn invalid_handle() Handle {
     return INVALID_HANDLE;
 }
 
-fn match_environment_name(entry: *u8, name: *u8) Option[*u8] {
+fn match_environment_name(entry: *u8, name: *u8) ?*u8 {
     let mut i = 0;
     for (;;) {
         let entry_byte = (entry + i).*;
@@ -237,7 +235,7 @@ pub fn init_process_env(argc: i32, argv: **u8) void {
 }
 
 /// Returns the zero-terminated value for one environment variable.
-pub fn find_environment_value(name: *u8) Option[*u8] {
+pub fn find_environment_value(name: *u8) ?*u8 {
     if (!PROCESS_ENV_READY) {
         return .None;
     }
@@ -263,7 +261,7 @@ pub fn find_environment_value(name: *u8) Option[*u8] {
 }
 
 /// Returns the process environment block initialized by the runtime entry layer.
-pub fn environment_entries() Option[**u8] {
+pub fn environment_entries() ?**u8 {
     if (!PROCESS_ENV_READY or PROCESS_ENV == 0) {
         return .None;
     }
@@ -291,7 +289,7 @@ pub fn is_terminal(handle: Handle) bool {
 }
 
 /// Returns the visible terminal dimensions for `handle`.
-pub fn terminal_size(handle: Handle) Result[TerminalSize, Error] {
+pub fn terminal_size(handle: Handle) TerminalSize!Error {
     let mut size = WinSize.{undef};
     if (system_ioctl(handle, TIOCGWINSZ, size..&) < 0) {
         return .{ Err: last_error() };
@@ -306,7 +304,7 @@ pub fn terminal_size(handle: Handle) Result[TerminalSize, Error] {
 }
 
 /// Enables raw mode on one terminal handle and returns the previous state.
-pub fn enable_raw_mode(handle: Handle) Result[TerminalState, Error] {
+pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
     let mut state = Termios.{undef};
     if (system_tcgetattr(handle, state..&) < 0) {
         return .{ Err: last_error() };
@@ -324,7 +322,7 @@ pub fn enable_raw_mode(handle: Handle) Result[TerminalState, Error] {
 }
 
 /// Restores a previously captured terminal state.
-pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) Result[bool, Error] {
+pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) bool!Error {
     if (system_tcsetattr(handle, TCSAFLUSH, state) < 0) {
         return .{ Err: last_error() };
     }
@@ -332,7 +330,7 @@ pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) Result[bool,
 }
 
 /// Reads up to `len` bytes from `handle` into `ptr`.
-pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] {
+pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) usize!Error {
     let ret = system_read(handle, ptr, len);
     if (ret < 0) {
         return .{ Err: last_error() };
@@ -341,7 +339,7 @@ pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] 
 }
 
 /// Writes up to `len` bytes from `ptr` into `handle`.
-pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
+pub fn write_file(handle: Handle, ptr: *u8, len: usize) usize!Error {
     let ret = system_write(handle, ptr, len);
     if (ret < 0) {
         return .{ Err: last_error() };
@@ -350,7 +348,7 @@ pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
 }
 
 /// Closes an open file handle.
-pub fn close_file(handle: Handle) Result[bool, Error] {
+pub fn close_file(handle: Handle) bool!Error {
     let ret = system_close(handle);
     if (ret < 0) {
         return .{ Err: last_error() };
@@ -389,7 +387,7 @@ fn is_dot_entry(name: []u8) bool {
     return false;
 }
 
-pub fn metadata(path: *u8) Result[Metadata, Error] {
+pub fn metadata(path: *u8) Metadata!Error {
     let mut stat = Stat.{undef};
     let ret = system_stat(path, stat..&);
     if (ret < 0) {
@@ -408,7 +406,7 @@ pub fn metadata(path: *u8) Result[Metadata, Error] {
 /// Scans one directory and invokes `visitor` for each non-dot entry.
 ///
 /// `search_path` is ignored on Darwin because the scan operates directly on `path`.
-pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) Result[usize, Error] {
+pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) usize!Error {
     let _ = search_path;
     let dir = system_opendir(path);
     if (dir == 0) {
@@ -446,7 +444,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
 pub fn open_file(
     path: *u8,
     options: *OpenOptions,
-) Result[Handle, Error] {
+) Handle!Error {
     let mut flags = if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
     if (options.create) flags |= O_CREAT;
     if (options.create_new) flags |= O_CREAT | O_EXCL;
@@ -465,7 +463,7 @@ pub fn open_file(
 }
 
 /// Creates one directory.
-pub fn create_dir(path: *u8) Result[bool, Error] {
+pub fn create_dir(path: *u8) bool!Error {
     let ret = system_mkdir(path, MODE_DIR);
     if (ret < 0) {
         return .{ Err: last_error() };
@@ -474,7 +472,7 @@ pub fn create_dir(path: *u8) Result[bool, Error] {
 }
 
 /// Removes one empty directory.
-pub fn remove_dir(path: *u8) Result[bool, Error] {
+pub fn remove_dir(path: *u8) bool!Error {
     let ret = system_rmdir(path);
     if (ret < 0) {
         return .{ Err: last_error() };
@@ -483,7 +481,7 @@ pub fn remove_dir(path: *u8) Result[bool, Error] {
 }
 
 /// Removes one file.
-pub fn remove_file(path: *u8) Result[bool, Error] {
+pub fn remove_file(path: *u8) bool!Error {
     let ret = system_unlink(path);
     if (ret < 0) {
         return .{ Err: last_error() };
@@ -492,7 +490,7 @@ pub fn remove_file(path: *u8) Result[bool, Error] {
 }
 
 /// Renames or moves a filesystem entry.
-pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
+pub fn rename(old_path: *u8, new_path: *u8) bool!Error {
     let ret = system_rename(old_path, new_path);
     if (ret < 0) {
         return .{ Err: last_error() };

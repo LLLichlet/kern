@@ -12,7 +12,6 @@ fn build_and_run_source_with_std(source: &str) -> std::process::Output {
 fn returns_struct_containing_allocator_fat_pointer_inside_result() {
     let output = build_and_run_source_with_std(
         r#"
-use base.{Option, Result};
 use base.mem.alloc.{Allocator, Arena};
 use sys.mem.Page;
 
@@ -21,7 +20,7 @@ type Ref = struct {
     value: *mut i32,
 };
 
-fn make_ref(alloc: *mut Allocator, value: *mut i32) Result[Ref, i32] {
+fn make_ref(alloc: *mut Allocator, value: *mut i32) Ref!i32 {
     return .{ Ok: Ref.{ alloc: alloc, value: value } };
 }
 
@@ -54,7 +53,6 @@ fn main() i32 {
 fn returns_struct_containing_allocator_fat_pointer_inside_option() {
     let output = build_and_run_source_with_std(
         r#"
-use base.{Option, Result};
 use base.mem.alloc.{Allocator, Arena};
 use sys.mem.Page;
 
@@ -63,7 +61,7 @@ type Ref = struct {
     value: *mut i32,
 };
 
-fn make_ref(alloc: *mut Allocator, value: *mut i32) Option[Ref] {
+fn make_ref(alloc: *mut Allocator, value: *mut i32) ?Ref {
     return .{ Some: Ref.{ alloc: alloc, value: value } };
 }
 
@@ -96,7 +94,6 @@ fn main() i32 {
 fn returns_struct_containing_allocator_fat_pointer_from_mut_method_result() {
     let output = build_and_run_source_with_std(
         r#"
-use base.{Option, Result};
 use base.mem.alloc.{Allocator, Arena};
 use sys.mem.Page;
 
@@ -115,7 +112,7 @@ type Holder = struct {
 };
 
 impl *mut Holder {
-    fn ensure_ref(alloc: *mut Allocator, value: *mut i32) Result[Ref, i32] {
+    fn ensure_ref(alloc: *mut Allocator, value: *mut i32) Ref!i32 {
         self.slot = value;
         return .{ Ok: Ref.{ alloc: alloc, value: self.slot } };
     }

@@ -1,7 +1,5 @@
 //! File operations and owned file handles.
 
-use base.Result;
-use base.Option;
 use sys.os;
 use base.mem.alloc.Allocator;
 use base.coll.String;
@@ -19,7 +17,7 @@ fn to_os_open_options(options: *OpenOptions) os.OpenOptions {
     };
 }
 
-fn open_with_c_path(c_path: *u8, options: *OpenOptions) Result[File, Error] {
+fn open_with_c_path(c_path: *u8, options: *OpenOptions) File!Error {
     let raw_options = to_os_open_options(options);
     match (os.open_file(c_path, raw_options.&)) {
         .{ Ok: handle } => return .{ Ok: .{ handle: handle } },
@@ -27,14 +25,14 @@ fn open_with_c_path(c_path: *u8, options: *OpenOptions) Result[File, Error] {
     }
 }
 
-fn metadata_with_c_path(c_path: *u8) Result[Metadata, Error] {
+fn metadata_with_c_path(c_path: *u8) Metadata!Error {
     match (os.metadata(c_path)) {
         .{ Ok: meta } => return .{ Ok: meta },
         .{ Err: err } => return .{ Err: .{ Os: err } },
     }
 }
 
-fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) Result[bool, Error] {
+fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) bool!Error {
     match (os.rename(old_c_path, new_c_path)) {
         .{ Ok: renamed } => return .{ Ok: renamed },
         .{ Err: err } => return .{ Err: .{ Os: err } },
@@ -45,7 +43,7 @@ fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) Result[bool, Error] {
 ///
 /// Errors:
 /// returns `InvalidOptions` when neither reading nor writing is requested.
-pub fn open(alloc: *mut Allocator, path: []u8, options: *OpenOptions) Result[File, Error] {
+pub fn open(alloc: *mut Allocator, path: []u8, options: *OpenOptions) File!Error {
     if (!options.read and !options.write) {
         return .{ Err: .InvalidOptions };
     }
@@ -61,7 +59,7 @@ pub fn open(alloc: *mut Allocator, path: []u8, options: *OpenOptions) Result[Fil
 }
 
 /// Creates or truncates a file for writing.
-pub fn create(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+pub fn create(alloc: *mut Allocator, path: []u8) File!Error {
     let options = OpenOptions.{
         write: true,
         create: true,
@@ -71,19 +69,19 @@ pub fn create(alloc: *mut Allocator, path: []u8) Result[File, Error] {
 }
 
 /// Opens a file for reading.
-pub fn open_read(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+pub fn open_read(alloc: *mut Allocator, path: []u8) File!Error {
     let options = OpenOptions.{ read: true };
     return open(alloc, path, options.&);
 }
 
 /// Opens a file for writing without creating it.
-pub fn open_write(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+pub fn open_write(alloc: *mut Allocator, path: []u8) File!Error {
     let options = OpenOptions.{ write: true };
     return open(alloc, path, options.&);
 }
 
 /// Opens a file for appending, creating it when needed.
-pub fn open_append(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+pub fn open_append(alloc: *mut Allocator, path: []u8) File!Error {
     let options = OpenOptions.{
         write: true,
         create: true,
@@ -93,7 +91,7 @@ pub fn open_append(alloc: *mut Allocator, path: []u8) Result[File, Error] {
 }
 
 /// Creates a new file and fails when it already exists.
-pub fn create_new(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+pub fn create_new(alloc: *mut Allocator, path: []u8) File!Error {
     let options = OpenOptions.{
         write: true,
         create_new: true,
@@ -102,7 +100,7 @@ pub fn create_new(alloc: *mut Allocator, path: []u8) Result[File, Error] {
 }
 
 /// Renames or moves a filesystem entry.
-pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) Result[bool, Error] {
+pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) bool!Error {
     let old_c_path = match (alloc_c_path(alloc, old_path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
@@ -123,7 +121,7 @@ pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) Result[bool
 }
 
 /// Returns metadata for a filesystem entry.
-pub fn metadata(alloc: *mut Allocator, path: []u8) Result[Metadata, Error] {
+pub fn metadata(alloc: *mut Allocator, path: []u8) Metadata!Error {
     let c_path = match (alloc_c_path(alloc, path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
@@ -135,19 +133,19 @@ pub fn metadata(alloc: *mut Allocator, path: []u8) Result[Metadata, Error] {
 }
 
 /// Returns `true` when a path exists.
-pub fn exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+pub fn exists(alloc: *mut Allocator, path: []u8) bool!Error {
     let c_path = match (alloc_c_path(alloc, path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
     };
 
     let result = match (os.metadata(c_path)) {
-        .{ Ok: _ } => Result[bool, Error].{ Ok: true },
+        .{ Ok: _ } => bool!Error.{ Ok: true },
         .{ Err: err } => {
             if (os.is_not_found(err)) {
-                Result[bool, Error].{ Ok: false }
+                bool!Error.{ Ok: false }
             } else {
-                Result[bool, Error].{ Err: .{ Os: err } }
+                bool!Error.{ Err: .{ Os: err } }
             }
         }
     };
@@ -156,7 +154,7 @@ pub fn exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
 }
 
 /// Returns `true` when a path exists and refers to a regular file.
-pub fn is_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+pub fn is_file(alloc: *mut Allocator, path: []u8) bool!Error {
     match (metadata(alloc, path)) {
         .{ Ok: meta } => return .{ Ok: meta.is_file() },
         .{ Err: err } => match (err) {
@@ -172,7 +170,7 @@ pub fn is_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
 }
 
 /// Returns `true` when a path exists and refers to a directory.
-pub fn is_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+pub fn is_dir(alloc: *mut Allocator, path: []u8) bool!Error {
     match (metadata(alloc, path)) {
         .{ Ok: meta } => return .{ Ok: meta.is_dir() },
         .{ Err: err } => match (err) {
@@ -188,22 +186,22 @@ pub fn is_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
 }
 
 /// Removes a file.
-pub fn remove_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+pub fn remove_file(alloc: *mut Allocator, path: []u8) bool!Error {
     let c_path = match (alloc_c_path(alloc, path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
     };
 
     let result = match (os.remove_file(c_path)) {
-        .{ Ok: removed } => Result[bool, Error].{ Ok: removed },
-        .{ Err: err } => Result[bool, Error].{ Err: .{ Os: err } },
+        .{ Ok: removed } => bool!Error.{ Ok: removed },
+        .{ Err: err } => bool!Error.{ Err: .{ Os: err } },
     };
     free_c_path(alloc, path, c_path);
     return result;
 }
 
 /// Removes a file and treats a missing path as `Ok(false)`.
-pub fn remove_file_if_exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+pub fn remove_file_if_exists(alloc: *mut Allocator, path: []u8) bool!Error {
     match (remove_file(alloc, path)) {
         .{ Ok: removed } => return .{ Ok: removed },
         .{ Err: err } => match (err) {
@@ -234,7 +232,7 @@ pub fn stderr() File {
 }
 
 /// Reads an entire file into an owned string.
-pub fn read_to_string(alloc: *mut Allocator, path: []u8) Result[String, Error] {
+pub fn read_to_string(alloc: *mut Allocator, path: []u8) String!Error {
     let mut file = match (open_read(alloc, path)) {
         .{ Ok: file } => file,
         .{ Err: err } => return .{ Err: err },
@@ -244,7 +242,7 @@ pub fn read_to_string(alloc: *mut Allocator, path: []u8) Result[String, Error] {
 }
 
 /// Writes the entire buffer to a file, creating or truncating it first.
-pub fn write_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Error] {
+pub fn write_all(alloc: *mut Allocator, path: []u8, buf: []u8) usize!Error {
     let mut file = match (create(alloc, path)) {
         .{ Ok: file } => file,
         .{ Err: err } => return .{ Err: err },
@@ -254,7 +252,7 @@ pub fn write_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Err
 }
 
 /// Appends the entire buffer to a file, creating it when needed.
-pub fn append_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Error] {
+pub fn append_all(alloc: *mut Allocator, path: []u8, buf: []u8) usize!Error {
     let mut file = match (open_append(alloc, path)) {
         .{ Ok: file } => file,
         .{ Err: err } => return .{ Err: err },
@@ -264,7 +262,7 @@ pub fn append_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Er
 }
 
 /// Copies the contents of one file into another.
-pub fn copy(alloc: *mut Allocator, from_path: []u8, to_path: []u8) Result[usize, Error] {
+pub fn copy(alloc: *mut Allocator, from_path: []u8, to_path: []u8) usize!Error {
     let mut from = match (open_read(alloc, from_path)) {
         .{ Ok: file } => file,
         .{ Err: err } => return .{ Err: err },
@@ -295,7 +293,7 @@ impl *mut File {
     }
 
     /// Reads bytes into the provided mutable slice.
-    pub fn read(buf: []mut u8) Result[usize, Error] {
+    pub fn read(buf: []mut u8) usize!Error {
         let len = #buf;
         if (len == 0) {
             return .{ Ok: 0 };
@@ -308,7 +306,7 @@ impl *mut File {
     }
 
     /// Writes bytes from the provided slice.
-    pub fn write(buf: []u8) Result[usize, Error] {
+    pub fn write(buf: []u8) usize!Error {
         let len = #buf;
         if (len == 0) {
             return .{ Ok: 0 };
@@ -321,7 +319,7 @@ impl *mut File {
     }
 
     /// Repeatedly writes until the full buffer has been flushed.
-    pub fn write_all(buf: []u8) Result[usize, Error] {
+    pub fn write_all(buf: []u8) usize!Error {
         let mut total = 0;
         for (; total < #buf; ) {
             let written = match (self.write(buf.[total .. #buf])) {
@@ -337,7 +335,7 @@ impl *mut File {
     }
 
     /// Copies all remaining bytes from this file into another file.
-    pub fn copy_to(other: *mut File) Result[usize, Error] {
+    pub fn copy_to(other: *mut File) usize!Error {
         let chunk = [1024]mut u8.{undef};
         let mut total = 0;
 
@@ -360,7 +358,7 @@ impl *mut File {
     }
 
     /// Closes the file handle if it is still open.
-    pub fn close() Result[bool, Error] {
+    pub fn close() bool!Error {
         if (self.handle == os.invalid_handle()) {
             return .{ Ok: true };
         }
@@ -380,7 +378,7 @@ impl *mut File {
     }
 
     /// Reads the remainder of the file into an owned string.
-    pub fn read_to_string(alloc: *mut Allocator) Result[String, Error] {
+    pub fn read_to_string(alloc: *mut Allocator) String!Error {
         let mut out = String.{};
         let chunk = [1024]mut u8.{undef};
 

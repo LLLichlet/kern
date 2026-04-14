@@ -536,7 +536,6 @@ fn main() i32 {
 fn runs_hosted_program_using_map_predicate_algorithms() {
     let output = build_and_run_hosted(
         r#"
-use base.{Option};
 use base.coll.Map;
 use base.mem.alloc.GPA;
 use sys.mem.Page;
@@ -577,7 +576,7 @@ fn main() i32 {
         return 8;
     }
 
-    let found = match (map.find_map(.[](key: i32, value: i32) Option[i32] {
+    let found = match (map.find_map(.[](key: i32, value: i32) ?i32 {
         if (key == 4) {
             return .{ Some: value + 4 };
         }

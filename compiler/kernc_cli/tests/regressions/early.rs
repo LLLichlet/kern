@@ -410,7 +410,6 @@ fn main() i32 {
 #[test]
 fn compiles_result_with_payload_error_enum_without_union_alignment_ice() {
     let source = r#"
-use base.Result;
 
 type ParseError = enum {
     BadToken,
@@ -421,7 +420,7 @@ type HandshakeError = enum {
     RouteRejected,
 };
 
-fn compute(ok: bool) Result[usize, HandshakeError] {
+fn compute(ok: bool) usize!HandshakeError {
     if (ok) {
         return .{ Ok: usize.{7} };
     }
@@ -707,15 +706,10 @@ type Kind = enum {
     Section,
 };
 
-type Option[T] = enum {
-    None,
-    Some: T,
-};
-
 type Holder = struct {};
 
 impl Holder {
-    fn section_kind(flag: bool) Option[Kind] {
+    fn section_kind(flag: bool) ?Kind {
         if (flag) {
             return .{ Some: Kind.Section };
         }

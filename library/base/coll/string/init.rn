@@ -4,7 +4,6 @@
 
 use base.mem.alloc.{Allocator, Arena};
 use base.coll.List;
-use base.Option;
 
 mod query;
 
@@ -67,7 +66,7 @@ impl *mut String {
         self.clear();
         let .{ Some: out } = self.raw..&.append_uninit_exact_in_arena(arena, #text)
             else return false;
-        if (#text != usize.{0}) {
+        if (#text != 0) {
             @memcpy(out.[0].& as *mut u8, text.[0].& as *u8, #text);
         }
         return true;
@@ -92,28 +91,28 @@ impl *mut String {
     ///
     /// Design:
     /// callers must write valid initialized bytes into the returned slice.
-    pub fn append_uninit(alloc: *mut Allocator, count: usize) Option[[]mut u8] {
+    pub fn append_uninit(alloc: *mut Allocator, count: usize) ?[]mut u8 {
         return self.raw..&.append_uninit(alloc, count);
     }
 
     /// Grows the string by `count` bytes using exact growth when needed.
-    pub fn append_uninit_exact(alloc: *mut Allocator, count: usize) Option[[]mut u8] {
+    pub fn append_uninit_exact(alloc: *mut Allocator, count: usize) ?[]mut u8 {
         return self.raw..&.append_uninit_exact(alloc, count);
     }
 
     /// Grows the string by `count` bytes using arena-specialized exact growth.
     #[inline]
-    pub fn append_uninit_exact_in_arena(arena: *mut Arena, count: usize) Option[[]mut u8] {
+    pub fn append_uninit_exact_in_arena(arena: *mut Arena, count: usize) ?[]mut u8 {
         return self.raw..&.append_uninit_exact_in_arena(arena, count);
     }
 
     /// Removes and returns the final byte.
-    pub fn pop_char() Option[u8] {
+    pub fn pop_char() ?u8 {
         return self.raw..&.pop();
     }
 
     /// Removes and returns the byte at `index`.
-    pub fn remove_char(index: usize) Option[u8] {
+    pub fn remove_char(index: usize) ?u8 {
         return self.raw..&.remove(index);
     }
 

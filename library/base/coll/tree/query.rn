@@ -1,4 +1,3 @@
-use base.Option;
 use base.cmp.Ord;
 use ..base.{
     Node,
@@ -76,55 +75,55 @@ impl[K, V] *Tree[K, V]
     }
 
     /// Returns the smallest key in the tree.
-    pub fn first_key() Option[K] {
+    pub fn first_key() ?K {
         let .{ Some: hit } = first_hit[K, V](self.root) else return .None;
         return .{ Some: key_at[K, V](hit.node, hit.index) };
     }
 
     /// Returns the value stored at the smallest key.
-    pub fn first() Option[V] {
+    pub fn first() ?V {
         let .{ Some: hit } = first_hit[K, V](self.root) else return .None;
         return .{ Some: value_at[K, V](hit.node, hit.index) };
     }
 
     /// Returns the largest key in the tree.
-    pub fn last_key() Option[K] {
+    pub fn last_key() ?K {
         let .{ Some: hit } = last_hit[K, V](self.root) else return .None;
         return .{ Some: key_at[K, V](hit.node, hit.index) };
     }
 
     /// Returns the value stored at the largest key.
-    pub fn last() Option[V] {
+    pub fn last() ?V {
         let .{ Some: hit } = last_hit[K, V](self.root) else return .None;
         return .{ Some: value_at[K, V](hit.node, hit.index) };
     }
 
     /// Returns the smallest key greater than or equal to `key`.
-    pub fn ceil_key(key: K) Option[K] {
+    pub fn ceil_key(key: K) ?K {
         let .{ Some: hit } = ceil_hit[K, V](self.root, key) else return .None;
         return .{ Some: key_at[K, V](hit.node, hit.index) };
     }
 
     /// Returns the value at the smallest key greater than or equal to `key`.
-    pub fn ceil(key: K) Option[V] {
+    pub fn ceil(key: K) ?V {
         let .{ Some: hit } = ceil_hit[K, V](self.root, key) else return .None;
         return .{ Some: value_at[K, V](hit.node, hit.index) };
     }
 
     /// Returns the largest key less than or equal to `key`.
-    pub fn floor_key(key: K) Option[K] {
+    pub fn floor_key(key: K) ?K {
         let .{ Some: hit } = floor_hit[K, V](self.root, key) else return .None;
         return .{ Some: key_at[K, V](hit.node, hit.index) };
     }
 
     /// Returns the value at the largest key less than or equal to `key`.
-    pub fn floor(key: K) Option[V] {
+    pub fn floor(key: K) ?V {
         let .{ Some: hit } = floor_hit[K, V](self.root, key) else return .None;
         return .{ Some: value_at[K, V](hit.node, hit.index) };
     }
 
     /// Returns the value stored for `key`.
-    pub fn get(key: K) Option[V] {
+    pub fn get(key: K) ?V {
         let .{ Some: root } = self.root else return .None;
         let mut node = root;
 

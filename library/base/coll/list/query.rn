@@ -1,15 +1,14 @@
-use base.Option;
 use base.cmp.{Ord, Ordering};
 use ..List;
 
 impl[T] *List[T] {
     /// Returns the first index that satisfies `pred`.
-    pub fn position(pred: *Fn(T) bool) Option[usize] {
+    pub fn position(pred: *Fn(T) bool) ?usize {
         return self.as_slice().position(pred);
     }
 
     /// Returns the last index that satisfies `pred`.
-    pub fn rposition(pred: *Fn(T) bool) Option[usize] {
+    pub fn rposition(pred: *Fn(T) bool) ?usize {
         return self.as_slice().rposition(pred);
     }
 
@@ -39,8 +38,15 @@ impl[T] *List[T] {
     }
 
     /// Returns the first mapped value produced by `call_back`.
-    pub fn find_map[U](call_back: *Fn(T) Option[U]) Option[U] {
-        return self.as_slice().find_map(call_back);
+    pub fn find_map[U](call_back: *Fn(T) ?U) ?U {
+        let items = self.as_slice();
+        for (let mut i = 0; i < #items; i += 1) {
+            match (call_back(items.[i])) {
+                .{ Some: value } => return .{ Some: value },
+                .None => {},
+            }
+        }
+        return .None;
     }
 
     /// Returns the partition point for a list already partitioned by `pred`.
@@ -75,7 +81,7 @@ impl[T] *List[T]
     }
 
     /// Returns the first position of `needle`.
-    pub fn find(needle: []T) Option[usize] {
+    pub fn find(needle: []T) ?usize {
         return self.as_slice().find(needle);
     }
 
@@ -85,12 +91,12 @@ impl[T] *List[T]
     }
 
     /// Removes `prefix` from the front when present.
-    pub fn strip_prefix(prefix: []T) Option[[]T] {
+    pub fn strip_prefix(prefix: []T) ?[]T {
         return self.as_slice().strip_prefix(prefix);
     }
 
     /// Removes `suffix` from the end when present.
-    pub fn strip_suffix(suffix: []T) Option[[]T] {
+    pub fn strip_suffix(suffix: []T) ?[]T {
         return self.as_slice().strip_suffix(suffix);
     }
 }
@@ -115,7 +121,7 @@ impl[T] *List[T]
     }
 
     /// Performs binary search on a sorted list.
-    pub fn binary_search(target: T) Option[usize] {
+    pub fn binary_search(target: T) ?usize {
         return self.as_slice().binary_search(target);
     }
 }

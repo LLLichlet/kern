@@ -3,7 +3,6 @@
 //! Design:
 //! descend only through children that already satisfy the minimum occupancy rule so the recursive remove path never has to backtrack.
 
-use base.Option;
 use base.cmp.Ord;
 use base.mem.array_layout_of;
 use base.mem.alloc.Allocator;
@@ -176,7 +175,7 @@ impl[K, V] *mut Tree[K, V]
         node: *mut Node[K, V],
         index: usize,
         key: K,
-        removed: *mut Option[V],
+        removed: *mut ?V,
     ) bool {
         removed.* = .{ Some: value_at[K, V](node, index) };
 
@@ -193,7 +192,7 @@ impl[K, V] *mut Tree[K, V]
             set_key[K, V](node, index, pred_key);
             set_value[K, V](node, index, pred_value);
 
-            let mut ignored_value = Option[V].None;
+            let mut ignored_value = ?V.None;
             let ignored = ignored_value..&;
             return self.delete_remove_from_node(alloc, left, pred_key, ignored);
         }
@@ -210,13 +209,13 @@ impl[K, V] *mut Tree[K, V]
             set_key[K, V](node, index, succ_key);
             set_value[K, V](node, index, succ_value);
 
-            let mut ignored_value = Option[V].None;
+            let mut ignored_value = ?V.None;
             let ignored = ignored_value..&;
             return self.delete_remove_from_node(alloc, right, succ_key, ignored);
         }
 
         let merged = self.delete_merge_children(alloc, node, index);
-        let mut ignored_value = Option[V].None;
+        let mut ignored_value = ?V.None;
         let ignored = ignored_value..&;
         return self.delete_remove_from_node(alloc, merged, key, ignored);
     }
@@ -226,7 +225,7 @@ impl[K, V] *mut Tree[K, V]
         alloc: *mut Allocator,
         node: *mut Node[K, V],
         key: K,
-        removed: *mut Option[V],
+        removed: *mut ?V,
     ) bool {
         let index = self.delete_search_slot(node, key);
 
@@ -270,10 +269,10 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Removes the value stored for `key`.
-    pub fn remove(alloc: *mut Allocator, key: K) Option[V] {
+    pub fn remove(alloc: *mut Allocator, key: K) ?V {
         let .{ Some: root } = self.root else return .None;
 
-        let mut removed_value = Option[V].None;
+        let mut removed_value = ?V.None;
         let removed = removed_value..&;
         if (!self.delete_remove_from_node(alloc, root, key, removed)) {
             return .None;

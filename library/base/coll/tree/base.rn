@@ -3,7 +3,6 @@
 //! Design:
 //! keep node capacity fixed and surface search hits explicitly so higher layers can compose inserts and deletes.
 
-use base.Option;
 use base.cmp.Ord;
 use base.mem.non_null_mut_ptr_from_addr;
 
@@ -83,7 +82,7 @@ pub fn set_child[K, V](node: *mut Node[K, V], index: usize, child: *mut Node[K, 
 ///
 /// Returns:
 /// `None` when the tree is empty.
-pub fn first_hit[K, V](root: ?*mut Node[K, V]) Option[SearchHit[K, V]] {
+pub fn first_hit[K, V](root: ?*mut Node[K, V]) ?SearchHit[K, V] {
     let .{ Some: root } = root else return .None;
 
     let mut node = root;
@@ -97,7 +96,7 @@ pub fn first_hit[K, V](root: ?*mut Node[K, V]) Option[SearchHit[K, V]] {
 ///
 /// Returns:
 /// `None` when the tree is empty.
-pub fn last_hit[K, V](root: ?*mut Node[K, V]) Option[SearchHit[K, V]] {
+pub fn last_hit[K, V](root: ?*mut Node[K, V]) ?SearchHit[K, V] {
     let .{ Some: root } = root else return .None;
 
     let mut node = root;
@@ -110,12 +109,12 @@ pub fn last_hit[K, V](root: ?*mut Node[K, V]) Option[SearchHit[K, V]] {
 /// Returns the first key position whose key is greater than or equal to `key`.
 ///
 /// This is the lower-bound search primitive used by ordered queries.
-pub fn ceil_hit[K, V](root: ?*mut Node[K, V], key: K) Option[SearchHit[K, V]]
+pub fn ceil_hit[K, V](root: ?*mut Node[K, V], key: K) ?SearchHit[K, V]
     where K: Ord[K],
 {
     let .{ Some: root } = root else return .None;
     let mut node = root;
-    let mut found = Option[SearchHit[K, V]].None;
+    let mut found = ?SearchHit[K, V].None;
 
     for (;;) {
         let current = node;
@@ -144,12 +143,12 @@ pub fn ceil_hit[K, V](root: ?*mut Node[K, V], key: K) Option[SearchHit[K, V]]
 /// Returns the last key position whose key is less than or equal to `key`.
 ///
 /// This is the upper-bound search primitive used by ordered queries.
-pub fn floor_hit[K, V](root: ?*mut Node[K, V], key: K) Option[SearchHit[K, V]]
+pub fn floor_hit[K, V](root: ?*mut Node[K, V], key: K) ?SearchHit[K, V]
     where K: Ord[K],
 {
     let .{ Some: root } = root else return .None;
     let mut node = root;
-    let mut found = Option[SearchHit[K, V]].None;
+    let mut found = ?SearchHit[K, V].None;
 
     for (;;) {
         let mut index = 0;

@@ -1,6 +1,5 @@
 //! Byte-slice search and trimming helpers.
 
-use base.Option;
 
 const USIZE_BYTES = @sizeOf[usize]();
 
@@ -84,7 +83,7 @@ impl []u8 : Eq[[]u8] {
 
 impl []u8 {
     /// Returns the first index of `byte`.
-    pub fn find_byte(byte: u8) Option[usize] {
+    pub fn find_byte(byte: u8) ?usize {
         for (let mut i = 0; i < #self; i += 1) {
             if (self.[i] == byte) {
                 return .{ Some: i };
@@ -94,7 +93,7 @@ impl []u8 {
     }
 
     /// Returns the last index of `byte`.
-    pub fn rfind_byte(byte: u8) Option[usize] {
+    pub fn rfind_byte(byte: u8) ?usize {
         for (let mut i = #self; i > 0; ) {
             i -= 1;
             if (self.[i] == byte) {
@@ -153,7 +152,7 @@ impl []u8 {
 }
 
 /// Returns the first index of `byte` in `text`.
-pub fn find_byte(text: []u8, byte: u8) Option[usize] {
+pub fn find_byte(text: []u8, byte: u8) ?usize {
     return text.find_byte(byte);
 }
 
@@ -163,7 +162,7 @@ pub fn contains_byte(text: []u8, byte: u8) bool {
 }
 
 /// Returns the last index of `byte` in `text`.
-pub fn rfind_byte(text: []u8, byte: u8) Option[usize] {
+pub fn rfind_byte(text: []u8, byte: u8) ?usize {
     return text.rfind_byte(byte);
 }
 

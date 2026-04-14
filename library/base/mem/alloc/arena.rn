@@ -3,7 +3,6 @@
 //! `Arena` trades individual frees for very fast bump allocation and bulk reset.
 //! It is suited to short-lived phases, parsing, and scratch storage.
 
-use base.Option;
 use base.mem.{Layout, non_null_mut_ptr_from_addr};
 use ..Allocator;
 
@@ -71,7 +70,7 @@ impl *mut Arena : Allocator {
     }
 
     #[inline]
-    fn alloc_from_chunk(chunk: *mut Chunk, layout: Layout) Option[*mut u8] {
+    fn alloc_from_chunk(chunk: *mut Chunk, layout: Layout) ?*mut u8 {
         let payload = if (layout.size == 0) usize.{1} else layout.size;
         let start = chunk as usize;
         let used_start = start + chunk.used;
@@ -129,7 +128,7 @@ impl *mut Arena : Allocator {
 
     /// Allocates from the current chunk or grows the arena when needed.
     #[inline]
-    pub fn alloc(layout: Layout) Option[*mut u8] {
+    pub fn alloc(layout: Layout) ?*mut u8 {
         if (layout.size == 0) {
             return .{ Some: arena_dangling_ptr(layout.align) };
         }

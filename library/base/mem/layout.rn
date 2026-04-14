@@ -3,7 +3,6 @@
 //! Design:
 //! keep allocation requirements as plain data so allocators and containers can share one vocabulary.
 
-use base.Option;
 use base.num.USIZE_MAX;
 
 /// The size and alignment required for an allocation.
@@ -35,7 +34,7 @@ pub const fn layout_of[T]() Layout {
 ///
 /// Returns:
 /// `None` when the total size would overflow `usize`.
-pub const fn array_layout_of[T](count: usize) Option[Layout] {
+pub const fn array_layout_of[T](count: usize) ?Layout {
     let elem = layout_of[T]();
     if (elem.size == 0) {
         return .{

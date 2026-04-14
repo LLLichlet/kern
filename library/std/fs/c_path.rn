@@ -3,13 +3,12 @@
 //! These helpers isolate the small amount of zero-terminated path handling
 //! needed by the OS shims.
 
-use base.Result;
 use base.abi;
 use base.mem.alloc.Allocator;
 use ..types.Error;
 
 /// Allocates a zero-terminated path buffer for OS calls.
-pub fn alloc_c_path(alloc: *mut Allocator, path: []u8) Result[*mut u8, Error] {
+pub fn alloc_c_path(alloc: *mut Allocator, path: []u8) (*mut u8)!Error {
     let ptr = match (abi.cstr.alloc_z(alloc, path)) {
         .{ Some: ptr } => ptr,
         .None => return .{ Err: .OutOfMemory },

@@ -5,7 +5,6 @@
 //! defines vocabulary for executable test targets.
 
 use std.io.{Printable, Writer, format_to, stderr};
-use base.{Option, Result};
 
 fn write_stderr(prefix: []u8, fmt: []u8, args: []*Printable) void {
     let mut err_file = stderr();
@@ -47,7 +46,7 @@ pub fn not_eq[T](actual: T, unexpected: T) void
 }
 
 /// Returns the payload from `Some(T)` or fails when the option is `None`.
-pub fn expect_some[T](value: Option[T]) T {
+pub fn expect_some[T](value: ?T) T {
     match (value) {
         .{ Some: payload } => return payload,
         .None => fail("expected option to contain a value", .{}),
@@ -55,7 +54,7 @@ pub fn expect_some[T](value: Option[T]) T {
 }
 
 /// Fails unless the option is `None`.
-pub fn expect_none[T](value: Option[T]) void {
+pub fn expect_none[T](value: ?T) void {
     match (value) {
         .{ Some: _ } => fail("expected option to be empty", .{}),
         .None => return,
@@ -63,7 +62,7 @@ pub fn expect_none[T](value: Option[T]) void {
 }
 
 /// Returns the payload from `Ok(T)` or fails when the result is `Err`.
-pub fn expect_ok[T, E](value: Result[T, E]) T {
+pub fn expect_ok[T, E](value: T!E) T {
     match (value) {
         .{ Ok: payload } => return payload,
         .{ Err: _ } => fail("expected result to be ok", .{}),
@@ -71,7 +70,7 @@ pub fn expect_ok[T, E](value: Result[T, E]) T {
 }
 
 /// Returns the payload from `Err(E)` or fails when the result is `Ok`.
-pub fn expect_err[T, E](value: Result[T, E]) E {
+pub fn expect_err[T, E](value: T!E) E {
     match (value) {
         .{ Ok: _ } => fail("expected result to be err", .{}),
         .{ Err: payload } => return payload,

@@ -5,7 +5,6 @@
 
 use base.mem.alloc.{Allocator, Arena};
 use base.mem.{Layout, memmove, non_null_mut_ptr_from_addr};
-use base.Option;
 use base.num.USIZE_MAX;
 
 mod query;
@@ -40,7 +39,7 @@ impl[T] *mut List[T] {
     }
 
     #[inline]
-    fn buffer_layout(count: usize) Option[Layout] {
+    fn buffer_layout(count: usize) ?Layout {
         let elem_size = self.elem_size();
         if (elem_size == 0) {
             return .{ Some: Layout.{ size: 0, align: self.elem_align() } };
@@ -279,7 +278,7 @@ impl[T] *mut List[T] {
     }
 
     /// Removes and returns the last item.
-    pub fn pop() Option[T] {
+    pub fn pop() ?T {
         if (self.len == 0) return .None;
         self.len -= 1;
         return .{ Some: (self.ptr + self.len).* };
@@ -369,7 +368,7 @@ impl[T] *mut List[T] {
     }
 
     /// Removes and returns the item at `index`, shifting later items left.
-    pub fn remove(index: usize) Option[T] {
+    pub fn remove(index: usize) ?T {
         if (index >= self.len) return .None;
 
         let removed_val = (self.ptr + index).*;
@@ -421,13 +420,13 @@ impl[T] *mut List[T] {
 
     /// Returns a mutable pointer to the element at `index`.
     #[inline]
-    pub fn get_ptr(index: usize) Option[*mut T] {
+    pub fn get_ptr(index: usize) ?*mut T {
         if (index >= self.len) return .None;
         return .{ Some: self.ptr + index };
     }
 
     /// Removes an element by swapping in the last element.
-    pub fn swap_remove(index: usize) Option[T] {
+    pub fn swap_remove(index: usize) ?T {
         if (index >= self.len) return .None;
 
         let removed_val = (self.ptr + index).*;
@@ -534,7 +533,7 @@ impl[T] *mut List[T] {
     /// Design:
     /// callers must initialize the returned elements before exposing them
     /// through safe higher-level APIs.
-    pub fn append_uninit(alloc: *mut Allocator, count: usize) Option[[]mut T] {
+    pub fn append_uninit(alloc: *mut Allocator, count: usize) ?[]mut T {
         if (count == 0) {
             return .{ Some: self.zst_ptr()..[0 .. 0] };
         }
@@ -552,7 +551,7 @@ impl[T] *mut List[T] {
     }
 
     /// Grows the list by `count` items using exact growth when reallocation is needed.
-    pub fn append_uninit_exact(alloc: *mut Allocator, count: usize) Option[[]mut T] {
+    pub fn append_uninit_exact(alloc: *mut Allocator, count: usize) ?[]mut T {
         if (count == 0) {
             return .{ Some: self.zst_ptr()..[0 .. 0] };
         }
@@ -570,7 +569,7 @@ impl[T] *mut List[T] {
     }
 
     #[inline]
-    pub fn append_uninit_exact_in_arena(arena: *mut Arena, count: usize) Option[[]mut T] {
+    pub fn append_uninit_exact_in_arena(arena: *mut Arena, count: usize) ?[]mut T {
         if (count == 0) {
             return .{ Some: self.zst_ptr()..[0 .. 0] };
         }
@@ -793,19 +792,19 @@ impl[T] *List[T] {
     }
 
     #[inline]
-    pub fn get(index: usize) Option[T] {
+    pub fn get(index: usize) ?T {
         if (index >= self.len) return .None;
         return .{ Some: (self.ptr + index).* };
     }
 
     #[inline]
-    pub fn first() Option[T] {
+    pub fn first() ?T {
         if (self.len == 0) return .None;
         return .{ Some: self.ptr.* };
     }
 
     #[inline]
-    pub fn last() Option[T] {
+    pub fn last() ?T {
         if (self.len == 0) return .None;
         return .{ Some: (self.ptr + self.len - 1).* };
     }

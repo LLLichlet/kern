@@ -6,7 +6,6 @@
 //! Design:
 //! keep corruption checks cheap and fail loudly on invalid frees.
 
-use base.Option;
 use base.mem.{Layout, non_null_mut_ptr_from_addr};
 use ..Allocator;
 
@@ -106,7 +105,7 @@ impl *mut GPA : Allocator {
         self.insert_free_block(block);
     }
 
-    fn find_chunk_containing(ptr: *mut u8) Option[*mut BackingChunk] {
+    fn find_chunk_containing(ptr: *mut u8) ?*mut BackingChunk {
         let ptr_addr = ptr as usize;
         let mut chunk = self.chunks;
 
@@ -175,7 +174,7 @@ impl *mut GPA : Allocator {
     }
 
     fn insert_free_block(block: *mut FreeBlock) void {
-        let mut prev = Option[*mut FreeBlock].None;
+        let mut prev = (?*mut FreeBlock).None;
         let mut curr = self.free_list;
 
         for (;;) {
@@ -215,10 +214,10 @@ impl *mut GPA : Allocator {
 
     }
 
-    fn alloc_from_free_list(layout: Layout) Option[*mut u8] {
+    fn alloc_from_free_list(layout: Layout) ?*mut u8 {
         let payload_size = gpa_allocation_size(layout);
         let align = gpa_request_align(layout);
-        let mut prev = Option[*mut FreeBlock].None;
+        let mut prev = (?*mut FreeBlock).None;
         let mut curr = self.free_list;
 
         for (;;) {
@@ -298,7 +297,7 @@ impl *mut GPA : Allocator {
     }
 
     /// Allocates a block that satisfies `layout`.
-    pub fn alloc(layout: Layout) Option[*mut u8] {
+    pub fn alloc(layout: Layout) ?*mut u8 {
         if (layout.size == 0) {
             return .{ Some: gpa_dangling_ptr(layout.align) };
         }

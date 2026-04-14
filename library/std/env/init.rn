@@ -5,7 +5,6 @@
 //! Hosted environment access is provided through `sys.os`, not through a
 //! mandatory libc dependency.
 
-use base.Option;
 use base.abi;
 use base.coll.String;
 use base.mem.array_layout_of;
@@ -21,7 +20,7 @@ pub type Var = struct {
 };
 
 #[if((os == "linux" or os == "darwin") or os == "windows")]
-fn split_var(entry: []u8) Option[Var] {
+fn split_var(entry: []u8) ?Var {
     if (#entry == 0) {
         return .None;
     }
@@ -47,7 +46,7 @@ fn split_var(entry: []u8) Option[Var] {
 }
 
 #[if((os == "linux" or os == "darwin") or os == "windows")]
-fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
+fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) ?String {
     let mut value = String.{};
     if (!value..&.push_str(alloc, ptr.[0 .. len])) {
         value..&.deinit(alloc);
@@ -57,7 +56,7 @@ fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
 }
 
 #[if(os == "linux" or os == "darwin")]
-fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
+fn get_posix(alloc: *mut Allocator, name: []u8) ?String {
     let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .None;
     defer abi.cstr.free_z(alloc, name, c_name);
 
@@ -66,7 +65,7 @@ fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
 }
 
 #[if(os == "windows")]
-fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
+fn get_windows(alloc: *mut Allocator, name: []u8) ?String {
     let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .None;
     defer abi.cstr.free_z(alloc, name, c_name);
 
@@ -167,7 +166,7 @@ fn visit_windows(visitor: *Fn(Var) bool) usize {
 ///
 /// Returns:
 /// `None` when the variable does not exist or allocation fails.
-pub fn get(alloc: *mut Allocator, name: []u8) Option[String] {
+pub fn get(alloc: *mut Allocator, name: []u8) ?String {
     if (#name == 0) {
         return .None;
     }
@@ -214,7 +213,7 @@ pub fn has(alloc: *mut Allocator, name: []u8) bool {
 ///
 /// Returns:
 /// `None` when allocation fails for either the real value or the fallback.
-pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) Option[String] {
+pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) ?String {
     match (get(alloc, name)) {
         .{ Some: value } => return .{ Some: value },
         .None => {
@@ -229,7 +228,7 @@ pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) Option[St
 }
 
 /// Returns the environment variable or an empty owned string.
-pub fn get_or_empty(alloc: *mut Allocator, name: []u8) Option[String] {
+pub fn get_or_empty(alloc: *mut Allocator, name: []u8) ?String {
     return get_or_clone(alloc, name, "");
 }
 

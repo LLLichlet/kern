@@ -5,7 +5,6 @@
 //! allocations.
 
 use sys.os;
-use base.Option;
 use base.mem.{Layout, mut_ptr_from_addr, non_null_mut_ptr_from_addr};
 use base.mem.alloc.Allocator;
 
@@ -25,7 +24,7 @@ fn dangling_ptr(align: usize) *mut u8 {
 
 impl *mut Page : Allocator{
     /// Allocates a region directly from the operating system.
-    pub fn alloc(layout: Layout) Option[*mut u8] {
+    pub fn alloc(layout: Layout) ?*mut u8 {
         if (layout.size == 0) {
             return .{ Some: dangling_ptr(layout.align) };
         }

@@ -3,7 +3,6 @@
 //! Design:
 //! keep probing, tombstones, and load-factor policy visible so higher layers stay predictable.
 
-use base.Option;
 use base.hash.Hash;
 use base.mem.non_null_mut_ptr_from_addr;
 
@@ -88,7 +87,7 @@ pub fn keys_equal[K](lhs: K, rhs: K) bool
 ///
 /// The search stops at the first `EMPTY` slot, so deleted tombstones do not
 /// terminate probing.
-pub fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, key: K, hash: u64) Option[usize]
+pub fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, key: K, hash: u64) ?usize
     where K: Eq[K] + Hash[K],
 {
     let mask = capacity - 1;

@@ -1,15 +1,9 @@
 //! Optional values.
 //!
-//! `Option[T]` models the presence or absence of a value without relying on
+//! `?T` models the presence or absence of a value without relying on
 //! sentinel values or out-of-band error codes.
 
-/// A value that is either present as `Some` or absent as `None`.
-pub type Option[T] = enum {
-    Some: T,
-    None,
-};
-
-impl[T] Option[T] {
+impl[T] ?T {
     /// Returns `true` when the option does not contain a value.
     pub fn is_none() bool {
         match (self) {
@@ -20,7 +14,7 @@ impl[T] Option[T] {
 
     /// Returns `true` when the option contains a value.
     pub fn is_some() bool {
-        return !self.is_none();
+        return !(self.is_none());
     }
 
     /// Returns `true` when the option is empty or the predicate accepts the value.
@@ -40,7 +34,7 @@ impl[T] Option[T] {
     }
 
     /// Maps `Some(T)` to `Some(U)` and leaves `None` unchanged.
-    pub fn map[U](call_back: *Fn(T) U) Option[U] {
+    pub fn map[U](call_back: *Fn(T) U) ?U {
         match (self) {
             .{ Some: a } => .{ Some: call_back(a) },
             .None => .None,
@@ -64,7 +58,7 @@ impl[T] Option[T] {
     }
 
     /// Chains another optional computation after `Some(T)`.
-    pub fn and_then[U](call_back: *Fn(T) Option[U]) Option[U] {
+    pub fn and_then[U](call_back: *Fn(T) ?U) ?U {
         match (self) {
             .{ Some: a } => call_back(a),
             .None => .None,
@@ -72,7 +66,7 @@ impl[T] Option[T] {
     }
 
     /// Computes a replacement option only when the receiver is `None`.
-    pub fn or_else(call_back: *Fn() Option[T]) Option[T] {
+    pub fn or_else(call_back: *Fn() ?T) ?T {
         match (self) {
             .{ Some: _ } => self,
             .None => call_back(),
@@ -80,7 +74,7 @@ impl[T] Option[T] {
     }
 
     /// Keeps the value only when the predicate returns `true`.
-    pub fn filter(pred: *Fn(T) bool) Option[T] {
+    pub fn filter(pred: *Fn(T) bool) ?T {
         match (self) {
             .{ Some: a } => {
                 if (pred(a)) {
@@ -93,7 +87,7 @@ impl[T] Option[T] {
     }
 
     /// Runs a side effect on `Some(T)` and returns the original option.
-    pub fn inspect(call_back: *Fn(T) void) Option[T] {
+    pub fn inspect(call_back: *Fn(T) void) ?T {
         match (self) {
             .{ Some: a } => {
                 call_back(a);

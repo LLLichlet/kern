@@ -1,4 +1,3 @@
-use base.Option;
 use base.coll.bytes_eq;
 use base.cmp.{Comparable, Ord, Ordering};
 use base.hash.{Hash, hash_bytes};
@@ -25,7 +24,7 @@ impl *String {
 
     /// Returns the first position of `needle`.
     #[inline]
-    pub fn find(needle: []u8) Option[usize] {
+    pub fn find(needle: []u8) ?usize {
         return self.as_str().find(needle);
     }
 
@@ -45,22 +44,22 @@ impl *String {
     }
 
     /// Removes `prefix` from the front when present.
-    pub fn strip_prefix(prefix: []u8) Option[[]u8] {
+    pub fn strip_prefix(prefix: []u8) ?[]u8 {
         return self.as_str().strip_prefix(prefix);
     }
 
     /// Removes `suffix` from the end when present.
-    pub fn strip_suffix(suffix: []u8) Option[[]u8] {
+    pub fn strip_suffix(suffix: []u8) ?[]u8 {
         return self.as_str().strip_suffix(suffix);
     }
 
     /// Returns the first index of `byte`.
-    pub fn find_byte(byte: u8) Option[usize] {
+    pub fn find_byte(byte: u8) ?usize {
         return self.as_str().find_byte(byte);
     }
 
     /// Returns the last index of `byte`.
-    pub fn rfind_byte(byte: u8) Option[usize] {
+    pub fn rfind_byte(byte: u8) ?usize {
         return self.as_str().rfind_byte(byte);
     }
 

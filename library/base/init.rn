@@ -11,6 +11,3 @@ pub mod mem;
 pub mod num;
 mod option;
 mod result;
-
-pub use .option.Option;
-pub use .result.Result;

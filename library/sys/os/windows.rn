@@ -5,7 +5,6 @@
 //! Design:
 //! keep UTF-16 conversion and Win32 handle management explicit.
 
-use base.Result;
 use base.abi;
 use base.mem.non_null_mut_ptr_from_addr;
 use sys.os.{FileType, Metadata, TerminalSize};
@@ -237,7 +236,7 @@ pub fn is_terminal(handle: Handle) bool {
 }
 
 /// Returns the visible terminal dimensions for `handle`.
-pub fn terminal_size(handle: Handle) Result[TerminalSize, Error] {
+pub fn terminal_size(handle: Handle) TerminalSize!Error {
     let mut info = ConsoleScreenBufferInfo.{undef};
     if (GetConsoleScreenBufferInfo(handle, info..&) == 0) {
         return .{ Err: last_error() };
@@ -249,7 +248,7 @@ pub fn terminal_size(handle: Handle) Result[TerminalSize, Error] {
 }
 
 /// Enables raw-ish console mode on one terminal handle and returns the previous state.
-pub fn enable_raw_mode(handle: Handle) Result[TerminalState, Error] {
+pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
     let mut mode = u32.{0};
     if (GetConsoleMode(handle, mode..&) == 0) {
         return .{ Err: last_error() };
@@ -267,7 +266,7 @@ pub fn enable_raw_mode(handle: Handle) Result[TerminalState, Error] {
 }
 
 /// Restores a previously captured console mode.
-pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) Result[bool, Error] {
+pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) bool!Error {
     if (SetConsoleMode(handle, state.mode) == 0) {
         return .{ Err: last_error() };
     }
@@ -286,7 +285,7 @@ pub fn utf16_z_len(str: *u16) usize {
     }
 }
 
-fn alloc_wide_units(units: usize) Result[*mut u16, Error] {
+fn alloc_wide_units(units: usize) (*mut u16)!Error {
     let bytes = units * 2;
     let ptr = VirtualAlloc(
         .None,
@@ -308,7 +307,7 @@ pub fn free_wide_units(ptr: *mut u16) void {
     let _ = VirtualFree(ptr as ^mut u8, 0, MEM_RELEASE as u32);
 }
 
-fn alloc_utf8_units(bytes: usize) Result[*mut u8, Error] {
+fn alloc_utf8_units(bytes: usize) (*mut u8)!Error {
     let ptr = VirtualAlloc(
         .None,
         bytes,
@@ -330,7 +329,7 @@ pub fn free_utf8_units(ptr: *mut u8) void {
 }
 
 /// Converts a zero-terminated UTF-8 path into an owned zero-terminated UTF-16 buffer.
-pub fn utf8_z_to_wide(path: *u8) Result[*mut u16, Error] {
+pub fn utf8_z_to_wide(path: *u8) (*mut u16)!Error {
     let bytes = abi.cstr.len(path);
     let required = MultiByteToWideChar(CP_UTF8, 0, path, bytes as i32, 0, 0);
     if (required <= 0) {
@@ -353,7 +352,7 @@ pub fn utf8_z_to_wide(path: *u8) Result[*mut u16, Error] {
 }
 
 /// Converts a UTF-16 slice into UTF-8 bytes written into `out`.
-pub fn wide_to_utf8_into(wide: []u16, out: []mut u8) Result[usize, Error] {
+pub fn wide_to_utf8_into(wide: []u16, out: []mut u8) usize!Error {
     if (#wide == 0) {
         return .{ Ok: 0 };
     }
@@ -392,7 +391,7 @@ pub fn wide_to_utf8_into(wide: []u16, out: []mut u8) Result[usize, Error] {
 }
 
 /// Converts a zero-terminated UTF-16 string into an owned zero-terminated UTF-8 buffer.
-pub fn wide_z_to_utf8_alloc(ptr: *u16) Result[*mut u8, Error] {
+pub fn wide_z_to_utf8_alloc(ptr: *u16) (*mut u8)!Error {
     let len = utf16_z_len(ptr);
     if (len == 0) {
         let out = match (alloc_utf8_units(1)) {
@@ -424,7 +423,7 @@ pub fn wide_z_to_utf8_alloc(ptr: *u16) Result[*mut u8, Error] {
 }
 
 /// Reads up to `len` bytes from `handle` into `ptr`.
-pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] {
+pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) usize!Error {
     let mut read = u32.{0};
     if (ReadFile(handle, ptr, len as u32, read..&, 0) == 0) {
         return .{ Err: last_error() };
@@ -433,7 +432,7 @@ pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] 
 }
 
 /// Writes up to `len` bytes from `ptr` into `handle`.
-pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
+pub fn write_file(handle: Handle, ptr: *u8, len: usize) usize!Error {
     let mut written = u32.{0};
     if (WriteFile(handle, ptr, len as u32, written..&, 0) == 0) {
         return .{ Err: last_error() };
@@ -442,7 +441,7 @@ pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
 }
 
 /// Closes an open file handle.
-pub fn close_file(handle: Handle) Result[bool, Error] {
+pub fn close_file(handle: Handle) bool!Error {
     if (CloseHandle(handle) == 0) {
         return .{ Err: last_error() };
     }
@@ -450,7 +449,7 @@ pub fn close_file(handle: Handle) Result[bool, Error] {
 }
 
 /// Returns metadata for a filesystem entry.
-pub fn metadata(path: *u8) Result[Metadata, Error] {
+pub fn metadata(path: *u8) Metadata!Error {
     let wide_path = match (utf8_z_to_wide(path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
@@ -508,7 +507,7 @@ fn is_dot_entry(name: []u16) bool {
     return false;
 }
 
-pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) Result[usize, Error] {
+pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) usize!Error {
     let _ = path;
     let wide_search_path = match (utf8_z_to_wide(search_path)) {
         .{ Ok: ptr } => ptr,
@@ -556,7 +555,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
 pub fn open_file(
     path: *u8,
     options: *OpenOptions,
-) Result[Handle, Error] {
+) Handle!Error {
     let wide_path = match (utf8_z_to_wide(path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
@@ -597,7 +596,7 @@ pub fn open_file(
 }
 
 /// Creates one directory.
-pub fn create_dir(path: *u8) Result[bool, Error] {
+pub fn create_dir(path: *u8) bool!Error {
     let wide_path = match (utf8_z_to_wide(path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
@@ -611,7 +610,7 @@ pub fn create_dir(path: *u8) Result[bool, Error] {
 }
 
 /// Removes one empty directory.
-pub fn remove_dir(path: *u8) Result[bool, Error] {
+pub fn remove_dir(path: *u8) bool!Error {
     let wide_path = match (utf8_z_to_wide(path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
@@ -625,7 +624,7 @@ pub fn remove_dir(path: *u8) Result[bool, Error] {
 }
 
 /// Removes one file.
-pub fn remove_file(path: *u8) Result[bool, Error] {
+pub fn remove_file(path: *u8) bool!Error {
     let wide_path = match (utf8_z_to_wide(path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },
@@ -639,7 +638,7 @@ pub fn remove_file(path: *u8) Result[bool, Error] {
 }
 
 /// Renames or moves a filesystem entry.
-pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
+pub fn rename(old_path: *u8, new_path: *u8) bool!Error {
     let wide_old_path = match (utf8_z_to_wide(old_path)) {
         .{ Ok: ptr } => ptr,
         .{ Err: err } => return .{ Err: err },

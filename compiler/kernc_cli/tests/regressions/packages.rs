@@ -343,12 +343,11 @@ fn main() i32 {
 fn preserves_outer_binding_after_shadowing_match_payload() {
     let output = build_and_run_source_with_std(
         r#"
-use base.Result;
 use base.coll.String;
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
-fn make_text(alloc: *mut base.mem.alloc.Allocator, text: []u8) Result[String, i32] {
+fn make_text(alloc: *mut base.mem.alloc.Allocator, text: []u8) String!i32 {
     let mut out = String.{};
     if (!out..&.push_str(alloc, text)) {
         return .{ Err: 1 };

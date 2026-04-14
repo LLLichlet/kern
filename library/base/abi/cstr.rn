@@ -3,7 +3,6 @@
 //! These helpers allocate and inspect zero-terminated byte buffers for foreign
 //! function interfaces.
 
-use base.Option;
 use base.mem.array_layout_of;
 use base.mem.alloc.Allocator;
 
@@ -23,7 +22,7 @@ pub fn len(str: *u8) usize {
     len
 }
 
-fn z_string_layout(bytes: []u8) Option[base.mem.Layout] {
+fn z_string_layout(bytes: []u8) ?base.mem.Layout {
     if (#bytes == base.num.USIZE_MAX) {
         return .None;
     }
@@ -34,7 +33,7 @@ fn z_string_layout(bytes: []u8) Option[base.mem.Layout] {
 ///
 /// Returns:
 /// `None` when layout computation or allocation fails.
-pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) Option[*mut u8] {
+pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) ?*mut u8 {
     let layout = match (z_string_layout(bytes)) {
         .{ Some: layout } => layout,
         .None => return .None,

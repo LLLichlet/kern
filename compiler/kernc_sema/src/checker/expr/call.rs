@@ -17,6 +17,77 @@ struct SimdRelationOperand<'a> {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn type_contains_unresolved_params(&mut self, ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Param(_) | TypeKind::TypeVar(_) => true,
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::Alias(_, elem)
+            | TypeKind::AnonymousEnumPayload(elem) => self.type_contains_unresolved_params(elem),
+            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
+                self.type_contains_unresolved_params(elem)
+            }
+            TypeKind::Def(_, args)
+            | TypeKind::Enum(_, args)
+            | TypeKind::Associated(_, args)
+            | TypeKind::FnDef(_, args) => args
+                .into_iter()
+                .any(|arg| self.type_contains_unresolved_params(arg)),
+            TypeKind::TraitObject(_, args, assoc_bindings) => {
+                args.into_iter()
+                    .any(|arg| self.type_contains_unresolved_params(arg))
+                    || assoc_bindings
+                        .into_iter()
+                        .any(|(_, ty)| self.type_contains_unresolved_params(ty))
+            }
+            TypeKind::Projection {
+                target,
+                trait_args,
+                assoc_args,
+                ..
+            } => {
+                self.type_contains_unresolved_params(target)
+                    || trait_args
+                        .into_iter()
+                        .any(|arg| self.type_contains_unresolved_params(arg))
+                    || assoc_args
+                        .into_iter()
+                        .any(|arg| self.type_contains_unresolved_params(arg))
+            }
+            TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
+                params
+                    .into_iter()
+                    .any(|param| self.type_contains_unresolved_params(param))
+                    || self.type_contains_unresolved_params(ret)
+            }
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => {
+                captures
+                    .into_iter()
+                    .any(|capture| self.type_contains_unresolved_params(capture))
+                    || params
+                        .into_iter()
+                        .any(|param| self.type_contains_unresolved_params(param))
+                    || self.type_contains_unresolved_params(ret)
+            }
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields
+                .into_iter()
+                .any(|field| self.type_contains_unresolved_params(field.ty)),
+            TypeKind::AnonymousEnum(enum_def) => enum_def.variants.into_iter().any(|variant| {
+                variant
+                    .payload_ty
+                    .is_some_and(|payload_ty| self.type_contains_unresolved_params(payload_ty))
+            }),
+            _ => false,
+        }
+    }
+
     fn is_signed_integer_type(&mut self, ty: TypeId) -> bool {
         matches!(
             self.resolve_tv(ty),
@@ -1861,7 +1932,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         sig_ty
     }
 
-    pub(crate) fn check_call(&mut self, callee: &Expr, args: &[Expr], span: Span) -> TypeId {
+    pub(crate) fn check_call(
+        &mut self,
+        callee: &Expr,
+        args: &[Expr],
+        expected_ty: Option<TypeId>,
+        span: Span,
+    ) -> TypeId {
         // 1. Intercept `@asm` macro invocations.
         if let ExprKind::Identifier(sym) = &callee.kind
             && self.ctx.resolve(*sym) == "@asm"
@@ -1893,6 +1970,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             args,
             is_method,
             receiver_ty,
+            expected_ty,
             callee.span,
             has_user_explicit_generics,
         );
@@ -2012,6 +2090,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         args: &[Expr],
         is_method: bool,
         receiver_ty: TypeId,
+        expected_ty: Option<TypeId>,
         span: Span,
         has_user_explicit_generics: bool,
     ) -> (TypeId, Option<TypeId>, Option<Vec<Option<TypeId>>>) {
@@ -2098,8 +2177,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             for (param, explicit_arg) in generics.iter().zip(explicit_args.iter()) {
                 map.insert(param.name, *explicit_arg);
             }
-            let raw_params_ptr = match self.ctx.type_registry.get(raw_sig) {
-                TypeKind::Function { params, .. } => std::ptr::from_ref(params.as_slice()),
+            let (raw_params_ptr, raw_ret) = match self.ctx.type_registry.get(raw_sig) {
+                TypeKind::Function { params, ret, .. } => {
+                    (std::ptr::from_ref(params.as_slice()), *ret)
+                }
                 other => {
                     self.ctx.emit_ice(
                         span,
@@ -2159,12 +2240,30 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.unify(expected_recv, stripped_recv, &mut map);
             }
 
-            // 2. Infer from positional arguments.
+            // 2. Infer from the surrounding expected call type when it is already constrained.
+            if let Some(expected_ty) = expected_ty {
+                let expected_norm = self.resolve_tv(expected_ty);
+                if expected_norm != TypeId::ERROR {
+                    self.unify(raw_ret, expected_ty, &mut map);
+                }
+            }
+
+            // 3. Infer from positional arguments.
             for (i, arg) in args.iter().enumerate() {
                 let sig_idx = i + param_offset;
                 let expected_param = raw_params.get(sig_idx).copied();
                 if let Some(expected_param) = expected_param {
-                    let arg_ty = self.check_expr(arg, None);
+                    let substituted_expected = {
+                        let mut substituter = Substituter::new(&mut self.ctx.type_registry, &map);
+                        substituter.substitute(expected_param)
+                    };
+                    let arg_expected = if self.type_contains_unresolved_params(substituted_expected)
+                    {
+                        None
+                    } else {
+                        Some(substituted_expected)
+                    };
+                    let arg_ty = self.check_expr(arg, arg_expected);
                     inferred_arg_tys[i] = Some(arg_ty);
                     let arg_norm = self.resolve_tv(arg_ty);
                     if arg_norm != TypeId::ERROR {
@@ -2173,7 +2272,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
 
-            // 3. Ensure every generic parameter was inferred.
+            // 4. Ensure every generic parameter was inferred.
             let mut missing_generics = Vec::new();
             let mut resolved_args = Vec::new();
             for param in generics {

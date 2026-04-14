@@ -171,7 +171,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // === 7. Calls and macros ===
             ExprKind::Call { callee, args } => {
                 let started = Instant::now();
-                let ty = self.check_call(callee, args, expr.span);
+                let ty = self.check_call(callee, args, expected_ty, expr.span);
                 let elapsed = started.elapsed();
                 self.ctx.expr_timing_stats.call += elapsed;
                 self.ctx.expr_timing_stats.call_plain += elapsed;

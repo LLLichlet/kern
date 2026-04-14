@@ -747,6 +747,14 @@ fn main() i32 {
 fn runs_hosted_program_using_option_result_bridge_helpers() {
     let output = build_and_run_hosted(
         r#"
+type DecodeError = enum {
+    Missing,
+    UnexpectedKind: i32,
+};
+
+fn require_value(value: ?i32) i32!DecodeError {
+    return value.ok_or(.{ UnexpectedKind: 7 });
+}
 
 fn main() i32 {
     let some = ?i32.{ Some: 7 };
@@ -777,6 +785,23 @@ fn main() i32 {
     };
     if (eager != 31) {
         return 6;
+    }
+
+    let inferred = match (require_value(.{ Some: 19 })) {
+        .{ Ok: value } => value,
+        .{ Err: _ } => return 7,
+    };
+    if (inferred != 19) {
+        return 8;
+    }
+
+    let inferred_err = match (require_value(.None)) {
+        .{ Ok: _ } => return 9,
+        .{ Err: .{ UnexpectedKind: kind } } => kind,
+        .{ Err: .Missing } => return 10,
+    };
+    if (inferred_err != 7) {
+        return 11;
     }
 
     return 0;

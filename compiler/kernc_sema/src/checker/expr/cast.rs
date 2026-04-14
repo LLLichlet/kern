@@ -176,10 +176,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(norm) else {
             return None;
         };
-        if enum_def.builtin_optional_payload().is_none() {
-            return None;
-        }
-
         let payload = enum_def.builtin_optional_payload()?;
         if self.is_object_pointer_type(payload) {
             Some(payload)

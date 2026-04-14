@@ -118,6 +118,15 @@ pub struct MemberQuery<'a, 'ctx> {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct TraitMethodLookup<'a> {
+    trait_args: &'a [TypeId],
+    assoc_bindings: &'a [(DefId, TypeId)],
+    member_name: SymbolId,
+    receiver_ty: TypeId,
+    diagnostic_span: Option<Span>,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct SearchTypes {
     values: [TypeId; 3],
     len: usize,
@@ -1031,12 +1040,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         let mut visited = FastHashSet::default();
         let resolution = self.resolve_trait_method_in_hierarchy(
             trait_def_id,
-            &trait_args,
-            &assoc_bindings,
-            member_name,
-            receiver_ty,
+            TraitMethodLookup {
+                trait_args: &trait_args,
+                assoc_bindings: &assoc_bindings,
+                member_name,
+                receiver_ty,
+                diagnostic_span,
+            },
             &mut visited,
-            diagnostic_span,
         );
         if let Some(resolution) = resolution.clone() {
             self.ctx
@@ -1172,13 +1183,16 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     fn resolve_trait_method_in_hierarchy(
         &mut self,
         trait_def_id: DefId,
-        trait_args: &[TypeId],
-        assoc_bindings: &[(DefId, TypeId)],
-        member_name: SymbolId,
-        receiver_ty: TypeId,
+        lookup: TraitMethodLookup<'_>,
         visited: &mut FastHashSet<DefId>,
-        diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
+        let TraitMethodLookup {
+            trait_args,
+            assoc_bindings,
+            member_name,
+            receiver_ty,
+            diagnostic_span,
+        } = lookup;
         if !visited.insert(trait_def_id) {
             return None;
         }
@@ -1292,12 +1306,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 self.ctx.type_registry.get(inst_super_norm).clone()
                 && let Some(resolution) = self.resolve_trait_method_in_hierarchy(
                     super_def_id,
-                    &super_args,
-                    &super_assoc_bindings,
-                    member_name,
-                    receiver_ty,
+                    TraitMethodLookup {
+                        trait_args: &super_args,
+                        assoc_bindings: &super_assoc_bindings,
+                        member_name,
+                        receiver_ty,
+                        diagnostic_span,
+                    },
                     visited,
-                    diagnostic_span,
                 )
             {
                 matches.push(resolution);

@@ -16,6 +16,15 @@ struct SimdRelationOperand<'a> {
     label: &'a str,
 }
 
+struct SignatureDeductionInput<'a> {
+    args: &'a [Expr],
+    is_method: bool,
+    receiver_ty: TypeId,
+    expected_ty: Option<TypeId>,
+    span: Span,
+    has_user_explicit_generics: bool,
+}
+
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn type_contains_unresolved_params(&mut self, ty: TypeId) -> bool {
         let norm = self.ctx.type_registry.normalize(ty);
@@ -1967,12 +1976,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let signature_started = Instant::now();
         let (sig_ty, inferred_callee_ty, inferred_arg_tys) = self.deduce_and_resolve_signature(
             norm_callee,
-            args,
-            is_method,
-            receiver_ty,
-            expected_ty,
-            callee.span,
-            has_user_explicit_generics,
+            SignatureDeductionInput {
+                args,
+                is_method,
+                receiver_ty,
+                expected_ty,
+                span: callee.span,
+                has_user_explicit_generics,
+            },
         );
         self.ctx.expr_timing_stats.call_signature += signature_started.elapsed();
 
@@ -2084,16 +2095,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     /// Helper: infer generic arguments and resolve the instantiated signature.
-    pub(crate) fn deduce_and_resolve_signature(
+    fn deduce_and_resolve_signature(
         &mut self,
         norm_callee: TypeId,
-        args: &[Expr],
-        is_method: bool,
-        receiver_ty: TypeId,
-        expected_ty: Option<TypeId>,
-        span: Span,
-        has_user_explicit_generics: bool,
+        input: SignatureDeductionInput<'_>,
     ) -> (TypeId, Option<TypeId>, Option<Vec<Option<TypeId>>>) {
+        let SignatureDeductionInput {
+            args,
+            is_method,
+            receiver_ty,
+            expected_ty,
+            span,
+            has_user_explicit_generics,
+        } = input;
         if let TypeKind::FnDef(def_id, explicit_args) = self.ctx.type_registry.get(norm_callee) {
             let def_id = *def_id;
             let explicit_args_ptr = std::ptr::from_ref(explicit_args.as_slice());

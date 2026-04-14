@@ -220,10 +220,9 @@ fn main() i32 {
         String::from_utf8_lossy(&null_cast.stdout),
         String::from_utf8_lossy(&null_cast.stderr)
     );
-    assert_eq!(
+    assert!(
         String::from_utf8_lossy(&null_cast.stderr)
             .contains("non-null raw pointers cannot be created from the constant address `0`"),
-        true,
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&null_cast.stderr)
     );

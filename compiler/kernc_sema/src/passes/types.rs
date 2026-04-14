@@ -65,6 +65,12 @@ struct EnumResolveSpec {
     variants: Vec<ast::EnumVariant>,
 }
 
+struct PendingTraitProjection {
+    trait_def_id: DefId,
+    trait_args: Vec<TypeId>,
+    assoc_bindings: Vec<(DefId, TypeId)>,
+}
+
 enum ResolveItemSpec {
     Function(FunctionResolveSpec),
     Struct(AggregateResolveSpec),
@@ -1256,12 +1262,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         let mut curr_scope = env_scope;
         let mut current_ty = None;
-        let mut pending_trait_projection: Option<(DefId, Vec<TypeId>, Vec<(DefId, TypeId)>)> =
-            None;
+        let mut pending_trait_projection: Option<PendingTraitProjection> = None;
 
         for (index, segment) in segments.iter().enumerate() {
-            if let Some((trait_def_id, trait_args, assoc_bindings)) =
-                pending_trait_projection.take()
+            if let Some(PendingTraitProjection {
+                trait_def_id,
+                trait_args,
+                assoc_bindings,
+            }) = pending_trait_projection.take()
             {
                 current_ty = Some(self.resolve_projected_associated_type(
                     current_ty.unwrap_or(TypeId::ERROR),
@@ -1270,7 +1278,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     assoc_bindings,
                     segment,
                     env_scope,
-                    span,
                 ));
                 continue;
             }
@@ -1365,7 +1372,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 return TypeId::ERROR;
             }
 
-            pending_trait_projection = Some((trait_def_id, trait_args, assoc_bindings));
+            pending_trait_projection = Some(PendingTraitProjection {
+                trait_def_id,
+                trait_args,
+                assoc_bindings,
+            });
         }
 
         if pending_trait_projection.is_some() {
@@ -1672,7 +1683,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         assoc_bindings: Vec<(DefId, TypeId)>,
         segment: &ast::TypePathSegment,
         env_scope: ScopeId,
-        _span: Span,
     ) -> TypeId {
         let assoc_def_id = match self.ctx.defs.get(trait_def_id.0 as usize) {
             Some(Def::Trait(trait_def)) => trait_def.assoc_types.iter().copied().find(|assoc_id| {

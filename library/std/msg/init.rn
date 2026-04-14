@@ -1,7 +1,7 @@
-//! Debugging and control-flow helpers.
+//! Message, diagnostics, and fail-fast helpers.
 //!
 //! This module defines the runtime-facing helpers used for assertions, traps,
 //! and lightweight diagnostic output.
 
 mod runtime;
-pub use .runtime.{trap, panic, assert, log, debug};
+pub use .runtime.{write, fail, trap, panic, assert, log, debug};

@@ -12,7 +12,7 @@ pub mod io;
 pub mod fs;
 pub mod env;
 pub mod proc;
-pub mod dbg;
+pub mod msg;
 pub mod test;
 pub mod sync;
 pub mod time;

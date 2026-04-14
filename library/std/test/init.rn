@@ -1,23 +1,15 @@
 //! Test assertion helpers.
 //!
-//! This module is intentionally separate from `std.dbg`:
-//! `dbg` is for diagnostics and low-level runtime failures, while `test`
+//! This module is intentionally separate from `std.msg`:
+//! `msg` is for diagnostics and low-level runtime failures, while `test`
 //! defines vocabulary for executable test targets.
 
-use std.io.{Printable, Writer, format_to, stderr};
-
-fn write_stderr(prefix: []u8, fmt: []u8, args: []*Printable) void {
-    let mut err_file = stderr();
-    let writer = *mut Writer.{ err_file..& };
-    let _ = writer.write(prefix);
-    format_to(writer, fmt, args);
-    let _ = writer.write("\n");
-}
+use std.io.Printable;
+use ..msg;
 
 /// Fails the current test immediately after printing a diagnostic.
 pub fn fail(fmt: []u8, args: []*Printable) ! {
-    write_stderr("test failed: ", fmt, args);
-    @trap();
+    msg.fail("test failed: ", fmt, args);
 }
 
 /// Fails the current test when `ok` is false.

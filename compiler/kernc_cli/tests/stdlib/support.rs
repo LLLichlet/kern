@@ -1,16 +1,16 @@
 use super::*;
 
 #[test]
-fn runs_dbg_logging_helpers() {
+fn runs_msg_logging_helpers() {
     let (source_path, executable_path) = build_temp_program(
-        "kernc_std_dbg_helpers",
+        "kernc_std_msg_helpers",
         r#"
-use std.dbg;
+use std.msg;
 
 fn main() i32 {
-    dbg.log("boot {}", .{ 1, });
-    dbg.debug("trace {}", .{ "ok", });
-    dbg.assert(true, "should not fail {}", .{ 7, });
+    msg.log("boot {}", .{ 1, });
+    msg.debug("trace {}", .{ "ok", });
+    msg.assert(true, "should not fail {}", .{ 7, });
     return 0;
 }
 "#,
@@ -20,7 +20,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         run_output.status.success(),
-        "expected dbg helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
+        "expected msg helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -42,14 +42,14 @@ fn main() i32 {
 }
 
 #[test]
-fn dbg_assert_failure_aborts_with_message() {
+fn msg_assert_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
-        "kernc_std_dbg_assert_fail",
+        "kernc_std_msg_assert_fail",
         r#"
-use std.dbg;
+use std.msg;
 
 fn main() i32 {
-    dbg.assert(false, "boom {}", .{ 42, });
+    msg.assert(false, "boom {}", .{ 42, });
     return 0;
 }
 "#,
@@ -59,7 +59,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         !run_output.status.success(),
-        "expected dbg.assert(false, ...) to abort:\nstdout:\n{}\nstderr:\n{}",
+        "expected msg.assert(false, ...) to abort:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );

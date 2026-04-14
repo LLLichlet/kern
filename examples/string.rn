@@ -3,6 +3,7 @@ use base.mem.alloc.GPA;
 use sys.mem.Page;
 use base.mem.Allocator;
 use std.io;
+use std.msg;
 
 fn main() i32 {
     let pa = Page.{}..&;
@@ -17,9 +18,8 @@ fn main() i32 {
     
     io.println("Message: {}", .{ greeting, });
     
-    if (greeting.eq("Hello, Kern World!")) {
-        io.println("Match successful!", .{});
-    }
+    msg.assert(greeting == "Hello, Kern World!", "unexpected greeting contents", .{});
+    io.println("Match successful!", .{});
 
     0
 }

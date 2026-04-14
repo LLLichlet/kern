@@ -5,12 +5,18 @@
 
 use std.io.{Printable, Writer, format_to, stderr};
 
-fn write_stderr(prefix: []u8, fmt: []u8, args: []*Printable) void {
+pub fn write(prefix: []u8, fmt: []u8, args: []*Printable) void {
     let mut err_file = stderr();
     let writer = *mut Writer.{ err_file..& };
     let _ = writer.write(prefix);
     format_to(writer, fmt, args);
     let _ = writer.write("\n");
+}
+
+/// Prints one formatted diagnostic and traps.
+pub fn fail(prefix: []u8, fmt: []u8, args: []*Printable) ! {
+    write(prefix, fmt, args);
+    trap();
 }
 
 /// Triggers a non-recoverable trap.
@@ -30,8 +36,7 @@ pub fn trap() ! {
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
 pub fn panic(fmt: []u8, args: []*Printable) ! {
-    write_stderr("panic: ", fmt, args);
-    trap();
+    fail("panic: ", fmt, args);
 }
 
 /// Traps when `ok` is false after printing a diagnostic message.
@@ -44,8 +49,7 @@ pub fn panic(fmt: []u8, args: []*Printable) ! {
 /// require the trailing comma.
 pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
     if (!ok) {
-        write_stderr("assertion failed: ", fmt, args);
-        trap();
+        fail("assertion failed: ", fmt, args);
     }
 }
 
@@ -57,7 +61,7 @@ pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
 pub fn log(fmt: []u8, args: []*Printable) void {
-    write_stderr("log: ", fmt, args);
+    write("log: ", fmt, args);
 }
 
 /// Writes a debug line to standard error.
@@ -69,5 +73,5 @@ pub fn log(fmt: []u8, args: []*Printable) void {
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
 pub fn debug(fmt: []u8, args: []*Printable) void {
-    write_stderr("debug: ", fmt, args);
+    write("debug: ", fmt, args);
 }

@@ -4,10 +4,13 @@
 
 This directory intentionally lives under `tools/` rather than `compiler/`.
 
-- `kernc` is the compiler driver.
-- `craft` is the package graph resolver, lockfile manager, and build planner.
+- `kernc` is the compiler/link driver.
+- `craft` is the package graph resolver, lockfile manager, build planner, and
+  command runner.
 
-The current implementation now covers the first graph and lockfile milestones:
+## Current Scope
+
+The current implementation covers:
 
 - `Craft.toml` discovery
 - manifest parsing
@@ -31,6 +34,18 @@ The current implementation now covers the first graph and lockfile milestones:
 - atomic writes for shared workspace state such as `Craft.lock` and `.craft/analysis.toml`
 - output-scoped locking for shared metadata snapshot directories
 
+## Core Commands
+
+The current command surface is:
+
+- `craft check`
+- `craft lock`
+- `craft fetch`
+- `craft publish`
+- `craft build`
+- `craft run`
+- `craft test`
+
 `craft` keeps package discovery decentralized by staying on concrete dependency
 edges:
 
@@ -46,4 +61,17 @@ Derived tool state stays under `.craft/`, and `craft` maintains a root
 `Craft.lock` plus required package metadata, but it does not upload anywhere or
 rewrite the lockfile implicitly.
 
-See [docs/craft.md](../../docs/craft.md) for the current design and behavior guide.
+## Important Internal Modules
+
+- `src/manifest.rs` and `src/manifest/`: `Craft.toml` parsing and validation
+- `src/workspace.rs` and `src/project/`: workspace/package discovery and path rules
+- `src/elaborate.rs` and `src/script/`: `craft.rn` and `build.rn` execution
+- `src/graph.rs`, `src/resolver.rs`, and `src/source.rs`: package graph and
+  source resolution
+- `src/lockfile/`: `Craft.lock` parsing, rendering, validation, and build data
+- `src/build_plan/`: explicit compile/link/build action derivation
+- `src/execute/`: action execution, fingerprints, runtime packages, and parallel scheduling
+- `src/analysis_context/`: `.craft/analysis.toml` parse/render/validation
+
+`docs/craft.md` remains the high-level public architecture document. This
+README is the tool-local index for the current implementation.

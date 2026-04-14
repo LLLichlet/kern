@@ -1,3 +1,31 @@
+//! Query helpers for member lookup and impl applicability in semantic analysis.
+//!
+//! This module is the current "query" layer inside `kernc_sema`. It is not a
+//! general incremental database. Its job is narrower and concrete:
+//!
+//! - gather visible member candidates for a receiver type
+//! - resolve a named member access to one concrete field/method candidate
+//! - evaluate whether a concrete `impl` applies to a receiver type
+//! - thread active `where`-clause bounds into method lookup
+//!
+//! The current lookup model intentionally merges several sources:
+//!
+//! - module members
+//! - named-type fields
+//! - anonymous aggregate fields
+//! - trait-object methods, including inherited parent-trait entries
+//! - methods made available through active generic bounds
+//! - inherent and trait impl methods
+//!
+//! Search is receiver-oriented rather than syntax-oriented. For mutable
+//! receivers, the query also considers the corresponding immutable shape where
+//! the language permits shared-method reuse, which keeps method lookup aligned
+//! with the ordinary receiver coercion rules used elsewhere in sema.
+//!
+//! Ambiguity reporting still belongs to the calling checker. This module
+//! collects and resolves candidates, but the surrounding expression checker
+//! decides how to surface conflicts and access-site diagnostics.
+
 use crate::SemaContext;
 use crate::checker::{ExprChecker, Substituter};
 use crate::def::{Def, DefId};

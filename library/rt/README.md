@@ -1,0 +1,26 @@
+# `library/rt`
+
+`library/rt` is the toolchain-owned runtime companion layer.
+
+It is intentionally narrow. This layer exists to provide startup glue and the
+minimal compiler-required runtime fallbacks that are still needed when no libc
+implementation is linked.
+
+## Current Layout
+
+- `init.rn`: root wiring for the `rt` layer
+- `entry.rn`: platform-specific process entry shims and the handoff to
+  `__kern_main_adapter`
+- `memory_fallbacks.rn`: `memcpy`/`memmove`/`memset` fallback implementations
+- `math_fallbacks.rn`: compiler-required math fallbacks when libc is absent
+
+## Boundaries
+
+- `rt` is injected only when runtime startup is selected
+- `rt` is not a public prelude
+- `rt` does not replace `base`, `sys`, or `std`
+- user-facing hosted facilities still belong in `std`
+- OS/provider services still belong in `sys`
+
+In other words, `rt` owns startup and minimal runtime glue, not general-purpose
+library APIs.

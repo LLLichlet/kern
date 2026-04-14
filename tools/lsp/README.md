@@ -86,7 +86,7 @@ The server also negotiates several optional capabilities:
 This makes it practical to integrate with lightweight clients first, then add
 editor-specific polish on top without changing core analysis behavior.
 
-## Planned Architecture
+## Source Layout
 
 - `transport.rs`: LSP message framing (`Content-Length` headers over stdio)
 - `protocol.rs`: small typed JSON-RPC/LSP protocol structures
@@ -120,17 +120,17 @@ Useful analysis overrides:
 kern-lsp --library-bundle none --module-path std=./library/std
 ```
 
-As of the `0.6.7` release cycle, the repository also carries a first-party
-VS Code extension under `editors/vscode/` that launches `kern-lsp` directly,
-including bundled release packaging for the language server binary.
+The repository also carries a first-party VS Code extension under
+`editors/vscode/` that launches `kern-lsp` directly, including bundled release
+packaging for the language server binary.
 
 ## Dependency Policy
 
-`kern-lsp` should stay close to zero dependencies, but not at the expense of
-clarity. The initial crate uses:
+`kern-lsp` stays close to zero dependencies without sacrificing clarity. The
+crate uses:
 
 - `serde`
 - `serde_json`
 
-These are limited to protocol parsing/encoding. Compiler analysis should remain
-in the existing workspace crates.
+These are limited to protocol parsing/encoding. Compiler analysis remains in
+the existing workspace crates.

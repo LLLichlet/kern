@@ -1,3 +1,19 @@
+//! Program-entry shims owned by the `rt` layer.
+//!
+//! This module maps the language-level root `main` contract onto the actual
+//! platform entry surface selected by `runtime_entry` and `os`.
+//!
+//! Current behavior:
+//!
+//! - Linux `rt` startup exports `_start`
+//! - Darwin `rt` startup exports `start`
+//! - Windows `rt` startup exports `mainCRTStartup`
+//! - `crt` mode provides the platform `main` entry instead of raw startup
+//! - all paths eventually call `__kern_main_adapter(...)`
+//!
+//! The platform glue remains here rather than in `std` because startup
+//! ownership is a runtime concern, not a user-library concern.
+
 use sys.os;
 
 extern {

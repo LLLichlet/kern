@@ -1,15 +1,11 @@
 use std.io.println;
 fn process_erased_ptr(ptr: *mut void) void {
-    // *void 鎸囬拡绠楁湳
     let offset_ptr = ptr + 10;
     
-    // *void 姣旇緝杩愮畻
     if (ptr == offset_ptr) {
         println("Success: *void pointer arithmetic scaled by 0 leaves address unchanged.", .{});
     }
 
-    // *void 鐨勮В寮曠敤
-    // 瑙ｅ紩鐢ㄤ竴涓櫄绌烘寚閽堬紝搴旇瀹夊叏鍦拌繑鍥炶櫄绌哄€?void.{}锛屼笖涓嶈Е鍙戠墿鐞嗗唴瀛樿鍙?
     let val = ptr.*; 
     if (val == void.{}) {
         println("Success: Dereferencing *void yields void.{{}}", .{});
@@ -17,18 +13,15 @@ fn process_erased_ptr(ptr: *mut void) void {
 }
 fn main() i32 {
     println("--- Kern Void ZST Test ---", .{});
-    // ZST 鐨勫唴瀛樻帓甯?(@sizeOf 搴旇涓?0)
     let size = @sizeOf[void]();
     let arr_size = @sizeOf[[100]void]();
     println("Size of void: {} (Expected: 0)", .{size,});
     println("Size of [100]void: {} (Expected: 0)", .{arr_size,});
-    // 杈圭晫鑷劧杞崲
     let mut real_data = i32.{0xDEADBEEF};
     let specific_ptr = real_data..&; // *mut i32
 
     process_erased_ptr(specific_ptr);
 
-    // 鍒╃敤 BNC 鍜?Elided Literal 鏋勯€犲師鐢?Null 鎸囬拡
     let null_ptr = *mut void.{0};
     if (null_ptr == *mut void.{0}) {
         println("Success: Created and compared NULL pointers using *void.{0}.", .{});

@@ -101,8 +101,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if l_norm == r_norm && self.is_pure_enum_type(l_norm) {
                     return true;
                 }
-                is_l_ptr
-                    || is_r_ptr
+                (is_l_ptr && is_r_ptr)
                     || (self.ctx.type_registry.is_integer(l_norm)
                         && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)
@@ -113,8 +112,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | ast::BinaryOperator::GreaterThan
             | ast::BinaryOperator::LessOrEqual
             | ast::BinaryOperator::GreaterOrEqual => {
-                is_l_ptr
-                    || is_r_ptr
+                (is_l_ptr && is_r_ptr)
                     || (self.ctx.type_registry.is_integer(l_norm)
                         && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)

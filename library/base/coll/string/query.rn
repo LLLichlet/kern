@@ -95,6 +95,42 @@ impl String : Eq[String] {
     }
 }
 
+impl String : Eq[[]u8] {
+    pub fn eq(other: []u8) bool {
+        return self.&.as_str() == other;
+    }
+}
+
+impl []u8 : Eq[String] {
+    pub fn eq(other: String) bool {
+        return self == other.&.as_str();
+    }
+}
+
+impl *String : Eq[[]u8] {
+    pub fn eq(other: []u8) bool {
+        return self.as_str() == other;
+    }
+}
+
+impl *mut String : Eq[[]u8] {
+    pub fn eq(other: []u8) bool {
+        return (self as *String).as_str() == other;
+    }
+}
+
+impl []u8 : Eq[*String] {
+    pub fn eq(other: *String) bool {
+        return self == other.as_str();
+    }
+}
+
+impl []u8 : Eq[*mut String] {
+    pub fn eq(other: *mut String) bool {
+        return self == (other as *String).as_str();
+    }
+}
+
 impl String : Comparable[String] {
     pub fn cmp(other: String) Ordering {
         return self.&.as_str().lex_cmp(other.&.as_str());

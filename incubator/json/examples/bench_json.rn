@@ -84,7 +84,7 @@ fn print_stats(
 }
 
 fn load_input(alloc: *mut base.mem.alloc.Allocator, path: []u8) BenchInput!fs.Error {
-    if (path.eq("-")) {
+    if (path == "-") {
         let mut stdin = fs.stdin();
         let storage = match (stdin..&.read_to_string(alloc)) {
             .{ Ok: text } => text,
@@ -658,24 +658,24 @@ fn bench_lookup_packed_indexed_document(iterations: usize, input_label: []u8, te
 }
 
 fn run_bench(name: []u8, iterations: usize, input_label: []u8, text: []u8) bool {
-    if (name.eq("parse")) return bench_parse(iterations, input_label, text);
-    if (name.eq("parse_packed_doc")) return bench_parse_packed_document(iterations, input_label, text);
-    if (name.eq("clone_doc")) return bench_clone_document(iterations, input_label, text);
-    if (name.eq("materialize")) return bench_materialize(iterations, input_label, text);
-    if (name.eq("clone_gpa")) return bench_clone_gpa(iterations, input_label, text);
-    if (name.eq("clone_arena")) return bench_clone_arena(iterations, input_label, text);
-    if (name.eq("clone_indexed_doc")) return bench_clone_indexed_document(iterations, input_label, text);
-    if (name.eq("parse_packed_indexed_doc")) return bench_parse_packed_indexed_document(iterations, input_label, text);
-    if (name.eq("render_borrowed")) return bench_render_borrowed(iterations, input_label, text);
-    if (name.eq("render_owned")) return bench_render_owned(iterations, input_label, text);
-    if (name.eq("lookup_borrowed")) return bench_lookup_borrowed(iterations, input_label, text);
-    if (name.eq("lookup_owned")) return bench_lookup_owned(iterations, input_label, text);
-    if (name.eq("lookup_packed_doc")) return bench_lookup_packed_document(iterations, input_label, text);
-    if (name.eq("build_indexed")) return bench_build_indexed(iterations, input_label, text);
-    if (name.eq("build_indexed_arena")) return bench_build_indexed_arena(iterations, input_label, text);
-    if (name.eq("lookup_indexed")) return bench_lookup_indexed(iterations, input_label, text);
-    if (name.eq("lookup_indexed_doc")) return bench_lookup_indexed_document(iterations, input_label, text);
-    if (name.eq("lookup_packed_indexed_doc")) return bench_lookup_packed_indexed_document(iterations, input_label, text);
+    if (name == "parse") return bench_parse(iterations, input_label, text);
+    if (name == "parse_packed_doc") return bench_parse_packed_document(iterations, input_label, text);
+    if (name == "clone_doc") return bench_clone_document(iterations, input_label, text);
+    if (name == "materialize") return bench_materialize(iterations, input_label, text);
+    if (name == "clone_gpa") return bench_clone_gpa(iterations, input_label, text);
+    if (name == "clone_arena") return bench_clone_arena(iterations, input_label, text);
+    if (name == "clone_indexed_doc") return bench_clone_indexed_document(iterations, input_label, text);
+    if (name == "parse_packed_indexed_doc") return bench_parse_packed_indexed_document(iterations, input_label, text);
+    if (name == "render_borrowed") return bench_render_borrowed(iterations, input_label, text);
+    if (name == "render_owned") return bench_render_owned(iterations, input_label, text);
+    if (name == "lookup_borrowed") return bench_lookup_borrowed(iterations, input_label, text);
+    if (name == "lookup_owned") return bench_lookup_owned(iterations, input_label, text);
+    if (name == "lookup_packed_doc") return bench_lookup_packed_document(iterations, input_label, text);
+    if (name == "build_indexed") return bench_build_indexed(iterations, input_label, text);
+    if (name == "build_indexed_arena") return bench_build_indexed_arena(iterations, input_label, text);
+    if (name == "lookup_indexed") return bench_lookup_indexed(iterations, input_label, text);
+    if (name == "lookup_indexed_doc") return bench_lookup_indexed_document(iterations, input_label, text);
+    if (name == "lookup_packed_indexed_doc") return bench_lookup_packed_indexed_document(iterations, input_label, text);
     return false;
 }
 

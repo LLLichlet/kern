@@ -501,6 +501,48 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_string_slice_eq_operator_impls() {
+    let output = build_and_run(
+        "kernc_string_slice_eq_operator_impls",
+        r#"
+use base.coll.String;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    let text = String.{}..&;
+    defer text.deinit(gpa);
+    let _ = text.push_str(gpa, "kern");
+
+    if (!(text == "kern")) {
+        return 1;
+    }
+    if (!("kern" == text)) {
+        return 2;
+    }
+    if (text != "kern") {
+        return 3;
+    }
+    if ("lang" == text) {
+        return 4;
+    }
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_generic_integer_marker_bound_for_bit_intrinsic() {
     let output = build_and_run(
         "kernc_integer_marker_bound",

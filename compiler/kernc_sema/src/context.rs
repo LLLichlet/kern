@@ -545,6 +545,14 @@ impl<'a> SemaContext<'a> {
                         .copied()
                         .unwrap_or(TypeId::ERROR);
                     path_components.push(self.mangle_type(target_ty));
+                    if let Some(trait_ty) = &impl_def.trait_type {
+                        let trait_ty = self
+                            .node_types
+                            .get(&trait_ty.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR);
+                        path_components.push(self.mangle_type(trait_ty));
+                    }
                     parent_id = impl_def.parent_module;
                 }
                 _ => break,

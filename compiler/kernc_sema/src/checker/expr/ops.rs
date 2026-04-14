@@ -5,6 +5,44 @@ use kernc_ast::{BinaryOperator, Expr, ExprKind, UnaryOperator};
 use kernc_utils::{DiagnosticCode, Span};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn builtin_rhs_expectation_for_lhs(
+        &mut self,
+        op: BinaryOperator,
+        lhs_ty: TypeId,
+        lhs_norm: TypeId,
+    ) -> Option<TypeId> {
+        match op {
+            BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => Some(TypeId::BOOL),
+            BinaryOperator::Add
+            | BinaryOperator::Subtract
+            | BinaryOperator::Multiply
+            | BinaryOperator::Divide
+            | BinaryOperator::Modulo
+            | BinaryOperator::Equal
+            | BinaryOperator::NotEqual
+            | BinaryOperator::LessThan
+            | BinaryOperator::GreaterThan
+            | BinaryOperator::LessOrEqual
+            | BinaryOperator::GreaterOrEqual
+            | BinaryOperator::BitwiseAnd
+            | BinaryOperator::BitwiseOr
+            | BinaryOperator::BitwiseXor
+            | BinaryOperator::ShiftLeft
+            | BinaryOperator::ShiftRight => {
+                if self.ctx.type_registry.is_integer(lhs_norm)
+                    || self.ctx.type_registry.is_float(lhs_norm)
+                    || lhs_norm == TypeId::BOOL
+                    || self.ctx.type_registry.is_simd(lhs_norm)
+                    || self.is_pure_enum_type(lhs_norm)
+                {
+                    Some(lhs_ty)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     fn simd_compare_type(&mut self, ty: TypeId) -> TypeId {
         let Some((_, lanes)) = self.ctx.type_registry.simd_info(ty) else {
             return TypeId::ERROR;
@@ -104,8 +142,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if l_norm == r_norm && self.is_pure_enum_type(l_norm) {
                     return true;
                 }
-                is_l_ptr
-                    || is_r_ptr
+                (is_l_ptr && is_r_ptr)
                     || (self.ctx.type_registry.is_integer(l_norm)
                         && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)
@@ -120,8 +157,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 {
                     return false;
                 }
-                is_l_ptr
-                    || is_r_ptr
+                (is_l_ptr && is_r_ptr)
                     || (self.ctx.type_registry.is_integer(l_norm)
                         && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)
@@ -332,7 +368,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ty: Option<TypeId>,
     ) -> TypeId {
         // 1. Check the left operand first and recover its concrete type.
-        let lhs_ty = self.check_expr(lhs, expected_ty);
+        let lhs_expected = match op {
+            BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => Some(TypeId::BOOL),
+            BinaryOperator::Equal
+            | BinaryOperator::NotEqual
+            | BinaryOperator::LessThan
+            | BinaryOperator::GreaterThan
+            | BinaryOperator::LessOrEqual
+            | BinaryOperator::GreaterOrEqual => None,
+            _ => expected_ty,
+        };
+        let lhs_ty = self.check_expr(lhs, lhs_expected);
         let l_norm = self.resolve_tv(lhs_ty);
 
         // 2. Detect pointer arithmetic up front.
@@ -345,9 +391,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // Pointer addition and subtraction must not force integer literals to become pointers.
         let rhs_expected =
             if is_l_ptr && (op == BinaryOperator::Add || op == BinaryOperator::Subtract) {
-                None // Let the right-hand side infer naturally as an integer offset.
+                None
             } else {
-                Some(lhs_ty) // Other operators still benefit from pointer-aware context.
+                self.builtin_rhs_expectation_for_lhs(op, lhs_ty, l_norm)
             };
 
         // 4. Check the right operand with the repaired expectation.

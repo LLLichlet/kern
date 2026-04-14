@@ -1,11 +1,3 @@
 target/
+.craft/
 .codex
-incubator/*
-!incubator/bed/
-incubator/bed/.craft/
-!incubator/bed/Craft.toml
-!incubator/bed/README.md
-!incubator/bed/src/
-!incubator/bed/src/**
-!incubator/bed/tests/
-!incubator/bed/tests/**

@@ -1,0 +1,502 @@
+use ..{
+    Kind,
+    OwnedArray,
+    OwnedObject,
+    OwnedRenderError,
+    OwnedValue,
+    ParseError,
+    RenderError,
+    Value,
+};
+use ..parser.{
+    is_digit,
+    parse_literal,
+    parse_number_end,
+    parse_string_end,
+    skip_ws,
+};
+
+type CompactProgress = struct {
+    next: usize,
+    written: usize,
+};
+
+fn write_byte_unchecked(out: []mut u8, offset: usize, value: u8) usize {
+    out.[offset] = value;
+    return offset + 1;
+}
+
+fn write_bytes_unchecked(out: []mut u8, offset: usize, text: []u8) usize {
+    let end = offset + #text;
+    let _ = out..[offset .. end].copy_from(text);
+    return end;
+}
+
+fn hex_digit_upper(value: u8) u8 {
+    return if (value < u8.{10}) b'0' + value else b'A' + (value - u8.{10});
+}
+
+fn escaped_byte_size(byte: u8) usize {
+    if (
+        byte == b'"' or
+        byte == b'\\' or
+        byte == u8.{0x08} or
+        byte == u8.{0x0C} or
+        byte == b'\n' or
+        byte == b'\r' or
+        byte == b'\t'
+    ) {
+        return usize.{2};
+    }
+    if (byte < u8.{0x20}) {
+        return usize.{6};
+    }
+    return usize.{1};
+}
+
+fn compact_owned_string_size(text: []u8) usize {
+    let mut written = usize.{2};
+    for (let mut i = usize.{0}; i < #text; i += 1) {
+        written += escaped_byte_size(text.[i]);
+    }
+    return written;
+}
+
+fn write_escaped_byte_unchecked(out: []mut u8, offset: usize, byte: u8) usize {
+    if (byte == b'"') {
+        let offset = write_byte_unchecked(out, offset, b'\\');
+        return write_byte_unchecked(out, offset, b'"');
+    }
+    if (byte == b'\\') {
+        let offset = write_byte_unchecked(out, offset, b'\\');
+        return write_byte_unchecked(out, offset, b'\\');
+    }
+    if (byte == u8.{0x08}) {
+        let offset = write_byte_unchecked(out, offset, b'\\');
+        return write_byte_unchecked(out, offset, b'b');
+    }
+    if (byte == u8.{0x0C}) {
+        let offset = write_byte_unchecked(out, offset, b'\\');
+        return write_byte_unchecked(out, offset, b'f');
+    }
+    if (byte == b'\n') {
+        let offset = write_byte_unchecked(out, offset, b'\\');
+        return write_byte_unchecked(out, offset, b'n');
+    }
+    if (byte == b'\r') {
+        let offset = write_byte_unchecked(out, offset, b'\\');
+        return write_byte_unchecked(out, offset, b'r');
+    }
+    if (byte == b'\t') {
+        let offset = write_byte_unchecked(out, offset, b'\\');
+        return write_byte_unchecked(out, offset, b't');
+    }
+    if (byte < u8.{0x20}) {
+        let mut written = write_byte_unchecked(out, offset, b'\\');
+        written = write_byte_unchecked(out, written, b'u');
+        written = write_byte_unchecked(out, written, b'0');
+        written = write_byte_unchecked(out, written, b'0');
+        written = write_byte_unchecked(out, written, hex_digit_upper(byte >> 4));
+        return write_byte_unchecked(out, written, hex_digit_upper(byte & u8.{0x0F}));
+    }
+    return write_byte_unchecked(out, offset, byte);
+}
+
+fn write_escaped_string_unchecked(out: []mut u8, offset: usize, text: []u8) usize {
+    let mut written = write_byte_unchecked(out, offset, b'"');
+    for (let mut i = usize.{0}; i < #text; i += 1) {
+        written = write_escaped_byte_unchecked(out, written, text.[i]);
+    }
+    return write_byte_unchecked(out, written, b'"');
+}
+
+fn compact_owned_array_size(array: *OwnedArray) usize {
+    let items = array.items.&.as_slice();
+    if (#items == usize.{0}) {
+        return usize.{2};
+    }
+
+    let mut written = usize.{2} + compact_size_owned(items.[0]);
+    for (let mut i = usize.{1}; i < #items; i += 1) {
+        written += 1;
+        written += compact_size_owned(items.[i]);
+    }
+
+    return written;
+}
+
+fn compact_owned_object_size(object: *OwnedObject) usize {
+    let entries = object.entries.&.as_slice();
+    if (#entries == usize.{0}) {
+        return usize.{2};
+    }
+
+    let first = entries.[0];
+    let mut written =
+        usize.{3} +
+        compact_owned_string_size(first.key.&.as_str()) +
+        compact_size_owned(first.value);
+
+    for (let mut i = usize.{1}; i < #entries; i += 1) {
+        let entry = entries.[i];
+        written += 1;
+        written += compact_owned_string_size(entry.key.&.as_str());
+        written += 1;
+        written += compact_size_owned(entry.value);
+    }
+    return written;
+}
+
+fn render_owned_array_unchecked(array: *OwnedArray, out: []mut u8, offset: usize) usize {
+    let mut written = write_byte_unchecked(out, offset, b'[');
+    let items = array.items.&.as_slice();
+    if (#items == usize.{0}) {
+        return write_byte_unchecked(out, written, b']');
+    }
+
+    written = render_owned_compact_inner_unchecked(items.[0], out, written);
+    for (let mut i = usize.{1}; i < #items; i += 1) {
+        written = write_byte_unchecked(out, written, b',');
+        written = render_owned_compact_inner_unchecked(items.[i], out, written);
+    }
+    return write_byte_unchecked(out, written, b']');
+}
+
+fn render_owned_object_unchecked(object: *OwnedObject, out: []mut u8, offset: usize) usize {
+    let mut written = write_byte_unchecked(out, offset, b'{');
+    let entries = object.entries.&.as_slice();
+    if (#entries == usize.{0}) {
+        return write_byte_unchecked(out, written, b'}');
+    }
+
+    let first = entries.[0];
+    written = write_escaped_string_unchecked(out, written, first.key.&.as_str());
+    written = write_byte_unchecked(out, written, b':');
+    written = render_owned_compact_inner_unchecked(first.value, out, written);
+    for (let mut i = usize.{1}; i < #entries; i += 1) {
+        let entry = entries.[i];
+        written = write_byte_unchecked(out, written, b',');
+        written = write_escaped_string_unchecked(out, written, entry.key.&.as_str());
+        written = write_byte_unchecked(out, written, b':');
+        written = render_owned_compact_inner_unchecked(entry.value, out, written);
+    }
+    return write_byte_unchecked(out, written, b'}');
+}
+
+fn render_owned_compact_inner_unchecked(value: *mut OwnedValue, out: []mut u8, offset: usize) usize {
+    return match (value.*) {
+        .Null => write_bytes_unchecked(out, offset, "null"),
+        .{ Bool: bool_value } => if (bool_value) {
+            write_bytes_unchecked(out, offset, "true")
+        } else {
+            write_bytes_unchecked(out, offset, "false")
+        },
+        .{ Number: text } => write_bytes_unchecked(out, offset, text.&.as_str()),
+        .{ String: text } => write_escaped_string_unchecked(out, offset, text.&.as_str()),
+        .{ Array: array } => render_owned_array_unchecked(array.&, out, offset),
+        .{ Object: object } => render_owned_object_unchecked(object.&, out, offset),
+    };
+}
+
+fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
+    let index = skip_ws(text, start);
+    if (index >= #text) {
+        return .{ Err: ParseError.UnexpectedEof };
+    }
+
+    let byte = text.[index];
+    if (byte == b'n') {
+        let .{ Ok: span } = parse_literal(text, index, "null", Kind.Null)
+            else .{ Err: err } => return .{ Err: err };
+        return .{ Ok: CompactProgress.{ next: span.next, written: span.next - index } };
+    }
+    if (byte == b't') {
+        let .{ Ok: span } = parse_literal(text, index, "true", Kind.Bool)
+            else .{ Err: err } => return .{ Err: err };
+        return .{ Ok: CompactProgress.{ next: span.next, written: span.next - index } };
+    }
+    if (byte == b'f') {
+        let .{ Ok: span } = parse_literal(text, index, "false", Kind.Bool)
+            else .{ Err: err } => return .{ Err: err };
+        return .{ Ok: CompactProgress.{ next: span.next, written: span.next - index } };
+    }
+    if (byte == b'"') {
+        let .{ Ok: next } = parse_string_end(text, index)
+            else .{ Err: err } => return .{ Err: err };
+        return .{ Ok: CompactProgress.{ next: next, written: next - index } };
+    }
+    if (byte == b'[') {
+        let mut written = usize.{1};
+        let mut index2 = skip_ws(text, index + 1);
+        if (index2 >= #text) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        if (text.[index2] == b']') {
+            return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
+        }
+
+        for (;;) {
+            let .{ Ok: progress } = measure_compact_inner(text, index2)
+                else .{ Err: err } => return .{ Err: err };
+            written += progress.written;
+            index2 = skip_ws(text, progress.next);
+            if (index2 >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            if (text.[index2] == b',') {
+                written += 1;
+                index2 = skip_ws(text, index2 + 1);
+                if (index2 >= #text) {
+                    return .{ Err: ParseError.UnexpectedEof };
+                }
+                continue;
+            }
+            if (text.[index2] == b']') {
+                return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
+            }
+            return .{ Err: .{ MissingCommaOrEnd: index2 } };
+        }
+    }
+    if (byte == b'{') {
+        let mut written = usize.{1};
+        let mut index2 = skip_ws(text, index + 1);
+        if (index2 >= #text) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        if (text.[index2] == b'}') {
+            return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
+        }
+
+        for (;;) {
+            if (text.[index2] != b'"') {
+                return .{ Err: .{ UnexpectedByte: index2 } };
+            }
+            let .{ Ok: key_end } = parse_string_end(text, index2)
+                else .{ Err: err } => return .{ Err: err };
+            written += key_end - index2;
+            index2 = skip_ws(text, key_end);
+            if (index2 >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            if (text.[index2] != b':') {
+                return .{ Err: .{ MissingColon: index2 } };
+            }
+            written += 1;
+            index2 = skip_ws(text, index2 + 1);
+            if (index2 >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            let .{ Ok: value } = measure_compact_inner(text, index2)
+                else .{ Err: err } => return .{ Err: err };
+            written += value.written;
+            index2 = skip_ws(text, value.next);
+            if (index2 >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            if (text.[index2] == b',') {
+                written += 1;
+                index2 = skip_ws(text, index2 + 1);
+                if (index2 >= #text) {
+                    return .{ Err: ParseError.UnexpectedEof };
+                }
+                continue;
+            }
+            if (text.[index2] == b'}') {
+                return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
+            }
+            return .{ Err: .{ MissingCommaOrEnd: index2 } };
+        }
+    }
+
+    if (byte == b'-' or is_digit(byte)) {
+        let .{ Ok: next } = parse_number_end(text, index)
+            else .{ Err: err } => return .{ Err: err };
+        return .{ Ok: CompactProgress.{ next: next, written: next - index } };
+    }
+
+    return .{ Err: .{ UnexpectedByte: index } };
+}
+
+fn render_compact_inner_unchecked(
+    text: []u8,
+    start: usize,
+    out: []mut u8,
+    offset: usize,
+) CompactProgress!ParseError {
+    let index = skip_ws(text, start);
+    if (index >= #text) {
+        return .{ Err: ParseError.UnexpectedEof };
+    }
+
+    let byte = text.[index];
+    if (byte == b'n') {
+        let .{ Ok: span } = parse_literal(text, index, "null", Kind.Null)
+            else .{ Err: err } => return .{ Err: err };
+        let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
+        return .{ Ok: CompactProgress.{ next: span.next, written: written } };
+    }
+    if (byte == b't') {
+        let .{ Ok: span } = parse_literal(text, index, "true", Kind.Bool)
+            else .{ Err: err } => return .{ Err: err };
+        let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
+        return .{ Ok: CompactProgress.{ next: span.next, written: written } };
+    }
+    if (byte == b'f') {
+        let .{ Ok: span } = parse_literal(text, index, "false", Kind.Bool)
+            else .{ Err: err } => return .{ Err: err };
+        let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
+        return .{ Ok: CompactProgress.{ next: span.next, written: written } };
+    }
+    if (byte == b'"') {
+        let .{ Ok: next } = parse_string_end(text, index)
+            else .{ Err: err } => return .{ Err: err };
+        let written = write_bytes_unchecked(out, offset, text.[index .. next]);
+        return .{ Ok: CompactProgress.{ next: next, written: written } };
+    }
+    if (byte == b'[') {
+        let mut written = write_byte_unchecked(out, offset, b'[');
+        let mut index2 = skip_ws(text, index + 1);
+        if (index2 >= #text) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        if (text.[index2] == b']') {
+            written = write_byte_unchecked(out, written, b']');
+            return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
+        }
+
+        for (;;) {
+            let .{ Ok: progress } = render_compact_inner_unchecked(text, index2, out, written)
+                else .{ Err: err } => return .{ Err: err };
+            written = progress.written;
+            index2 = skip_ws(text, progress.next);
+            if (index2 >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            if (text.[index2] == b',') {
+                written = write_byte_unchecked(out, written, b',');
+                index2 = skip_ws(text, index2 + 1);
+                if (index2 >= #text) {
+                    return .{ Err: ParseError.UnexpectedEof };
+                }
+                continue;
+            }
+            if (text.[index2] == b']') {
+                written = write_byte_unchecked(out, written, b']');
+                return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
+            }
+            return .{ Err: .{ MissingCommaOrEnd: index2 } };
+        }
+    }
+    if (byte == b'{') {
+        let mut written = write_byte_unchecked(out, offset, b'{');
+        let mut index2 = skip_ws(text, index + 1);
+        if (index2 >= #text) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        if (text.[index2] == b'}') {
+            written = write_byte_unchecked(out, written, b'}');
+            return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
+        }
+
+        for (;;) {
+            if (text.[index2] != b'"') {
+                return .{ Err: .{ UnexpectedByte: index2 } };
+            }
+            let .{ Ok: key_end } = parse_string_end(text, index2)
+                else .{ Err: err } => return .{ Err: err };
+            written = write_bytes_unchecked(out, written, text.[index2 .. key_end]);
+            index2 = skip_ws(text, key_end);
+            if (index2 >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            if (text.[index2] != b':') {
+                return .{ Err: .{ MissingColon: index2 } };
+            }
+            written = write_byte_unchecked(out, written, b':');
+            index2 = skip_ws(text, index2 + 1);
+            if (index2 >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            let .{ Ok: value } = render_compact_inner_unchecked(text, index2, out, written)
+                else .{ Err: err } => return .{ Err: err };
+            written = value.written;
+            index2 = skip_ws(text, value.next);
+            if (index2 >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            if (text.[index2] == b',') {
+                written = write_byte_unchecked(out, written, b',');
+                index2 = skip_ws(text, index2 + 1);
+                if (index2 >= #text) {
+                    return .{ Err: ParseError.UnexpectedEof };
+                }
+                continue;
+            }
+            if (text.[index2] == b'}') {
+                written = write_byte_unchecked(out, written, b'}');
+                return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
+            }
+            return .{ Err: .{ MissingCommaOrEnd: index2 } };
+        }
+    }
+
+    if (byte == b'-' or is_digit(byte)) {
+        let .{ Ok: next } = parse_number_end(text, index)
+            else .{ Err: err } => return .{ Err: err };
+        let written = write_bytes_unchecked(out, offset, text.[index .. next]);
+        return .{ Ok: CompactProgress.{ next: next, written: written } };
+    }
+
+    return .{ Err: .{ UnexpectedByte: index } };
+}
+
+pub fn compact_size(value: Value) usize!ParseError {
+    let raw = value.raw;
+    let .{ Ok: progress } = measure_compact_inner(raw, 0)
+        else .{ Err: err } => return .{ Err: err };
+    let trailing = skip_ws(raw, progress.next);
+    if (trailing != #raw) {
+        return .{ Err: .{ TrailingData: trailing } };
+    }
+    return .{ Ok: progress.written };
+}
+
+pub fn render_compact(value: Value, out: []mut u8) usize!RenderError {
+    let .{ Ok: needed } = compact_size(value)
+        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+    if (needed > #out) {
+        return .{ Err: RenderError.BufferTooSmall };
+    }
+    let .{ Ok: progress } = render_compact_inner_unchecked(value.raw, 0, out, 0)
+        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+    return .{ Ok: progress.written };
+}
+
+pub fn compact_size_owned(value: *mut OwnedValue) usize {
+    return match (value.*) {
+        .Null => usize.{4},
+        .{ Bool: bool_value } => if (bool_value) usize.{4} else usize.{5},
+        .{ Number: text } => #text.&.as_str(),
+        .{ String: text } => compact_owned_string_size(text.&.as_str()),
+        .{ Array: array } => compact_owned_array_size(array.&),
+        .{ Object: object } => compact_owned_object_size(object.&),
+    };
+}
+
+pub fn render_compact_owned(value: *mut OwnedValue, out: []mut u8) usize!OwnedRenderError {
+    let needed = compact_size_owned(value);
+    if (needed > #out) {
+        return .{ Err: OwnedRenderError.BufferTooSmall };
+    }
+    return .{ Ok: render_owned_compact_inner_unchecked(value, out, 0) };
+}
+
+impl *mut OwnedValue {
+    pub fn compact_size() usize {
+        return compact_size_owned(self);
+    }
+
+    pub fn render_compact(out: []mut u8) usize!OwnedRenderError {
+        return render_compact_owned(self, out);
+    }
+}

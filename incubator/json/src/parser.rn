@@ -1,0 +1,460 @@
+use ..{
+    ErrorLocation,
+    Kind,
+    ParseError,
+    ParsedPrefix,
+    ParsedValue,
+    Value,
+};
+
+pub type ParsedSpan = struct {
+    pub kind: Kind,
+    pub next: usize,
+};
+
+#[inline(always)]
+fn first_non_digit_mask_bits(chunk: u8x16) usize {
+    let digit_mask =
+        (chunk >= @simdSplat[u8x16](b'0')) &
+        (chunk <= @simdSplat[u8x16](b'9'));
+    return @simdBitmask(!digit_mask);
+}
+
+#[inline(always)]
+pub fn skip_ws(text: []u8, start: usize) usize {
+    let len = #text;
+    let mut index = start;
+
+    if (index < len and len >= usize.{8}) {
+        let limit = len - usize.{8};
+        for (; index <= limit; ) {
+            let b0 = text.[index];
+            if (b0 != b' ' and b0 != b'\n' and b0 != b'\r' and b0 != b'\t') {
+                return index;
+            }
+
+            let b1 = text.[index + 1];
+            if (b1 != b' ' and b1 != b'\n' and b1 != b'\r' and b1 != b'\t') {
+                return index + 1;
+            }
+
+            let b2 = text.[index + 2];
+            if (b2 != b' ' and b2 != b'\n' and b2 != b'\r' and b2 != b'\t') {
+                return index + 2;
+            }
+
+            let b3 = text.[index + 3];
+            if (b3 != b' ' and b3 != b'\n' and b3 != b'\r' and b3 != b'\t') {
+                return index + 3;
+            }
+
+            let b4 = text.[index + 4];
+            if (b4 != b' ' and b4 != b'\n' and b4 != b'\r' and b4 != b'\t') {
+                return index + 4;
+            }
+
+            let b5 = text.[index + 5];
+            if (b5 != b' ' and b5 != b'\n' and b5 != b'\r' and b5 != b'\t') {
+                return index + 5;
+            }
+
+            let b6 = text.[index + 6];
+            if (b6 != b' ' and b6 != b'\n' and b6 != b'\r' and b6 != b'\t') {
+                return index + 6;
+            }
+
+            let b7 = text.[index + 7];
+            if (b7 != b' ' and b7 != b'\n' and b7 != b'\r' and b7 != b'\t') {
+                return index + 7;
+            }
+
+            index += 8;
+        }
+    }
+
+    for (; index < len; index += 1) {
+        let byte = text.[index];
+        if (byte != b' ' and byte != b'\n' and byte != b'\r' and byte != b'\t') {
+            break;
+        }
+    }
+
+    return index;
+}
+
+#[inline(always)]
+pub fn is_digit(byte: u8) bool {
+    return byte >= b'0' and byte <= b'9';
+}
+
+#[inline(always)]
+fn is_hex_digit(byte: u8) bool {
+    return (
+        (byte >= b'0' and byte <= b'9') or
+        (byte >= b'a' and byte <= b'f') or
+        (byte >= b'A' and byte <= b'F')
+    );
+}
+
+#[inline(always)]
+fn scan_digits(text: []u8, start: usize) usize {
+    let len = #text;
+    let mut index = start;
+
+    if (index < len and len >= usize.{16}) {
+        let limit = len - usize.{16};
+        for (; index <= limit; ) {
+            let chunk = @simdLoad[u8x16](text.[index].&, 1);
+            let non_digit_bits = first_non_digit_mask_bits(chunk);
+            if (non_digit_bits != usize.{0}) {
+                return index + @ctz(non_digit_bits);
+            }
+
+            index += 16;
+        }
+    }
+
+    for (; index < len; index += 1) {
+        let byte = text.[index];
+        if (byte < b'0' or byte > b'9') {
+            break;
+        }
+    }
+    return index;
+}
+
+pub fn slice_string_text(raw: []u8) []u8 {
+    if (#raw < 2) {
+        return "";
+    }
+    return raw.[1 .. #raw - 1];
+}
+
+pub fn parse_literal(
+    text: []u8,
+    start: usize,
+    literal: []u8,
+    kind: Kind,
+) ParsedSpan!ParseError {
+    if (start + #literal > #text) {
+        return .{ Err: ParseError.UnexpectedEof };
+    }
+    if (!text.[start .. start + #literal].eq(literal)) {
+        return .{ Err: .{ InvalidLiteral: start } };
+    }
+    return .{ Ok: ParsedSpan.{
+        kind: kind,
+        next: start + #literal,
+    } };
+}
+
+pub fn parse_string_end(text: []u8, start: usize) usize!ParseError {
+    let mut index = start + 1;
+    for (; index < #text; ) {
+        let byte = text.[index];
+        if (byte == b'"') {
+            return .{ Ok: index + 1 };
+        }
+        if (byte == b'\\') {
+            index += 1;
+            if (index >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            let esc = text.[index];
+            if (
+                esc == b'"' or
+                esc == b'\\' or
+                esc == b'/' or
+                esc == b'b' or
+                esc == b'f' or
+                esc == b'n' or
+                esc == b'r' or
+                esc == b't'
+            ) {
+                index += 1;
+                continue;
+            }
+            if (esc == b'u') {
+                if (index + 4 >= #text) {
+                    return .{ Err: ParseError.UnexpectedEof };
+                }
+                for (let mut i = index + 1; i < index + 5; i += 1) {
+                    if (!is_hex_digit(text.[i])) {
+                        return .{ Err: .{ InvalidEscape: index - 1 } };
+                    }
+                }
+                index += 5;
+                continue;
+            }
+            return .{ Err: .{ InvalidEscape: index - 1 } };
+        }
+        if (byte < u8.{0x20}) {
+            return .{ Err: .{ InvalidEscape: index } };
+        }
+        index += 1;
+    }
+    return .{ Err: .{ UnterminatedString: start } };
+}
+
+pub fn parse_number_end(text: []u8, start: usize) usize!ParseError {
+    let len = #text;
+    let mut index = start;
+    if (text.[index] == b'-') {
+        index += 1;
+        if (index >= len) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+    }
+
+    if (text.[index] == b'0') {
+        index += 1;
+        if (index < len and text.[index] >= b'0' and text.[index] <= b'9') {
+            return .{ Err: .{ InvalidNumber: index } };
+        }
+    } else {
+        let byte = text.[index];
+        if (byte < b'0' or byte > b'9') {
+            return .{ Err: .{ InvalidNumber: index } };
+        }
+        index = scan_digits(text, index);
+    }
+
+    if (index < len and text.[index] == b'.') {
+        index += 1;
+        if (index >= len) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        let byte = text.[index];
+        if (byte < b'0' or byte > b'9') {
+            return .{ Err: .{ InvalidNumber: index } };
+        }
+        index = scan_digits(text, index);
+    }
+
+    if (index < len and (text.[index] == b'e' or text.[index] == b'E')) {
+        index += 1;
+        if (index >= len) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        if (text.[index] == b'+' or text.[index] == b'-') {
+            index += 1;
+            if (index >= len) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+        }
+        let byte = text.[index];
+        if (byte < b'0' or byte > b'9') {
+            return .{ Err: .{ InvalidNumber: index } };
+        }
+        index = scan_digits(text, index);
+    }
+
+    return .{ Ok: index };
+}
+
+fn parse_array_end(text: []u8, start: usize) usize!ParseError {
+    let mut index = skip_ws(text, start + 1);
+    if (index >= #text) {
+        return .{ Err: ParseError.UnexpectedEof };
+    }
+    if (text.[index] == b']') {
+        return .{ Ok: index + 1 };
+    }
+
+    for (;;) {
+        let .{ Ok: span } = parse_value_span_from_value_start(text, index)
+            else .{ Err: err } => return .{ Err: err };
+        index = skip_ws(text, span.next);
+        if (index >= #text) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        if (text.[index] == b',') {
+            index = skip_ws(text, index + 1);
+            if (index >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            continue;
+        }
+        if (text.[index] == b']') {
+            return .{ Ok: index + 1 };
+        }
+        return .{ Err: .{ MissingCommaOrEnd: index } };
+    }
+}
+
+fn parse_object_end(text: []u8, start: usize) usize!ParseError {
+    let mut index = skip_ws(text, start + 1);
+    if (index >= #text) {
+        return .{ Err: ParseError.UnexpectedEof };
+    }
+    if (text.[index] == b'}') {
+        return .{ Ok: index + 1 };
+    }
+
+    for (;;) {
+        if (text.[index] != b'"') {
+            return .{ Err: .{ UnexpectedByte: index } };
+        }
+        let .{ Ok: next } = parse_string_end(text, index)
+            else .{ Err: err } => return .{ Err: err };
+        index = next;
+        index = skip_ws(text, index);
+        if (index >= #text) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        if (text.[index] != b':') {
+            return .{ Err: .{ MissingColon: index } };
+        }
+        index = skip_ws(text, index + 1);
+        if (index >= #text) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        let .{ Ok: value } = parse_value_span_from_value_start(text, index)
+            else .{ Err: err } => return .{ Err: err };
+        index = skip_ws(text, value.next);
+        if (index >= #text) {
+            return .{ Err: ParseError.UnexpectedEof };
+        }
+        if (text.[index] == b',') {
+            index = skip_ws(text, index + 1);
+            if (index >= #text) {
+                return .{ Err: ParseError.UnexpectedEof };
+            }
+            continue;
+        }
+        if (text.[index] == b'}') {
+            return .{ Ok: index + 1 };
+        }
+        return .{ Err: .{ MissingCommaOrEnd: index } };
+    }
+}
+
+pub fn parse_value_span_from_value_start(text: []u8, index: usize) ParsedSpan!ParseError {
+    if (index >= #text) {
+        return .{ Err: ParseError.UnexpectedEof };
+    }
+
+    return match (text.[index]) {
+        b'n' => parse_literal(text, index, "null", Kind.Null),
+        b't' => parse_literal(text, index, "true", Kind.Bool),
+        b'f' => parse_literal(text, index, "false", Kind.Bool),
+        b'"' => match (parse_string_end(text, index)) {
+            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.String, next: next } },
+            .{ Err: err } => .{ Err: err },
+        },
+        b'[' => match (parse_array_end(text, index)) {
+            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Array, next: next } },
+            .{ Err: err } => .{ Err: err },
+        },
+        b'{' => match (parse_object_end(text, index)) {
+            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Object, next: next } },
+            .{ Err: err } => .{ Err: err },
+        },
+        b'-' => match (parse_number_end(text, index)) {
+            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } },
+            .{ Err: err } => .{ Err: err },
+        },
+        _ => {
+            let byte = text.[index];
+            if (byte >= b'0' and byte <= b'9') {
+                return match (parse_number_end(text, index)) {
+                    .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } },
+                    .{ Err: err } => .{ Err: err },
+                };
+            }
+            return .{ Err: .{ UnexpectedByte: index } };
+        },
+    };
+}
+
+pub fn parse_value_span(text: []u8, start: usize) ParsedSpan!ParseError {
+    let index = skip_ws(text, start);
+    if (index >= #text) {
+        return if (start == 0) {
+            .{ Err: .EmptyInput }
+        } else {
+            .{ Err: ParseError.UnexpectedEof }
+        };
+    }
+    return parse_value_span_from_value_start(text, index);
+}
+
+pub fn validate(text: []u8) void!ParseError {
+    let .{ Ok: _ } = parse(text) else .{ Err: err } => return .{ Err: err };
+    return .{ Ok: {} };
+}
+
+pub fn parse_prefix(text: []u8) ParsedPrefix!ParseError {
+    let start = skip_ws(text, 0);
+    if (start >= #text) {
+        return .{ Err: .EmptyInput };
+    }
+    let .{ Ok: span } = parse_value_span_from_value_start(text, start)
+        else .{ Err: err } => return .{ Err: err };
+    return .{ Ok: ParsedPrefix.{
+        value: Value.{
+            kind: span.kind,
+            raw: text.[start .. span.next],
+        },
+        remaining: text.[span.next .. #text],
+    } };
+}
+
+pub fn parse_value(text: []u8) ParsedValue!ParseError {
+    return parse_prefix(text);
+}
+
+pub fn parse(text: []u8) Value!ParseError {
+    let .{ Ok: parsed } = parse_prefix(text)
+        else .{ Err: err } => return .{ Err: err };
+    let trailing = skip_ws(text, #text - #parsed.remaining);
+    if (trailing != #text) {
+        return .{ Err: .{ TrailingData: trailing } };
+    }
+    return .{ Ok: parsed.value };
+}
+
+pub fn error_offset(err: ParseError) ?usize {
+    return match (err) {
+        .EmptyInput => .{ Some: 0 },
+        .{ UnexpectedByte: offset } => .{ Some: offset },
+        .UnexpectedEof => .None,
+        .{ InvalidLiteral: offset } => .{ Some: offset },
+        .{ InvalidNumber: offset } => .{ Some: offset },
+        .{ InvalidEscape: offset } => .{ Some: offset },
+        .{ UnterminatedString: offset } => .{ Some: offset },
+        .{ MissingColon: offset } => .{ Some: offset },
+        .{ MissingCommaOrEnd: offset } => .{ Some: offset },
+        .{ TrailingData: offset } => .{ Some: offset },
+    };
+}
+
+pub fn locate_error(text: []u8, err: ParseError) ?ErrorLocation {
+    let offset =
+        match (err) {
+            .UnexpectedEof => #text,
+            _ => match (error_offset(err)) {
+                .{ Some: value } => value,
+                .None => return .None,
+            },
+        };
+    if (offset > #text) {
+        return .None;
+    }
+
+    let mut line = usize.{1};
+    let mut column = usize.{1};
+    for (let mut i = usize.{0}; i < offset; i += 1) {
+        if (text.[i] == b'\n') {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    return .{ Some: ErrorLocation.{
+        offset: offset,
+        line: line,
+        column: column,
+    } };
+}

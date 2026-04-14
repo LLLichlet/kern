@@ -1,7 +1,7 @@
 //! Message, diagnostics, and fail-fast helpers.
 //!
-//! This module defines the runtime-facing helpers used for assertions, traps,
-//! and lightweight diagnostic output.
+//! This module defines runtime-facing diagnostics and fail-fast helpers.
+//! Test assertions live in `std.test`.
 
 mod runtime;
-pub use .runtime.{write, fail, trap, panic, assert, log, debug};
+pub use .runtime.{fail, panic, log, debug};

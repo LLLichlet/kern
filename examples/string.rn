@@ -18,7 +18,9 @@ fn main() i32 {
     
     io.println("Message: {}", .{ greeting, });
     
-    msg.assert(greeting == "Hello, Kern World!", "unexpected greeting contents", .{});
+    if (!(greeting == "Hello, Kern World!")) {
+        msg.panic("unexpected greeting contents", .{});
+    }
     io.println("Match successful!", .{});
 
     0

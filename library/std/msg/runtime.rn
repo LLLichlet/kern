@@ -5,7 +5,7 @@
 
 use std.io.{Printable, Writer, format_to, stderr};
 
-pub fn write(prefix: []u8, fmt: []u8, args: []*Printable) void {
+fn write_line(prefix: []u8, fmt: []u8, args: []*Printable) void {
     let mut err_file = stderr();
     let writer = *mut Writer.{ err_file..& };
     let _ = writer.write(prefix);
@@ -15,15 +15,7 @@ pub fn write(prefix: []u8, fmt: []u8, args: []*Printable) void {
 
 /// Prints one formatted diagnostic and traps.
 pub fn fail(prefix: []u8, fmt: []u8, args: []*Printable) ! {
-    write(prefix, fmt, args);
-    trap();
-}
-
-/// Triggers a non-recoverable trap.
-///
-/// Safety:
-/// this function does not return and immediately aborts execution.
-pub fn trap() ! {
+    write_line(prefix, fmt, args);
     @trap();
 }
 
@@ -39,20 +31,6 @@ pub fn panic(fmt: []u8, args: []*Printable) ! {
     fail("panic: ", fmt, args);
 }
 
-/// Traps when `ok` is false after printing a diagnostic message.
-///
-/// `assert` is for internal invariants. Recoverable conditions should be
-/// modeled with `Result` or `Option` instead.
-///
-/// Note:
-/// formatting arguments are passed as `.{ value, }`. Single-element lists still
-/// require the trailing comma.
-pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
-    if (!ok) {
-        fail("assertion failed: ", fmt, args);
-    }
-}
-
 /// Writes a log line to standard error.
 ///
 /// This is a lightweight diagnostic channel intended for ad hoc runtime output.
@@ -61,7 +39,7 @@ pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
 pub fn log(fmt: []u8, args: []*Printable) void {
-    write("log: ", fmt, args);
+    write_line("log: ", fmt, args);
 }
 
 /// Writes a debug line to standard error.
@@ -73,5 +51,5 @@ pub fn log(fmt: []u8, args: []*Printable) void {
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
 pub fn debug(fmt: []u8, args: []*Printable) void {
-    write("debug: ", fmt, args);
+    write_line("debug: ", fmt, args);
 }

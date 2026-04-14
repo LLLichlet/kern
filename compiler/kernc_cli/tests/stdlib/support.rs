@@ -10,7 +10,6 @@ use std.msg;
 fn main() i32 {
     msg.log("boot {}", .{ 1, });
     msg.debug("trace {}", .{ "ok", });
-    msg.assert(true, "should not fail {}", .{ 7, });
     return 0;
 }
 "#,
@@ -42,14 +41,14 @@ fn main() i32 {
 }
 
 #[test]
-fn msg_assert_failure_aborts_with_message() {
+fn msg_panic_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
-        "kernc_std_msg_assert_fail",
+        "kernc_std_msg_panic_fail",
         r#"
 use std.msg;
 
 fn main() i32 {
-    msg.assert(false, "boom {}", .{ 42, });
+    msg.panic("boom {}", .{ 42, });
     return 0;
 }
 "#,
@@ -59,14 +58,14 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         !run_output.status.success(),
-        "expected msg.assert(false, ...) to abort:\nstdout:\n{}\nstderr:\n{}",
+        "expected msg.panic(...) to abort:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
 
     let stderr = String::from_utf8_lossy(&run_output.stderr);
     assert!(
-        stderr.contains("assertion failed: boom 42"),
+        stderr.contains("panic: boom 42"),
         "unexpected stderr:\n{}",
         stderr
     );

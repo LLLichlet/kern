@@ -136,7 +136,7 @@ impl<'a> Parser<'a> {
         start_span: kernc_utils::Span,
     ) -> ParseResult<TypeNode> {
         let is_mut = self.match_token(&[TokenType::Mut]);
-        let elem = self.parse_type()?;
+        let elem = self.parse_prefixed_type()?;
 
         Ok(TypeNode {
             id: self.new_id(),
@@ -153,7 +153,7 @@ impl<'a> Parser<'a> {
         start_span: kernc_utils::Span,
     ) -> ParseResult<TypeNode> {
         let is_mut = self.match_token(&[TokenType::Mut]);
-        let elem = self.parse_type()?;
+        let elem = self.parse_prefixed_type()?;
 
         Ok(TypeNode {
             id: self.new_id(),
@@ -173,7 +173,7 @@ impl<'a> Parser<'a> {
         // Form A: slice types, `[]T` or `[]mut T`.
         if self.match_token(&[TokenType::RBracket]) {
             let is_mut = self.match_token(&[TokenType::Mut]);
-            let elem = self.parse_type()?;
+            let elem = self.parse_prefixed_type()?;
             Ok(TypeNode {
                 id: self.new_id(),
                 span: start_span.to(elem.span),
@@ -187,7 +187,7 @@ impl<'a> Parser<'a> {
         else if self.match_token(&[TokenType::Underscore]) {
             self.expect(TokenType::RBracket)?;
             let is_mut = self.match_token(&[TokenType::Mut]);
-            let elem = self.parse_type()?;
+            let elem = self.parse_prefixed_type()?;
             Ok(TypeNode {
                 id: self.new_id(),
                 span: start_span.to(elem.span),
@@ -202,7 +202,7 @@ impl<'a> Parser<'a> {
             let len_expr = self.parse_expression(Precedence::Lowest)?;
             self.expect(TokenType::RBracket)?;
             let is_mut = self.match_token(&[TokenType::Mut]);
-            let elem = self.parse_type()?;
+            let elem = self.parse_prefixed_type()?;
 
             Ok(TypeNode {
                 id: self.new_id(),

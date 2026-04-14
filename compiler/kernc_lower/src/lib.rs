@@ -815,6 +815,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     self.track_pure_enum_repr_in_type(field.ty);
                 }
             }
+            TypeKind::AnonymousEnum(_) => {
+                self.instantiate_anon_enum(norm_ty);
+            }
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let enum_ty = self.ctx.type_registry.normalize(enum_ty);
+                self.instantiate_anon_enum(enum_ty);
+            }
             _ => {}
         }
     }

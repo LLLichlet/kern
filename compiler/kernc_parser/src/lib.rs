@@ -692,4 +692,51 @@ type B = ?(i32![]u8);
         };
         assert!(matches!(inner.kind, ast::TypeKind::Result { .. }));
     }
+
+    #[test]
+    fn pointer_and_array_like_types_bind_tighter_than_result() {
+        let source = r#"
+type Ptr = *mut i32![]u8;
+type Slice = []u8!i32;
+type Array = [4]i32!bool;
+type Grouped = *mut (i32![]u8);
+"#;
+
+        let (_session, module) = parse_module(source);
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[0].kind else {
+            panic!("expected pointer type alias");
+        };
+        let ast::TypeKind::Result { ok, err } = &target.kind else {
+            panic!("expected pointer result type");
+        };
+        assert!(matches!(ok.kind, ast::TypeKind::Pointer { .. }));
+        assert!(matches!(err.kind, ast::TypeKind::Slice { .. }));
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[1].kind else {
+            panic!("expected slice type alias");
+        };
+        let ast::TypeKind::Result { ok, err } = &target.kind else {
+            panic!("expected slice result type");
+        };
+        assert!(matches!(ok.kind, ast::TypeKind::Slice { .. }));
+        assert!(matches!(err.kind, ast::TypeKind::Path { .. }));
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[2].kind else {
+            panic!("expected array type alias");
+        };
+        let ast::TypeKind::Result { ok, err } = &target.kind else {
+            panic!("expected array result type");
+        };
+        assert!(matches!(ok.kind, ast::TypeKind::Array { .. }));
+        assert!(matches!(err.kind, ast::TypeKind::Path { .. }));
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[3].kind else {
+            panic!("expected grouped type alias");
+        };
+        let ast::TypeKind::Pointer { elem, .. } = &target.kind else {
+            panic!("expected grouped pointer type");
+        };
+        assert!(matches!(elem.kind, ast::TypeKind::Result { .. }));
+    }
 }

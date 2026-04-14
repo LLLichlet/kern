@@ -742,3 +742,52 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn runs_hosted_program_using_option_result_bridge_helpers() {
+    let output = build_and_run_hosted(
+        r#"
+
+fn main() i32 {
+    let some = ?i32.{ Some: 7 };
+    let ok = match (some.ok_or(11)) {
+        .{ Ok: value } => value,
+        .{ Err: _ } => return 1,
+    };
+    if (ok != 7) {
+        return 2;
+    }
+
+    let mut seen = 0;
+    let none = ?i32.None;
+    let err = match (none.ok_or_else(.[seen = seen..&]() i32 {
+        seen.* += 1;
+        return 23;
+    })) {
+        .{ Ok: _ } => return 3,
+        .{ Err: value } => value,
+    };
+    if (err != 23 or seen != 1) {
+        return 4;
+    }
+
+    let eager = match (none.ok_or(31)) {
+        .{ Ok: _ } => return 5,
+        .{ Err: value } => value,
+    };
+    if (eager != 31) {
+        return 6;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

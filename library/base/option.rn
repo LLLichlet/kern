@@ -57,6 +57,22 @@ impl[T] ?T {
         }
     }
 
+    /// Converts `Some(T)` into `Ok(T)` and maps `None` to `Err(err)`.
+    pub fn ok_or[E](err: E) T!E {
+        match (self) {
+            .{ Some: a } => .{ Ok: a },
+            .None => .{ Err: err },
+        }
+    }
+
+    /// Lazily computes the error when the option is empty.
+    pub fn ok_or_else[E](call_back: *Fn() E) T!E {
+        match (self) {
+            .{ Some: a } => .{ Ok: a },
+            .None => .{ Err: call_back() },
+        }
+    }
+
     /// Chains another optional computation after `Some(T)`.
     pub fn and_then[U](call_back: *Fn(T) ?U) ?U {
         match (self) {

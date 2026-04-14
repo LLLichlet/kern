@@ -7,7 +7,7 @@ JSON-RPC over stdio and reuses the compiler workspace for language semantics.
 
 ## Design Goals
 
-- Keep the implementation small, explicit, and easy to port into future Kern tooling.
+- Keep the implementation small, explicit, and easy to reuse in other Kern tooling.
 - Reuse `kernc_*` crates instead of rebuilding a second frontend in another language.
 - Avoid protocol/framework-heavy dependencies.
 - Prefer solid editor interoperability over a large but shallow feature surface.

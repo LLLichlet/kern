@@ -153,7 +153,7 @@ This is intentional. `craft` is not a compiler pass. It is a top-level toolchain
 It stays readable and sufficient for ordinary packages. Most packages do not
 need either script file.
 
-The current schema direction includes:
+The current schema includes:
 
 - `[package]`
 - `[craft]`

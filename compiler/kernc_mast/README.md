@@ -39,7 +39,7 @@ That separation keeps MAST focused and avoids turning it into a catch-all IR.
 
 ## Position In The Pipeline
 
-The intended pipeline shape is:
+The current pipeline shape is:
 
 1. AST
 2. semantic resolution

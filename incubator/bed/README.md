@@ -10,7 +10,7 @@ and instead tracks the shape of a lightweight `nvim` core:
 - a terminal screen renderer with ANSI cursor control
 - a bottom command line for `:q`, `:q!`, `:w`, `:wq`, `:e`, and `:w <path>`
 
-Explicit non-goals for this stage:
+Explicit non-goals for the current package:
 
 - Lua support
 - plugin/config runtimes
@@ -18,6 +18,5 @@ Explicit non-goals for this stage:
 - multi-window and split management
 - full Vim command language coverage
 
-The near-term objective is to harden a small but correct editor loop whose
-module boundaries line up with a future Kern-native reimplementation of more of
-Neovim's core subsystems.
+The package currently focuses on a small but correct editor loop with module
+boundaries that mirror the pieces it already implements.

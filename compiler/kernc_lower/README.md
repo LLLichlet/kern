@@ -7,7 +7,7 @@ lowering/codegen side of the pipeline.
 
 ## Role In The Architecture
 
-The intended split across crates is:
+The current split across crates is:
 
 - `kernc_driver`: orchestration, incremental analysis, `Flow`
 - `kernc_lower`: lowering from semantic world into MAST
@@ -46,8 +46,7 @@ This architecture allows the compiler to:
 ## Relationship To Reachability
 
 `kernc_lower` already consumes reachability information from the driver to avoid
-lowering dead private module-owned items. This is an example of the intended
-contract:
+lowering dead private module-owned items. This is the current contract:
 
 - analysis computes facts in `Flow`
 - lowering consumes those facts

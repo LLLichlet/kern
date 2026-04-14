@@ -257,7 +257,7 @@ At the driver level:
 - `kernc` decides whether to compile, link, or do both.
 - Linker inputs, library paths, libraries, entry symbols, and raw linker arguments are all explicit CLI configuration.
 
-This split is intentional. Symbol shape belongs to the language and semantic pipeline. Final artifact composition belongs to the driver and, eventually, to higher-level tooling.
+This split is intentional. Symbol shape belongs to the language and semantic pipeline. Final artifact composition belongs to the driver and to higher-level tooling that drives it.
 
 ## Explicit Linker Configuration
 

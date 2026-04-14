@@ -48,7 +48,7 @@ This makes `Flow` a Kern-specific analysis IR.
 
 ## `Flow` vs MAST
 
-The intended split is:
+The current split is:
 
 - `Flow`: analysis-oriented, query-driven, incremental-friendly
 - `MAST`: lowering-oriented, monomorphized, codegen-friendly
@@ -126,12 +126,12 @@ analysis stays explicit, close to the incremental engine, and easy to evolve.
 
 ## Current Direction
 
-The long-term expectation is:
+The repository currently uses this division of labor:
 
-- keep strengthening `Flow` as Kern's source-near analysis IR
-- keep MIR as Kern's transform-oriented mid-level IR
-- keep MAST focused on backend-oriented lowering and code generation
-- let lowering and MIR construction consume explicit `Flow`-derived facts instead
-  of rebuilding dataflow logic locally
-- move serious mid-level optimization ownership into MIR without collapsing
-  `Flow` and `MAST` into one compromise layer
+- `Flow` is Kern's source-near analysis IR
+- MIR is Kern's transform-oriented mid-level IR
+- MAST stays focused on backend-oriented lowering and code generation
+- lowering and MIR construction consume explicit `Flow`-derived facts instead of
+  rebuilding dataflow logic locally
+- mid-level optimization work belongs in MIR rather than collapsing `Flow` and
+  `MAST` into one compromise layer

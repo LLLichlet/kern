@@ -5,9 +5,7 @@ monomorphized lowering and backend-oriented code generation.
 
 ## Current Scope
 
-This first implementation is intentionally incremental.
-
-Today it provides:
+The current MIR layer provides:
 
 - a dedicated MIR crate and public IR data structures
 - explicit basic blocks and terminators
@@ -19,7 +17,7 @@ Today it provides:
 - a default MIR pass pipeline with compiler-owned local copy propagation,
   jump threading, branch folding, and unreachable-block pruning
 - a built-in verifier that rejects invalid block/local/place references
-- workload statistics suitable for compiler reporting and future optimization work
+- workload statistics suitable for compiler reporting and optimization work
 
 Lowering from MAST into MIR lives in `kernc_mir_lower`.
 MIR itself does not carry opaque source-level fallback expressions.
@@ -32,7 +30,7 @@ MAST or LLVM.
 
 ## Position In The Pipeline
 
-The intended long-term shape is:
+The current pipeline shape is:
 
 1. AST
 2. semantic analysis
@@ -41,18 +39,18 @@ The intended long-term shape is:
 5. MIR construction and optimization
 6. backend-oriented lowering/codegen
 
-MIR is still derived from MAST today, but the boundary is explicit:
+MIR is derived from MAST today, but the boundary is explicit:
 `kernc_mir` owns MIR itself, and `kernc_mir_lower` owns the source-to-MIR
 translation policy.
 
 ## Design Principle
 
-MIR should own:
+MIR currently owns:
 
 - CFG structure
 - transform-friendly function bodies
 - mid-level inlining and simplification
-- future cross-CGU summaries
+- MIR-local optimization and verification
 
 MAST should remain focused on:
 
@@ -61,4 +59,5 @@ MAST should remain focused on:
 - predictable code generation
 
 That split keeps the optimization story healthy and gives Kern a proper home for
-whole-program and ThinLTO-oriented work later.
+whole-program and ThinLTO-oriented work without forcing those concerns back into
+MAST or LLVM glue code.

@@ -31,7 +31,7 @@ fn write_minimal_bin_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -51,7 +51,7 @@ fn write_bin_and_test_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -75,7 +75,7 @@ fn write_bin_and_example_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -108,7 +108,7 @@ fn write_workspace_with_member_test_package(root: &std::path::Path) -> PathBuf {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [test]
 roots = ["tests/smoke.rn"]
@@ -598,7 +598,7 @@ fn summarize_source_security_respects_allowlists_and_warn_mode() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [craft]
 release-source-policy = "warn"
@@ -931,7 +931,7 @@ fn build_command_uses_workspace_root_outputs_for_member_paths() {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "member"
@@ -971,7 +971,7 @@ fn build_command_member_path_does_not_build_workspace_root_package() {
 [package]
 name = "rootpkg"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "rootpkg"
@@ -989,7 +989,7 @@ members = ["member"]
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "member"
@@ -1032,7 +1032,7 @@ fn publish_requires_current_release_lock_and_metadata() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 description = "Demo package"
 license = "MIT"
 authors = ["Demo <demo@example.com>"]
@@ -1110,7 +1110,7 @@ repository = "https://example.com/workspace"
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "member"

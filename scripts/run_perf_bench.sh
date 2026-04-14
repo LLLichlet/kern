@@ -32,7 +32,7 @@ prepare_hello_project() {
 [package]
 name = "hello-bench"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [profile.release]
 opt = 3

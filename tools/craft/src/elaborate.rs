@@ -501,7 +501,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -516,7 +516,7 @@ kern = "0.6.7"
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -586,7 +586,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [dependencies]
 log = { git = "https://example.com/log.git", tag = "v1" }
@@ -650,7 +650,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -694,7 +694,7 @@ kern = "0.6.7"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -749,7 +749,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -816,7 +816,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [craft]
 env = ["{env_name}"]
@@ -888,7 +888,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [craft]
 env = ["{env_name}"]
@@ -951,7 +951,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -1002,7 +1002,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [features]
 default = ["tls"]
@@ -1061,7 +1061,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [features]
 default = ["missing"]
@@ -1100,7 +1100,7 @@ default = ["missing"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [lib]
 root = "src/lib.rn"

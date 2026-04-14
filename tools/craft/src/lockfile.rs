@@ -199,7 +199,7 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [craft]
 env = ["{env_name}"]
@@ -237,7 +237,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -308,7 +308,7 @@ shared = { git = "https://example.com/shared.git", tag = "v2", version = "2" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [dependencies]
 shared = { workspace = true }
@@ -357,7 +357,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -403,7 +403,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -433,7 +433,7 @@ kern = "0.6.7"
 [package]
 name = "app"
 version = "0.2.0"
-kern = "0.6.7"
+kern = "0.7.0"
 "#,
         )
         .unwrap();
@@ -478,7 +478,7 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [dependencies]
 shared = { workspace = true }
@@ -565,7 +565,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [craft]
 env = ["{env_name}"]
@@ -636,7 +636,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "app"
 version = "0.2.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [craft]
 env = ["{env_name}"]

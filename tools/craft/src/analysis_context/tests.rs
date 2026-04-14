@@ -51,7 +51,7 @@ fn syncs_and_loads_current_analysis_context() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.6.7\"
+kern = \"0.7.0\"
 
 [features]
 experimental = []
@@ -146,7 +146,7 @@ fn stale_manifest_digest_invalidates_analysis_context() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.6.7\"
+kern = \"0.7.0\"
 
 [[bin]]
 name = \"app\"
@@ -184,7 +184,7 @@ root = \"src/main.rn\"
 [package]
 name = \"app\"
 version = \"0.1.1\"
-kern = \"0.6.7\"
+kern = \"0.7.0\"
 
 [[bin]]
 name = \"app\"

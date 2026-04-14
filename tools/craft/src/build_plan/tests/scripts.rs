@@ -10,7 +10,7 @@ fn applies_build_script_link_directives_per_unit() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [features]
 default = ["simd"]
@@ -154,7 +154,7 @@ fn build_script_can_generate_sources_and_mutate_unit_cfg_define() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -238,7 +238,7 @@ fn build_script_can_copy_package_files_into_generated_root() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -314,7 +314,7 @@ fn build_script_can_model_explicit_staged_dependencies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -385,7 +385,7 @@ fn build_script_can_stage_post_link_artifact_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -458,7 +458,7 @@ fn build_script_can_stage_post_link_directory_copies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -534,7 +534,7 @@ fn build_script_receives_host_target_and_domain_context() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"

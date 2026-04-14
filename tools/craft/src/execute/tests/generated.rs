@@ -10,7 +10,7 @@ fn builds_and_runs_hosted_package_with_generated_source_from_build_script() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -70,7 +70,7 @@ fn builds_and_runs_hosted_package_with_copied_generated_source_from_build_script
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -132,7 +132,7 @@ fn builds_and_runs_hosted_package_with_post_link_artifact_stage_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -209,7 +209,7 @@ fn builds_and_runs_hosted_package_with_post_link_directory_stage_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "demo"
@@ -309,7 +309,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "app"
@@ -339,7 +339,7 @@ b.define_string("tool_path", b.tool_path("codegen", "codegen"));
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "codegen"
@@ -412,7 +412,7 @@ fn builds_and_runs_hosted_package_with_explicit_staged_dependencies() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "app"
@@ -476,7 +476,7 @@ fn builds_and_runs_hosted_package_with_generated_source_from_external_host_tool(
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "app"
@@ -505,7 +505,7 @@ b.set_source_root(generated);
 [package]
 name = "codegen"
 version = "1"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "codegen"

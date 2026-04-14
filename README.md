@@ -2,7 +2,7 @@
 
 ![Kern logo](./logo.svg)
 
-> **Status:** v0.6.7 (Experimental)
+> **Status:** v0.7.0 (Experimental)
 > *High Abstraction, Low Policy.*
 
 Kern is a systems-level programming language explicitly designed for operating system kernels, embedded firmware, and high-performance infrastructure.
@@ -42,7 +42,7 @@ Kern ships four explicit public library layers:
 Hosted support is an OS concern, not a C concern: `std` remains ordinary Kern code layered on `base` plus `sys`, while libc stays an optional external runtime/provider choice rather than a foundation for `std`.
 Freestanding in Kern is therefore libc-free in the strong sense: `std` can remain fully usable without libc, `sys` owns the hosted OS boundary, and `rt` owns startup glue.
 
-## A Taste of Kern (v0.6.7)
+## A Taste of Kern (v0.7.0)
 
 Kern elegantly combines low-level hardware control with high-level expression. The following example demonstrates explicit storage mutability, structured inline assembly, exhaustive pattern matching, and the elided initialization syntax.
 

@@ -252,6 +252,7 @@ pub(super) fn build_std_package(
             command,
             driver_families,
             execution_summary,
+            &built_sys,
         )?)
     };
     let hosted_rt_entry_object_path = if command == crate::script::ScriptCommand::Check {
@@ -429,6 +430,7 @@ pub(super) fn build_rt_package(
     command: crate::script::ScriptCommand,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
+    built_sys: &BuiltLibraryPackage,
 ) -> Result<BuiltLibraryPackage> {
     let rt_root = resolve_rt_path();
     let source_path = rt_root.join("init.rn");
@@ -470,11 +472,16 @@ pub(super) fn build_rt_package(
     options
         .module_aliases
         .insert("rt".to_string(), rt_root.to_string_lossy().to_string());
+    extend_interface_aliases(&mut options, &built_sys.interface_aliases);
+    options.module_interface_aliases.insert(
+        "sys".to_string(),
+        built_sys.metadata_root_path.to_string_lossy().to_string(),
+    );
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let rt_fingerprint = build_fingerprint(&[
-        "rt_runtime_layout=v1".to_string(),
+        "rt_runtime_layout=v2".to_string(),
         "kind=compile-rt".to_string(),
         format!("toolchain={toolchain_digest}"),
         format!("driver_mode={}", options.driver_mode.as_str()),
@@ -494,6 +501,8 @@ pub(super) fn build_rt_package(
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
+        format!("sys_meta={}", built_sys.metadata_root_path.display()),
+        format!("sys_obj={}", built_sys.object_path.display()),
         "split_sections_for_gc=true".to_string(),
     ]);
     let rt_label = rt_compile_action_label(&runtime_profile_label(profile), &options);

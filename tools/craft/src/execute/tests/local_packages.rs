@@ -9,7 +9,7 @@ fn release_build_dead_strips_unused_std_sections() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "hello"
@@ -116,7 +116,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "app"
@@ -147,7 +147,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [lib]
 root = "src/lib.rn"
@@ -229,7 +229,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "app"
@@ -260,7 +260,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [lib]
 root = "src/lib.rn"
@@ -318,7 +318,7 @@ fn builds_library_package_with_runtime_section_without_requiring_main() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [runtime]
 entry = "rt"
@@ -383,7 +383,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [[bin]]
 name = "app"
@@ -414,7 +414,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.7"
+kern = "0.7.0"
 
 [lib]
 root = "src/lib.rn"

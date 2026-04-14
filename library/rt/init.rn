@@ -1,6 +1,7 @@
 //! The `rt` root is the toolchain-owned runtime companion layer.
 //!
-//! It stays intentionally small:
+//! Note:
+//! it stays intentionally small.
 //!
 //! - `entry` provides process-entry shims and the call into
 //!   `__kern_main_adapter`

@@ -7,11 +7,11 @@ use base.cmp.Ord;
 use base.mem.non_null_mut_ptr_from_addr;
 
 /// The minimum branching factor of the tree.
-pub const MIN_DEGREE = usize.{8};
+pub const MIN_DEGREE = 8;
 /// The maximum number of keys stored in one node.
-pub const MAX_KEYS = usize.{15};
+pub const MAX_KEYS = 15;
 /// The maximum number of child pointers stored in one node.
-pub const MAX_CHILDREN = usize.{16};
+pub const MAX_CHILDREN = 16;
 
 /// A B-tree node.
 pub type Node[K, V] = struct {

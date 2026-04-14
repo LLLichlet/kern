@@ -12,10 +12,10 @@ use base.mem.alloc.Allocator;
 pub type Page = struct {};
 
 #[if(os == "windows")]
-const WINDOWS_PAGE_READWRITE = u32.{4};
+const WINDOWS_PAGE_READWRITE = 4;
 
 fn normalize_align(align: usize) usize {
-    return if (align == 0) usize.{1} else align;
+    return if (align == 0) 1 else align;
 }
 
 fn dangling_ptr(align: usize) *mut u8 {

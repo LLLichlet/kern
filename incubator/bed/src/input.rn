@@ -87,7 +87,7 @@ fn read_escape_sequence(stdin: *mut fs.File) Key!fs.Error {
         let .{ Some: next_byte } = next else return .{ Ok: .Escape };
 
         if (next_byte >= b'0' and next_byte <= b'9') {
-            param = param * usize.{10} + (next_byte - b'0') as usize;
+            param = param * 10 + (next_byte - b'0') as usize;
             continue;
         }
 
@@ -114,16 +114,16 @@ fn read_escape_sequence(stdin: *mut fs.File) Key!fs.Error {
 pub fn read_key(stdin: *mut fs.File) Key!fs.Error {
     let first = read_optional_byte(stdin).!;
     let .{ Some: byte } = first else return .{ Ok: .NoInput };
-    if (byte == u8.{3}) {
+    if (byte == 3) {
         return .{ Ok: .CtrlC };
     }
     if (byte == b'\r' or byte == b'\n') {
         return .{ Ok: .Enter };
     }
-    if (byte == u8.{127} or byte == u8.{8}) {
+    if (byte == 127 or byte == 8) {
         return .{ Ok: .Backspace };
     }
-    if (byte != u8.{27}) {
+    if (byte != 27) {
         return .{ Ok: .{ Byte: byte } };
     }
     return read_escape_sequence(stdin);

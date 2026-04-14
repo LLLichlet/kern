@@ -55,12 +55,12 @@ fn gpa_max_usize(lhs: usize, rhs: usize) usize {
 }
 
 fn gpa_normalize_align(align: usize) usize {
-    return if (align == 0) usize.{1} else align;
+    return if (align == 0) 1 else align;
 }
 
 fn gpa_align_up(value: usize, align: usize) usize {
     let align = gpa_normalize_align(align);
-    let mask = align - usize.{1};
+    let mask = align - 1;
     return (value + mask) & ~mask;
 }
 
@@ -77,7 +77,7 @@ fn gpa_request_align(layout: Layout) usize {
 }
 
 fn gpa_allocation_size(layout: Layout) usize {
-    return if (layout.size == 0) usize.{1} else layout.size;
+    return if (layout.size == 0) 1 else layout.size;
 }
 
 fn gpa_required_block_size(layout: Layout) usize {

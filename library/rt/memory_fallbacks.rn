@@ -75,10 +75,10 @@ fn copy_backward_words(dest_addr: usize, src_addr: usize, len: usize) void {
 #[inline]
 fn fill_word(byte: u8) usize {
     let mut out = byte as usize;
-    let word_bits = WORD_BYTES * usize.{8};
+    let word_bits = WORD_BYTES * 8;
     let mut shift = 8;
 
-    for (; shift < word_bits; shift *= usize.{2}) {
+    for (; shift < word_bits; shift *= 2) {
         out |= out << shift;
     }
 

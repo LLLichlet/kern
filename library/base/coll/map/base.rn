@@ -13,7 +13,7 @@ pub const DELETED = u8.{1};
 /// Control byte for an occupied slot.
 pub const FULL = u8.{2};
 /// The minimum table capacity.
-pub const MIN_CAPACITY = usize.{8};
+pub const MIN_CAPACITY = 8;
 
 /// A single occupied hash-map slot.
 pub type Entry[K, V] = struct {

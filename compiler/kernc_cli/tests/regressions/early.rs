@@ -152,8 +152,8 @@ fn hot_add(lhs: i32, rhs: i32) i32 {
     return lhs + rhs;
 }
 
-#[inline_always]
-fn forced_add(lhs: i32, rhs: i32) i32 {
+#[noinline]
+fn cold_add(lhs: i32, rhs: i32) i32 {
     if (lhs > rhs) {
         return lhs - rhs;
     }
@@ -163,13 +163,8 @@ fn forced_add(lhs: i32, rhs: i32) i32 {
     return 0;
 }
 
-#[noinline]
-fn cold_add(lhs: i32, rhs: i32) i32 {
-    return lhs + rhs;
-}
-
 fn main() i32 {
-    return hot_add(1, 2) + forced_add(3, 4) + cold_add(5, 6);
+    return hot_add(1, 2) + cold_add(3, 4);
 }
 "#;
 
@@ -178,19 +173,82 @@ fn main() i32 {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("inlinehint"),
-        "expected inlinehint in LLVM IR, got:\n{}",
-        stdout
-    );
-    assert!(
         stdout.contains("alwaysinline"),
-        "expected alwaysinline in LLVM IR for #[inline_always], got:\n{}",
+        "expected alwaysinline in LLVM IR for #[inline], got:\n{}",
         stdout
     );
     assert!(
         stdout.contains("noinline"),
         "expected noinline in LLVM IR, got:\n{}",
         stdout
+    );
+}
+
+#[test]
+fn rejects_removed_inline_always_attribute() {
+    let source = r#"
+#[inline_always]
+fn hot_add(lhs: i32, rhs: i32) i32 {
+    return lhs + rhs;
+}
+
+fn main() i32 {
+    return hot_add(1, 2);
+}
+"#;
+
+    let output = compile_source(source);
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted removed #[inline_always]:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("`#[inline_always]` is not supported"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("use `#[inline]` for forced inlining"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_removed_inline_call_attribute_form() {
+    let source = r#"
+#[inline(always)]
+fn hot_add(lhs: i32, rhs: i32) i32 {
+    return lhs + rhs;
+}
+
+fn main() i32 {
+    return hot_add(1, 2);
+}
+"#;
+
+    let output = compile_source(source);
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted removed #[inline(...)]:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("`#[inline(...)]` is not supported"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("use marker attributes: `#[inline]` or `#[noinline]`"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 }
 

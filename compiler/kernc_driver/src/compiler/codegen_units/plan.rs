@@ -472,10 +472,7 @@ fn should_import_function(function: &MastFunction, summary: &MirSummaryIndex) ->
     let Some(function_summary) = summary.function(function.id) else {
         return false;
     };
-    if !matches!(
-        function_summary.inline_hint,
-        MirInlineHint::Inline | MirInlineHint::Always
-    ) {
+    if !matches!(function_summary.inline_hint, MirInlineHint::Inline) {
         return false;
     }
     if function_summary.body_role != MirItemBodyRole::InternalBody {

@@ -90,7 +90,6 @@ pub enum MastInlineHint {
     #[default]
     None,
     Inline,
-    Always,
     NoInline,
 }
 

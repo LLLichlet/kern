@@ -45,7 +45,6 @@ fn lower_inline_hint(hint: MastInlineHint) -> MirInlineHint {
     match hint {
         MastInlineHint::None => MirInlineHint::None,
         MastInlineHint::Inline => MirInlineHint::Inline,
-        MastInlineHint::Always => MirInlineHint::Always,
         MastInlineHint::NoInline => MirInlineHint::NoInline,
     }
 }

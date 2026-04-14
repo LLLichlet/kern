@@ -31,7 +31,7 @@ Kern design is based on the observation that languages trade off **abstraction c
 
   * Syntax must be simpler and more consistent than C.
   * Remove features that make generated assembly unpredictable.
-  * Fix C legacy warts (spiral declarations, implicit array decay).
+  * Remove C declaration hazards such as spiral declarations and implicit array decay.
   * Goal: what you write is what the machine executes.
 
 #### 2\. Explicit over implicit
@@ -977,7 +977,7 @@ A comma-separated list of tags attached to the AST for compiler side-effects. Me
 
   * `cold`: Marks a function as rarely executed, moving it out of the hot instruction cache and optimizing branching.
   * `naked`: Instructs the compiler to omit the standard function prologue and epilogue. Strictly used for hardware interrupt handlers and contextual context-switching alongside `@asm`.
-  * `inline` / `noinline`: Overrides the LLVM inliner's heuristic for a specific function.
+  * `inline` / `noinline`: `inline` requests forced inlining, while `noinline` forbids it for a specific function.
   * `target_feature("...")`: Attaches explicit backend CPU feature requirements to a function. The payload is a comma-separated feature list such as `#[target_feature("avx2,fma")]`.
 
 -----

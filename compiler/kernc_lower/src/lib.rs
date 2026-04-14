@@ -628,8 +628,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         self.drain_pending_function_instantiations();
-        self.measure_phase("  lower_inline_always", |this| {
-            this.run_always_inline_pass();
+        self.measure_phase("  lower_inline", |this| {
+            this.run_inline_pass();
         });
 
         self.module.mono = MonoModuleMetadata {
@@ -694,7 +694,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             for item in items {
                 match item {
                     ast::MetaItem::Marker(name) => match self.ctx.resolve(*name) {
-                        "inline_always" => return MastInlineHint::Always,
                         "inline" => return MastInlineHint::Inline,
                         "noinline" => return MastInlineHint::NoInline,
                         _ => {}

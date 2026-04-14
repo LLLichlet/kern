@@ -164,7 +164,7 @@ If you select `--runtime-entry` without selecting an official library bundle, `k
 
 When `--runtime-entry rt` or `--runtime-entry crt` is active, the root `main` must match the program-entry contract: `fn main() i32` or `fn main(argc: i32, argv: **u8) i32`.
 
-`kernc` no longer exposes legacy compatibility aliases for runtime/library policy. Configure the four structured axes directly.
+`kernc` exposes the four structured axes directly. Configure runtime and library policy through those axes rather than through compatibility aliases.
 
 ## Compilation Controls
 

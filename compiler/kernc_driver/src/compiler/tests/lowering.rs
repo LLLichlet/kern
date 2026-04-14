@@ -912,9 +912,9 @@ fn lowering_std_hello_world_prunes_unreachable_file_methods() {
 }
 
 #[test]
-fn lowering_inlines_simple_inline_always_helper() {
+fn lowering_inlines_simple_inline_helper() {
     let root = std::env::temp_dir().join(format!(
-        "kern_lower_inline_always_simple_{}_{}",
+        "kern_lower_inline_simple_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -924,7 +924,7 @@ fn lowering_inlines_simple_inline_always_helper() {
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
     let source = concat!(
-        "#[inline_always]\n",
+        "#[inline]\n",
         "fn add_one(x: i32) i32 {\n",
         "    let y = x + 1;\n",
         "    return y;\n",
@@ -962,9 +962,9 @@ fn lowering_inlines_simple_inline_always_helper() {
 }
 
 #[test]
-fn lowering_inlines_guard_return_inline_always_helper() {
+fn lowering_inlines_guard_return_inline_helper() {
     let root = std::env::temp_dir().join(format!(
-        "kern_lower_inline_always_guard_return_{}_{}",
+        "kern_lower_inline_guard_return_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -974,7 +974,7 @@ fn lowering_inlines_guard_return_inline_always_helper() {
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
     let source = concat!(
-        "#[inline_always]\n",
+        "#[inline]\n",
         "fn pick_positive(x: i32) i32 {\n",
         "    if (x > 0) {\n",
         "        return x;\n",
@@ -1014,9 +1014,9 @@ fn lowering_inlines_guard_return_inline_always_helper() {
 }
 
 #[test]
-fn lowering_keeps_fallthrough_inline_always_helper_as_call() {
+fn lowering_keeps_fallthrough_inline_helper_as_call() {
     let root = std::env::temp_dir().join(format!(
-        "kern_lower_inline_always_fallthrough_{}_{}",
+        "kern_lower_inline_fallthrough_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1026,7 +1026,7 @@ fn lowering_keeps_fallthrough_inline_always_helper_as_call() {
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
     let source = concat!(
-        "#[inline_always]\n",
+        "#[inline]\n",
         "fn pick_positive(x: i32) i32 {\n",
         "    if (x > 0) {\n",
         "        return x;\n",
@@ -1069,9 +1069,9 @@ fn lowering_keeps_fallthrough_inline_always_helper_as_call() {
 }
 
 #[test]
-fn lowering_keeps_plain_inline_helper_as_call() {
+fn lowering_inlines_plain_inline_helper() {
     let root = std::env::temp_dir().join(format!(
-        "kern_lower_plain_inline_hint_{}_{}",
+        "kern_lower_plain_inline_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1113,7 +1113,7 @@ fn lowering_keeps_plain_inline_helper_as_call() {
         .expect("expected helper function");
     let helper_body = helper.body.as_ref().expect("expected helper body");
 
-    assert_eq!(count_calls_to_block(helper_body, add_one.id), 1);
+    assert_eq!(count_calls_to_block(helper_body, add_one.id), 0);
 
     let _ = fs::remove_dir_all(&root);
 }

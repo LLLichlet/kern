@@ -12,7 +12,7 @@ pub.. type ParsedSpan = struct {
     pub next: usize,
 };
 
-#[inline(always)]
+#[inline]
 fn first_non_digit_mask_bits(chunk: u8x16) usize {
     let digit_mask =
         (chunk >= @simdSplat[u8x16](b'0')) &
@@ -20,7 +20,7 @@ fn first_non_digit_mask_bits(chunk: u8x16) usize {
     return @simdBitmask(!digit_mask);
 }
 
-#[inline(always)]
+#[inline]
 pub.. fn skip_ws(text: []u8, start: usize) usize {
     let len = #text;
     let mut index = start;
@@ -82,12 +82,12 @@ pub.. fn skip_ws(text: []u8, start: usize) usize {
     return index;
 }
 
-#[inline(always)]
+#[inline]
 pub.. fn is_digit(byte: u8) bool {
     return byte >= b'0' and byte <= b'9';
 }
 
-#[inline(always)]
+#[inline]
 fn is_hex_digit(byte: u8) bool {
     return (
         (byte >= b'0' and byte <= b'9') or
@@ -96,7 +96,7 @@ fn is_hex_digit(byte: u8) bool {
     );
 }
 
-#[inline(always)]
+#[inline]
 fn scan_digits(text: []u8, start: usize) usize {
     let len = #text;
     let mut index = start;

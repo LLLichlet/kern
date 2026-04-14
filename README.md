@@ -11,7 +11,7 @@ Kern is built on the observation that languages often trade off abstraction capa
 
 ## Core Philosophy
 
-* **Clarity over Novelty:** What you write is what the machine executes. Kern fixes C's legacy warts while maintaining entirely predictable assembly generation.
+* **Clarity over Novelty:** What you write is what the machine executes. Kern removes C's declaration and decay hazards while maintaining entirely predictable assembly generation.
 * **Explicit over Implicit:** Mutability is a property of storage, not the type itself (`let mut x`). Pointer math is strictly typed. All type conversions require the explicit `as` operator. Return values cannot be silently ignored.
 * **Zero-Cost Abstractions:** Features like monomorphized Generics, Algebraic Data Types (`enum`), and strictly Stateless Lambdas compile down to highly optimized, flat LLVM IR with zero runtime overhead.
 * **Mechanism Trinity:** Kern relies on three core mechanisms to maintain its philosophy: a strictly explicit module tree (`mod`), strongly-typed zero-cost generics, and precise state management via exhaustive `match` blocks.
@@ -38,9 +38,11 @@ Kern ships four explicit public library layers:
 * `rt`: startup and minimal runtime glue.
 * `std`: high-level user-facing facilities built on top of `base` and `sys`.
 
-`std` no longer mirrors `base`, `sys`, or `rt` namespaces. Low-level code should import the owning layer directly.
+`std` does not mirror `base`, `sys`, or `rt` namespaces. Low-level code should import the owning layer directly.
 Hosted support is an OS concern, not a C concern: `std` remains ordinary Kern code layered on `base` plus `sys`, while libc stays an optional external runtime/provider choice rather than a foundation for `std`.
 Freestanding in Kern is therefore libc-free in the strong sense: `std` can remain fully usable without libc, `sys` owns the hosted OS boundary, and `rt` owns startup glue.
+
+Before 1.0, Kern does not preserve historical syntax baggage or compatibility shims just because an older spelling once existed. When the language or toolchain is cleaned up, the current form becomes the only supported form across the repository.
 
 ## A Taste of Kern (v0.7.0)
 

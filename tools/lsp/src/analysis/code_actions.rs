@@ -23,7 +23,7 @@ pub(super) fn quick_fix_for_diagnostic(
         return None;
     }
 
-    legacy_text_quick_fix(uri, artifact, diagnostic, lsp_diagnostic)
+    fallback_text_quick_fix(uri, artifact, diagnostic, lsp_diagnostic)
 }
 
 fn structured_quick_fix(
@@ -96,7 +96,7 @@ fn structured_quick_fix(
     }
 }
 
-fn legacy_text_quick_fix(
+fn fallback_text_quick_fix(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,

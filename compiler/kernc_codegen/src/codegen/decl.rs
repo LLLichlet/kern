@@ -426,8 +426,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let mut is_naked = false;
             let inline_kind = match f.inline_hint {
                 MirInlineHint::None => None,
-                MirInlineHint::Inline => Some("inlinehint"),
-                MirInlineHint::Always => Some("alwaysinline"),
+                MirInlineHint::Inline => Some("alwaysinline"),
                 MirInlineHint::NoInline => Some("noinline"),
             };
             let mut link_section = None;

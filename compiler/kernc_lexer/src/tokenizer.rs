@@ -204,7 +204,7 @@ impl<'a> Tokenizer<'a> {
                     return self.make_token(TokenType::IntLiteral);
                 }
                 _ => {
-                    // Fall through for plain `0`, decimals like `0.1`, or legacy `0123`.
+                    // Fall through for plain `0`, decimals like `0.1`, or forms like `0123`.
                 }
             }
         }

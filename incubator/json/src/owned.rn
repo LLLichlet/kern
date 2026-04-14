@@ -207,7 +207,7 @@ fn deinit_owned_object_entry_contents(alloc: *mut Allocator, entry: *mut OwnedOb
 }
 
 impl *mut OwnedValuePool {
-    #[inline(always)]
+    #[inline]
     fn grow(alloc: *mut Allocator) bool {
         let capacity = if (self.*.next_block_capacity == usize.{0}) {
             usize.{8}
@@ -229,7 +229,7 @@ impl *mut OwnedValuePool {
         return true;
     }
 
-    #[inline(always)]
+    #[inline]
     fn alloc_node_fresh(alloc: *mut Allocator, value: OwnedValue) ?*mut OwnedValue {
         let needs_grow = match (self.*.blocks) {
             .None => true,
@@ -248,7 +248,7 @@ impl *mut OwnedValuePool {
         return .{ Some: ptr };
     }
 
-    #[inline(always)]
+    #[inline]
     fn alloc_node(alloc: *mut Allocator, value: OwnedValue) ?*mut OwnedValue {
         let ptr = if (self.*.free.is_some()) {
             let .{ Some: ptr } = self.*.free else return .None;

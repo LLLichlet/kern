@@ -161,7 +161,9 @@ The practical rule is:
 - `rt` stays a separate runtime-owned layer and is not mirrored through `std`
 - low-level modules such as allocators, collection primitives, ABI helpers, and page-backed memory stay in their owning layer instead of being duplicated under `std`
 
-As part of this cleanup, legacy mirror modules such as `std.coll`, `std.mem`, `std.cmp`, `std.hash`, `std.num`, `std.cffi`, `std.os`, and `std.rt` are removed. Code should import `base.*`, `sys.*`, or `rt.*` directly when it needs those boundaries.
+`std` does not mirror modules such as `std.coll`, `std.mem`, `std.cmp`, `std.hash`, `std.num`, `std.cffi`, `std.os`, or `std.rt`. Code should import `base.*`, `sys.*`, or `rt.*` directly when it needs those boundaries.
+
+Before 1.0, Kern intentionally avoids carrying compatibility surface just to preserve superseded structure or spelling. The repository is kept on the current model only.
 
 Kern does not use a Rust-style semantic split where the compiler secretly
 relies on a special crate boundary. Library layering remains a normal toolchain

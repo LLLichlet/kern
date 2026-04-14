@@ -26,7 +26,6 @@ pub enum MirInlineHint {
     #[default]
     None,
     Inline,
-    Always,
     NoInline,
 }
 

@@ -27,6 +27,8 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
 
             let (is_definition, is_extern, sig_ty, span) = match def {
                 Def::Function(f) => {
+                    self.check_attribute_surface(&f.attributes);
+
                     // Check whether this is a generic template, either directly or through its impl.
                     let mut is_generic = !f.generics.is_empty();
                     if let Some(parent_id) = f.parent
@@ -45,6 +47,7 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                     (f.body.is_some(), f.is_extern, sig_ty, f.span)
                 }
                 Def::Global(g) => {
+                    self.check_attribute_surface(&g.attributes);
                     let sig_ty = self
                         .ctx
                         .node_types
@@ -106,6 +109,45 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                 }
             } else {
                 symbols.insert(export_name, (is_definition, sig_ty, is_extern, span));
+            }
+        }
+    }
+
+    fn check_attribute_surface(&mut self, attributes: &[kernc_ast::Attribute]) {
+        for attr in attributes {
+            let kernc_ast::AttributeKind::Meta(items) = &attr.kind else {
+                continue;
+            };
+
+            for item in items {
+                match item {
+                    kernc_ast::MetaItem::Marker(name) => {
+                        if self.ctx.resolve(*name) == "inline_always" {
+                            self.ctx
+                                .struct_error(
+                                    attr.span,
+                                    "`#[inline_always]` is not supported",
+                                )
+                                .with_hint("use `#[inline]` for forced inlining")
+                                .emit();
+                        }
+                    }
+                    kernc_ast::MetaItem::Call(name, _) => match self.ctx.resolve(*name) {
+                        "inline" => {
+                            self.ctx
+                                .struct_error(attr.span, "`#[inline(...)]` is not supported")
+                                .with_hint("use marker attributes: `#[inline]` or `#[noinline]`")
+                                .emit();
+                        }
+                        "noinline" => {
+                            self.ctx
+                                .struct_error(attr.span, "`#[noinline(...)]` is not supported")
+                                .with_hint("use marker attributes: `#[inline]` or `#[noinline]`")
+                                .emit();
+                        }
+                        _ => {}
+                    },
+                }
             }
         }
     }

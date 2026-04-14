@@ -138,35 +138,6 @@ fn mir_builder_preserves_inline_hint() {
 }
 
 #[test]
-fn mir_builder_preserves_always_inline_hint() {
-    let report = build_from_mast(&module_with_function(MastFunction {
-        id: MonoId(78),
-        name: "always_inline_demo".to_string(),
-        linkage: MastLinkage::External,
-        params: vec![],
-        ret_ty: TypeId::VOID,
-        body: Some(MastBlock {
-            stmts: vec![],
-            result: None,
-            defers: vec![],
-        }),
-        is_extern: false,
-        is_variadic: false,
-        inline_hint: MastInlineHint::Always,
-        attributes: vec![],
-    }));
-
-    assert_eq!(
-        report.module.functions[0].inline_hint,
-        MirInlineHint::Always
-    );
-    assert_eq!(
-        report.summary.functions[0].inline_hint,
-        MirInlineHint::Always
-    );
-}
-
-#[test]
 fn mir_builder_extracts_cfg_from_if_statement() {
     let function = MastFunction {
         id: MonoId(1),

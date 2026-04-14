@@ -6,15 +6,15 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-struct AlwaysInlineTemplate {
+struct InlineTemplate {
     params: Vec<MastParam>,
     stmts: Vec<MastStmt>,
     result: MastExpr,
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
-    pub(crate) fn run_always_inline_pass(&mut self) {
-        let templates = self.collect_always_inline_templates();
+    pub(crate) fn run_inline_pass(&mut self) {
+        let templates = self.collect_inline_templates();
         if templates.is_empty() {
             return;
         }
@@ -31,10 +31,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    fn collect_always_inline_templates(&self) -> HashMap<MonoId, AlwaysInlineTemplate> {
+    fn collect_inline_templates(&self) -> HashMap<MonoId, InlineTemplate> {
         let mut templates = HashMap::new();
         for function in &self.module.functions {
-            let Some(template) = self.always_inline_template(function) else {
+            let Some(template) = self.inline_template(function) else {
                 continue;
             };
             templates.insert(function.id, template);
@@ -42,10 +42,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         templates
     }
 
-    fn always_inline_template(&self, function: &MastFunction) -> Option<AlwaysInlineTemplate> {
+    fn inline_template(&self, function: &MastFunction) -> Option<InlineTemplate> {
         if function.is_extern
             || function.is_variadic
-            || !matches!(function.inline_hint, MastInlineHint::Always)
+            || !matches!(function.inline_hint, MastInlineHint::Inline)
         {
             return None;
         }
@@ -60,7 +60,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 return None;
             }
 
-            return Some(AlwaysInlineTemplate {
+            return Some(InlineTemplate {
                 params: function.params.clone(),
                 stmts: body.stmts.clone(),
                 result: (**result).clone(),
@@ -68,7 +68,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let (stmts, result) = split_tail_control(body)?;
-        Some(AlwaysInlineTemplate {
+        Some(InlineTemplate {
             params: function.params.clone(),
             stmts,
             result,
@@ -77,7 +77,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn inline_block(
         &mut self,
         block: &mut MastBlock,
-        templates: &HashMap<MonoId, AlwaysInlineTemplate>,
+        templates: &HashMap<MonoId, InlineTemplate>,
         stack: &mut Vec<MonoId>,
     ) {
         for stmt in &mut block.stmts {
@@ -94,7 +94,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn inline_stmt(
         &mut self,
         stmt: &mut MastStmt,
-        templates: &HashMap<MonoId, AlwaysInlineTemplate>,
+        templates: &HashMap<MonoId, InlineTemplate>,
         stack: &mut Vec<MonoId>,
     ) {
         match stmt {
@@ -106,7 +106,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn inline_expr(
         &mut self,
         expr: &mut MastExpr,
-        templates: &HashMap<MonoId, AlwaysInlineTemplate>,
+        templates: &HashMap<MonoId, InlineTemplate>,
         stack: &mut Vec<MonoId>,
     ) {
         let replacement = match &mut expr.kind {
@@ -431,10 +431,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn build_inlined_call_block(
         &mut self,
         callee_id: MonoId,
-        template: &AlwaysInlineTemplate,
+        template: &InlineTemplate,
         args: Vec<MastExpr>,
         span: Span,
-        templates: &HashMap<MonoId, AlwaysInlineTemplate>,
+        templates: &HashMap<MonoId, InlineTemplate>,
         stack: &mut Vec<MonoId>,
     ) -> MastBlock {
         let mut stmts =

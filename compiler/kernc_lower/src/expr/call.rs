@@ -26,6 +26,60 @@ pub(crate) struct MethodCallSite {
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn lower_loc_intrinsic(&mut self, result_ty: TypeId, span: Span) -> MastExprKind {
+        let norm_result_ty = self.ctx.type_registry.normalize(result_ty);
+        let TypeKind::AnonymousStruct(_, fields) =
+            self.ctx.type_registry.get(norm_result_ty).clone()
+        else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): `@loc` must return an anonymous struct.",
+            );
+            return MastExprKind::Trap;
+        };
+
+        let struct_id = self.instantiate_anon_struct(norm_result_ty);
+        let file_text = self
+            .ctx
+            .sess
+            .source_manager
+            .get_file_path(span.file)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let (line, col) = self
+            .ctx
+            .sess
+            .source_manager
+            .lookup_location(span)
+            .map(|loc| (loc.line, loc.col))
+            .unwrap_or((0, 0));
+
+        let mut field_exprs = Vec::with_capacity(fields.len());
+        for field in &fields {
+            let name = self.ctx.resolve(field.name);
+            let expr = match name {
+                "file" => {
+                    MastExpr::new(field.ty, self.lower_string_literal(&file_text, span), span)
+                }
+                "line" => MastExpr::new(field.ty, MastExprKind::Integer(line as u128), span),
+                "col" => MastExpr::new(field.ty, MastExprKind::Integer(col as u128), span),
+                _ => {
+                    self.ctx.emit_ice(
+                        span,
+                        format!("Kern ICE (Lowering): unknown `@loc` field `{}`.", name),
+                    );
+                    return MastExprKind::Trap;
+                }
+            };
+            field_exprs.push(expr);
+        }
+
+        MastExprKind::StructInit {
+            struct_id,
+            fields: field_exprs,
+        }
+    }
+
     fn receiver_search_types(&mut self, receiver_ty: TypeId) -> Vec<TypeId> {
         let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
         let mut search_tys = vec![receiver_norm];
@@ -128,9 +182,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             TypeKind::TraitObject(_, args, assoc_bindings) => {
                 args.into_iter()
                     .any(|arg| self.type_contains_generic_placeholders(arg))
-                    || assoc_bindings.into_iter().any(|(_, ty)| {
-                        self.type_contains_generic_placeholders(ty)
-                    })
+                    || assoc_bindings
+                        .into_iter()
+                        .any(|(_, ty)| self.type_contains_generic_placeholders(ty))
             }
             TypeKind::Projection {
                 target,
@@ -203,16 +257,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 TypeKind::TraitObject(required_def_id, required_args, required_assoc_bindings),
                 TypeKind::TraitObject(candidate_def_id, candidate_args, candidate_assoc_bindings),
             ) if required_def_id == candidate_def_id && required_args == candidate_args => {
-                required_assoc_bindings.into_iter().all(|(required_assoc_id, required_assoc_ty)| {
-                    let Some((_, candidate_assoc_ty)) = candidate_assoc_bindings
-                        .iter()
-                        .find(|(candidate_assoc_id, _)| *candidate_assoc_id == required_assoc_id)
-                    else {
-                        return false;
-                    };
-                    self.ctx.type_registry.normalize(required_assoc_ty)
-                        == self.ctx.type_registry.normalize(*candidate_assoc_ty)
-                })
+                required_assoc_bindings
+                    .into_iter()
+                    .all(|(required_assoc_id, required_assoc_ty)| {
+                        let Some((_, candidate_assoc_ty)) =
+                            candidate_assoc_bindings
+                                .iter()
+                                .find(|(candidate_assoc_id, _)| {
+                                    *candidate_assoc_id == required_assoc_id
+                                })
+                        else {
+                            return false;
+                        };
+                        self.ctx.type_registry.normalize(required_assoc_ty)
+                            == self.ctx.type_registry.normalize(*candidate_assoc_ty)
+                    })
             }
             _ => required_norm == candidate_norm,
         }
@@ -476,6 +535,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         callee_ty: TypeId,
         args: &[Expr],
         arg_masts: &mut Vec<MastExpr>,
+        span: Span,
     ) -> Option<MastExprKind> {
         let (is_intrinsic, name_id) = match &self.ctx.defs[fn_id.0 as usize] {
             Def::Function(f) => (f.is_intrinsic, f.name),
@@ -491,6 +551,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let name_str = self.ctx.resolve(name_id);
         match name_str {
+            "@loc" => {
+                let result_ty = self.intrinsic_return_type(fn_id, callee_ty);
+                Some(self.lower_loc_intrinsic(result_ty, span))
+            }
             "@sizeOf" => {
                 let target_ty = self.intrinsic_generic_arg(callee_ty, 0);
                 let mut le = LayoutEngine::new(self.ctx);
@@ -1393,12 +1457,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(inner_ty);
 
-        self.lower_resolved_trait_method_call(
-            recv,
-            arg_masts,
-            owner_trait_ty,
-            call,
-        )
+        self.lower_resolved_trait_method_call(recv, arg_masts, owner_trait_ty, call)
     }
 
     pub(crate) fn lower_resolved_trait_method_call(
@@ -1459,13 +1518,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
             self.measure_phase("              lower_call_static_dispatch", |this| {
-                this.lower_static_method_dispatch(
-                    recv,
-                    arg_masts,
-                    method_id,
-                    &generics,
-                    call,
-                )
+                this.lower_static_method_dispatch(recv, arg_masts, method_id, &generics, call)
             })
         } else {
             // A plain `TypeKind::Function` here means Sema only knew a generic bound.
@@ -1606,11 +1659,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                 arg_masts.insert(0, final_recv);
                 let mono_id = self.instantiate_function(func_id, &resolved_impl_args);
-                let func_ref = MastExpr::new(
-                    call.norm_callee,
-                    MastExprKind::FuncRef(mono_id),
-                    call.span,
-                );
+                let func_ref =
+                    MastExpr::new(call.norm_callee, MastExprKind::FuncRef(mono_id), call.span);
                 MastExprKind::Call {
                     callee: Box::new(func_ref),
                     args: arg_masts,
@@ -1683,7 +1733,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastExprKind {
         if let Some(intrinsic) = self
             .measure_phase("              lower_call_plain_intrinsic", |this| {
-                this.lower_intrinsic_call(fn_id, callee_mast.ty, args, &mut arg_masts)
+                this.lower_intrinsic_call(fn_id, callee_mast.ty, args, &mut arg_masts, span)
             })
         {
             return intrinsic;

@@ -1,5 +1,4 @@
 use super::*;
-
 #[test]
 fn compiles_const_enum_and_const_array_usage() {
     let output = compile_source(
@@ -37,6 +36,52 @@ fn main() i32 {
     assert!(
         output.status.success(),
         "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_explicit_loc_intrinsic_and_const_loc_values() {
+    let output = build_and_run_source(
+        r#"
+const GLOBAL = @loc();
+
+fn take(loc: struct { file: []u8, line: usize, col: usize }) usize {
+    return loc.line;
+}
+
+fn main() i32 {
+    let local = @loc();
+    if (#GLOBAL.file == 0) {
+        return 11;
+    }
+    if (GLOBAL.line != 2) {
+        return 12;
+    }
+    if (GLOBAL.col == 0) {
+        return 13;
+    }
+    if (#local.file == 0) {
+        return 14;
+    }
+    if (local.line != 9) {
+        return 15;
+    }
+    if (local.col == 0) {
+        return 16;
+    }
+    if (take(@loc()) == 0) {
+        return 17;
+    }
+    return 0;
+}
+"#,
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "explicit @loc regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

@@ -404,6 +404,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         // --- Core intrinsic dispatch ---
         match name_str.as_str() {
+            "@loc" => self.eval_loc(span),
             "@sizeOf" => self.eval_size_of(&generic_args, span),
             "@alignOf" => self.eval_align_of(&generic_args, span),
             "@popCount" | "@clz" | "@ctz" => {
@@ -454,6 +455,32 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         } else {
             Err(ConstEvalError) // Already guarded by the generic-arity check above.
         }
+    }
+
+    pub(super) fn eval_loc(&mut self, span: Span) -> ConstEvalResult<ConstValue> {
+        let file_name = self.ctx.intern("file");
+        let line_name = self.ctx.intern("line");
+        let col_name = self.ctx.intern("col");
+        let file = self
+            .ctx
+            .sess
+            .source_manager
+            .get_file_path(span.file)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let (line, col) = self
+            .ctx
+            .sess
+            .source_manager
+            .lookup_location(span)
+            .map(|loc| (loc.line, loc.col))
+            .unwrap_or((0, 0));
+
+        let mut fields = HashMap::new();
+        fields.insert(file_name, ConstValue::String(file));
+        fields.insert(line_name, ConstValue::Int(line as i128));
+        fields.insert(col_name, ConstValue::Int(col as i128));
+        Ok(ConstValue::Struct(fields))
     }
 
     pub(super) fn eval_align_of(

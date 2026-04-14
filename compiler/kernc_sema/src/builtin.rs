@@ -213,6 +213,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_bitwise("@clz", int_trait_id);
         self.inject_bitwise("@ctz", int_trait_id);
         self.inject_bitwise("@bswap", int_trait_id);
+        self.inject_loc();
         self.inject_void_intrinsic("@trap", true);
         self.inject_void_intrinsic("@breakpoint", false);
         self.inject_memory_intrinsic(MemoryIntrinsicKind::Memcpy);
@@ -1493,6 +1494,34 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             vec![("ptr", ptr_t), ("val", t_ty), ("order", TypeId::U8)],
             t_ty,
         );
+    }
+
+    fn inject_loc(&mut self) {
+        let file_name = self.ctx.intern("file");
+        let line_name = self.ctx.intern("line");
+        let col_name = self.ctx.intern("col");
+        let file_ty = self.ctx.type_registry.intern(TypeKind::Slice {
+            is_mut: false,
+            elem: TypeId::U8,
+        });
+        let ret_ty = self.ctx.type_registry.intern(TypeKind::AnonymousStruct(
+            false,
+            vec![
+                crate::ty::AnonymousField {
+                    name: file_name,
+                    ty: file_ty,
+                },
+                crate::ty::AnonymousField {
+                    name: line_name,
+                    ty: TypeId::USIZE,
+                },
+                crate::ty::AnonymousField {
+                    name: col_name,
+                    ty: TypeId::USIZE,
+                },
+            ],
+        ));
+        self.inject_builtin_function("@loc", vec![], vec![], ret_ty);
     }
 
     fn inject_atomic_rmw(&mut self, name: &str) {

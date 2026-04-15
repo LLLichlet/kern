@@ -281,18 +281,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         for stmt in stmts {
             match &stmt.kind {
                 StmtKind::ExprStmt(e) | StmtKind::ExprValue(e) => {
-                    let binding_names = match &e.kind {
-                        ExprKind::Let { pattern, .. } => self.let_pattern_binding_names(pattern),
-                        ExprKind::Static { pattern, .. } => {
-                            self.binding_pattern_name(pattern).into_iter().collect()
+                    let needs_scope_extension = match &e.kind {
+                        ExprKind::Let { pattern, .. } => {
+                            self.let_pattern_needs_scope_extension(pattern, entered_scope)
                         }
-                        _ => Vec::new(),
+                        ExprKind::Static { pattern, .. } => {
+                            self.binding_pattern_needs_scope_extension(pattern, entered_scope)
+                        }
+                        _ => false,
                     };
-                    let needs_scope_extension = !binding_names.is_empty()
-                        && (!entered_scope
-                            || binding_names
-                                .iter()
-                                .any(|name| self.ctx.scopes.resolve(*name).is_some()));
                     if needs_scope_extension {
                         // The first binding creates the block-local environment. Subsequent
                         // bindings only need a fresh child scope when they shadow a visible name.

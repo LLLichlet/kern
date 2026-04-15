@@ -94,30 +94,37 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.ctx.resolve(name) == "_"
     }
 
-    fn collect_pattern_binding_names(&self, pattern: &ast::Pattern, names: &mut Vec<SymbolId>) {
+    fn pattern_binds_name(&self, name: SymbolId, entered_scope: bool) -> bool {
+        !self.is_discard_name(name) && (!entered_scope || self.ctx.scopes.resolve(name).is_some())
+    }
+
+    fn pattern_needs_scope_extension(&self, pattern: &ast::Pattern, entered_scope: bool) -> bool {
         match &pattern.kind {
             ast::PatternKind::Binding(binding) => {
-                if !self.is_discard_name(binding.name) {
-                    names.push(binding.name);
-                }
+                self.pattern_binds_name(binding.name, entered_scope)
             }
-            ast::PatternKind::Destructure(destructure) => {
-                for field in &destructure.fields {
-                    self.collect_pattern_binding_names(&field.pattern, names);
-                }
-            }
-            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+            ast::PatternKind::Destructure(destructure) => destructure
+                .fields
+                .iter()
+                .any(|field| self.pattern_needs_scope_extension(&field.pattern, entered_scope)),
+            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => false,
         }
     }
 
-    pub(crate) fn let_pattern_binding_names(&self, pattern: &ast::LetPattern) -> Vec<SymbolId> {
-        let mut names = Vec::new();
-        self.collect_pattern_binding_names(&pattern.pattern, &mut names);
-        names
+    pub(crate) fn let_pattern_needs_scope_extension(
+        &self,
+        pattern: &ast::LetPattern,
+        entered_scope: bool,
+    ) -> bool {
+        self.pattern_needs_scope_extension(&pattern.pattern, entered_scope)
     }
 
-    pub(crate) fn binding_pattern_name(&self, pattern: &ast::BindingPattern) -> Option<SymbolId> {
-        (!self.is_discard_name(pattern.name)).then_some(pattern.name)
+    pub(crate) fn binding_pattern_needs_scope_extension(
+        &self,
+        pattern: &ast::BindingPattern,
+        entered_scope: bool,
+    ) -> bool {
+        self.pattern_binds_name(pattern.name, entered_scope)
     }
 
     fn define_pattern_binding(

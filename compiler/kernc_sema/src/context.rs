@@ -496,15 +496,53 @@ impl<'a> SemaContext<'a> {
     }
 
     pub fn def_parent_module(&self, def_id: DefId) -> Option<DefId> {
-        self.parent_modules_by_def
-            .get(&def_id)
-            .copied()
-            .or_else(|| {
-                self.defs.iter().find_map(|def| match def {
-                    Def::Module(module) if module.items.contains(&def_id) => Some(module.id),
+        let parent = match self.defs.get(def_id.0 as usize) {
+            Some(Def::Module(module)) => module.parent,
+            Some(Def::Function(function)) => match function.parent {
+                Some(parent_id) => match self.defs.get(parent_id.0 as usize) {
+                    Some(Def::Module(_)) => Some(parent_id),
+                    Some(Def::Impl(impl_def)) => impl_def.parent_module,
                     _ => None,
-                })
+                },
+                None => None,
+            },
+            Some(Def::Struct(def)) => def.parent_module,
+            Some(Def::Union(def)) => def.parent_module,
+            Some(Def::Enum(_)) | Some(Def::Trait(_)) | Some(Def::TypeAlias(_)) => {
+                self.parent_modules_by_def.get(&def_id).copied()
+            }
+            Some(Def::AssociatedType(def)) => {
+                if let Some(parent_impl) = def.parent_impl {
+                    match self.defs.get(parent_impl.0 as usize) {
+                        Some(Def::Impl(impl_def)) => impl_def.parent_module,
+                        _ => None,
+                    }
+                } else if let Some(parent_trait) = def.parent_trait {
+                    self.parent_modules_by_def.get(&parent_trait).copied()
+                } else {
+                    None
+                }
+            }
+            Some(Def::Impl(def)) => def.parent_module,
+            Some(Def::Global(global)) => match global.parent {
+                Some(parent_id) => match self.defs.get(parent_id.0 as usize) {
+                    Some(Def::Module(_)) => Some(parent_id),
+                    Some(Def::Impl(impl_def)) => impl_def.parent_module,
+                    _ => None,
+                },
+                None => None,
+            },
+            None => None,
+        };
+
+        // Legacy / malformed defs can still fall back to the module item scan, but the common
+        // case should resolve directly from the def itself or the precomputed owner maps.
+        parent.or_else(|| {
+            self.defs.iter().find_map(|def| match def {
+                Def::Module(module) if module.items.contains(&def_id) => Some(module.id),
+                _ => None,
             })
+        })
     }
 
     pub fn def_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {

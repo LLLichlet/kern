@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
-PROJECT_INPUT="${1:-${ROOT}/incubator/net}"
+PROJECT_INPUT="${1:-${ROOT}/incubator/json}"
 ROUNDS="${ROUNDS:-8}"
 JOBS="${JOBS:-2}"
 KEEP_SUCCESS="${KEEP_SUCCESS:-0}"
@@ -19,7 +19,7 @@ Environment:
   JOBS=2           Number of isolated workspace copies to test per round
   KEEP_SUCCESS=0   Keep successful temporary workspaces when set to 1
 
-The script clones the selected workspace into isolated /tmp directories and
+The script clones the selected project into isolated /tmp directories and
 runs `cargo run -q -p craft -- test --project-path <copy>/Craft.toml`
 concurrently. On failure it preserves the failing workspace copy and prints the
 captured log path.

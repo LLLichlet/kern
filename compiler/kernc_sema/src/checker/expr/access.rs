@@ -556,91 +556,129 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.ctx.def_owner_scope(def_id)
     }
 
+    fn resolved_symbol_type(&mut self, info: &SymbolInfo, span: Span) -> TypeId {
+        self.ctx.record_identifier_reference(span, info.span);
+
+        if info.kind == SymbolKind::Function {
+            return self
+                .ctx
+                .type_registry
+                .intern(TypeKind::FnDef(info.def_id.unwrap(), vec![]));
+        }
+        if info.kind == SymbolKind::Module {
+            return self
+                .ctx
+                .type_registry
+                .intern(TypeKind::Module(info.def_id.unwrap()));
+        }
+        if let Some(def_id) = info.def_id {
+            match info.kind {
+                SymbolKind::Struct | SymbolKind::Union => {
+                    return self.ctx.type_registry.intern(TypeKind::Def(def_id, vec![]));
+                }
+                SymbolKind::Enum => {
+                    return self
+                        .ctx
+                        .type_registry
+                        .intern(TypeKind::Enum(def_id, vec![]));
+                }
+                SymbolKind::Trait => {
+                    return self.ctx.type_registry.intern(TypeKind::TraitObject(
+                        def_id,
+                        vec![],
+                        Vec::new(),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        if info.kind == SymbolKind::TypeAlias {
+            if let Some(def_id) = info.def_id
+                && let Def::TypeAlias(alias_def) = &self.ctx.defs[def_id.0 as usize]
+            {
+                let resolved_ty = self
+                    .ctx
+                    .node_types
+                    .get(&alias_def.target.id)
+                    .copied()
+                    .unwrap_or(info.type_id);
+                if resolved_ty != TypeId::ERROR {
+                    return resolved_ty;
+                }
+            }
+            return info.type_id;
+        }
+
+        if info.type_id == TypeId::ERROR
+            && let Some(def_id) = info.def_id
+        {
+            let global_expr_ptr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                Some(std::ptr::from_ref(&g.value))
+            } else {
+                None
+            };
+
+            if let Some(g_expr_ptr) = global_expr_ptr {
+                let g_expr = unsafe { &*g_expr_ptr };
+                if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
+                    return actual_ty;
+                }
+                let prev_scope = self.ctx.scopes.current_scope_id();
+                if let Some(owner_scope) = self.global_owner_scope(def_id) {
+                    self.ctx.scopes.set_current_scope(owner_scope);
+                }
+                let computed_ty = self.check_expr(g_expr, None);
+                if let Some(prev_scope) = prev_scope {
+                    self.ctx.scopes.set_current_scope(prev_scope);
+                }
+                return computed_ty;
+            }
+        }
+
+        info.type_id
+    }
+
+    fn anchored_start_scope(
+        &mut self,
+        anchor: ast::PathAnchor,
+        span: Span,
+    ) -> Option<(DefId, crate::scope::ScopeId)> {
+        let current_scope = self.ctx.scopes.current_scope_id()?;
+        let Some(current_module) = self.ctx.module_for_scope(current_scope) else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Typeck): could not determine current module for anchored path",
+            );
+            return None;
+        };
+
+        let target_module = match anchor {
+            ast::PathAnchor::Parent => {
+                let Some(parent) = self.ctx.module_parent(current_module) else {
+                    self.ctx
+                        .struct_error(span, "Cannot use `..` from the root module")
+                        .emit();
+                    return None;
+                };
+                parent
+            }
+            ast::PathAnchor::Package => self.ctx.module_root(current_module),
+        };
+
+        let Def::Module(module) = &self.ctx.defs[target_module.0 as usize] else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Typeck): anchored path target is not a module",
+            );
+            return None;
+        };
+
+        Some((target_module, module.scope_id))
+    }
+
     pub(crate) fn check_identifier(&mut self, name: SymbolId, span: Span) -> TypeId {
         if let Some(info) = self.ctx.scopes.resolve(name).cloned() {
-            self.ctx.record_identifier_reference(span, info.span);
-
-            if info.kind == SymbolKind::Function {
-                return self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::FnDef(info.def_id.unwrap(), vec![]));
-            }
-            // Module names resolve to the semantic namespace wrapper.
-            if info.kind == SymbolKind::Module {
-                return self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::Module(info.def_id.unwrap()));
-            }
-            if let Some(def_id) = info.def_id {
-                match info.kind {
-                    SymbolKind::Struct | SymbolKind::Union => {
-                        return self.ctx.type_registry.intern(TypeKind::Def(def_id, vec![]));
-                    }
-                    SymbolKind::Enum => {
-                        return self
-                            .ctx
-                            .type_registry
-                            .intern(TypeKind::Enum(def_id, vec![]));
-                    }
-                    SymbolKind::Trait => {
-                        return self.ctx.type_registry.intern(TypeKind::TraitObject(
-                            def_id,
-                            vec![],
-                            Vec::new(),
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-            if info.kind == SymbolKind::TypeAlias {
-                if let Some(def_id) = info.def_id
-                    && let Def::TypeAlias(alias_def) = &self.ctx.defs[def_id.0 as usize]
-                {
-                    let resolved_ty = self
-                        .ctx
-                        .node_types
-                        .get(&alias_def.target.id)
-                        .copied()
-                        .unwrap_or(info.type_id);
-                    if resolved_ty != TypeId::ERROR {
-                        return resolved_ty;
-                    }
-                }
-                return info.type_id;
-            }
-
-            // Lazily infer imported or forward-declared globals when their type is still unknown.
-            if info.type_id == TypeId::ERROR
-                && let Some(def_id) = info.def_id
-            {
-                let global_expr_ptr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                    Some(std::ptr::from_ref(&g.value))
-                } else {
-                    None
-                };
-
-                if let Some(g_expr_ptr) = global_expr_ptr {
-                    // Safety: global initializer expressions live inside immutable semantic defs
-                    // during type checking; borrowing by pointer avoids cloning large ASTs.
-                    let g_expr = unsafe { &*g_expr_ptr };
-                    if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
-                        return actual_ty;
-                    }
-                    let prev_scope = self.ctx.scopes.current_scope_id();
-                    if let Some(owner_scope) = self.global_owner_scope(def_id) {
-                        self.ctx.scopes.set_current_scope(owner_scope);
-                    }
-                    let computed_ty = self.check_expr(g_expr, None);
-                    if let Some(prev_scope) = prev_scope {
-                        self.ctx.scopes.set_current_scope(prev_scope);
-                    }
-                    return computed_ty;
-                }
-            }
-
-            info.type_id
+            self.resolved_symbol_type(&info, span)
         } else {
             let name_str = self.ctx.resolve(name).to_string();
             self.ctx
@@ -649,6 +687,45 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .emit();
             TypeId::ERROR
         }
+    }
+
+    pub(crate) fn check_anchored_identifier(
+        &mut self,
+        anchor: ast::PathAnchor,
+        name: SymbolId,
+        span: Span,
+    ) -> TypeId {
+        let Some((owner_module, start_scope)) = self.anchored_start_scope(anchor, span) else {
+            return TypeId::ERROR;
+        };
+        let Some(info) = self.ctx.scopes.resolve_in(start_scope, name).cloned() else {
+            self.ctx
+                .struct_error(
+                    span,
+                    format!(
+                        "cannot find `{}` in the anchored module path",
+                        self.ctx.resolve(name)
+                    ),
+                )
+                .emit();
+            return TypeId::ERROR;
+        };
+
+        let current_module = self.cached_current_module_id();
+        if !self
+            .ctx
+            .visibility_allows_access(info.vis, owner_module, current_module)
+        {
+            self.ctx
+                .struct_error(
+                    span,
+                    format!("module has no visible member `{}`", self.ctx.resolve(name)),
+                )
+                .emit();
+            return TypeId::ERROR;
+        }
+
+        self.resolved_symbol_type(&info, span)
     }
 
     pub(crate) fn check_self_value(&mut self, span: Span) -> TypeId {
@@ -908,6 +985,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .ctx
                 .scopes
                 .resolve(*name)
+                .map(|info| Self::symbol_is_type_namespace(info.kind))
+                .unwrap_or(false),
+            ast::ExprKind::AnchoredPath { anchor, name, .. } => self
+                .anchored_start_scope(*anchor, expr.span)
+                .and_then(|(_, scope)| self.ctx.scopes.resolve_in(scope, *name))
                 .map(|info| Self::symbol_is_type_namespace(info.kind))
                 .unwrap_or(false),
             ast::ExprKind::GenericInstantiation { target, .. } => {

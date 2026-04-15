@@ -1,6 +1,6 @@
 use super::{
     AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, LetPattern, MatchPattern,
-    Pattern, Stmt, TypeNode, UnaryOperator,
+    PathAnchor, Pattern, Stmt, TypeNode, UnaryOperator,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -48,6 +48,12 @@ pub enum ExprKind {
     ByteChar(u8),
     String(String),
     Identifier(SymbolId),
+    /// Anchored module/package path start such as `/net` or `..detail`.
+    AnchoredPath {
+        anchor: PathAnchor,
+        name: SymbolId,
+        name_span: Span,
+    },
 
     /// Type namespace expression used by builtin type forms such as `?i32.None`.
     TypeNode(Box<TypeNode>),

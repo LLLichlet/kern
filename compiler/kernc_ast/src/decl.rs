@@ -9,6 +9,12 @@ pub enum Visibility {
     Public,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PathAnchor {
+    Parent,
+    Package,
+}
+
 impl Visibility {
     pub fn is_public(self) -> bool {
         matches!(self, Self::Public)
@@ -99,12 +105,14 @@ pub enum DeclKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsePathKind {
-    /// Absolute path starting from the root module, for example `use std.io`.
-    Root,
+    /// External package root, for example `use std.io`.
+    External,
     /// Relative path starting from the current module, for example `use .utils`.
     Current,
     /// Relative path starting from the parent module, for example `use ..common`.
     Parent,
+    /// Current package root, for example `use /net.http`.
+    Package,
 }
 
 #[derive(Debug, Clone, PartialEq)]

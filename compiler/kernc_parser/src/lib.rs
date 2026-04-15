@@ -329,7 +329,7 @@ fn main() i32 {
         else {
             panic!("expected generic struct data init");
         };
-        let ast::TypeKind::Path { segments } = &type_node.kind else {
+        let ast::TypeKind::Path { segments, .. } = &type_node.kind else {
             panic!("expected instantiated path type");
         };
         assert_eq!(segments.last().map(|segment| segment.args.len()), Some(1));
@@ -768,11 +768,11 @@ fn helper() i32 {
     #[test]
     fn parses_package_visibility_with_and_without_space() {
         let source = r#"
-pub~fn add(a: i32, b: i32) i32 {
+pub/fn add(a: i32, b: i32) i32 {
     return a + b;
 }
 
-pub ~ use .helper as pkg_helper;
+pub / use .helper as pkg_helper;
 
 fn helper() i32 {
     return 0;
@@ -788,5 +788,119 @@ fn helper() i32 {
         assert_eq!(module.decls[0].vis, ast::Visibility::Package);
         assert_eq!(module.decls[1].vis, ast::Visibility::Package);
         assert_eq!(module.decls[2].vis, ast::Visibility::Private);
+    }
+
+    #[test]
+    fn parses_package_root_and_anchored_parent_paths() {
+        let source = r#"
+use /util.answer;
+
+type CurrentKind = /util.Kind;
+type ParentKind = ..shared.Kind;
+
+fn main() i32 {
+    let value = /util.kind();
+    return ..shared.answer();
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        let ast::DeclKind::Use { kind, path, .. } = &module.decls[0].kind else {
+            panic!("expected use decl");
+        };
+        assert_eq!(*kind, ast::UsePathKind::Package);
+        assert_eq!(path.len(), 2);
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[1].kind else {
+            panic!("expected first type alias");
+        };
+        let ast::TypeKind::Path { anchor, segments } = &target.kind else {
+            panic!("expected path type");
+        };
+        assert_eq!(*anchor, Some(ast::PathAnchor::Package));
+        assert_eq!(segments.len(), 2);
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[2].kind else {
+            panic!("expected second type alias");
+        };
+        let ast::TypeKind::Path { anchor, segments } = &target.kind else {
+            panic!("expected path type");
+        };
+        assert_eq!(*anchor, Some(ast::PathAnchor::Parent));
+        assert_eq!(segments.len(), 2);
+
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[3].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+
+        let ast::StmtKind::ExprStmt(first_stmt) = &stmts[0].kind else {
+            panic!("expected first stmt");
+        };
+        let ast::ExprKind::Let { init, .. } = &first_stmt.kind else {
+            panic!("expected let");
+        };
+        let ast::ExprKind::Call { callee, .. } = &init.kind else {
+            panic!("expected call");
+        };
+        let ast::ExprKind::FieldAccess { lhs, field, .. } = &callee.kind else {
+            panic!("expected field access");
+        };
+        assert_eq!(session.resolve(*field), "kind");
+        let ast::ExprKind::AnchoredPath { anchor, name, .. } = &lhs.kind else {
+            panic!("expected anchored path");
+        };
+        assert_eq!(*anchor, ast::PathAnchor::Package);
+        assert_eq!(session.resolve(*name), "util");
+
+        let ast::StmtKind::ExprStmt(second_stmt) = &stmts[1].kind else {
+            panic!("expected second stmt");
+        };
+        let ast::ExprKind::Return(Some(ret)) = &second_stmt.kind else {
+            panic!("expected return");
+        };
+        let ast::ExprKind::Call { callee, .. } = &ret.kind else {
+            panic!("expected call");
+        };
+        let ast::ExprKind::FieldAccess { lhs, field, .. } = &callee.kind else {
+            panic!("expected field access");
+        };
+        assert_eq!(session.resolve(*field), "answer");
+        let ast::ExprKind::AnchoredPath { anchor, name, .. } = &lhs.kind else {
+            panic!("expected anchored parent path");
+        };
+        assert_eq!(*anchor, ast::PathAnchor::Parent);
+        assert_eq!(session.resolve(*name), "shared");
+    }
+
+    #[test]
+    fn rejects_current_module_anchored_type_paths() {
+        let source = r#"
+type Bad = .util.Kind;
+"#;
+
+        let (session, _module) = parse_module(source);
+        assert!(
+            !session.diagnostics.is_empty(),
+            "expected parser diagnostics for current-module anchored type path"
+        );
+
+        let rendered = format!("{:?}", session.diagnostics);
+        assert!(
+            rendered.contains("Expected type definition, found '.'"),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
     }
 }

@@ -816,7 +816,7 @@ impl CompilerDriver {
 
     fn describe_type_node(&self, ctx: &SemaContext<'_>, ty: &ast::TypeNode) -> String {
         match &ty.kind {
-            ast::TypeKind::Path { segments } => {
+            ast::TypeKind::Path { segments, .. } => {
                 let mut rendered = segments
                     .iter()
                     .map(|segment| ctx.resolve(segment.name).to_string())

@@ -150,7 +150,7 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("cannot find module `base`"),
+        String::from_utf8_lossy(&output.stderr).contains("Unresolved external import root `base`"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );

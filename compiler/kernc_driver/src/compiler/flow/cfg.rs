@@ -560,6 +560,7 @@ impl<'a> FlowCfgBuilder<'a> {
             | ast::ExprKind::ByteChar(_)
             | ast::ExprKind::String(_)
             | ast::ExprKind::Identifier(_)
+            | ast::ExprKind::AnchoredPath { .. }
             | ast::ExprKind::EnumLiteral { .. }
             | ast::ExprKind::TypeNode(_)
             | ast::ExprKind::SelfValue
@@ -639,6 +640,7 @@ fn collect_local_binding_uses_in_expr(
         ast::ExprKind::Static { init, .. } => {
             collect_local_binding_uses_in_expr(init, reference_to_binding, uses);
         }
+        ast::ExprKind::AnchoredPath { .. } => {}
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             collect_local_binding_uses_in_expr(lhs, reference_to_binding, uses);
             collect_local_binding_uses_in_expr(rhs, reference_to_binding, uses);
@@ -805,6 +807,7 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
         | ast::ExprKind::ByteChar(_)
         | ast::ExprKind::String(_)
         | ast::ExprKind::Identifier(_)
+        | ast::ExprKind::AnchoredPath { .. }
         | ast::ExprKind::TypeNode(_)
         | ast::ExprKind::EnumLiteral { .. }
         | ast::ExprKind::SelfValue

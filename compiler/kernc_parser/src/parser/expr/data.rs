@@ -9,7 +9,11 @@ impl<'a> Parser<'a> {
         &mut self,
         inner: TypeNode,
     ) -> Option<(TypeNode, kernc_utils::SymbolId, kernc_utils::Span)> {
-        let TypeKind::Path { mut segments } = inner.kind else {
+        let TypeKind::Path {
+            anchor: None,
+            mut segments,
+        } = inner.kind
+        else {
             return None;
         };
 
@@ -34,7 +38,10 @@ impl<'a> Parser<'a> {
             TypeNode {
                 id: self.new_id(),
                 span,
-                kind: TypeKind::Path { segments },
+                kind: TypeKind::Path {
+                    anchor: None,
+                    segments,
+                },
             },
             field,
             field_span,

@@ -115,8 +115,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         let ty_id = match &ty_node.kind {
-            ast::TypeKind::Path { segments } => {
-                self.resolve_path_type(segments, env_scope, ty_node.span)
+            ast::TypeKind::Path { anchor, segments } => {
+                self.resolve_path_type(*anchor, segments, env_scope, ty_node.span)
             }
             ast::TypeKind::Void => TypeId::VOID,
             ast::TypeKind::Optional { inner } => {
@@ -669,8 +669,58 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     /// Resolve a segmented type path or projection chain.
+    fn resolve_type_anchor_scope(
+        &mut self,
+        anchor: ast::PathAnchor,
+        env_scope: ScopeId,
+        span: Span,
+    ) -> Option<ScopeId> {
+        let Some(current_module) = self.ctx.module_for_scope(env_scope) else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Types): could not determine current module for anchored type path",
+            );
+            return None;
+        };
+
+        match anchor {
+            ast::PathAnchor::Parent => {
+                let Some(parent) = self.ctx.module_parent(current_module) else {
+                    self.ctx
+                        .struct_error(span, "Cannot use `..` in a root module type path")
+                        .emit();
+                    return None;
+                };
+                match &self.ctx.defs[parent.0 as usize] {
+                    Def::Module(module) => Some(module.scope_id),
+                    _ => {
+                        self.ctx.emit_ice(
+                            span,
+                            "Kern ICE (Types): parent module def is not a module while resolving anchored type path",
+                        );
+                        None
+                    }
+                }
+            }
+            ast::PathAnchor::Package => {
+                let root = self.ctx.module_root(current_module);
+                match &self.ctx.defs[root.0 as usize] {
+                    Def::Module(module) => Some(module.scope_id),
+                    _ => {
+                        self.ctx.emit_ice(
+                            span,
+                            "Kern ICE (Types): root module def is not a module while resolving anchored type path",
+                        );
+                        None
+                    }
+                }
+            }
+        }
+    }
+
     fn resolve_path_type(
         &mut self,
+        anchor: Option<ast::PathAnchor>,
         segments: &[ast::TypePathSegment],
         env_scope: ScopeId,
         span: Span,
@@ -679,7 +729,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        let mut curr_scope = env_scope;
+        let mut curr_scope = match anchor {
+            Some(anchor) => match self.resolve_type_anchor_scope(anchor, env_scope, span) {
+                Some(scope) => scope,
+                None => return TypeId::ERROR,
+            },
+            None => env_scope,
+        };
         let mut current_ty = None;
         let mut pending_trait_projection: Option<PendingTraitProjection> = None;
 
@@ -715,8 +771,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                             return prim_id;
                         }
                     }
-                    self.ctx.scopes.set_current_scope(curr_scope);
-                    self.ctx.scopes.resolve(segment.name).cloned()
+                    if anchor.is_some() {
+                        self.ctx
+                            .scopes
+                            .resolve_in(curr_scope, segment.name)
+                            .cloned()
+                    } else {
+                        self.ctx.scopes.set_current_scope(curr_scope);
+                        self.ctx.scopes.resolve(segment.name).cloned()
+                    }
                 } else {
                     self.ctx
                         .scopes

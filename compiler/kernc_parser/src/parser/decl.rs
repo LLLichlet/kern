@@ -15,7 +15,7 @@ impl<'a> Parser<'a> {
         let vis = if self.match_token(&[TokenType::DotDot]) {
             span = span.to(self.stream.prev_span());
             Visibility::Super
-        } else if self.match_token(&[TokenType::Tilde]) {
+        } else if self.match_token(&[TokenType::Slash]) {
             span = span.to(self.stream.prev_span());
             Visibility::Package
         } else {
@@ -606,12 +606,14 @@ impl<'a> Parser<'a> {
         self.advance(); // Consume `use`.
 
         // 1. Parse the import root marker, if any.
-        let mut kind = UsePathKind::Root;
+        let mut kind = UsePathKind::External;
 
         if self.match_token(&[TokenType::Dot]) {
             kind = UsePathKind::Current;
         } else if self.match_token(&[TokenType::DotDot]) {
             kind = UsePathKind::Parent;
+        } else if self.match_token(&[TokenType::Slash]) {
+            kind = UsePathKind::Package;
         }
 
         let mut path = Vec::new();
@@ -723,9 +725,26 @@ impl<'a> Parser<'a> {
                 id: self.new_id(),
                 span: expr.span,
                 kind: TypeKind::Path {
+                    anchor: None,
                     segments: vec![TypePathSegment {
                         name: id,
                         name_span: expr.span,
+                        args: Vec::new(),
+                    }],
+                },
+            }),
+            ExprKind::AnchoredPath {
+                anchor,
+                name,
+                name_span,
+            } => Ok(TypeNode {
+                id: self.new_id(),
+                span: expr.span,
+                kind: TypeKind::Path {
+                    anchor: Some(anchor),
+                    segments: vec![TypePathSegment {
+                        name,
+                        name_span,
                         args: Vec::new(),
                     }],
                 },
@@ -736,7 +755,10 @@ impl<'a> Parser<'a> {
                 field_span,
             } => {
                 let mut base = self.expr_to_type(*lhs)?;
-                if let TypeKind::Path { ref mut segments } = base.kind {
+                if let TypeKind::Path {
+                    ref mut segments, ..
+                } = base.kind
+                {
                     segments.push(TypePathSegment {
                         name: field,
                         name_span: field_span,
@@ -751,7 +773,10 @@ impl<'a> Parser<'a> {
             }
             ExprKind::GenericInstantiation { target, types } => {
                 let mut base = self.expr_to_type(*target)?;
-                if let TypeKind::Path { ref mut segments } = base.kind {
+                if let TypeKind::Path {
+                    ref mut segments, ..
+                } = base.kind
+                {
                     let Some(last) = segments.last_mut() else {
                         self.add_error(expr.span, "Invalid generic type target".to_string());
                         return Err(ParseError);

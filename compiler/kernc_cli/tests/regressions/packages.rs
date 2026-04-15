@@ -111,7 +111,7 @@ fn imported_package_cannot_access_pub_package_items() {
     fs::write(
         &lib_entry,
         r#"
-pub~ fn answer() i32 {
+pub/ fn answer() i32 {
     return 42;
 }
 "#,
@@ -167,7 +167,7 @@ fn main() i32 {
 
     assert!(
         !app_output.status.success(),
-        "kernc unexpectedly allowed external access to pub~ item:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly allowed external access to pub/ item:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&app_output.stdout),
         String::from_utf8_lossy(&app_output.stderr)
     );

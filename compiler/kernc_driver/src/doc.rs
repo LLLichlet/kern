@@ -1301,6 +1301,7 @@ mod tests {
                 end,
             },
             kind: ast::TypeKind::Path {
+                anchor: None,
                 segments: vec![ast::TypePathSegment {
                     name: segment,
                     name_span: Span {

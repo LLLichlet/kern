@@ -239,7 +239,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             ast::DeclKind::Use {
                 kind, path, target, ..
             } => {
-                if matches!(kind, ast::UsePathKind::Root)
+                if matches!(kind, ast::UsePathKind::External)
                     && let Some(&root) = path.first()
                     && alias_names.contains(&root)
                 {
@@ -325,12 +325,33 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         referenced: &mut FastHashSet<SymbolId>,
     ) {
         match &ty.kind {
-            ast::TypeKind::Path { segments } => {
+            ast::TypeKind::Path {
+                anchor: None,
+                segments,
+            } => {
                 if let Some(root) = segments.first()
                     && alias_names.contains(&root.name)
                 {
                     referenced.insert(root.name);
                 }
+                for segment in segments {
+                    for arg in &segment.args {
+                        match arg {
+                            ast::TypeArg::Positional(generic) => {
+                                Self::collect_type_alias_references(
+                                    generic,
+                                    alias_names,
+                                    referenced,
+                                );
+                            }
+                            ast::TypeArg::AssocBinding { value, .. } => {
+                                Self::collect_type_alias_references(value, alias_names, referenced);
+                            }
+                        }
+                    }
+                }
+            }
+            ast::TypeKind::Path { segments, .. } => {
                 for segment in segments {
                     for arg in &segment.args {
                         match arg {
@@ -468,6 +489,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     referenced.insert(*name);
                 }
             }
+            ast::ExprKind::AnchoredPath { .. } => {}
             ast::ExprKind::TypeNode(type_node) => {
                 Self::collect_type_alias_references(type_node, alias_names, referenced);
             }

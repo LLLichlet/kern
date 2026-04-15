@@ -340,6 +340,7 @@ fn collect_owner_exprs<'a>(
             }
         }
         ast::ExprKind::Static { init, .. } => collect_owner_exprs(init, exprs),
+        ast::ExprKind::AnchoredPath { .. } => {}
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             collect_owner_exprs(lhs, exprs);
             collect_owner_exprs(rhs, exprs);
@@ -617,6 +618,7 @@ fn collect_simple_binding_let_expr_ids(
         | ast::ExprKind::ByteChar(_)
         | ast::ExprKind::String(_)
         | ast::ExprKind::Identifier(_)
+        | ast::ExprKind::AnchoredPath { .. }
         | ast::ExprKind::EnumLiteral { .. }
         | ast::ExprKind::TypeNode(_)
         | ast::ExprKind::SelfValue
@@ -652,6 +654,7 @@ fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
         | ast::ExprKind::ByteChar(_)
         | ast::ExprKind::String(_)
         | ast::ExprKind::Identifier(_)
+        | ast::ExprKind::AnchoredPath { .. }
         | ast::ExprKind::EnumLiteral { .. }
         | ast::ExprKind::SelfValue
         | ast::ExprKind::Undef

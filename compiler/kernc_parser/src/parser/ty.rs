@@ -67,6 +67,12 @@ impl<'a> Parser<'a> {
                 Ok(inner)
             }
             TokenType::Identifier => self.parse_path_type_from_consumed(start_token),
+            TokenType::DotDot => {
+                self.parse_anchored_path_type_from_consumed(PathAnchor::Parent, start_token.span)
+            }
+            TokenType::Slash => {
+                self.parse_anchored_path_type_from_consumed(PathAnchor::Package, start_token.span)
+            }
             TokenType::At => self.parse_intrinsic_type_from_consumed(start_token.span),
             TokenType::Void => Ok(TypeNode {
                 id: self.new_id(),
@@ -259,7 +265,25 @@ impl<'a> Parser<'a> {
         &mut self,
         start_token: kernc_lexer::Token,
     ) -> ParseResult<TypeNode> {
-        let mut span = start_token.span;
+        self.parse_path_type_from_consumed_with_anchor(None, start_token, start_token.span)
+    }
+
+    fn parse_anchored_path_type_from_consumed(
+        &mut self,
+        anchor: PathAnchor,
+        anchor_span: kernc_utils::Span,
+    ) -> ParseResult<TypeNode> {
+        let name_token = self.expect(TokenType::Identifier)?;
+        self.parse_path_type_from_consumed_with_anchor(Some(anchor), name_token, anchor_span)
+    }
+
+    fn parse_path_type_from_consumed_with_anchor(
+        &mut self,
+        anchor: Option<PathAnchor>,
+        start_token: kernc_lexer::Token,
+        start_span: kernc_utils::Span,
+    ) -> ParseResult<TypeNode> {
+        let mut span = start_span;
         let mut segments = vec![self.parse_type_path_segment_after_name(start_token)?];
         span = span.to(segments.last().unwrap().name_span);
         if let Some(last_arg_span) =
@@ -290,7 +314,7 @@ impl<'a> Parser<'a> {
         Ok(TypeNode {
             id: self.new_id(),
             span,
-            kind: TypeKind::Path { segments },
+            kind: TypeKind::Path { anchor, segments },
         })
     }
 

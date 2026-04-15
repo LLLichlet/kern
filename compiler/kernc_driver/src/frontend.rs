@@ -564,6 +564,12 @@ impl CachedAstRebinder<'_> {
             | ast::ExprKind::Infer
             | ast::ExprKind::SelfValue => {}
             ast::ExprKind::Identifier(symbol) => *symbol = self.rebind_symbol(*symbol),
+            ast::ExprKind::AnchoredPath {
+                name, name_span, ..
+            } => {
+                *name = self.rebind_symbol(*name);
+                self.rebind_span(name_span);
+            }
             ast::ExprKind::TypeNode(type_node) => self.rebind_type_node(type_node),
             ast::ExprKind::Binary { lhs, rhs, .. } => {
                 self.rebind_expr(lhs);
@@ -754,7 +760,7 @@ impl CachedAstRebinder<'_> {
         self.rebind_span(&mut ty.span);
 
         match &mut ty.kind {
-            ast::TypeKind::Path { segments } => {
+            ast::TypeKind::Path { segments, .. } => {
                 for segment in segments {
                     segment.name = self.rebind_symbol(segment.name);
                     self.rebind_span(&mut segment.name_span);
@@ -1090,6 +1096,7 @@ mod tests {
     fn collect_identifier_symbols(expr: &ast::Expr, visit: &mut impl FnMut(kernc_utils::SymbolId)) {
         match &expr.kind {
             ast::ExprKind::Identifier(symbol) => visit(*symbol),
+            ast::ExprKind::AnchoredPath { name, .. } => visit(*name),
             ast::ExprKind::Let {
                 init, else_branch, ..
             } => {
@@ -1230,7 +1237,7 @@ mod tests {
         visit: &mut impl FnMut(kernc_utils::SymbolId),
     ) {
         match &ty.kind {
-            ast::TypeKind::Path { segments } => {
+            ast::TypeKind::Path { segments, .. } => {
                 for segment in segments {
                     visit(segment.name);
                     for arg in &segment.args {

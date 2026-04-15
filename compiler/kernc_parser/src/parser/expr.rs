@@ -207,6 +207,8 @@ impl<'a> Parser<'a> {
                     kind: ExprKind::Identifier(name),
                 })
             }
+            TokenType::DotDot => self.parse_anchored_path_expr(PathAnchor::Parent, token.span),
+            TokenType::Slash => self.parse_anchored_path_expr(PathAnchor::Package, token.span),
             TokenType::DotLBrace => self.parse_data_init(None, span),
             TokenType::Dot => self.parse_enum_literal_expr(span),
             TokenType::Minus | TokenType::Bang | TokenType::Tilde | TokenType::Hash => {
@@ -381,6 +383,23 @@ impl<'a> Parser<'a> {
                 lhs: Box::new(left),
                 op,
                 rhs: Box::new(right),
+            },
+        })
+    }
+
+    fn parse_anchored_path_expr(
+        &mut self,
+        anchor: PathAnchor,
+        anchor_span: kernc_utils::Span,
+    ) -> ParseResult<Expr> {
+        let name_token = self.expect(TokenType::Identifier)?;
+        Ok(Expr {
+            id: self.new_id(),
+            span: anchor_span.to(name_token.span),
+            kind: ExprKind::AnchoredPath {
+                anchor,
+                name: self.intern_token(name_token),
+                name_span: name_token.span,
             },
         })
     }

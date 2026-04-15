@@ -589,7 +589,7 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
     ty.id = NodeId(0);
     ty.span = Span::default();
     match &mut ty.kind {
-        ast::TypeKind::Path { segments } => {
+        ast::TypeKind::Path { segments, .. } => {
             for segment in segments {
                 segment.name_span = Span::default();
                 for arg in &mut segment.args {
@@ -719,6 +719,7 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
         | ast::ExprKind::ByteChar(_)
         | ast::ExprKind::String(_)
         | ast::ExprKind::Identifier(_)
+        | ast::ExprKind::AnchoredPath { .. }
         | ast::ExprKind::Break
         | ast::ExprKind::Continue
         | ast::ExprKind::Undef

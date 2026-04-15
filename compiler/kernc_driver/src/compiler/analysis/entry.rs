@@ -239,6 +239,7 @@ impl CompilerDriver {
             id: ctx.next_node_id(),
             span,
             kind: ast::TypeKind::Path {
+                anchor: None,
                 segments: vec![ast::TypePathSegment {
                     name: ctx.intern("i32"),
                     name_span: span,
@@ -253,6 +254,7 @@ impl CompilerDriver {
             id: ctx.next_node_id(),
             span,
             kind: ast::TypeKind::Path {
+                anchor: None,
                 segments: vec![ast::TypePathSegment {
                     name: ctx.intern("u8"),
                     name_span: span,

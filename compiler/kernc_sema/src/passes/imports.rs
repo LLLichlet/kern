@@ -231,23 +231,36 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
     ) -> Option<(DefId, ScopeId)> {
         let mut actual_path = path;
         let (mut curr_mod_id, mut curr_scope) = match kind {
-            UsePathKind::Root => {
+            UsePathKind::External => {
                 if let Some(&first_seg) = actual_path.first() {
-                    // First try external package aliases such as `std` in `use std.io;`.
                     if let Some(&alias_root_id) = self.ctx.alias_roots.get(&first_seg) {
-                        // Strip the alias head and continue with the remaining segments.
                         actual_path = &actual_path[1..];
                         (alias_root_id, self.get_module_scope(alias_root_id))
                     } else {
-                        // Otherwise fall back to the local root module.
-                        let root_id = self.root_module_id(current_mod_id)?;
-                        (root_id, self.get_module_scope(root_id))
+                        if emit_errors {
+                            let name = self.ctx.resolve(first_seg).to_string();
+                            self.ctx
+                                .struct_error(
+                                    span,
+                                    format!("Unresolved external import root `{}`", name),
+                                )
+                                .with_hint("use `/name` for the current package root, or add the package through module mappings")
+                                .emit();
+                        }
+                        return None;
                     }
                 } else {
-                    // Defensive handling for empty paths.
-                    let root_id = self.root_module_id(current_mod_id)?;
-                    (root_id, self.get_module_scope(root_id))
+                    if emit_errors {
+                        self.ctx
+                            .struct_error(span, "external imports cannot be empty")
+                            .emit();
+                    }
+                    return None;
                 }
+            }
+            UsePathKind::Package => {
+                let root_id = self.root_module_id(current_mod_id)?;
+                (root_id, self.get_module_scope(root_id))
             }
             UsePathKind::Current => {
                 // Start from the current module.

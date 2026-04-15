@@ -214,7 +214,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         env: &MemberQueryEnv,
         access_span: Span,
     ) -> Option<MemberResolution> {
-        let started = Instant::now();
+        let started = self.ctx.collects_timings().then(Instant::now);
         if matches!(
             self.ctx.type_registry.get(search_norm),
             TypeKind::TraitObject(..)
@@ -224,12 +224,16 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             receiver_ty,
             Some(access_span),
         ) {
-            self.ctx.expr_timing_stats.access_field_query_trait_object += started.elapsed();
+            if let Some(started) = started {
+                self.ctx.expr_timing_stats.access_field_query_trait_object += started.elapsed();
+            }
             return Some(resolution);
         }
-        self.ctx.expr_timing_stats.access_field_query_trait_object += started.elapsed();
+        if let Some(started) = started {
+            self.ctx.expr_timing_stats.access_field_query_trait_object += started.elapsed();
+        }
 
-        let started = Instant::now();
+        let started = self.ctx.collects_timings().then(Instant::now);
         if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone()
             && let Some(candidate) = self.resolve_named_type_field(
                 current_module_id,
@@ -239,13 +243,17 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 access_span,
             )
         {
-            self.ctx.expr_timing_stats.access_field_query_named_type += started.elapsed();
+            if let Some(started) = started {
+                self.ctx.expr_timing_stats.access_field_query_named_type += started.elapsed();
+            }
             return Some(MemberResolution {
                 candidate,
                 owner_trait_ty: None,
             });
         }
-        self.ctx.expr_timing_stats.access_field_query_named_type += started.elapsed();
+        if let Some(started) = started {
+            self.ctx.expr_timing_stats.access_field_query_named_type += started.elapsed();
+        }
 
         if let TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) =
             self.ctx.type_registry.get(search_norm).clone()
@@ -264,23 +272,29 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             });
         }
 
-        let started = Instant::now();
+        let started = self.ctx.collects_timings().then(Instant::now);
         if let Some(resolution) =
             self.resolve_bound_member(search_norm, receiver_ty, member_name, env, access_span)
         {
-            self.ctx.expr_timing_stats.access_field_query_bound += started.elapsed();
+            if let Some(started) = started {
+                self.ctx.expr_timing_stats.access_field_query_bound += started.elapsed();
+            }
             return Some(resolution);
         }
-        self.ctx.expr_timing_stats.access_field_query_bound += started.elapsed();
+        if let Some(started) = started {
+            self.ctx.expr_timing_stats.access_field_query_bound += started.elapsed();
+        }
 
-        let started = Instant::now();
+        let started = self.ctx.collects_timings().then(Instant::now);
         let resolution = self
             .resolve_named_impl_method(search_norm, member_name)
             .map(|candidate| MemberResolution {
                 candidate,
                 owner_trait_ty: None,
             });
-        self.ctx.expr_timing_stats.access_field_query_impl += started.elapsed();
+        if let Some(started) = started {
+            self.ctx.expr_timing_stats.access_field_query_impl += started.elapsed();
+        }
         resolution
     }
 }

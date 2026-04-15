@@ -88,6 +88,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) current_owner_def_id: Option<DefId>,
     pub(crate) current_return_types: Vec<TypeId>,
     pub(crate) next_synth_symbol: u32,
+    collect_phase_timings: bool,
     phase_totals: HashMap<&'static str, Duration>,
     cache_stats: LowerCacheStats,
 }
@@ -207,6 +208,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
+        let collect_phase_timings = ctx.sess.report_timings;
         let module_name = ctx
             .root_module
             .and_then(|root_id| match &ctx.defs[root_id.0 as usize] {
@@ -252,6 +254,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             current_owner_def_id: None,
             current_return_types: Vec::new(),
             next_synth_symbol: 0,
+            collect_phase_timings,
             phase_totals: HashMap::new(),
             cache_stats: LowerCacheStats::default(),
         }
@@ -279,6 +282,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     where
         F: FnOnce(&mut Self) -> T,
     {
+        if !self.collect_phase_timings {
+            return f(self);
+        }
         let started = Instant::now();
         let value = f(self);
         *self.phase_totals.entry(name).or_default() += started.elapsed();

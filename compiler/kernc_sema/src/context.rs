@@ -167,6 +167,10 @@ impl<'a> SemaContext<'a> {
         id
     }
 
+    pub fn collects_timings(&self) -> bool {
+        self.sess.report_timings
+    }
+
     pub fn ty_to_string(&self, ty: TypeId) -> String {
         TypeFormatter { ctx: self }.format(ty)
     }

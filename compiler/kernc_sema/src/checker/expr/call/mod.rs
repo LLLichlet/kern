@@ -6,7 +6,6 @@ use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, Visibility};
 use kernc_utils::Span;
-use std::time::Instant;
 
 mod asm;
 mod intrinsic;
@@ -50,7 +49,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let has_user_explicit_generics =
             matches!(callee.kind, ExprKind::GenericInstantiation { .. });
 
-        let signature_started = Instant::now();
+        let signature_started = self.timing_start();
         let (sig_ty, inferred_callee_ty, inferred_arg_tys) = self.deduce_and_resolve_signature(
             norm_callee,
             SignatureDeductionInput {
@@ -62,7 +61,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 has_user_explicit_generics,
             },
         );
-        self.ctx.expr_timing_stats.call_signature += signature_started.elapsed();
+        self.record_expr_timing(signature_started, |stats, elapsed| {
+            stats.call_signature += elapsed;
+        });
 
         if let Some(fixed_ty) = inferred_callee_ty {
             self.ctx.node_types.insert(callee.id, fixed_ty);
@@ -117,7 +118,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let mut final_ret = ret;
-        let intrinsic_started = Instant::now();
+        let intrinsic_started = self.timing_start();
         let handled_intrinsic = self
             .intrinsic_def_from_callee_ty(inferred_callee_ty.unwrap_or(norm_callee))
             .and_then(|def_id| {
@@ -148,10 +149,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 Some(atomic_handled || simd_ret.is_some())
             })
             .unwrap_or(false);
-        self.ctx.expr_timing_stats.call_intrinsic += intrinsic_started.elapsed();
+        self.record_expr_timing(intrinsic_started, |stats, elapsed| {
+            stats.call_intrinsic += elapsed;
+        });
 
         if !handled_intrinsic {
-            let arguments_started = Instant::now();
+            let arguments_started = self.timing_start();
             self.check_call_arguments(
                 args,
                 params,
@@ -159,7 +162,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_variadic,
                 inferred_arg_tys.as_deref(),
             );
-            self.ctx.expr_timing_stats.call_arguments += arguments_started.elapsed();
+            self.record_expr_timing(arguments_started, |stats, elapsed| {
+                stats.call_arguments += elapsed;
+            });
         }
         final_ret
     }

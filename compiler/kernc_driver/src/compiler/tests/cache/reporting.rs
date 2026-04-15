@@ -343,6 +343,12 @@ fn compile_report_only_collects_codegen_diagnostics_when_requested() {
     assert!(without_diagnostics.remaining_alloca_names.is_empty());
     assert!(without_diagnostics.ir_hot_functions.is_empty());
     assert_eq!(without_diagnostics.codegen_alloca_stats, Default::default());
+    assert!(
+        without_diagnostics
+            .phase_timings
+            .iter()
+            .all(|phase| !phase.name.starts_with("  lower_") && !phase.name.starts_with("    expr_"))
+    );
 
     let with_diagnostics = CompilerDriver::new(CompileOptions {
         report_timings: true,
@@ -353,6 +359,18 @@ fn compile_report_only_collects_codegen_diagnostics_when_requested() {
     assert!(with_diagnostics.ir_instruction_stats.is_some());
     assert!(with_diagnostics.ir_cleanup_stats.is_some());
     assert!(with_diagnostics.remaining_alloca_stats.is_some());
+    assert!(
+        with_diagnostics
+            .phase_timings
+            .iter()
+            .any(|phase| phase.name.starts_with("  lower_"))
+    );
+    assert!(
+        with_diagnostics
+            .phase_timings
+            .iter()
+            .any(|phase| phase.name.starts_with("    expr_"))
+    );
 
     let _ = fs::remove_dir_all(&root);
 }

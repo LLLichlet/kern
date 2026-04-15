@@ -8,7 +8,6 @@ use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, TypeNode, Visibility};
 use kernc_utils::{DiagnosticCode, FastHashSet, NodeId, Span, SymbolId};
-use std::time::Instant;
 
 pub(crate) struct LetElseClause<'a> {
     pub(crate) pattern: Option<&'a ast::Pattern>,
@@ -1160,7 +1159,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // Modules are namespaces, so member lookup uses the peeled base type directly.
         if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(base_norm).clone() {
-            let started = Instant::now();
+            let started = self.timing_start();
             let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                 m.scope_id
             } else {
@@ -1187,7 +1186,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             format!("module has no visible member `{}`", field_name),
                         )
                         .emit();
-                    self.ctx.expr_timing_stats.access_field_module += started.elapsed();
+                    self.record_expr_timing(started, |stats, elapsed| {
+                        stats.access_field_module += elapsed;
+                    });
                     return TypeId::ERROR;
                 }
                 let definition_span = target_info.span;
@@ -1242,7 +1243,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.ctx.node_types.insert(lhs.id, mod_ty);
                 self.ctx
                     .record_identifier_reference(field_span, definition_span);
-                self.ctx.expr_timing_stats.access_field_module += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.access_field_module += elapsed;
+                });
                 return real_ty;
             } else {
                 let field_name = self.ctx.resolve(field);
@@ -1252,36 +1255,46 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         format!("module has no visible member `{}`", field_name),
                     )
                     .emit();
-                self.ctx.expr_timing_stats.access_field_module += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.access_field_module += elapsed;
+                });
                 return TypeId::ERROR;
             }
         }
 
         if self.expr_is_type_namespace(lhs) {
-            let started = Instant::now();
+            let started = self.timing_start();
             if let Some(enum_ty) =
                 self.check_payloadless_enum_variant_access(lhs_ty, field, field_span, span)
             {
-                self.ctx.expr_timing_stats.access_field_enum_variant += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.access_field_enum_variant += elapsed;
+                });
                 return enum_ty;
             }
-            self.ctx.expr_timing_stats.access_field_enum_variant += started.elapsed();
+            self.record_expr_timing(started, |stats, elapsed| {
+                stats.access_field_enum_variant += elapsed;
+            });
         }
 
-        let started = Instant::now();
+        let started = self.timing_start();
         if let Some(resolution) = self.try_find_field_or_method_silent(lhs_ty, field, span) {
             self.ctx
                 .record_identifier_reference(field_span, resolution.candidate.definition_span);
             if let Some(owner_trait_ty) = resolution.owner_trait_ty {
                 self.ctx.trait_method_owners.insert(expr_id, owner_trait_ty);
             }
-            self.ctx.expr_timing_stats.access_field_member_query += started.elapsed();
+            self.record_expr_timing(started, |stats, elapsed| {
+                stats.access_field_member_query += elapsed;
+            });
             return resolution.candidate.type_id;
         }
-        self.ctx.expr_timing_stats.access_field_member_query += started.elapsed();
+        self.record_expr_timing(started, |stats, elapsed| {
+            stats.access_field_member_query += elapsed;
+        });
 
         // No field or method matched. Emit the detailed fallback diagnostic.
-        let miss_started = Instant::now();
+        let miss_started = self.timing_start();
         let field_str = self.ctx.resolve(field);
         let lhs_str = self.ctx.ty_to_string(lhs_ty);
 
@@ -1298,7 +1311,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             )
             .with_hint("if this is a struct field, check for typos")
             .emit();
-        self.ctx.expr_timing_stats.access_field_miss += miss_started.elapsed();
+        self.record_expr_timing(miss_started, |stats, elapsed| {
+            stats.access_field_miss += elapsed;
+        });
 
         TypeId::ERROR
     }

@@ -86,6 +86,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn body_phase_timings(&self) -> Vec<TypeckTiming> {
+        if !self.ctx.collects_timings() {
+            return Vec::new();
+        }
         let mut timings = self.body_timings.phase_timings();
         let expr = self.ctx.expr_timing_stats;
         timings.extend(
@@ -165,6 +168,20 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             }),
         );
         timings
+    }
+
+    fn measure_body_timing<T, F, R>(&mut self, record: R, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+        R: FnOnce(&mut TypeckBodyTimings, Duration),
+    {
+        if !self.ctx.collects_timings() {
+            return f(self);
+        }
+        let started = Instant::now();
+        let value = f(self);
+        record(&mut self.body_timings, started.elapsed());
+        value
     }
 
     pub fn check_all(&mut self) {
@@ -410,21 +427,18 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 Def::Function(f) => {
                     self.check_function(f, parent_scope, FunctionBodyKind::TopLevel)
                 }
-                Def::Impl(i) => {
-                    let started = Instant::now();
-                    self.check_impl(i, parent_scope);
-                    self.body_timings.impls += started.elapsed();
-                }
-                Def::Struct(s) => {
-                    let started = Instant::now();
-                    self.check_struct(s, parent_scope);
-                    self.body_timings.structs += started.elapsed();
-                }
-                Def::Union(u) => {
-                    let started = Instant::now();
-                    self.check_union(u, parent_scope);
-                    self.body_timings.unions += started.elapsed();
-                }
+                Def::Impl(i) => self.measure_body_timing(
+                    |timings, elapsed| timings.impls += elapsed,
+                    |this| this.check_impl(i, parent_scope),
+                ),
+                Def::Struct(s) => self.measure_body_timing(
+                    |timings, elapsed| timings.structs += elapsed,
+                    |this| this.check_struct(s, parent_scope),
+                ),
+                Def::Union(u) => self.measure_body_timing(
+                    |timings, elapsed| timings.unions += elapsed,
+                    |this| this.check_union(u, parent_scope),
+                ),
                 _ => {}
             }
         }
@@ -476,7 +490,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     // ==========================================
 
     fn check_function(&mut self, f: &FunctionDef, parent_scope: ScopeId, kind: FunctionBodyKind) {
-        let function_started = Instant::now();
+        let collect_timings = self.ctx.collects_timings();
+        let function_started = collect_timings.then(Instant::now);
         if f.is_const && f.is_extern {
             self.ctx
                 .emit_error(f.span, "`const fn` cannot be declared `extern`");
@@ -502,7 +517,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         };
 
         // 3. Rebuild the function-local scope.
-        let setup_started = Instant::now();
+        let setup_started = collect_timings.then(Instant::now);
         self.ctx.scopes.set_current_scope(parent_scope);
         let _ = self.ctx.scopes.enter_scope();
         // Inject generic parameters into the function scope.
@@ -580,16 +595,20 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 }
             }
         }
-        self.body_timings.function_setup += setup_started.elapsed();
+        if let Some(setup_started) = setup_started {
+            self.body_timings.function_setup += setup_started.elapsed();
+        }
 
         // 4. Run the expression checker on the body.
+        let expr_started = collect_timings.then(Instant::now);
         let mut checker = ExprChecker::new(self.ctx, Some(ret_ty));
-        let expr_started = Instant::now();
         let body_eval_ty = checker.check_expr(body_expr, Some(ret_ty));
-        self.body_timings.function_expr += expr_started.elapsed();
+        if let Some(expr_started) = expr_started {
+            self.body_timings.function_expr += expr_started.elapsed();
+        }
 
         // 5. Verify that the trailing expression matches the declared return type.
-        let return_started = Instant::now();
+        let return_started = collect_timings.then(Instant::now);
         if ret_ty != TypeId::ERROR && body_eval_ty != TypeId::ERROR {
             if ret_ty == body_eval_ty {
                 // Exact match.
@@ -606,17 +625,21 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 }
             }
         }
-        self.body_timings.function_return += return_started.elapsed();
+        if let Some(return_started) = return_started {
+            self.body_timings.function_return += return_started.elapsed();
+        }
 
         self.ctx.active_bounds.truncate(prev_bounds_len); // Drop bounds introduced by this function scope.
         self.ctx.bound_trait_match_cache.clear();
         self.ctx.impl_applicability_cache.clear();
         self.ctx.scopes.exit_scope(); // Leave the function scope.
 
-        let elapsed = function_started.elapsed();
-        match kind {
-            FunctionBodyKind::TopLevel => self.body_timings.top_level_functions += elapsed,
-            FunctionBodyKind::ImplMethod => self.body_timings.impl_methods += elapsed,
+        if let Some(function_started) = function_started {
+            let elapsed = function_started.elapsed();
+            match kind {
+                FunctionBodyKind::TopLevel => self.body_timings.top_level_functions += elapsed,
+                FunctionBodyKind::ImplMethod => self.body_timings.impl_methods += elapsed,
+            }
         }
     }
 
@@ -749,7 +772,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     fn check_impl(&mut self, i: &ImplDef, parent_scope: ScopeId) {
-        let setup_started = Instant::now();
+        let setup_started = self.ctx.collects_timings().then(Instant::now);
         self.ctx.scopes.set_current_scope(parent_scope);
         let impl_scope = self.ctx.scopes.enter_scope();
 
@@ -818,7 +841,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 is_mut: false,
             },
         );
-        self.body_timings.impl_setup += setup_started.elapsed();
+        if let Some(setup_started) = setup_started {
+            self.body_timings.impl_setup += setup_started.elapsed();
+        }
 
         // Recursively check every method body in the impl block.
         for &method_id in &i.methods {

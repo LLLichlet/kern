@@ -25,6 +25,7 @@ pub struct Session {
     pub target: TargetMachine,
     pub runtime_entry: RuntimeEntry,
     pub custom_defines: HashMap<String, String>,
+    pub report_timings: bool,
 }
 
 impl Default for Session {
@@ -45,6 +46,7 @@ impl Session {
             target: TargetMachine::default(),
             runtime_entry: RuntimeEntry::None,
             custom_defines: HashMap::new(),
+            report_timings: false,
         }
     }
 
@@ -216,5 +218,6 @@ impl Session {
         self.target = options.target.clone();
         self.runtime_entry = options.runtime_entry;
         self.custom_defines = options.custom_defines.clone();
+        self.report_timings = options.report_timings;
     }
 }

@@ -3,7 +3,6 @@ use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{DiagnosticCode, Span, SymbolId};
-use std::time::Instant;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn match_enum_def(
@@ -90,15 +89,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             } else if let Some(common_ty) = common_ret_ty.filter(|ty| *ty != TypeId::NEVER)
                 && body_ty != TypeId::NEVER
             {
-                let body_started = Instant::now();
+                let body_started = self.timing_start();
                 self.check_coercion(&arm.body, common_ty, body_ty);
-                self.ctx.expr_timing_stats.control_match_bodies += body_started.elapsed();
+                self.record_expr_timing(body_started, |stats, elapsed| {
+                    stats.control_match_bodies += elapsed;
+                });
             }
         }
 
         // --- Exhaustiveness checking ---
         if !has_catch_all {
-            let exhaustiveness_started = Instant::now();
+            let exhaustiveness_started = self.timing_start();
             if is_adt {
                 let missing: Vec<_> = match self.ctx.type_registry.get(norm_target) {
                     TypeKind::Enum(def_id, _) => self
@@ -137,8 +138,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .with_hint("for non-ADT types (like integers or strings), consider adding an `else =>` catch-all branch")
                     .emit();
             }
-            self.ctx.expr_timing_stats.control_match_exhaustiveness +=
-                exhaustiveness_started.elapsed();
+            self.record_expr_timing(exhaustiveness_started, |stats, elapsed| {
+                stats.control_match_exhaustiveness += elapsed;
+            });
         }
 
         common_ret_ty.unwrap_or(TypeId::VOID)
@@ -156,7 +158,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> TypeId {
         self.ctx.scopes.enter_scope();
 
-        let pattern_started = Instant::now();
+        let pattern_started = self.timing_start();
         for pat in &arm.patterns {
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
@@ -189,11 +191,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
         }
-        self.ctx.expr_timing_stats.control_match_patterns += pattern_started.elapsed();
+        self.record_expr_timing(pattern_started, |stats, elapsed| {
+            stats.control_match_patterns += elapsed;
+        });
 
-        let body_started = Instant::now();
+        let body_started = self.timing_start();
         let body_ty = self.check_expr(&arm.body, common_ret_ty);
-        self.ctx.expr_timing_stats.control_match_bodies += body_started.elapsed();
+        self.record_expr_timing(body_started, |stats, elapsed| {
+            stats.control_match_bodies += elapsed;
+        });
         self.ctx.scopes.exit_scope();
         body_ty
     }

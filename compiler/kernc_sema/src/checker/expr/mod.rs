@@ -7,7 +7,7 @@ use crate::ty::{
 };
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::Span;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 mod access;
 mod call;
@@ -38,6 +38,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
+    fn timing_start(&self) -> Option<Instant> {
+        self.ctx.collects_timings().then(Instant::now)
+    }
+
+    fn record_expr_timing(
+        &mut self,
+        started: Option<Instant>,
+        record: impl FnOnce(&mut crate::context::ExprTimingStats, Duration),
+    ) {
+        if let Some(started) = started {
+            record(&mut self.ctx.expr_timing_stats, started.elapsed());
+        }
+    }
+
     /// Main entry point for expression type checking.
     pub(crate) fn check_expr(&mut self, expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
         let ty = match &expr.kind {
@@ -54,19 +68,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             // === 2. Identifiers and variables ===
             ExprKind::Identifier(name) => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_identifier(*name, expr.span);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.access += elapsed;
-                self.ctx.expr_timing_stats.access_identifier += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.access += elapsed;
+                    stats.access_identifier += elapsed;
+                });
                 ty
             }
             ExprKind::AnchoredPath { anchor, name, .. } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_anchored_identifier(*anchor, *name, expr.span);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.access += elapsed;
-                self.ctx.expr_timing_stats.access_identifier += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.access += elapsed;
+                    stats.access_identifier += elapsed;
+                });
                 ty
             }
             ExprKind::TypeNode(type_node) => self.evaluate_dynamic_typeof(type_node),
@@ -79,7 +95,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 else_pattern,
                 else_branch,
             } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_let(
                     expr.id,
                     pattern,
@@ -91,58 +107,59 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     expected_ty,
                     expr.span,
                 );
-                self.ctx.expr_timing_stats.bindings += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.bindings += elapsed);
                 ty
             }
             ExprKind::Static { pattern, init, .. } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_static(expr.id, pattern, init, expected_ty, expr.span);
-                self.ctx.expr_timing_stats.bindings += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.bindings += elapsed);
                 ty
             }
 
             // === 4. Operators and assignment ===
             ExprKind::Binary { lhs, op, rhs } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_binary(lhs, *op, rhs, expected_ty);
-                self.ctx.expr_timing_stats.ops += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
             ExprKind::Unary { op, operand } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_unary(*op, operand, expr.span, expected_ty);
-                self.ctx.expr_timing_stats.ops += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
             ExprKind::Assign { lhs, rhs, .. } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_assign(lhs, rhs);
-                self.ctx.expr_timing_stats.ops += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
 
             // === 5. Casts and coercions ===
             ExprKind::As { lhs, target } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let actual_target_ty = self.evaluate_dynamic_typeof(target);
                 let ty = self.check_as_expr(lhs, actual_target_ty);
-                self.ctx.expr_timing_stats.ops += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
             ExprKind::Propagate { operand, kind } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_propagate(operand, *kind, expr.span);
-                self.ctx.expr_timing_stats.ops += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
 
             // === 6. Memory access ===
             ExprKind::IndexAccess { lhs, index, is_mut } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_index_access(lhs, index, *is_mut, expr.span);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.access += elapsed;
-                self.ctx.expr_timing_stats.access_index += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.access += elapsed;
+                    stats.access_index += elapsed;
+                });
                 ty
             }
             ExprKind::FieldAccess {
@@ -150,11 +167,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 field,
                 field_span,
             } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_field_access(expr.id, lhs, *field, *field_span, expr.span);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.access += elapsed;
-                self.ctx.expr_timing_stats.access_field += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.access += elapsed;
+                    stats.access_field += elapsed;
+                });
                 ty
             }
             ExprKind::SliceOp {
@@ -164,7 +182,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_inclusive,
                 is_mut,
             } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_slice_op(
                     lhs,
                     start.as_deref(),
@@ -173,30 +191,33 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     *is_mut,
                     expr.span,
                 );
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.access += elapsed;
-                self.ctx.expr_timing_stats.access_slice += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.access += elapsed;
+                    stats.access_slice += elapsed;
+                });
                 ty
             }
 
             // === 7. Calls and macros ===
             ExprKind::Call { callee, args } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_call(callee, args, expected_ty, expr.span);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.call += elapsed;
-                self.ctx.expr_timing_stats.call_plain += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.call += elapsed;
+                    stats.call_plain += elapsed;
+                });
                 ty
             }
             ExprKind::GenericInstantiation { target, types } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 for ty_node in types {
                     self.evaluate_dynamic_typeof(ty_node);
                 }
                 let ty = self.check_generic_instantiation(target, types, expr.span);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.call += elapsed;
-                self.ctx.expr_timing_stats.call_generic_instantiation += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.call += elapsed;
+                    stats.call_generic_instantiation += elapsed;
+                });
                 ty
             }
             ExprKind::Closure {
@@ -205,17 +226,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 ret_type,
                 body,
             } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_closure(expr.id, captures, params, ret_type, body, expr.span);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.call += elapsed;
-                self.ctx.expr_timing_stats.call_closure += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.call += elapsed;
+                    stats.call_closure += elapsed;
+                });
                 ty
             }
 
             // === 8. Aggregate literals ===
             ExprKind::DataInit { type_node, literal } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 if let Some(t_node) = type_node {
                     self.evaluate_dynamic_typeof(t_node);
                 }
@@ -225,32 +247,33 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     expected_ty,
                     expr.span,
                 );
-                self.ctx.expr_timing_stats.aggregate += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.aggregate += elapsed);
                 ty
             }
             ExprKind::EnumLiteral {
                 variant,
                 variant_span,
             } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_enum_literal(*variant, *variant_span, expected_ty, expr.span);
-                self.ctx.expr_timing_stats.aggregate += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.aggregate += elapsed);
                 ty
             }
             ExprKind::Undef => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_undef(expected_ty, expr.span);
-                self.ctx.expr_timing_stats.aggregate += started.elapsed();
+                self.record_expr_timing(started, |stats, elapsed| stats.aggregate += elapsed);
                 ty
             }
 
             // === 9. Control flow ===
             ExprKind::Block { stmts, result } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_block(stmts, result.as_deref(), expected_ty);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.control += elapsed;
-                self.ctx.expr_timing_stats.control_block += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.control += elapsed;
+                    stats.control_block += elapsed;
+                });
                 ty
             }
             ExprKind::If {
@@ -258,19 +281,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 then_branch,
                 else_branch,
             } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_if(cond, then_branch, else_branch.as_deref(), expected_ty);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.control += elapsed;
-                self.ctx.expr_timing_stats.control_if += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.control += elapsed;
+                    stats.control_if += elapsed;
+                });
                 ty
             }
             ExprKind::Match { target, arms } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_match_expr(target, arms, expected_ty, expr.span);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.control += elapsed;
-                self.ctx.expr_timing_stats.control_match += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.control += elapsed;
+                    stats.control_match += elapsed;
+                });
                 ty
             }
             ExprKind::For {
@@ -279,28 +304,31 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 post,
                 body,
             } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_for(init.as_deref(), cond.as_deref(), post.as_deref(), body);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.control += elapsed;
-                self.ctx.expr_timing_stats.control_for += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.control += elapsed;
+                    stats.control_for += elapsed;
+                });
                 ty
             }
             ExprKind::Defer { expr: defer_expr } => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 let ty = self.check_defer(defer_expr);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.control += elapsed;
-                self.ctx.expr_timing_stats.control_defer += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.control += elapsed;
+                    stats.control_defer += elapsed;
+                });
                 ty
             }
             ExprKind::Break | ExprKind::Continue => TypeId::NEVER,
             ExprKind::Return(val) => {
-                let started = Instant::now();
+                let started = self.timing_start();
                 self.check_return(val.as_deref(), expr.span);
-                let elapsed = started.elapsed();
-                self.ctx.expr_timing_stats.control += elapsed;
-                self.ctx.expr_timing_stats.control_return += elapsed;
+                self.record_expr_timing(started, |stats, elapsed| {
+                    stats.control += elapsed;
+                    stats.control_return += elapsed;
+                });
                 TypeId::NEVER
             }
 
@@ -318,7 +346,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     /// Recursively scan AST type nodes, resolve every `@typeOf`, and rebuild the final type bottom-up.
     pub(crate) fn evaluate_dynamic_typeof(&mut self, ty_node: &kernc_ast::TypeNode) -> TypeId {
-        let started = Instant::now();
+        let started = self.timing_start();
         let ty_id = match &ty_node.kind {
             ast::TypeKind::TypeOf(inner_expr) => self.check_expr(inner_expr, None),
             ast::TypeKind::Optional { inner } => {
@@ -470,7 +498,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // Overwrite the cached node type with the freshly resolved result.
         self.ctx.node_types.insert(ty_node.id, ty_id);
-        self.ctx.expr_timing_stats.dynamic_typeof += started.elapsed();
+        self.record_expr_timing(started, |stats, elapsed| stats.dynamic_typeof += elapsed);
         ty_id
     }
 

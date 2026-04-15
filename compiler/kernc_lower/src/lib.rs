@@ -139,8 +139,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return Some(*assoc_ty);
         }
 
-        let trait_impl_ids = self.ctx.trait_impls.clone();
-        for impl_id in trait_impl_ids {
+        for trait_impl_index in 0..self.ctx.trait_impls.len() {
+            let impl_id = self.ctx.trait_impls[trait_impl_index];
             let Some(impl_ptr) = self
                 .ctx
                 .defs

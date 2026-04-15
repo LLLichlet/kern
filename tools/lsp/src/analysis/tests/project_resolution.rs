@@ -230,7 +230,7 @@ root = \"src/main.rn\"
     .unwrap();
     fs::write(
         root.join("build.rn"),
-            "\
+        "\
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {{
@@ -239,7 +239,7 @@ pub fn build(b: *mut builder.Builder) void {{
         b.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
     }}
 }}
-"
+",
     )
     .unwrap();
     fs::write(
@@ -337,7 +337,7 @@ root = \"src/main.rn\"
     .unwrap();
     fs::write(
         root.join("build.rn"),
-            "\
+        "\
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {{
@@ -346,7 +346,7 @@ pub fn build(b: *mut builder.Builder) void {{
         b.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
     }}
 }}
-"
+",
     )
     .unwrap();
     fs::write(

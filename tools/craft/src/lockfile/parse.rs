@@ -1,4 +1,6 @@
-use super::{LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageTarget, Lockfile};
+use super::{
+    LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageTarget, Lockfile,
+};
 use crate::error::{Error, Result};
 use std::path::Path;
 

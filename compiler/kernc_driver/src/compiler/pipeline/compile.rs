@@ -101,11 +101,16 @@ impl CompilerDriver {
         let structure = Self::measure_phase(&mut phase_timings, "analyze_structure", || {
             self.analyze_compile_structure(input_file, &SourceOverrides::new())
         })?;
-        phase_timings.extend(structure.phase_timings.iter().copied());
-        let mut session = structure.session.clone();
+        let crate::compiler::CompileStructureArtifact {
+            session,
+            snapshot,
+            phase_timings: structure_phase_timings,
+        } = structure;
+        phase_timings.extend(structure_phase_timings);
+        let mut session = session;
 
         let mut ctx = self.build_sema_context(&mut session);
-        ctx.restore_structure(structure.snapshot.clone());
+        ctx.restore_structure(snapshot);
         let body_pipeline = self.run_body_pipeline_with_report(&mut ctx)?;
         phase_timings.extend(body_pipeline.phase_timings.iter().copied());
         let loaded_sources = ctx

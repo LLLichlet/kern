@@ -114,10 +114,15 @@ impl CompilerDriver {
         source_overrides: &SourceOverrides,
     ) -> Option<SemaContext<'a>> {
         let structure = self.analyze_structure(input_file, source_overrides)?;
-        *session = structure.session.clone();
+        let StructureArtifact {
+            session: restored_session,
+            snapshot,
+            ..
+        } = structure;
+        *session = restored_session;
 
         let mut ctx = self.build_sema_context(session);
-        ctx.restore_structure(structure.snapshot.clone());
+        ctx.restore_structure(snapshot);
         if !self.run_body_pipeline(&mut ctx) {
             return None;
         }

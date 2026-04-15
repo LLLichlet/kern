@@ -30,12 +30,10 @@ fn validate_number_raw(raw: []u8) void!NumberDecodeError {
 }
 
 fn parse_integer_raw(raw: []u8) ParsedInteger!NumberDecodeError {
-    let _ = match (validate_number_raw(raw)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let .{ Ok: _ } = validate_number_raw(raw)
+        else .{ Err: err } => return .{ Err: err };
 
-    let mut start = usize.{0};
+    let mut start = 0;
     let mut negative = false;
     if (raw.[0] == b'-') {
         negative = true;
@@ -215,7 +213,7 @@ pub/ fn parse_isize_raw(raw: []u8) isize!NumberDecodeError {
 
 fn parse_decimal_exponent(raw: []u8, start: usize) i32!FloatDecodeError {
     if (start >= #raw) {
-        return .{ Ok: i32.{0} };
+        return .{ Ok: 0 };
     }
 
     let mut index = start;
@@ -254,7 +252,7 @@ fn scale_pow10_f64(value: f64, exp10: i32) f64!FloatDecodeError {
 
     let mut out = value;
     let mut bits = if (exp10 < 0) -exp10 else exp10;
-    let mut part = usize.{0};
+    let mut part = 0;
     for (; bits > 0; ) {
         if ((bits & i32.{1}) != i32.{0}) {
             if (exp10 < 0) {
@@ -275,17 +273,16 @@ fn scale_pow10_f64(value: f64, exp10: i32) f64!FloatDecodeError {
 }
 
 pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
-    let _ = match (validate_number_raw(raw)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => match (err) {
+    let .{ Ok: _ } = validate_number_raw(raw) else .{ Err: err } => {
+        match (err) {
             .{ Parse: parse_err } => return .{ Err: .{ Parse: parse_err } },
             .NotInteger => return .{ Err: .{ Parse: .{ InvalidNumber: 0 } } },
             .NegativeUnsigned => return .{ Err: .{ Parse: .{ InvalidNumber: 0 } } },
             .Overflow => return .{ Err: FloatDecodeError.Overflow },
-        },
+        }
     };
 
-    let mut index = usize.{0};
+    let mut index = 0;
     let mut negative = false;
     if (raw.[index] == b'-') {
         negative = true;
@@ -293,7 +290,7 @@ pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
     }
 
     let mut significand = u64.{0};
-    let mut significant_digits = usize.{0};
+    let mut significant_digits = 0;
     let mut exp10 = i32.{0};
 
     for (; index < #raw; index += 1) {
@@ -305,7 +302,7 @@ pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
         if (significant_digits == 0 and byte == b'0' and significand == u64.{0}) {
             continue;
         }
-        if (significant_digits < usize.{19}) {
+        if (significant_digits < 19) {
             significand = significand * u64.{10} + ((byte - b'0') as u64);
             significant_digits += 1;
         } else {
@@ -325,7 +322,7 @@ pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
                 exp10 -= 1;
                 continue;
             }
-            if (significant_digits < usize.{19}) {
+            if (significant_digits < 19) {
                 significand = significand * u64.{10} + ((byte - b'0') as u64);
                 significant_digits += 1;
             }

@@ -46,17 +46,17 @@ fn escaped_byte_size(byte: u8) usize {
         byte == b'\r' or
         byte == b'\t'
     ) {
-        return usize.{2};
+        return 2;
     }
     if (byte < u8.{0x20}) {
-        return usize.{6};
+        return 6;
     }
-    return usize.{1};
+    return 1;
 }
 
 fn compact_owned_string_size(text: []u8) usize {
-    let mut written = usize.{2};
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut written = 2;
+    for (let mut i = 0; i < #text; i += 1) {
         written += escaped_byte_size(text.[i]);
     }
     return written;
@@ -104,7 +104,7 @@ fn write_escaped_byte_unchecked(out: []mut u8, offset: usize, byte: u8) usize {
 
 fn write_escaped_string_unchecked(out: []mut u8, offset: usize, text: []u8) usize {
     let mut written = write_byte_unchecked(out, offset, b'"');
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    for (let mut i = 0; i < #text; i += 1) {
         written = write_escaped_byte_unchecked(out, written, text.[i]);
     }
     return write_byte_unchecked(out, written, b'"');
@@ -112,12 +112,12 @@ fn write_escaped_string_unchecked(out: []mut u8, offset: usize, text: []u8) usiz
 
 fn compact_owned_array_size(array: *OwnedArray) usize {
     let items = array.items.&.as_slice();
-    if (#items == usize.{0}) {
-        return usize.{2};
+    if (#items == 0) {
+        return 2;
     }
 
-    let mut written = usize.{2} + compact_size_owned(items.[0]);
-    for (let mut i = usize.{1}; i < #items; i += 1) {
+    let mut written = 2 + compact_size_owned(items.[0]);
+    for (let mut i = 1; i < #items; i += 1) {
         written += 1;
         written += compact_size_owned(items.[i]);
     }
@@ -127,17 +127,17 @@ fn compact_owned_array_size(array: *OwnedArray) usize {
 
 fn compact_owned_object_size(object: *OwnedObject) usize {
     let entries = object.entries.&.as_slice();
-    if (#entries == usize.{0}) {
-        return usize.{2};
+    if (#entries == 0) {
+        return 2;
     }
 
     let first = entries.[0];
     let mut written =
-        usize.{3} +
+        3 +
         compact_owned_string_size(first.key.&.as_str()) +
         compact_size_owned(first.value);
 
-    for (let mut i = usize.{1}; i < #entries; i += 1) {
+    for (let mut i = 1; i < #entries; i += 1) {
         let entry = entries.[i];
         written += 1;
         written += compact_owned_string_size(entry.key.&.as_str());
@@ -150,12 +150,12 @@ fn compact_owned_object_size(object: *OwnedObject) usize {
 fn render_owned_array_unchecked(array: *OwnedArray, out: []mut u8, offset: usize) usize {
     let mut written = write_byte_unchecked(out, offset, b'[');
     let items = array.items.&.as_slice();
-    if (#items == usize.{0}) {
+    if (#items == 0) {
         return write_byte_unchecked(out, written, b']');
     }
 
     written = render_owned_compact_inner_unchecked(items.[0], out, written);
-    for (let mut i = usize.{1}; i < #items; i += 1) {
+    for (let mut i = 1; i < #items; i += 1) {
         written = write_byte_unchecked(out, written, b',');
         written = render_owned_compact_inner_unchecked(items.[i], out, written);
     }
@@ -165,7 +165,7 @@ fn render_owned_array_unchecked(array: *OwnedArray, out: []mut u8, offset: usize
 fn render_owned_object_unchecked(object: *OwnedObject, out: []mut u8, offset: usize) usize {
     let mut written = write_byte_unchecked(out, offset, b'{');
     let entries = object.entries.&.as_slice();
-    if (#entries == usize.{0}) {
+    if (#entries == 0) {
         return write_byte_unchecked(out, written, b'}');
     }
 
@@ -173,7 +173,7 @@ fn render_owned_object_unchecked(object: *OwnedObject, out: []mut u8, offset: us
     written = write_escaped_string_unchecked(out, written, first.key.&.as_str());
     written = write_byte_unchecked(out, written, b':');
     written = render_owned_compact_inner_unchecked(first.value, out, written);
-    for (let mut i = usize.{1}; i < #entries; i += 1) {
+    for (let mut i = 1; i < #entries; i += 1) {
         let entry = entries.[i];
         written = write_byte_unchecked(out, written, b',');
         written = write_escaped_string_unchecked(out, written, entry.key.&.as_str());
@@ -226,7 +226,7 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
         return .{ Ok: CompactProgress.{ next: next, written: next - index } };
     }
     if (byte == b'[') {
-        let mut written = usize.{1};
+        let mut written = 1;
         let mut index2 = skip_ws(text, index + 1);
         if (index2 >= #text) {
             return .{ Err: ParseError.UnexpectedEof };
@@ -258,7 +258,7 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
         }
     }
     if (byte == b'{') {
-        let mut written = usize.{1};
+        let mut written = 1;
         let mut index2 = skip_ws(text, index + 1);
         if (index2 >= #text) {
             return .{ Err: ParseError.UnexpectedEof };
@@ -474,8 +474,8 @@ pub/ fn render_compact(value: Value, out: []mut u8) usize!RenderError {
 
 pub/ fn compact_size_owned(value: *mut OwnedValue) usize {
     return match (value.*) {
-        .Null => usize.{4},
-        .{ Bool: bool_value } => if (bool_value) usize.{4} else usize.{5},
+        .Null => 4,
+        .{ Bool: bool_value } => if (bool_value) 4 else 5,
         .{ Number: text } => #text.&.as_str(),
         .{ String: text } => compact_owned_string_size(text.&.as_str()),
         .{ Array: array } => compact_owned_array_size(array.&),

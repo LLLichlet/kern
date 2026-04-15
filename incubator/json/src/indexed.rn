@@ -146,7 +146,7 @@ impl *IndexedObjectView {
     pub fn get_field(name: []u8) ?OwnedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
 
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else continue;
             if (entry.key_eq(name)) {
@@ -166,7 +166,7 @@ impl *IndexedObjectView {
         let .{ Some: bucket } = self.bucket(name) else return .None;
         let mut found = ?OwnedObjectEntry.None;
 
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else continue;
             if (entry.key_eq(name)) {
@@ -178,10 +178,10 @@ impl *IndexedObjectView {
     }
 
     pub fn count_fields(name: []u8) usize {
-        let .{ Some: bucket } = self.bucket(name) else return usize.{0};
-        let mut total = usize.{0};
+        let .{ Some: bucket } = self.bucket(name) else return 0;
+        let mut total = 0;
 
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else continue;
             if (entry.key_eq(name)) {
@@ -193,10 +193,10 @@ impl *IndexedObjectView {
     }
 
     pub fn collect_fields(name: []u8, out: []mut OwnedObjectEntry) usize {
-        let .{ Some: bucket } = self.bucket(name) else return usize.{0};
-        let mut total = usize.{0};
+        let .{ Some: bucket } = self.bucket(name) else return 0;
+        let mut total = 0;
 
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else continue;
             if (!entry.key_eq(name)) {
@@ -214,24 +214,24 @@ impl *IndexedObjectView {
     pub fn require_value(name: []u8) (*mut OwnedValue)!FieldDecodeError {
         let .{ Some: bucket } = self.bucket(name) else return .{ Err: .Missing };
         let mut found = (?*mut OwnedValue).None;
-        let mut total = usize.{0};
+        let mut total = 0;
 
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else continue;
             if (!entry.key_eq(name)) {
                 continue;
             }
             total += 1;
-            if (total == usize.{1}) {
+            if (total == 1) {
                 found = .{ Some: entry.value };
             }
         }
 
-        if (total == usize.{0}) {
+        if (total == 0) {
             return .{ Err: .Missing };
         }
-        if (total != usize.{1}) {
+        if (total != 1) {
             return .{ Err: .{ Duplicate: total } };
         }
         let .{ Some: found } = found else @trap();
@@ -444,15 +444,12 @@ impl *OwnedObject {
             return .{ Err: IndexBuildError.OutOfMemory };
         }
 
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
+        for (let mut i = 0; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             let hash = hash_bytes(entry.key.&.as_str());
-            let bucket = match (out.index..&.get_or_insert(alloc, hash, List[usize].{})) {
-                .{ Some: bucket } => bucket,
-                .None => {
-                    out..&.deinit(alloc);
-                    return .{ Err: IndexBuildError.OutOfMemory };
-                },
+            let .{ Some: bucket } = out.index..&.get_or_insert(alloc, hash, List[usize].{}) else {
+                out..&.deinit(alloc);
+                return .{ Err: IndexBuildError.OutOfMemory };
             };
             if (!bucket.push(alloc, i)) {
                 out..&.deinit(alloc);
@@ -468,12 +465,9 @@ impl *mut OwnedValue {
     pub fn build_indexed_object_view(
         alloc: *mut Allocator,
     ) ?IndexedObjectView!IndexBuildError {
-        return match (self.*) {
-            .{ Object: object } => match (object.&.build_indexed_view(alloc)) {
-                .{ Ok: view } => .{ Ok: .{ Some: view } },
-                .{ Err: err } => .{ Err: err },
-            },
-            _ => .{ Ok: .None },
-        };
+        let .{ Object: object } = self.* else return .{ Ok: .None };
+        let .{ Ok: view } = object.&.build_indexed_view(alloc)
+            else .{ Err: err } => return .{ Err: err };
+        return .{ Ok: .{ Some: view } };
     }
 }

@@ -90,27 +90,27 @@ fn check_xor_mask4_large_payload() void {
 
 fn check_bit_reader() void {
     let input = [2]u8.{ u8.{0b10110101}, u8.{0b01100000} };
-    let mut bits = reader(input.[0 .. 2]);
+    let bits = reader(input.[0 .. 2])..&;
 
-    test.eq(test.expect_ok(bits..&.read_bits(u8.{4})), u64.{0b1011});
-    test.eq(test.expect_ok(bits..&.read_bit()), false);
-    test.eq(test.expect_ok(bits..&.read_bits(u8.{3})), u64.{0b101});
-    test.eq(test.expect_ok(bits..&.read_bits(u8.{3})), u64.{0b011});
-    test.eq(bits.remaining_bits(), 5);
-    test.eq(bits..&.align_to_byte(), 5);
-    test.eq(bits.remaining_bits(), 0);
+    test.eq(test.expect_ok(bits.read_bits(u8.{4})), u64.{0b1011});
+    test.eq(test.expect_ok(bits.read_bit()), false);
+    test.eq(test.expect_ok(bits.read_bits(u8.{3})), u64.{0b101});
+    test.eq(test.expect_ok(bits.read_bits(u8.{3})), u64.{0b011});
+    test.eq(bits.*.remaining_bits(), 5);
+    test.eq(bits.align_to_byte(), 5);
+    test.eq(bits.*.remaining_bits(), 0);
 }
 
 fn check_bit_writer() void {
     let out = [2]mut u8.{ 0xff; 2 };
-    let mut bits = writer(out..[0 .. 2]);
+    let bits = writer(out..[0 .. 2])..&;
 
-    let _ = test.expect_ok(bits..&.write_bits(u64.{0b1011}, u8.{4}));
-    let _ = test.expect_ok(bits..&.write_bit(false));
-    let _ = test.expect_ok(bits..&.write_bits(u64.{0b101}, u8.{3}));
-    let _ = test.expect_ok(bits..&.write_bits(u64.{0b011}, u8.{3}));
-    test.eq(bits..&.align_zero(), 5);
-    test.eq(bits.written_bytes(), 2);
+    let _ = test.expect_ok(bits.write_bits(u64.{0b1011}, u8.{4}));
+    let _ = test.expect_ok(bits.write_bit(false));
+    let _ = test.expect_ok(bits.write_bits(u64.{0b101}, u8.{3}));
+    let _ = test.expect_ok(bits.write_bits(u64.{0b011}, u8.{3}));
+    test.eq(bits.align_zero(), 5);
+    test.eq(bits.*.written_bytes(), 2);
     test.assert(
         out.[0 .. 2].eq([2]u8.{ u8.{0b10110101}, u8.{0b01100000} }.[0 .. 2]),
         "expected bit-writer output",
@@ -120,16 +120,16 @@ fn check_bit_writer() void {
 
 fn check_bit_io_errors() void {
     let empty = [0]u8.{};
-    let mut reader0 = reader(empty.[0 .. 0]);
-    test.eq(test.expect_err(reader0.peek_bit()), BitIoError.UnexpectedEof);
-    test.eq(test.expect_err(reader0..&.read_bits(u8.{0})), BitIoError.InvalidBitCount);
+    let reader0 = reader(empty.[0 .. 0])..&;
+    test.eq(test.expect_err(reader0.*.peek_bit()), BitIoError.UnexpectedEof);
+    test.eq(test.expect_err(reader0.read_bits(u8.{0})), BitIoError.InvalidBitCount);
 
     let out = [1]mut u8.{ 0; 1 };
-    let mut writer0 = writer(out..[0 .. 1]);
-    test.eq(test.expect_err(writer0..&.write_bits(u64.{1}, u8.{0})), BitIoError.InvalidBitCount);
+    let writer0 = writer(out..[0 .. 1])..&;
+    test.eq(test.expect_err(writer0.write_bits(u64.{1}, u8.{0})), BitIoError.InvalidBitCount);
 
-    let _ = test.expect_ok(writer0..&.write_bits(u64.{0xff}, u8.{8}));
-    test.eq(test.expect_err(writer0..&.write_bit(true)), BitIoError.BufferTooSmall);
+    let _ = test.expect_ok(writer0.write_bits(u64.{0xff}, u8.{8}));
+    test.eq(test.expect_err(writer0.write_bit(true)), BitIoError.BufferTooSmall);
 }
 
 fn main() i32 {

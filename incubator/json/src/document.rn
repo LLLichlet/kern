@@ -64,12 +64,12 @@ pub/ type DocumentObjectEntry = struct {
 };
 
 fn document_arena_chunk_size(input_len: usize) usize {
-    let min = usize.{16384};
-    if (input_len == usize.{0}) {
+    let min = 16384;
+    if (input_len == 0) {
         return min;
     }
 
-    let extra = input_len / usize.{4};
+    let extra = input_len / 4;
     let grown = if (input_len > USIZE_MAX - extra) {
         USIZE_MAX
     } else {
@@ -179,14 +179,12 @@ pub/ fn clone_owned_document(
     state.arena..&.set_chunk_size(chunk_size);
     state.root = OwnedValue.Null;
 
-    let root = match (clone_owned_value_in_arena(state.arena..&, value)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => {
+    let .{ Ok: root } = clone_owned_value_in_arena(state.arena..&, value)
+        else .{ Err: err } => {
             state.arena..&.deinit();
             page.free(raw, layout);
             return .{ Err: err };
-        },
-    };
+        };
     state.root = root;
     return .{ Ok: OwnedDocument.{ state: .{ Some: state } } };
 }
@@ -206,27 +204,23 @@ pub/ fn clone_indexed_object_document(
     state.root = OwnedValue.Null;
     state.index = IndexedObjectView.{ object: OwnedObject.{} };
 
-    let root = match (clone_owned_value_in_arena(state.arena..&, value)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => {
+    let .{ Ok: root } = clone_owned_value_in_arena(state.arena..&, value)
+        else .{ Err: err } => {
             state.arena..&.deinit();
             page.free(raw, layout);
             return .{ Err: .{ Materialize: err } };
-        },
-    };
+        };
     state.root = root;
-    let index = match (state.root..&.build_indexed_object_view(state.arena..&)) {
-        .{ Ok: .{ Some: index } } => index,
-        .{ Ok: .None } => {
-            state.arena..&.deinit();
-            page.free(raw, layout);
-            return .{ Err: .RootNotObject };
-        },
-        .{ Err: _ } => {
+    let .{ Ok: indexed } = state.root..&.build_indexed_object_view(state.arena..&)
+        else {
             state.arena..&.deinit();
             page.free(raw, layout);
             return .{ Err: .{ Materialize: MaterializeError.OutOfMemory } };
-        },
+        };
+    let .{ Some: index } = indexed else {
+        state.arena..&.deinit();
+        page.free(raw, layout);
+        return .{ Err: .RootNotObject };
     };
     state.index = index;
     return .{ Ok: IndexedObjectDocument.{ state: .{ Some: state } } };
@@ -385,23 +379,19 @@ impl DocumentValue {
     }
 
     pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntryRef) ?usize {
-        return match (self.value_ptr().*) {
-            .{ Object: object } => {
-                let mut total = usize.{0};
-                for (let mut i = usize.{0}; i < object.entries.len; i += 1) {
-                    let .{ Some: entry } = object.entries.&.get(i) else continue;
-                    if (!entry.key_eq(name)) {
-                        continue;
-                    }
-                    if (total < #out) {
-                        out.[total] = wrap_document_object_entry_ref(entry);
-                    }
-                    total += 1;
-                }
-                .{ Some: total }
-            },
-            _ => .None,
-        };
+        let .{ Object: object } = self.value_ptr().* else return .None;
+        let mut total = 0;
+        for (let mut i = 0; i < object.entries.len; i += 1) {
+            let .{ Some: entry } = object.entries.&.get(i) else continue;
+            if (!entry.key_eq(name)) {
+                continue;
+            }
+            if (total < #out) {
+                out.[total] = wrap_document_object_entry_ref(entry);
+            }
+            total += 1;
+        }
+        return .{ Some: total };
     }
 
     pub fn get_bool(name: []u8) ?bool {
@@ -689,23 +679,19 @@ impl DocumentValueMut {
     }
 
     pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntry) ?usize {
-        return match (self.value_ptr().*) {
-            .{ Object: object } => {
-                let mut total = usize.{0};
-                for (let mut i = usize.{0}; i < object.entries.len; i += 1) {
-                    let .{ Some: entry } = object.entries.&.get(i) else continue;
-                    if (!entry.key_eq(name)) {
-                        continue;
-                    }
-                    if (total < #out) {
-                        out.[total] = wrap_document_object_entry(self.state_ptr(), entry);
-                    }
-                    total += 1;
-                }
-                .{ Some: total }
-            },
-            _ => .None,
-        };
+        let .{ Object: object } = self.value_ptr().* else return .None;
+        let mut total = 0;
+        for (let mut i = 0; i < object.entries.len; i += 1) {
+            let .{ Some: entry } = object.entries.&.get(i) else continue;
+            if (!entry.key_eq(name)) {
+                continue;
+            }
+            if (total < #out) {
+                out.[total] = wrap_document_object_entry(self.state_ptr(), entry);
+            }
+            total += 1;
+        }
+        return .{ Some: total };
     }
 
     pub fn get_bool(name: []u8) ?bool {
@@ -1017,8 +1003,8 @@ impl IndexedDocumentView {
     }
 
     pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntryRef) usize {
-        let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < self.view_ptr().len(); i += 1) {
+        let mut total = 0;
+        for (let mut i = 0; i < self.view_ptr().len(); i += 1) {
             let .{ Some: entry } = self.view_ptr().get_entry(i) else continue;
             if (!entry.key_eq(name)) {
                 continue;

@@ -73,8 +73,8 @@ const OWNED_VALUE_ALIGN = @alignOf[OwnedValue]();
 const OWNED_VALUE_BLOCK_ALIGN = @alignOf[OwnedValueNodeBlock]();
 const OWNED_VALUE_ENTRIES_ALIGN = OWNED_VALUE_ALIGN;
 const OWNED_VALUE_BLOCK_ENTRIES_OFFSET =
-    (@sizeOf[OwnedValueNodeBlock]() + (OWNED_VALUE_ENTRIES_ALIGN - usize.{1}))
-    & ~(OWNED_VALUE_ENTRIES_ALIGN - usize.{1});
+    (@sizeOf[OwnedValueNodeBlock]() + (OWNED_VALUE_ENTRIES_ALIGN - 1))
+    & ~(OWNED_VALUE_ENTRIES_ALIGN - 1);
 
 pub/ type OwnedArray = struct {
     pub items: List[*mut OwnedValue] = List[*mut OwnedValue].{},
@@ -96,7 +96,7 @@ fn owned_value_pool_max_usize(lhs: usize, rhs: usize) usize {
 }
 
 fn owned_value_block_layout(capacity: usize) ?Layout {
-    if (capacity == usize.{0}) {
+    if (capacity == 0) {
         return .None;
     }
 
@@ -122,13 +122,13 @@ fn owned_value_block_entries(block: *mut OwnedValueNodeBlock) *mut OwnedValue {
 }
 
 fn owned_value_pool_next_capacity(current: usize) usize {
-    if (current == usize.{0}) {
-        return usize.{8};
+    if (current == 0) {
+        return 8;
     }
-    if (current > USIZE_MAX / usize.{2}) {
+    if (current > USIZE_MAX / 2) {
         return USIZE_MAX;
     }
-    return current * usize.{2};
+    return current * 2;
 }
 
 impl OwnedObjectEntry {
@@ -209,20 +209,17 @@ fn deinit_owned_object_entry_contents(alloc: *mut Allocator, entry: *mut OwnedOb
 impl *mut OwnedValuePool {
     #[inline]
     fn grow(alloc: *mut Allocator) bool {
-        let capacity = if (self.*.next_block_capacity == usize.{0}) {
-            usize.{8}
+        let capacity = if (self.*.next_block_capacity == 0) {
+            8
         } else {
             self.*.next_block_capacity
         };
-        let layout = match (owned_value_block_layout(capacity)) {
-            .{ Some: layout } => layout,
-            .None => return false,
-        };
+        let .{ Some: layout } = owned_value_block_layout(capacity) else return false;
         let .{ Some: raw } = alloc.alloc(layout) else return false;
 
         let block = raw as *mut OwnedValueNodeBlock;
         block.next = self.*.blocks;
-        block.used = usize.{0};
+        block.used = 0;
         block.capacity = capacity;
         self.*.blocks = .{ Some: block };
         self.*.next_block_capacity = owned_value_pool_next_capacity(capacity);
@@ -414,21 +411,16 @@ fn parse_owned_array_from_start(
             return .{ Ok: OwnedParsedValue.{ value: .{ Array: out }, next: item_start + 1 } };
         }
 
-        let parsed = match (parse_owned_value_from_start(alloc, text, item_start)) {
-            .{ Ok: parsed } => parsed,
-            .{ Err: err } => {
+        let .{ Ok: parsed } = parse_owned_value_from_start(alloc, text, item_start)
+            else .{ Err: err } => {
                 out..&.deinit(alloc);
                 return .{ Err: err };
-            },
-        };
+            };
         let mut item = parsed.value;
-        let item_ptr = match (out.nodes..&.alloc_node_fresh(alloc, item)) {
-            .{ Some: ptr } => ptr,
-            .None => {
-                item..&.deinit(alloc);
-                out..&.deinit(alloc);
-                return .{ Err: MaterializeError.OutOfMemory };
-            },
+        let .{ Some: item_ptr } = out.nodes..&.alloc_node_fresh(alloc, item) else {
+            item..&.deinit(alloc);
+            out..&.deinit(alloc);
+            return .{ Err: MaterializeError.OutOfMemory };
         };
         if (!out.items..&.push(alloc, item_ptr)) {
             deinit_owned_value_contents(alloc, item_ptr);
@@ -482,21 +474,16 @@ fn parse_owned_array_from_start_in_arena(
             return .{ Ok: OwnedParsedValue.{ value: .{ Array: out }, next: item_start + 1 } };
         }
 
-        let parsed = match (parse_owned_value_from_start_in_arena(arena, text, item_start)) {
-            .{ Ok: parsed } => parsed,
-            .{ Err: err } => {
+        let .{ Ok: parsed } = parse_owned_value_from_start_in_arena(arena, text, item_start)
+            else .{ Err: err } => {
                 out..&.deinit(alloc);
                 return .{ Err: err };
-            },
-        };
+            };
         let mut item = parsed.value;
-        let item_ptr = match (out.nodes..&.alloc_node_fresh(alloc, item)) {
-            .{ Some: ptr } => ptr,
-            .None => {
-                item..&.deinit(alloc);
-                out..&.deinit(alloc);
-                return .{ Err: MaterializeError.OutOfMemory };
-            },
+        let .{ Some: item_ptr } = out.nodes..&.alloc_node_fresh(alloc, item) else {
+            item..&.deinit(alloc);
+            out..&.deinit(alloc);
+            return .{ Err: MaterializeError.OutOfMemory };
         };
         if (!out.items..&.push_in_arena(arena, item_ptr)) {
             deinit_owned_value_contents(alloc, item_ptr);
@@ -582,24 +569,19 @@ fn parse_owned_object_from_start(
             out..&.deinit(alloc);
             return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
         }
-        let parsed = match (parse_owned_value_from_start(alloc, text, value_start)) {
-            .{ Ok: parsed } => parsed,
-            .{ Err: err } => {
+        let .{ Ok: parsed } = parse_owned_value_from_start(alloc, text, value_start)
+            else .{ Err: err } => {
                 key..&.deinit(alloc);
                 out..&.deinit(alloc);
                 return .{ Err: err };
-            },
-        };
+            };
 
         let mut child = parsed.value;
-        let value_ptr = match (out.nodes..&.alloc_node_fresh(alloc, child)) {
-            .{ Some: ptr } => ptr,
-            .None => {
-                child..&.deinit(alloc);
-                key..&.deinit(alloc);
-                out..&.deinit(alloc);
-                return .{ Err: MaterializeError.OutOfMemory };
-            },
+        let .{ Some: value_ptr } = out.nodes..&.alloc_node_fresh(alloc, child) else {
+            child..&.deinit(alloc);
+            key..&.deinit(alloc);
+            out..&.deinit(alloc);
+            return .{ Err: MaterializeError.OutOfMemory };
         };
         let mut entry = OwnedObjectEntry.{ key: key, value: value_ptr };
         if (!out.entries..&.push(alloc, entry)) {
@@ -687,24 +669,19 @@ fn parse_owned_object_from_start_in_arena(
             out..&.deinit(alloc);
             return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
         }
-        let parsed = match (parse_owned_value_from_start_in_arena(arena, text, value_start)) {
-            .{ Ok: parsed } => parsed,
-            .{ Err: err } => {
+        let .{ Ok: parsed } = parse_owned_value_from_start_in_arena(arena, text, value_start)
+            else .{ Err: err } => {
                 key..&.deinit(alloc);
                 out..&.deinit(alloc);
                 return .{ Err: err };
-            },
-        };
+            };
 
         let mut child = parsed.value;
-        let value_ptr = match (out.nodes..&.alloc_node_fresh(alloc, child)) {
-            .{ Some: ptr } => ptr,
-            .None => {
-                child..&.deinit(alloc);
-                key..&.deinit(alloc);
-                out..&.deinit(alloc);
-                return .{ Err: MaterializeError.OutOfMemory };
-            },
+        let .{ Some: value_ptr } = out.nodes..&.alloc_node_fresh(alloc, child) else {
+            child..&.deinit(alloc);
+            key..&.deinit(alloc);
+            out..&.deinit(alloc);
+            return .{ Err: MaterializeError.OutOfMemory };
         };
         let mut entry = OwnedObjectEntry.{ key: key, value: value_ptr };
         if (!out.entries..&.push_in_arena(arena, entry)) {
@@ -784,10 +761,8 @@ fn parse_owned_value_from_start_in_arena(
 
 fn clone_owned_array(alloc: *mut Allocator, value: Value) OwnedArray!MaterializeError {
     let start = skip_ws(value.raw, 0);
-    let parsed = match (parse_owned_array_from_start(alloc, value.raw, start)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let .{ Ok: parsed } = parse_owned_array_from_start(alloc, value.raw, start)
+        else .{ Err: err } => return .{ Err: err };
     let end = skip_ws(value.raw, parsed.next);
     if (end != #value.raw) {
         match (parsed.value) {
@@ -902,10 +877,8 @@ fn require_f32_value(value: *mut OwnedValue) f32!FieldDecodeError {
 
 fn clone_owned_object(alloc: *mut Allocator, value: Value) OwnedObject!MaterializeError {
     let start = skip_ws(value.raw, 0);
-    let parsed = match (parse_owned_object_from_start(alloc, value.raw, start)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let .{ Ok: parsed } = parse_owned_object_from_start(alloc, value.raw, start)
+        else .{ Err: err } => return .{ Err: err };
     let end = skip_ws(value.raw, parsed.next);
     if (end != #value.raw) {
         match (parsed.value) {
@@ -980,7 +953,7 @@ impl *mut OwnedObjectEntry {
 
 impl *mut OwnedArray {
     pub fn deinit(alloc: *mut Allocator) void {
-        for (let mut i = usize.{0}; i < self.*.items.len; i += 1) {
+        for (let mut i = 0; i < self.*.items.len; i += 1) {
             let .{ Some: value } = self.*.items.&.get(i) else continue;
             if ((value as usize) == 0) {
                 continue;
@@ -998,7 +971,7 @@ impl *OwnedArray {
     }
 
     pub fn is_empty() bool {
-        return self.items.len == usize.{0};
+        return self.items.len == 0;
     }
 
     pub fn get(index: usize) ?*mut OwnedValue {
@@ -1013,12 +986,9 @@ impl *mut OwnedArray {
 
     pub fn push(alloc: *mut Allocator, value: OwnedValue) (*mut OwnedValue)!OwnedBuildError {
         let mut owned_value = value;
-        let value_ptr = match (self.*.nodes..&.alloc_node(alloc, owned_value)) {
-            .{ Some: ptr } => ptr,
-            .None => {
-                owned_value..&.deinit(alloc);
-                return .{ Err: OwnedBuildError.OutOfMemory };
-            },
+        let .{ Some: value_ptr } = self.*.nodes..&.alloc_node(alloc, owned_value) else {
+            owned_value..&.deinit(alloc);
+            return .{ Err: OwnedBuildError.OutOfMemory };
         };
         if (!self.*.items..&.push(alloc, value_ptr)) {
             deinit_owned_value_contents(alloc, value_ptr);
@@ -1065,7 +1035,7 @@ impl *mut OwnedArray {
 
 impl *mut OwnedObject {
     pub fn deinit(alloc: *mut Allocator) void {
-        for (let mut i = usize.{0}; i < self.*.entries.len; i += 1) {
+        for (let mut i = 0; i < self.*.entries.len; i += 1) {
             let .{ Some: mut entry } = self.*.entries.&.get(i) else continue;
             entry..&.deinit(alloc);
         }
@@ -1080,7 +1050,7 @@ impl *OwnedObject {
     }
 
     pub fn is_empty() bool {
-        return self.entries.len == usize.{0};
+        return self.entries.len == 0;
     }
 
     pub fn get_entry(index: usize) ?OwnedObjectEntry {
@@ -1088,7 +1058,7 @@ impl *OwnedObject {
     }
 
     pub fn get_field(name: []u8) ?OwnedObjectEntry {
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
+        for (let mut i = 0; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (entry.key_eq(name)) {
                 return .{ Some: entry };
@@ -1104,7 +1074,7 @@ impl *OwnedObject {
 
     pub fn get_last_field(name: []u8) ?OwnedObjectEntry {
         let mut found = ?OwnedObjectEntry.None;
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
+        for (let mut i = 0; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (entry.key_eq(name)) {
                 found = .{ Some: entry };
@@ -1114,8 +1084,8 @@ impl *OwnedObject {
     }
 
     pub fn count_fields(name: []u8) usize {
-        let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
+        let mut total = 0;
+        for (let mut i = 0; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (entry.key_eq(name)) {
                 total += 1;
@@ -1125,8 +1095,8 @@ impl *OwnedObject {
     }
 
     pub fn collect_fields(name: []u8, out: []mut OwnedObjectEntry) usize {
-        let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
+        let mut total = 0;
+        for (let mut i = 0; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (!entry.key_eq(name)) {
                 continue;
@@ -1141,21 +1111,21 @@ impl *OwnedObject {
 
     pub fn require_value(name: []u8) (*mut OwnedValue)!FieldDecodeError {
         let mut found = (?*mut OwnedValue).None;
-        let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
+        let mut total = 0;
+        for (let mut i = 0; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (!entry.key_eq(name)) {
                 continue;
             }
             total += 1;
-            if (total == usize.{1}) {
+            if (total == 1) {
                 found = .{ Some: entry.value };
             }
         }
-        if (total == usize.{0}) {
+        if (total == 0) {
             return .{ Err: .Missing };
         }
-        if (total != usize.{1}) {
+        if (total != 1) {
             return .{ Err: .{ Duplicate: total } };
         }
         let .{ Some: found } = found else @trap();

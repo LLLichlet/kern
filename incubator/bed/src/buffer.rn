@@ -24,6 +24,10 @@ pub type TextBuffer = struct {
     dirty: bool = false,
 };
 
+fn wrap_fs_error(err: fs.Error) Error {
+    return .{ Fs: err };
+}
+
 fn push_line(alloc: *mut Allocator, lines: *mut List[String], text: []u8) bool {
     let mut line = String.{};
     if (!line..&.push_str(alloc, text)) {
@@ -52,8 +56,7 @@ pub fn empty(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
 /// Opens a file into a line-oriented buffer.
 pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
     let mut storage = fs.read_to_string(alloc, path)
-        .map_err(.[](err: fs.Error) Error { return .{ Fs: err }; })
-        .!;
+        .map_err(wrap_fs_error).!;
     defer storage..&.deinit(alloc);
 
     let mut buffer = TextBuffer.{};
@@ -215,10 +218,7 @@ impl *mut TextBuffer {
             return .{ row: row, col: col };
         }
 
-        let mut removed = match (self.lines..&.remove(row)) {
-            .{ Some: line } => line,
-            .None => return .{ row: row, col: col },
-        };
+        let .{ Some: mut removed } = self.lines..&.remove(row) else return .{ row: row, col: col };
         removed..&.deinit(alloc);
         self.dirty = true;
         return .{ row: prev_row, col: prev_len };
@@ -250,10 +250,7 @@ impl *mut TextBuffer {
             return false;
         }
 
-        let mut removed = match (self.lines..&.remove(row + 1)) {
-            .{ Some: next } => next,
-            .None => return false,
-        };
+        let .{ Some: mut removed } = self.lines..&.remove(row + 1) else return false;
         removed..&.deinit(alloc);
         self.dirty = true;
         return true;
@@ -277,13 +274,10 @@ impl *mut TextBuffer {
             }
         }
 
-        match (fs.write_all(alloc, self.path.&.as_str(), text.&.as_str())) {
-            .{ Ok: _ } => {
-                self.dirty = false;
-                return .{ Ok: true };
-            },
-            .{ Err: err } => return .{ Err: .{ Fs: err } },
-        }
+        let _ = fs.write_all(alloc, self.path.&.as_str(), text.&.as_str())
+            .map_err(wrap_fs_error).!;
+        self.dirty = false;
+        return .{ Ok: true };
     }
 }
 

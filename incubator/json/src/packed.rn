@@ -109,7 +109,7 @@ fn packed_text_slice(state: *PackedDocumentState, span: PackedText) []u8 {
 fn append_raw_text(state: *mut PackedDocumentState, text: []u8) ?PackedText {
     let start = state.*.strings.&.len();
     let len = #text;
-    if (len == usize.{0}) {
+    if (len == 0) {
         return .{ Some: PackedText.{ start: start, len: len } };
     }
     let .{ Some: out } = state.*.strings..&.append_uninit(state.*.arena..&, len)
@@ -128,20 +128,18 @@ fn append_decoded_parsed_text_raw(
     }
 
     let upper_bound = #raw - 2;
-    if (upper_bound == usize.{0}) {
-        return .{ Ok: PackedText.{ start: start, len: usize.{0} } };
+    if (upper_bound == 0) {
+        return .{ Ok: PackedText.{ start: start, len: 0 } };
     }
 
     let .{ Some: out } = state.*.strings..&.append_uninit(state.*.arena..&, upper_bound)
         else return .{ Err: StringDecodeError.OutOfMemory };
 
-    let written = match (write_decoded_parsed_string_raw(raw, out)) {
-        .{ Ok: written } => written,
-        .{ Err: err } => {
+    let .{ Ok: written } = write_decoded_parsed_string_raw(raw, out)
+        else .{ Err: err } => {
             state.*.strings..&.truncate(start);
             return .{ Err: err };
-        },
-    };
+        };
     if (written > upper_bound) {
         state.*.strings..&.truncate(start);
         return .{ Err: StringDecodeError.BufferTooSmall };
@@ -178,10 +176,8 @@ fn parse_packed_scalar_literal(
 ) PackedParsedValue!MaterializeError {
     let .{ Ok: span } = parse_literal(text, start, literal, kind)
         else .{ Err: err } => return .{ Err: .{ Parse: err } };
-    let index = match (append_value_node(state, node)) {
-        .{ Ok: index } => index,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let .{ Ok: index } = append_value_node(state, node)
+        else .{ Err: err } => return .{ Err: err };
     return .{ Ok: PackedParsedValue.{ index: index, next: span.next } };
 }
 
@@ -192,17 +188,12 @@ fn parse_packed_number(
 ) PackedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_number_end(text, start)
         else .{ Err: err } => return .{ Err: .{ Parse: err } };
-    let span = match (append_raw_text(state, text.[start .. next])) {
-        .{ Some: span } => span,
-        .None => return .{ Err: MaterializeError.OutOfMemory },
-    };
-    let index = match (append_value_node(
+    let .{ Some: span } = append_raw_text(state, text.[start .. next])
+        else return .{ Err: MaterializeError.OutOfMemory };
+    let .{ Ok: index } = append_value_node(
         state,
         PackedValueNode.{ kind: Kind.Number, data0: span.start, data1: span.len }
-    )) {
-        .{ Ok: index } => index,
-        .{ Err: err } => return .{ Err: err },
-    };
+    ) else .{ Err: err } => return .{ Err: err };
     return .{ Ok: PackedParsedValue.{ index: index, next: next } };
 }
 
@@ -215,13 +206,10 @@ fn parse_packed_string(
         else .{ Err: err } => return .{ Err: .{ Parse: err } };
     let .{ Ok: span } = append_decoded_parsed_text_raw(state, text.[start .. next])
         else .{ Err: err } => return .{ Err: .{ String: err } };
-    let index = match (append_value_node(
+    let .{ Ok: index } = append_value_node(
         state,
         PackedValueNode.{ kind: Kind.String, data0: span.start, data1: span.len }
-    )) {
-        .{ Ok: index } => index,
-        .{ Err: err } => return .{ Err: err },
-    };
+    ) else .{ Err: err } => return .{ Err: err };
     return .{ Ok: PackedParsedValue.{ index: index, next: next } };
 }
 
@@ -231,10 +219,8 @@ fn parse_packed_array(
     text: []u8,
     start: usize,
 ) PackedParsedValue!MaterializeError {
-    let index = match (append_value_node(state, PackedValueNode.{ kind: Kind.Array })) {
-        .{ Ok: index } => index,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let .{ Ok: index } = append_value_node(state, PackedValueNode.{ kind: Kind.Array })
+        else .{ Err: err } => return .{ Err: err };
     let mut items = List[usize].{};
     let mut next = skip_ws(text, start + 1);
     if (next >= #text) {
@@ -245,16 +231,14 @@ fn parse_packed_array(
             else return .{ Err: MaterializeError.OutOfMemory };
         slot.kind = Kind.Array;
         slot.data0 = state.*.array_items.len;
-        slot.data1 = usize.{0};
+        slot.data1 = 0;
         return .{ Ok: PackedParsedValue.{ index: index, next: next + 1 } };
     }
 
     for (;;) {
         let item_start = skip_ws(text, next);
-        let item = match (parse_packed_value_from_start(state, scratch, text, item_start)) {
-            .{ Ok: item } => item,
-            .{ Err: err } => return .{ Err: err },
-        };
+        let .{ Ok: item } = parse_packed_value_from_start(state, scratch, text, item_start)
+            else .{ Err: err } => return .{ Err: err };
         if (!items..&.push(scratch, item.index)) {
             return .{ Err: MaterializeError.OutOfMemory };
         }
@@ -291,10 +275,8 @@ fn parse_packed_object(
     text: []u8,
     start: usize,
 ) PackedParsedValue!MaterializeError {
-    let index = match (append_value_node(state, PackedValueNode.{ kind: Kind.Object })) {
-        .{ Ok: index } => index,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let .{ Ok: index } = append_value_node(state, PackedValueNode.{ kind: Kind.Object })
+        else .{ Err: err } => return .{ Err: err };
     let mut entries = List[PackedObjectEntryNode].{};
     let mut next = skip_ws(text, start + 1);
     if (next >= #text) {
@@ -305,7 +287,7 @@ fn parse_packed_object(
             else return .{ Err: MaterializeError.OutOfMemory };
         slot.kind = Kind.Object;
         slot.data0 = state.*.object_entries.len;
-        slot.data1 = usize.{0};
+        slot.data1 = 0;
         return .{ Ok: PackedParsedValue.{ index: index, next: next + 1 } };
     }
 
@@ -332,10 +314,8 @@ fn parse_packed_object(
         if (value_start >= #text) {
             return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
         }
-        let value = match (parse_packed_value_from_start(state, scratch, text, value_start)) {
-            .{ Ok: value } => value,
-            .{ Err: err } => return .{ Err: err },
-        };
+        let .{ Ok: value } = parse_packed_value_from_start(state, scratch, text, value_start)
+            else .{ Err: err } => return .{ Err: err };
         if (!entries..&.push(scratch, PackedObjectEntryNode.{ key: key, value: value.index })) {
             return .{ Err: MaterializeError.OutOfMemory };
         }
@@ -453,7 +433,7 @@ fn create_packed_document_state() (*mut PackedDocumentState)!MaterializeError {
     state.array_items = List[usize].{};
     state.object_entries = List[PackedObjectEntryNode].{};
     state.index = Map[u64, List[usize]].{};
-    state.root = usize.{0};
+    state.root = 0;
     return .{ Ok: state };
 }
 
@@ -462,21 +442,17 @@ fn parse_packed_document_state(text: []u8) (*mut PackedDocumentState)!Materializ
     if (start >= #text) {
         return .{ Err: .{ Parse: ParseError.EmptyInput } };
     }
-    let state = match (create_packed_document_state()) {
-        .{ Ok: state } => state,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let .{ Ok: state } = create_packed_document_state()
+        else .{ Err: err } => return .{ Err: err };
     let mut scratch_page = Page.{};
     let mut scratch_arena = Arena.{ backing: scratch_page..& };
     defer scratch_arena..&.deinit();
 
-    let root = match (parse_packed_value_from_start(state, scratch_arena..&, text, start)) {
-        .{ Ok: root } => root,
-        .{ Err: err } => {
+    let .{ Ok: root } = parse_packed_value_from_start(state, scratch_arena..&, text, start)
+        else .{ Err: err } => {
             destroy_packed_state(state);
             return .{ Err: err };
-        },
-    };
+        };
     let trailing = skip_ws(text, root.next);
     if (trailing != #text) {
         destroy_packed_state(state);
@@ -493,13 +469,10 @@ fn finish_packed_indexed_state(
         destroy_packed_state(state);
         return .{ Err: .RootNotObject };
     }
-    match (build_root_packed_index(state)) {
-        .{ Ok: _ } => {},
-        .{ Err: _ } => {
-            destroy_packed_state(state);
-            return .{ Err: .{ Materialize: MaterializeError.OutOfMemory } };
-        },
-    }
+    let .{ Ok: _ } = build_root_packed_index(state) else {
+        destroy_packed_state(state);
+        return .{ Err: .{ Materialize: MaterializeError.OutOfMemory } };
+    };
     return .{ Ok: PackedIndexedObjectDocument.{ state: .{ Some: state } } };
 }
 
@@ -513,17 +486,15 @@ fn build_root_packed_index(state: *mut PackedDocumentState) void!IndexBuildError
         return .{ Err: IndexBuildError.OutOfMemory };
     }
     let entries = state.object_entries.&.as_slice();
-    for (let mut i = usize.{0}; i < node.data1; i += 1) {
+    for (let mut i = 0; i < node.data1; i += 1) {
         let entry_index = node.data0 + i;
         let entry = entries.[entry_index];
         let hash = hash_bytes(packed_text_slice(state, entry.key));
-        let bucket = match (state.index..&.get_or_insert(state.arena..&, hash, List[usize].{})) {
-            .{ Some: bucket } => bucket,
-            .None => {
+        let .{ Some: bucket } = state.index..&.get_or_insert(state.arena..&, hash, List[usize].{})
+            else {
                 deinit_packed_index(state);
                 return .{ Err: IndexBuildError.OutOfMemory };
-            },
-        };
+            };
         if (!bucket.push(state.arena..&, entry_index)) {
             deinit_packed_index(state);
             return .{ Err: IndexBuildError.OutOfMemory };
@@ -619,20 +590,16 @@ fn packed_require_f32_value(value: PackedValue) f32!FieldDecodeError {
 }
 
 pub/ fn parse_packed_document(text: []u8) PackedDocument!MaterializeError {
-    let state = match (parse_packed_document_state(text)) {
-        .{ Ok: state } => state,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let .{ Ok: state } = parse_packed_document_state(text)
+        else .{ Err: err } => return .{ Err: err };
     return .{ Ok: PackedDocument.{ state: .{ Some: state } } };
 }
 
 pub/ fn parse_packed_indexed_object_document(
     text: []u8,
 ) PackedIndexedObjectDocument!PackedIndexedObjectDocumentError {
-    let state = match (parse_packed_document_state(text)) {
-        .{ Ok: state } => state,
-        .{ Err: err } => return .{ Err: .{ Materialize: err } },
-    };
+    let .{ Ok: state } = parse_packed_document_state(text)
+        else .{ Err: err } => return .{ Err: .{ Materialize: err } };
     return finish_packed_indexed_state(state);
 }
 
@@ -690,7 +657,7 @@ impl PackedIndexedObjectView {
     }
 
     pub fn is_empty() bool {
-        return self.count == usize.{0};
+        return self.count == 0;
     }
 
     pub fn get_entry(index: usize) ?PackedObjectEntry {
@@ -702,7 +669,7 @@ impl PackedIndexedObjectView {
 
     pub fn get_field(name: []u8) ?PackedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             if (entry_index < self.start or entry_index >= self.start + self.count) {
                 continue;
@@ -718,7 +685,7 @@ impl PackedIndexedObjectView {
     pub fn get_last_field(name: []u8) ?PackedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
         let mut found = ?PackedObjectEntry.None;
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             if (entry_index < self.start or entry_index >= self.start + self.count) {
                 continue;
@@ -732,9 +699,9 @@ impl PackedIndexedObjectView {
     }
 
     pub fn count_fields(name: []u8) usize {
-        let .{ Some: bucket } = self.bucket(name) else return usize.{0};
-        let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        let .{ Some: bucket } = self.bucket(name) else return 0;
+        let mut total = 0;
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             if (entry_index < self.start or entry_index >= self.start + self.count) {
                 continue;
@@ -748,9 +715,9 @@ impl PackedIndexedObjectView {
     }
 
     pub fn collect_fields(name: []u8, out: []mut PackedObjectEntry) usize {
-        let .{ Some: bucket } = self.bucket(name) else return usize.{0};
-        let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        let .{ Some: bucket } = self.bucket(name) else return 0;
+        let mut total = 0;
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             if (entry_index < self.start or entry_index >= self.start + self.count) {
                 continue;
@@ -864,8 +831,8 @@ impl PackedIndexedObjectView {
     pub fn require_value(name: []u8) PackedValue!FieldDecodeError {
         let .{ Some: bucket } = self.bucket(name) else return .{ Err: .Missing };
         let mut found = PackedValue.{};
-        let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
+        let mut total = 0;
+        for (let mut i = 0; i < bucket.len; i += 1) {
             let .{ Some: entry_index } = bucket.&.get(i) else continue;
             if (entry_index < self.start or entry_index >= self.start + self.count) {
                 continue;
@@ -875,14 +842,14 @@ impl PackedIndexedObjectView {
                 continue;
             }
             total += 1;
-            if (total == usize.{1}) {
+            if (total == 1) {
                 found = entry.value;
             }
         }
-        if (total == usize.{0}) {
+        if (total == 0) {
             return .{ Err: .Missing };
         }
-        if (total != usize.{1}) {
+        if (total != 1) {
             return .{ Err: .{ Duplicate: total } };
         }
         return .{ Ok: found };
@@ -1225,7 +1192,7 @@ impl PackedValue {
         }
         let state = self.state_ptr();
         let entries = state.object_entries.&.as_slice();
-        for (let mut i = usize.{0}; i < node.data1; i += 1) {
+        for (let mut i = 0; i < node.data1; i += 1) {
             let entry = entries.[node.data0 + i];
             let key = packed_text_slice(state, entry.key);
             if (key == name) {
@@ -1246,7 +1213,7 @@ impl PackedValue {
         let state = self.state_ptr();
         let entries = state.object_entries.&.as_slice();
         let mut found = ?PackedObjectEntry.None;
-        for (let mut i = usize.{0}; i < node.data1; i += 1) {
+        for (let mut i = 0; i < node.data1; i += 1) {
             let entry = entries.[node.data0 + i];
             let key = packed_text_slice(state, entry.key);
             if (key == name) {
@@ -1266,8 +1233,8 @@ impl PackedValue {
         }
         let state = self.state_ptr();
         let entries = state.object_entries.&.as_slice();
-        let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < node.data1; i += 1) {
+        let mut total = 0;
+        for (let mut i = 0; i < node.data1; i += 1) {
             let entry = entries.[node.data0 + i];
             if (packed_text_slice(state, entry.key) == name) {
                 total += 1;
@@ -1283,8 +1250,8 @@ impl PackedValue {
         }
         let state = self.state_ptr();
         let entries = state.object_entries.&.as_slice();
-        let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < node.data1; i += 1) {
+        let mut total = 0;
+        for (let mut i = 0; i < node.data1; i += 1) {
             let entry = entries.[node.data0 + i];
             let key = packed_text_slice(state, entry.key);
             if (key != name) {
@@ -1392,10 +1359,10 @@ impl PackedValue {
 
     pub fn require_value(name: []u8) PackedValue!FieldDecodeError {
         let .{ Some: total } = self.count_fields(name) else return .{ Err: packed_unexpected_kind(self) };
-        if (total == usize.{0}) {
+        if (total == 0) {
             return .{ Err: FieldDecodeError.Missing };
         }
-        if (total != usize.{1}) {
+        if (total != 1) {
             return .{ Err: .{ Duplicate: total } };
         }
         let .{ Some: entry } = self.get_field(name) else return .{ Err: FieldDecodeError.Missing };

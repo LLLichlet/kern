@@ -1,7 +1,7 @@
 use base.coll.{List, String};
 use base.mem.memmove;
 use base.mem.alloc.Allocator;
-use mode.Mode;
+use ..Mode;
 use std.fs;
 use ..buffer;
 use ..buffer.{Cursor, Error as BufferError, TextBuffer};
@@ -164,10 +164,13 @@ pub.. fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutput
     items.truncate(kept);
 }
 
+fn wrap_fs_error(err: fs.Error) BufferError {
+    return .{ Fs: err };
+}
+
 pub.. fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
     let exists = fs.exists(alloc, path)
-        .map_err(.[](err: fs.Error) BufferError { return .{ Fs: err }; })
-        .!;
+        .map_err(wrap_fs_error).!;
     if (exists) {
         return buffer.open(alloc, path);
     }

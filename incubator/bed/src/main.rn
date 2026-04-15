@@ -8,10 +8,7 @@ use sys.mem.Page;
 use bed.{ansi, editor, input};
 
 fn flush_output(file: *mut fs.File, text: []u8) bool {
-    match (file.write_all(text)) {
-        .{ Ok: _ } => return true,
-        .{ Err: _ } => return false,
-    }
+    return file.write_all(text).is_ok();
 }
 
 fn enter_ui(alloc: *mut base.mem.alloc.Allocator, frame: *mut String, stdout: *mut fs.File) bool {
@@ -36,45 +33,48 @@ fn leave_ui(alloc: *mut base.mem.alloc.Allocator, frame: *mut String, stdout: *m
     let _ = flush_output(stdout, frame.as_str());
 }
 
+fn open_editor_state(
+    gpa: *mut base.mem.alloc.Allocator,
+    args: []([]u8),
+) ?editor.Editor {
+    if (args.len() <= 1) {
+        let .{ Ok: state } = editor.empty(gpa) else .{ Err: _ } => {
+            io.println("bed: failed to create editor", .{});
+            return .None;
+        };
+        return .{ Some: state };
+    }
+
+    let path = args.get(1).?;
+    let .{ Ok: state } = editor.open(gpa, path) else .{ Err: _ } => {
+        io.println("bed: failed to open {}", .{ path, });
+        return .None;
+    };
+    return .{ Some: state };
+}
+
+fn enter_raw_mode() ?term.RawMode {
+    let .{ Ok: raw_mode } = term.stdin_raw_mode() else .{ Err: err } => {
+        match (err) {
+            .NotTerminal => io.println("bed: stdin is not a terminal", .{}),
+            .{ Os: _ } => io.println("bed: failed to enter raw mode", .{}),
+        }
+        return .None;
+    };
+    return .{ Some: raw_mode };
+}
+
 fn main(argc: i32, argv: **u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let args = proc.args(argc, argv);
 
-    let editor_state = (if (args.len() > 1) {
-        let path = match (args.get(1)) {
-            .{ Some: value } => value,
-            .None => "",
-        };
-        match (editor.open(gpa, path)) {
-            .{ Ok: value } => value,
-            .{ Err: _ } => {
-                io.println("bed: failed to open {}", .{ path, });
-                return 1;
-            },
-        }
-    } else {
-        match (editor.empty(gpa)) {
-            .{ Ok: value } => value,
-            .{ Err: _ } => {
-                io.println("bed: failed to create editor", .{});
-                return 1;
-            },
-        }
-    })..&;
+    let .{ Some: editor_state } = open_editor_state(gpa, args) else return 1;
+    let editor_state = editor_state..&;
     defer editor_state.deinit(gpa);
 
-    let raw_mode = (match (term.stdin_raw_mode()) {
-        .{ Ok: value } => value,
-        .{ Err: .NotTerminal } => {
-            io.println("bed: stdin is not a terminal", .{});
-            return 1;
-        },
-        .{ Err: .{ Os: _ } } => {
-            io.println("bed: failed to enter raw mode", .{});
-            return 1;
-        },
-    })..&;
+    let .{ Some: raw_mode } = enter_raw_mode() else return 1;
+    let raw_mode = raw_mode..&;
     defer raw_mode.deinit();
 
     let stdout = fs.stdout()..&;
@@ -130,10 +130,7 @@ fn main(argc: i32, argv: **u8) i32 {
             full_redraw = false;
         }
 
-        let key = match (input.read_key(stdin)) {
-            .{ Ok: value } => value,
-            .{ Err: _ } => return 1,
-        };
+        let .{ Ok: key } = input.read_key(stdin) else .{ Err: _ } => return 1;
         match (key) {
             .NoInput => continue,
             _ => {}

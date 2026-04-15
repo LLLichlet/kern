@@ -25,8 +25,8 @@ pub/ fn skip_ws(text: []u8, start: usize) usize {
     let len = #text;
     let mut index = start;
 
-    if (index < len and len >= usize.{8}) {
-        let limit = len - usize.{8};
+    if (index < len and len >= 8) {
+        let limit = len - 8;
         for (; index <= limit; ) {
             let b0 = text.[index];
             if (b0 != b' ' and b0 != b'\n' and b0 != b'\r' and b0 != b'\t') {
@@ -101,12 +101,12 @@ fn scan_digits(text: []u8, start: usize) usize {
     let len = #text;
     let mut index = start;
 
-    if (index < len and len >= usize.{16}) {
-        let limit = len - usize.{16};
+    if (index < len and len >= 16) {
+        let limit = len - 16;
         for (; index <= limit; ) {
             let chunk = @simdLoad[u8x16](text.[index].&, 1);
             let non_digit_bits = first_non_digit_mask_bits(chunk);
-            if (non_digit_bits != usize.{0}) {
+            if (non_digit_bits != 0) {
                 return index + @ctz(non_digit_bits);
             }
 
@@ -338,29 +338,32 @@ pub/ fn parse_value_span_from_value_start(text: []u8, index: usize) ParsedSpan!P
         b'n' => parse_literal(text, index, "null", Kind.Null),
         b't' => parse_literal(text, index, "true", Kind.Bool),
         b'f' => parse_literal(text, index, "false", Kind.Bool),
-        b'"' => match (parse_string_end(text, index)) {
-            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.String, next: next } },
-            .{ Err: err } => .{ Err: err },
+        b'"' => {
+            let .{ Ok: next } = parse_string_end(text, index)
+                else .{ Err: err } => return .{ Err: err };
+            .{ Ok: ParsedSpan.{ kind: Kind.String, next: next } }
         },
-        b'[' => match (parse_array_end(text, index)) {
-            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Array, next: next } },
-            .{ Err: err } => .{ Err: err },
+        b'[' => {
+            let .{ Ok: next } = parse_array_end(text, index)
+                else .{ Err: err } => return .{ Err: err };
+            .{ Ok: ParsedSpan.{ kind: Kind.Array, next: next } }
         },
-        b'{' => match (parse_object_end(text, index)) {
-            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Object, next: next } },
-            .{ Err: err } => .{ Err: err },
+        b'{' => {
+            let .{ Ok: next } = parse_object_end(text, index)
+                else .{ Err: err } => return .{ Err: err };
+            .{ Ok: ParsedSpan.{ kind: Kind.Object, next: next } }
         },
-        b'-' => match (parse_number_end(text, index)) {
-            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } },
-            .{ Err: err } => .{ Err: err },
+        b'-' => {
+            let .{ Ok: next } = parse_number_end(text, index)
+                else .{ Err: err } => return .{ Err: err };
+            .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } }
         },
         _ => {
             let byte = text.[index];
             if (byte >= b'0' and byte <= b'9') {
-                return match (parse_number_end(text, index)) {
-                    .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } },
-                    .{ Err: err } => .{ Err: err },
-                };
+                let .{ Ok: next } = parse_number_end(text, index)
+                    else .{ Err: err } => return .{ Err: err };
+                return .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } };
             }
             return .{ Err: .{ UnexpectedByte: index } };
         },
@@ -442,9 +445,9 @@ pub/ fn locate_error(text: []u8, err: ParseError) ?ErrorLocation {
         return .None;
     }
 
-    let mut line = usize.{1};
-    let mut column = usize.{1};
-    for (let mut i = usize.{0}; i < offset; i += 1) {
+    let mut line = 1;
+    let mut column = 1;
+    for (let mut i = 0; i < offset; i += 1) {
         if (text.[i] == b'\n') {
             line += 1;
             column = 1;

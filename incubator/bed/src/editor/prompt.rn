@@ -17,6 +17,22 @@ use ..{
 };
 
 impl *mut Editor {
+    fn set_buffer_error_message(alloc: *mut Allocator, err: buffer.Error, fallback: []u8) void {
+        match (err) {
+            .OutOfMemory => self.set_message(alloc, "out of memory"),
+            .MissingPath => self.set_message(alloc, "no file name"),
+            .{ Fs: _ } => self.set_message(alloc, fallback),
+        }
+    }
+
+    fn set_shell_error_message(alloc: *mut Allocator, err: proc.Error) void {
+        match (err) {
+            .OutOfMemory => self.set_message(alloc, "shell: out of memory"),
+            .SpawnFailed => self.set_message(alloc, "shell: spawn failed"),
+            .ReadFailed => self.set_message(alloc, "shell: read failed"),
+        }
+    }
+
     fn reset_prompt_history_nav() void {
         self.prompt_history_index = 0;
         self.has_prompt_history_index = false;
@@ -138,10 +154,8 @@ impl *mut Editor {
         // it can reuse the normal renderer and scrolling logic.
         let entries = self.output_history..&.as_mut_slice();
         let entry = entries.[index].&;
-        let next = match (buffer.from_text(alloc, "", entry.text.&.as_str())) {
-            .{ Ok: value } => value,
-            .{ Err: _ } => return false,
-        };
+        let .{ Ok: next } = buffer.from_text(alloc, "", entry.text.&.as_str())
+            else .{ Err: _ } => return false;
 
         self.clear_visible_output(alloc);
         self.output = next;
@@ -253,20 +267,12 @@ impl *mut Editor {
 
     fn save_current(alloc: *mut Allocator) bool {
         let text_buffer = self.active_buffer_mut();
-        match (text_buffer.write(alloc)) {
-            .{ Ok: _ } => {
-                self.set_message(alloc, "written");
-                return true;
-            },
-            .{ Err: err } => {
-                match (err) {
-                    .OutOfMemory => self.set_message(alloc, "out of memory"),
-                    .MissingPath => self.set_message(alloc, "no file name"),
-                    .{ Fs: _ } => self.set_message(alloc, "write failed"),
-                }
-                return false;
-            },
-        }
+        let .{ Ok: _ } = text_buffer.write(alloc) else .{ Err: err } => {
+            self.set_buffer_error_message(alloc, err, "write failed");
+            return false;
+        };
+        self.set_message(alloc, "written");
+        return true;
     }
 
     fn edit_path(alloc: *mut Allocator, path: []u8) void {
@@ -275,16 +281,9 @@ impl *mut Editor {
             return;
         }
 
-        let next = match (open_path(alloc, path)) {
-            .{ Ok: value } => value,
-            .{ Err: err } => {
-                match (err) {
-                    .OutOfMemory => self.set_message(alloc, "out of memory"),
-                    .MissingPath => self.set_message(alloc, "no file name"),
-                    .{ Fs: _ } => self.set_message(alloc, "open failed"),
-                }
-                return;
-            },
+        let .{ Ok: next } = open_path(alloc, path) else .{ Err: err } => {
+            self.set_buffer_error_message(alloc, err, "open failed");
+            return;
         };
 
         self.replace_buffer(alloc, next);
@@ -356,19 +355,12 @@ impl *mut Editor {
     fn run_shell_command(alloc: *mut Allocator) void {
         let command_text = self.command_line.&.as_str();
         self.record_prompt_history(alloc, command_text);
-        let mut capture = match (proc.shell_capture(alloc, command_text)) {
-            .{ Ok: value } => value,
-            .{ Err: err } => {
-                match (err) {
-                    .OutOfMemory => self.set_message(alloc, "shell: out of memory"),
-                    .SpawnFailed => self.set_message(alloc, "shell: spawn failed"),
-                    .ReadFailed => self.set_message(alloc, "shell: read failed"),
-                }
-                let _ = self.install_output(alloc, command_text, "shell command failed", -1);
-                self.command_line..&.clear();
-                self.finish_command();
-                return;
-            },
+        let .{ Ok: mut capture } = proc.shell_capture(alloc, command_text) else .{ Err: err } => {
+            self.set_shell_error_message(alloc, err);
+            let _ = self.install_output(alloc, command_text, "shell command failed", -1);
+            self.command_line..&.clear();
+            self.finish_command();
+            return;
         };
         defer capture.output..&.deinit(alloc);
 

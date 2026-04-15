@@ -20,7 +20,7 @@ use json.{
     render_compact,
 };
 
-const DEFAULT_ITERATIONS = usize.{200000};
+const DEFAULT_ITERATIONS = 200000;
 const DEFAULT_INPUT_LABEL = "sample";
 
 const SAMPLE =
@@ -41,18 +41,18 @@ impl *mut BenchInput {
 
 fn parse_iterations(text: []u8) usize {
     if (#text == 0) {
-        return usize.{0};
+        return 0;
     }
 
-    let mut value = usize.{0};
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut value = 0;
+    for (let mut i = 0; i < #text; i += 1) {
         let byte = text.[i];
         if (byte < b'0' or byte > b'9') {
-            return usize.{0};
+            return 0;
         }
-        let next = value * usize.{10} + (byte - b'0') as usize;
+        let next = value * 10 + (byte - b'0') as usize;
         if (next < value) {
-            return usize.{0};
+            return 0;
         }
         value = next;
     }
@@ -86,31 +86,22 @@ fn print_stats(
 fn load_input(alloc: *mut base.mem.alloc.Allocator, path: []u8) BenchInput!fs.Error {
     if (path == "-") {
         let mut stdin = fs.stdin();
-        let storage = match (stdin..&.read_to_string(alloc)) {
-            .{ Ok: text } => text,
-            .{ Err: err } => return .{ Err: err },
-        };
+        let .{ Ok: storage } = stdin..&.read_to_string(alloc) else .{ Err: err } => return .{ Err: err };
         return .{ Ok: BenchInput.{ storage: storage, label: "<stdin>", text: storage.&.as_str() } };
     }
 
-    let storage = match (fs.read_to_string(alloc, path)) {
-        .{ Ok: text } => text,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let .{ Ok: storage } = fs.read_to_string(alloc, path) else .{ Err: err } => return .{ Err: err };
     return .{ Ok: BenchInput.{ storage: storage, label: path, text: storage.&.as_str() } };
 }
 
 fn bench_parse(iterations: usize, input_label: []u8, text: []u8) bool {
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let value = match (parse(text)) {
-            .{ Ok: parsed } => parsed,
-            .{ Err: _ } => return false,
-        };
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: value } = parse(text) else return false;
         sink += #value.raw;
-        sink += if (value.is_scalar()) usize.{1} else usize.{0};
+        sink += if (value.is_scalar()) 1 else 0;
     }
 
     print_stats("parse", input_label, #text, iterations, start.elapsed(), sink);
@@ -118,18 +109,12 @@ fn bench_parse(iterations: usize, input_label: []u8, text: []u8) bool {
 }
 
 fn bench_materialize(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
-    let mut sink = usize.{0};
+    let .{ Ok: value } = parse(text) else return false;
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let mut document = match (clone_owned_document(value)) {
-            .{ Ok: document } => document,
-            .{ Err: _ } => return false,
-        };
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: mut document } = clone_owned_document(value) else return false;
         let root = document.&.root();
         sink += root.compact_size();
         sink += test_owned_lookup_body(root);
@@ -141,19 +126,13 @@ fn bench_materialize(iterations: usize, input_label: []u8, text: []u8) bool {
 }
 
 fn bench_clone_document(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
-    let mut sink = usize.{0};
+    let .{ Ok: value } = parse(text) else return false;
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let mut document = match (clone_owned_document(value)) {
-            .{ Ok: document } => document,
-            .{ Err: _ } => return false,
-        };
-        sink += if (document.&.root().is_object()) usize.{1} else usize.{0};
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: mut document } = clone_owned_document(value) else return false;
+        sink += if (document.&.root().is_object()) 1 else 0;
         document..&.deinit();
     }
 
@@ -162,15 +141,12 @@ fn bench_clone_document(iterations: usize, input_label: []u8, text: []u8) bool {
 }
 
 fn bench_parse_packed_document(iterations: usize, input_label: []u8, text: []u8) bool {
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let mut document = match (parse_packed_document(text)) {
-            .{ Ok: document } => document,
-            .{ Err: _ } => return false,
-        };
-        sink += if (document.&.root().is_object()) usize.{1} else usize.{0};
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: mut document } = parse_packed_document(text) else return false;
+        sink += if (document.&.root().is_object()) 1 else 0;
         document..&.deinit();
     }
 
@@ -179,21 +155,15 @@ fn bench_parse_packed_document(iterations: usize, input_label: []u8, text: []u8)
 }
 
 fn bench_clone_gpa(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let mut owned = match (value.clone_owned(gpa)) {
-            .{ Ok: parsed } => parsed,
-            .{ Err: _ } => return false,
-        };
-        sink += if (owned..&.is_object()) usize.{1} else usize.{0};
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: mut owned } = value.clone_owned(gpa) else return false;
+        sink += if (owned..&.is_object()) 1 else 0;
         owned..&.deinit(gpa);
     }
 
@@ -202,22 +172,16 @@ fn bench_clone_gpa(iterations: usize, input_label: []u8, text: []u8) bool {
 }
 
 fn bench_clone_arena(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let mut arena = Arena.{ backing: page };
     defer arena..&.deinit();
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let mut owned = match (value.clone_owned(arena..&)) {
-            .{ Ok: parsed } => parsed,
-            .{ Err: _ } => return false,
-        };
-        sink += if (owned..&.is_object()) usize.{1} else usize.{0};
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: mut owned } = value.clone_owned(arena..&) else return false;
+        sink += if (owned..&.is_object()) 1 else 0;
         arena..&.reset();
     }
 
@@ -226,18 +190,12 @@ fn bench_clone_arena(iterations: usize, input_label: []u8, text: []u8) bool {
 }
 
 fn bench_clone_indexed_document(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
-    let mut sink = usize.{0};
+    let .{ Ok: value } = parse(text) else return false;
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let mut document = match (clone_indexed_object_document(value)) {
-            .{ Ok: document } => document,
-            .{ Err: _ } => return false,
-        };
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: mut document } = clone_indexed_object_document(value) else return false;
         sink += document.&.view().len();
         document..&.deinit();
     }
@@ -247,14 +205,11 @@ fn bench_clone_indexed_document(iterations: usize, input_label: []u8, text: []u8
 }
 
 fn bench_parse_packed_indexed_document(iterations: usize, input_label: []u8, text: []u8) bool {
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let mut document = match (parse_packed_indexed_object_document(text)) {
-            .{ Ok: document } => document,
-            .{ Err: _ } => return false,
-        };
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: mut document } = parse_packed_indexed_object_document(text) else return false;
         sink += document.&.view().len();
         document..&.deinit();
     }
@@ -264,28 +219,19 @@ fn bench_parse_packed_indexed_document(iterations: usize, input_label: []u8, tex
 }
 
 fn bench_render_borrowed(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
-    let render_size = match (compact_size(value)) {
-        .{ Ok: size } => size,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: value } = parse(text) else return false;
+    let .{ Ok: render_size } = compact_size(value) else return false;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let out = String.{}..&;
     defer out.deinit(gpa);
     let .{ Some: _ } = out.append_uninit(gpa, render_size)
         else return false;
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let written = match (render_compact(value, out.as_mut_bytes())) {
-            .{ Ok: len } => len,
-            .{ Err: _ } => return false,
-        };
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: written } = render_compact(value, out.as_mut_bytes()) else return false;
         sink += written + render_size;
     }
 
@@ -294,16 +240,10 @@ fn bench_render_borrowed(iterations: usize, input_label: []u8, text: []u8) bool 
 }
 
 fn bench_render_owned(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let mut document = match (clone_owned_document(value)) {
-        .{ Ok: document } => document,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: mut document } = clone_owned_document(value) else return false;
     defer document..&.deinit();
     let root = document.&.root();
 
@@ -312,14 +252,11 @@ fn bench_render_owned(iterations: usize, input_label: []u8, text: []u8) bool {
     defer out.deinit(gpa);
     let .{ Some: _ } = out.append_uninit(gpa, render_size)
         else return false;
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let written = match (root.render_compact(out.as_mut_bytes())) {
-            .{ Ok: len } => len,
-            .{ Err: _ } => return false,
-        };
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: written } = root.render_compact(out.as_mut_bytes()) else return false;
         sink += written + render_size;
     }
 
@@ -328,31 +265,22 @@ fn bench_render_owned(iterations: usize, input_label: []u8, text: []u8) bool {
 }
 
 fn test_borrowed_lookup_body(value: Value) usize {
-    let items = match (value.get_array_field("items")) {
-        .{ Ok: .{ Some: items } } => items,
-        _ => return usize.{0},
-    };
-    let item0 = match (items.get_object_index(usize.{0})) {
-        .{ Ok: .{ Some: item } } => item,
-        _ => return usize.{0},
-    };
-    let item1 = match (items.get_object_index(usize.{1})) {
-        .{ Ok: .{ Some: item } } => item,
-        _ => return usize.{0},
-    };
+    let .{ Ok: .{ Some: items } } = value.get_array_field("items") else return 0;
+    let .{ Ok: .{ Some: item0 } } = items.get_object_index(0) else return 0;
+    let .{ Ok: .{ Some: item1 } } = items.get_object_index(1) else return 0;
 
-    let mut sink = usize.{0};
-    let .{ Ok: .{ Some: ok } } = value.get_bool_field("ok") else return usize.{0};
-    sink += if (ok) usize.{1} else usize.{0};
-    let .{ Ok: .{ Some: user } } = value.get_object_field("user") else return usize.{0};
-    let .{ Ok: .{ Some: user_id } } = user.get_u64_field("id") else return usize.{0};
-    let .{ Ok: .{ Some: user_name } } = user.get_string_text_field("name") else return usize.{0};
-    let .{ Ok: .{ Some: sku0 } } = item0.get_string_text_field("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty0 } } = item0.get_u64_field("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price0 } } = item0.get_f64_field("price") else return usize.{0};
-    let .{ Ok: .{ Some: sku1 } } = item1.get_string_text_field("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty1 } } = item1.get_u64_field("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price1 } } = item1.get_f64_field("price") else return usize.{0};
+    let mut sink = 0;
+    let .{ Ok: .{ Some: ok } } = value.get_bool_field("ok") else return 0;
+    sink += if (ok) 1 else 0;
+    let .{ Ok: .{ Some: user } } = value.get_object_field("user") else return 0;
+    let .{ Ok: .{ Some: user_id } } = user.get_u64_field("id") else return 0;
+    let .{ Ok: .{ Some: user_name } } = user.get_string_text_field("name") else return 0;
+    let .{ Ok: .{ Some: sku0 } } = item0.get_string_text_field("sku") else return 0;
+    let .{ Ok: .{ Some: qty0 } } = item0.get_u64_field("qty") else return 0;
+    let .{ Ok: .{ Some: price0 } } = item0.get_f64_field("price") else return 0;
+    let .{ Ok: .{ Some: sku1 } } = item1.get_string_text_field("sku") else return 0;
+    let .{ Ok: .{ Some: qty1 } } = item1.get_u64_field("qty") else return 0;
+    let .{ Ok: .{ Some: price1 } } = item1.get_f64_field("price") else return 0;
     sink += user_id as usize;
     sink += #user_name + #sku0 + #sku1;
     sink += qty0 as usize + qty1 as usize;
@@ -361,14 +289,11 @@ fn test_borrowed_lookup_body(value: Value) usize {
 }
 
 fn bench_lookup_borrowed(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
-    let mut sink = usize.{0};
+    let .{ Ok: value } = parse(text) else return false;
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
+    for (let mut i = 0; i < iterations; i += 1) {
         sink += test_borrowed_lookup_body(value);
     }
 
@@ -377,22 +302,22 @@ fn bench_lookup_borrowed(iterations: usize, input_label: []u8, text: []u8) bool 
 }
 
 fn test_owned_lookup_body(value: DocumentValue) usize {
-    let .{ Some: items } = value.get_array("items") else return usize.{0};
-    let .{ Some: item0 } = items.get_index(usize.{0}) else return usize.{0};
-    let .{ Some: item1 } = items.get_index(usize.{1}) else return usize.{0};
+    let .{ Some: items } = value.get_array("items") else return 0;
+    let .{ Some: item0 } = items.get_index(0) else return 0;
+    let .{ Some: item1 } = items.get_index(1) else return 0;
 
-    let mut sink = usize.{0};
-    let .{ Some: ok } = value.get_bool("ok") else return usize.{0};
-    sink += if (ok) usize.{1} else usize.{0};
-    let .{ Some: user } = value.get_object("user") else return usize.{0};
-    let .{ Ok: .{ Some: user_id } } = user.get_u64("id") else return usize.{0};
-    let .{ Some: user_name } = user.get_string("name") else return usize.{0};
-    let .{ Some: sku0 } = item0.get_string("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty0 } } = item0.get_u64("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price0 } } = item0.get_f64("price") else return usize.{0};
-    let .{ Some: sku1 } = item1.get_string("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty1 } } = item1.get_u64("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price1 } } = item1.get_f64("price") else return usize.{0};
+    let mut sink = 0;
+    let .{ Some: ok } = value.get_bool("ok") else return 0;
+    sink += if (ok) 1 else 0;
+    let .{ Some: user } = value.get_object("user") else return 0;
+    let .{ Ok: .{ Some: user_id } } = user.get_u64("id") else return 0;
+    let .{ Some: user_name } = user.get_string("name") else return 0;
+    let .{ Some: sku0 } = item0.get_string("sku") else return 0;
+    let .{ Ok: .{ Some: qty0 } } = item0.get_u64("qty") else return 0;
+    let .{ Ok: .{ Some: price0 } } = item0.get_f64("price") else return 0;
+    let .{ Some: sku1 } = item1.get_string("sku") else return 0;
+    let .{ Ok: .{ Some: qty1 } } = item1.get_u64("qty") else return 0;
+    let .{ Ok: .{ Some: price1 } } = item1.get_f64("price") else return 0;
     sink += user_id as usize;
     sink += #user_name + #sku0 + #sku1;
     sink += qty0 as usize + qty1 as usize;
@@ -401,22 +326,22 @@ fn test_owned_lookup_body(value: DocumentValue) usize {
 }
 
 fn test_packed_lookup_body(value: PackedValue) usize {
-    let .{ Some: items } = value.get_array("items") else return usize.{0};
-    let .{ Some: item0 } = items.get_index(usize.{0}) else return usize.{0};
-    let .{ Some: item1 } = items.get_index(usize.{1}) else return usize.{0};
+    let .{ Some: items } = value.get_array("items") else return 0;
+    let .{ Some: item0 } = items.get_index(0) else return 0;
+    let .{ Some: item1 } = items.get_index(1) else return 0;
 
-    let mut sink = usize.{0};
-    let .{ Some: ok } = value.get_bool("ok") else return usize.{0};
-    sink += if (ok) usize.{1} else usize.{0};
-    let .{ Some: user } = value.get_object("user") else return usize.{0};
-    let .{ Ok: .{ Some: user_id } } = user.get_u64("id") else return usize.{0};
-    let .{ Some: user_name } = user.get_string("name") else return usize.{0};
-    let .{ Some: sku0 } = item0.get_string("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty0 } } = item0.get_u64("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price0 } } = item0.get_f64("price") else return usize.{0};
-    let .{ Some: sku1 } = item1.get_string("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty1 } } = item1.get_u64("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price1 } } = item1.get_f64("price") else return usize.{0};
+    let mut sink = 0;
+    let .{ Some: ok } = value.get_bool("ok") else return 0;
+    sink += if (ok) 1 else 0;
+    let .{ Some: user } = value.get_object("user") else return 0;
+    let .{ Ok: .{ Some: user_id } } = user.get_u64("id") else return 0;
+    let .{ Some: user_name } = user.get_string("name") else return 0;
+    let .{ Some: sku0 } = item0.get_string("sku") else return 0;
+    let .{ Ok: .{ Some: qty0 } } = item0.get_u64("qty") else return 0;
+    let .{ Ok: .{ Some: price0 } } = item0.get_f64("price") else return 0;
+    let .{ Some: sku1 } = item1.get_string("sku") else return 0;
+    let .{ Ok: .{ Some: qty1 } } = item1.get_u64("qty") else return 0;
+    let .{ Ok: .{ Some: price1 } } = item1.get_f64("price") else return 0;
     sink += user_id as usize;
     sink += #user_name + #sku0 + #sku1;
     sink += qty0 as usize + qty1 as usize;
@@ -425,20 +350,14 @@ fn test_packed_lookup_body(value: PackedValue) usize {
 }
 
 fn bench_lookup_owned(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
-    let mut document = match (clone_owned_document(value)) {
-        .{ Ok: document } => document,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: value } = parse(text) else return false;
+    let .{ Ok: mut document } = clone_owned_document(value) else return false;
     defer document..&.deinit();
     let root = document.&.root();
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
+    for (let mut i = 0; i < iterations; i += 1) {
         sink += test_owned_lookup_body(root);
     }
 
@@ -447,16 +366,13 @@ fn bench_lookup_owned(iterations: usize, input_label: []u8, text: []u8) bool {
 }
 
 fn bench_lookup_packed_document(iterations: usize, input_label: []u8, text: []u8) bool {
-    let mut document = match (parse_packed_document(text)) {
-        .{ Ok: document } => document,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: mut document } = parse_packed_document(text) else return false;
     defer document..&.deinit();
     let root = document.&.root();
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
+    for (let mut i = 0; i < iterations; i += 1) {
         sink += test_packed_lookup_body(root);
     }
 
@@ -465,21 +381,21 @@ fn bench_lookup_packed_document(iterations: usize, input_label: []u8, text: []u8
 }
 
 fn test_indexed_document_lookup_body(indexed: IndexedDocumentView) usize {
-    let .{ Some: ok } = indexed.get_bool("ok") else return usize.{0};
-    let .{ Some: user } = indexed.get_object("user") else return usize.{0};
-    let .{ Some: items } = indexed.get_array("items") else return usize.{0};
-    let .{ Some: item0 } = items.get_index(usize.{0}) else return usize.{0};
-    let .{ Some: item1 } = items.get_index(usize.{1}) else return usize.{0};
-    let mut sink = usize.{0};
-    sink += if (ok) usize.{1} else usize.{0};
-    let .{ Ok: .{ Some: user_id } } = user.get_u64("id") else return usize.{0};
-    let .{ Some: user_name } = user.get_string("name") else return usize.{0};
-    let .{ Some: sku0 } = item0.get_string("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty0 } } = item0.get_u64("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price0 } } = item0.get_f64("price") else return usize.{0};
-    let .{ Some: sku1 } = item1.get_string("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty1 } } = item1.get_u64("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price1 } } = item1.get_f64("price") else return usize.{0};
+    let .{ Some: ok } = indexed.get_bool("ok") else return 0;
+    let .{ Some: user } = indexed.get_object("user") else return 0;
+    let .{ Some: items } = indexed.get_array("items") else return 0;
+    let .{ Some: item0 } = items.get_index(0) else return 0;
+    let .{ Some: item1 } = items.get_index(1) else return 0;
+    let mut sink = 0;
+    sink += if (ok) 1 else 0;
+    let .{ Ok: .{ Some: user_id } } = user.get_u64("id") else return 0;
+    let .{ Some: user_name } = user.get_string("name") else return 0;
+    let .{ Some: sku0 } = item0.get_string("sku") else return 0;
+    let .{ Ok: .{ Some: qty0 } } = item0.get_u64("qty") else return 0;
+    let .{ Ok: .{ Some: price0 } } = item0.get_f64("price") else return 0;
+    let .{ Some: sku1 } = item1.get_string("sku") else return 0;
+    let .{ Ok: .{ Some: qty1 } } = item1.get_u64("qty") else return 0;
+    let .{ Ok: .{ Some: price1 } } = item1.get_f64("price") else return 0;
     sink += user_id as usize;
     sink += #user_name + #sku0 + #sku1;
     sink += qty0 as usize + qty1 as usize;
@@ -488,21 +404,21 @@ fn test_indexed_document_lookup_body(indexed: IndexedDocumentView) usize {
 }
 
 fn test_packed_indexed_document_lookup_body(indexed: PackedIndexedObjectView) usize {
-    let .{ Some: ok } = indexed.get_bool("ok") else return usize.{0};
-    let .{ Some: user } = indexed.get_object("user") else return usize.{0};
-    let .{ Some: items } = indexed.get_array("items") else return usize.{0};
-    let .{ Some: item0 } = items.get_index(usize.{0}) else return usize.{0};
-    let .{ Some: item1 } = items.get_index(usize.{1}) else return usize.{0};
-    let mut sink = usize.{0};
-    sink += if (ok) usize.{1} else usize.{0};
-    let .{ Ok: .{ Some: user_id } } = user.get_u64("id") else return usize.{0};
-    let .{ Some: user_name } = user.get_string("name") else return usize.{0};
-    let .{ Some: sku0 } = item0.get_string("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty0 } } = item0.get_u64("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price0 } } = item0.get_f64("price") else return usize.{0};
-    let .{ Some: sku1 } = item1.get_string("sku") else return usize.{0};
-    let .{ Ok: .{ Some: qty1 } } = item1.get_u64("qty") else return usize.{0};
-    let .{ Ok: .{ Some: price1 } } = item1.get_f64("price") else return usize.{0};
+    let .{ Some: ok } = indexed.get_bool("ok") else return 0;
+    let .{ Some: user } = indexed.get_object("user") else return 0;
+    let .{ Some: items } = indexed.get_array("items") else return 0;
+    let .{ Some: item0 } = items.get_index(0) else return 0;
+    let .{ Some: item1 } = items.get_index(1) else return 0;
+    let mut sink = 0;
+    sink += if (ok) 1 else 0;
+    let .{ Ok: .{ Some: user_id } } = user.get_u64("id") else return 0;
+    let .{ Some: user_name } = user.get_string("name") else return 0;
+    let .{ Some: sku0 } = item0.get_string("sku") else return 0;
+    let .{ Ok: .{ Some: qty0 } } = item0.get_u64("qty") else return 0;
+    let .{ Ok: .{ Some: price0 } } = item0.get_f64("price") else return 0;
+    let .{ Some: sku1 } = item1.get_string("sku") else return 0;
+    let .{ Ok: .{ Some: qty1 } } = item1.get_u64("qty") else return 0;
+    let .{ Ok: .{ Some: price1 } } = item1.get_f64("price") else return 0;
     sink += user_id as usize;
     sink += #user_name + #sku0 + #sku1;
     sink += qty0 as usize + qty1 as usize;
@@ -511,26 +427,17 @@ fn test_packed_indexed_document_lookup_body(indexed: PackedIndexedObjectView) us
 }
 
 fn bench_build_indexed(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let mut owned = match (value.clone_owned(gpa)) {
-            .{ Ok: parsed } => parsed,
-            .{ Err: _ } => return false,
-        };
-        let mut indexed = match (owned..&.build_indexed_object_view(gpa)) {
-            .{ Ok: .{ Some: view } } => view,
-            _ => {
-                owned..&.deinit(gpa);
-                return false;
-            },
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: mut owned } = value.clone_owned(gpa) else return false;
+        let .{ Ok: .{ Some: mut indexed } } = owned..&.build_indexed_object_view(gpa) else {
+            owned..&.deinit(gpa);
+            return false;
         };
         sink += indexed.&.len();
         indexed..&.deinit(gpa);
@@ -542,25 +449,17 @@ fn bench_build_indexed(iterations: usize, input_label: []u8, text: []u8) bool {
 }
 
 fn bench_build_indexed_arena(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let mut arena = Arena.{ backing: page };
     defer arena..&.deinit();
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
-        let mut owned = match (value.clone_owned(arena..&)) {
-            .{ Ok: parsed } => parsed,
-            .{ Err: _ } => return false,
-        };
-        let indexed = match (owned..&.build_indexed_object_view(arena..&)) {
-            .{ Ok: .{ Some: view } } => view,
-            _ => return false,
-        };
+    for (let mut i = 0; i < iterations; i += 1) {
+        let .{ Ok: mut owned } = value.clone_owned(arena..&) else return false;
+        let .{ Ok: .{ Some: indexed } } = owned..&.build_indexed_object_view(arena..&)
+            else return false;
         sink += indexed.&.len();
         arena..&.reset();
     }
@@ -570,33 +469,25 @@ fn bench_build_indexed_arena(iterations: usize, input_label: []u8, text: []u8) b
 }
 
 fn bench_lookup_indexed(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let mut owned = match (value.clone_owned(gpa)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: mut owned } = value.clone_owned(gpa) else return false;
     defer owned..&.deinit(gpa);
-    let mut indexed = match (owned..&.build_indexed_object_view(gpa)) {
-        .{ Ok: .{ Some: view } } => view,
-        _ => return false,
-    };
+    let .{ Ok: .{ Some: mut indexed } } = owned..&.build_indexed_object_view(gpa)
+        else return false;
     defer indexed..&.deinit(gpa);
 
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
+    for (let mut i = 0; i < iterations; i += 1) {
         let .{ Some: ok } = indexed.&.get_bool("ok") else return false;
         let .{ Some: user } = indexed.&.get_object("user") else return false;
         let .{ Some: items } = indexed.&.get_array("items") else return false;
-        let .{ Some: item0 } = items.get_index(usize.{0}) else return false;
-        let .{ Some: item1 } = items.get_index(usize.{1}) else return false;
-        sink += if (ok) usize.{1} else usize.{0};
+        let .{ Some: item0 } = items.get_index(0) else return false;
+        let .{ Some: item1 } = items.get_index(1) else return false;
+        sink += if (ok) 1 else 0;
         let .{ Ok: .{ Some: user_id } } = user.get_u64("id") else return false;
         let .{ Some: user_name } = user.get_string("name") else return false;
         let .{ Some: sku0 } = item0.get_string("sku") else return false;
@@ -616,21 +507,15 @@ fn bench_lookup_indexed(iterations: usize, input_label: []u8, text: []u8) bool {
 }
 
 fn bench_lookup_indexed_document(iterations: usize, input_label: []u8, text: []u8) bool {
-    let value = match (parse(text)) {
-        .{ Ok: parsed } => parsed,
-        .{ Err: _ } => return false,
-    };
-    let mut document = match (clone_indexed_object_document(value)) {
-        .{ Ok: document } => document,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: value } = parse(text) else return false;
+    let .{ Ok: mut document } = clone_indexed_object_document(value) else return false;
     defer document..&.deinit();
     let indexed = document.&.view();
 
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
+    for (let mut i = 0; i < iterations; i += 1) {
         sink += test_indexed_document_lookup_body(indexed);
     }
 
@@ -639,17 +524,14 @@ fn bench_lookup_indexed_document(iterations: usize, input_label: []u8, text: []u
 }
 
 fn bench_lookup_packed_indexed_document(iterations: usize, input_label: []u8, text: []u8) bool {
-    let mut document = match (parse_packed_indexed_object_document(text)) {
-        .{ Ok: document } => document,
-        .{ Err: _ } => return false,
-    };
+    let .{ Ok: mut document } = parse_packed_indexed_object_document(text) else return false;
     defer document..&.deinit();
     let indexed = document.&.view();
 
-    let mut sink = usize.{0};
+    let mut sink = 0;
     let start = time.now();
 
-    for (let mut i = usize.{0}; i < iterations; i += 1) {
+    for (let mut i = 0; i < iterations; i += 1) {
         sink += test_packed_indexed_document_lookup_body(indexed);
     }
 
@@ -686,7 +568,7 @@ fn main(argc: i32, argv: **u8) i32 {
     let iterations = match (args.get(1)) {
         .{ Some: value } => {
             let parsed = parse_iterations(value);
-            if (parsed == usize.{0}) {
+            if (parsed == 0) {
                 io.println("invalid iteration count: {}", .{ value, });
                 return 1;
             }
@@ -697,12 +579,12 @@ fn main(argc: i32, argv: **u8) i32 {
     let mode = args.get(2);
     let input_path = args.get(3);
     let mut input = match (input_path) {
-        .{ Some: path } => match (load_input(gpa, path)) {
-            .{ Ok: input } => input,
-            .{ Err: _ } => {
+        .{ Some: path } => {
+            let .{ Ok: input } = load_input(gpa, path) else {
                 io.println("failed to read input: {}", .{ path, });
                 return 1;
-            },
+            };
+            input
         },
         .None => BenchInput.{},
     };

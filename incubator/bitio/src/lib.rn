@@ -380,10 +380,7 @@ impl *mut BitWriter {
 
         let padded = 8 - extra;
         for (let mut i = 0; i < padded; i += 1) {
-            let _ = match (self.write_bit(false)) {
-                .{ Ok: value } => value,
-                .{ Err: _ } => return i,
-            };
+            let .{ Ok: _ } = self.write_bit(false) else .{ Err: _ } => return i;
         }
         return padded;
     }

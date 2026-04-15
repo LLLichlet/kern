@@ -181,23 +181,20 @@ impl *mut Editor {
     }
 
     fn allocate_window_slot(alloc: *mut Allocator, window: WindowState) ?usize {
-        match (self.first_free_window) {
-            .{ Some: index } => {
-                // Window slots are recycled after `:close` / `Ctrl-W q`.
-                let next = self.window(index).free_next;
-                self.first_free_window = next;
-                let slot = self.window_mut(index);
-                slot.* = window;
-                return .{ Some: index };
-            },
-            .None => {
-                let index = self.windows.len;
-                if (!self.windows..&.push(alloc, window)) {
-                    return .None;
-                }
-                return .{ Some: index };
-            },
-        }
+        let .{ Some: index } = self.first_free_window else {
+            let index = self.windows.len;
+            if (!self.windows..&.push(alloc, window)) {
+                return .None;
+            }
+            return .{ Some: index };
+        };
+
+        // Window slots are recycled after `:close` / `Ctrl-W q`.
+        let next = self.window(index).free_next;
+        self.first_free_window = next;
+        let slot = self.window_mut(index);
+        slot.* = window;
+        return .{ Some: index };
     }
 
     fn release_window_slot(index: usize) void {
@@ -220,23 +217,20 @@ impl *mut Editor {
     }
 
     fn allocate_layout_node(alloc: *mut Allocator, node: LayoutNode) ?usize {
-        match (self.first_free_layout_node) {
-            .{ Some: index } => {
-                // Layout nodes are recycled when split branches collapse again.
-                let next = self.layout_node(index).free_next;
-                self.first_free_layout_node = next;
-                let slot = self.layout_node_mut(index);
-                slot.* = node;
-                return .{ Some: index };
-            },
-            .None => {
-                let index = self.layout_nodes.len;
-                if (!self.layout_nodes..&.push(alloc, node)) {
-                    return .None;
-                }
-                return .{ Some: index };
-            },
-        }
+        let .{ Some: index } = self.first_free_layout_node else {
+            let index = self.layout_nodes.len;
+            if (!self.layout_nodes..&.push(alloc, node)) {
+                return .None;
+            }
+            return .{ Some: index };
+        };
+
+        // Layout nodes are recycled when split branches collapse again.
+        let next = self.layout_node(index).free_next;
+        self.first_free_layout_node = next;
+        let slot = self.layout_node_mut(index);
+        slot.* = node;
+        return .{ Some: index };
     }
 
     fn release_layout_node(index: usize) void {

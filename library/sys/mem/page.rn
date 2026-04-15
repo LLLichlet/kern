@@ -62,13 +62,11 @@ impl *mut Page : Allocator{
             if (raw as usize == ~usize.{0}) {
                 return .None;
             }
-            match (raw as ?*mut u8) {
-                .{ Some: ptr } => return .{ Some: ptr },
-                .None => {
-                    let _ = os.darwin.munmap(raw, layout.size);
-                    return .None;
-                },
+            let .{ Some: ptr } = raw as ?*mut u8 else {
+                let _ = os.darwin.munmap(raw, layout.size);
+                return .None;
             };
+            return .{ Some: ptr };
         };
 
         #[if(os == "windows")] {
@@ -78,10 +76,8 @@ impl *mut Page : Allocator{
                 (os.windows.MEM_COMMIT | os.windows.MEM_RESERVE) as u32,
                 WINDOWS_PAGE_READWRITE
             );
-            return match (raw as ?*mut u8) {
-                .{ Some: ptr } => .{ Some: ptr },
-                .None => .None,
-            };
+            let .{ Some: ptr } = raw as ?*mut u8 else return .None;
+            return .{ Some: ptr };
         };
     }
 

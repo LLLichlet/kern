@@ -70,13 +70,10 @@ impl *mut RawMode {
             return .{ Ok: true };
         }
 
-        match (os.restore_terminal_mode(self.handle, self.state..&)) {
-            .{ Ok: restored } => {
-                self.active = false;
-                return .{ Ok: restored };
-            },
-            .{ Err: err } => return .{ Err: wrap_os_error(err) },
-        }
+        let restored = os.restore_terminal_mode(self.handle, self.state..&)
+            .map_err(wrap_os_error).!;
+        self.active = false;
+        return .{ Ok: restored };
     }
 
     /// Best-effort destructor for raw terminal sessions.

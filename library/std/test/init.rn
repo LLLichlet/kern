@@ -39,32 +39,23 @@ pub fn not_eq[T](actual: T, unexpected: T) void
 
 /// Returns the payload from `Some(T)` or fails when the option is `None`.
 pub fn expect_some[T](value: ?T) T {
-    match (value) {
-        .{ Some: payload } => return payload,
-        .None => fail("expected option to contain a value", .{}),
-    }
+    let .{ Some: payload } = value else fail("expected option to contain a value", .{});
+    return payload;
 }
 
 /// Fails unless the option is `None`.
 pub fn expect_none[T](value: ?T) void {
-    match (value) {
-        .{ Some: _ } => fail("expected option to be empty", .{}),
-        .None => return,
-    }
+    let .None = value else fail("expected option to be empty", .{});
 }
 
 /// Returns the payload from `Ok(T)` or fails when the result is `Err`.
 pub fn expect_ok[T, E](value: T!E) T {
-    match (value) {
-        .{ Ok: payload } => return payload,
-        .{ Err: _ } => fail("expected result to be ok", .{}),
-    }
+    let .{ Ok: payload } = value else fail("expected result to be ok", .{});
+    return payload;
 }
 
 /// Returns the payload from `Err(E)` or fails when the result is `Ok`.
 pub fn expect_err[T, E](value: T!E) E {
-    match (value) {
-        .{ Ok: _ } => fail("expected result to be err", .{}),
-        .{ Err: payload } => return payload,
-    }
+    let .{ Err: payload } = value else fail("expected result to be err", .{});
+    return payload;
 }

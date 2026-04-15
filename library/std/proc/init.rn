@@ -98,6 +98,17 @@ fn build_shell_command(alloc: *mut Allocator, command: []u8) String!Error {
 }
 
 #[if(os == "linux")]
+fn map_shell_capture_error(err: os.Error) Error {
+    if (err.code == 12) {
+        return .OutOfMemory;
+    }
+    if (err.code == 9 or err.code == 32 or err.code == 5) {
+        return .ReadFailed;
+    }
+    return .SpawnFailed;
+}
+
+#[if(os == "linux")]
 fn decode_shell_status(raw: i32) i32 {
     return (raw >> 8) & 255;
 }
@@ -121,37 +132,18 @@ pub fn args(argc: i32, argv: **u8) Args {
 pub fn shell_capture(alloc: *mut Allocator, command: []u8) Capture!Error {
     #[if(os == "linux")]
     {
-        let capture = match (os.shell_capture(alloc, command)) {
-            .{ Ok: value } => value,
-            .{ Err: err } => {
-                if (err.code == 12) {
-                    return .{ Err: .OutOfMemory };
-                }
-                if (err.code == 9 or err.code == 32 or err.code == 5) {
-                    return .{ Err: .ReadFailed };
-                }
-                return .{ Err: .SpawnFailed };
-            },
-        };
+        let capture = os.shell_capture(alloc, command)
+            .map_err(map_shell_capture_error).!;
         return .{ Ok: .{ output: capture.output, status: capture.status } };
     }
 
-    let mut wrapped = match (build_shell_command(alloc, command)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let mut wrapped = build_shell_command(alloc, command).!;
     defer wrapped..&.deinit(alloc);
 
-    let wrapped_c = match (alloc_c_string(alloc, wrapped.&.as_str())) {
-        .{ Some: value } => value,
-        .None => return .{ Err: .OutOfMemory },
-    };
+    let wrapped_c = alloc_c_string(alloc, wrapped.&.as_str()).ok_or(.OutOfMemory).!;
     defer free_c_string(alloc, wrapped.&.as_str(), wrapped_c);
 
-    let mode = match (alloc_c_string(alloc, "r")) {
-        .{ Some: value } => value,
-        .None => return .{ Err: .OutOfMemory },
-    };
+    let mode = alloc_c_string(alloc, "r").ok_or(.OutOfMemory).!;
     defer free_c_string(alloc, "r", mode);
 
     let stream = system_popen(wrapped_c, mode);

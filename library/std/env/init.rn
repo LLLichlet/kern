@@ -115,14 +115,14 @@ fn visit_posix(visitor: *Fn(Var) bool) usize {
         }
 
         let entry = entry_ptr.[0 .. abi.cstr.len(entry_ptr)];
-        match (split_var(entry)) {
-            .{ Some: var } => {
-                total += 1;
-                if (!visitor(var)) {
-                    return total;
-                }
-            },
-            .None => {},
+        let .{ Some: var } = split_var(entry) else {
+            envp = envp + 1;
+            continue;
+        };
+
+        total += 1;
+        if (!visitor(var)) {
+            return total;
         }
 
         envp = envp + 1;
@@ -148,14 +148,14 @@ fn visit_windows(visitor: *Fn(Var) bool) usize {
         }
 
         let entry = cursor.[0 .. len];
-        match (split_var(entry)) {
-            .{ Some: var } => {
-                total += 1;
-                if (!visitor(var)) {
-                    return total;
-                }
-            },
-            .None => {},
+        let .{ Some: var } = split_var(entry) else {
+            cursor = cursor + len + 1;
+            continue;
+        };
+
+        total += 1;
+        if (!visitor(var)) {
+            return total;
         }
 
         cursor = cursor + len + 1;
@@ -214,9 +214,7 @@ pub fn has(alloc: *mut Allocator, name: []u8) bool {
 /// Returns:
 /// `None` when allocation fails for either the real value or the fallback.
 pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) ?String {
-    match (get(alloc, name)) {
-        .{ Some: value } => return .{ Some: value },
-        .None => {
+    return get(alloc, name).or_else(.[alloc, fallback]() ?String {
             let mut value = String.{};
             if (!value..&.push_str(alloc, fallback)) {
                 value..&.deinit(alloc);
@@ -224,7 +222,7 @@ pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) ?String {
             }
             return .{ Some: value };
         },
-    }
+    );
 }
 
 /// Returns the environment variable or an empty owned string.

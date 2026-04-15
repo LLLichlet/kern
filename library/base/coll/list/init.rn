@@ -10,7 +10,7 @@ use base.num.USIZE_MAX;
 mod query;
 
 /// A growable contiguous collection of `T`.
-pub~ type List[T] = struct {
+pub/ type List[T] = struct {
     ptr: *mut T = non_null_mut_ptr_from_addr[T](1),
     /// The number of initialized elements in the list.
     pub len: usize = 0,
@@ -83,10 +83,7 @@ impl[T] *mut List[T] {
         }
 
         let new_layout = self.fixed_layout(new_cap, elem_size);
-        let new_ptr_u8 = match (alloc.alloc(new_layout)) {
-            .{ Some: ptr } => ptr,
-            .None => return false,
-        };
+        let .{ Some: new_ptr_u8 } = alloc.alloc(new_layout) else return false;
 
         let new_ptr = new_ptr_u8 as *mut T;
 
@@ -166,10 +163,7 @@ impl[T] *mut List[T] {
         }
 
         let new_layout = self.fixed_layout(new_cap, elem_size);
-        let new_ptr_u8 = match (arena.alloc(new_layout)) {
-            .{ Some: ptr } => ptr,
-            .None => return false,
-        };
+        let .{ Some: new_ptr_u8 } = arena.alloc(new_layout) else return false;
         let new_ptr = new_ptr_u8 as *mut T;
 
         if (self.cap > 0 and self.len > 0) {
@@ -337,14 +331,10 @@ impl[T] *mut List[T] {
         if (src_addr >= base_addr and src_addr < end_addr) {
             // `slice` aliases the current list storage. Reserve may move the
             // buffer, so materialize the source range before shifting data.
-            temp_layout = match (self.buffer_layout(additional)) {
-                .{ Some: layout } => layout,
-                .None => return false,
-            };
-            temp_ptr = match (alloc.alloc(temp_layout)) {
-                .{ Some: ptr } => ptr,
-                .None => return false,
-            };
+            let .{ Some: layout } = self.buffer_layout(additional) else return false;
+            temp_layout = layout;
+            let .{ Some: ptr } = alloc.alloc(temp_layout) else return false;
+            temp_ptr = ptr;
             @memcpy(temp_ptr, src_ptr as *u8, additional * elem_size);
             src_ptr = temp_ptr as *T;
         }
@@ -407,10 +397,7 @@ impl[T] *mut List[T] {
         }
 
         if (self.cap > 0) {
-            let layout = match (self.buffer_layout(self.cap)) {
-                .{ Some: layout } => layout,
-                .None => return,
-            };
+            let .{ Some: layout } = self.buffer_layout(self.cap) else return;
             alloc.free(self.ptr as *mut u8, layout);
             self.ptr = self.zst_ptr();
             self.len = 0;
@@ -667,22 +654,13 @@ impl[T] *mut List[T] {
             return true;
         }
 
-        let exact_layout = match (self.buffer_layout(self.len)) {
-            .{ Some: layout } => layout,
-            .None => return false,
-        };
-        let new_ptr_u8 = match (alloc.alloc(exact_layout)) {
-            .{ Some: ptr } => ptr,
-            .None => return false,
-        };
+        let .{ Some: exact_layout } = self.buffer_layout(self.len) else return false;
+        let .{ Some: new_ptr_u8 } = alloc.alloc(exact_layout) else return false;
 
         let new_ptr = new_ptr_u8 as *mut T;
 
         @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, exact_layout.size);
-        let old_layout = match (self.buffer_layout(self.cap)) {
-            .{ Some: layout } => layout,
-            .None => return false,
-        };
+        let .{ Some: old_layout } = self.buffer_layout(self.cap) else return false;
         alloc.free(self.ptr as *mut u8, old_layout);
 
         self.ptr = new_ptr;

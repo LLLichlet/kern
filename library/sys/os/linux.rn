@@ -260,10 +260,8 @@ pub fn find_environment_value(name: *u8) ?*u8 {
         return .None;
     }
 
-    let mut envp = match (environment_entries()) {
-        .{ Some: envp } => envp,
-        .None => return .None,
-    };
+    let .{ Some: envp } = environment_entries() else return .None;
+    let mut envp = envp;
 
     for (;;) {
         let entry = envp.*;
@@ -398,10 +396,9 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
 
     if (pid == 0) {
         let argv = [4]mut usize.{ sh_arg as usize, dash_lc as usize, command_c as usize, 0 };
-        let envp = match (environment_entries()) {
-            .{ Some: envp } => envp as usize,
-            .None => 0,
-        };
+        let envp = environment_entries().map_or(0, .[](envp: **u8) usize {
+            return envp as usize;
+        });
         let _ = close_file(read_end);
         let _ = syscall3_raw(SYS_DUP2, write_end, 1, 0);
         let _ = syscall3_raw(SYS_DUP2, write_end, 2, 0);
@@ -414,15 +411,12 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
     let output = String.{}..&;
     let chunk = [1024]mut u8.{undef};
     for (;;) {
-        let read = match (read_file(read_end, chunk.[0]..&, 1024)) {
-            .{ Ok: count } => count,
-            .{ Err: err } => {
-                let _ = close_file(read_end);
-                output.deinit(alloc);
-                let mut raw_status = i32.{0};
-                let _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
-                return .{ Err: err };
-            },
+        let .{ Ok: read } = read_file(read_end, chunk.[0]..&, 1024) else .{ Err: err } => {
+            let _ = close_file(read_end);
+            output.deinit(alloc);
+            let mut raw_status = i32.{0};
+            let _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+            return .{ Err: err };
         };
         if (read == 0) {
             break;
@@ -579,10 +573,7 @@ pub fn metadata(path: *u8) Metadata!Error {
 pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) usize!Error {
     let _ = search_path;
     let options = OpenOptions.{ read: true };
-    let handle = match (open_file(path, options.&)) {
-        .{ Ok: handle } => handle,
-        .{ Err: err } => return .{ Err: err },
-    };
+    let handle = open_file(path, options.&).!;
     defer {
         let _ = close_file(handle);
     };

@@ -57,7 +57,7 @@ fn nanos_to_timespec(nanos: u64) Timespec {
     };
 }
 
-pub~ fn monotonic_now_nanos() u64 {
+pub/ fn monotonic_now_nanos() u64 {
     let mut ts = Timespec.{ tv_sec: 0, tv_nsec: 0 };
     let ret = syscall2_raw(CLOCK_GETTIME, CLOCK_MONOTONIC, ts..& as usize);
     if (ret < 0) {
@@ -66,7 +66,7 @@ pub~ fn monotonic_now_nanos() u64 {
     return timespec_to_nanos(ts);
 }
 
-pub~ fn sleep_nanos(nanos: u64) void {
+pub/ fn sleep_nanos(nanos: u64) void {
     let mut req = nanos_to_timespec(nanos);
     let mut rem = Timespec.{ tv_sec: 0, tv_nsec: 0 };
 

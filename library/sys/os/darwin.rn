@@ -240,10 +240,8 @@ pub fn find_environment_value(name: *u8) ?*u8 {
         return .None;
     }
 
-    let mut envp = match (environment_entries()) {
-        .{ Some: envp } => envp,
-        .None => return .None,
-    };
+    let .{ Some: envp } = environment_entries() else return .None;
+    let mut envp = envp;
 
     for (;;) {
         let entry = envp.*;

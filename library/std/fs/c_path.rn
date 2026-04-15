@@ -8,15 +8,11 @@ use base.mem.alloc.Allocator;
 use ..types.Error;
 
 /// Allocates a zero-terminated path buffer for OS calls.
-pub~ fn alloc_c_path(alloc: *mut Allocator, path: []u8) (*mut u8)!Error {
-    let ptr = match (abi.cstr.alloc_z(alloc, path)) {
-        .{ Some: ptr } => ptr,
-        .None => return .{ Err: .OutOfMemory },
-    };
-    return .{ Ok: ptr };
+pub/ fn alloc_c_path(alloc: *mut Allocator, path: []u8) (*mut u8)!Error {
+    return abi.cstr.alloc_z(alloc, path).ok_or(.OutOfMemory);
 }
 
 /// Frees a path buffer previously returned by `alloc_c_path`.
-pub~ fn free_c_path(alloc: *mut Allocator, path: []u8, ptr: *mut u8) void {
+pub/ fn free_c_path(alloc: *mut Allocator, path: []u8, ptr: *mut u8) void {
     abi.cstr.free_z(alloc, path, ptr);
 }

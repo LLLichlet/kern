@@ -14,6 +14,7 @@ use kernc_ast::Visibility;
 
 type NamedFieldQueryKey = (Option<DefId>, DefId, Vec<TypeId>, SymbolId);
 type NamedFieldQueryValue = Option<crate::query::MemberCandidate>;
+type MemberResolutionQueryKey = (Option<DefId>, TypeId, SymbolId);
 
 #[derive(Clone)]
 pub struct SemaStructureSnapshot {
@@ -115,6 +116,8 @@ pub struct SemaContext<'a> {
     pub(crate) bound_trait_match_cache: FastHashMap<TypeId, Vec<TypeId>>,
     pub(crate) impl_applicability_cache: FastHashMap<(TypeId, DefId), Option<Vec<TypeId>>>,
     pub(crate) named_field_query_cache: FastHashMap<NamedFieldQueryKey, NamedFieldQueryValue>,
+    pub(crate) member_resolution_query_cache:
+        FastHashMap<MemberResolutionQueryKey, crate::query::MemberResolution>,
     identifier_references: Vec<(Span, Span)>,
     semantic_definitions: BTreeMap<Span, SemanticDefinition>,
 }
@@ -149,6 +152,7 @@ impl<'a> SemaContext<'a> {
             bound_trait_match_cache: FastHashMap::default(),
             impl_applicability_cache: FastHashMap::default(),
             named_field_query_cache: FastHashMap::default(),
+            member_resolution_query_cache: FastHashMap::default(),
             global_impls: Vec::new(),
             trait_impls: Vec::new(),
             impl_methods_by_name: FastHashMap::default(),
@@ -227,8 +231,7 @@ impl<'a> SemaContext<'a> {
         self.builtin_defs = snapshot.builtin_defs;
         self.current_package_name = snapshot.current_package_name;
         self.active_bounds.clear();
-        self.bound_trait_match_cache.clear();
-        self.impl_applicability_cache.clear();
+        self.clear_active_bound_caches();
         self.defs = snapshot.defs;
         self.scopes = snapshot.scopes;
         self.global_impls = snapshot.global_impls;
@@ -245,11 +248,17 @@ impl<'a> SemaContext<'a> {
         self.field_type_subst_cache.clear();
         self.trait_method_query_cache.clear();
         self.impl_method_query_cache.clear();
-        self.bound_trait_match_cache.clear();
-        self.impl_applicability_cache.clear();
+        self.clear_active_bound_caches();
         self.named_field_query_cache.clear();
+        self.member_resolution_query_cache.clear();
         self.identifier_references.clear();
         self.semantic_definitions.clear();
+    }
+
+    pub fn clear_active_bound_caches(&mut self) {
+        self.bound_trait_match_cache.clear();
+        self.impl_applicability_cache.clear();
+        self.member_resolution_query_cache.clear();
     }
 
     /// Inject CLI-provided module aliases such as `std` into the root scope.

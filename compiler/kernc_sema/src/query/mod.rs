@@ -111,6 +111,16 @@ impl<'a> MemberQueryEnv<'a> {
     fn active_bounds(&self) -> &[(TypeId, Vec<TypeId>)] {
         self.active_bounds.as_ref()
     }
+
+    fn is_current_active_bounds(&self, ctx: &SemaContext<'_>) -> bool {
+        let current_bounds = ctx.active_bounds.as_slice();
+        matches!(
+            &self.active_bounds,
+            Cow::Borrowed(bounds)
+                if bounds.len() == current_bounds.len()
+                    && std::ptr::eq(bounds.as_ptr(), current_bounds.as_ptr())
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -247,10 +257,28 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         env: &MemberQueryEnv<'_>,
         access_span: Span,
     ) -> Option<MemberResolution> {
+        let cache_key = (current_module_id, receiver_ty, member_name);
+        let can_use_cache = env.is_current_active_bounds(self.ctx);
+        if can_use_cache
+            && let Some(cached) = self
+                .ctx
+                .member_resolution_query_cache
+                .get(&cache_key)
+                .cloned()
+        {
+            return Some(cached);
+        }
+
         let base_norm = base_type(self.ctx, receiver_ty);
 
         if let TypeKind::Module(module_def_id) = self.ctx.type_registry.get(base_norm).clone() {
-            return self.resolve_module_member(current_module_id, module_def_id, member_name);
+            let resolution =
+                self.resolve_module_member(current_module_id, module_def_id, member_name);
+            if let Some(resolution) = resolution {
+                self.cache_member_resolution(cache_key, can_use_cache, &resolution);
+                return Some(resolution);
+            }
+            return None;
         }
 
         let search_types = self.search_types(receiver_ty);
@@ -263,6 +291,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 env,
                 access_span,
             ) {
+                self.cache_member_resolution(cache_key, can_use_cache, &resolution);
                 return Some(resolution);
             }
         }
@@ -309,6 +338,19 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         search_tys.push_if_absent(base_norm);
 
         search_tys
+    }
+
+    fn cache_member_resolution(
+        &mut self,
+        key: (Option<DefId>, TypeId, SymbolId),
+        enabled: bool,
+        resolution: &MemberResolution,
+    ) {
+        if enabled && resolution.candidate.type_id != TypeId::ERROR {
+            self.ctx
+                .member_resolution_query_cache
+                .insert(key, resolution.clone());
+        }
     }
 }
 

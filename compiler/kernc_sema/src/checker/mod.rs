@@ -558,8 +558,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             self.ctx.active_bounds.push((target_ty, bounds));
         }
         if self.ctx.active_bounds.len() != prev_bounds_len {
-            self.ctx.bound_trait_match_cache.clear();
-            self.ctx.impl_applicability_cache.clear();
+            self.ctx.clear_active_bound_caches();
         }
 
         for (i, param_ast) in f.params.iter().enumerate() {
@@ -626,8 +625,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         self.ctx.active_bounds.truncate(prev_bounds_len); // Drop bounds introduced by this function scope.
-        self.ctx.bound_trait_match_cache.clear();
-        self.ctx.impl_applicability_cache.clear();
+        self.ctx.clear_active_bound_caches();
         self.ctx.scopes.exit_scope(); // Leave the function scope.
 
         if let Some(function_started) = function_started {
@@ -813,8 +811,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             self.ctx.active_bounds.push((target_ty, bounds));
         }
         if self.ctx.active_bounds.len() != prev_bounds_len {
-            self.ctx.bound_trait_match_cache.clear();
-            self.ctx.impl_applicability_cache.clear();
+            self.ctx.clear_active_bound_caches();
         }
 
         // Inject the `Self` type for the impl target.
@@ -856,8 +853,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         self.ctx.active_bounds.truncate(prev_bounds_len);
-        self.ctx.bound_trait_match_cache.clear();
-        self.ctx.impl_applicability_cache.clear();
+        self.ctx.clear_active_bound_caches();
         self.ctx.scopes.exit_scope();
     }
 }

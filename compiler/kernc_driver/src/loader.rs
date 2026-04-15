@@ -34,6 +34,8 @@ pub struct ModuleLoader<'a, 'ctx> {
     path_exists_cache: FastHashMap<PathBuf, bool>,
     // Cache parsed ASTs until the collector extracts semantic symbols.
     pub asts: Vec<(DefId, ast::Module)>,
+    known_alias_names: FastHashSet<SymbolId>,
+    module_alias_references: Vec<FastHashSet<SymbolId>>,
     frontend: &'a FrontendDatabase,
     timings: ModuleLoadTimings,
     collect_docs: bool,
@@ -45,11 +47,26 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         frontend: &'a FrontendDatabase,
         collect_docs: bool,
     ) -> Self {
+        let mut known_alias_names = FastHashSet::default();
+        let module_alias_names = ctx.module_aliases.keys().cloned().collect::<Vec<_>>();
+        let interface_alias_names = ctx
+            .module_interface_aliases
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for alias_name in module_alias_names {
+            known_alias_names.insert(ctx.intern(&alias_name));
+        }
+        for alias_name in interface_alias_names {
+            known_alias_names.insert(ctx.intern(&alias_name));
+        }
         Self {
             ctx,
             loaded_files: FastHashMap::default(),
             path_exists_cache: FastHashMap::default(),
             asts: Vec::new(),
+            known_alias_names,
+            module_alias_references: Vec::new(),
             frontend,
             timings: ModuleLoadTimings::default(),
             collect_docs,
@@ -170,8 +187,12 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         {
             referenced.insert(rt);
         }
-        for (_, module) in &self.asts {
-            Self::collect_module_alias_references(module, alias_names, &mut referenced);
+        for module_references in &self.module_alias_references {
+            for alias in module_references {
+                if alias_names.contains(alias) {
+                    referenced.insert(*alias);
+                }
+            }
         }
         referenced
     }
@@ -935,6 +956,13 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             m.submodules = submodules;
         }
 
+        let mut module_alias_references = FastHashSet::default();
+        Self::collect_module_alias_references(
+            &ast,
+            &self.known_alias_names,
+            &mut module_alias_references,
+        );
+        self.module_alias_references.push(module_alias_references);
         self.asts.push((mod_id, ast));
         Some(mod_id)
     }

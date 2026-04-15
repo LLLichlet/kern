@@ -281,17 +281,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         for stmt in stmts {
             match &stmt.kind {
                 StmtKind::ExprStmt(e) | StmtKind::ExprValue(e) => {
-                    let extends_block_scope = match &e.kind {
-                        ExprKind::Let { pattern, .. } => self.let_pattern_binds_names(pattern),
-                        ExprKind::Static { pattern, .. } => self.binding_pattern_binds_name(pattern),
-                        _ => false,
-                    };
-                    if extends_block_scope {
-                        // Each binding statement extends the lexical environment for the
-                        // remainder of the block, which is what makes same-block shadowing work.
-                        if !entered_scope {
-                            entered_scope = true;
+                    let binding_names = match &e.kind {
+                        ExprKind::Let { pattern, .. } => self.let_pattern_binding_names(pattern),
+                        ExprKind::Static { pattern, .. } => {
+                            self.binding_pattern_name(pattern).into_iter().collect()
                         }
+                        _ => Vec::new(),
+                    };
+                    let needs_scope_extension = !binding_names.is_empty()
+                        && (!entered_scope
+                            || binding_names
+                                .iter()
+                                .any(|name| self.ctx.scopes.resolve(*name).is_some()));
+                    if needs_scope_extension {
+                        // The first binding creates the block-local environment. Subsequent
+                        // bindings only need a fresh child scope when they shadow a visible name.
+                        entered_scope = true;
                         self.ctx.scopes.enter_scope();
                     }
                     let stmt_ty = self.check_discarded_expr(e);

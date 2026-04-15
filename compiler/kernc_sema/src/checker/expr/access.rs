@@ -94,23 +94,30 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.ctx.resolve(name) == "_"
     }
 
-    pub(crate) fn pattern_binds_names(&self, pattern: &ast::Pattern) -> bool {
+    fn collect_pattern_binding_names(&self, pattern: &ast::Pattern, names: &mut Vec<SymbolId>) {
         match &pattern.kind {
-            ast::PatternKind::Binding(binding) => !self.is_discard_name(binding.name),
-            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => false,
-            ast::PatternKind::Destructure(destructure) => destructure
-                .fields
-                .iter()
-                .any(|field| self.pattern_binds_names(&field.pattern)),
+            ast::PatternKind::Binding(binding) => {
+                if !self.is_discard_name(binding.name) {
+                    names.push(binding.name);
+                }
+            }
+            ast::PatternKind::Destructure(destructure) => {
+                for field in &destructure.fields {
+                    self.collect_pattern_binding_names(&field.pattern, names);
+                }
+            }
+            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
         }
     }
 
-    pub(crate) fn let_pattern_binds_names(&self, pattern: &ast::LetPattern) -> bool {
-        self.pattern_binds_names(&pattern.pattern)
+    pub(crate) fn let_pattern_binding_names(&self, pattern: &ast::LetPattern) -> Vec<SymbolId> {
+        let mut names = Vec::new();
+        self.collect_pattern_binding_names(&pattern.pattern, &mut names);
+        names
     }
 
-    pub(crate) fn binding_pattern_binds_name(&self, pattern: &ast::BindingPattern) -> bool {
-        !self.is_discard_name(pattern.name)
+    pub(crate) fn binding_pattern_name(&self, pattern: &ast::BindingPattern) -> Option<SymbolId> {
+        (!self.is_discard_name(pattern.name)).then_some(pattern.name)
     }
 
     fn define_pattern_binding(

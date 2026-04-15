@@ -56,6 +56,33 @@ struct CachedParseRecord {
     outcome: CachedParseOutcome,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FrontendPruneProfile {
+    target_triple: String,
+    custom_defines: Vec<(String, String)>,
+}
+
+impl FrontendPruneProfile {
+    fn from_session(session: &Session) -> Self {
+        let mut custom_defines = session
+            .custom_defines
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        custom_defines.sort();
+        Self {
+            target_triple: session.target.triple.to_string(),
+            custom_defines,
+        }
+    }
+
+    fn apply(&self, session: &mut Session) {
+        session.target = kernc_utils::config::TargetMachine::new(&self.target_triple)
+        .unwrap_or_default();
+        session.custom_defines = self.custom_defines.iter().cloned().collect();
+    }
+}
+
 #[derive(Debug, Clone)]
 enum CachedParseOutcome {
     Parsed(CachedParsedModule),
@@ -68,8 +95,10 @@ pub struct FrontendDatabase {
     source_overrides: Input<PathBuf, Arc<str>>,
     source_texts: Query<PathBuf, Option<Arc<str>>>,
     parsed_modules: Memo<(PathBuf, bool), Option<Arc<CachedParseRecord>>>,
+    pruned_modules: Memo<(PathBuf, bool, FrontendPruneProfile), Option<Arc<CachedParseRecord>>>,
     known_override_paths: Arc<Mutex<HashSet<PathBuf>>>,
     uncached_parse_count: Arc<AtomicUsize>,
+    uncached_prune_count: Arc<AtomicUsize>,
 }
 
 impl FrontendDatabase {
@@ -95,8 +124,10 @@ impl FrontendDatabase {
             source_overrides,
             source_texts,
             parsed_modules: Memo::new(),
+            pruned_modules: Memo::new(),
             known_override_paths: Arc::new(Mutex::new(HashSet::new())),
             uncached_parse_count: Arc::new(AtomicUsize::new(0)),
+            uncached_prune_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -168,8 +199,8 @@ impl FrontendDatabase {
     ) -> Result<Option<(FrontendParsedModule, FrontendLoadTimings)>, kernc_db::Cycle> {
         let mut timings = FrontendLoadTimings::default();
         let key = (normalized.to_path_buf(), collect_docs);
-        let mut computed_timings = FrontendLoadTimings::default();
-        let Some(record) =
+        let mut computed_parse_timings = FrontendLoadTimings::default();
+        let Some(raw_record) =
             self.parsed_modules
                 .get_with(&self.db, "frontend_parsed_module", key, || {
                     let read_started = Instant::now();
@@ -177,23 +208,50 @@ impl FrontendDatabase {
                     else {
                         return Ok(None);
                     };
-                    computed_timings.read_source = read_started.elapsed();
+                    computed_parse_timings.read_source = read_started.elapsed();
                     let (outcome, parse_timings) =
                         self.compute_cached_parse_outcome(&source, collect_docs);
-                    computed_timings.add(parse_timings);
+                    computed_parse_timings.add(parse_timings);
                     Ok(Some(Arc::new(CachedParseRecord { source, outcome })))
                 })?
         else {
             return Ok(None);
         };
-        timings.add(computed_timings);
+        timings.add(computed_parse_timings);
+
+        let mut computed_prune_timings = FrontendLoadTimings::default();
+        let record = if source_may_need_conditional_pruning(raw_record.source.as_ref()) {
+            let prune_profile = FrontendPruneProfile::from_session(session);
+            let raw_record_for_prune = raw_record.clone();
+            let Some(pruned_record) = self.pruned_modules.get_with(
+                &self.db,
+                "frontend_pruned_module",
+                (normalized.to_path_buf(), collect_docs, prune_profile.clone()),
+                || {
+                    let prune_started = Instant::now();
+                    let record = self.compute_pruned_parse_record(
+                        raw_record_for_prune.as_ref(),
+                        &prune_profile,
+                    );
+                    computed_prune_timings.prune = prune_started.elapsed();
+                    Ok(record.map(Arc::new))
+                },
+            )?
+            else {
+                return Ok(None);
+            };
+            timings.add(computed_prune_timings);
+            pruned_record
+        } else {
+            raw_record
+        };
 
         let ensure_started = Instant::now();
         let file_id = self.ensure_file_id(session, normalized, &record.source);
         timings.ensure_file_id += ensure_started.elapsed();
 
         let rebind_started = Instant::now();
-        let mut parsed = match &record.outcome {
+        let parsed = match &record.outcome {
             CachedParseOutcome::Parsed(cached) => {
                 self.replay_diagnostics(session, file_id, &cached.diagnostics);
                 Some(self.bind_cached_module(session, normalized, file_id, cached))
@@ -205,20 +263,16 @@ impl FrontendDatabase {
         };
         timings.rebind += rebind_started.elapsed();
 
-        if let Some(parsed) = &mut parsed
-            && source_may_need_pruning(record.source.as_ref())
-        {
-            let prune_started = Instant::now();
-            let mut pruner = Pruner::new(session);
-            pruner.prune_module(&mut parsed.ast);
-            timings.prune += prune_started.elapsed();
-        }
-
         Ok(parsed.map(|parsed| (parsed, timings)))
     }
 
     pub fn uncached_parse_count(&self) -> usize {
         self.uncached_parse_count.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub fn uncached_prune_count(&self) -> usize {
+        self.uncached_prune_count.load(Ordering::SeqCst)
     }
 
     fn ensure_file_id(&self, session: &mut Session, path: &Path, source: &Arc<str>) -> FileId {
@@ -264,6 +318,45 @@ impl FrontendDatabase {
             None => CachedParseOutcome::Failed(CachedParseFailure { diagnostics }),
         };
         (outcome, timings)
+    }
+
+    fn compute_pruned_parse_record(
+        &self,
+        raw_record: &CachedParseRecord,
+        prune_profile: &FrontendPruneProfile,
+    ) -> Option<CachedParseRecord> {
+        self.uncached_prune_count.fetch_add(1, Ordering::SeqCst);
+
+        match &raw_record.outcome {
+            CachedParseOutcome::Parsed(cached) => {
+                let mut prune_session = Session::new();
+                prune_profile.apply(&mut prune_session);
+                let _ = prune_session.interner.intern_snapshot(&cached.symbols);
+
+                let mut ast = cached.ast.clone();
+                if source_may_need_conditional_pruning(raw_record.source.as_ref()) {
+                    let mut pruner = Pruner::new(&mut prune_session);
+                    pruner.prune_module(&mut ast);
+                }
+
+                let mut diagnostics = cached.diagnostics.clone();
+                diagnostics.extend(prune_session.diagnostics.iter().cloned());
+
+                Some(CachedParseRecord {
+                    source: raw_record.source.clone(),
+                    outcome: CachedParseOutcome::Parsed(CachedParsedModule {
+                        ast,
+                        symbols: cached.symbols.clone(),
+                        node_count: cached.node_count,
+                        diagnostics,
+                    }),
+                })
+            }
+            CachedParseOutcome::Failed(failure) => Some(CachedParseRecord {
+                source: raw_record.source.clone(),
+                outcome: CachedParseOutcome::Failed(failure.clone()),
+            }),
+        }
     }
 
     fn parse_frontend_module_profiled(
@@ -379,8 +472,8 @@ fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
     path
 }
 
-fn source_may_need_pruning(source: &str) -> bool {
-    source.contains("#[") || source.contains("#![")
+fn source_may_need_conditional_pruning(source: &str) -> bool {
+    source.contains("#[if") || source.contains("#![if")
 }
 
 struct CachedAstRebinder<'a> {
@@ -1091,6 +1184,80 @@ mod tests {
             seen_helper,
             "expected cached symbols to rebind into the new session"
         );
+    }
+
+    #[test]
+    fn conditional_prune_memo_skips_recompute_for_stable_define_profile() {
+        let db = FrontendDatabase::new();
+        let mut first_session = Session::new();
+        let mut second_session = Session::new();
+        let path = std::env::temp_dir().join(format!(
+            "kern_frontend_db_{}_conditional_prune_stable.rn",
+            std::process::id()
+        ));
+
+        db.set_source_override(
+            path.clone(),
+            "#[if(feature)]\nfn hidden() i32 { return 7; }\nfn main() i32 { return 1; }\n"
+                .to_string(),
+        );
+        first_session
+            .custom_defines
+            .insert("feature".to_string(), "false".to_string());
+        second_session
+            .custom_defines
+            .insert("feature".to_string(), "false".to_string());
+
+        let first = db
+            .load_parsed_module(&mut first_session, &path)
+            .unwrap()
+            .expect("module should parse");
+        let prune_count = db.uncached_prune_count();
+        let second = db
+            .load_parsed_module(&mut second_session, &path)
+            .unwrap()
+            .expect("module should parse");
+
+        assert_eq!(first.ast.decls.len(), 1);
+        assert_eq!(second.ast.decls.len(), 1);
+        assert_eq!(db.uncached_prune_count(), prune_count);
+    }
+
+    #[test]
+    fn conditional_prune_memo_invalidates_for_changed_define_profile() {
+        let db = FrontendDatabase::new();
+        let mut disabled_session = Session::new();
+        let mut enabled_session = Session::new();
+        let path = std::env::temp_dir().join(format!(
+            "kern_frontend_db_{}_conditional_prune_changed.rn",
+            std::process::id()
+        ));
+
+        db.set_source_override(
+            path.clone(),
+            "#[if(feature)]\nfn hidden() i32 { return 7; }\nfn main() i32 { return 1; }\n"
+                .to_string(),
+        );
+        disabled_session
+            .custom_defines
+            .insert("feature".to_string(), "false".to_string());
+        enabled_session
+            .custom_defines
+            .insert("feature".to_string(), "true".to_string());
+
+        let disabled = db
+            .load_parsed_module(&mut disabled_session, &path)
+            .unwrap()
+            .expect("module should parse");
+        let prune_count_after_disabled = db.uncached_prune_count();
+        let enabled = db
+            .load_parsed_module(&mut enabled_session, &path)
+            .unwrap()
+            .expect("module should parse");
+
+        assert_eq!(disabled.ast.decls.len(), 1);
+        assert_eq!(enabled.ast.decls.len(), 2);
+        assert!(db.uncached_prune_count() > prune_count_after_disabled);
     }
 
     fn collect_identifier_symbols(expr: &ast::Expr, visit: &mut impl FnMut(kernc_utils::SymbolId)) {

@@ -1,6 +1,7 @@
 use super::{CompilerDriver, LinkTarget, TempFileGuard};
 use kernc_utils::config::{RuntimeEntry, runtime_links_libc, runtime_uses_crt_startup};
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -209,6 +210,7 @@ impl CompilerDriver {
             cmd.arg(arg);
         }
 
+        self.apply_thin_lto_cache_options(&mut cmd, target);
         self.apply_dead_strip_options(&mut cmd, target.is_windows, target.is_darwin);
 
         cmd
@@ -318,6 +320,54 @@ impl CompilerDriver {
         }
     }
 
+    fn apply_thin_lto_cache_options(&self, cmd: &mut Command, target: &LinkTarget) {
+        if target.is_windows
+            || !self.options.linker_args.iter().any(|arg| arg == "-flto=thin")
+            || self
+                .options
+                .linker_args
+                .iter()
+                .any(|arg| {
+                    arg.contains("thinlto-cache-dir")
+                        || arg.contains("cache_path_lto")
+                        || arg.contains("plugin-opt,cache-dir=")
+                })
+        {
+            return;
+        }
+
+        let cache_dir = self.make_thin_lto_cache_dir_path();
+        let cache_dir_path = PathBuf::from(&cache_dir);
+        if cache_dir_path.is_file() && fs::remove_file(&cache_dir_path).is_err() {
+            eprintln!(
+                "Warning: failed to remove stale ThinLTO cache file `{}`; continuing without ThinLTO cache",
+                cache_dir_path.display()
+            );
+            return;
+        }
+        if let Err(err) = fs::create_dir_all(&cache_dir_path) {
+            eprintln!(
+                "Warning: failed to create ThinLTO cache dir `{}`: {}; continuing without ThinLTO cache",
+                cache_dir_path.display(),
+                err
+            );
+            return;
+        }
+
+        if target.is_darwin {
+            cmd.arg(format!("-Wl,-cache_path_lto,{}", cache_dir));
+        } else if self
+            .options
+            .linker_args
+            .iter()
+            .any(|arg| arg == "-fuse-ld=lld" || arg == "-fuse-ld=ld64.lld")
+        {
+            cmd.arg(format!("-Wl,--thinlto-cache-dir={}", cache_dir));
+        } else {
+            cmd.arg(format!("-Wl,-plugin-opt,cache-dir={}", cache_dir));
+        }
+    }
+
     fn maybe_print_link_command(&self, cmd: &Command) {
         if self.options.print_link_command {
             println!("Link command: {}", self.format_command(cmd));
@@ -404,4 +454,87 @@ fn detect_darwin_deployment_target() -> Option<u16> {
 
 fn parse_darwin_deployment_target_major(version: &str) -> Option<u16> {
     version.trim().split('.').next()?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kernc_utils::config::CompileOptions;
+
+    fn command_args(cmd: &Command) -> Vec<String> {
+        cmd.get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn thin_lto_links_add_cache_dir_by_default() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_link_thinlto_cache_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let output = root.join("main.out");
+        let driver = CompilerDriver::new(CompileOptions {
+            output_file: output.to_string_lossy().to_string(),
+            linker_args: vec!["-flto=thin".to_string()],
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+
+        let cmd = driver.build_link_command(&[], &target);
+        let args = command_args(&cmd);
+        let cache_dir = format!("{}.thinlto-cache.d", output.to_string_lossy());
+
+        if target.is_darwin {
+            assert!(args.iter().any(|arg| arg == &format!("-Wl,-cache_path_lto,{}", cache_dir)));
+        } else if !target.is_windows {
+            assert!(
+                args.iter()
+                    .any(|arg| arg == &format!("-Wl,-plugin-opt,cache-dir={}", cache_dir))
+            );
+        }
+        assert!(PathBuf::from(&cache_dir).is_dir());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn thin_lto_links_respect_explicit_cache_dir_flags() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_link_thinlto_cache_explicit_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let output = root.join("main.out");
+        let explicit = root.join("custom-cache");
+        let explicit_flag = format!("-Wl,-plugin-opt,cache-dir={}", explicit.to_string_lossy());
+        let driver = CompilerDriver::new(CompileOptions {
+            output_file: output.to_string_lossy().to_string(),
+            linker_args: vec!["-flto=thin".to_string(), explicit_flag.clone()],
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+
+        let cmd = driver.build_link_command(&[], &target);
+        let args = command_args(&cmd);
+
+        assert_eq!(
+            args.iter()
+                .filter(|arg| arg.contains("thinlto-cache-dir") || arg.contains("plugin-opt,cache-dir="))
+                .count(),
+            1
+        );
+        assert!(args.iter().any(|arg| arg == &explicit_flag));
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }

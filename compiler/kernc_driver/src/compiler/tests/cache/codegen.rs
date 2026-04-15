@@ -331,6 +331,7 @@ fn compile_only_thin_lto_object_preserves_native_objects() {
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
     let object = root.join("main.o");
+    let thin_lto_cache_dir = root.join("main.o.thinlto-cache.d");
     fs::write(
         &main,
         "\
@@ -382,6 +383,13 @@ extern fn right(seed: i32) i32 {
         nm_reports_object(&linker_inputs),
         "expected preserved ThinLTO objects to be inspectable by `nm`"
     );
+    assert!(thin_lto_cache_dir.is_dir());
+    assert!(
+        fs::read_dir(&thin_lto_cache_dir)
+            .unwrap()
+            .any(|entry| entry.is_ok()),
+        "expected ThinLTO cache dir to contain cached outputs"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -417,11 +425,11 @@ fn main() i32 {
     return left(3) + right(-2) - 5;
 }
 
-fn left(seed: i32) i32 {
+extern fn left(seed: i32) i32 {
     return shared(seed);
 }
 
-fn right(seed: i32) i32 {
+extern fn right(seed: i32) i32 {
     return shared(seed);
 }
 ",

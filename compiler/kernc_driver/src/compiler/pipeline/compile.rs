@@ -648,6 +648,10 @@ impl CompilerDriver {
         ) {
             return None;
         }
+        let thin_lto_cache_dir = self.make_thin_lto_cache_dir_path();
+        if !Self::ensure_output_dir(Path::new(&thin_lto_cache_dir), "ThinLTO cache directory") {
+            return None;
+        }
         let thin_lto_output_guard = TempDirGuard {
             path: thin_lto_output_dir.clone(),
         };
@@ -655,7 +659,7 @@ impl CompilerDriver {
             &thin_modules,
             &kernc_codegen::ThinLtoOptions {
                 generated_objects_dir: Some(PathBuf::from(&thin_lto_output_dir)),
-                cache_dir: None,
+                cache_dir: Some(PathBuf::from(&thin_lto_cache_dir)),
             },
         ) {
             Ok(objects) => objects,
@@ -1296,16 +1300,12 @@ impl CompilerDriver {
         format!("{}.tmp.thinlto.d", self.options.output_file)
     }
 
-    fn prepare_clean_output_dir(path: &Path, label: &str) -> bool {
+    pub(in crate::compiler) fn make_thin_lto_cache_dir_path(&self) -> String {
+        format!("{}.thinlto-cache.d", self.options.output_file)
+    }
+
+    fn ensure_output_dir(path: &Path, label: &str) -> bool {
         if path.is_file() && fs::remove_file(path).is_err() {
-            eprintln!(
-                "Error: Failed to remove stale {} `{}`.",
-                label,
-                path.display()
-            );
-            return false;
-        }
-        if path.is_dir() && fs::remove_dir_all(path).is_err() {
             eprintln!(
                 "Error: Failed to remove stale {} `{}`.",
                 label,
@@ -1323,6 +1323,26 @@ impl CompilerDriver {
             return false;
         }
         true
+    }
+
+    fn prepare_clean_output_dir(path: &Path, label: &str) -> bool {
+        if path.is_file() && fs::remove_file(path).is_err() {
+            eprintln!(
+                "Error: Failed to remove stale {} `{}`.",
+                label,
+                path.display()
+            );
+            return false;
+        }
+        if path.is_dir() && fs::remove_dir_all(path).is_err() {
+            eprintln!(
+                "Error: Failed to remove stale {} `{}`.",
+                label,
+                path.display()
+            );
+            return false;
+        }
+        Self::ensure_output_dir(path, label)
     }
 }
 

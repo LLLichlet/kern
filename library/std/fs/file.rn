@@ -17,26 +17,23 @@ fn to_os_open_options(options: *OpenOptions) os.OpenOptions {
     };
 }
 
+fn wrap_os_error(err: os.Error) Error {
+    return .{ Os: err };
+}
+
 fn open_with_c_path(c_path: *u8, options: *OpenOptions) File!Error {
     let raw_options = to_os_open_options(options);
-    match (os.open_file(c_path, raw_options.&)) {
-        .{ Ok: handle } => return .{ Ok: .{ handle: handle } },
-        .{ Err: err } => return .{ Err: .{ Os: err } },
-    }
+    return os.open_file(c_path, raw_options.&)
+        .map(.[](handle: os.Handle) File { return .{ handle: handle }; })
+        .map_err(wrap_os_error);
 }
 
 fn metadata_with_c_path(c_path: *u8) Metadata!Error {
-    match (os.metadata(c_path)) {
-        .{ Ok: meta } => return .{ Ok: meta },
-        .{ Err: err } => return .{ Err: .{ Os: err } },
-    }
+    return os.metadata(c_path).map_err(wrap_os_error);
 }
 
 fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) bool!Error {
-    match (os.rename(old_c_path, new_c_path)) {
-        .{ Ok: renamed } => return .{ Ok: renamed },
-        .{ Err: err } => return .{ Err: .{ Os: err } },
-    }
+    return os.rename(old_c_path, new_c_path).map_err(wrap_os_error);
 }
 
 /// Opens a file using the provided options.
@@ -145,7 +142,7 @@ pub~ fn exists(alloc: *mut Allocator, path: []u8) bool!Error {
             if (os.is_not_found(err)) {
                 bool!Error.{ Ok: false }
             } else {
-                bool!Error.{ Err: .{ Os: err } }
+                bool!Error.{ Err: wrap_os_error(err) }
             }
         }
     };
@@ -194,7 +191,7 @@ pub~ fn remove_file(alloc: *mut Allocator, path: []u8) bool!Error {
 
     let result = match (os.remove_file(c_path)) {
         .{ Ok: removed } => bool!Error.{ Ok: removed },
-        .{ Err: err } => bool!Error.{ Err: .{ Os: err } },
+        .{ Err: err } => bool!Error.{ Err: wrap_os_error(err) },
     };
     free_c_path(alloc, path, c_path);
     return result;

@@ -261,16 +261,20 @@ pub fn parse(text: []u8) Value!ParseError {
 pub fn parse_owned_document(
     text: []u8,
 ) OwnedDocument!MaterializeError {
-    let .{ Ok: value } = parse(text)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+    let value = parse(text)
+        .map_err(.[](err: ParseError) MaterializeError { return .{ Parse: err }; })
+        .!;
     return clone_owned_document(value);
 }
 
 pub fn parse_indexed_object_document(
     text: []u8,
 ) IndexedObjectDocument!IndexedObjectDocumentError {
-    let .{ Ok: value } = parse(text)
-        else .{ Err: err } => return .{ Err: .{ Materialize: .{ Parse: err } } };
+    let value = parse(text)
+        .map_err(.[](err: ParseError) IndexedObjectDocumentError {
+            return .{ Materialize: .{ Parse: err } };
+        })
+        .!;
     return clone_indexed_object_document(value);
 }
 

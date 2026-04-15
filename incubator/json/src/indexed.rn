@@ -21,6 +21,14 @@ fn unexpected_kind(value: *mut OwnedValue) FieldDecodeError {
     return .{ UnexpectedKind: value.kind() };
 }
 
+fn wrap_number_error(err: NumberDecodeError) FieldDecodeError {
+    return .{ Number: err };
+}
+
+fn wrap_float_error(err: FloatDecodeError) FieldDecodeError {
+    return .{ Float: err };
+}
+
 fn require_bool_value(value: *mut OwnedValue) bool!FieldDecodeError {
     return value.bool_value().ok_or(unexpected_kind(value));
 }
@@ -48,74 +56,62 @@ fn require_object_value(value: *mut OwnedValue) (*mut OwnedValue)!FieldDecodeErr
 }
 
 fn require_u64_value(value: *mut OwnedValue) u64!FieldDecodeError {
-    let .{ Ok: out } = value.u64_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.u64_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_u32_value(value: *mut OwnedValue) u32!FieldDecodeError {
-    let .{ Ok: out } = value.u32_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.u32_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_u16_value(value: *mut OwnedValue) u16!FieldDecodeError {
-    let .{ Ok: out } = value.u16_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.u16_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_u8_value(value: *mut OwnedValue) u8!FieldDecodeError {
-    let .{ Ok: out } = value.u8_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.u8_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_i64_value(value: *mut OwnedValue) i64!FieldDecodeError {
-    let .{ Ok: out } = value.i64_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.i64_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_i32_value(value: *mut OwnedValue) i32!FieldDecodeError {
-    let .{ Ok: out } = value.i32_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.i32_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_i16_value(value: *mut OwnedValue) i16!FieldDecodeError {
-    let .{ Ok: out } = value.i16_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.i16_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_i8_value(value: *mut OwnedValue) i8!FieldDecodeError {
-    let .{ Ok: out } = value.i8_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.i8_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_usize_value(value: *mut OwnedValue) usize!FieldDecodeError {
-    let .{ Ok: out } = value.usize_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.usize_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_isize_value(value: *mut OwnedValue) isize!FieldDecodeError {
-    let .{ Ok: out } = value.isize_value()
-        else .{ Err: err } => return .{ Err: .{ Number: err } };
+    let out = value.isize_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_f64_value(value: *mut OwnedValue) f64!FieldDecodeError {
-    let .{ Ok: out } = value.f64_value()
-        else .{ Err: err } => return .{ Err: .{ Float: err } };
+    let out = value.f64_value().map_err(wrap_float_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
 fn require_f32_value(value: *mut OwnedValue) f32!FieldDecodeError {
-    let .{ Ok: out } = value.f32_value()
-        else .{ Err: err } => return .{ Err: .{ Float: err } };
+    let out = value.f32_value().map_err(wrap_float_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 

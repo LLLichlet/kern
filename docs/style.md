@@ -39,6 +39,15 @@ let next = iter.next().?;
 let file = open(path).!;
 ```
 
+When the only extra work is to lift one error type into another, prefer
+`map_err(...).!` over spelling the same `Err -> Err` bridge by hand:
+
+```kern
+let file = open(path)
+    .map_err(.[](err: fs.Error) Error { return .{ Fs: err }; })
+    .!;
+```
+
 Use `match` when both branches do substantial work, when you need more than one
 success arm, or when the control flow is no longer a simple unwrap-and-return.
 

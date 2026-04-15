@@ -27,6 +27,10 @@ fn normalized_size(size: Size) Size {
     return .{ rows: rows, cols: cols };
 }
 
+fn wrap_os_error(err: os.Error) Error {
+    return .{ Os: err };
+}
+
 /// Returns `true` when standard input is attached to a terminal.
 pub fn stdin_is_terminal() bool {
     return os.is_terminal(os.get_stdin_handle());
@@ -43,11 +47,11 @@ pub fn stdin_raw_mode() RawMode!Error {
     if (!os.is_terminal(handle)) {
         return .{ Err: .NotTerminal };
     }
-
-    match (os.enable_raw_mode(handle)) {
-        .{ Ok: state } => return .{ Ok: .{ handle: handle, state: state, active: true } },
-        .{ Err: err } => return .{ Err: .{ Os: err } },
-    }
+    return os.enable_raw_mode(handle)
+        .map(.[handle](state: os.TerminalState) RawMode {
+            return .{ handle: handle, state: state, active: true };
+        })
+        .map_err(wrap_os_error);
 }
 
 /// Returns the current visible size for standard output.
@@ -56,11 +60,7 @@ pub fn stdout_size() Size!Error {
     if (!os.is_terminal(handle)) {
         return .{ Err: .NotTerminal };
     }
-
-    match (os.terminal_size(handle)) {
-        .{ Ok: size } => return .{ Ok: normalized_size(size) },
-        .{ Err: err } => return .{ Err: .{ Os: err } },
-    }
+    return os.terminal_size(handle).map(normalized_size).map_err(wrap_os_error);
 }
 
 impl *mut RawMode {
@@ -75,7 +75,7 @@ impl *mut RawMode {
                 self.active = false;
                 return .{ Ok: restored };
             },
-            .{ Err: err } => return .{ Err: .{ Os: err } },
+            .{ Err: err } => return .{ Err: wrap_os_error(err) },
         }
     }
 

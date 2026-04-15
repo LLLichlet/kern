@@ -50,77 +50,31 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     fn resolve_item(&mut self, item_id: DefId, parent_scope: ScopeId) {
-        let spec = match &self.ctx.defs[item_id.0 as usize] {
-            Def::Function(f) => ResolveItemSpec::Function(FunctionResolveSpec {
-                name: f.name,
-                generics: f.generics.clone(),
-                where_clauses: f.where_clauses.clone(),
-                params: f.params.clone(),
-                ret_type: f.ret_type.clone(),
-                parent: f.parent,
-                is_variadic: f.is_variadic,
-                span: f.span,
-            }),
-            Def::Struct(s) => ResolveItemSpec::Struct(AggregateResolveSpec {
-                name: s.name,
-                generics: s.generics.clone(),
-                where_clauses: s.where_clauses.clone(),
-                fields: s.fields.clone(),
-            }),
-            Def::Union(u) => ResolveItemSpec::Union(AggregateResolveSpec {
-                name: u.name,
-                generics: u.generics.clone(),
-                where_clauses: u.where_clauses.clone(),
-                fields: u.fields.clone(),
-            }),
-            Def::Trait(t) => ResolveItemSpec::Trait(TraitResolveSpec {
-                generics: t.generics.clone(),
-                where_clauses: t.where_clauses.clone(),
-                supertraits: t.supertraits.clone(),
-                assoc_types: t.assoc_types.clone(),
-                methods: t.methods.clone(),
-                span: t.span,
-            }),
-            Def::TypeAlias(t) => ResolveItemSpec::TypeAlias(TypeAliasResolveSpec {
-                name: t.name,
-                generics: t.generics.clone(),
-                where_clauses: t.where_clauses.clone(),
-                target: t.target.clone(),
-            }),
-            Def::Impl(i) => ResolveItemSpec::Impl(ImplResolveSpec {
-                generics: i.generics.clone(),
-                where_clauses: i.where_clauses.clone(),
-                target_type: i.target_type.clone(),
-                trait_type: i.trait_type.clone(),
-                assoc_types: i.assoc_types.clone(),
-                methods: i.methods.clone(),
-                span: i.span,
-            }),
-            Def::Enum(a) => ResolveItemSpec::Enum(EnumResolveSpec {
-                name: a.name,
-                generics: a.generics.clone(),
-                where_clauses: a.where_clauses.clone(),
-                backing_type: a.backing_type.clone(),
-                variants: a.variants.clone(),
-            }),
-            Def::AssociatedType(_) | Def::Global(_) | Def::Module(_) => return,
+        let Some(def_ptr) = self.ctx.defs.get(item_id.0 as usize).map(std::ptr::from_ref) else {
+            return;
         };
 
-        match spec {
-            ResolveItemSpec::Function(f) => self.resolve_function_item(item_id, &f, parent_scope),
-            ResolveItemSpec::Struct(s) => self.resolve_struct_item(item_id, &s, parent_scope),
-            ResolveItemSpec::Union(u) => self.resolve_union_item(item_id, &u, parent_scope),
-            ResolveItemSpec::Trait(t) => self.resolve_trait_item(item_id, &t, parent_scope),
-            ResolveItemSpec::TypeAlias(t) => self.resolve_type_alias_item(&t, parent_scope),
-            ResolveItemSpec::Impl(i) => self.resolve_impl_item(&i, parent_scope),
-            ResolveItemSpec::Enum(a) => self.resolve_enum_item(item_id, &a, parent_scope),
+        // Safety: type resolution mutates inference state and selected `resolved_*` fields, but
+        // it never reorders or removes entries from `ctx.defs`. Raw pointers let us inspect the
+        // existing definition payloads without cloning the full AST-backed items first.
+        unsafe {
+            match &*def_ptr {
+                Def::Function(f) => self.resolve_function_item(item_id, f, parent_scope),
+                Def::Struct(s) => self.resolve_struct_item(item_id, s, parent_scope),
+                Def::Union(u) => self.resolve_union_item(item_id, u, parent_scope),
+                Def::Trait(t) => self.resolve_trait_item(item_id, t, parent_scope),
+                Def::TypeAlias(t) => self.resolve_type_alias_item(t, parent_scope),
+                Def::Impl(i) => self.resolve_impl_item(i, parent_scope),
+                Def::Enum(a) => self.resolve_enum_item(item_id, a, parent_scope),
+                Def::AssociatedType(_) | Def::Global(_) | Def::Module(_) => {}
+            }
         }
     }
 
     fn resolve_function_item(
         &mut self,
         item_id: DefId,
-        f: &FunctionResolveSpec,
+        f: &FunctionDef,
         parent_scope: ScopeId,
     ) {
         self.ctx.scopes.set_current_scope(parent_scope);
@@ -186,7 +140,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     fn resolve_struct_item(
         &mut self,
         item_id: DefId,
-        s: &AggregateResolveSpec,
+        s: &StructDef,
         parent_scope: ScopeId,
     ) {
         self.ctx.scopes.set_current_scope(parent_scope);
@@ -215,7 +169,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     fn resolve_union_item(
         &mut self,
         item_id: DefId,
-        u: &AggregateResolveSpec,
+        u: &UnionDef,
         parent_scope: ScopeId,
     ) {
         self.ctx.scopes.set_current_scope(parent_scope);
@@ -241,7 +195,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.update_type(u.name, union_ty);
     }
 
-    fn resolve_trait_item(&mut self, item_id: DefId, t: &TraitResolveSpec, parent_scope: ScopeId) {
+    fn resolve_trait_item(&mut self, item_id: DefId, t: &TraitDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let trait_scope = self.ctx.scopes.enter_scope();
 
@@ -278,7 +232,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
-    fn resolve_type_alias_item(&mut self, t: &TypeAliasResolveSpec, parent_scope: ScopeId) {
+    fn resolve_type_alias_item(&mut self, t: &TypeAliasDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let alias_scope = self.ctx.scopes.enter_scope();
 
@@ -291,7 +245,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.update_type(t.name, target_ty);
     }
 
-    fn resolve_impl_item(&mut self, i: &ImplResolveSpec, parent_scope: ScopeId) {
+    fn resolve_impl_item(&mut self, i: &ImplDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let impl_scope = self.ctx.scopes.enter_scope();
 
@@ -564,7 +518,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         )))
     }
 
-    fn resolve_enum_item(&mut self, item_id: DefId, a: &EnumResolveSpec, parent_scope: ScopeId) {
+    fn resolve_enum_item(&mut self, item_id: DefId, a: &EnumDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let adt_scope = self.ctx.scopes.enter_scope();
 

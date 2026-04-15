@@ -116,9 +116,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut curr = ty;
         loop {
             let norm = self.ctx.type_registry.normalize(curr);
-            match self.ctx.type_registry.get(norm).clone() {
+            match self.ctx.type_registry.get(norm) {
                 TypeKind::TypeVar(vid) => {
-                    let Some(slot) = self.type_vars.get(vid as usize) else {
+                    let Some(slot) = self.type_vars.get(*vid as usize) else {
                         return norm;
                     };
                     if let Some(target) = *slot {

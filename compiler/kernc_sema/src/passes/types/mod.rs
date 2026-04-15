@@ -16,72 +16,10 @@ pub struct TypeResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
 }
 
-struct FunctionResolveSpec {
-    name: SymbolId,
-    generics: Vec<ast::GenericParam>,
-    where_clauses: Vec<ast::WhereClause>,
-    params: Vec<ast::FuncParam>,
-    ret_type: ast::TypeNode,
-    parent: Option<DefId>,
-    is_variadic: bool,
-    span: Span,
-}
-
-struct AggregateResolveSpec {
-    name: SymbolId,
-    generics: Vec<ast::GenericParam>,
-    where_clauses: Vec<ast::WhereClause>,
-    fields: Vec<ast::StructFieldDef>,
-}
-
-struct TraitResolveSpec {
-    generics: Vec<ast::GenericParam>,
-    where_clauses: Vec<ast::WhereClause>,
-    supertraits: Vec<ast::TypeNode>,
-    assoc_types: Vec<DefId>,
-    methods: Vec<ast::StructFieldDef>,
-    span: Span,
-}
-
-struct TypeAliasResolveSpec {
-    name: SymbolId,
-    generics: Vec<ast::GenericParam>,
-    where_clauses: Vec<ast::WhereClause>,
-    target: ast::TypeNode,
-}
-
-struct ImplResolveSpec {
-    generics: Vec<ast::GenericParam>,
-    where_clauses: Vec<ast::WhereClause>,
-    target_type: ast::TypeNode,
-    trait_type: Option<ast::TypeNode>,
-    assoc_types: Vec<DefId>,
-    methods: Vec<DefId>,
-    span: Span,
-}
-
-struct EnumResolveSpec {
-    name: SymbolId,
-    generics: Vec<ast::GenericParam>,
-    where_clauses: Vec<ast::WhereClause>,
-    backing_type: Option<Box<ast::TypeNode>>,
-    variants: Vec<ast::EnumVariant>,
-}
-
 struct PendingTraitProjection {
     trait_def_id: DefId,
     trait_args: Vec<TypeId>,
     assoc_bindings: Vec<(DefId, TypeId)>,
-}
-
-enum ResolveItemSpec {
-    Function(FunctionResolveSpec),
-    Struct(AggregateResolveSpec),
-    Union(AggregateResolveSpec),
-    Trait(TraitResolveSpec),
-    TypeAlias(TypeAliasResolveSpec),
-    Impl(ImplResolveSpec),
-    Enum(EnumResolveSpec),
 }
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {

@@ -130,7 +130,7 @@ fn narrow_i64_to_i8(value: i64) i8!NumberDecodeError {
     return .{ Ok: out };
 }
 
-pub~ fn parse_u64_raw(raw: []u8) u64!NumberDecodeError {
+pub/ fn parse_u64_raw(raw: []u8) u64!NumberDecodeError {
     let .{ Ok: parsed } = parse_integer_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     if (parsed.negative) {
@@ -139,7 +139,7 @@ pub~ fn parse_u64_raw(raw: []u8) u64!NumberDecodeError {
     return parse_unsigned_digits(parsed.digits, U64_MAX);
 }
 
-pub~ fn parse_i64_raw(raw: []u8) i64!NumberDecodeError {
+pub/ fn parse_i64_raw(raw: []u8) i64!NumberDecodeError {
     let .{ Ok: parsed } = parse_integer_raw(raw)
         else .{ Err: err } => return .{ Err: err };
 
@@ -157,43 +157,43 @@ pub~ fn parse_i64_raw(raw: []u8) i64!NumberDecodeError {
     return .{ Ok: magnitude as i64 };
 }
 
-pub~ fn parse_u32_raw(raw: []u8) u32!NumberDecodeError {
+pub/ fn parse_u32_raw(raw: []u8) u32!NumberDecodeError {
     let .{ Ok: value } = parse_u64_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     return narrow_u64_to_u32(value);
 }
 
-pub~ fn parse_i32_raw(raw: []u8) i32!NumberDecodeError {
+pub/ fn parse_i32_raw(raw: []u8) i32!NumberDecodeError {
     let .{ Ok: value } = parse_i64_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     return narrow_i64_to_i32(value);
 }
 
-pub~ fn parse_u16_raw(raw: []u8) u16!NumberDecodeError {
+pub/ fn parse_u16_raw(raw: []u8) u16!NumberDecodeError {
     let .{ Ok: value } = parse_u64_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     return narrow_u64_to_u16(value);
 }
 
-pub~ fn parse_i16_raw(raw: []u8) i16!NumberDecodeError {
+pub/ fn parse_i16_raw(raw: []u8) i16!NumberDecodeError {
     let .{ Ok: value } = parse_i64_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     return narrow_i64_to_i16(value);
 }
 
-pub~ fn parse_u8_raw(raw: []u8) u8!NumberDecodeError {
+pub/ fn parse_u8_raw(raw: []u8) u8!NumberDecodeError {
     let .{ Ok: value } = parse_u64_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     return narrow_u64_to_u8(value);
 }
 
-pub~ fn parse_i8_raw(raw: []u8) i8!NumberDecodeError {
+pub/ fn parse_i8_raw(raw: []u8) i8!NumberDecodeError {
     let .{ Ok: value } = parse_i64_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     return narrow_i64_to_i8(value);
 }
 
-pub~ fn parse_usize_raw(raw: []u8) usize!NumberDecodeError {
+pub/ fn parse_usize_raw(raw: []u8) usize!NumberDecodeError {
     let .{ Ok: value } = parse_u64_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     let out = value as usize;
@@ -203,7 +203,7 @@ pub~ fn parse_usize_raw(raw: []u8) usize!NumberDecodeError {
     return .{ Ok: out };
 }
 
-pub~ fn parse_isize_raw(raw: []u8) isize!NumberDecodeError {
+pub/ fn parse_isize_raw(raw: []u8) isize!NumberDecodeError {
     let .{ Ok: value } = parse_i64_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     let out = value as isize;
@@ -274,7 +274,7 @@ fn scale_pow10_f64(value: f64, exp10: i32) f64!FloatDecodeError {
     return .{ Ok: out };
 }
 
-pub~ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
+pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
     let _ = match (validate_number_raw(raw)) {
         .{ Ok: value } => value,
         .{ Err: err } => match (err) {
@@ -346,7 +346,7 @@ pub~ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
     return .{ Ok: if (negative) -scaled else scaled };
 }
 
-pub~ fn parse_f32_raw(raw: []u8) f32!FloatDecodeError {
+pub/ fn parse_f32_raw(raw: []u8) f32!FloatDecodeError {
     let .{ Ok: value } = parse_f64_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     let magnitude = if (value < 0.0) -value else value;

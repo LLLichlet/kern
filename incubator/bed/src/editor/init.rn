@@ -9,13 +9,13 @@ mod render;
 mod motion;
 mod input;
 
-pub~ use ..ansi;
-pub~ use ..buffer;
-pub~ use ..buffer.{Cursor, Error as BufferError, TextBuffer};
-pub~ use ..command;
-pub~ use ..input.Key;
-pub~ use ..mode.Mode;
-pub~ use .state.{
+pub/ use ..ansi;
+pub/ use ..buffer;
+pub/ use ..buffer.{Cursor, Error as BufferError, TextBuffer};
+pub/ use ..command;
+pub/ use ..input.Key;
+pub/ use ..mode.Mode;
+pub/ use .state.{
     NO_NAME,
     TAB_STOP,
     BufferSlot,

@@ -58,25 +58,25 @@ type PackedDocumentState = struct {
     root: usize = 0,
 };
 
-pub~ type PackedDocument = struct {
+pub/ type PackedDocument = struct {
     state: ?*mut PackedDocumentState = .None,
 };
 
-pub~ type PackedValue = struct {
+pub/ type PackedValue = struct {
     state: ?*PackedDocumentState = .None,
     index: usize = 0,
 };
 
-pub~ type PackedObjectEntry = struct {
+pub/ type PackedObjectEntry = struct {
     pub key: []u8 = "",
     pub value: PackedValue = PackedValue.{},
 };
 
-pub~ type PackedIndexedObjectDocument = struct {
+pub/ type PackedIndexedObjectDocument = struct {
     state: ?*mut PackedDocumentState = .None,
 };
 
-pub~ type PackedIndexedObjectView = struct {
+pub/ type PackedIndexedObjectView = struct {
     state: ?*PackedDocumentState = .None,
     start: usize = 0,
     count: usize = 0,
@@ -618,7 +618,7 @@ fn packed_require_f32_value(value: PackedValue) f32!FieldDecodeError {
     return out.ok_or(packed_unexpected_kind(value));
 }
 
-pub~ fn parse_packed_document(text: []u8) PackedDocument!MaterializeError {
+pub/ fn parse_packed_document(text: []u8) PackedDocument!MaterializeError {
     let state = match (parse_packed_document_state(text)) {
         .{ Ok: state } => state,
         .{ Err: err } => return .{ Err: err },
@@ -626,7 +626,7 @@ pub~ fn parse_packed_document(text: []u8) PackedDocument!MaterializeError {
     return .{ Ok: PackedDocument.{ state: .{ Some: state } } };
 }
 
-pub~ fn parse_packed_indexed_object_document(
+pub/ fn parse_packed_indexed_object_document(
     text: []u8,
 ) PackedIndexedObjectDocument!PackedIndexedObjectDocumentError {
     let state = match (parse_packed_document_state(text)) {

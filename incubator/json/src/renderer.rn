@@ -450,7 +450,7 @@ fn render_compact_inner_unchecked(
     return .{ Err: .{ UnexpectedByte: index } };
 }
 
-pub~ fn compact_size(value: Value) usize!ParseError {
+pub/ fn compact_size(value: Value) usize!ParseError {
     let raw = value.raw;
     let .{ Ok: progress } = measure_compact_inner(raw, 0)
         else .{ Err: err } => return .{ Err: err };
@@ -461,7 +461,7 @@ pub~ fn compact_size(value: Value) usize!ParseError {
     return .{ Ok: progress.written };
 }
 
-pub~ fn render_compact(value: Value, out: []mut u8) usize!RenderError {
+pub/ fn render_compact(value: Value, out: []mut u8) usize!RenderError {
     let .{ Ok: needed } = compact_size(value)
         else .{ Err: err } => return .{ Err: .{ Parse: err } };
     if (needed > #out) {
@@ -472,7 +472,7 @@ pub~ fn render_compact(value: Value, out: []mut u8) usize!RenderError {
     return .{ Ok: progress.written };
 }
 
-pub~ fn compact_size_owned(value: *mut OwnedValue) usize {
+pub/ fn compact_size_owned(value: *mut OwnedValue) usize {
     return match (value.*) {
         .Null => usize.{4},
         .{ Bool: bool_value } => if (bool_value) usize.{4} else usize.{5},
@@ -483,7 +483,7 @@ pub~ fn compact_size_owned(value: *mut OwnedValue) usize {
     };
 }
 
-pub~ fn render_compact_owned(value: *mut OwnedValue, out: []mut u8) usize!OwnedRenderError {
+pub/ fn render_compact_owned(value: *mut OwnedValue, out: []mut u8) usize!OwnedRenderError {
     let needed = compact_size_owned(value);
     if (needed > #out) {
         return .{ Err: OwnedRenderError.BufferTooSmall };

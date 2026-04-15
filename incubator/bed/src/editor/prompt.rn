@@ -1,3 +1,8 @@
+//! Prompt handling for Ex commands, shell commands, and their histories.
+//!
+//! `bed` keeps Ex history and shell history separate. Shell commands capture
+//! their text output into a temporary read-only output pane with short history.
+
 use base.coll.{List, String};
 use base.mem.alloc.Allocator;
 use std.proc;
@@ -129,6 +134,8 @@ impl *mut Editor {
             return false;
         }
 
+        // Output history is materialized back into a temporary text buffer so
+        // it can reuse the normal renderer and scrolling logic.
         let entries = self.output_history..&.as_mut_slice();
         let entry = entries.[index].&;
         let next = match (buffer.from_text(alloc, "", entry.text.&.as_str())) {
@@ -365,6 +372,8 @@ impl *mut Editor {
         };
         defer capture.output..&.deinit(alloc);
 
+        // Shell output is intentionally handled as temporary editor state,
+        // not as a normal writable project buffer.
         if (!self.install_output(alloc, command_text, capture.output.&.as_str(), capture.status)) {
             self.set_message(alloc, "shell output failed");
         } else if (capture.status == 0) {

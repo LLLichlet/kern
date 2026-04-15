@@ -1,3 +1,9 @@
+//! Terminal rendering for editor windows, output pane, and status line.
+//!
+//! The renderer keeps the screen model explicit.
+//! It renders the editor area, optional output area, then one final status /
+//! prompt row.
+
 use base.coll.String;
 use base.mem.alloc.Allocator;
 use ..ansi;
@@ -454,6 +460,8 @@ impl *mut Editor {
             if (wrote_editor_lines and !ansi.new_line(out, alloc)) {
                 return false;
             }
+            // The output pane always sits below the editor area and above the
+            // final status row.
             if (!self.render_output_separator(alloc, cols, out)) {
                 return false;
             }

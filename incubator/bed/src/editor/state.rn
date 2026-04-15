@@ -49,11 +49,16 @@ pub.. type ShellOutputEntry = struct {
     pub status: i32 = 0,
 };
 
+/// One shared text buffer slot.
+///
+/// Multiple windows may point at the same slot after a split. The slot stays
+/// alive until the last window releases it.
 pub.. type BufferSlot = struct {
     pub text: TextBuffer = TextBuffer.{},
     pub ref_count: usize = 0,
 };
 
+/// Per-window view state over one buffer slot.
 pub.. type EditorView = struct {
     pub cursor: Cursor = Cursor.{ row: 0, col: 0 },
     pub preferred_col: usize = 0,
@@ -65,6 +70,10 @@ pub.. type LayoutAxis = enum {
     Cols,
 };
 
+/// One node in the split layout tree.
+///
+/// Leaf nodes point at one live window. Internal nodes split space between two
+/// child nodes along `axis`. Dead nodes are recycled through a free-list.
 pub.. type LayoutNode = struct {
     pub alive: bool = true,
     pub free_next: ?usize = .None,
@@ -85,6 +94,10 @@ pub.. type WindowRect = struct {
     pub cols: usize = 0,
 };
 
+/// One live or reusable window slot.
+///
+/// The window owns only local view state plus indexes into the shared buffer
+/// slot table and layout tree.
 pub.. type WindowState = struct {
     pub alive: bool = true,
     pub free_next: ?usize = .None,
@@ -152,17 +165,16 @@ pub.. fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutput
 }
 
 pub.. fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
-    let exists = match (fs.exists(alloc, path)) {
-        .{ Ok: present } => present,
-        .{ Err: err } => return .{ Err: .{ Fs: err } },
-    };
+    let exists = fs.exists(alloc, path)
+        .map_err(.[](err: fs.Error) BufferError { return .{ Fs: err }; })
+        .!;
     if (exists) {
         return buffer.open(alloc, path);
     }
     return buffer.empty(alloc, path);
 }
 
-/// The single-window editor core for the first `bed` milestone.
+/// The modal editor core plus split tree, prompt state, and temporary output pane.
 pub.. type Editor = struct {
     pub buffers: List[BufferSlot] = List[BufferSlot].{},
     pub windows: List[WindowState] = List[WindowState].{},

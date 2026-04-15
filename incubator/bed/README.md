@@ -1,22 +1,44 @@
 # bed
 
-`bed` is the first serious editor incubator for Kern.
+`bed` is a Kern-hosted terminal editor incubator with a deliberately small,
+explicit core.
 
-This reset version deliberately stops trying to invent a new terminal workflow
-and instead tracks the shape of a lightweight `nvim` core:
+The current package already covers a usable modal editing loop:
 
-- modal editing with explicit normal/insert/command states
-- a line-oriented text buffer with cursor motion and in-place edits
-- a terminal screen renderer with ANSI cursor control
-- a bottom command line for `:q`, `:q!`, `:w`, `:wq`, `:e`, and `:w <path>`
+- normal / insert / command modes
+- byte-oriented line editing
+- window splits and window focus / rearrange commands
+- Ex commands for open / write / quit / window management
+- shell-command capture into a temporary output pane
+- ANSI terminal rendering with status line, message area, and optional line numbers
 
-Explicit non-goals for the current package:
+Quick start from the repository root:
 
-- Lua support
-- plugin/config runtimes
-- remote APIs
-- multi-window and split management
-- full Vim command language coverage
+```sh
+cargo run -q -p craft -- run --project-path incubator/bed
+```
 
-The package currently focuses on a small but correct editor loop with module
-boundaries that mirror the pieces it already implements.
+Open a file directly:
+
+```sh
+cargo run -q -p craft -- run --project-path incubator/bed -- path/to/file.txt
+```
+
+Useful maintenance commands:
+
+```sh
+cargo run -q -p craft -- check --project-path incubator/bed
+cargo run -q -p craft -- test --project-path incubator/bed
+```
+
+The full user-facing guide lives in [GUIDE.md](./GUIDE.md).
+
+Current scope is deliberate:
+
+- the editor is modal and keyboard-driven, closer to a small `nvim`-style core than to a general GUI editor
+- windows have independent view state, and splits initially share the same buffer until one window opens another path
+- shell output is treated as temporary read-only text shown in a separate pane with short history
+- text editing is byte-oriented today; there is no grapheme-aware cursor or layout layer yet
+
+The package does not yet aim to cover the whole Vim surface. It focuses on a
+small core that is explicit, test-covered, and easy to extend.

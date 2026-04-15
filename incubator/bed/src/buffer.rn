@@ -17,7 +17,7 @@ pub type Cursor = struct {
     pub col: usize,
 };
 
-/// A simple line-oriented buffer suitable for the first `bed` milestone.
+/// A simple line-oriented buffer for the current `bed` core.
 pub type TextBuffer = struct {
     lines: List[String] = List[String].{},
     path: String = String.{},
@@ -51,10 +51,9 @@ pub fn empty(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
 
 /// Opens a file into a line-oriented buffer.
 pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
-    let mut storage = match (fs.read_to_string(alloc, path)) {
-        .{ Ok: text } => text,
-        .{ Err: err } => return .{ Err: .{ Fs: err } },
-    };
+    let mut storage = fs.read_to_string(alloc, path)
+        .map_err(.[](err: fs.Error) Error { return .{ Fs: err }; })
+        .!;
     defer storage..&.deinit(alloc);
 
     let mut buffer = TextBuffer.{};

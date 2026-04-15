@@ -1,3 +1,8 @@
+//! Split-tree editing and window-focus operations.
+//!
+//! This file owns the structural side of multi-window editing:
+//! splitting, closing, reparenting, and directional focus / rearrange logic.
+
 use base.coll.List;
 use base.mem.alloc.Allocator;
 use ..{Editor, LayoutAxis, LayoutNode, WindowRect, WindowState};
@@ -99,6 +104,9 @@ impl *mut Editor {
             },
         };
 
+        // The active leaf becomes an internal split node with two fresh leaf
+        // children. Both children start with the same buffer slot, but keep
+        // independent cursor / scroll view state.
         let split = self.layout_node_mut(split_index);
         split.is_leaf = false;
         split.axis = axis;
@@ -135,6 +143,8 @@ impl *mut Editor {
         let buffer_index = self.window(self.active_window).buffer_index;
         self.release_buffer_slot(alloc, buffer_index);
         let promoted_weight = self.layout_node(parent_index).weight;
+        // Closing a leaf collapses its parent branch and promotes the sibling
+        // into the parent's former place.
         if (parent.has_parent) {
             self.update_parent_child(parent.parent, parent_index, sibling_index);
             let sibling = self.layout_node_mut(sibling_index);

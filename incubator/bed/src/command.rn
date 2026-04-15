@@ -1,6 +1,6 @@
 //! Ex-command parsing for the bottom command line.
 
-/// The parsed command-line actions supported by the first `bed` core.
+/// The parsed command-line actions supported by the current `bed` core.
 pub type Command = enum {
     None,
     Quit,

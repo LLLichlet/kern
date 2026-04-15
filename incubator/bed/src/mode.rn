@@ -1,6 +1,6 @@
 //! Editor mode state.
 
-/// The primary modal states exposed by the first `bed` core.
+/// The primary modal states exposed by the current `bed` core.
 pub type Mode = enum {
     Normal,
     Insert,

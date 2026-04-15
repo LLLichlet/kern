@@ -68,6 +68,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx.node_types.insert(callee.id, fixed_ty);
         }
 
+        if sig_ty == TypeId::ERROR {
+            return TypeId::ERROR;
+        }
+
         let (params_ptr, ret, is_variadic) = match self.ctx.type_registry.get(sig_ty) {
             TypeKind::Function {
                 params,

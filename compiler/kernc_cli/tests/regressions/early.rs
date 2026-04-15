@@ -253,6 +253,88 @@ fn main() i32 {
 }
 
 #[test]
+fn propagate_threads_result_error_context_into_generic_calls() {
+    let output = build_and_run_source(
+        r#"
+type Error = enum {
+    Oops,
+};
+
+fn maybe() ?i32 {
+    return .None;
+}
+
+fn map_error(_: i32) i32!Error {
+    return .{ Err: .Oops };
+}
+
+fn check_ok_or() i32!Error {
+    let _ = maybe().ok_or(.Oops).!;
+    return .{ Ok: 1 };
+}
+
+fn check_or_else() i32!Error {
+    let base = i32!i32.{ Err: 7 };
+    let _ = base.or_else(map_error).!;
+    return .{ Ok: 1 };
+}
+
+fn main() i32 {
+    match (check_ok_or()) {
+        .{ Err: .Oops } => {},
+        _ => return 1,
+    }
+
+    match (check_or_else()) {
+        .{ Err: .Oops } => {},
+        _ => return 2,
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "propagate inference regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn function_items_work_as_closure_callbacks() {
+    let output = build_and_run_source(
+        r#"
+fn wrap(err: i32) i64 {
+    return err as i64 + 1;
+}
+
+fn main() i32 {
+    let value = i32!i32.{ Err: 41 }.map_err(wrap);
+    match (value) {
+        .{ Err: err } => {
+            if (err != 42) {
+                return err as i32;
+            }
+            return 0;
+        },
+        .{ Ok: _ } => return 100,
+    }
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "function-item callback regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn defaults_emit_llvm_to_raw_stage() {
     let source = r#"
 fn main() i32 {
@@ -952,7 +1034,7 @@ fn main() i32 {
             (
                 "left.rn",
                 r#"
-pub~ fn helper() i32 {
+pub/ fn helper() i32 {
     return 0;
 }
 "#,
@@ -972,6 +1054,96 @@ pub fn value() i32 {
     );
 
     assert_success(&output, "kernc");
+}
+
+#[test]
+fn package_root_paths_work_in_use_type_and_expr_positions() {
+    let output = compile_source_tree_with_args(
+        "kernc_package_root_paths",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod util;
+
+use /util.answer;
+type Alias = /util.Kind;
+
+fn main() i32 {
+    let kind = /util.kind();
+    match (kind) {
+        .Root => return answer(),
+    }
+}
+"#,
+            ),
+            (
+                "util.rn",
+                r#"
+pub type Kind = enum {
+    Root,
+};
+
+pub fn kind() /util.Kind {
+    return /util.Kind.Root;
+}
+
+pub fn answer() i32 {
+    return 0;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn bare_use_path_no_longer_falls_back_to_local_package_root() {
+    let output = compile_source_tree_with_args(
+        "kernc_external_use_no_local_fallback",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod util;
+
+use util.answer;
+
+fn main() i32 {
+    return answer();
+}
+"#,
+            ),
+            (
+                "util.rn",
+                r#"
+pub fn answer() i32 {
+    return 0;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly resolved a bare external-style import against the local package root:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Unresolved external import root `util`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
 }
 
 #[test]

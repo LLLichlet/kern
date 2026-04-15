@@ -1,6 +1,162 @@
 use super::*;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    pub(crate) fn fn_like_signature(
+        &mut self,
+        fn_like_ty: TypeId,
+        span: Span,
+    ) -> Option<(Vec<TypeId>, TypeId)> {
+        let norm = self.ctx.type_registry.normalize(fn_like_ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Function {
+                params,
+                ret,
+                is_variadic: false,
+            } => Some((params, ret)),
+            TypeKind::Function {
+                is_variadic: true, ..
+            } => None,
+            TypeKind::FnDef(def_id, fn_args) => {
+                let def = self.ctx.defs[def_id.0 as usize].clone();
+                let Def::Function(fn_def) = def else {
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Kern ICE (Lowering): FnDef `{}` does not point to a function while building a closure adapter.",
+                            def_id.0
+                        ),
+                    );
+                    return None;
+                };
+
+                let Some(sig_ty) = fn_def.resolved_sig else {
+                    self.ctx.emit_ice(
+                        span,
+                        "Kern ICE (Lowering): function definition lacks resolved signature while building a closure adapter",
+                    );
+                    return None;
+                };
+
+                let TypeKind::Function {
+                    params,
+                    ret,
+                    is_variadic,
+                } = self.ctx.type_registry.get(sig_ty).clone()
+                else {
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Kern ICE (Lowering): resolved signature for FnDef `{}` is not a function type while building a closure adapter.",
+                            def_id.0
+                        ),
+                    );
+                    return None;
+                };
+
+                if is_variadic {
+                    return None;
+                }
+
+                if fn_def.generics.is_empty() {
+                    return Some((params, ret));
+                }
+
+                let mut subst_map = HashMap::new();
+                for (param, arg) in fn_def.generics.iter().zip(fn_args.iter().copied()) {
+                    subst_map.insert(param.name, arg);
+                }
+
+                let inst_params = params
+                    .into_iter()
+                    .map(|param| self.substitute_type_with_map(param, &subst_map))
+                    .collect();
+                let inst_ret = self.substitute_type_with_map(ret, &subst_map);
+                Some((inst_params, inst_ret))
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn get_or_create_fn_closure_adapter(
+        &mut self,
+        fn_like_ty: TypeId,
+        span: Span,
+    ) -> Option<MonoId> {
+        let key = self.ctx.type_registry.normalize(fn_like_ty);
+        if let Some(&adapter_id) = self.fn_closure_adapter_cache.get(&key) {
+            return Some(adapter_id);
+        }
+
+        let (params, ret_ty) = self.fn_like_signature(key, span)?;
+        let adapter_id = self.new_mono_id();
+        let env_sym = self.fresh_synth_symbol("fn_env");
+        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::VOID,
+        });
+        let fn_sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
+            params: params.clone(),
+            ret: ret_ty,
+            is_variadic: false,
+        });
+
+        let mut mast_params = Vec::with_capacity(params.len() + 1);
+        mast_params.push(MastParam {
+            name: env_sym,
+            ty: void_ptr_ty,
+            is_mut: false,
+        });
+
+        let mut call_args = Vec::with_capacity(params.len());
+        for param_ty in params.iter().copied() {
+            let arg_sym = self.fresh_synth_symbol("fn_arg");
+            mast_params.push(MastParam {
+                name: arg_sym,
+                ty: param_ty,
+                is_mut: false,
+            });
+            call_args.push(MastExpr::new(param_ty, MastExprKind::Var(arg_sym), span));
+        }
+
+        let fn_ptr_expr = MastExpr::new(
+            fn_sig_ty,
+            MastExprKind::Cast {
+                kind: MastCastKind::Bitcast,
+                operand: Box::new(MastExpr::new(void_ptr_ty, MastExprKind::Var(env_sym), span)),
+            },
+            span,
+        );
+
+        let call_expr = MastExpr::new(
+            ret_ty,
+            MastExprKind::Call {
+                callee: Box::new(fn_ptr_expr),
+                args: call_args,
+            },
+            span,
+        );
+
+        self.module.functions.push(MastFunction {
+            id: adapter_id,
+            name: format!("__fn_closure_adapter_{}", adapter_id.0),
+            linkage: MastLinkage::Internal,
+            params: mast_params,
+            ret_ty,
+            body: Some(MastBlock {
+                stmts: vec![],
+                result: Some(Box::new(call_expr)),
+                defers: vec![],
+            }),
+            is_extern: false,
+            is_variadic: false,
+            inline_hint: MastInlineHint::None,
+            attributes: vec![],
+        });
+
+        self.fn_closure_adapter_cache.insert(key, adapter_id);
+        Some(adapter_id)
+    }
+
     pub(super) fn anonymous_state_signature(
         &mut self,
         concrete_ty: TypeId,

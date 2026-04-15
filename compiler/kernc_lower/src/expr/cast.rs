@@ -213,26 +213,36 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let TypeKind::ClosureInterface { .. } = self.ctx.type_registry.get(e_inner_norm) {
                 // 4.1 Stateless functions become closure fat pointers.
                 if matches!(conc_kind, TypeKind::FnDef(..) | TypeKind::Function { .. }) {
-                    // The data pointer is null for stateless functions.
                     let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                         is_mut: false,
                         elem: TypeId::VOID,
                     });
-                    let null_ptr_expr = MastExpr::new(
+                    let fn_ptr_int = MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::PtrToInt,
+                            operand: Box::new(MastExpr::new(concrete_ty, mast_kind, span)),
+                        },
+                        span,
+                    );
+                    let data_ptr_expr = MastExpr::new(
                         void_ptr_ty,
                         MastExprKind::Cast {
                             kind: MastCastKind::IntToPtr,
-                            operand: Box::new(MastExpr::new(
-                                TypeId::USIZE,
-                                MastExprKind::Integer(0),
-                                span,
-                            )),
+                            operand: Box::new(fn_ptr_int),
                         },
                         span,
                     );
 
-                    // Metadata stores the function pointer cast to `usize`.
-                    let fn_ptr_expr = MastExpr::new(concrete_ty, mast_kind, span);
+                    let Some(adapter_id) =
+                        self.get_or_create_fn_closure_adapter(concrete_ty, span)
+                    else {
+                        return MastExpr::new(exp_ty, MastExprKind::Trap, span);
+                    };
+
+                    // Metadata stores the adapter entry pointer cast to `usize`.
+                    let fn_ptr_expr =
+                        MastExpr::new(TypeId::VOID, MastExprKind::FuncRef(adapter_id), span);
                     let meta_expr = MastExpr::new(
                         TypeId::USIZE,
                         MastExprKind::Cast {
@@ -245,7 +255,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     return MastExpr::new(
                         exp_ty,
                         MastExprKind::ConstructFatPointer {
-                            data_ptr: Box::new(null_ptr_expr),
+                            data_ptr: Box::new(data_ptr_expr),
                             meta: Box::new(meta_expr),
                         },
                         span,

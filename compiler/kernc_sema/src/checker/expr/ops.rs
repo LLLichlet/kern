@@ -95,7 +95,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn fresh_type_var(&mut self) -> TypeId {
+    pub(crate) fn fresh_type_var(&mut self) -> TypeId {
         let vid = self.type_vars.len() as u32;
         self.type_vars.push(None);
         self.ctx.type_registry.intern(TypeKind::TypeVar(vid))

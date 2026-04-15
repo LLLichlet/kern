@@ -2,8 +2,11 @@ use crate::context::SemaContext;
 use crate::def::DefId;
 use crate::passes::TypeResolver;
 use crate::scope::ScopeId;
-use crate::ty::{BuiltinAnonymousEnumKind, TypeId, TypeKind};
+use crate::ty::{
+    AnonymousEnum, AnonymousVariant, BuiltinAnonymousEnumKind, TypeId, TypeKind,
+};
 use kernc_ast::{self as ast, Expr, ExprKind};
+use kernc_utils::Span;
 use std::time::Instant;
 
 mod access;
@@ -53,6 +56,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Identifier(name) => {
                 let started = Instant::now();
                 let ty = self.check_identifier(*name, expr.span);
+                let elapsed = started.elapsed();
+                self.ctx.expr_timing_stats.access += elapsed;
+                self.ctx.expr_timing_stats.access_identifier += elapsed;
+                ty
+            }
+            ExprKind::AnchoredPath { anchor, name, .. } => {
+                let started = Instant::now();
+                let ty = self.check_anchored_identifier(*anchor, *name, expr.span);
                 let elapsed = started.elapsed();
                 self.ctx.expr_timing_stats.access += elapsed;
                 self.ctx.expr_timing_stats.access_identifier += elapsed;
@@ -469,9 +480,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         kind: ast::PropagateKind,
         span: kernc_utils::Span,
     ) -> TypeId {
-        let operand_ty = self.check_expr(operand, None);
-        let norm_operand = self.resolve_tv(operand_ty);
-
         let Some(current_return_ty) = self.current_return_type else {
             self.ctx
                 .struct_error(
@@ -482,6 +490,64 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         };
         let norm_return = self.resolve_tv(current_return_ty);
+
+        let TypeKind::AnonymousEnum(return_enum) = self.ctx.type_registry.get(norm_return).clone()
+        else {
+            let ret_str = self.ctx.ty_to_string(current_return_ty);
+            self.ctx
+                .struct_error(
+                    span,
+                    format!("propagation target function must return a builtin optional/result, found `{}`", ret_str),
+                )
+                .emit();
+            return TypeId::ERROR;
+        };
+
+        let operand_expected = match kind {
+            ast::PropagateKind::Option => Some(current_return_ty),
+            ast::PropagateKind::Result => {
+                let Some((_, ret_err_ty)) = return_enum.builtin_result_types() else {
+                    let ret_str = self.ctx.ty_to_string(current_return_ty);
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!(
+                                "`.!` requires the enclosing function to return a builtin result, found `{}`",
+                                ret_str
+                            ),
+                        )
+                        .emit();
+                    return TypeId::ERROR;
+                };
+
+                let ok = self.fresh_type_var();
+                let ok_name = self.ctx.intern("Ok");
+                let err_name = self.ctx.intern("Err");
+                Some(self.ctx.type_registry.intern(TypeKind::AnonymousEnum(
+                    AnonymousEnum {
+                        backing_ty: None,
+                        builtin: Some(BuiltinAnonymousEnumKind::Result),
+                        variants: vec![
+                            AnonymousVariant {
+                                name: ok_name,
+                                name_span: Span::default(),
+                                payload_ty: Some(ok),
+                                explicit_value: None,
+                            },
+                            AnonymousVariant {
+                                name: err_name,
+                                name_span: Span::default(),
+                                payload_ty: Some(ret_err_ty),
+                                explicit_value: None,
+                            },
+                        ],
+                    },
+                )))
+            }
+        };
+
+        let operand_ty = self.check_expr(operand, operand_expected);
+        let norm_operand = self.resolve_tv(operand_ty);
 
         let TypeKind::AnonymousEnum(operand_enum) =
             self.ctx.type_registry.get(norm_operand).clone()
@@ -497,18 +563,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     format!("`{}` requires a builtin optional or result value", op),
                 )
                 .with_hint(format!("found `{}`", found))
-                .emit();
-            return TypeId::ERROR;
-        };
-
-        let TypeKind::AnonymousEnum(return_enum) = self.ctx.type_registry.get(norm_return).clone()
-        else {
-            let ret_str = self.ctx.ty_to_string(current_return_ty);
-            self.ctx
-                .struct_error(
-                    span,
-                    format!("propagation target function must return a builtin optional/result, found `{}`", ret_str),
-                )
                 .emit();
             return TypeId::ERROR;
         };
@@ -543,12 +597,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::ERROR;
                 };
                 let Some((_, ret_err_ty)) = return_enum.builtin_result_types() else {
+                    let ret_str = self.ctx.ty_to_string(current_return_ty);
                     self.ctx
                         .struct_error(
                             span,
                             format!(
                                 "`.!` requires the enclosing function to return a builtin result, found `{}`",
-                                self.ctx.ty_to_string(current_return_ty)
+                                ret_str
                             ),
                         )
                         .emit();

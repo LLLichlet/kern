@@ -276,14 +276,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ty: Option<TypeId>,
     ) -> TypeId {
         let outer_scope = self.ctx.scopes.current_scope_id();
-        self.ctx.scopes.enter_scope();
+        let mut entered_scope = false;
         let mut saw_diverging_stmt = false;
         for stmt in stmts {
             match &stmt.kind {
                 StmtKind::ExprStmt(e) | StmtKind::ExprValue(e) => {
-                    if matches!(e.kind, ExprKind::Let { .. } | ExprKind::Static { .. }) {
+                    let extends_block_scope = match &e.kind {
+                        ExprKind::Let { pattern, .. } => self.let_pattern_binds_names(pattern),
+                        ExprKind::Static { pattern, .. } => self.binding_pattern_binds_name(pattern),
+                        _ => false,
+                    };
+                    if extends_block_scope {
                         // Each binding statement extends the lexical environment for the
                         // remainder of the block, which is what makes same-block shadowing work.
+                        if !entered_scope {
+                            entered_scope = true;
+                        }
                         self.ctx.scopes.enter_scope();
                     }
                     let stmt_ty = self.check_discarded_expr(e);
@@ -303,10 +311,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         } else {
             TypeId::VOID
         };
-        if let Some(scope_id) = outer_scope {
+        if entered_scope {
+            if let Some(scope_id) = outer_scope {
+                self.ctx.scopes.set_current_scope(scope_id);
+            } else {
+                self.ctx.scopes.exit_scope();
+            }
+        } else if let Some(scope_id) = outer_scope {
             self.ctx.scopes.set_current_scope(scope_id);
-        } else {
-            self.ctx.scopes.exit_scope();
         }
         ret_ty
     }

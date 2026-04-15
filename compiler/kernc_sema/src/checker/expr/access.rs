@@ -94,6 +94,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.ctx.resolve(name) == "_"
     }
 
+    pub(crate) fn pattern_binds_names(&self, pattern: &ast::Pattern) -> bool {
+        match &pattern.kind {
+            ast::PatternKind::Binding(binding) => !self.is_discard_name(binding.name),
+            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => false,
+            ast::PatternKind::Destructure(destructure) => destructure
+                .fields
+                .iter()
+                .any(|field| self.pattern_binds_names(&field.pattern)),
+        }
+    }
+
+    pub(crate) fn let_pattern_binds_names(&self, pattern: &ast::LetPattern) -> bool {
+        self.pattern_binds_names(&pattern.pattern)
+    }
+
+    pub(crate) fn binding_pattern_binds_name(&self, pattern: &ast::BindingPattern) -> bool {
+        !self.is_discard_name(pattern.name)
+    }
+
     fn define_pattern_binding(
         &mut self,
         node_id: NodeId,

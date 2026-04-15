@@ -20,22 +20,6 @@ impl Lockfile {
             self.workspace_script.as_deref(),
             self.workspace_script_digest.as_deref(),
         )?;
-        let mut workspace_env_names = BTreeSet::new();
-        if !self.workspace_env.is_empty() && self.workspace_script.is_none() {
-            return Err(Error::LockfileValidation {
-                path: path.to_path_buf(),
-                message: "[[workspace-env]] entries require `workspace-script`".to_string(),
-            });
-        }
-        for input in &self.workspace_env {
-            validate_env_input_name(path, "[[workspace-env]].name", &input.name)?;
-            if !workspace_env_names.insert(input.name.as_str()) {
-                return Err(Error::LockfileValidation {
-                    path: path.to_path_buf(),
-                    message: format!("duplicate workspace env input `{}`", input.name),
-                });
-            }
-        }
 
         let mut package_ids = BTreeSet::new();
         for package in &self.packages {
@@ -118,45 +102,6 @@ impl Lockfile {
                         target.package_id,
                         target.kind,
                         target.name.as_deref().unwrap_or("<lib>")
-                    ),
-                });
-            }
-        }
-
-        let mut package_env_keys = BTreeSet::new();
-        for input in &self.package_env {
-            validate_non_empty(path, "[[package-env]].package", &input.package_id)?;
-            if !package_ids.contains(input.package_id.as_str()) {
-                return Err(Error::LockfileValidation {
-                    path: path.to_path_buf(),
-                    message: format!(
-                        "[[package-env]] references unknown package id `{}`",
-                        input.package_id
-                    ),
-                });
-            }
-            let has_script = self
-                .packages
-                .iter()
-                .find(|package| package.id == input.package_id)
-                .and_then(|package| package.craft_script.as_ref())
-                .is_some();
-            if !has_script {
-                return Err(Error::LockfileValidation {
-                    path: path.to_path_buf(),
-                    message: format!(
-                        "[[package-env]] references package `{}` without `craft-script`",
-                        input.package_id
-                    ),
-                });
-            }
-            validate_env_input_name(path, "[[package-env]].name", &input.name)?;
-            if !package_env_keys.insert((input.package_id.as_str(), input.name.as_str())) {
-                return Err(Error::LockfileValidation {
-                    path: path.to_path_buf(),
-                    message: format!(
-                        "duplicate package env input `{}:{}`",
-                        input.package_id, input.name
                     ),
                 });
             }
@@ -268,32 +213,6 @@ fn validate_optional_path_and_digest(
             ),
         }),
     }
-}
-
-fn validate_env_input_name(path: &Path, field: &str, value: &str) -> Result<()> {
-    validate_non_empty(path, field, value)?;
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        return Err(Error::LockfileValidation {
-            path: path.to_path_buf(),
-            message: format!("{field} must not be empty"),
-        });
-    };
-    if !(first == '_' || first.is_ascii_alphabetic()) {
-        return Err(Error::LockfileValidation {
-            path: path.to_path_buf(),
-            message: format!("{field} must start with an ASCII letter or `_`, found `{value}`"),
-        });
-    }
-    if chars.any(|ch| !(ch == '_' || ch.is_ascii_alphanumeric())) {
-        return Err(Error::LockfileValidation {
-            path: path.to_path_buf(),
-            message: format!(
-                "{field} must contain only ASCII letters, digits, or `_`, found `{value}`"
-            ),
-        });
-    }
-    Ok(())
 }
 
 fn validate_digest(path: &Path, field: &str, value: &str) -> Result<()> {

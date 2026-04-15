@@ -95,9 +95,9 @@ impl Error {
                 )
             }
             Self::Validation { message, .. }
-                if message.starts_with("publish requires a current release `Craft.lock`") =>
+                if message.starts_with("publish requires a current canonical `Craft.lock`") =>
             {
-                Some("run `craft lock --profile release` before `craft publish`".to_string())
+                Some("run `craft lock` before `craft publish`".to_string())
             }
             _ => None,
         }

@@ -46,52 +46,12 @@ pub type Command = enum {
     test,
 };
 
-pub type EnvValue = enum {
-    Some: []u8,
-    None,
-};
-
-impl EnvValue : Eq[EnvValue] {
-    pub fn eq(other: EnvValue) bool {
-        match (self) {
-            .{ Some: lhs } => {
-                match (other) {
-                    .{ Some: rhs } => {
-                        if (#lhs != #rhs) {
-                            return false;
-                        }
-                        for (let mut i = 0; i < #lhs; i += 1) {
-                            if (lhs.[i] != rhs.[i]) {
-                                return false;
-                            }
-                        }
-                        return true;
-                    }
-                    .None => return false,
-                }
-            }
-            .None => {
-                match (other) {
-                    .{ Some: _ } => return false,
-                    .None => return true,
-                }
-            }
-        }
-    }
-}
-
 pub extern type Plan = struct {
     pub package: Package,
     pub workspace: Workspace,
-    pub host: Target,
-    pub target: Target,
-    pub profile: Profile,
-    pub command: Command,
 };
 
 extern {
-    fn __craft_plan_feature_enabled(plan: *Plan, name: []u8) bool;
-    fn __craft_plan_env(plan: *Plan, name: []u8) EnvValue;
     fn __craft_plan_cfg_bool(plan: *mut Plan, name: []u8, value: bool) void;
     fn __craft_plan_cfg_string(plan: *mut Plan, name: []u8, value: []u8) void;
     fn __craft_plan_define_bool(plan: *mut Plan, name: []u8, value: bool) void;
@@ -109,16 +69,6 @@ extern {
     fn __craft_plan_dep_git(plan: *mut Plan, kind: DependencyKind, name: []u8, git: []u8) void;
     fn __craft_plan_dep_workspace(plan: *mut Plan, kind: DependencyKind, name: []u8) void;
     fn __craft_plan_remove_dep(plan: *mut Plan, kind: DependencyKind, name: []u8) bool;
-}
-
-impl *Plan {
-    pub fn feature_enabled(name: []u8) bool {
-        return __craft_plan_feature_enabled(self, name);
-    }
-
-    pub fn env(name: []u8) EnvValue {
-        return __craft_plan_env(self, name);
-    }
 }
 
 impl *mut Plan {

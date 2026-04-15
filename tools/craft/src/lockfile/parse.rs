@@ -1,7 +1,4 @@
-use super::{
-    LockedDependency, LockedEnvInput, LockedExternalPackage, LockedPackage, LockedPackageEnvInput,
-    LockedPackageTarget, Lockfile,
-};
+use super::{LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageTarget, Lockfile};
 use crate::error::{Error, Result};
 use std::path::Path;
 
@@ -11,8 +8,6 @@ enum Section {
     Package(usize),
     PackageTarget(usize),
     ExternalPackage(usize),
-    WorkspaceEnv(usize),
-    PackageEnv(usize),
     Dependency(usize),
 }
 
@@ -24,11 +19,9 @@ impl Lockfile {
             manifest_digest: String::new(),
             workspace_script: None,
             workspace_script_digest: None,
-            workspace_env: Vec::new(),
             packages: Vec::new(),
             package_targets: Vec::new(),
             external_packages: Vec::new(),
-            package_env: Vec::new(),
             dependencies: Vec::new(),
         };
         let mut section = Section::Root;
@@ -103,21 +96,6 @@ fn start_section(lockfile: &mut Lockfile, line: &str) -> std::result::Result<Sec
             });
             Ok(Section::PackageTarget(lockfile.package_targets.len() - 1))
         }
-        "[[workspace-env]]" => {
-            lockfile.workspace_env.push(LockedEnvInput {
-                name: String::new(),
-                value: None,
-            });
-            Ok(Section::WorkspaceEnv(lockfile.workspace_env.len() - 1))
-        }
-        "[[package-env]]" => {
-            lockfile.package_env.push(LockedPackageEnvInput {
-                package_id: String::new(),
-                name: String::new(),
-                value: None,
-            });
-            Ok(Section::PackageEnv(lockfile.package_env.len() - 1))
-        }
         "[[dependency]]" => {
             lockfile.dependencies.push(LockedDependency {
                 from: String::new(),
@@ -188,23 +166,6 @@ fn assign_key_value(
                 "name" => target.name = Some(parse_string(raw_value)?),
                 "root" => target.root = parse_string(raw_value)?,
                 _ => return Err(format!("unsupported [[package-target]] key `{key}`")),
-            }
-        }
-        Section::WorkspaceEnv(index) => {
-            let input = &mut lockfile.workspace_env[index];
-            match key {
-                "name" => input.name = parse_string(raw_value)?,
-                "value" => input.value = Some(parse_string(raw_value)?),
-                _ => return Err(format!("unsupported [[workspace-env]] key `{key}`")),
-            }
-        }
-        Section::PackageEnv(index) => {
-            let input = &mut lockfile.package_env[index];
-            match key {
-                "package" => input.package_id = parse_string(raw_value)?,
-                "name" => input.name = parse_string(raw_value)?,
-                "value" => input.value = Some(parse_string(raw_value)?),
-                _ => return Err(format!("unsupported [[package-env]] key `{key}`")),
             }
         }
         Section::Dependency(index) => {

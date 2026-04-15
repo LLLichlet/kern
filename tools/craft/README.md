@@ -19,15 +19,14 @@ The current implementation covers:
 - workspace discovery and validation
 - local package graph construction
 - resolved external package graph construction
-- `craft.rn` discovery and elaboration-input scaffolding
+- `craft.rn` discovery and pre-lock normalization scaffolding
 - normalized package-plan snapshots for declared targets
-- explicit `[craft].env` allowlists recorded into `Craft.lock`
 - `workspace = true` dependency inheritance
-- deterministic `Craft.lock` writing via `craft lock`
+- deterministic canonical `Craft.lock` writing via `craft lock`
 - `Craft.lock` loading, validation, and stale/current status reporting via `craft check`
 - release-oriented publish readiness checks via `craft publish`
 - build-plan derivation from normalized package targets and resolved dependencies
-- package-level `build.rn` discovery, validation, and per-target link-plan orchestration
+- package-level `build.rn` discovery, validation, and per-target link-plan orchestration for execution-sensitive adaptation
 - host `craft build/run/test` execution through explicit `kernc` compile/link action graphs
 - `craft fetch` materialization of external sources into `.craft/sources`
 - canonicalized workspace identity for shared `.craft` locks and state paths
@@ -57,7 +56,7 @@ edges:
 Derived tool state stays under `.craft/`, and `craft` maintains a root
 `.gitignore` entry for `.craft/` next to `Craft.toml`.
 
-`craft publish` is also local-only. It checks for a current release
+`craft publish` is also local-only. It checks for a current canonical
 `Craft.lock` plus required package metadata, but it does not upload anywhere or
 rewrite the lockfile implicitly.
 
@@ -65,7 +64,7 @@ rewrite the lockfile implicitly.
 
 - `src/manifest.rs` and `src/manifest/`: `Craft.toml` parsing and validation
 - `src/workspace.rs` and `src/project/`: workspace/package discovery and path rules
-- `src/elaborate.rs` and `src/script/`: `craft.rn` and `build.rn` execution
+- `src/elaborate.rs` and `src/script/`: pre-lock `craft.rn` and post-lock `build.rn` execution
 - `src/graph.rs`, `src/resolver.rs`, and `src/source.rs`: package graph and
   source resolution
 - `src/lockfile/`: `Craft.lock` parsing, rendering, validation, and build data

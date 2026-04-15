@@ -16,11 +16,9 @@ pub struct Lockfile {
     pub manifest_digest: String,
     pub workspace_script: Option<String>,
     pub workspace_script_digest: Option<String>,
-    pub workspace_env: Vec<LockedEnvInput>,
     pub packages: Vec<LockedPackage>,
     pub package_targets: Vec<LockedPackageTarget>,
     pub external_packages: Vec<LockedExternalPackage>,
-    pub package_env: Vec<LockedPackageEnvInput>,
     pub dependencies: Vec<LockedDependency>,
 }
 
@@ -64,19 +62,6 @@ pub struct LockedPackageTarget {
     pub kind: String,
     pub name: Option<String>,
     pub root: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LockedEnvInput {
-    pub name: String,
-    pub value: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LockedPackageEnvInput {
-    pub package_id: String,
-    pub name: String,
-    pub value: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -184,51 +169,33 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
             "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
-        let env_name = format!(
-            "KRAFT_LOCK_ENV_{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        unsafe { std::env::set_var(&env_name, "enabled") };
         fs::write(
             app_dir.join("Craft.toml"),
-            format!(
-                r#"
+            r#"
 [package]
 name = "app"
 version = "0.1.0"
 kern = "0.7.0"
-
-[craft]
-env = ["{env_name}"]
 
 [[bin]]
 name = "app"
 root = "src/main.rn"
 
 [dependencies]
-util = {{ path = "../util" }}
-shared = {{ workspace = true, features = ["simd"] }}
-"#
-            ),
+util = { path = "../util" }
+shared = { workspace = true, features = ["simd"] }
+"#,
         )
         .unwrap();
         fs::write(
             app_dir.join("craft.rn"),
-            format!(
-                r#"
+            r#"
 use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {{
-    match (p.env("{env_name}")) {{
-        .{{ Some: value }} => p.define_string("env_value", value),
-        .None => {{}},
-    }}
+    p.define_string("pkg", p.package.name);
 }}
-"#
-            ),
+"#,
         )
         .unwrap();
         fs::write(
@@ -261,7 +228,6 @@ kern = "0.7.0"
         assert!(rendered.contains("[[package]]"));
         assert!(rendered.contains("[[package-target]]"));
         assert!(rendered.contains("[[external-package]]"));
-        assert!(rendered.contains("[[package-env]]"));
         assert!(rendered.contains("id = \"app 0.1.0 workspace-member:app\""));
         assert!(
             rendered.contains("package = \"app 0.1.0 workspace-member:app\"")
@@ -269,8 +235,6 @@ kern = "0.7.0"
         );
         assert!(rendered.contains("workspace-script = \"craft.rn\""));
         assert!(rendered.contains("craft-script = \"app/craft.rn\""));
-        assert!(rendered.contains(&format!("name = \"{env_name}\"")));
-        assert!(rendered.contains("value = \"enabled\""));
         assert!(rendered.contains("target-id = \"util 0.1.0 workspace-member:util\""));
         assert!(rendered.contains("name = \"shared\""));
         assert!(rendered.contains("target = \"external\""));
@@ -281,7 +245,6 @@ kern = "0.7.0"
         assert!(rendered.contains("source-selector = \"branch:stable\""));
         assert!(rendered.contains("manifest-digest = \"fnv1a64:"));
 
-        unsafe { std::env::remove_var(&env_name) };
         let _ = fs::remove_dir_all(root);
     }
 
@@ -541,14 +504,6 @@ shared = { git = "https://example.com/shared.git", rev = "abc123", version = "2"
         let root = temp_dir("craft-lockfile-status");
         let app_dir = root.join("app");
         fs::create_dir_all(&app_dir).unwrap();
-        let env_name = format!(
-            "KRAFT_STATUS_ENV_{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        unsafe { std::env::set_var(&env_name, "v1") };
 
         fs::write(
             root.join("Craft.toml"),
@@ -560,33 +515,23 @@ members = ["app"]
         .unwrap();
         fs::write(
             app_dir.join("Craft.toml"),
-            format!(
-                r#"
+            r#"
 [package]
 name = "app"
 version = "0.1.0"
 kern = "0.7.0"
-
-[craft]
-env = ["{env_name}"]
-"#
-            ),
+"#,
         )
         .unwrap();
         fs::write(
             app_dir.join("craft.rn"),
-            format!(
-                r#"
+            r#"
 use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {{
-    match (p.env("{env_name}")) {{
-        .{{ Some: value }} => p.define_string("env_value", value),
-        .None => {{}},
-    }}
+    p.define_string("pkg", p.package.name);
 }}
-"#
-            ),
+"#,
         )
         .unwrap();
 
@@ -614,7 +559,17 @@ pub fn craft(p: *mut plan.Plan) void {{
             LockStatus::Current
         );
 
-        unsafe { std::env::set_var(&env_name, "v2") };
+        fs::write(
+            app_dir.join("craft.rn"),
+            r#"
+use craft.plan;
+
+pub fn craft(p: *mut plan.Plan) void {
+    p.define_string("pkg", p.package.version);
+}
+"#,
+        )
+        .unwrap();
         let elaboration = plan(
             &manifest_path,
             &root_manifest,
@@ -631,17 +586,12 @@ pub fn craft(p: *mut plan.Plan) void {{
 
         fs::write(
             app_dir.join("Craft.toml"),
-            format!(
-                r#"
+            r#"
 [package]
 name = "app"
 version = "0.2.0"
 kern = "0.7.0"
-
-[craft]
-env = ["{env_name}"]
-"#
-            ),
+"#,
         )
         .unwrap();
 
@@ -661,7 +611,6 @@ env = ["{env_name}"]
             LockStatus::Stale
         );
 
-        unsafe { std::env::remove_var(&env_name) };
         let _ = fs::remove_dir_all(root);
     }
 

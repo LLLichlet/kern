@@ -466,7 +466,6 @@ fn script_context_for_instance(
         profile: package_elaboration.profile.clone(),
         command,
         features: package_elaboration.selected_features.clone(),
-        env: BTreeMap::new(),
     }
 }
 

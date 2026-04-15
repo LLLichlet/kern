@@ -15,14 +15,6 @@ impl Lockfile {
         if let Some(digest) = &self.workspace_script_digest {
             push_string_line(&mut out, "workspace-script-digest", digest);
         }
-        for input in &self.workspace_env {
-            out.push('\n');
-            out.push_str("[[workspace-env]]\n");
-            push_string_line(&mut out, "name", &input.name);
-            if let Some(value) = &input.value {
-                push_string_line(&mut out, "value", value);
-            }
-        }
 
         for package in &self.packages {
             out.push('\n');
@@ -72,16 +64,6 @@ impl Lockfile {
             }
             if let Some(selector) = &package.source_selector {
                 push_string_line(&mut out, "source-selector", selector);
-            }
-        }
-
-        for input in &self.package_env {
-            out.push('\n');
-            out.push_str("[[package-env]]\n");
-            push_string_line(&mut out, "package", &input.package_id);
-            push_string_line(&mut out, "name", &input.name);
-            if let Some(value) = &input.value {
-                push_string_line(&mut out, "value", value);
             }
         }
 

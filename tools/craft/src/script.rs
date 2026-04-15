@@ -50,17 +50,6 @@ const SCRIPT_OS_LINUX_TAG: i128 = 1;
 const SCRIPT_OS_WINDOWS_TAG: i128 = 2;
 const SCRIPT_OS_DARWIN_TAG: i128 = 3;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScriptExecution {
-    pub env_inputs: Vec<ScriptEnvInput>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScriptEnvInput {
-    pub name: String,
-    pub value: Option<String>,
-}
-
 fn option_some(value: ConstValue) -> ConstValue {
     ConstValue::Enum {
         tag: OPTION_SOME_TAG,
@@ -76,6 +65,12 @@ fn option_none() -> ConstValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CraftScriptContext {
+    pub package: ScriptPackage,
+    pub workspace: ScriptWorkspace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptContext {
     pub package: ScriptPackage,
     pub workspace: ScriptWorkspace,
@@ -84,7 +79,6 @@ pub struct ScriptContext {
     pub profile: ScriptProfile,
     pub command: ScriptCommand,
     pub features: BTreeSet<String>,
-    pub env: BTreeMap<String, Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,8 +286,8 @@ pub fn validate_build_script(path: &Path) -> Result<()> {
 pub fn apply_craft_script(
     path: &Path,
     package_plan: &mut PackagePlan,
-    script_context: &ScriptContext,
-) -> Result<ScriptExecution> {
+    script_context: &CraftScriptContext,
+) -> Result<()> {
     let mut session = Session::new();
     let PreparedScript {
         script_path,
@@ -301,12 +295,8 @@ pub fn apply_craft_script(
         entry_def,
     } = prepare_script(path, &mut session, CRAFT_SCRIPT_ENTRY)?;
 
-    let mut host = PackagePlanHost {
-        package_plan,
-        script_context,
-        env_reads: BTreeSet::new(),
-    };
-    let arg_values = vec![plan_argument_value(&mut ctx, script_context)];
+    let mut host = PackagePlanHost { package_plan };
+    let arg_values = vec![craft_plan_argument_value(&mut ctx, script_context)];
     let mut evaluator = ConstEvaluator::with_script_host(&mut ctx, &mut host);
     evaluator
         .eval_function(entry_def, &[], arg_values, Span::default())
@@ -320,21 +310,7 @@ pub fn apply_craft_script(
                 .unwrap_or_else(|| "craft script execution failed".to_string()),
         })?;
 
-    Ok(ScriptExecution {
-        env_inputs: host
-            .env_reads
-            .into_iter()
-            .map(|name| ScriptEnvInput {
-                value: host
-                    .script_context
-                    .env
-                    .get(&name)
-                    .cloned()
-                    .expect("env read must come from declared env map"),
-                name,
-            })
-            .collect(),
-    })
+    Ok(())
 }
 
 pub fn apply_build_script(
@@ -370,8 +346,6 @@ pub fn apply_build_script(
 
 struct PackagePlanHost<'a> {
     package_plan: &'a mut PackagePlan,
-    script_context: &'a ScriptContext,
-    env_reads: BTreeSet<String>,
 }
 
 impl ScriptHost for PackagePlanHost<'_> {
@@ -382,33 +356,6 @@ impl ScriptHost for PackagePlanHost<'_> {
         _span: Span,
     ) -> std::result::Result<ConstValue, String> {
         match name {
-            "__craft_plan_feature_enabled" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let feature = expect_string(args, 1, "feature name")?;
-                Ok(ConstValue::Bool(
-                    self.script_context.features.contains(feature.as_str()),
-                ))
-            }
-            "__craft_plan_env" => {
-                let _ = expect_arg(args, 0, "plan receiver")?;
-                let name = expect_string(args, 1, "environment name")?;
-                let Some(value) = self.script_context.env.get(&name).cloned() else {
-                    return Err(format!(
-                        "environment `{name}` was not declared under `[craft].env` (declared: {})",
-                        self.script_context
-                            .env
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ));
-                };
-                self.env_reads.insert(name);
-                Ok(match value {
-                    Some(value) => option_some(ConstValue::String(value)),
-                    None => option_none(),
-                })
-            }
             "__craft_plan_cfg_bool" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let key = expect_string(args, 1, "cfg name")?;
@@ -625,6 +572,48 @@ fn expect_dependency_kind(
 
 fn pure_enum_value(tag: i128) -> ConstValue {
     ConstValue::Int(tag)
+}
+
+fn craft_plan_argument_value(
+    ctx: &mut kernc_sema::SemaContext<'_>,
+    script_context: &CraftScriptContext,
+) -> ConstValue {
+    fn field(name: &str, ctx: &mut kernc_sema::SemaContext<'_>) -> SymbolId {
+        ctx.intern(name)
+    }
+
+    let mut package = HashMap::new();
+    package.insert(
+        field("name", ctx),
+        ConstValue::String(script_context.package.name.clone()),
+    );
+    package.insert(
+        field("version", ctx),
+        ConstValue::String(script_context.package.version.clone()),
+    );
+    package.insert(
+        field("root", ctx),
+        ConstValue::String(script_context.package.root.clone()),
+    );
+    package.insert(
+        field("is_root", ctx),
+        ConstValue::Bool(script_context.package.is_root),
+    );
+
+    let mut workspace = HashMap::new();
+    workspace.insert(
+        field("root", ctx),
+        ConstValue::String(script_context.workspace.root.clone()),
+    );
+    workspace.insert(
+        field("has_workspace", ctx),
+        ConstValue::Bool(script_context.workspace.has_workspace),
+    );
+
+    let mut plan = HashMap::new();
+    plan.insert(field("package", ctx), ConstValue::Struct(package));
+    plan.insert(field("workspace", ctx), ConstValue::Struct(workspace));
+    ConstValue::Struct(plan)
 }
 
 fn plan_argument_value(

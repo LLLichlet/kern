@@ -39,24 +39,6 @@ fn temp_file_uri(prefix: &str, initial_text: &str) -> String {
     file_path_to_uri(&path).unwrap()
 }
 
-fn with_env_var<T>(name: &str, value: &str, f: impl FnOnce() -> T) -> T {
-    let previous = std::env::var_os(name);
-    // SAFETY: tests use unique variable names and restore the previous value.
-    unsafe {
-        std::env::set_var(name, value);
-    }
-    let result = f();
-    // SAFETY: restores the process environment to its previous state.
-    unsafe {
-        if let Some(previous) = previous {
-            std::env::set_var(name, previous);
-        } else {
-            std::env::remove_var(name);
-        }
-    }
-    result
-}
-
 fn unique_temp_dir(prefix: &str) -> PathBuf {
     let path = unique_temp_file_path(prefix);
     fs::create_dir_all(&path).unwrap();

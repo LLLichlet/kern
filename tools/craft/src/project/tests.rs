@@ -45,22 +45,6 @@ fn temp_dir(prefix: &str) -> PathBuf {
     dir
 }
 
-fn with_env_var<T>(name: &str, value: &str, f: impl FnOnce() -> T) -> T {
-    let previous = std::env::var_os(name);
-    unsafe {
-        std::env::set_var(name, value);
-    }
-    let result = f();
-    unsafe {
-        if let Some(previous) = previous {
-            std::env::set_var(name, previous);
-        } else {
-            std::env::remove_var(name);
-        }
-    }
-    result
-}
-
 #[test]
 fn resolves_workspace_local_library_aliases_for_analysis() {
     let root = temp_dir("craft-project-analysis");
@@ -479,21 +463,13 @@ root = \"src/main.rn\"
 }
 
 #[test]
-fn resolve_for_file_applies_craft_cfg_and_define_values() {
+fn resolve_for_file_applies_build_cfg_and_define_values() {
     let root = temp_dir("craft-project-custom-defines");
     fs::create_dir_all(root.join("src")).unwrap();
-    let env_name = format!(
-        "KERN_PROJECT_ANALYSIS_{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
 
     fs::write(
         root.join("Craft.toml"),
-        format!(
-            "\
+        "\
 [package]
 name = \"app\"
 version = \"0.1.0\"
@@ -502,34 +478,24 @@ kern = \"0.7.0\"
 [features]
 experimental = []
 
-[craft]
-env = [\"{env_name}\"]
-
 [[bin]]
 name = \"app\"
 root = \"src/main.rn\"
-"
-        ),
+",
     )
     .unwrap();
     fs::write(
-        root.join("craft.rn"),
-        format!(
-            "\
-use craft.plan;
+        root.join("build.rn"),
+        "\
+use craft.builder;
 
-pub fn craft(p: *mut plan.Plan) void {{
-    if (p.feature_enabled(\"experimental\")) {{
-        p.cfg_bool(\"enable_telemetry\", true);
-        p.define_string(\"GREETING_MSG\", \"Hello from craft\");
-    }}
-
-    if (p.env(\"{env_name}\") != plan.EnvValue.None) {{
-        p.cfg_bool(\"is_dev_env\", true);
-    }}
-}}
-"
-        ),
+pub fn build(b: *mut builder.Builder) void {
+    if (b.feature_enabled(\"experimental\")) {
+        b.cfg_bool(\"enable_telemetry\", true);
+        b.define_string(\"GREETING_MSG\", \"Hello from build\");
+    }
+}
+",
     )
     .unwrap();
     fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
@@ -537,10 +503,7 @@ pub fn craft(p: *mut plan.Plan) void {{
     let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
     let mut options = CompileOptions::default();
     options.craft_features.push("experimental".to_string());
-
-    let resolved = with_env_var(&env_name, "1", || {
-        project.resolve_for_file(&root.join("src/main.rn"), &options)
-    });
+    let resolved = project.resolve_for_file(&root.join("src/main.rn"), &options);
 
     let defines = &resolved.compile_options.custom_defines;
     let collected = defines
@@ -552,12 +515,8 @@ pub fn craft(p: *mut plan.Plan) void {{
         Some("true")
     );
     assert_eq!(
-        collected.get("is_dev_env").map(String::as_str),
-        Some("true")
-    );
-    assert_eq!(
         collected.get("GREETING_MSG").map(String::as_str),
-        Some("Hello from craft")
+        Some("Hello from build")
     );
 }
 
@@ -565,18 +524,10 @@ pub fn craft(p: *mut plan.Plan) void {{
 fn resolve_for_file_prefers_persisted_analysis_context_without_explicit_features() {
     let root = temp_dir("craft-project-persisted-analysis");
     fs::create_dir_all(root.join("src")).unwrap();
-    let env_name = format!(
-        "KERN_PROJECT_PERSISTED_{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
 
     fs::write(
         root.join("Craft.toml"),
-        format!(
-            "\
+        "\
 [package]
 name = \"app\"
 version = \"0.1.0\"
@@ -585,34 +536,24 @@ kern = \"0.7.0\"
 [features]
 experimental = []
 
-[craft]
-env = [\"{env_name}\"]
-
 [[bin]]
 name = \"app\"
 root = \"src/main.rn\"
-"
-        ),
+",
     )
     .unwrap();
     fs::write(
-        root.join("craft.rn"),
-        format!(
-            "\
-use craft.plan;
+        root.join("build.rn"),
+        "\
+use craft.builder;
 
-pub fn craft(p: *mut plan.Plan) void {{
-    if (p.feature_enabled(\"experimental\")) {{
-        p.cfg_bool(\"enable_telemetry\", true);
-        p.define_string(\"GREETING_MSG\", \"Hello from craft\");
-    }}
-
-    if (p.env(\"{env_name}\") != plan.EnvValue.None) {{
-        p.cfg_bool(\"is_dev_env\", true);
-    }}
-}}
-"
-        ),
+pub fn build(b: *mut builder.Builder) void {
+    if (b.feature_enabled(\"experimental\")) {
+        b.cfg_bool(\"enable_telemetry\", true);
+        b.define_string(\"GREETING_MSG\", \"Hello from build\");
+    }
+}
+",
     )
     .unwrap();
     fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
@@ -622,17 +563,15 @@ pub fn craft(p: *mut plan.Plan) void {{
     let workspace_members = load_members(&manifest_path, &manifest).unwrap();
     let mut selection = FeatureSelection::default();
     selection.explicit.insert("experimental".to_string());
-    let elaboration = with_env_var(&env_name, "1", || {
-        plan(
-            &manifest_path,
-            &manifest,
-            &workspace_members,
-            false,
-            crate::script::ScriptCommand::Build,
-            &selection,
-        )
-        .unwrap()
-    });
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &workspace_members,
+        false,
+        crate::script::ScriptCommand::Build,
+        &selection,
+    )
+    .unwrap();
     let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
     analysis_context::sync_analysis_context(&manifest_path, &elaboration, &build_plan, &selection)
         .unwrap();
@@ -650,10 +589,9 @@ pub fn craft(p: *mut plan.Plan) void {{
         defines.get("enable_telemetry").map(String::as_str),
         Some("true")
     );
-    assert_eq!(defines.get("is_dev_env").map(String::as_str), Some("true"));
     assert_eq!(
         defines.get("GREETING_MSG").map(String::as_str),
-        Some("Hello from craft")
+        Some("Hello from build")
     );
 }
 
@@ -842,16 +780,16 @@ root = \"src/main.rn\"
     )
     .unwrap();
     fs::write(
-        root.join("craft.rn"),
+        root.join("build.rn"),
         "\
-use craft.plan;
+use craft.builder;
 
-pub fn craft(p: *mut plan.Plan) void {
-    if (p.feature_enabled(\"experimental\")) {
-        p.cfg_bool(\"mode_experimental\", true);
+pub fn build(b: *mut builder.Builder) void {
+    if (b.feature_enabled(\"experimental\")) {
+        b.cfg_bool(\"mode_experimental\", true);
     }
-    if (p.feature_enabled(\"stable\")) {
-        p.cfg_bool(\"mode_stable\", true);
+    if (b.feature_enabled(\"stable\")) {
+        b.cfg_bool(\"mode_stable\", true);
     }
 }
 ",

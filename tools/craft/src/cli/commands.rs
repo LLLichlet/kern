@@ -234,12 +234,10 @@ fn run_check(
         render.meta(
             "scripts",
             format!(
-                "workspace craft {}, package craft {}, build.rn {}, env inputs {}",
+                "workspace craft {}, package craft {}, build.rn {}",
                 format_yes_no(loaded.elaboration.workspace_script.is_some()),
                 loaded.elaboration.package_script_count(),
-                build_plan.build_script_count(),
-                loaded.elaboration.workspace_env_input_count()
-                    + loaded.elaboration.package_env_input_count()
+                build_plan.build_script_count()
             ),
         );
     }

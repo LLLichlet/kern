@@ -49,7 +49,7 @@ are expected to be removed from the index.
 - replacing the Kern language module system
 - hiding `kernc` behind opaque behavior
 - introducing implicit dependency or target policy
-- allowing pre-lock scripts to smuggle in hidden machine state
+- allowing pre-lock scripts to smuggle in hidden machine or invocation state
 
 ## Concurrency And Derived-State Rules
 
@@ -115,13 +115,14 @@ Craft.toml
 This split is the core of the design.
 
 - `Craft.toml` carries static declarations.
-- `craft.rn` elaborates those declarations before resolution.
-- `Craft.lock` records the resolved graph and the normalized inputs that produced it.
+- `craft.rn` normalizes those declarations before resolution, but only from lock-stable inputs.
+- `Craft.lock` records the canonical resolved graph for the workspace.
 - `build.rn` performs post-lock build orchestration.
 
 The critical rule is:
 
-- `craft.rn` may affect dependency resolution and therefore lockfile contents.
+- `craft.rn` may affect dependency resolution and therefore lockfile contents,
+  but only from checked-in, lock-stable inputs.
 - `build.rn` may affect execution, staging, and linkage.
 - `build.rn` must not affect dependency resolution or lockfile contents.
 
@@ -234,7 +235,8 @@ Manifest rules:
 - profile behavior is deterministic
 - profile optimization policy is explicit: `opt`, `debug`, `codegen-units`, and `lto` are separate knobs
 - target-domain `lto = "thin"` keeps compile actions in ThinLTO linker-input form until the final link step, so cross-package optimization is preserved instead of being collapsed inside each package
-- target-specific or feature-specific elaboration belongs in either explicit manifest tables or `craft.rn`
+- declarative package-graph structure belongs in `Craft.toml` plus lock-stable `craft.rn`
+- invocation-sensitive adaptation belongs in `build.rn`
 
 ## Publish Readiness
 
@@ -243,10 +245,10 @@ anywhere, talk to a registry, or rewrite dependency state.
 
 The current rules are:
 
-- `craft publish` always evaluates the release profile
-- `craft publish` requires a current release `Craft.lock`
-- if the release lock is missing or stale, `craft publish` fails and tells the
-  user to run `craft lock --profile release`
+- `craft publish` always evaluates release-mode publish readiness
+- `craft publish` requires a current canonical `Craft.lock`
+- if the lock is missing or stale, `craft publish` fails and tells the
+  user to run `craft lock`
 - `craft publish` does not silently create or refresh `Craft.lock`
 
 Required package metadata for a publishable package is:
@@ -262,9 +264,10 @@ also be placed in `[workspace.package]` for shared package metadata. If
 `readme` comes from `[workspace.package]`, it is resolved relative to the
 workspace root. A package may opt out entirely with `publish = false`.
 
-## Feature, Profile, And Command Inputs
+## Resolution And Execution Inputs
 
-Feature selection is part of elaboration and build planning, not an afterthought.
+`craft` must not treat all command-line inputs as one undifferentiated planning
+surface.
 
 The current command surface accepts:
 
@@ -273,40 +276,57 @@ The current command surface accepts:
 - `--no-default-features`
 - `--features <a,b,c>`
 
-These inputs affect:
+These inputs do not all belong to the same phase.
 
-- manifest discovery
-- `craft.rn` evaluation
-- normalized package targets and dependencies
-- lockfile freshness
-- build plan derivation
+Resolution inputs determine the canonical workspace graph and therefore belong
+to `Craft.lock`.
 
-Profiles and command mode are also explicit inputs. `craft.rn` and `build.rn` both receive:
+Execution inputs determine how one already-resolved graph is checked, built,
+run, or tested.
 
-- host information
-- target information
-- profile information
-- command mode such as `check`, `build`, `run`, or `test`
+The intended split is:
 
-This keeps the system orthogonal: command selection, feature selection, profile selection, host context, and target context are all ordinary inputs to explicit phases.
+- manifest discovery affects resolution
+- checked-in package/workspace declarations affect resolution
+- `craft.rn` affects resolution, but only through lock-stable inputs
+- selected profile affects execution
+- command mode affects execution
+- selected CLI feature sets affect execution
+- host- and machine-local state affect execution, not canonical resolution
+
+This keeps the system orthogonal: `Craft.lock` is the shared resolution
+artifact, while profile and command mode are execution concerns layered on top
+of it.
 
 ## `craft.rn`
 
-`craft.rn` is an optional pre-resolution elaboration script.
+`craft.rn` is an optional pre-resolution normalization script.
 
-It exists because pure TOML is good at declaration but weak at structured conditional adaptation. Rather than inflate the manifest format, `craft` allows a bounded Kern phase that elaborates package structure before resolution.
+It exists because pure TOML is good at declaration but weak at structured
+normalization. Rather than inflate the manifest format, `craft` allows a
+bounded Kern phase that rewrites package planning state before resolution.
 
-Conceptually, `craft.rn` works on package planning state:
+Because `craft.rn` contributes to `Craft.lock`, it must stay on canonical
+resolution inputs only.
+
+Conceptually, `craft.rn` works on lock-stable package planning state:
 
 - package metadata from `Craft.toml`
 - workspace metadata
+- checked-in target declarations
+- checked-in dependency declarations
+- other checked-in package structure owned by the workspace
+
+It does not receive:
+
 - host target
 - final target
 - profile
 - command mode
-- selected features
+- process environment
+- ad hoc CLI-selected feature state
 
-Its job is to elaborate the package graph, not to execute a build.
+Its job is to elaborate the canonical package graph, not to execute a build.
 
 Example:
 
@@ -314,64 +334,56 @@ Example:
 use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {
-    if (p.target.os == .windows) {
-        p.dep("win32", "1");
+    if (p.package.is_root) {
+        p.add_bin("tools", "src/tools.rn");
     }
 
-    p.define_string("host_arch", p.host.arch);
-
-    if (p.feature_enabled("simd")) {
-        p.cfg_bool("simd", true);
-    }
-
-    if (p.profile.name == "release") {
-        p.define_bool("aggressive_checks", false);
-    }
+    p.set_lib_root("src/lib.rn");
+    p.cfg_bool("workspace_member", p.workspace.has_workspace);
 }
 ```
 
 ### What `craft.rn` May Do
 
-- add or remove target-specific dependencies
-- elaborate feature-driven configuration
-- add package-local cfg/define values
+- normalize checked-in package structure deterministically
+- add or remove dependency edges only from lock-stable checked-in inputs
+- add package-local cfg/define values that are themselves lock-stable
 - adjust or add targets owned by the current package
 - choose source roots
 - apply workspace policy explicitly
 
 ### What `craft.rn` Must Not Do
 
+- inspect host, target, profile, command mode, or process environment
 - perform network access
 - depend on wall-clock time
 - use randomness
-- inspect incidental host state implicitly
 - trigger compilation or linking
 - mutate the dependency graph after lock resolution
 
-`craft.rn` is part of the lock input. It is therefore required to be deterministic.
+`craft.rn` is part of the lock input. It is therefore required to be
+deterministic and canonical across team members and CI.
 
-## Explicit Environment Inputs
+## Environment And Canonical Resolution
 
-Some real projects need environment-based adaptation. `craft` supports that only through explicit declaration.
+Machine-local environment is not part of canonical resolution.
 
-The model is:
+That means:
 
-- `Craft.toml` declares allowed environment inputs under `[craft]`
-- `craft.rn` may read only those named inputs
-- the values that participated in elaboration are recorded into `Craft.lock`
+- `Craft.lock` must not vary with process environment
+- pre-lock `craft.rn` must not branch on environment values
+- machine-local adaptation belongs after lock, typically in `build.rn`
 
-Example:
-
-```toml
-[craft]
-env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
-```
-
-This avoids hidden host dependence. If an allowed input changes, the lockfile becomes stale and `craft` must re-elaborate before reuse.
+If a project needs environment-sensitive execution behavior, that behavior
+should be modeled as post-lock build orchestration rather than as dependency
+resolution.
 
 ## `Craft.lock`
 
-`Craft.lock` records the resolved graph and the normalized inputs that affect that graph.
+`Craft.lock` records the canonical resolved graph for a workspace.
+
+It is intended to be committed to version control and shared across developers
+and CI.
 
 It exists to answer:
 
@@ -379,7 +391,7 @@ It exists to answer:
 - where they came from
 - which dependency edges were chosen
 - which normalized targets existed
-- which elaboration inputs produced that graph
+- which canonical checked-in inputs produced that graph
 
 The current lockfile model records:
 
@@ -390,7 +402,6 @@ The current lockfile model records:
 - normalized package targets
 - resolved external packages
 - dependency edges
-- declared environment inputs used by workspace or package elaboration
 
 It intentionally does not record post-lock build execution details from `build.rn`.
 
@@ -398,6 +409,7 @@ Lockfile responsibilities:
 
 - reproducible dependency resolution
 - workspace-wide graph stability
+- one canonical team/CI snapshot for the resolved workspace graph
 - offline rebuild support
 - auditability of elaboration inputs
 
@@ -406,6 +418,7 @@ Lockfile non-responsibilities:
 - recording every object or artifact hash
 - acting as a generic build cache index
 - encoding post-link packaging behavior
+- tracking local invocation state such as profile, command mode, or environment
 
 ## Dependency Sources
 
@@ -432,6 +445,10 @@ Its role is build orchestration, not package elaboration.
 
 It runs after resolution and after lock derivation, and it is allowed to affect:
 
+- machine-local adaptation
+- host- and target-specific execution behavior
+- profile-sensitive execution behavior
+- command-sensitive execution behavior
 - generated sources
 - staged resource handling
 - link directives
@@ -572,6 +589,7 @@ Current domain behavior:
 - `build-dependencies` are tracked separately from target unit dependencies so build-time tools do not pollute the final target graph
 - local and external `build-dependencies` that expose binaries can be resolved as explicit tools inside `build.rn`
 - tool-driven file generation is represented as explicit staged nodes with declared dependencies rather than opaque script-side process execution
+- `build.rn` is the correct place for host/target/profile/command-sensitive adaptation because those inputs do not belong to canonical resolution
 
 ## Build Plan And Execution
 
@@ -630,7 +648,7 @@ The current command surface is intentionally narrow:
 Current behavior:
 
 - `check` loads the package graph, evaluates scripts, derives the build plan, materializes staged inputs, and runs semantic analysis for every selected compile unit without codegen or final linking
-- `lock` writes a deterministic `Craft.lock`
+- `lock` writes a deterministic canonical `Craft.lock`
 - `fetch` materializes external package sources into the local cache
   - source backends are explicit package paths or git repositories
 - `build` executes the selected build plan
@@ -646,7 +664,6 @@ When `craft` launches a runtime target for `run` or `test`, it also injects:
 
 - feature inputs
 - workspace/package script presence
-- environment input counts
 - normalized target counts
 - dependency counts
 - build-unit and action counts
@@ -664,6 +681,7 @@ The system follows these rules:
 
 - no implicit host-environment dependence
 - no hidden pre-lock side effects
+- no profile- or command-dependent lockfile variance
 - no `build.rn` influence on resolution
 - no silent mutation of dependency topology after locking
 - explicit build edges over ad hoc script behavior

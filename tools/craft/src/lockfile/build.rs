@@ -1,6 +1,5 @@
 use super::{
-    LockedDependency, LockedEnvInput, LockedExternalPackage, LockedPackage, LockedPackageEnvInput,
-    LockedPackageTarget, Lockfile,
+    LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageTarget, Lockfile,
 };
 use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
@@ -19,7 +18,6 @@ impl Lockfile {
         let mut packages = Vec::new();
         let mut package_targets = Vec::new();
         let mut external_packages = Vec::new();
-        let mut package_env = Vec::new();
         let mut dependencies = Vec::new();
 
         for package in &resolved.packages {
@@ -54,16 +52,6 @@ impl Lockfile {
                     root: target.root.clone(),
                 });
             }
-            if let Some(script) = script {
-                for input in &script.env_inputs {
-                    package_env.push(LockedPackageEnvInput {
-                        package_id: package_id.clone(),
-                        name: input.name.clone(),
-                        value: input.value.clone(),
-                    });
-                }
-            }
-
             for dep in &package.dependencies {
                 let (target_kind, target_id) = match &dep.target {
                     ResolvedDependencyTarget::Local(target) => {
@@ -109,24 +97,9 @@ impl Lockfile {
                 .workspace_script
                 .as_ref()
                 .map(|script| script.digest.clone()),
-            workspace_env: elaboration
-                .workspace_script
-                .as_ref()
-                .map(|script| {
-                    script
-                        .env_inputs
-                        .iter()
-                        .map(|input| LockedEnvInput {
-                            name: input.name.clone(),
-                            value: input.value.clone(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
             packages,
             package_targets,
             external_packages,
-            package_env,
             dependencies,
         })
     }

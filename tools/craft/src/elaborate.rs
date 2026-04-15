@@ -7,26 +7,18 @@ use crate::resolver;
 use crate::resolver::ResolvedGraph;
 use crate::script;
 use crate::script::{
-    ScriptCommand, ScriptContext, ScriptExecution, ScriptPackage, ScriptProfile, ScriptTarget,
-    ScriptWorkspace,
+    CraftScriptContext, ScriptCommand, ScriptPackage, ScriptProfile, ScriptWorkspace,
 };
 use crate::workspace::WorkspaceMember;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnvInput {
-    pub name: String,
-    pub value: Option<String>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptInput {
     pub path: PathBuf,
     pub relative_path: String,
     pub digest: String,
-    pub env_inputs: Vec<EnvInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,25 +66,6 @@ impl ElaborationPlan {
             .count()
     }
 
-    pub fn workspace_env_input_count(&self) -> usize {
-        self.workspace_script
-            .as_ref()
-            .map(|script| script.env_inputs.len())
-            .unwrap_or(0)
-    }
-
-    pub fn package_env_input_count(&self) -> usize {
-        self.packages
-            .iter()
-            .map(|pkg| {
-                pkg.script
-                    .as_ref()
-                    .map(|script| script.env_inputs.len())
-                    .unwrap_or(0)
-            })
-            .sum()
-    }
-
     pub fn package_target_count(&self) -> usize {
         self.packages
             .iter()
@@ -106,7 +79,7 @@ pub fn plan(
     manifest: &Manifest,
     workspace_members: &[WorkspaceMember],
     has_workspace: bool,
-    command: ScriptCommand,
+    _command: ScriptCommand,
     feature_selection: &FeatureSelection,
 ) -> Result<ElaborationPlan> {
     let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
@@ -115,41 +88,18 @@ pub fn plan(
     } else {
         None
     };
-    let workspace_env = declared_env_map(manifest_path, manifest.craft_env_names())?;
-    let host = script::host_target();
-    let target = host.clone();
-
     let mut packages = Vec::new();
     if manifest.package.is_some() {
         let features = selected_features(manifest_path, manifest, feature_selection)?;
+        let profile = script::manifest_profile(manifest, feature_selection.profile);
         let mut plan = PackagePlan::from_manifest(
             manifest_path,
             &root_package_id(manifest_path, manifest)?,
             manifest,
         )?;
-        let package_ctx = script_context(
-            &plan,
-            workspace_root,
-            has_workspace,
-            command,
-            ScriptContextInputs {
-                host: host.clone(),
-                target: target.clone(),
-                profile: script::manifest_profile(manifest, feature_selection.profile),
-                features,
-                env: declared_env_map(manifest_path, manifest.craft_env_names())?,
-            },
-        );
+        let package_ctx = craft_script_context(&plan, workspace_root, has_workspace);
         if let Some(workspace_script) = &mut workspace_script {
-            let execution = script::apply_craft_script(
-                &workspace_script.path,
-                &mut plan,
-                &ScriptContext {
-                    env: workspace_env.clone(),
-                    ..package_ctx.clone()
-                },
-            )?;
-            merge_script_env_inputs(&mut workspace_script.env_inputs, execution);
+            script::apply_craft_script(&workspace_script.path, &mut plan, &package_ctx)?;
         }
         let script = if has_workspace {
             None
@@ -158,19 +108,14 @@ pub fn plan(
         };
         let mut script = script;
         if let Some(script) = &mut script {
-            let execution = script::apply_craft_script(&script.path, &mut plan, &package_ctx)?;
-            script.env_inputs = execution
-                .env_inputs
-                .into_iter()
-                .map(into_env_input)
-                .collect();
+            script::apply_craft_script(&script.path, &mut plan, &package_ctx)?;
         }
         packages.push(PackageElaboration {
             package_id: plan.package_id.clone(),
             plan,
             script,
-            selected_features: package_ctx.features.clone(),
-            profile: package_ctx.profile.clone(),
+            selected_features: features,
+            profile,
         });
     }
 
@@ -181,50 +126,26 @@ pub fn plan(
             .unwrap_or_else(|| Path::new("."));
         let features =
             selected_features(&member.manifest_path, &member.manifest, feature_selection)?;
+        let profile = script::manifest_profile(&member.manifest, feature_selection.profile);
         let mut plan = PackagePlan::from_manifest(
             &member.manifest_path,
             &member_package_id(member, workspace_root)?,
             &member.manifest,
         )?;
-        let package_ctx = script_context(
-            &plan,
-            workspace_root,
-            has_workspace,
-            command,
-            ScriptContextInputs {
-                host: host.clone(),
-                target: target.clone(),
-                profile: script::manifest_profile(&member.manifest, feature_selection.profile),
-                features,
-                env: declared_env_map(&member.manifest_path, member.manifest.craft_env_names())?,
-            },
-        );
+        let package_ctx = craft_script_context(&plan, workspace_root, has_workspace);
         if let Some(workspace_script) = &mut workspace_script {
-            let execution = script::apply_craft_script(
-                &workspace_script.path,
-                &mut plan,
-                &ScriptContext {
-                    env: workspace_env.clone(),
-                    ..package_ctx.clone()
-                },
-            )?;
-            merge_script_env_inputs(&mut workspace_script.env_inputs, execution);
+            script::apply_craft_script(&workspace_script.path, &mut plan, &package_ctx)?;
         }
         let mut script = discover_script(workspace_root, package_root)?;
         if let Some(script) = &mut script {
-            let execution = script::apply_craft_script(&script.path, &mut plan, &package_ctx)?;
-            script.env_inputs = execution
-                .env_inputs
-                .into_iter()
-                .map(into_env_input)
-                .collect();
+            script::apply_craft_script(&script.path, &mut plan, &package_ctx)?;
         }
         packages.push(PackageElaboration {
             package_id: plan.package_id.clone(),
             plan,
             script,
-            selected_features: package_ctx.features.clone(),
-            profile: package_ctx.profile.clone(),
+            selected_features: features,
+            profile,
         });
     }
 
@@ -294,32 +215,8 @@ fn discover_script(workspace_root: &Path, package_root: &Path) -> Result<Option<
     Ok(Some(ScriptInput {
         relative_path: relative_display(workspace_root, &path),
         digest: digest_file(&path)?,
-        env_inputs: Vec::new(),
         path,
     }))
-}
-
-fn declared_env_map(
-    env_names_path: &Path,
-    env_names: &[String],
-) -> Result<BTreeMap<String, Option<String>>> {
-    let mut inputs = BTreeMap::new();
-    for name in env_names {
-        let value = match std::env::var(name) {
-            Ok(value) => Some(value),
-            Err(std::env::VarError::NotPresent) => None,
-            Err(std::env::VarError::NotUnicode(_)) => {
-                return Err(Error::Validation {
-                    path: env_names_path.to_path_buf(),
-                    message: format!(
-                        "[craft].env `{name}` produced a non-UTF-8 value, which `craft.rn` does not accept"
-                    ),
-                });
-            }
-        };
-        inputs.insert(name.clone(), value);
-    }
-    Ok(inputs)
 }
 
 fn selected_features(
@@ -367,26 +264,16 @@ fn selected_features(
     Ok(enabled)
 }
 
-struct ScriptContextInputs {
-    host: ScriptTarget,
-    target: ScriptTarget,
-    profile: ScriptProfile,
-    features: BTreeSet<String>,
-    env: BTreeMap<String, Option<String>>,
-}
-
-fn script_context(
+fn craft_script_context(
     plan: &PackagePlan,
     workspace_root: &Path,
     has_workspace: bool,
-    command: ScriptCommand,
-    inputs: ScriptContextInputs,
-) -> ScriptContext {
+) -> CraftScriptContext {
     let package_root = plan
         .manifest_path
         .parent()
         .unwrap_or_else(|| Path::new("."));
-    ScriptContext {
+    CraftScriptContext {
         package: ScriptPackage {
             name: plan.package_id.name.clone(),
             version: plan.package_id.version.clone(),
@@ -397,28 +284,6 @@ fn script_context(
             root: relative_display(workspace_root, workspace_root),
             has_workspace,
         },
-        host: inputs.host,
-        target: inputs.target,
-        profile: inputs.profile,
-        command,
-        features: inputs.features,
-        env: inputs.env,
-    }
-}
-
-fn merge_script_env_inputs(into: &mut Vec<EnvInput>, execution: ScriptExecution) {
-    for input in execution.env_inputs {
-        if !into.iter().any(|existing| existing.name == input.name) {
-            into.push(into_env_input(input));
-        }
-    }
-    into.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
-}
-
-fn into_env_input(input: script::ScriptEnvInput) -> EnvInput {
-    EnvInput {
-        name: input.name,
-        value: input.value,
     }
 }
 
@@ -450,7 +315,6 @@ mod tests {
     use super::plan;
     use crate::manifest::Manifest;
     use crate::resolver::ResolvedDependencyTarget;
-    use crate::script::ScriptOs;
     use crate::workspace::load_members;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -463,15 +327,6 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
         fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    fn os_variant_name(os: ScriptOs) -> &'static str {
-        match os {
-            ScriptOs::Unknown => "unknown",
-            ScriptOs::Linux => "linux",
-            ScriptOs::Windows => "windows",
-            ScriptOs::Darwin => "darwin",
-        }
     }
 
     #[test]
@@ -686,15 +541,15 @@ kern = "0.7.0"
     }
 
     #[test]
-    fn craft_script_receives_host_and_target_context() {
-        let root = temp_dir("craft-elaborate-host-target");
+    fn craft_scripts_can_read_package_and_workspace_metadata() {
+        let root = temp_dir("craft-elaborate-metadata");
+        let member_dir = root.join("member");
+        fs::create_dir_all(&member_dir).unwrap();
         fs::write(
             root.join("Craft.toml"),
             r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.7.0"
+[workspace]
+members = ["member"]
 "#,
         )
         .unwrap();
@@ -704,349 +559,51 @@ kern = "0.7.0"
 use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {
-    p.cfg_string("host_arch", p.host.arch);
-    p.define_string("target_arch", p.target.arch);
+    p.define_string("workspace_root", p.workspace.root);
+    if (p.workspace.has_workspace) {
+        p.cfg_bool("has_workspace", true);
+    }
+    p.define_string("package_name", p.package.name);
 }
 "#,
         )
         .unwrap();
-
-        let manifest_path = root.join("Craft.toml");
-        let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &manifest,
-            &[],
-            false,
-            crate::script::ScriptCommand::Check,
-            &super::FeatureSelection::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            elaboration.packages[0].plan.cfg.get("host_arch"),
-            Some(&crate::plan::PlanValue::String(
-                crate::script::host_target().arch.to_string()
-            ))
-        );
-        assert_eq!(
-            elaboration.packages[0].plan.define.get("target_arch"),
-            Some(&crate::plan::PlanValue::String(
-                crate::script::host_target().arch.to_string()
-            ))
-        );
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn pure_enum_equality_checks_work_in_craft_scripts() {
-        let root = temp_dir("craft-elaborate-enum-equality");
-        let os_variant = os_variant_name(crate::script::host_target().os);
         fs::write(
-            root.join("Craft.toml"),
+            member_dir.join("Craft.toml"),
             r#"
 [package]
-name = "demo"
+name = "member"
 version = "0.1.0"
 kern = "0.7.0"
-"#,
-        )
-        .unwrap();
-        fs::write(
-            root.join("craft.rn"),
-            format!(
-                r#"
-use craft.plan;
-
-pub fn craft(p: *mut plan.Plan) void {{
-    if (p.target.os == .{os_variant}) {{
-        p.cfg_bool("target_os_match", true);
-    }}
-
-    if (p.command == .check) {{
-        p.define_bool("check_mode", true);
-    }}
-}}
-"#
-            ),
-        )
-        .unwrap();
-
-        let manifest_path = root.join("Craft.toml");
-        let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &manifest,
-            &[],
-            false,
-            crate::script::ScriptCommand::Check,
-            &super::FeatureSelection::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            elaboration.packages[0].plan.cfg.get("target_os_match"),
-            Some(&crate::plan::PlanValue::Bool(true))
-        );
-        assert_eq!(
-            elaboration.packages[0].plan.define.get("check_mode"),
-            Some(&crate::plan::PlanValue::Bool(true))
-        );
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn records_only_env_inputs_read_by_craft_script() {
-        let root = temp_dir("craft-elaborate-env");
-        let env_name = format!(
-            "KRAFT_TEST_ENV_{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        unsafe { std::env::set_var(&env_name, "enabled") };
-
-        fs::write(
-            root.join("Craft.toml"),
-            format!(
-                r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.7.0"
-
-[craft]
-env = ["{env_name}"]
-"#
-            ),
-        )
-        .unwrap();
-        fs::write(
-            root.join("craft.rn"),
-            format!(
-                r#"
-use craft.plan;
-
-pub fn craft(p: *mut plan.Plan) void {{
-    match (p.env("{env_name}")) {{
-        .{{ Some: value }} => p.define_string("env_value", value),
-        .None => {{}},
-    }}
-}}
-"#
-            ),
-        )
-        .unwrap();
-
-        let manifest_path = root.join("Craft.toml");
-        let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &manifest,
-            &[],
-            false,
-            crate::script::ScriptCommand::Check,
-            &super::FeatureSelection::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            elaboration.packages[0].script.as_ref().unwrap().env_inputs,
-            vec![super::EnvInput {
-                name: env_name.clone(),
-                value: Some("enabled".to_string()),
-            }]
-        );
-        assert_eq!(
-            elaboration.packages[0].plan.define.get("env_value"),
-            Some(&crate::plan::PlanValue::String("enabled".to_string()))
-        );
-
-        unsafe { std::env::remove_var(&env_name) };
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn env_presence_checks_work_with_none_comparisons() {
-        let root = temp_dir("craft-elaborate-env-none-compare");
-        let env_name = format!(
-            "KRAFT_COMPARE_ENV_{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        unsafe { std::env::set_var(&env_name, "enabled") };
-
-        fs::write(
-            root.join("Craft.toml"),
-            format!(
-                r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.7.0"
-
-[craft]
-env = ["{env_name}"]
-"#
-            ),
-        )
-        .unwrap();
-        fs::write(
-            root.join("craft.rn"),
-            format!(
-                r#"
-use craft.plan;
-
-pub fn craft(p: *mut plan.Plan) void {{
-    if (p.env("{env_name}") != plan.EnvValue.None) {{
-        p.cfg_bool("env_present", true);
-    }}
-}}
-"#
-            ),
-        )
-        .unwrap();
-
-        let manifest_path = root.join("Craft.toml");
-        let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &manifest,
-            &[],
-            false,
-            crate::script::ScriptCommand::Check,
-            &super::FeatureSelection::default(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            elaboration.packages[0].plan.cfg.get("env_present"),
-            Some(&crate::plan::PlanValue::Bool(true))
-        );
-
-        unsafe { std::env::remove_var(&env_name) };
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn rejects_env_reads_outside_declared_allowlist() {
-        let root = temp_dir("craft-elaborate-env-undeclared");
-        let env_name = format!(
-            "KRAFT_UNDECLARED_ENV_{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        unsafe { std::env::set_var(&env_name, "enabled") };
-
-        fs::write(
-            root.join("Craft.toml"),
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.7.0"
-"#,
-        )
-        .unwrap();
-        fs::write(
-            root.join("craft.rn"),
-            format!(
-                r#"
-use craft.plan;
-
-pub fn craft(p: *mut plan.Plan) void {{
-    match (p.env("{env_name}")) {{
-        .{{ Some: value }} => p.define_string("env_value", value),
-        .None => {{}},
-    }}
-}}
-"#
-            ),
-        )
-        .unwrap();
-
-        let manifest_path = root.join("Craft.toml");
-        let manifest = Manifest::load(&manifest_path).unwrap();
-        let err = plan(
-            &manifest_path,
-            &manifest,
-            &[],
-            false,
-            crate::script::ScriptCommand::Check,
-            &super::FeatureSelection::default(),
-        )
-        .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("was not declared under `[craft].env`"),
-            "unexpected error: {err}"
-        );
-
-        unsafe { std::env::remove_var(&env_name) };
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn enables_transitive_default_features_for_craft_scripts() {
-        let root = temp_dir("craft-elaborate-features");
-        fs::write(
-            root.join("Craft.toml"),
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.7.0"
-
-[features]
-default = ["tls"]
-tls = ["simd"]
-simd = []
-"#,
-        )
-        .unwrap();
-        fs::write(
-            root.join("craft.rn"),
-            r#"
-use craft.plan;
-
-pub fn craft(p: *mut plan.Plan) void {
-    if (p.feature_enabled("simd")) {
-        p.cfg_bool("simd", true);
-    }
-    if (p.feature_enabled("tls")) {
-        p.define_bool("tls", true);
-    }
-}
 "#,
         )
         .unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
+        let members = load_members(&manifest_path, &manifest).unwrap();
         let elaboration = plan(
             &manifest_path,
             &manifest,
-            &[],
-            false,
+            &members,
+            true,
             crate::script::ScriptCommand::Check,
             &super::FeatureSelection::default(),
         )
         .unwrap();
 
+        let package = &elaboration.packages[0].plan;
         assert_eq!(
-            elaboration.packages[0].plan.cfg.get("simd"),
+            package.cfg.get("has_workspace"),
             Some(&crate::plan::PlanValue::Bool(true))
         );
         assert_eq!(
-            elaboration.packages[0].plan.define.get("tls"),
-            Some(&crate::plan::PlanValue::Bool(true))
+            package.define.get("workspace_root"),
+            Some(&crate::plan::PlanValue::String(String::new()))
+        );
+        assert_eq!(
+            package.define.get("package_name"),
+            Some(&crate::plan::PlanValue::String("member".to_string()))
         );
 
         let _ = fs::remove_dir_all(root);
@@ -1120,14 +677,6 @@ pub fn craft(p: *mut plan.Plan) void {
     p.cfg_bool("simd", true);
     p.define_string("abi", "sysv");
     p.define_string("pkg", p.package.name);
-    match (p.command) {
-        .check => p.define_bool("is_check", true),
-        .lock => {},
-        .fetch => {},
-        .build => {},
-        .run => {},
-        .test => {},
-    }
     p.set_lib_root("src/alt_lib.rn");
     p.add_bin("demo", "src/main.rn");
     p.dep_git(plan.DependencyKind.normal, "log", "https://example.com/corp-log.git");
@@ -1163,10 +712,6 @@ pub fn craft(p: *mut plan.Plan) void {
         assert_eq!(
             package.define.get("pkg"),
             Some(&crate::plan::PlanValue::String("demo".to_string()))
-        );
-        assert_eq!(
-            package.define.get("is_check"),
-            Some(&crate::plan::PlanValue::Bool(true))
         );
         assert!(package.targets.iter().any(|target| {
             target.kind == crate::plan::TargetKind::Lib && target.root == "src/alt_lib.rn"

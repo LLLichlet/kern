@@ -1057,7 +1057,7 @@ root = "src/main.rn"
         ui: UiOptions::default(),
     })
     .unwrap_err();
-    assert!(err.to_string().contains("craft lock --profile release"));
+    assert!(err.to_string().contains("craft lock"));
     assert!(!root.join("Craft.lock").exists());
 
     run_command(Command::Lock {

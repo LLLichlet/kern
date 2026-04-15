@@ -44,7 +44,6 @@ pub struct Package {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CraftConfig {
-    pub env: Vec<String>,
     pub release_source_policy: Option<ReleaseSourcePolicy>,
     pub allow_floating_git: Vec<String>,
     pub allow_insecure_source: Vec<String>,
@@ -166,13 +165,6 @@ impl Manifest {
     pub fn load(path: &Path) -> Result<Self> {
         let source = fs::read_to_string(path).map_err(|err| Error::from_io(path, err))?;
         Self::parse(&source, path)
-    }
-
-    pub fn craft_env_names(&self) -> &[String] {
-        self.craft
-            .as_ref()
-            .map(|craft| craft.env.as_slice())
-            .unwrap_or(&[])
     }
 
     pub fn apply_runtime_options(&self, options: &mut CompileOptions) {

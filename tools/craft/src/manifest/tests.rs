@@ -126,28 +126,6 @@ git = "https://example.com/default.git"
 }
 
 #[test]
-fn rejects_invalid_craft_env_names() {
-    let manifest = Manifest::parse(
-        r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.7.0"
-
-[craft]
-env = ["1BAD-NAME"]
-"#,
-        std::path::Path::new("Craft.toml"),
-    )
-    .unwrap();
-
-    let err = manifest
-        .validate(std::path::Path::new("Craft.toml"))
-        .unwrap_err();
-    assert!(err.to_string().contains("[craft].env[]"));
-}
-
-#[test]
 fn parses_craft_release_source_policy_overrides() {
     let manifest = Manifest::parse(
         r#"

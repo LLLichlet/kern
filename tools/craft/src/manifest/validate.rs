@@ -23,9 +23,6 @@ impl Manifest {
         }
 
         if let Some(craft) = &self.craft {
-            for name in &craft.env {
-                validate_env_name(path, "[craft].env[]", name)?;
-            }
             if let Some(policy) = craft.release_source_policy {
                 let _ = policy;
             }
@@ -331,32 +328,6 @@ fn validate_kern_version(path: &Path, value: &str) -> Result<()> {
             path: path.to_path_buf(),
             message: format!(
                 "[package].kern must match the current toolchain version `{CURRENT_KERN_VERSION}`, found `{value}`"
-            ),
-        });
-    }
-    Ok(())
-}
-
-fn validate_env_name(path: &Path, field: &str, value: &str) -> Result<()> {
-    validate_non_empty(path, field, value)?;
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        return Err(Error::Validation {
-            path: path.to_path_buf(),
-            message: format!("{field} must not be empty"),
-        });
-    };
-    if !(first == '_' || first.is_ascii_alphabetic()) {
-        return Err(Error::Validation {
-            path: path.to_path_buf(),
-            message: format!("{field} must start with an ASCII letter or `_`, found `{value}`"),
-        });
-    }
-    if chars.any(|ch| !(ch == '_' || ch.is_ascii_alphanumeric())) {
-        return Err(Error::Validation {
-            path: path.to_path_buf(),
-            message: format!(
-                "{field} must contain only ASCII letters, digits, or `_`, found `{value}`"
             ),
         });
     }

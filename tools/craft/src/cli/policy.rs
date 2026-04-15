@@ -218,9 +218,8 @@ pub(super) fn validate_publish_lock_status(
 
     Err(Error::Validation {
         path: manifest_path.to_path_buf(),
-        message:
-            "publish requires a current release `Craft.lock`; run `craft lock --profile release` first"
-                .to_string(),
+        message: "publish requires a current canonical `Craft.lock`; run `craft lock` first"
+            .to_string(),
     })
 }
 

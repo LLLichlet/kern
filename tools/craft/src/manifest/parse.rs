@@ -147,7 +147,6 @@ fn assign_key_value(
         Section::Craft => {
             let craft = manifest.craft.get_or_insert_with(CraftConfig::default);
             match key {
-                "env" => craft.env = parse_string_array(raw_value)?,
                 "release-source-policy" => {
                     craft.release_source_policy = Some(parse_release_source_policy(raw_value)?)
                 }

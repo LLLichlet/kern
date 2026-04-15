@@ -205,16 +205,9 @@ root = \"src/main.rn\"
 }
 
 #[test]
-fn resolve_analysis_applies_craft_cfg_and_define_values() {
+fn resolve_analysis_applies_build_cfg_and_define_values() {
     let root = unique_temp_dir("analysis_craft_cfg_define");
     fs::create_dir_all(root.join("src")).unwrap();
-    let env_name = format!(
-        "KERN_LSP_ANALYSIS_{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
 
     fs::write(
         root.join("Craft.toml"),
@@ -228,9 +221,6 @@ kern = \"{CURRENT_KERN_VERSION}\"
 [features]
 experimental = []
 
-[craft]
-env = [\"{env_name}\"]
-
 [[bin]]
 name = \"my_app\"
 root = \"src/main.rn\"
@@ -239,23 +229,17 @@ root = \"src/main.rn\"
     )
     .unwrap();
     fs::write(
-        root.join("craft.rn"),
-        format!(
+        root.join("build.rn"),
             "\
-use craft.plan;
+use craft.builder;
 
-pub fn craft(p: *mut plan.Plan) void {{
-    if (p.feature_enabled(\"experimental\")) {{
-        p.cfg_bool(\"enable_telemetry\", true);
-        p.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
-    }}
-
-    if (p.env(\"{env_name}\") != plan.EnvValue.None) {{
-        p.cfg_bool(\"is_dev_env\", true);
+pub fn build(b: *mut builder.Builder) void {{
+    if (b.feature_enabled(\"experimental\")) {{
+        b.cfg_bool(\"enable_telemetry\", true);
+        b.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
     }}
 }}
 "
-        ),
     )
     .unwrap();
     fs::write(
@@ -268,13 +252,7 @@ fn init_telemetry() void {
     io.println(\"[Telemetry] Enabled\", .{});
 }
 
-#[if(is_dev_env)]
-fn print_env_mode() void {
-    io.println(\"[Mode] Development\", .{});
-}
-
 fn main() i32 {
-    print_env_mode();
     init_telemetry();
     let _ = GREETING_MSG;
     return 0;
@@ -294,31 +272,21 @@ fn main() i32 {
     let uri = file_path_to_uri(&root.join("src/main.rn")).unwrap();
     let source = fs::read_to_string(root.join("src/main.rn")).unwrap();
 
-    let outcome = with_env_var(&env_name, "1", || {
-        analysis.open_document(DidOpenTextDocumentParams {
-            text_document: TextDocumentItem {
-                uri: uri.clone(),
-                _language_id: "kern".to_string(),
-                version: 1,
-                text: source,
-            },
-        })
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
     });
-    let resolved = with_env_var(&env_name, "1", || analysis.resolve_analysis(&uri)).unwrap();
+    let resolved = analysis.resolve_analysis(&uri).unwrap();
 
     assert_eq!(
         resolved
             .compile_options
             .custom_defines
             .get("enable_telemetry")
-            .map(String::as_str),
-        Some("true")
-    );
-    assert_eq!(
-        resolved
-            .compile_options
-            .custom_defines
-            .get("is_dev_env")
             .map(String::as_str),
         Some("true")
     );
@@ -347,13 +315,6 @@ fn main() i32 {
 fn resolve_analysis_uses_persisted_craft_analysis_context_by_default() {
     let root = unique_temp_dir("analysis_persisted_craft_ctx");
     fs::create_dir_all(root.join("src")).unwrap();
-    let env_name = format!(
-        "KERN_LSP_PERSISTED_{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
 
     fs::write(
         root.join("Craft.toml"),
@@ -367,9 +328,6 @@ kern = \"{CURRENT_KERN_VERSION}\"
 [features]
 experimental = []
 
-[craft]
-env = [\"{env_name}\"]
-
 [[bin]]
 name = \"my_app\"
 root = \"src/main.rn\"
@@ -378,23 +336,17 @@ root = \"src/main.rn\"
     )
     .unwrap();
     fs::write(
-        root.join("craft.rn"),
-        format!(
+        root.join("build.rn"),
             "\
-use craft.plan;
+use craft.builder;
 
-pub fn craft(p: *mut plan.Plan) void {{
-    if (p.feature_enabled(\"experimental\")) {{
-        p.cfg_bool(\"enable_telemetry\", true);
-        p.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
-    }}
-
-    if (p.env(\"{env_name}\") != plan.EnvValue.None) {{
-        p.cfg_bool(\"is_dev_env\", true);
+pub fn build(b: *mut builder.Builder) void {{
+    if (b.feature_enabled(\"experimental\")) {{
+        b.cfg_bool(\"enable_telemetry\", true);
+        b.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
     }}
 }}
 "
-        ),
     )
     .unwrap();
     fs::write(
@@ -412,17 +364,7 @@ fn init_telemetry() void {
     io.println(\"[Telemetry] Disabled\", .{});
 }
 
-#[if(is_dev_env)]
-fn print_env_mode() void {
-    io.println(\"[Mode] Development\", .{});
-}
-
-#[if(!is_dev_env)]
-fn print_env_mode() void {
-}
-
 fn main() i32 {
-    print_env_mode();
     init_telemetry();
     let _ = GREETING_MSG;
     return 0;
@@ -431,14 +373,12 @@ fn main() i32 {
     )
     .unwrap();
 
-    with_env_var(&env_name, "1", || {
-        analysis_context::sync_project_analysis_context(
-            &root.join("Craft.toml"),
-            true,
-            &[String::from("experimental")],
-        )
-        .unwrap()
-    });
+    analysis_context::sync_project_analysis_context(
+        &root.join("Craft.toml"),
+        true,
+        &[String::from("experimental")],
+    )
+    .unwrap();
 
     let mut analysis = AnalysisEngine::default();
     let uri = file_path_to_uri(&root.join("src/main.rn")).unwrap();
@@ -459,14 +399,6 @@ fn main() i32 {
             .compile_options
             .custom_defines
             .get("enable_telemetry")
-            .map(String::as_str),
-        Some("true")
-    );
-    assert_eq!(
-        resolved
-            .compile_options
-            .custom_defines
-            .get("is_dev_env")
             .map(String::as_str),
         Some("true")
     );

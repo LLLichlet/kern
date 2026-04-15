@@ -185,8 +185,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn check_all(&mut self) {
-        let defs_clone = self.ctx.defs.clone();
-        let (globals, body_worklist) = self.collect_worklists_from_defs(&defs_clone);
+        let (globals, body_worklist) = self.worklists();
 
         let mut changed = true;
         let mut max_iters = 100; // Prevent real dependency cycles from looping forever.
@@ -278,7 +277,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn worklists(&self) -> (Vec<(DefId, ScopeId)>, Vec<BodyWorkItem>) {
-        self.collect_worklists_from_defs(&self.ctx.defs)
+        self.collect_worklists()
     }
 
     pub fn global_worklist(&self) -> Vec<(DefId, ScopeId)> {
@@ -390,20 +389,17 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         init_ty
     }
 
-    fn collect_worklists_from_defs(
-        &self,
-        defs: &[Def],
-    ) -> (Vec<(DefId, ScopeId)>, Vec<BodyWorkItem>) {
+    fn collect_worklists(&self) -> (Vec<(DefId, ScopeId)>, Vec<BodyWorkItem>) {
         let mut globals = Vec::new();
         let mut bodies = Vec::new();
 
-        for def in defs {
+        for def in &self.ctx.defs {
             let Def::Module(module) = def else {
                 continue;
             };
 
             for item_id in &module.items {
-                if matches!(defs[item_id.0 as usize], Def::Global(_)) {
+                if matches!(self.ctx.defs[item_id.0 as usize], Def::Global(_)) {
                     globals.push((*item_id, module.scope_id));
                 } else {
                     bodies.push((*item_id, module.scope_id));

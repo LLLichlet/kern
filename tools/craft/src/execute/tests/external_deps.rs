@@ -176,6 +176,7 @@ kern = "0.7.0"
 [profile.release]
 opt = 3
 codegen-units = 2
+lto = "thin"
 
 [lib]
 root = "src/lib.rn"
@@ -199,6 +200,7 @@ kern = "0.7.0"
 [profile.release]
 opt = 3
 codegen-units = 2
+lto = "thin"
 
 [[bin]]
 name = "app"
@@ -293,6 +295,7 @@ kern = "0.7.0"
 [profile.release]
 opt = 3
 codegen-units = 2
+lto = "thin"
 
 [lib]
 root = "src/lib.rn"
@@ -316,6 +319,7 @@ kern = "0.7.0"
 [profile.release]
 opt = 3
 codegen-units = 2
+lto = "thin"
 
 [[bin]]
 name = "app"

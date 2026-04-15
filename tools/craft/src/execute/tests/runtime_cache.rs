@@ -219,7 +219,10 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
     };
 
     let summary = super::runtime_packages::with_test_runtime_cache_root(cache_root.clone(), || {
-        build_release_hello_workspace(&root, "[profile.release]\nopt = 3\ncodegen-units = 2")
+        build_release_hello_workspace(
+            &root,
+            "[profile.release]\nopt = 3\ncodegen-units = 2\nlto = \"thin\"",
+        )
     });
 
     assert_eq!(summary.compile_actions, 1);

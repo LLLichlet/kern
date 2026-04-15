@@ -267,11 +267,9 @@ fn default_profile_codegen_units(
     }
 }
 
-fn default_profile_lto_mode(selection: ProfileSelection, opt: u8) -> LtoMode {
+fn default_profile_lto_mode(selection: ProfileSelection, _opt: u8) -> LtoMode {
     match selection {
-        ProfileSelection::Dev => LtoMode::None,
-        ProfileSelection::Release if opt >= 2 => LtoMode::Thin,
-        ProfileSelection::Release => LtoMode::None,
+        ProfileSelection::Dev | ProfileSelection::Release => LtoMode::None,
     }
 }
 
@@ -875,14 +873,14 @@ mod tests {
     }
 
     #[test]
-    fn release_profile_defaults_to_thin_lto_for_optimized_builds() {
+    fn release_profile_defaults_to_no_lto_even_for_optimized_builds() {
         assert_eq!(
             default_profile_lto_mode(ProfileSelection::Release, 2),
-            LtoMode::Thin
+            LtoMode::None
         );
         assert_eq!(
             default_profile_lto_mode(ProfileSelection::Release, 3),
-            LtoMode::Thin
+            LtoMode::None
         );
     }
 

@@ -213,7 +213,6 @@ debug = true
 [profile.release]
 opt = 3
 debug = false
-lto = "thin"
 ```
 
 Manifest rules:
@@ -234,6 +233,7 @@ Manifest rules:
 - features are additive
 - profile behavior is deterministic
 - profile optimization policy is explicit: `opt`, `debug`, `codegen-units`, and `lto` are separate knobs
+- default `release` keeps LTO off unless the manifest opts in explicitly
 - target-domain `lto = "thin"` keeps compile actions in ThinLTO linker-input form until the final link step, so cross-package optimization is preserved instead of being collapsed inside each package
 - declarative package-graph structure belongs in `Craft.toml` plus lock-stable `craft.rn`
 - invocation-sensitive adaptation belongs in `build.rn`

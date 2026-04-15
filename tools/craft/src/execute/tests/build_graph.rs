@@ -866,6 +866,7 @@ kern = "0.7.0"
 
 [profile.release]
 codegen-units = 2
+lto = "thin"
 
 [[bin]]
 name = "app"
@@ -896,6 +897,7 @@ kern = "0.7.0"
 
 [profile.release]
 codegen-units = 2
+lto = "thin"
 
 [lib]
 root = "src/lib.rn"

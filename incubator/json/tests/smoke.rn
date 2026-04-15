@@ -238,11 +238,11 @@ fn check_empty_cursor_exhaustion() void {
 }
 
 fn check_packed_document_lookup_helpers() void {
-    let mut doc = test.expect_ok(
+    let doc = test.expect_ok(
         parse_packed_document("{\"ok\":true,\"user\":{\"id\":7,\"name\":\"kern\"},\"items\":[{\"sku\":\"abc\",\"qty\":1,\"price\":12.5},{\"sku\":\"xyz\",\"qty\":4,\"price\":5.75}],\"dup\":1,\"dup\":2,\"flt\":1.5}")
-    );
-    defer doc..&.deinit();
-    let root = doc.&.root();
+    )..&;
+    defer doc.deinit();
+    let root = doc.root();
 
     test.assert(root.is_object(), "expected packed root object", .{});
     test.eq(test.expect_some(root.object_len()), usize.{6});
@@ -298,16 +298,16 @@ fn check_packed_document_lookup_helpers() void {
 }
 
 fn check_packed_indexed_object_document_api() void {
-    let mut doc = test.expect_ok(
+    let doc = test.expect_ok(
         parse_packed_indexed_object_document("{\"ok\":true,\"user\":{\"id\":7,\"name\":\"kern\"},\"items\":[{\"sku\":\"abc\",\"qty\":1,\"price\":12.5},{\"sku\":\"xyz\",\"qty\":4,\"price\":5.75}],\"dup\":1,\"dup\":2,\"flt\":1.5}")
-    );
-    defer doc..&.deinit();
+    )..&;
+    defer doc.deinit();
 
-    let root = doc.&.root();
+    let root = doc.root();
     test.assert(root.is_object(), "expected packed indexed root object", .{});
     test.eq(test.expect_some(root.object_len()), usize.{6});
 
-    let view = doc.&.view();
+    let view = doc.view();
     test.eq(view.len(), usize.{6});
     test.assert(!view.is_empty(), "expected packed indexed view non-empty", .{});
     test.eq(test.expect_some(view.get_bool("ok")), true);
@@ -1104,74 +1104,74 @@ fn check_indexed_object_view() void {
     let value = test.expect_ok(parse("{\"a\":1,\"dup\":1,\"dup\":2,\"msg\":\"hi\",\"flag\":true}"));
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let mut owned = test.expect_ok(value.clone_owned(gpa));
-    defer owned..&.deinit(gpa);
+    let owned = test.expect_ok(value.clone_owned(gpa))..&;
+    defer owned.deinit(gpa);
 
-    let mut view = test.expect_some(test.expect_ok(owned..&.build_indexed_object_view(gpa)));
-    defer view..&.deinit(gpa);
+    let view = test.expect_some(test.expect_ok(owned.build_indexed_object_view(gpa)))..&;
+    defer view.deinit(gpa);
 
-    test.eq(view.&.len(), usize.{5});
-    test.assert(!view.&.is_empty(), "expected indexed object view to report non-empty", .{});
-    test.assert(view.&.has_field("msg"), "expected indexed lookup hit", .{});
-    test.assert(!view.&.has_field("missing"), "expected indexed lookup miss", .{});
-    test.eq(test.expect_some(view.&.get_bool("flag")), true);
+    test.eq(view.len(), usize.{5});
+    test.assert(!view.is_empty(), "expected indexed object view to report non-empty", .{});
+    test.assert(view.has_field("msg"), "expected indexed lookup hit", .{});
+    test.assert(!view.has_field("missing"), "expected indexed lookup miss", .{});
+    test.eq(test.expect_some(view.get_bool("flag")), true);
     test.assert(
-        test.expect_some(view.&.get_string("msg")).eq("hi"),
+        test.expect_some(view.get_string("msg")).eq("hi"),
         "expected indexed string convenience helper",
         .{}
     );
     test.assert(
-        view.&.get_array("msg").is_none(),
+        view.get_array("msg").is_none(),
         "expected indexed optional array helper none for wrong kind",
         .{}
     );
     test.assert(
-        test.expect_some(view.&.get_number_text("a")).eq("1"),
+        test.expect_some(view.get_number_text("a")).eq("1"),
         "expected indexed number-text convenience helper",
         .{}
     );
-    test.eq(test.expect_some(test.expect_ok(view.&.get_u64("a"))), u64.{1});
-    test.eq(test.expect_some(test.expect_ok(view.&.get_i32("dup"))), i32.{1});
-    test.eq(test.expect_some(test.expect_ok(view.&.get_f64("a"))), 1.0);
+    test.eq(test.expect_some(test.expect_ok(view.get_u64("a"))), u64.{1});
+    test.eq(test.expect_some(test.expect_ok(view.get_i32("dup"))), i32.{1});
+    test.eq(test.expect_some(test.expect_ok(view.get_f64("a"))), 1.0);
     test.assert(
-        test.expect_ok(view.&.get_u64("msg")).is_none(),
+        test.expect_ok(view.get_u64("msg")).is_none(),
         "expected indexed typed accessor none for wrong field kind",
         .{}
     );
 
-    let dup = test.expect_some(view.&.get_field("dup"));
+    let dup = test.expect_some(view.get_field("dup"));
     test.eq(test.expect_some(test.expect_ok(dup.u64_value())), u64.{1});
-    let second = test.expect_some(view.&.get_entry(usize.{1}));
+    let second = test.expect_some(view.get_entry(usize.{1}));
     test.eq(test.expect_some(test.expect_ok(second.u64_value())), u64.{1});
-    test.eq(view.&.count_fields("dup"), usize.{2});
-    let last_dup = test.expect_some(view.&.get_last_field("dup"));
+    test.eq(view.count_fields("dup"), usize.{2});
+    let last_dup = test.expect_some(view.get_last_field("dup"));
     test.eq(test.expect_some(test.expect_ok(last_dup.u64_value())), u64.{2});
     let collected = [1]mut json.OwnedObjectEntry.{ undef };
-    let total = view.&.collect_fields("dup", collected..[0 .. 1]);
+    let total = view.collect_fields("dup", collected..[0 .. 1]);
     test.eq(total, usize.{2});
     test.eq(test.expect_some(test.expect_ok(collected.[0].u64_value())), u64.{1});
 
     let scalar = test.expect_ok(parse("true"));
-    let mut scalar_owned = test.expect_ok(scalar.clone_owned(gpa));
-    defer scalar_owned..&.deinit(gpa);
+    let scalar_owned = test.expect_ok(scalar.clone_owned(gpa))..&;
+    defer scalar_owned.deinit(gpa);
     test.assert(
-        test.expect_ok(scalar_owned..&.build_indexed_object_view(gpa)).is_none(),
+        test.expect_ok(scalar_owned.build_indexed_object_view(gpa)).is_none(),
         "expected non-object indexed view request to return none",
         .{}
     );
 
     let nested_value = test.expect_ok(parse("{\"items\":[1],\"nested\":{\"ok\":false}}"));
-    let mut nested_owned = test.expect_ok(nested_value.clone_owned(gpa));
-    defer nested_owned..&.deinit(gpa);
+    let nested_owned = test.expect_ok(nested_value.clone_owned(gpa))..&;
+    defer nested_owned.deinit(gpa);
     test.assert(
-        test.expect_some(nested_owned..&.get_array("items")).is_array(),
+        test.expect_some(nested_owned.get_array("items")).is_array(),
         "expected owned optional array helper on nested object",
         .{}
     );
-    let mut nested_view = test.expect_some(test.expect_ok(nested_owned..&.build_indexed_object_view(gpa)));
-    defer nested_view..&.deinit(gpa);
+    let nested_view = test.expect_some(test.expect_ok(nested_owned.build_indexed_object_view(gpa)))..&;
+    defer nested_view.deinit(gpa);
     test.assert(
-        test.expect_some(nested_view.&.get_object("nested")).is_object(),
+        test.expect_some(nested_view.get_object("nested")).is_object(),
         "expected indexed optional object helper",
         .{}
     );
@@ -1180,12 +1180,12 @@ fn check_indexed_object_view() void {
 fn check_indexed_object_view_with_arena_reset() void {
     let value = test.expect_ok(parse("{\"a\":1,\"dup\":1,\"dup\":2,\"msg\":\"hi\",\"flag\":true}"));
     let page = Page.{}..&;
-    let mut arena = Arena.{ backing: page };
-    defer arena..&.deinit();
+    let arena = Arena.{ backing: page }..&;
+    defer arena.deinit();
 
     for (let mut round = usize.{0}; round < usize.{2}; round += 1) {
-        let mut owned = test.expect_ok(value.clone_owned(arena..&));
-        let view = test.expect_some(test.expect_ok(owned..&.build_indexed_object_view(arena..&)));
+        let owned = test.expect_ok(value.clone_owned(arena))..&;
+        let view = test.expect_some(test.expect_ok(owned.build_indexed_object_view(arena)));
         test.eq(view.&.len(), usize.{5});
         test.eq(test.expect_some(view.&.get_bool("flag")), true);
         test.assert(
@@ -1195,7 +1195,7 @@ fn check_indexed_object_view_with_arena_reset() void {
         );
         test.eq(view.&.count_fields("dup"), usize.{2});
         test.eq(test.expect_some(test.expect_ok(test.expect_some(view.&.get_field("a")).u64_value())), u64.{1});
-        arena..&.reset();
+        arena.reset();
     }
 }
 
@@ -1330,34 +1330,34 @@ fn check_indexed_object_document_nested_lookup() void {
 
 fn check_arena_mark_rewind_with_json_materialization() void {
     let page = Page.{}..&;
-    let mut arena = Arena.{ backing: page };
-    defer arena..&.deinit();
+    let arena = Arena.{ backing: page }..&;
+    defer arena.deinit();
 
-    let baseline = arena..&.mark();
+    let baseline = arena.mark();
     let value1 = test.expect_ok(parse("{\"flag\":true}"));
-    let mut owned1 = test.expect_ok(value1.clone_owned(arena..&));
-    test.eq(test.expect_some(owned1..&.get_bool("flag")), true);
+    let owned1 = test.expect_ok(value1.clone_owned(arena))..&;
+    test.eq(test.expect_some(owned1.get_bool("flag")), true);
 
-    let scratch = arena..&.mark();
+    let scratch = arena.mark();
     let value2 = test.expect_ok(parse("{\"msg\":\"hi\",\"items\":[1]}"));
-    let mut owned2 = test.expect_ok(value2.clone_owned(arena..&));
+    let owned2 = test.expect_ok(value2.clone_owned(arena))..&;
     test.assert(
-        test.expect_some(owned2..&.get_string("msg")).eq("hi"),
+        test.expect_some(owned2.get_string("msg")).eq("hi"),
         "expected arena scratch materialization before rewind",
         .{}
     );
-    test.assert(arena..&.rewind(scratch), "expected arena rewind to latest scratch mark", .{});
-    test.assert(!arena..&.rewind(scratch), "expected rewind mark invalidation after rewind", .{});
+    test.assert(arena.rewind(scratch), "expected arena rewind to latest scratch mark", .{});
+    test.assert(!arena.rewind(scratch), "expected rewind mark invalidation after rewind", .{});
 
-    let fresh = arena..&.mark();
-    let mut owned3 = test.expect_ok(value2.clone_owned(arena..&));
+    let fresh = arena.mark();
+    let owned3 = test.expect_ok(value2.clone_owned(arena))..&;
     test.assert(
-        test.expect_some(owned3..&.get_array("items")).is_array(),
+        test.expect_some(owned3.get_array("items")).is_array(),
         "expected materialization after rewind to reuse arena",
         .{}
     );
-    test.assert(arena..&.rewind(fresh), "expected rewind from fresh mark", .{});
-    test.assert(!arena..&.rewind(baseline), "expected older generation mark invalid after rewind", .{});
+    test.assert(arena.rewind(fresh), "expected rewind from fresh mark", .{});
+    test.assert(!arena.rewind(baseline), "expected older generation mark invalid after rewind", .{});
 }
 
 fn check_required_field_decode_helpers() void {
@@ -1366,66 +1366,66 @@ fn check_required_field_decode_helpers() void {
     );
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let mut owned = test.expect_ok(value.clone_owned(gpa));
-    defer owned..&.deinit(gpa);
+    let owned = test.expect_ok(value.clone_owned(gpa))..&;
+    defer owned.deinit(gpa);
 
-    test.eq(test.expect_ok(owned..&.require_bool("flag")), true);
-    test.eq(test.expect_ok(owned..&.require_u64("count")), u64.{12});
-    test.eq(test.expect_ok(owned..&.require_u32("count")), u32.{12});
-    test.eq(test.expect_ok(owned..&.require_u16("count")), u16.{12});
-    test.eq(test.expect_ok(owned..&.require_u8("count")), u8.{12});
-    test.eq(test.expect_ok(owned..&.require_i64("count")), i64.{12});
-    test.eq(test.expect_ok(owned..&.require_i32("count")), i32.{12});
-    test.eq(test.expect_ok(owned..&.require_i16("count")), i16.{12});
-    test.eq(test.expect_ok(owned..&.require_i8("count")), i8.{12});
-    test.eq(test.expect_ok(owned..&.require_usize("count")), usize.{12});
-    test.eq(test.expect_ok(owned..&.require_isize("count")), isize.{12});
-    test.eq(test.expect_ok(owned..&.require_f64("flt")), 1.5);
-    test.eq(test.expect_ok(owned..&.require_f32("flt")), f32.{1.5});
-    test.assert(test.expect_ok(owned..&.require_string("msg")).eq("hi"), "expected required string helper", .{});
-    test.assert(test.expect_ok(owned..&.require_object("nested")).is_object(), "expected required object helper", .{});
-    test.assert(test.expect_ok(owned..&.require_array("items")).is_array(), "expected required array helper", .{});
+    test.eq(test.expect_ok(owned.require_bool("flag")), true);
+    test.eq(test.expect_ok(owned.require_u64("count")), u64.{12});
+    test.eq(test.expect_ok(owned.require_u32("count")), u32.{12});
+    test.eq(test.expect_ok(owned.require_u16("count")), u16.{12});
+    test.eq(test.expect_ok(owned.require_u8("count")), u8.{12});
+    test.eq(test.expect_ok(owned.require_i64("count")), i64.{12});
+    test.eq(test.expect_ok(owned.require_i32("count")), i32.{12});
+    test.eq(test.expect_ok(owned.require_i16("count")), i16.{12});
+    test.eq(test.expect_ok(owned.require_i8("count")), i8.{12});
+    test.eq(test.expect_ok(owned.require_usize("count")), usize.{12});
+    test.eq(test.expect_ok(owned.require_isize("count")), isize.{12});
+    test.eq(test.expect_ok(owned.require_f64("flt")), 1.5);
+    test.eq(test.expect_ok(owned.require_f32("flt")), f32.{1.5});
+    test.assert(test.expect_ok(owned.require_string("msg")).eq("hi"), "expected required string helper", .{});
+    test.assert(test.expect_ok(owned.require_object("nested")).is_object(), "expected required object helper", .{});
+    test.assert(test.expect_ok(owned.require_array("items")).is_array(), "expected required array helper", .{});
 
-    match (test.expect_err(owned..&.require_u64("missing"))) {
+    match (test.expect_err(owned.require_u64("missing"))) {
         .Missing => {},
         _ => test.fail("expected required missing-field error", .{}),
     }
-    match (test.expect_err(owned..&.require_bool("dup"))) {
+    match (test.expect_err(owned.require_bool("dup"))) {
         .{ Duplicate: count } => test.eq(count, usize.{2}),
         _ => test.fail("expected required duplicate-field error", .{}),
     }
-    match (test.expect_err(owned..&.require_bool("msg"))) {
+    match (test.expect_err(owned.require_bool("msg"))) {
         .{ UnexpectedKind: kind } => test.eq(kind, Kind.String),
         _ => test.fail("expected required wrong-kind error", .{}),
     }
-    match (test.expect_err(owned..&.require_u64("flt"))) {
+    match (test.expect_err(owned.require_u64("flt"))) {
         .{ Number: .NotInteger } => {},
         _ => test.fail("expected required numeric decode error", .{}),
     }
 
-    let mut view = test.expect_some(test.expect_ok(owned..&.build_indexed_object_view(gpa)));
-    defer view..&.deinit(gpa);
-    test.eq(test.expect_ok(view.&.require_u64("count")), u64.{12});
-    test.eq(test.expect_ok(view.&.require_u32("count")), u32.{12});
-    test.eq(test.expect_ok(view.&.require_u16("count")), u16.{12});
-    test.eq(test.expect_ok(view.&.require_u8("count")), u8.{12});
-    test.eq(test.expect_ok(view.&.require_i64("count")), i64.{12});
-    test.eq(test.expect_ok(view.&.require_i32("count")), i32.{12});
-    test.eq(test.expect_ok(view.&.require_i16("count")), i16.{12});
-    test.eq(test.expect_ok(view.&.require_i8("count")), i8.{12});
-    test.eq(test.expect_ok(view.&.require_usize("count")), usize.{12});
-    test.eq(test.expect_ok(view.&.require_isize("count")), isize.{12});
-    test.eq(test.expect_ok(view.&.require_f64("flt")), 1.5);
-    test.eq(test.expect_ok(view.&.require_f32("flt")), f32.{1.5});
-    match (test.expect_err(view.&.require_u64("dup"))) {
+    let view = test.expect_some(test.expect_ok(owned.build_indexed_object_view(gpa)))..&;
+    defer view.deinit(gpa);
+    test.eq(test.expect_ok(view.require_u64("count")), u64.{12});
+    test.eq(test.expect_ok(view.require_u32("count")), u32.{12});
+    test.eq(test.expect_ok(view.require_u16("count")), u16.{12});
+    test.eq(test.expect_ok(view.require_u8("count")), u8.{12});
+    test.eq(test.expect_ok(view.require_i64("count")), i64.{12});
+    test.eq(test.expect_ok(view.require_i32("count")), i32.{12});
+    test.eq(test.expect_ok(view.require_i16("count")), i16.{12});
+    test.eq(test.expect_ok(view.require_i8("count")), i8.{12});
+    test.eq(test.expect_ok(view.require_usize("count")), usize.{12});
+    test.eq(test.expect_ok(view.require_isize("count")), isize.{12});
+    test.eq(test.expect_ok(view.require_f64("flt")), 1.5);
+    test.eq(test.expect_ok(view.require_f32("flt")), f32.{1.5});
+    match (test.expect_err(view.require_u64("dup"))) {
         .{ Duplicate: count } => test.eq(count, usize.{2}),
         _ => test.fail("expected indexed required duplicate-field error", .{}),
     }
 
     let scalar = test.expect_ok(parse("true"));
-    let mut scalar_owned = test.expect_ok(scalar.clone_owned(gpa));
-    defer scalar_owned..&.deinit(gpa);
-    match (test.expect_err(scalar_owned..&.require_bool("flag"))) {
+    let scalar_owned = test.expect_ok(scalar.clone_owned(gpa))..&;
+    defer scalar_owned.deinit(gpa);
+    match (test.expect_err(scalar_owned.require_bool("flag"))) {
         .{ UnexpectedKind: kind } => test.eq(kind, Kind.Bool),
         _ => test.fail("expected non-object required access to report root kind", .{}),
     }
@@ -1437,23 +1437,23 @@ fn check_owned_compact_render_round_trip() void {
     );
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let mut owned = test.expect_ok(value.clone_owned(gpa));
-    defer owned..&.deinit(gpa);
+    let owned = test.expect_ok(value.clone_owned(gpa))..&;
+    defer owned.deinit(gpa);
 
     let expected = "{\"msg\":\"hi\\n\\t\\\"\\\\\",\"ctrl\":\"\\u0001\",\"items\":[true,null,12],\"nested\":{\"ok\":false}}";
-    test.eq(owned..&.compact_size(), compact_size_owned(owned..&));
-    test.eq(owned..&.compact_size(), usize.{#expected});
+    test.eq(owned.compact_size(), compact_size_owned(owned));
+    test.eq(owned.compact_size(), usize.{#expected});
 
     let out = [256]mut u8.{undef};
-    let written = test.expect_ok(owned..&.render_compact(out..[0 .. 256]));
-    test.eq(written, owned..&.compact_size());
+    let written = test.expect_ok(owned.render_compact(out..[0 .. 256]));
+    test.eq(written, owned.compact_size());
     test.assert(
         out.[0 .. written].eq(expected),
         "expected owned compact render to produce normalized JSON",
         .{}
     );
 
-    let written2 = test.expect_ok(render_compact_owned(owned..&, out..[0 .. 256]));
+    let written2 = test.expect_ok(render_compact_owned(owned, out..[0 .. 256]));
     test.eq(written2, written);
     test.assert(
         out.[0 .. written2].eq(expected),
@@ -1466,14 +1466,14 @@ fn check_owned_compact_render_reports_small_buffer() void {
     let value = test.expect_ok(parse("{\"msg\":\"hi\"}"));
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let mut owned = test.expect_ok(value.clone_owned(gpa));
-    defer owned..&.deinit(gpa);
+    let owned = test.expect_ok(value.clone_owned(gpa))..&;
+    defer owned.deinit(gpa);
 
     let out = [4]mut u8.{undef};
-    match (test.expect_err(owned..&.render_compact(out..[0 .. 4]))) {
+    match (test.expect_err(owned.render_compact(out..[0 .. 4]))) {
         .BufferTooSmall => {},
     }
-    match (test.expect_err(render_compact_owned(owned..&, out..[0 .. 4]))) {
+    match (test.expect_err(render_compact_owned(owned, out..[0 .. 4]))) {
         .BufferTooSmall => {},
     }
 }

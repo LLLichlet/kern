@@ -32,33 +32,33 @@ type IndexedObjectDocumentState = struct {
     index: IndexedObjectView,
 };
 
-pub.. type OwnedDocument = struct {
+pub~ type OwnedDocument = struct {
     state: ?*mut OwnedDocumentState = .None,
 };
 
-pub.. type IndexedObjectDocument = struct {
+pub~ type IndexedObjectDocument = struct {
     state: ?*mut IndexedObjectDocumentState = .None,
 };
 
-pub.. type DocumentValue = struct {
+pub~ type DocumentValue = struct {
     value: ?*mut OwnedValue = .None,
 };
 
-pub.. type IndexedDocumentView = struct {
+pub~ type IndexedDocumentView = struct {
     view: ?*IndexedObjectView = .None,
 };
 
-pub.. type DocumentValueMut = struct {
+pub~ type DocumentValueMut = struct {
     value: ?*mut OwnedValue = .None,
     state: ?*mut OwnedDocumentState = .None,
 };
 
-pub.. type DocumentObjectEntryRef = struct {
+pub~ type DocumentObjectEntryRef = struct {
     pub key: []u8 = "",
     pub value: DocumentValue = DocumentValue.{},
 };
 
-pub.. type DocumentObjectEntry = struct {
+pub~ type DocumentObjectEntry = struct {
     pub key: []u8 = "",
     pub value: DocumentValueMut = DocumentValueMut.{},
 };
@@ -166,7 +166,7 @@ fn wrap_indexed_document_view(
     return IndexedDocumentView.{ view: .{ Some: view } };
 }
 
-pub.. fn clone_owned_document(
+pub~ fn clone_owned_document(
     value: Value,
 ) OwnedDocument!MaterializeError {
     let page = Page.{}..&;
@@ -191,7 +191,7 @@ pub.. fn clone_owned_document(
     return .{ Ok: OwnedDocument.{ state: .{ Some: state } } };
 }
 
-pub.. fn clone_indexed_object_document(
+pub~ fn clone_indexed_object_document(
     value: Value,
 ) IndexedObjectDocument!IndexedObjectDocumentError {
     let page = Page.{}..&;

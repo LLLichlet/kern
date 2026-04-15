@@ -69,14 +69,14 @@ fn require_object_value(value: Value) ?Value {
     return if (value.kind == Kind.Object) .{ Some: value } else .None;
 }
 
-pub.. type ArrayCursor = struct {
+pub~ type ArrayCursor = struct {
     raw: []u8,
     next: usize = 0,
     started: bool = false,
     done: bool = false,
 };
 
-pub.. type ObjectCursor = struct {
+pub~ type ObjectCursor = struct {
     raw: []u8,
     next: usize = 0,
     started: bool = false,

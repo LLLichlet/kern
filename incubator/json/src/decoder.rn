@@ -242,7 +242,7 @@ fn decode_string_escape(raw: []u8, slash_index: usize) DecodedEscape!StringDecod
     };
 }
 
-pub.. fn decoded_string_size_raw(raw: []u8) usize!StringDecodeError {
+pub~ fn decoded_string_size_raw(raw: []u8) usize!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
         else .{ Err: err } => return .{ Err: err };
     return decoded_parsed_string_size_raw_with_end(raw, end);
@@ -271,13 +271,13 @@ fn decoded_parsed_string_size_raw_with_end(
     return .{ Ok: written };
 }
 
-pub.. fn decoded_parsed_string_size_raw(raw: []u8) usize!StringDecodeError {
+pub~ fn decoded_parsed_string_size_raw(raw: []u8) usize!StringDecodeError {
     let .{ Ok: end } = raw_string_content_end(raw)
         else .{ Err: err } => return .{ Err: err };
     return decoded_parsed_string_size_raw_with_end(raw, end);
 }
 
-pub.. fn write_decoded_string_raw(raw: []u8, out: []mut u8) usize!StringDecodeError {
+pub~ fn write_decoded_string_raw(raw: []u8, out: []mut u8) usize!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
         else .{ Err: err } => return .{ Err: err };
 
@@ -300,7 +300,7 @@ pub.. fn write_decoded_string_raw(raw: []u8, out: []mut u8) usize!StringDecodeEr
     return decode_string_tail_into_checked(raw, escape_index, out, prefix_len);
 }
 
-pub.. fn write_decoded_parsed_string_raw(
+pub~ fn write_decoded_parsed_string_raw(
     raw: []u8,
     out: []mut u8,
 ) usize!StringDecodeError {
@@ -322,7 +322,7 @@ pub.. fn write_decoded_parsed_string_raw(
     return decode_string_tail_into_unchecked(raw, escape_index, out, prefix_len);
 }
 
-pub.. fn clone_decoded_string_raw(
+pub~ fn clone_decoded_string_raw(
     alloc: *mut Allocator,
     raw: []u8,
 ) String!StringDecodeError {
@@ -331,7 +331,7 @@ pub.. fn clone_decoded_string_raw(
     return clone_decoded_string_single_pass_with_end(alloc, raw, end);
 }
 
-pub.. fn clone_decoded_string_raw_in_arena(
+pub~ fn clone_decoded_string_raw_in_arena(
     arena: *mut Arena,
     raw: []u8,
 ) String!StringDecodeError {
@@ -421,7 +421,7 @@ fn clone_decoded_string_single_pass_with_end_in_arena(
     return .{ Ok: out };
 }
 
-pub.. fn clone_decoded_parsed_string_raw(
+pub~ fn clone_decoded_parsed_string_raw(
     alloc: *mut Allocator,
     raw: []u8,
 ) String!StringDecodeError {
@@ -430,7 +430,7 @@ pub.. fn clone_decoded_parsed_string_raw(
     return clone_decoded_string_single_pass_with_end(alloc, raw, end);
 }
 
-pub.. fn clone_decoded_parsed_string_raw_in_arena(
+pub~ fn clone_decoded_parsed_string_raw_in_arena(
     arena: *mut Arena,
     raw: []u8,
 ) String!StringDecodeError {

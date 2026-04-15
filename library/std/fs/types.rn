@@ -3,7 +3,7 @@
 use sys.os;
 
 /// Filesystem errors used by `std.fs`.
-pub.. type Error = enum {
+pub~ type Error = enum {
     OutOfMemory,
     InvalidOptions,
     InvalidPath,
@@ -13,12 +13,12 @@ pub.. type Error = enum {
 };
 
 /// The coarse type of a filesystem entry.
-pub.. type FileType = os.FileType;
+pub~ type FileType = os.FileType;
 /// Metadata returned for a filesystem entry.
-pub.. type Metadata = os.Metadata;
+pub~ type Metadata = os.Metadata;
 
 /// A single directory entry yielded by directory traversal.
-pub.. type DirEntry = struct {
+pub~ type DirEntry = struct {
     //// The entry name without the parent path.
     pub name: []u8,
     file_type: FileType,
@@ -37,7 +37,7 @@ impl DirEntry {
 }
 
 /// Options controlling how a file is opened.
-pub.. type OpenOptions = struct {
+pub~ type OpenOptions = struct {
     //// Opens the file for reading.
     pub read: bool = false,
     //// Opens the file for writing.
@@ -53,7 +53,7 @@ pub.. type OpenOptions = struct {
 };
 
 /// An owned filesystem handle.
-pub.. type File = struct {
+pub~ type File = struct {
     //// The underlying OS handle.
     pub handle: os.Handle,
 };

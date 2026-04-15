@@ -23,10 +23,10 @@ use bitio.{
 };
 
 fn check_rotate_helpers() void {
-    test.eq(rotate_left_u32(u32.{0x12345678}, u32.{8}), u32.{0x34567812});
-    test.eq(rotate_right_u32(u32.{0x12345678}, u32.{8}), u32.{0x78123456});
-    test.eq(rotate_left_u64(u64.{0x0123456789abcdef}, u64.{16}), u64.{0x456789abcdef0123});
-    test.eq(rotate_right_u64(u64.{0x0123456789abcdef}, u64.{16}), u64.{0xcdef0123456789ab});
+    test.eq(rotate_left_u32(0x12345678, 8), u32.{0x34567812});
+    test.eq(rotate_right_u32(0x12345678, 8), u32.{0x78123456});
+    test.eq(rotate_left_u64(0x0123456789abcdef, 16), u64.{0x456789abcdef0123});
+    test.eq(rotate_right_u64(0x0123456789abcdef, 16), u64.{0xcdef0123456789ab});
 }
 
 fn check_big_endian_round_trip() void {
@@ -96,9 +96,9 @@ fn check_bit_reader() void {
     test.eq(test.expect_ok(bits..&.read_bit()), false);
     test.eq(test.expect_ok(bits..&.read_bits(u8.{3})), u64.{0b101});
     test.eq(test.expect_ok(bits..&.read_bits(u8.{3})), u64.{0b011});
-    test.eq(bits.remaining_bits(), usize.{5});
-    test.eq(bits..&.align_to_byte(), usize.{5});
-    test.eq(bits.remaining_bits(), usize.{0});
+    test.eq(bits.remaining_bits(), 5);
+    test.eq(bits..&.align_to_byte(), 5);
+    test.eq(bits.remaining_bits(), 0);
 }
 
 fn check_bit_writer() void {
@@ -109,8 +109,8 @@ fn check_bit_writer() void {
     let _ = test.expect_ok(bits..&.write_bit(false));
     let _ = test.expect_ok(bits..&.write_bits(u64.{0b101}, u8.{3}));
     let _ = test.expect_ok(bits..&.write_bits(u64.{0b011}, u8.{3}));
-    test.eq(bits..&.align_zero(), usize.{5});
-    test.eq(bits.written_bytes(), usize.{2});
+    test.eq(bits..&.align_zero(), 5);
+    test.eq(bits.written_bytes(), 2);
     test.assert(
         out.[0 .. 2].eq([2]u8.{ u8.{0b10110101}, u8.{0b01100000} }.[0 .. 2]),
         "expected bit-writer output",

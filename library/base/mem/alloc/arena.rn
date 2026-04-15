@@ -17,7 +17,7 @@ const ARENA_CHUNK_ALIGN = @alignOf[Chunk]();
 const ARENA_CHUNK_HEADER_SIZE = @sizeOf[Chunk]();
 
 /// A bump allocator that grows in chunks from a backing allocator.
-pub.. type Arena = struct {
+pub~ type Arena = struct {
     backing: *mut Allocator,
     current: ?*mut Chunk = .None,
     chunk_size: usize = 4096,
@@ -25,7 +25,7 @@ pub.. type Arena = struct {
     generation: usize = 0,
 };
 
-pub.. type ArenaMark = struct {
+pub~ type ArenaMark = struct {
     current: usize,
     used: usize,
     next_chunk_size: usize,

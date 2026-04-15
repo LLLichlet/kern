@@ -41,7 +41,7 @@ const GPA_CHUNK_ALIGN = @alignOf[BackingChunk]();
 const GPA_CHUNK_HEADER_SIZE = @sizeOf[BackingChunk]();
 
 /// A reusable allocator with free-list recycling and generation checks.
-pub.. type GPA = struct {
+pub~ type GPA = struct {
     backing: *mut Allocator,
     free_list: ?*mut FreeBlock = .None,
     chunks: ?*mut BackingChunk = .None,

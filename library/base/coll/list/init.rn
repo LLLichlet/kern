@@ -10,7 +10,7 @@ use base.num.USIZE_MAX;
 mod query;
 
 /// A growable contiguous collection of `T`.
-pub.. type List[T] = struct {
+pub~ type List[T] = struct {
     ptr: *mut T = non_null_mut_ptr_from_addr[T](1),
     /// The number of initialized elements in the list.
     pub len: usize = 0,

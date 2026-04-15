@@ -12,7 +12,7 @@ use ..{
     OwnedValue,
 };
 
-pub.. type IndexedObjectView = struct {
+pub~ type IndexedObjectView = struct {
     pub object: OwnedObject,
     index: Map[u64, List[usize]] = Map[u64, List[usize]].{},
 };

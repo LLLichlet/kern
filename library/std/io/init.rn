@@ -3,7 +3,7 @@
 //! This module exposes the `Writer` and `Printable` traits, formatting helpers,
 //! and lightweight wrappers around standard output streams.
 
-pub mod impls;
+mod impls;
 mod traits;
 mod fmt;
 

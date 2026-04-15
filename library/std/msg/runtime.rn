@@ -14,7 +14,7 @@ fn write_line(prefix: []u8, fmt: []u8, args: []*Printable) void {
 }
 
 /// Prints one formatted diagnostic and traps.
-pub.. fn fail(prefix: []u8, fmt: []u8, args: []*Printable) ! {
+pub~ fn fail(prefix: []u8, fmt: []u8, args: []*Printable) ! {
     write_line(prefix, fmt, args);
     @trap();
 }
@@ -27,7 +27,7 @@ pub.. fn fail(prefix: []u8, fmt: []u8, args: []*Printable) ! {
 /// Note:
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
-pub.. fn panic(fmt: []u8, args: []*Printable) ! {
+pub~ fn panic(fmt: []u8, args: []*Printable) ! {
     fail("panic: ", fmt, args);
 }
 
@@ -38,7 +38,7 @@ pub.. fn panic(fmt: []u8, args: []*Printable) ! {
 /// Note:
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
-pub.. fn log(fmt: []u8, args: []*Printable) void {
+pub~ fn log(fmt: []u8, args: []*Printable) void {
     write_line("log: ", fmt, args);
 }
 
@@ -50,6 +50,6 @@ pub.. fn log(fmt: []u8, args: []*Printable) void {
 /// Note:
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
-pub.. fn debug(fmt: []u8, args: []*Printable) void {
+pub~ fn debug(fmt: []u8, args: []*Printable) void {
     write_line("debug: ", fmt, args);
 }

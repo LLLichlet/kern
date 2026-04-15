@@ -106,6 +106,7 @@ impl AnalysisProject {
             if matched.target_kind == TargetKind::Lib {
                 compile_options.root_module_name = Some(matched.package.id.name.clone());
             }
+            compile_options.metadata_package_name = Some(matched.package.id.name.clone());
         } else if let Some(package) = self.package_for_file(file) {
             resolved_package = Some(package);
             input_file = package.analysis_root_for(file);
@@ -119,6 +120,7 @@ impl AnalysisProject {
                 compile_options.root_module_name = Some(package.id.name.clone());
                 resolved_target_kind = Some(TargetKind::Lib);
             }
+            compile_options.metadata_package_name = Some(package.id.name.clone());
         }
 
         if let Some(target_kind) = resolved_target_kind {

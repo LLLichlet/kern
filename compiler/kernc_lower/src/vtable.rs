@@ -103,7 +103,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         method_name: SymbolId,
     ) -> Option<usize> {
         let trait_norm = self.ctx.type_registry.normalize(trait_ty);
-        let TypeKind::TraitObject(trait_def_id, _, _) = self.ctx.type_registry.get(trait_norm).clone()
+        let TypeKind::TraitObject(trait_def_id, _, _) =
+            self.ctx.type_registry.get(trait_norm).clone()
         else {
             return None;
         };
@@ -241,7 +242,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .copied()
                     .unwrap_or(TypeId::ERROR);
 
-                if let TypeKind::TraitObject(i_trait_id, _, _) = self.ctx.type_registry.get(i_trait_ty)
+                if let TypeKind::TraitObject(i_trait_id, _, _) =
+                    self.ctx.type_registry.get(i_trait_ty)
                     && *i_trait_id == target_trait_id
                 {
                     let i_target_ty = self

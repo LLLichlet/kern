@@ -328,9 +328,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         let out_ty = expected_ty.unwrap_or_else(|| self.fresh_type_var());
-        let Some(target_trait_ty) = self
-            .ctx
-            .builtin_trait_ty_with_assoc(trait_name, vec![], vec![("Out", out_ty)])
+        let Some(target_trait_ty) =
+            self.ctx
+                .builtin_trait_ty_with_assoc(trait_name, vec![], vec![("Out", out_ty)])
         else {
             self.ctx.emit_ice(
                 operand.span,
@@ -383,8 +383,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 2. Detect pointer arithmetic up front.
         let is_l_obj_ptr = matches!(self.ctx.type_registry.get(l_norm), TypeKind::Pointer { .. });
-        let is_l_addr_ptr =
-            matches!(self.ctx.type_registry.get(l_norm), TypeKind::VolatilePtr { .. });
+        let is_l_addr_ptr = matches!(
+            self.ctx.type_registry.get(l_norm),
+            TypeKind::VolatilePtr { .. }
+        );
         let is_l_ptr = is_l_obj_ptr || is_l_addr_ptr;
 
         // 3. Derive the expected type for the right operand.
@@ -407,8 +409,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 6. Detect whether the right operand is also a pointer.
         let is_r_obj_ptr = matches!(self.ctx.type_registry.get(r_norm), TypeKind::Pointer { .. });
-        let is_r_addr_ptr =
-            matches!(self.ctx.type_registry.get(r_norm), TypeKind::VolatilePtr { .. });
+        let is_r_addr_ptr = matches!(
+            self.ctx.type_registry.get(r_norm),
+            TypeKind::VolatilePtr { .. }
+        );
         let is_r_ptr = is_r_obj_ptr || is_r_addr_ptr;
 
         use BinaryOperator::*;
@@ -623,17 +627,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                 }
 
-                // Mutable address-of requires a mutable lvalue.
-                if is_mut && !self.is_lvalue_mutable(operand) {
-                    self.ctx
-                        .struct_error(
-                            span,
-                            "cannot take mutable address `..&` of immutable memory",
-                        )
-                        .with_hint(
-                            "declare the variable with `let mut` or ensure the target is mutable",
-                        )
-                        .emit();
+                // `expr..&` is allowed on mutable places and on value expressions that
+                // explicitly materialize a stack temporary in the current scope.
+                if is_mut && !self.can_take_mut_address_of(operand) {
+                    let mut diag = self.ctx.struct_error(
+                        span,
+                        "cannot take mutable address `..&` of immutable memory",
+                    );
+                    if matches!(operand.kind, ExprKind::String(_)) {
+                        diag = diag
+                            .with_hint(
+                                "string literals live in read-only `.rodata` and cannot be mutably borrowed",
+                            )
+                            .with_hint(
+                                "move the bytes into writable storage first if you need `..&`",
+                            );
+                    } else {
+                        diag = diag.with_hint(
+                            "declare the variable with `let mut`, or use a value expression that can be materialized as a stack temporary",
+                        );
+                    }
+                    diag.emit();
                 }
 
                 self.ctx.type_registry.intern(TypeKind::Pointer {

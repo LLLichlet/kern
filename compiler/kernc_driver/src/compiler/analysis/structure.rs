@@ -156,6 +156,11 @@ impl CompilerDriver {
         let mut ctx = SemaContext::new(session);
         ctx.module_aliases = self.options.module_aliases.clone();
         ctx.module_interface_aliases = self.options.module_interface_aliases.clone();
+        ctx.current_package_name = self
+            .options
+            .metadata_package_name
+            .as_deref()
+            .map(|name| ctx.intern(name));
 
         let mut builtin = BuiltinInjector::new(&mut ctx);
         builtin.inject();

@@ -84,9 +84,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     )
                     .with_hint(format!(
                         "use direct variant syntax like `.{}` or `{}.{}`",
-                        v_str,
-                        expected_str,
-                        v_str
+                        v_str, expected_str, v_str
                     ))
                     .emit();
             }
@@ -494,9 +492,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     )
                     .with_hint(format!(
                         "use direct variant syntax like `.{}` or `{}.{}`",
-                        v_str,
-                        expected_str,
-                        v_str
+                        v_str, expected_str, v_str
                     ))
                     .emit();
             }

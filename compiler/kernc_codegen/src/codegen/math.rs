@@ -48,12 +48,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         )
     }
 
-    fn address_offset_int(
-        &self,
-        value: IntValue<'ctx>,
-        ty: TypeId,
-        name: &str,
-    ) -> IntValue<'ctx> {
+    fn address_offset_int(&self, value: IntValue<'ctx>, ty: TypeId, name: &str) -> IntValue<'ctx> {
         let target_ty = self.context.i64_type();
         if value.get_type() == target_ty {
             return value;
@@ -392,7 +387,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         );
                         return self.zero_i8_value();
                     }
-                    (l_val.into_pointer_value(), r_val.into_int_value(), lhs_ty, rhs_ty)
+                    (
+                        l_val.into_pointer_value(),
+                        r_val.into_int_value(),
+                        lhs_ty,
+                        rhs_ty,
+                    )
                 } else {
                     if !l_val.is_int_value() {
                         self.sess.emit_ice(
@@ -401,7 +401,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         );
                         return self.zero_i8_value();
                     }
-                    (r_val.into_pointer_value(), l_val.into_int_value(), rhs_ty, lhs_ty)
+                    (
+                        r_val.into_pointer_value(),
+                        l_val.into_int_value(),
+                        rhs_ty,
+                        lhs_ty,
+                    )
                 };
 
                 if self.is_address_pointer_type(ptr_ty) {

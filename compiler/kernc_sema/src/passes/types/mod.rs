@@ -9,6 +9,9 @@ use kernc_ast::{self as ast, Visibility};
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
+mod helper;
+mod items;
+
 pub struct TypeResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
 }
@@ -96,590 +99,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
     pub fn current_scope_id(&self) -> Option<ScopeId> {
         self.ctx.scopes.current_scope_id()
-    }
-
-    /// Run the full type-resolution pass in two stages.
-    pub fn resolve_all(&mut self) {
-        let module_ids = self.collect_module_ids();
-        self.resolve_module_pass(&module_ids, true);
-        self.resolve_module_pass(&module_ids, false);
-    }
-
-    fn collect_module_ids(&self) -> Vec<DefId> {
-        self.ctx
-            .defs
-            .iter()
-            .filter_map(|def| {
-                if let Def::Module(m) = def {
-                    Some(m.id)
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    fn resolve_module_pass(&mut self, module_ids: &[DefId], aliases_only: bool) {
-        for &mod_id in module_ids {
-            let Some((mod_scope, items)) = self.module_scope_and_items(mod_id) else {
-                continue;
-            };
-
-            for item_id in items {
-                let is_alias = matches!(self.ctx.defs[item_id.0 as usize], Def::TypeAlias(_));
-                if aliases_only == is_alias {
-                    self.resolve_item(item_id, mod_scope);
-                }
-            }
-        }
-    }
-
-    fn module_scope_and_items(&mut self, mod_id: DefId) -> Option<(ScopeId, Vec<DefId>)> {
-        if let Def::Module(m) = &self.ctx.defs[mod_id.0 as usize] {
-            Some((m.scope_id, m.items.clone()))
-        } else {
-            self.ctx.emit_ice(
-                Span::default(),
-                format!("TypeResolver expected DefId {:?} to be a module", mod_id),
-            );
-            None
-        }
-    }
-
-    fn resolve_item(&mut self, item_id: DefId, parent_scope: ScopeId) {
-        let spec = match &self.ctx.defs[item_id.0 as usize] {
-            Def::Function(f) => ResolveItemSpec::Function(FunctionResolveSpec {
-                name: f.name,
-                generics: f.generics.clone(),
-                where_clauses: f.where_clauses.clone(),
-                params: f.params.clone(),
-                ret_type: f.ret_type.clone(),
-                parent: f.parent,
-                is_variadic: f.is_variadic,
-                span: f.span,
-            }),
-            Def::Struct(s) => ResolveItemSpec::Struct(AggregateResolveSpec {
-                name: s.name,
-                generics: s.generics.clone(),
-                where_clauses: s.where_clauses.clone(),
-                fields: s.fields.clone(),
-            }),
-            Def::Union(u) => ResolveItemSpec::Union(AggregateResolveSpec {
-                name: u.name,
-                generics: u.generics.clone(),
-                where_clauses: u.where_clauses.clone(),
-                fields: u.fields.clone(),
-            }),
-            Def::Trait(t) => ResolveItemSpec::Trait(TraitResolveSpec {
-                generics: t.generics.clone(),
-                where_clauses: t.where_clauses.clone(),
-                supertraits: t.supertraits.clone(),
-                assoc_types: t.assoc_types.clone(),
-                methods: t.methods.clone(),
-                span: t.span,
-            }),
-            Def::TypeAlias(t) => ResolveItemSpec::TypeAlias(TypeAliasResolveSpec {
-                name: t.name,
-                generics: t.generics.clone(),
-                where_clauses: t.where_clauses.clone(),
-                target: t.target.clone(),
-            }),
-            Def::Impl(i) => ResolveItemSpec::Impl(ImplResolveSpec {
-                generics: i.generics.clone(),
-                where_clauses: i.where_clauses.clone(),
-                target_type: i.target_type.clone(),
-                trait_type: i.trait_type.clone(),
-                assoc_types: i.assoc_types.clone(),
-                methods: i.methods.clone(),
-                span: i.span,
-            }),
-            Def::Enum(a) => ResolveItemSpec::Enum(EnumResolveSpec {
-                name: a.name,
-                generics: a.generics.clone(),
-                where_clauses: a.where_clauses.clone(),
-                backing_type: a.backing_type.clone(),
-                variants: a.variants.clone(),
-            }),
-            Def::AssociatedType(_) | Def::Global(_) | Def::Module(_) => return,
-        };
-
-        match spec {
-            ResolveItemSpec::Function(f) => self.resolve_function_item(item_id, &f, parent_scope),
-            ResolveItemSpec::Struct(s) => self.resolve_struct_item(item_id, &s, parent_scope),
-            ResolveItemSpec::Union(u) => self.resolve_union_item(item_id, &u, parent_scope),
-            ResolveItemSpec::Trait(t) => self.resolve_trait_item(item_id, &t, parent_scope),
-            ResolveItemSpec::TypeAlias(t) => self.resolve_type_alias_item(&t, parent_scope),
-            ResolveItemSpec::Impl(i) => self.resolve_impl_item(&i, parent_scope),
-            ResolveItemSpec::Enum(a) => self.resolve_enum_item(item_id, &a, parent_scope),
-        }
-    }
-
-    fn resolve_function_item(
-        &mut self,
-        item_id: DefId,
-        f: &FunctionResolveSpec,
-        parent_scope: ScopeId,
-    ) {
-        self.ctx.scopes.set_current_scope(parent_scope);
-        let func_scope = self.ctx.scopes.enter_scope();
-
-        self.bind_generics(&f.generics, func_scope);
-        self.resolve_where_clauses(&f.where_clauses, func_scope);
-        if let Some(parent_id) = f.parent
-            && let Def::Impl(i) = &self.ctx.defs[parent_id.0 as usize]
-        {
-            let target_ty = self
-                .ctx
-                .node_types
-                .get(&i.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            self.bind_self_type(target_ty, func_scope, f.span);
-        }
-
-        let mut param_tys = Vec::new();
-        for param in &f.params {
-            let p_ty = self.resolve_type(&param.type_node, func_scope);
-            self.ensure_sized(p_ty, param.type_node.span);
-            param_tys.push(p_ty);
-        }
-        let ret_ty = self.resolve_type(&f.ret_type, func_scope);
-        if ret_ty != TypeId::VOID {
-            self.ensure_sized(ret_ty, f.ret_type.span);
-        }
-
-        let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
-            params: param_tys,
-            ret: ret_ty,
-            is_variadic: f.is_variadic,
-        });
-
-        if let Def::Function(updated_f) = &mut self.ctx.defs[item_id.0 as usize] {
-            updated_f.resolved_sig = Some(sig_ty);
-        }
-
-        self.ctx.scopes.exit_scope();
-
-        let gen_args = f
-            .generics
-            .iter()
-            .map(|param| self.ctx.type_registry.intern(TypeKind::Param(param.name)))
-            .collect();
-        let fn_def_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::FnDef(item_id, gen_args));
-
-        self.ctx.scopes.set_current_scope(parent_scope);
-
-        let is_impl_method = f
-            .parent
-            .is_some_and(|p_id| matches!(self.ctx.defs[p_id.0 as usize], Def::Impl(_)));
-        if !is_impl_method {
-            self.ctx.scopes.update_type(f.name, fn_def_ty);
-        }
-    }
-
-    fn resolve_struct_item(
-        &mut self,
-        item_id: DefId,
-        s: &AggregateResolveSpec,
-        parent_scope: ScopeId,
-    ) {
-        self.ctx.scopes.set_current_scope(parent_scope);
-        let struct_scope = self.ctx.scopes.enter_scope();
-
-        self.bind_generics(&s.generics, struct_scope);
-        self.resolve_where_clauses(&s.where_clauses, struct_scope);
-
-        for field in &s.fields {
-            let f_ty = self.resolve_type(&field.type_node, struct_scope);
-            self.ensure_sized(f_ty, field.type_node.span);
-            if let Some(def_val) = &field.default_value {
-                self.resolve_expr(def_val, struct_scope);
-            }
-        }
-        self.ctx.scopes.exit_scope();
-
-        let struct_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::Def(item_id, Vec::new()));
-        self.ctx.scopes.set_current_scope(parent_scope);
-        self.ctx.scopes.update_type(s.name, struct_ty);
-    }
-
-    fn resolve_union_item(
-        &mut self,
-        item_id: DefId,
-        u: &AggregateResolveSpec,
-        parent_scope: ScopeId,
-    ) {
-        self.ctx.scopes.set_current_scope(parent_scope);
-        let union_scope = self.ctx.scopes.enter_scope();
-
-        self.bind_generics(&u.generics, union_scope);
-        self.resolve_where_clauses(&u.where_clauses, union_scope);
-
-        for field in &u.fields {
-            let f_ty = self.resolve_type(&field.type_node, union_scope);
-            self.ensure_sized(f_ty, field.type_node.span);
-            if let Some(def_val) = &field.default_value {
-                self.resolve_expr(def_val, union_scope);
-            }
-        }
-        self.ctx.scopes.exit_scope();
-
-        let union_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::Def(item_id, Vec::new()));
-        self.ctx.scopes.set_current_scope(parent_scope);
-        self.ctx.scopes.update_type(u.name, union_ty);
-    }
-
-    fn resolve_trait_item(&mut self, item_id: DefId, t: &TraitResolveSpec, parent_scope: ScopeId) {
-        self.ctx.scopes.set_current_scope(parent_scope);
-        let trait_scope = self.ctx.scopes.enter_scope();
-
-        self.bind_generics(&t.generics, trait_scope);
-        let self_args = t
-            .generics
-            .iter()
-            .map(|param| self.ctx.type_registry.intern(TypeKind::Param(param.name)))
-            .collect();
-        let self_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::TraitObject(item_id, self_args, Vec::new()));
-        self.bind_self_type(self_ty, trait_scope, t.span);
-        self.resolve_where_clauses(&t.where_clauses, trait_scope);
-        self.bind_trait_assoc_types(&t.assoc_types, trait_scope);
-        self.resolve_assoc_type_bounds(&t.assoc_types, trait_scope);
-
-        let mut resolved_supertraits = Vec::new();
-        for supertrait in &t.supertraits {
-            resolved_supertraits.push(self.resolve_type(supertrait, trait_scope));
-        }
-
-        let mut resolved_methods = Vec::new();
-        for method in &t.methods {
-            let sig_ty = self.resolve_type(&method.type_node, trait_scope);
-            resolved_methods.push((method.name, sig_ty));
-        }
-        self.ctx.scopes.exit_scope();
-
-        if let Def::Trait(updated_t) = &mut self.ctx.defs[item_id.0 as usize] {
-            updated_t.resolved_methods = resolved_methods;
-            updated_t.resolved_supertraits = resolved_supertraits;
-        }
-    }
-
-    fn resolve_type_alias_item(&mut self, t: &TypeAliasResolveSpec, parent_scope: ScopeId) {
-        self.ctx.scopes.set_current_scope(parent_scope);
-        let alias_scope = self.ctx.scopes.enter_scope();
-
-        self.bind_generics(&t.generics, alias_scope);
-        self.resolve_where_clauses(&t.where_clauses, alias_scope);
-        let target_ty = self.resolve_type(&t.target, alias_scope);
-
-        self.ctx.scopes.exit_scope();
-        self.ctx.scopes.set_current_scope(parent_scope);
-        self.ctx.scopes.update_type(t.name, target_ty);
-    }
-
-    fn resolve_impl_item(&mut self, i: &ImplResolveSpec, parent_scope: ScopeId) {
-        self.ctx.scopes.set_current_scope(parent_scope);
-        let impl_scope = self.ctx.scopes.enter_scope();
-
-        self.bind_generics(&i.generics, impl_scope);
-        self.resolve_where_clauses(&i.where_clauses, impl_scope);
-
-        let target_ty_id = self.resolve_type(&i.target_type, impl_scope);
-        self.bind_self_type(target_ty_id, impl_scope, i.span);
-
-        let mut resolved_trait_ty = None;
-        if let Some(trait_ty) = &i.trait_type {
-            resolved_trait_ty = Some(self.resolve_type(trait_ty, impl_scope));
-        }
-
-        let canonical_trait_ty =
-            self.bind_impl_assoc_types(&i.assoc_types, resolved_trait_ty, impl_scope, i.span);
-        if let (Some(trait_ty), Some(canonical_trait_ty)) = (&i.trait_type, canonical_trait_ty) {
-            self.ctx.node_types.insert(trait_ty.id, canonical_trait_ty);
-        }
-
-        for &method_id in &i.methods {
-            self.resolve_item(method_id, impl_scope);
-        }
-
-        self.ctx.scopes.exit_scope();
-    }
-
-    fn bind_trait_assoc_types(&mut self, assoc_type_ids: &[DefId], scope: ScopeId) {
-        for &assoc_id in assoc_type_ids {
-            let Some(Def::AssociatedType(assoc_def)) =
-                self.ctx.defs.get(assoc_id.0 as usize).cloned()
-            else {
-                continue;
-            };
-            let info = SymbolInfo {
-                kind: SymbolKind::AssociatedType,
-                node_id: self.ctx.next_node_id(),
-                type_id: self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::Associated(assoc_id, vec![])),
-                def_id: Some(assoc_id),
-                span: assoc_def.span,
-                vis: Visibility::Private,
-                is_mut: false,
-            };
-            self.ctx.scopes.set_current_scope(scope);
-            let _ = self.ctx.scopes.define(assoc_def.name, info);
-        }
-    }
-
-    fn resolve_assoc_type_bounds(&mut self, assoc_type_ids: &[DefId], parent_scope: ScopeId) {
-        for &assoc_id in assoc_type_ids {
-            let Some(Def::AssociatedType(assoc_def)) = self.ctx.defs.get(assoc_id.0 as usize).cloned() else {
-                continue;
-            };
-            self.ctx.scopes.set_current_scope(parent_scope);
-            let assoc_scope = self.ctx.scopes.enter_scope();
-            self.bind_generics(&assoc_def.generics, assoc_scope);
-            self.resolve_where_clauses(&assoc_def.where_clauses, assoc_scope);
-            let mut resolved_bounds = Vec::with_capacity(assoc_def.bounds.len());
-            for bound in &assoc_def.bounds {
-                resolved_bounds.push(self.resolve_type(bound, assoc_scope));
-            }
-            if let Some(target) = &assoc_def.target {
-                self.resolve_type(target, assoc_scope);
-            }
-            self.ctx.scopes.exit_scope();
-            if let Def::AssociatedType(updated) = &mut self.ctx.defs[assoc_id.0 as usize] {
-                updated.resolved_bounds = resolved_bounds;
-            }
-        }
-    }
-
-    fn bind_impl_assoc_types(
-        &mut self,
-        assoc_type_ids: &[DefId],
-        resolved_trait_ty: Option<TypeId>,
-        scope: ScopeId,
-        span: Span,
-    ) -> Option<TypeId> {
-        let mut impl_assoc_by_name = HashMap::new();
-        for &assoc_id in assoc_type_ids {
-            let Some(Def::AssociatedType(assoc_def)) =
-                self.ctx.defs.get(assoc_id.0 as usize).cloned()
-            else {
-                continue;
-            };
-            impl_assoc_by_name.insert(assoc_def.name, assoc_id);
-
-            let info = SymbolInfo {
-                kind: SymbolKind::AssociatedType,
-                node_id: self.ctx.next_node_id(),
-                type_id: self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::Associated(assoc_id, vec![])),
-                def_id: Some(assoc_id),
-                span: assoc_def.span,
-                vis: Visibility::Private,
-                is_mut: false,
-            };
-            self.ctx.scopes.set_current_scope(scope);
-            let _ = self.ctx.scopes.define(assoc_def.name, info);
-        }
-
-        let Some(trait_ty) = resolved_trait_ty else {
-            for &assoc_id in assoc_type_ids {
-                if let Some(Def::AssociatedType(assoc_def)) =
-                    self.ctx.defs.get(assoc_id.0 as usize)
-                {
-                    self.ctx
-                        .struct_error(assoc_def.span, "associated type definitions require a trait impl")
-                        .with_hint("write `impl Type: Trait { ... }` when defining associated types")
-                        .emit();
-                }
-            }
-            return None;
-        };
-
-        let trait_norm = self.ctx.type_registry.normalize(trait_ty);
-        let TypeKind::TraitObject(trait_def_id, trait_args, _) =
-            self.ctx.type_registry.get(trait_norm).clone()
-        else {
-            self.ctx.emit_error(span, "impl trait target is not a trait");
-            return Some(trait_ty);
-        };
-
-        let (trait_generics_len, trait_assoc_ids) = match self.ctx.defs.get(trait_def_id.0 as usize)
-        {
-            Some(Def::Trait(trait_def)) => (trait_def.generics.len(), trait_def.assoc_types.clone()),
-            _ => (0, Vec::new()),
-        };
-        let mut ordered_assoc_targets = vec![None; trait_assoc_ids.len()];
-
-        let mut trait_assoc_names = HashMap::new();
-        for (assoc_index, trait_assoc_id) in trait_assoc_ids.iter().copied().enumerate() {
-            let Some(Def::AssociatedType(trait_assoc)) =
-                self.ctx.defs.get(trait_assoc_id.0 as usize).cloned()
-            else {
-                continue;
-            };
-            trait_assoc_names.insert(trait_assoc.name, trait_assoc_id);
-
-            let Some(&impl_assoc_id) = impl_assoc_by_name.get(&trait_assoc.name) else {
-                let _ = assoc_index;
-                self.ctx
-                    .struct_error(
-                        span,
-                        format!(
-                            "missing associated type definition `{}` in impl",
-                            self.ctx.resolve(trait_assoc.name)
-                        ),
-                    )
-                    .emit();
-                continue;
-            };
-
-            let Some(Def::AssociatedType(impl_assoc)) =
-                self.ctx.defs.get(impl_assoc_id.0 as usize).cloned()
-            else {
-                continue;
-            };
-
-            if trait_assoc.generics.len() != impl_assoc.generics.len() {
-                self.ctx
-                    .struct_error(
-                        impl_assoc.span,
-                        format!(
-                            "associated type `{}` expects {} generic parameters, but impl provides {}",
-                            self.ctx.resolve(trait_assoc.name),
-                            trait_assoc.generics.len(),
-                            impl_assoc.generics.len()
-                        ),
-                    )
-                    .emit();
-            }
-
-            if let Def::AssociatedType(updated) = &mut self.ctx.defs[impl_assoc_id.0 as usize] {
-                updated.parent_trait = Some(trait_def_id);
-            }
-        }
-
-        for (&impl_assoc_name, &impl_assoc_id) in &impl_assoc_by_name {
-            if !trait_assoc_names.contains_key(&impl_assoc_name)
-                && let Some(Def::AssociatedType(impl_assoc)) =
-                    self.ctx.defs.get(impl_assoc_id.0 as usize)
-            {
-                self.ctx
-                    .struct_error(
-                        impl_assoc.span,
-                        format!(
-                            "associated type `{}` is not declared by the target trait",
-                            self.ctx.resolve(impl_assoc_name)
-                        ),
-                    )
-                    .emit();
-            }
-        }
-
-        let mut resolved_impl_assoc_targets = HashMap::new();
-        for &assoc_id in assoc_type_ids {
-            let Some(Def::AssociatedType(assoc_def)) = self.ctx.defs.get(assoc_id.0 as usize).cloned() else {
-                continue;
-            };
-            self.ctx.scopes.set_current_scope(scope);
-            let assoc_scope = self.ctx.scopes.enter_scope();
-            self.bind_generics(&assoc_def.generics, assoc_scope);
-            self.resolve_where_clauses(&assoc_def.where_clauses, assoc_scope);
-            let mut resolved_bounds = Vec::with_capacity(assoc_def.bounds.len());
-            for bound in &assoc_def.bounds {
-                resolved_bounds.push(self.resolve_type(bound, assoc_scope));
-            }
-            let resolved_target = assoc_def
-                .target
-                .as_ref()
-                .map(|target| self.resolve_type(target, assoc_scope));
-            self.ctx.scopes.exit_scope();
-            if let Some(resolved_target) = resolved_target {
-                self.ctx.scopes.set_current_scope(scope);
-                self.ctx.scopes.update_type(assoc_def.name, resolved_target);
-                resolved_impl_assoc_targets.insert(assoc_def.name, resolved_target);
-            }
-            if let Def::AssociatedType(updated) = &mut self.ctx.defs[assoc_id.0 as usize] {
-                updated.resolved_bounds = resolved_bounds;
-            }
-        }
-
-        let generic_args = trait_args
-            .iter()
-            .take(trait_generics_len)
-            .copied()
-            .collect::<Vec<_>>();
-        let trait_assoc_ids = match self.ctx.defs.get(trait_def_id.0 as usize) {
-            Some(Def::Trait(trait_def)) => trait_def.assoc_types.clone(),
-            _ => Vec::new(),
-        };
-        for (assoc_index, trait_assoc_id) in trait_assoc_ids.iter().copied().enumerate() {
-            let Some(Def::AssociatedType(trait_assoc)) =
-                self.ctx.defs.get(trait_assoc_id.0 as usize).cloned()
-            else {
-                continue;
-            };
-            if let Some(&resolved_target) = resolved_impl_assoc_targets.get(&trait_assoc.name) {
-                ordered_assoc_targets[assoc_index] = Some(resolved_target);
-            }
-        }
-
-        let assoc_bindings = trait_assoc_ids
-            .iter()
-            .copied()
-            .zip(ordered_assoc_targets)
-            .filter_map(|(assoc_id, target)| target.map(|ty| (assoc_id, ty)))
-            .collect::<Vec<_>>();
-        Some(
-            self.ctx
-                .type_registry
-                .intern(TypeKind::TraitObject(trait_def_id, generic_args, assoc_bindings)),
-        )
-    }
-
-    fn resolve_enum_item(&mut self, item_id: DefId, a: &EnumResolveSpec, parent_scope: ScopeId) {
-        self.ctx.scopes.set_current_scope(parent_scope);
-        let adt_scope = self.ctx.scopes.enter_scope();
-
-        self.bind_generics(&a.generics, adt_scope);
-        self.resolve_where_clauses(&a.where_clauses, adt_scope);
-
-        if let Some(backing_ty) = &a.backing_type {
-            let resolved_ty = self.resolve_type(backing_ty, adt_scope);
-            if !self.ctx.type_registry.is_integer(resolved_ty) && resolved_ty != TypeId::ERROR {
-                self.ctx
-                    .emit_error(backing_ty.span, "Enum backing type must be an integer");
-            }
-        }
-
-        for variant in &a.variants {
-            if let Some(payload_ty) = &variant.payload_type {
-                self.resolve_type(payload_ty, adt_scope);
-            }
-        }
-
-        self.ctx.scopes.exit_scope();
-
-        let adt_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::Enum(item_id, Vec::new()));
-
-        self.ctx.scopes.set_current_scope(parent_scope);
-        self.ctx.scopes.update_type(a.name, adt_ty);
     }
 
     // ==========================================
@@ -1288,8 +707,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         let name_str = self.ctx.resolve(segment.name).to_string();
                         if let Some(prim_id) = self.resolve_builtin_primitive(&name_str) {
                             if !segment.args.is_empty() {
-                                self.ctx
-                                    .emit_error(span, "Primitive types do not take generic arguments");
+                                self.ctx.emit_error(
+                                    span,
+                                    "Primitive types do not take generic arguments",
+                                );
                             }
                             return prim_id;
                         }
@@ -1297,7 +718,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     self.ctx.scopes.set_current_scope(curr_scope);
                     self.ctx.scopes.resolve(segment.name).cloned()
                 } else {
-                    self.ctx.scopes.resolve_in(curr_scope, segment.name).cloned()
+                    self.ctx
+                        .scopes
+                        .resolve_in(curr_scope, segment.name)
+                        .cloned()
                 };
 
                 let Some(sym) = target_symbol else {
@@ -1361,14 +785,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
 
             if index == segments.len() - 1 {
-                self.ctx.struct_error(
-                    segment.name_span,
-                    format!(
-                        "trait qualification `{}` must be followed by an associated type name",
-                        self.ctx.resolve(segment.name)
-                    ),
-                )
-                .emit();
+                self.ctx
+                    .struct_error(
+                        segment.name_span,
+                        format!(
+                            "trait qualification `{}` must be followed by an associated type name",
+                            self.ctx.resolve(segment.name)
+                        ),
+                    )
+                    .emit();
                 return TypeId::ERROR;
             }
 
@@ -1380,7 +805,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         if pending_trait_projection.is_some() {
-            self.ctx.emit_error(span, "expected associated type after trait qualification");
+            self.ctx
+                .emit_error(span, "expected associated type after trait qualification");
             return TypeId::ERROR;
         }
 
@@ -1400,35 +826,41 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         match final_sym.kind {
             SymbolKind::Struct | SymbolKind::Union => {
                 if !resolved_assoc_bindings.is_empty() {
-                    self.ctx
-                        .emit_error(segment.name_span, "named types do not accept associated type bindings");
+                    self.ctx.emit_error(
+                        segment.name_span,
+                        "named types do not accept associated type bindings",
+                    );
                     return TypeId::ERROR;
                 }
-                let Some(def_id) =
-                    self.required_def_id(final_sym, span, "type", segment.name)
+                let Some(def_id) = self.required_def_id(final_sym, span, "type", segment.name)
                 else {
                     return TypeId::ERROR;
                 };
                 if !self.check_type_generic_bounds(span, def_id, &resolved_generics) {
                     return TypeId::ERROR;
                 }
-                self.ctx.type_registry.intern(TypeKind::Def(def_id, resolved_generics))
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Def(def_id, resolved_generics))
             }
             SymbolKind::Enum => {
                 if !resolved_assoc_bindings.is_empty() {
-                    self.ctx
-                        .emit_error(segment.name_span, "enum types do not accept associated type bindings");
+                    self.ctx.emit_error(
+                        segment.name_span,
+                        "enum types do not accept associated type bindings",
+                    );
                     return TypeId::ERROR;
                 }
-                let Some(def_id) =
-                    self.required_def_id(final_sym, span, "enum type", segment.name)
+                let Some(def_id) = self.required_def_id(final_sym, span, "enum type", segment.name)
                 else {
                     return TypeId::ERROR;
                 };
                 if !self.check_type_generic_bounds(span, def_id, &resolved_generics) {
                     return TypeId::ERROR;
                 }
-                self.ctx.type_registry.intern(TypeKind::Enum(def_id, resolved_generics))
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Enum(def_id, resolved_generics))
             }
             SymbolKind::Trait => {
                 let Some(def_id) =
@@ -1438,9 +870,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 };
                 let (trait_args, assoc_bindings) =
                     self.resolve_trait_segment_args(def_id, &segment.args, env_scope, span);
-                self.ctx
-                    .type_registry
-                    .intern(TypeKind::TraitObject(def_id, trait_args, assoc_bindings))
+                self.ctx.type_registry.intern(TypeKind::TraitObject(
+                    def_id,
+                    trait_args,
+                    assoc_bindings,
+                ))
             }
             SymbolKind::TypeParam => {
                 if !segment.args.is_empty() {
@@ -1463,11 +897,19 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     return TypeId::ERROR;
                 };
 
-                let Some(assoc_def) = self.ctx.defs.get(def_id.0 as usize).and_then(|def| match def {
-                    Def::AssociatedType(assoc) => Some(assoc.clone()),
-                    _ => None,
-                }) else {
-                    self.ctx.emit_ice(span, "associated type symbol does not point to an associated type def");
+                let Some(assoc_def) =
+                    self.ctx
+                        .defs
+                        .get(def_id.0 as usize)
+                        .and_then(|def| match def {
+                            Def::AssociatedType(assoc) => Some(assoc.clone()),
+                            _ => None,
+                        })
+                else {
+                    self.ctx.emit_ice(
+                        span,
+                        "associated type symbol does not point to an associated type def",
+                    );
                     return TypeId::ERROR;
                 };
 
@@ -1508,8 +950,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
             SymbolKind::TypeAlias => {
                 if !resolved_assoc_bindings.is_empty() {
-                    self.ctx
-                        .emit_error(segment.name_span, "type aliases do not accept associated type bindings");
+                    self.ctx.emit_error(
+                        segment.name_span,
+                        "type aliases do not accept associated type bindings",
+                    );
                     return TypeId::ERROR;
                 }
                 if final_sym.def_id.is_none() {
@@ -1635,8 +1079,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     span,
                     format!(
                         "trait `{}` does not declare associated type `{}`",
-                        self.ctx
-                            .defs[trait_def_id.0 as usize]
+                        self.ctx.defs[trait_def_id.0 as usize]
                             .name()
                             .map(|sym| self.ctx.resolve(sym))
                             .unwrap_or("<trait>"),
@@ -1697,8 +1140,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 segment.name_span,
                 format!(
                     "trait `{}` has no associated type `{}`",
-                    self.ctx
-                        .defs[trait_def_id.0 as usize]
+                    self.ctx.defs[trait_def_id.0 as usize]
                         .name()
                         .map(|sym| self.ctx.resolve(sym))
                         .unwrap_or("<trait>"),
@@ -1708,7 +1150,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return TypeId::ERROR;
         };
 
-        if let Some((_, ty)) = assoc_bindings.iter().find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id) {
+        if let Some((_, ty)) = assoc_bindings
+            .iter()
+            .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+        {
             if !segment.args.is_empty() {
                 self.ctx.emit_error(
                     segment.name_span,
@@ -1801,421 +1246,5 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 .type_registry
                 .intern(TypeKind::Simd { elem, lanes }),
         )
-    }
-
-    fn check_type_generic_bounds(&mut self, span: Span, def_id: DefId, arg_tys: &[TypeId]) -> bool {
-        let Some((item_name, generics, where_clauses, kind_name)) =
-            self.generic_def_bounds_info(def_id)
-        else {
-            return true;
-        };
-
-        if generics.len() != arg_tys.len() {
-            self.ctx.emit_error(
-                span,
-                format!(
-                    "{} `{}` expects {} generic arguments, but {} were provided",
-                    kind_name,
-                    item_name,
-                    generics.len(),
-                    arg_tys.len()
-                ),
-            );
-            return false;
-        }
-
-        if arg_tys
-            .iter()
-            .any(|&ty| ty == TypeId::ERROR || self.type_contains_params(ty))
-        {
-            return true;
-        }
-
-        if where_clauses.is_empty() {
-            return true;
-        }
-
-        self.ensure_where_clause_types_resolved(def_id, &generics, &where_clauses);
-
-        let mut map = HashMap::new();
-        for (param, arg_ty) in generics.iter().zip(arg_tys.iter()) {
-            map.insert(param.name, *arg_ty);
-        }
-
-        let mut pairs_to_check = Vec::new();
-        {
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-            for clause in where_clauses {
-                let original_target = self
-                    .ctx
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                let sub_target = subst.substitute(original_target);
-
-                for bound_ast in clause.bounds {
-                    let original_bound = self
-                        .ctx
-                        .node_types
-                        .get(&bound_ast.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
-                    let sub_bound = subst.substitute(original_bound);
-                    pairs_to_check.push((sub_target, sub_bound));
-                }
-            }
-        }
-
-        let mut ok = true;
-        for (sub_target, sub_bound) in pairs_to_check {
-            if sub_target == TypeId::ERROR || sub_bound == TypeId::ERROR {
-                ok = false;
-                continue;
-            }
-
-            let bound_ok = {
-                let mut checker = ExprChecker::new(self.ctx, None);
-                checker.check_trait_impl(sub_target, sub_bound)
-            };
-
-            if !bound_ok {
-                ok = false;
-                let target_str = self.ctx.ty_to_string(sub_target);
-                let bound_str = self.ctx.ty_to_string(sub_bound);
-                self.ctx
-                    .struct_error(span, "type does not satisfy trait bounds")
-                    .with_hint(format!("required bound: `{}: {}`", target_str, bound_str))
-                    .emit();
-            }
-        }
-
-        ok
-    }
-
-    pub(crate) fn ensure_impl_signature_types_resolved(&mut self, impl_id: DefId) {
-        let Def::Impl(impl_def) = self.ctx.defs[impl_id.0 as usize].clone() else {
-            return;
-        };
-        let Some(parent_module) = impl_def.parent_module else {
-            return;
-        };
-        let Def::Module(module_def) = &self.ctx.defs[parent_module.0 as usize] else {
-            return;
-        };
-
-        let have_target = self.ctx.node_types.contains_key(&impl_def.target_type.id);
-        let have_trait = impl_def
-            .trait_type
-            .as_ref()
-            .is_none_or(|trait_ty| self.ctx.node_types.contains_key(&trait_ty.id));
-        let have_bounds = impl_def.where_clauses.iter().all(|clause| {
-            self.ctx.node_types.contains_key(&clause.target_ty.id)
-                && clause
-                    .bounds
-                    .iter()
-                    .all(|bound| self.ctx.node_types.contains_key(&bound.id))
-        });
-        if have_target && have_trait && have_bounds {
-            return;
-        }
-
-        let parent_scope = module_def.scope_id;
-        self.ctx.scopes.set_current_scope(parent_scope);
-        let impl_scope = self.ctx.scopes.enter_scope();
-        self.bind_generics(&impl_def.generics, impl_scope);
-        self.resolve_where_clauses(&impl_def.where_clauses, impl_scope);
-
-        let target_ty = self.resolve_type(&impl_def.target_type, impl_scope);
-        self.bind_self_type(target_ty, impl_scope, impl_def.span);
-        if let Some(trait_ty) = &impl_def.trait_type {
-            self.resolve_type(trait_ty, impl_scope);
-        }
-
-        self.ctx.scopes.exit_scope();
-        self.ctx.scopes.set_current_scope(parent_scope);
-    }
-
-    fn ensure_where_clause_types_resolved(
-        &mut self,
-        def_id: DefId,
-        generics: &[ast::GenericParam],
-        where_clauses: &[ast::WhereClause],
-    ) {
-        let needs_resolution = where_clauses.iter().any(|clause| {
-            !self.ctx.node_types.contains_key(&clause.target_ty.id)
-                || clause
-                    .bounds
-                    .iter()
-                    .any(|bound| !self.ctx.node_types.contains_key(&bound.id))
-        });
-        if !needs_resolution {
-            return;
-        }
-
-        let Some(owner_scope) = self.def_owner_module_scope(def_id) else {
-            return;
-        };
-
-        self.ctx.scopes.set_current_scope(owner_scope);
-        let item_scope = self.ctx.scopes.enter_scope();
-
-        if let Def::Trait(trait_def) = &self.ctx.defs[def_id.0 as usize] {
-            let self_args = generics
-                .iter()
-                .map(|param| self.ctx.type_registry.intern(TypeKind::Param(param.name)))
-                .collect();
-            let self_ty = self
-                .ctx
-                .type_registry
-                .intern(TypeKind::TraitObject(def_id, self_args, Vec::new()));
-            self.bind_self_type(self_ty, item_scope, trait_def.span);
-        }
-
-        self.bind_generics(generics, item_scope);
-        self.resolve_where_clauses(where_clauses, item_scope);
-        self.ctx.scopes.exit_scope();
-        self.ctx.scopes.set_current_scope(owner_scope);
-    }
-
-    fn generic_def_bounds_info(
-        &self,
-        def_id: DefId,
-    ) -> Option<(
-        String,
-        Vec<ast::GenericParam>,
-        Vec<ast::WhereClause>,
-        &'static str,
-    )> {
-        match &self.ctx.defs[def_id.0 as usize] {
-            Def::Struct(s) => Some((
-                self.ctx.resolve(s.name).to_string(),
-                s.generics.clone(),
-                s.where_clauses.clone(),
-                "struct",
-            )),
-            Def::Union(u) => Some((
-                self.ctx.resolve(u.name).to_string(),
-                u.generics.clone(),
-                u.where_clauses.clone(),
-                "union",
-            )),
-            Def::Enum(e) => Some((
-                self.ctx.resolve(e.name).to_string(),
-                e.generics.clone(),
-                e.where_clauses.clone(),
-                "enum",
-            )),
-            Def::Trait(t) => Some((
-                self.ctx.resolve(t.name).to_string(),
-                t.generics.clone(),
-                t.where_clauses.clone(),
-                "trait",
-            )),
-            Def::TypeAlias(t) => Some((
-                self.ctx.resolve(t.name).to_string(),
-                t.generics.clone(),
-                t.where_clauses.clone(),
-                "type alias",
-            )),
-            _ => None,
-        }
-    }
-
-    fn def_owner_module_scope(&self, def_id: DefId) -> Option<ScopeId> {
-        self.ctx.def_owner_scope(def_id)
-    }
-
-    fn type_contains_params(&mut self, ty: TypeId) -> bool {
-        let norm = self.ctx.type_registry.normalize(ty);
-        match self.ctx.type_registry.get(norm).clone() {
-            TypeKind::Param(_) | TypeKind::TypeVar(_) => true,
-            TypeKind::Pointer { elem, .. }
-            | TypeKind::VolatilePtr { elem, .. }
-            | TypeKind::Slice { elem, .. }
-            | TypeKind::Alias(_, elem)
-            | TypeKind::AnonymousEnumPayload(elem) => self.type_contains_params(elem),
-            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
-                self.type_contains_params(elem)
-            }
-            TypeKind::Def(_, args)
-            | TypeKind::Enum(_, args)
-            | TypeKind::Associated(_, args)
-            | TypeKind::FnDef(_, args) => {
-                args.into_iter().any(|arg| self.type_contains_params(arg))
-            }
-            TypeKind::TraitObject(_, args, assoc_bindings) => {
-                args.into_iter().any(|arg| self.type_contains_params(arg))
-                    || assoc_bindings
-                        .into_iter()
-                        .any(|(_, ty)| self.type_contains_params(ty))
-            }
-            TypeKind::Projection {
-                target,
-                trait_args,
-                assoc_args,
-                ..
-            } => {
-                self.type_contains_params(target)
-                    || trait_args
-                        .into_iter()
-                        .any(|arg| self.type_contains_params(arg))
-                    || assoc_args
-                        .into_iter()
-                        .any(|arg| self.type_contains_params(arg))
-            }
-            TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
-                params
-                    .into_iter()
-                    .any(|param| self.type_contains_params(param))
-                    || self.type_contains_params(ret)
-            }
-            TypeKind::AnonymousState {
-                captures,
-                params,
-                ret,
-                ..
-            } => {
-                captures
-                    .into_iter()
-                    .any(|capture| self.type_contains_params(capture))
-                    || params
-                        .into_iter()
-                        .any(|param| self.type_contains_params(param))
-                    || self.type_contains_params(ret)
-            }
-            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields
-                .into_iter()
-                .any(|field| self.type_contains_params(field.ty)),
-            TypeKind::AnonymousEnum(enum_def) => enum_def.variants.into_iter().any(|variant| {
-                variant
-                    .payload_ty
-                    .is_some_and(|payload_ty| self.type_contains_params(payload_ty))
-            }),
-            _ => false,
-        }
-    }
-
-    fn required_def_id(
-        &mut self,
-        symbol: &SymbolInfo,
-        span: Span,
-        context: &str,
-        segment: SymbolId,
-    ) -> Option<DefId> {
-        if let Some(def_id) = symbol.def_id {
-            Some(def_id)
-        } else {
-            self.ctx.emit_ice(
-                span,
-                format!(
-                    "Resolved {} `{}` is missing a DefId",
-                    context,
-                    self.ctx.resolve(segment)
-                ),
-            );
-            None
-        }
-    }
-
-    fn module_scope_from_def(
-        &mut self,
-        def_id: DefId,
-        span: Span,
-        segment: SymbolId,
-    ) -> Option<ScopeId> {
-        if let Def::Module(m) = &self.ctx.defs[def_id.0 as usize] {
-            Some(m.scope_id)
-        } else {
-            self.ctx.emit_ice(
-                span,
-                format!(
-                    "Resolved module path segment `{}` points to non-module def {:?}",
-                    self.ctx.resolve(segment),
-                    def_id
-                ),
-            );
-            None
-        }
-    }
-
-    fn last_segment_name(&self, segments: &[ast::TypePathSegment]) -> String {
-        segments
-            .last()
-            .map(|segment| self.ctx.resolve(segment.name).to_string())
-            .unwrap_or_else(|| "<empty-path>".to_string())
-    }
-
-    fn bind_generics(&mut self, generics: &[ast::GenericParam], scope: ScopeId) {
-        self.ctx.scopes.set_current_scope(scope);
-
-        // Inject every generic parameter name into the current scope.
-        for param in generics {
-            let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
-            let info = SymbolInfo {
-                kind: SymbolKind::TypeParam,
-                node_id: self.ctx.next_node_id(),
-                type_id: param_ty,
-                def_id: None,
-                span: param.span,
-                vis: Visibility::Private,
-                is_mut: false,
-            };
-            let _ = self.ctx.scopes.define(param.name, info);
-        }
-    }
-
-    /// Resolve every type node in where-clauses so they are cached in `ctx.node_types`.
-    fn resolve_where_clauses(&mut self, clauses: &[ast::WhereClause], scope: ScopeId) {
-        for clause in clauses {
-            // Resolve the constrained target type on the left-hand side.
-            self.resolve_type(&clause.target_ty, scope);
-            // Resolve every trait bound on the right-hand side.
-            for bound in &clause.bounds {
-                self.resolve_type(bound, scope);
-            }
-        }
-    }
-
-    fn bind_self_type(&mut self, target_ty: TypeId, scope: ScopeId, span: Span) {
-        self.ctx.scopes.set_current_scope(scope);
-        let self_sym = self.ctx.intern("Self");
-        let info = SymbolInfo {
-            kind: SymbolKind::TypeAlias,
-            node_id: self.ctx.next_node_id(),
-            type_id: target_ty,
-            def_id: None,
-            span,
-            vis: Visibility::Private,
-            is_mut: false,
-        };
-        // Allow shadowing here so generic bindings can override outer names.
-        let _ = self.ctx.scopes.define(self_sym, info);
-    }
-
-    fn kind_to_string(&self, kind: SymbolKind) -> &'static str {
-        match kind {
-            SymbolKind::Var => "variable",
-            SymbolKind::Const => "constant",
-            SymbolKind::Static => "static variable",
-            SymbolKind::Function => "function",
-            SymbolKind::Module => "module",
-            SymbolKind::Struct => "struct",
-            SymbolKind::Union => "union",
-            SymbolKind::Enum => "algebraic data type",
-            SymbolKind::Trait => "trait",
-            SymbolKind::TypeAlias => "type alias",
-            SymbolKind::AssociatedType => "associated type",
-            SymbolKind::TypeParam => "type parameter",
-        }
-    }
-
-    fn ensure_sized(&mut self, ty: TypeId, span: Span) {
-        let norm = self.ctx.type_registry.normalize(ty);
-        if matches!(self.ctx.type_registry.get(norm), TypeKind::TraitObject(..)) {
-            self.ctx.struct_error(span, "trait objects have dynamic size and cannot be used as naked types")
-                .with_hint("in Kern, you must explicitly use a pointer for dynamic dispatch, e.g., `*Trait` or `*mut Trait`")
-                .emit();
-        }
     }
 }

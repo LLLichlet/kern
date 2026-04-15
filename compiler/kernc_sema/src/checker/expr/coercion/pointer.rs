@@ -1,0 +1,469 @@
+use super::*;
+
+impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    pub(super) fn check_pointer_coercions(
+        &mut self,
+        expr: &Expr,
+        _exp: TypeId,
+        act: TypeId,
+        exp_kind: &TypeKind,
+        act_kind: &TypeKind,
+    ) -> bool {
+        if let TypeKind::Pointer {
+            is_mut: e_mut,
+            elem: e_inner,
+        } = exp_kind
+        {
+            let e_norm = self.resolve_tv(*e_inner);
+            if self.check_pointer_to_pointer_coercion(*e_mut, e_norm, act, act_kind) {
+                return true;
+            }
+            if self.check_value_to_trait_object_pointer(expr, *e_mut, e_norm, act, act_kind) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn pointer_mutability_allows(expected_mut: bool, actual_mut: bool) -> bool {
+        !expected_mut || actual_mut
+    }
+
+    fn check_pointer_to_pointer_coercion(
+        &mut self,
+        expected_mut: bool,
+        expected_elem: TypeId,
+        actual_ty: TypeId,
+        act_kind: &TypeKind,
+    ) -> bool {
+        let TypeKind::Pointer {
+            is_mut: actual_mut,
+            elem: actual_elem,
+        } = act_kind
+        else {
+            return false;
+        };
+
+        if !Self::pointer_mutability_allows(expected_mut, *actual_mut) {
+            return false;
+        }
+
+        let actual_elem_norm = self.resolve_tv(*actual_elem);
+        if expected_elem == actual_elem_norm
+            || self.ctx.type_registry.is_void(expected_elem)
+            || self.is_anonymous_aggregate_equivalent(expected_elem, actual_elem_norm)
+        {
+            return true;
+        }
+
+        if matches!(
+            (
+                self.ctx.type_registry.get(expected_elem),
+                self.ctx.type_registry.get(actual_elem_norm)
+            ),
+            (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
+        ) && self.is_trait_object_upcast(actual_elem_norm, expected_elem)
+        {
+            return true;
+        }
+
+        if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(expected_elem) {
+            let trait_source_ty = if !expected_mut && *actual_mut {
+                self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem: *actual_elem,
+                })
+            } else {
+                actual_ty
+            };
+
+            if self.check_trait_impl(trait_source_ty, expected_elem) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub(crate) fn is_trait_object_upcast(
+        &mut self,
+        source_trait_ty: TypeId,
+        target_trait_ty: TypeId,
+    ) -> bool {
+        let source_norm = self.resolve_tv(source_trait_ty);
+        let target_norm = self.resolve_tv(target_trait_ty);
+
+        if source_norm == target_norm {
+            return true;
+        }
+
+        let mut visited = FastHashSet::default();
+        self.find_supertrait_in_hierarchy(source_norm, target_norm, &mut visited)
+            .is_some()
+    }
+
+    pub(super) fn find_supertrait_in_hierarchy(
+        &mut self,
+        source_trait_ty: TypeId,
+        target_trait_ty: TypeId,
+        visited: &mut FastHashSet<TypeId>,
+    ) -> Option<TypeId> {
+        let source_norm = self.resolve_tv(source_trait_ty);
+        let target_norm = self.resolve_tv(target_trait_ty);
+
+        if !visited.insert(source_norm) {
+            return None;
+        }
+
+        let TypeKind::TraitObject(source_def_id, source_args, _) =
+            self.ctx.type_registry.get(source_norm).clone()
+        else {
+            return None;
+        };
+
+        let Def::Trait(trait_def) = self.ctx.defs[source_def_id.0 as usize].clone() else {
+            return None;
+        };
+
+        let trait_arg_map: FastHashMap<SymbolId, TypeId> = trait_def
+            .generics
+            .iter()
+            .zip(source_args.iter())
+            .map(|(param, arg)| (param.name, *arg))
+            .collect();
+
+        for &super_ty in &trait_def.resolved_supertraits {
+            let inst_super_ty = if trait_arg_map.is_empty() {
+                super_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+                subst.substitute(super_ty)
+            };
+            let inst_super_norm = self.resolve_tv(inst_super_ty);
+
+            if inst_super_norm == target_norm {
+                return Some(inst_super_norm);
+            }
+
+            if let Some(found) =
+                self.find_supertrait_in_hierarchy(inst_super_norm, target_norm, visited)
+            {
+                return Some(found);
+            }
+        }
+
+        None
+    }
+
+    fn check_value_to_trait_object_pointer(
+        &mut self,
+        expr: &Expr,
+        expected_mut: bool,
+        expected_elem: TypeId,
+        actual_ty: TypeId,
+        act_kind: &TypeKind,
+    ) -> bool {
+        if !matches!(
+            self.ctx.type_registry.get(expected_elem),
+            TypeKind::TraitObject(..)
+        ) {
+            return false;
+        }
+
+        if matches!(
+            act_kind,
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+        ) {
+            return false;
+        }
+
+        if expected_mut && !self.can_take_mut_address_of(expr) {
+            self.ctx
+                .struct_error(
+                    expr.span,
+                    "cannot implicitly borrow an immutable value as a mutable trait object `*mut Trait`",
+                )
+                .with_code(DiagnosticCode::RequiresLetMut)
+                .with_hint(
+                    "consider declaring the variable as `let mut`, or pass a value expression that can be materialized into a mutable stack temporary",
+                )
+                .emit();
+            return false;
+        }
+
+        let virtual_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: expected_mut,
+            elem: actual_ty,
+        });
+
+        self.check_trait_impl(virtual_ptr_ty, expected_elem)
+    }
+
+    /// Core helper for checking named-to-anonymous aggregate decay.
+    pub(super) fn is_anonymous_aggregate_equivalent(
+        &mut self,
+        exp_anon: TypeId,
+        act_def: TypeId,
+    ) -> bool {
+        let exp_kind = self.ctx.type_registry.get(exp_anon).clone();
+        let act_kind = self.ctx.type_registry.get(act_def).clone();
+
+        if let TypeKind::Def(def_id, ref act_args) = act_kind {
+            let act_def_clone = self.ctx.defs[def_id.0 as usize].clone();
+
+            match (exp_kind.clone(), act_def_clone) {
+                (TypeKind::AnonymousStruct(exp_is_extern, exp_fields), Def::Struct(act_s)) => {
+                    if exp_is_extern != act_s.is_extern {
+                        return false;
+                    }
+                    return self.compare_named_fields_to_anonymous(
+                        &act_s.generics,
+                        &act_s.fields,
+                        act_args,
+                        &exp_fields,
+                        true,
+                    );
+                }
+                (TypeKind::AnonymousUnion(exp_is_extern, exp_fields), Def::Union(act_u)) => {
+                    if exp_is_extern != act_u.is_extern {
+                        return false;
+                    }
+                    return self.compare_named_fields_to_anonymous(
+                        &act_u.generics,
+                        &act_u.fields,
+                        act_args,
+                        &exp_fields,
+                        false,
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        if let TypeKind::Enum(def_id, ref act_args) = act_kind {
+            let act_def_clone = self.ctx.defs[def_id.0 as usize].clone();
+            if let (TypeKind::AnonymousEnum(exp_enum), Def::Enum(act_enum)) =
+                (exp_kind, act_def_clone)
+            {
+                let exp_backing = exp_enum.backing_ty.unwrap_or(TypeId::U32);
+                let act_backing = act_enum.backing_type.as_ref().map_or(TypeId::U32, |bt| {
+                    self.ctx
+                        .node_types
+                        .get(&bt.id)
+                        .copied()
+                        .unwrap_or(TypeId::U32)
+                });
+
+                if self.resolve_tv(exp_backing) != self.resolve_tv(act_backing) {
+                    return false;
+                }
+
+                if exp_enum.variants.len() != act_enum.variants.len() {
+                    return false;
+                }
+
+                let mut subst_map = FastHashMap::default();
+                for (i, param) in act_enum.generics.iter().enumerate() {
+                    subst_map.insert(param.name, act_args[i]);
+                }
+
+                let mut current_val: i128 = 0;
+                for (exp_variant, act_variant) in
+                    exp_enum.variants.iter().zip(act_enum.variants.iter())
+                {
+                    if let Some(v_expr) = &act_variant.value {
+                        let mut ce = crate::checker::ConstEvaluator::new(self.ctx);
+                        if let Ok(val) = ce.eval_math(v_expr) {
+                            current_val = val;
+                        }
+                    }
+
+                    if exp_variant.name != act_variant.name {
+                        return false;
+                    }
+
+                    let act_payload = act_variant.payload_type.as_ref().map(|payload_ast| {
+                        let raw_ty = self
+                            .ctx
+                            .node_types
+                            .get(&payload_ast.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR);
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                        let substituted = subst.substitute(raw_ty);
+                        self.resolve_tv(substituted)
+                    });
+
+                    if exp_variant.payload_ty.map(|ty| self.resolve_tv(ty)) != act_payload {
+                        return false;
+                    }
+
+                    let exp_value = exp_variant.explicit_value.unwrap_or(current_val);
+                    if exp_value != current_val {
+                        return false;
+                    }
+
+                    current_val += 1;
+                }
+
+                return true;
+            }
+        }
+        false
+    }
+
+    fn compare_named_fields_to_anonymous(
+        &mut self,
+        generics: &[kernc_ast::GenericParam],
+        named_fields: &[kernc_ast::StructFieldDef],
+        args: &[TypeId],
+        anon_fields: &[crate::ty::AnonymousField],
+        _sort_named: bool,
+    ) -> bool {
+        if anon_fields.len() != named_fields.len() {
+            return false;
+        }
+
+        let mut act_fields = Vec::new();
+        for f in named_fields {
+            let raw_ty = self
+                .ctx
+                .node_types
+                .get(&f.type_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+
+            let inst_ty = if !generics.is_empty() && !args.is_empty() {
+                let mut map = FastHashMap::default();
+                for (i, param) in generics.iter().enumerate() {
+                    map.insert(param.name, args[i]);
+                }
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                subst.substitute(raw_ty)
+            } else {
+                raw_ty
+            };
+
+            act_fields.push((f.name, self.resolve_tv(inst_ty)));
+        }
+
+        act_fields.sort_by_key(|f| f.0);
+
+        for (exp_f, act_f) in anon_fields.iter().zip(act_fields.iter()) {
+            if exp_f.name != act_f.0 || self.resolve_tv(exp_f.ty) != act_f.1 {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    pub(super) fn check_volatile_coercions(
+        &mut self,
+        _expr: &Expr,
+        act: TypeId,
+        exp_kind: &TypeKind,
+        act_kind: &TypeKind,
+    ) -> bool {
+        if let TypeKind::VolatilePtr {
+            is_mut: e_mut,
+            elem: e_inner,
+        } = exp_kind
+            && let TypeKind::VolatilePtr {
+                is_mut: a_mut,
+                elem: a_inner,
+            } = act_kind
+            && (!*e_mut || *a_mut)
+        {
+            let e_norm = self.resolve_tv(*e_inner);
+            let a_norm = self.resolve_tv(*a_inner);
+            if e_norm == a_norm {
+                return true;
+            }
+            if self.ctx.type_registry.is_void(e_norm) {
+                return true;
+            }
+            if self.is_anonymous_aggregate_equivalent(e_norm, a_norm) {
+                return true;
+            }
+            if matches!(
+                (
+                    self.ctx.type_registry.get(e_norm),
+                    self.ctx.type_registry.get(a_norm)
+                ),
+                (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
+            ) && self.is_trait_object_upcast(a_norm, e_norm)
+            {
+                return true;
+            }
+            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm)
+                && self.check_trait_impl(act, e_norm)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub(super) fn check_slice_and_array_decay(
+        &mut self,
+        expr: &Expr,
+        exp_kind: &TypeKind,
+        act_kind: &TypeKind,
+    ) -> bool {
+        if let TypeKind::Slice {
+            is_mut: e_mut,
+            elem: exp_elem,
+        } = exp_kind
+        {
+            if let TypeKind::Slice {
+                is_mut: act_mut,
+                elem: act_elem,
+            } = act_kind
+                && (!*e_mut || *act_mut)
+                && self.resolve_tv(*exp_elem) == self.resolve_tv(*act_elem)
+            {
+                return true;
+            }
+            match self.check_array_decay(*e_mut, *exp_elem, act_kind, expr.span) {
+                Ok(true) => return true,
+                Err(()) => return false,
+                Ok(false) => {}
+            }
+        }
+        false
+    }
+
+    /// Decay an array into a slice when the element types are compatible.
+    fn check_array_decay(
+        &mut self,
+        exp_is_mut: bool,
+        exp_elem: TypeId,
+        act_kind: &TypeKind,
+        span: Span,
+    ) -> Result<bool, ()> {
+        if let TypeKind::Array {
+            is_mut: act_mut,
+            elem: act_elem,
+            ..
+        } = act_kind
+        {
+            let exp_base = self.resolve_tv(exp_elem);
+            let act_base = self.resolve_tv(*act_elem);
+
+            if exp_base == act_base {
+                if exp_is_mut && !*act_mut {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "cannot implicitly convert an immutable array to a mutable slice `[]mut T`",
+                        )
+                        .emit();
+                    return Err(());
+                }
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}

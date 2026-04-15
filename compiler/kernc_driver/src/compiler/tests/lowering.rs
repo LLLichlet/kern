@@ -549,9 +549,17 @@ fn lowering_expands_optional_propagate_into_match_like_early_return() {
         .expect("expected lowered propagate binding");
 
     let MastExprKind::Block(block) = &propagate_init.kind else {
-        panic!("expected propagate lowering block, got {:?}", propagate_init.kind);
+        panic!(
+            "expected propagate lowering block, got {:?}",
+            propagate_init.kind
+        );
     };
-    assert_eq!(block.stmts.len(), 1, "unexpected propagate block stmts: {:?}", block.stmts);
+    assert_eq!(
+        block.stmts.len(),
+        1,
+        "unexpected propagate block stmts: {:?}",
+        block.stmts
+    );
     let MastStmt::Let { name, .. } = &block.stmts[0] else {
         panic!("expected hidden target binding in propagate block");
     };
@@ -570,7 +578,10 @@ fn lowering_expands_optional_propagate_into_match_like_early_return() {
         ..
     } = &result_expr.kind
     else {
-        panic!("expected propagate block to end in if, got {:?}", result_expr.kind);
+        panic!(
+            "expected propagate block to end in if, got {:?}",
+            result_expr.kind
+        );
     };
     assert!(
         matches!(
@@ -581,7 +592,9 @@ fn lowering_expands_optional_propagate_into_match_like_early_return() {
         then_branch.result
     );
 
-    let else_branch = else_branch.as_ref().expect("expected propagate failure branch");
+    let else_branch = else_branch
+        .as_ref()
+        .expect("expected propagate failure branch");
     let else_result = else_branch
         .result
         .as_deref()
@@ -594,7 +607,10 @@ fn lowering_expands_optional_propagate_into_match_like_early_return() {
                 returned.kind
             );
         }
-        other => panic!("expected early return in propagate failure branch, got {:?}", other),
+        other => panic!(
+            "expected early return in propagate failure branch, got {:?}",
+            other
+        ),
     }
 
     let _ = fs::remove_dir_all(&root);

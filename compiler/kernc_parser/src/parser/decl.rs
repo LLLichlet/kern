@@ -15,6 +15,9 @@ impl<'a> Parser<'a> {
         let vis = if self.match_token(&[TokenType::DotDot]) {
             span = span.to(self.stream.prev_span());
             Visibility::Super
+        } else if self.match_token(&[TokenType::Tilde]) {
+            span = span.to(self.stream.prev_span());
+            Visibility::Package
         } else {
             Visibility::Public
         };
@@ -412,7 +415,11 @@ impl<'a> Parser<'a> {
                 decls.push(d);
             } else if self.check(TokenType::Type) {
                 if vis != Visibility::Private {
-                    self.add_error(d_start, "Associated type definitions inside `impl` blocks cannot be `pub`".to_string());
+                    self.add_error(
+                        d_start,
+                        "Associated type definitions inside `impl` blocks cannot be `pub`"
+                            .to_string(),
+                    );
                 }
                 let mut d = self.parse_type_alias_decl(d_start, Visibility::Private, false)?;
                 d.docs = docs;

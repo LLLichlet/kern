@@ -13,6 +13,7 @@ use kernc_utils::{FastHashMap, FastHashSet, SymbolId};
 struct ResolvedRootModule {
     entry_path: PathBuf,
     declared_root_name: Option<SymbolId>,
+    package_name: Option<SymbolId>,
 }
 
 #[derive(Default)]
@@ -80,6 +81,11 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
     pub fn load_root(&mut self, root_file: &str, root_name: SymbolId) -> Option<DefId> {
         let path = PathBuf::from(root_file);
         let root_id = self.load_module(path, None, root_name, false);
+        if let (Some(root_id), Some(package_name)) = (root_id, self.ctx.current_package_name) {
+            self.ctx
+                .root_module_package_names
+                .insert(root_id, package_name);
+        }
         self.ctx.root_module = root_id;
         self.load_referenced_alias_roots(false);
         self.load_referenced_alias_roots(true);
@@ -133,6 +139,11 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 let module_name = root.declared_root_name.unwrap_or(alias_sym);
                 if let Some(mod_id) = self.load_module(root.entry_path, None, module_name, imported)
                 {
+                    if let Some(package_name) = root.package_name {
+                        self.ctx
+                            .root_module_package_names
+                            .insert(mod_id, package_name);
+                    }
                     self.ctx.alias_roots.insert(alias_sym, mod_id);
                 }
                 progressed = true;
@@ -324,7 +335,11 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     for arg in &segment.args {
                         match arg {
                             ast::TypeArg::Positional(generic) => {
-                                Self::collect_type_alias_references(generic, alias_names, referenced);
+                                Self::collect_type_alias_references(
+                                    generic,
+                                    alias_names,
+                                    referenced,
+                                );
                             }
                             ast::TypeArg::AssocBinding { value, .. } => {
                                 Self::collect_type_alias_references(value, alias_names, referenced);
@@ -699,9 +714,11 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     }
 
                     let declared_root_name = Some(self.ctx.intern(&manifest.root_module_name));
+                    let package_name = Some(self.ctx.intern(&manifest.package_name));
                     return Some(ResolvedRootModule {
                         entry_path,
                         declared_root_name,
+                        package_name,
                     });
                 }
                 Ok(None) => {
@@ -740,16 +757,19 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             Some(ResolvedRootModule {
                 entry_path: dir_init,
                 declared_root_name: None,
+                package_name: None,
             })
         } else if self.path_exists(&file_kn) {
             Some(ResolvedRootModule {
                 entry_path: file_kn,
                 declared_root_name: None,
+                package_name: None,
             })
         } else if self.path_exists(base_path) && !base_path.is_dir() {
             Some(ResolvedRootModule {
                 entry_path: base_path.to_path_buf(),
                 declared_root_name: None,
+                package_name: None,
             })
         } else {
             None

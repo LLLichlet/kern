@@ -22,6 +22,7 @@ pub struct SemaStructureSnapshot {
     pub atomic_orderings: FastHashMap<NodeId, AtomicOrdering>,
     pub trait_method_owners: FastHashMap<NodeId, TypeId>,
     pub builtin_defs: FastHashMap<SymbolId, DefId>,
+    pub current_package_name: Option<SymbolId>,
     pub defs: Vec<Def>,
     pub scopes: SymbolTable,
     pub global_impls: Vec<DefId>,
@@ -29,6 +30,7 @@ pub struct SemaStructureSnapshot {
     pub impl_methods_by_name: FastHashMap<SymbolId, Vec<DefId>>,
     pub alias_roots: FastHashMap<SymbolId, DefId>,
     pub root_module: Option<DefId>,
+    pub root_module_package_names: FastHashMap<DefId, SymbolId>,
     pub module_defs_by_scope: FastHashMap<ScopeId, DefId>,
     pub parent_modules_by_def: FastHashMap<DefId, DefId>,
     pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
@@ -83,6 +85,7 @@ pub struct SemaContext<'a> {
     pub atomic_orderings: FastHashMap<NodeId, AtomicOrdering>,
     pub trait_method_owners: FastHashMap<NodeId, TypeId>,
     pub builtin_defs: FastHashMap<SymbolId, DefId>,
+    pub current_package_name: Option<SymbolId>,
     // Active trait bounds introduced by the current generic scope.
     pub active_bounds: Vec<(TypeId, Vec<TypeId>)>,
 
@@ -98,6 +101,7 @@ pub struct SemaContext<'a> {
     pub module_interface_aliases: HashMap<String, String>,
     pub alias_roots: FastHashMap<SymbolId, DefId>,
     pub root_module: Option<DefId>,
+    pub root_module_package_names: FastHashMap<DefId, SymbolId>,
     pub module_defs_by_scope: FastHashMap<ScopeId, DefId>,
     pub parent_modules_by_def: FastHashMap<DefId, DefId>,
     pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
@@ -125,6 +129,7 @@ impl<'a> SemaContext<'a> {
             atomic_orderings: FastHashMap::default(),
             trait_method_owners: FastHashMap::default(),
             builtin_defs: FastHashMap::default(),
+            current_package_name: None,
             active_bounds: Vec::new(),
             defs: Vec::new(),
             scopes: SymbolTable::new(),
@@ -132,6 +137,7 @@ impl<'a> SemaContext<'a> {
             module_interface_aliases: HashMap::new(),
             alias_roots: FastHashMap::default(),
             root_module: None,
+            root_module_package_names: FastHashMap::default(),
             module_defs_by_scope: FastHashMap::default(),
             parent_modules_by_def: FastHashMap::default(),
             owner_scopes_by_def: FastHashMap::default(),
@@ -172,6 +178,7 @@ impl<'a> SemaContext<'a> {
             atomic_orderings: self.atomic_orderings.clone(),
             trait_method_owners: self.trait_method_owners.clone(),
             builtin_defs: self.builtin_defs.clone(),
+            current_package_name: self.current_package_name,
             defs: self.defs.clone(),
             scopes: self.scopes.clone(),
             global_impls: self.global_impls.clone(),
@@ -179,6 +186,7 @@ impl<'a> SemaContext<'a> {
             impl_methods_by_name: self.impl_methods_by_name.clone(),
             alias_roots: self.alias_roots.clone(),
             root_module: self.root_module,
+            root_module_package_names: self.root_module_package_names.clone(),
             module_defs_by_scope: self.module_defs_by_scope.clone(),
             parent_modules_by_def: self.parent_modules_by_def.clone(),
             owner_scopes_by_def: self.owner_scopes_by_def.clone(),
@@ -192,6 +200,7 @@ impl<'a> SemaContext<'a> {
             atomic_orderings: self.atomic_orderings,
             trait_method_owners: self.trait_method_owners,
             builtin_defs: self.builtin_defs,
+            current_package_name: self.current_package_name,
             defs: self.defs,
             scopes: self.scopes,
             global_impls: self.global_impls,
@@ -199,6 +208,7 @@ impl<'a> SemaContext<'a> {
             impl_methods_by_name: self.impl_methods_by_name,
             alias_roots: self.alias_roots,
             root_module: self.root_module,
+            root_module_package_names: self.root_module_package_names,
             module_defs_by_scope: self.module_defs_by_scope,
             parent_modules_by_def: self.parent_modules_by_def,
             owner_scopes_by_def: self.owner_scopes_by_def,
@@ -211,6 +221,7 @@ impl<'a> SemaContext<'a> {
         self.atomic_orderings = snapshot.atomic_orderings;
         self.trait_method_owners = snapshot.trait_method_owners;
         self.builtin_defs = snapshot.builtin_defs;
+        self.current_package_name = snapshot.current_package_name;
         self.active_bounds.clear();
         self.bound_trait_match_cache.clear();
         self.impl_applicability_cache.clear();
@@ -221,6 +232,7 @@ impl<'a> SemaContext<'a> {
         self.impl_methods_by_name = snapshot.impl_methods_by_name;
         self.alias_roots = snapshot.alias_roots;
         self.root_module = snapshot.root_module;
+        self.root_module_package_names = snapshot.root_module_package_names;
         self.module_defs_by_scope = snapshot.module_defs_by_scope;
         self.parent_modules_by_def = snapshot.parent_modules_by_def;
         self.owner_scopes_by_def = snapshot.owner_scopes_by_def;
@@ -375,6 +387,19 @@ impl<'a> SemaContext<'a> {
         false
     }
 
+    pub fn module_root(&self, module_id: DefId) -> DefId {
+        let mut current = module_id;
+        while let Some(parent) = self.module_parent(current) {
+            current = parent;
+        }
+        current
+    }
+
+    pub fn root_module_package_name(&self, module_id: DefId) -> Option<SymbolId> {
+        let root = self.module_root(module_id);
+        self.root_module_package_names.get(&root).copied()
+    }
+
     pub fn visibility_allows_access(
         &self,
         vis: Visibility,
@@ -392,6 +417,22 @@ impl<'a> SemaContext<'a> {
                     return false;
                 };
                 self.module_is_same_or_descendant_of(current_module, parent_module)
+            }
+            Visibility::Package => {
+                let Some(current_module) = current_module else {
+                    return false;
+                };
+                let current_root = self.module_root(current_module);
+                let owner_root = self.module_root(owner_module);
+                match (
+                    self.root_module_package_names.get(&current_root),
+                    self.root_module_package_names.get(&owner_root),
+                ) {
+                    (Some(current_package), Some(owner_package)) => {
+                        current_package == owner_package
+                    }
+                    _ => current_root == owner_root,
+                }
             }
         }
     }
@@ -568,9 +609,7 @@ impl<'a> SemaContext<'a> {
             | Def::Enum(_)
             | Def::Trait(_)
             | Def::AssociatedType(_)
-            | Def::TypeAlias(_) => {
-                self.def_parent_module(def_id)
-            }
+            | Def::TypeAlias(_) => self.def_parent_module(def_id),
         }
     }
 
@@ -943,6 +982,37 @@ mod tests {
             .intern(TypeKind::FnDef(right_parse, Vec::new()));
 
         assert_ne!(ctx.mangle_type(left_ty), ctx.mangle_type(right_ty));
+    }
+
+    #[test]
+    fn package_visibility_allows_same_package_across_module_roots() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let app_root = add_module(&mut ctx, "app", None);
+        let dep_root = add_module(&mut ctx, "dep", None);
+        let dep_inner = add_module(&mut ctx, "inner", Some(dep_root));
+        let package = ctx.intern("bed");
+        ctx.root_module_package_names.insert(app_root, package);
+        ctx.root_module_package_names.insert(dep_root, package);
+
+        assert!(ctx.visibility_allows_access(Visibility::Package, dep_inner, Some(app_root)));
+    }
+
+    #[test]
+    fn package_visibility_denies_different_packages_across_module_roots() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let app_root = add_module(&mut ctx, "app", None);
+        let dep_root = add_module(&mut ctx, "dep", None);
+        let dep_inner = add_module(&mut ctx, "inner", Some(dep_root));
+        let app_package = ctx.intern("app");
+        let dep_package = ctx.intern("dep");
+        ctx.root_module_package_names.insert(app_root, app_package);
+        ctx.root_module_package_names.insert(dep_root, dep_package);
+
+        assert!(!ctx.visibility_allows_access(Visibility::Package, dep_inner, Some(app_root)));
     }
 
     fn add_module(ctx: &mut SemaContext<'_>, name: &str, parent: Option<DefId>) -> DefId {

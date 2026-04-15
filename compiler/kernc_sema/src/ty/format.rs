@@ -135,7 +135,10 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 out.push('.');
                 out.push_str(trait_name);
                 if !trait_args.is_empty() {
-                    let args = trait_args.iter().map(|arg| self.format(*arg)).collect::<Vec<_>>();
+                    let args = trait_args
+                        .iter()
+                        .map(|arg| self.format(*arg))
+                        .collect::<Vec<_>>();
                     out.push('[');
                     out.push_str(&args.join(", "));
                     out.push(']');
@@ -143,7 +146,10 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 out.push('.');
                 out.push_str(assoc_name);
                 if !assoc_args.is_empty() {
-                    let args = assoc_args.iter().map(|arg| self.format(*arg)).collect::<Vec<_>>();
+                    let args = assoc_args
+                        .iter()
+                        .map(|arg| self.format(*arg))
+                        .collect::<Vec<_>>();
                     out.push('[');
                     out.push_str(&args.join(", "));
                     out.push(']');

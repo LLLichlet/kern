@@ -72,10 +72,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         match op {
             ast::BinaryOperator::Add | ast::BinaryOperator::Subtract => {
-                let is_l_addr_ptr =
-                    matches!(self.ctx.type_registry.get(l_norm), TypeKind::VolatilePtr { .. });
-                let is_r_addr_ptr =
-                    matches!(self.ctx.type_registry.get(r_norm), TypeKind::VolatilePtr { .. });
+                let is_l_addr_ptr = matches!(
+                    self.ctx.type_registry.get(l_norm),
+                    TypeKind::VolatilePtr { .. }
+                );
+                let is_r_addr_ptr = matches!(
+                    self.ctx.type_registry.get(r_norm),
+                    TypeKind::VolatilePtr { .. }
+                );
                 if is_l_addr_ptr || is_r_addr_ptr {
                     return true;
                 }
@@ -269,10 +273,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | ast::BinaryOperator::LessThan
             | ast::BinaryOperator::LessOrEqual
             | ast::BinaryOperator::GreaterThan
-            | ast::BinaryOperator::GreaterOrEqual => self.ctx.builtin_trait_ty(trait_name, vec![rhs.ty]),
-            _ => self
-                .ctx
-                .builtin_trait_ty_with_assoc(trait_name, vec![rhs.ty], vec![("Out", result_ty)]),
+            | ast::BinaryOperator::GreaterOrEqual => {
+                self.ctx.builtin_trait_ty(trait_name, vec![rhs.ty])
+            }
+            _ => self.ctx.builtin_trait_ty_with_assoc(
+                trait_name,
+                vec![rhs.ty],
+                vec![("Out", result_ty)],
+            ),
         };
         let Some(owner_trait_ty) = owner_trait_ty else {
             self.ctx.emit_ice(
@@ -328,9 +336,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             );
             return MastExprKind::Trap;
         };
-        let Some(owner_trait_ty) = self
-            .ctx
-            .builtin_trait_ty_with_assoc(trait_name, vec![], vec![("Out", result_ty)])
+        let Some(owner_trait_ty) =
+            self.ctx
+                .builtin_trait_ty_with_assoc(trait_name, vec![], vec![("Out", result_ty)])
         else {
             self.ctx.emit_ice(
                 span,

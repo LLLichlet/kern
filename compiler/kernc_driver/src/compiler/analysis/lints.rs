@@ -144,7 +144,10 @@ impl CompilerDriver {
             };
         }
 
-        let node_def_ids = nodes.keys().copied().collect::<std::collections::HashSet<_>>();
+        let node_def_ids = nodes
+            .keys()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
         let mut definition_span_to_def_id = nodes
             .values()
             .map(|node| (node.name_span, node.def_id))

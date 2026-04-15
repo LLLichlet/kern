@@ -8,8 +8,8 @@ use super::codegen_units::{
 #[cfg(test)]
 use super::flow::FlowModel;
 use super::{
-    CompileCacheStats, CompileReport, CompilerDriver, LinkTarget, PhaseTiming,
-    SourceOverrides, StructureArtifact, StructureCacheKey,
+    CompileCacheStats, CompileReport, CompilerDriver, LinkTarget, PhaseTiming, SourceOverrides,
+    StructureArtifact, StructureCacheKey,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};

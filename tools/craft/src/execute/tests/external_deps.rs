@@ -267,7 +267,9 @@ return 1;
         .expect("expected external library compile action");
     let linker_inputs = linker_input_paths_for_primary_output(&lib_action.object_path).unwrap();
     assert!(
-        linker_inputs.iter().all(|path| super::has_llvm_bitcode_magic(path)),
+        linker_inputs
+            .iter()
+            .all(|path| super::has_llvm_bitcode_magic(path)),
         "expected external release library to preserve ThinLTO bitcode inputs, got: {:?}",
         linker_inputs
     );
@@ -430,7 +432,9 @@ return 43;
         .expect("expected external library compile action");
     let linker_inputs = linker_input_paths_for_primary_output(&lib_action.object_path).unwrap();
     assert!(
-        linker_inputs.iter().all(|path| super::has_llvm_bitcode_magic(path)),
+        linker_inputs
+            .iter()
+            .all(|path| super::has_llvm_bitcode_magic(path)),
         "expected refreshed external release library to preserve ThinLTO bitcode inputs, got: {:?}",
         linker_inputs
     );

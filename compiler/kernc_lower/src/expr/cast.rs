@@ -997,7 +997,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         matches!(
-            self.ctx.type_registry.get(self.ctx.type_registry.normalize(payload_ty)),
+            self.ctx
+                .type_registry
+                .get(self.ctx.type_registry.normalize(payload_ty)),
             TypeKind::Pointer { .. }
         )
     }

@@ -213,9 +213,7 @@ pub fn run_thin_lto(
     Ok(objects)
 }
 
-fn collect_symbol_policy(
-    modules: &[ThinLtoModule],
-) -> Result<ThinLtoSymbolPolicy, String> {
+fn collect_symbol_policy(modules: &[ThinLtoModule]) -> Result<ThinLtoSymbolPolicy, String> {
     let mut must_preserve = BTreeSet::<Vec<u8>>::new();
     let mut defined = BTreeSet::<Vec<u8>>::new();
     let mut undefined = BTreeSet::<Vec<u8>>::new();

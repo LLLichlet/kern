@@ -124,10 +124,7 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                     kernc_ast::MetaItem::Marker(name) => {
                         if self.ctx.resolve(*name) == "inline_always" {
                             self.ctx
-                                .struct_error(
-                                    attr.span,
-                                    "`#[inline_always]` is not supported",
-                                )
+                                .struct_error(attr.span, "`#[inline_always]` is not supported")
                                 .with_hint("use `#[inline]` for forced inlining")
                                 .emit();
                         }

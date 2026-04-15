@@ -158,8 +158,7 @@ pub(super) fn compile_action_options(
             .metadata_path
             .as_ref()
             .map(|path| path.to_string_lossy().to_string()),
-        metadata_package_name: (action.target_kind == crate::plan::TargetKind::Lib)
-            .then(|| action.package_id.name.clone()),
+        metadata_package_name: Some(action.package_id.name.clone()),
         metadata_package_version: (action.target_kind == crate::plan::TargetKind::Lib)
             .then(|| action.package_id.version.clone()),
         root_module_name: (action.target_kind == crate::plan::TargetKind::Lib)

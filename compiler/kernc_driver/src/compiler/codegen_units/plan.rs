@@ -293,9 +293,7 @@ fn plan_codegen_units_impl(
     for unit in &mut units {
         unit.root_keys.sort_by_key(|key| item_key_sort_key(*key));
     }
-    if enable_imports
-        && let Some(summary) = summary
-    {
+    if enable_imports && let Some(summary) = summary {
         report.import_plan = Some(assign_imported_inline_functions(
             &mut units,
             &roots,
@@ -539,13 +537,8 @@ fn collect_import_closure(
         if let Some(callee_summary) = context.summary.function(*callee_id)
             && callee_summary.body_role == MirItemBodyRole::InternalBody
         {
-            import_workload += collect_import_closure(
-                *callee_id,
-                importer_unit_idx,
-                context,
-                closure,
-                visited,
-            )?;
+            import_workload +=
+                collect_import_closure(*callee_id, importer_unit_idx, context, closure, visited)?;
         }
     }
 

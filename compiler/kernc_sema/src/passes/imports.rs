@@ -100,7 +100,10 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                             self.ctx
                                 .struct_error(
                                     import.span,
-                                    format!("Symbol `{}` is not visible from this module", name_str),
+                                    format!(
+                                        "Symbol `{}` is not visible from this module",
+                                        name_str
+                                    ),
                                 )
                                 .emit();
                         }

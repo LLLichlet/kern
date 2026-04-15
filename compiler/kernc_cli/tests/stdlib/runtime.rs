@@ -1,5 +1,19 @@
 use super::*;
 
+fn nm_defines_global_symbol(symbols: &str, expected: &str) -> bool {
+    symbols.lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        let Some(name) = fields.next_back() else {
+            return false;
+        };
+        let Some(kind) = fields.next_back() else {
+            return false;
+        };
+
+        kind != "U" && name.trim_start_matches('_') == expected
+    })
+}
+
 #[test]
 fn links_hosted_program_with_std_and_crt_startup() {
     let source_path = unique_temp_path("kernc_std_hosted", "rn");
@@ -224,7 +238,14 @@ fn main() i32 {
     return 0;
 }
 "#,
-        &["--library-bundle", "std", "--runtime-entry", "crt", "--runtime-libc", "yes"],
+        &[
+            "--library-bundle",
+            "std",
+            "--runtime-entry",
+            "crt",
+            "--runtime-libc",
+            "yes",
+        ],
     );
 
     assert!(
@@ -475,11 +496,7 @@ fn main() i32 {
     let object_symbols = String::from_utf8_lossy(&object_nm.stdout);
     for symbol in ["memcpy", "memmove", "memset"] {
         assert!(
-            !object_symbols.lines().any(|line| {
-                line.split_whitespace()
-                    .last()
-                    .is_some_and(|name| name.trim_start_matches('_') == symbol)
-            }),
+            !nm_defines_global_symbol(&object_symbols, symbol),
             "unexpected rt memory symbol `{}` in object:\n{}",
             symbol,
             object_symbols
@@ -514,11 +531,7 @@ fn main() i32 {
     let exe_symbols = String::from_utf8_lossy(&exe_nm.stdout);
     for symbol in ["memcpy", "memmove", "memset"] {
         assert!(
-            !exe_symbols.lines().any(|line| {
-                line.split_whitespace()
-                    .last()
-                    .is_some_and(|name| name.trim_start_matches('_') == symbol)
-            }),
+            !nm_defines_global_symbol(&exe_symbols, symbol),
             "unexpected rt memory symbol `{}` in executable:\n{}",
             symbol,
             exe_symbols

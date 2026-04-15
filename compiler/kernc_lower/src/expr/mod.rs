@@ -165,12 +165,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     this.lower_as_expr(lhs, target, concrete_ty, subst_map, expr.span)
                 });
             }
-            ExprKind::Propagate { operand, kind } => self
-                .measure_phase("        lower_expr_control", |this| {
+            ExprKind::Propagate { operand, kind } => {
+                self.measure_phase("        lower_expr_control", |this| {
                     this.measure_phase("          lower_expr_control_propagate", |this| {
                         this.lower_propagate(operand, *kind, subst_map, expr.span)
                     })
-                }),
+                })
+            }
 
             ExprKind::If {
                 cond,

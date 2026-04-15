@@ -227,9 +227,9 @@ impl CompilerDriver {
             pipeline
                 .phase_timings
                 .extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
-                name: timing.name,
-                duration: timing.duration,
-            }));
+                    name: timing.name,
+                    duration: timing.duration,
+                }));
             let emit_result = if self.options.driver_mode == DriverMode::EmitLlvmIr {
                 Self::measure_phase(pipeline.phase_timings, "emit_llvm_ir", || {
                     codegen.emit_llvm_ir(
@@ -277,9 +277,9 @@ impl CompilerDriver {
         pipeline
             .phase_timings
             .extend(emit_report.timings.iter().map(|timing| PhaseTiming {
-            name: timing.name,
-            duration: timing.duration,
-        }));
+                name: timing.name,
+                duration: timing.duration,
+            }));
 
         if self.options.driver_mode == DriverMode::EmitLlvmIr {
             Self::print_buffered_diagnostics(pipeline.sema.sess);
@@ -346,7 +346,11 @@ impl CompilerDriver {
             );
         }
         if self.options.lto_mode == LtoMode::Thin {
-            return self.compile_partitioned_units_thin_lto(pipeline, mast_module, codegen_unit_plans);
+            return self.compile_partitioned_units_thin_lto(
+                pipeline,
+                mast_module,
+                codegen_unit_plans,
+            );
         }
 
         let emit_multi_linker_input_dir = self.options.driver_mode.emits_linker_input()
@@ -371,18 +375,15 @@ impl CompilerDriver {
             type_registry: &pipeline.sema.type_registry,
             collect_diagnostics: pipeline.report.collect_codegen_diagnostics,
         };
-        let unit_batch = match self.codegen_unit_artifacts(
-            mast_module,
-            codegen_unit_plans,
-            &build_context,
-        ) {
-            Ok(artifacts) => artifacts,
-            Err(err) => {
-                eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
-                drop(object_guards);
-                return None;
-            }
-        };
+        let unit_batch =
+            match self.codegen_unit_artifacts(mast_module, codegen_unit_plans, &build_context) {
+                Ok(artifacts) => artifacts,
+                Err(err) => {
+                    eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
+                    drop(object_guards);
+                    return None;
+                }
+            };
         let mut codegen_report = CodegenReport::default();
         let mut emit_report = EmitObjectReport::default();
         let mut object_paths = vec![String::new(); unit_batch.artifacts.len()];
@@ -399,15 +400,15 @@ impl CompilerDriver {
         pipeline
             .phase_timings
             .extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
-            name: timing.name,
-            duration: timing.duration,
-        }));
+                name: timing.name,
+                duration: timing.duration,
+            }));
         pipeline
             .phase_timings
             .extend(emit_report.timings.iter().map(|timing| PhaseTiming {
-            name: timing.name,
-            duration: timing.duration,
-        }));
+                name: timing.name,
+                duration: timing.duration,
+            }));
 
         if self.options.driver_mode.emits_linker_input() {
             if emit_multi_linker_input_dir {
@@ -589,15 +590,15 @@ impl CompilerDriver {
         pipeline
             .phase_timings
             .extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
-            name: timing.name,
-            duration: timing.duration,
-        }));
+                name: timing.name,
+                duration: timing.duration,
+            }));
         pipeline
             .phase_timings
             .extend(emit_report.timings.iter().map(|timing| PhaseTiming {
-            name: timing.name,
-            duration: timing.duration,
-        }));
+                name: timing.name,
+                duration: timing.duration,
+            }));
 
         let thin_lto_started = Instant::now();
         let emit_multi_linker_input_dir = self.options.driver_mode.emits_linker_input()
@@ -927,9 +928,9 @@ impl CompilerDriver {
         pipeline
             .phase_timings
             .extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
-            name: timing.name,
-            duration: timing.duration,
-        }));
+                name: timing.name,
+                duration: timing.duration,
+            }));
         let link_input_path = self.prepare_link_input_path(pipeline.target);
         let _guard = self.temp_link_input_guard(&link_input_path);
         let emit_result = if self.options.driver_mode == DriverMode::EmitLlvmIr {
@@ -967,9 +968,9 @@ impl CompilerDriver {
         pipeline
             .phase_timings
             .extend(emit_report.timings.iter().map(|timing| PhaseTiming {
-            name: timing.name,
-            duration: timing.duration,
-        }));
+                name: timing.name,
+                duration: timing.duration,
+            }));
 
         if self.options.driver_mode == DriverMode::EmitLlvmIr {
             Self::print_buffered_diagnostics(&merged_session);
@@ -1160,11 +1161,8 @@ impl CompilerDriver {
                         );
                         codegen.set_asm_dialect(asm_dialect);
                         let mir_report = kernc_mir_lower::build_from_mast(&unit_module);
-                        let codegen_report =
-                            codegen.compile_mir(
-                                &mir_report.module,
-                                build_context.collect_diagnostics,
-                            );
+                        let codegen_report = codegen
+                            .compile_mir(&mir_report.module, build_context.collect_diagnostics);
                         let emit_report = codegen.emit_to_file(
                             &target_triple,
                             &object_path,

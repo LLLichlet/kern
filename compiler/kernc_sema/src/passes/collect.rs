@@ -136,11 +136,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         // Collect imports, submodule declarations, and regular items in one pass.
         for decl in &module.decls {
             match &decl.kind {
-                DeclKind::Use {
-                    kind,
-                    path,
-                    target,
-                } => {
+                DeclKind::Use { kind, path, target } => {
                     imports.push(ImportDef {
                         path_kind: *kind,
                         path: path.clone(),
@@ -226,12 +222,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         for decl in decls {
             match decl {
                 Decl {
-                    kind:
-                        DeclKind::Use {
-                            kind,
-                            path,
-                            target,
-                        },
+                    kind: DeclKind::Use { kind, path, target },
                     span,
                     ..
                 } => {
@@ -1184,8 +1175,11 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     span: method_decl.span,
                     docs: Self::clone_docs_if_present(&method_decl.docs),
                 }));
-                self.ctx
-                    .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+                self.ctx.register_def_owner(
+                    def_id,
+                    self.current_module,
+                    self.current_owner_scope(),
+                );
                 assoc_type_ids.push(def_id);
             } else {
                 self.ctx.emit_error(
@@ -1298,8 +1292,11 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         span,
                         docs: Self::take_docs_if_present(docs),
                     }));
-                    self.ctx
-                        .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+                    self.ctx.register_def_owner(
+                        def_id,
+                        self.current_module,
+                        self.current_owner_scope(),
+                    );
                     assoc_type_ids.push(def_id);
                 }
                 Decl { span, .. } => {

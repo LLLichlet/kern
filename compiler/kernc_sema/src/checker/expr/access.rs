@@ -52,8 +52,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return;
         }
 
-        self.ctx
-            .record_symbol_definition(info.span, semantic_kind, info.is_mut, info.vis.is_public());
+        self.ctx.record_symbol_definition(
+            info.span,
+            semantic_kind,
+            info.is_mut,
+            info.vis.is_public(),
+        );
     }
 
     fn build_generic_arg_map(
@@ -581,10 +585,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             .intern(TypeKind::Enum(def_id, vec![]));
                     }
                     SymbolKind::Trait => {
-                        return self
-                            .ctx
-                            .type_registry
-                            .intern(TypeKind::TraitObject(def_id, vec![], Vec::new()));
+                        return self.ctx.type_registry.intern(TypeKind::TraitObject(
+                            def_id,
+                            vec![],
+                            Vec::new(),
+                        ));
                     }
                     _ => {}
                 }
@@ -1088,10 +1093,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             };
             if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field).cloned() {
                 let current_module_id = self.cached_current_module_id();
-                if !self
-                    .ctx
-                    .visibility_allows_access(target_info.vis, mod_def_id, current_module_id)
-                {
+                if !self.ctx.visibility_allows_access(
+                    target_info.vis,
+                    mod_def_id,
+                    current_module_id,
+                ) {
                     let field_name = self.ctx.resolve(field);
                     self.ctx
                         .struct_error(

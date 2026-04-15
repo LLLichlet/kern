@@ -139,20 +139,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let trait_impl_ids = self.ctx.trait_impls.clone();
         for impl_id in trait_impl_ids {
-            let Some(impl_ptr) =
-                self.ctx
-                    .defs
-                    .get(impl_id.0 as usize)
-                    .and_then(|def| match def {
-                        Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                        _ => None,
-                    })
+            let Some(impl_ptr) = self
+                .ctx
+                .defs
+                .get(impl_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                    _ => None,
+                })
             else {
                 continue;
             };
 
-            let Some(impl_args) =
-                MemberQuery::new(self.ctx).resolve_impl_applicability_for_type(target_norm, impl_id)
+            let Some(impl_args) = MemberQuery::new(self.ctx)
+                .resolve_impl_applicability_for_type(target_norm, impl_id)
             else {
                 continue;
             };
@@ -182,11 +182,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 subst.substitute(impl_trait_ty)
             };
 
-            let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) =
-                self.ctx
-                    .type_registry
-                    .get(self.ctx.type_registry.normalize(inst_trait_ty))
-                    .clone()
+            let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) = self
+                .ctx
+                .type_registry
+                .get(self.ctx.type_registry.normalize(inst_trait_ty))
+                .clone()
             else {
                 continue;
             };

@@ -169,7 +169,6 @@ impl<'a> Parser<'a> {
         &mut self,
         start_span: kernc_utils::Span,
     ) -> ParseResult<TypeNode> {
-
         // Form A: slice types, `[]T` or `[]mut T`.
         if self.match_token(&[TokenType::RBracket]) {
             let is_mut = self.match_token(&[TokenType::Mut]);
@@ -216,7 +215,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_fn_type_from_consumed(&mut self, start_span: kernc_utils::Span) -> ParseResult<TypeNode> {
+    fn parse_fn_type_from_consumed(
+        &mut self,
+        start_span: kernc_utils::Span,
+    ) -> ParseResult<TypeNode> {
         self.expect(TokenType::LParen)?;
 
         let mut params = Vec::new();
@@ -260,13 +262,14 @@ impl<'a> Parser<'a> {
         let mut span = start_token.span;
         let mut segments = vec![self.parse_type_path_segment_after_name(start_token)?];
         span = span.to(segments.last().unwrap().name_span);
-        if let Some(last_arg_span) = segments
-            .last()
-            .and_then(|segment| segment.args.last())
-            .map(|arg| match arg {
-                TypeArg::Positional(ty) => ty.span,
-                TypeArg::AssocBinding { value, .. } => value.span,
-            })
+        if let Some(last_arg_span) =
+            segments
+                .last()
+                .and_then(|segment| segment.args.last())
+                .map(|arg| match arg {
+                    TypeArg::Positional(ty) => ty.span,
+                    TypeArg::AssocBinding { value, .. } => value.span,
+                })
         {
             span = span.to(last_arg_span);
         }
@@ -398,7 +401,6 @@ impl<'a> Parser<'a> {
         &mut self,
         start_token: kernc_lexer::Token,
     ) -> ParseResult<TypeNode> {
-
         // Parse an optional explicit backing type.
         let mut backing_type = None;
         if self.match_token(&[TokenType::Colon]) {

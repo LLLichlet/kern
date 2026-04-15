@@ -264,7 +264,9 @@ where
                 .into_iter()
                 .map(|arg| substitute_associated_types(registry, arg, map))
                 .collect::<Vec<_>>();
-            if new_args.is_empty() && let Some(&bound_ty) = map.get(&def_id) {
+            if new_args.is_empty()
+                && let Some(&bound_ty) = map.get(&def_id)
+            {
                 return bound_ty;
             }
             registry.intern(TypeKind::Associated(def_id, new_args))
@@ -362,10 +364,7 @@ where
             let new_assoc_bindings = assoc_bindings
                 .into_iter()
                 .map(|(assoc_def_id, ty)| {
-                    (
-                        assoc_def_id,
-                        substitute_associated_types(registry, ty, map),
-                    )
+                    (assoc_def_id, substitute_associated_types(registry, ty, map))
                 })
                 .collect();
             registry.intern(TypeKind::TraitObject(def_id, new_args, new_assoc_bindings))

@@ -391,7 +391,8 @@ impl CompilerDriver {
                         .copied()
                         .map(|target_ty| format!("type = {}", ctx.ty_to_string(target_ty)))
                 } else if let Some(def_id) = info.def_id
-                    && let kernc_sema::def::Def::AssociatedType(assoc) = &ctx.defs[def_id.0 as usize]
+                    && let kernc_sema::def::Def::AssociatedType(assoc) =
+                        &ctx.defs[def_id.0 as usize]
                     && let Some(target) = assoc.target.as_ref()
                 {
                     ctx.node_types
@@ -458,7 +459,8 @@ impl CompilerDriver {
                 {
                     Some(format!("type = {}", ctx.ty_to_string(target_ty)))
                 } else if let Some(def_id) = candidate.def_id
-                    && let kernc_sema::def::Def::AssociatedType(assoc) = &ctx.defs[def_id.0 as usize]
+                    && let kernc_sema::def::Def::AssociatedType(assoc) =
+                        &ctx.defs[def_id.0 as usize]
                     && let Some(target) = assoc.target.as_ref()
                     && let Some(target_ty) = ctx.node_types.get(&target.id).copied()
                 {

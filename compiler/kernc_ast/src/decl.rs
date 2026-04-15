@@ -5,6 +5,7 @@ use kernc_utils::{NodeId, Span, SymbolId};
 pub enum Visibility {
     Private,
     Super,
+    Package,
     Public,
 }
 

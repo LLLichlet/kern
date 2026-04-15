@@ -97,6 +97,93 @@ fn main() i32 {
 }
 
 #[test]
+fn imported_package_cannot_access_pub_package_items() {
+    let root = unique_temp_path("kernc_pub_package_external", "dir");
+    let lib_dir = root.join("lib");
+    let metadata_dir = root.join("kmeta");
+    let lib_entry = lib_dir.join("init.rn");
+    let lib_object = root.join("util.o");
+    let main_source = root.join("main.rn");
+
+    fs::create_dir_all(&lib_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+
+    fs::write(
+        &lib_entry,
+        r#"
+pub~ fn answer() i32 {
+    return 42;
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_entry_arg = lib_entry.to_string_lossy().into_owned();
+    let lib_object_arg = lib_object.to_string_lossy().into_owned();
+    let metadata_arg = metadata_dir.to_string_lossy().into_owned();
+    let lib_output = run_kernc([
+        "-c",
+        "--module-root-name",
+        "util",
+        "--metadata-output",
+        metadata_arg.as_str(),
+        lib_entry_arg.as_str(),
+        "-o",
+        lib_object_arg.as_str(),
+    ]);
+    assert_success(&lib_output, "kernc library compile");
+
+    fs::write(
+        &main_source,
+        r#"
+fn main() i32 {
+    return dep.answer();
+}
+"#,
+    )
+    .unwrap();
+
+    let main_source_arg = main_source.to_string_lossy().into_owned();
+    let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
+    let base_mapping = format!("base={}", repo_root().join("library/base").display());
+    let sys_mapping = format!("sys={}", repo_root().join("library/sys").display());
+    let app_output = run_kernc([
+        "--runtime-entry",
+        "crt",
+        "--runtime-libc",
+        "yes",
+        "--module-path",
+        base_mapping.as_str(),
+        "--module-path",
+        sys_mapping.as_str(),
+        "--module-interface-path",
+        dep_mapping.as_str(),
+        "--link-input",
+        lib_object_arg.as_str(),
+        main_source_arg.as_str(),
+        "-o",
+        root.join("app.out").to_string_lossy().as_ref(),
+    ]);
+
+    assert!(
+        !app_output.status.success(),
+        "kernc unexpectedly allowed external access to pub~ item:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&app_output.stdout),
+        String::from_utf8_lossy(&app_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&app_output.stderr);
+    assert!(
+        stderr.contains("module has no visible member `answer`")
+            || stderr.contains("Symbol `answer` is not visible from this module"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn kmeta_snapshot_keeps_cfg_gated_submodule_sources() {
     let root = unique_temp_path("kernc_kmeta_cfg_submodule", "dir");
     let lib_dir = root.join("lib");

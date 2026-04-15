@@ -211,6 +211,69 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_mut_address_of_materialized_stack_temporaries() {
+    let output = compile_source(
+        r#"
+fn bump(ptr: *mut i32) i32 {
+    ptr.* += 1;
+    return ptr.*;
+}
+
+fn make(flag: bool) i32 {
+    if (flag) {
+        return 7;
+    }
+    return 9;
+}
+
+fn main() i32 {
+    let a = bump((if (true) 1 else 2)..&);
+    let b = bump((match (1) {
+        1 => 3,
+        _ => 4,
+    })..&);
+    let c = bump(({ let value = i32.{5}; value })..&);
+    let d = bump(make(true)..&);
+    return a + b + c + d;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_mut_address_of_string_literal_with_explicit_rodata_hint() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let _ = "hi"..&;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("string literals live in read-only `.rodata`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_assignment_through_non_mut_array_elements() {
     let output = compile_source(
         r#"

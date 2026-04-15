@@ -12,9 +12,7 @@ pub struct TypeNode {
 pub enum TypeKind {
     /// Segmented type path or projection chain such as `i32`, `std.io.File`,
     /// `Map[K, V]`, or `T.Add[U].Out`.
-    Path {
-        segments: Vec<TypePathSegment>,
-    },
+    Path { segments: Vec<TypePathSegment> },
 
     /// Builtin optional type `?T`.
     Optional { inner: Box<TypeNode> },

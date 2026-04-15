@@ -933,6 +933,48 @@ pub fn value() i32 {
 }
 
 #[test]
+fn sibling_module_can_access_pub_package_items() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_package_sibling_access",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod left;
+mod right;
+
+fn main() i32 {
+    return right.value();
+}
+"#,
+            ),
+            (
+                "left.rn",
+                r#"
+pub~ fn helper() i32 {
+    return 0;
+}
+"#,
+            ),
+            (
+                "right.rn",
+                r#"
+use ..left.helper as helper;
+
+pub fn value() i32 {
+    return helper();
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn successful_compile_prints_unused_binding_warnings() {
     let source = r#"
 fn helper(_: i32, unused_param: i32, used_param: i32) i32 {

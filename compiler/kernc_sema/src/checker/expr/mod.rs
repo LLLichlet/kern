@@ -317,18 +317,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.ctx.type_registry.get(inner_norm),
                     TypeKind::VolatilePtr { .. }
                 ) {
-                    self.ctx.struct_error(
-                        ty_node.span,
-                        "`?^T` is not a valid type; `^T` already covers raw address `0`",
-                    )
-                    .with_hint("use `^T` for raw addresses or `?*T` for nullable object pointers")
-                    .emit();
+                    self.ctx
+                        .struct_error(
+                            ty_node.span,
+                            "`?^T` is not a valid type; `^T` already covers raw address `0`",
+                        )
+                        .with_hint(
+                            "use `^T` for raw addresses or `?*T` for nullable object pointers",
+                        )
+                        .emit();
                     return TypeId::ERROR;
                 }
                 let some = self.ctx.intern("Some");
                 let none = self.ctx.intern("None");
-                self.ctx.type_registry.intern(TypeKind::AnonymousEnum(
-                    crate::ty::AnonymousEnum {
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnum(crate::ty::AnonymousEnum {
                         backing_ty: None,
                         builtin: Some(BuiltinAnonymousEnumKind::Optional),
                         variants: vec![
@@ -345,16 +349,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 explicit_value: None,
                             },
                         ],
-                    },
-                ))
+                    }))
             }
             ast::TypeKind::Result { ok, err } => {
                 let ok_ty = self.evaluate_dynamic_typeof(ok);
                 let err_ty = self.evaluate_dynamic_typeof(err);
                 let ok_name = self.ctx.intern("Ok");
                 let err_name = self.ctx.intern("Err");
-                self.ctx.type_registry.intern(TypeKind::AnonymousEnum(
-                    crate::ty::AnonymousEnum {
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnum(crate::ty::AnonymousEnum {
                         backing_ty: None,
                         builtin: Some(BuiltinAnonymousEnumKind::Result),
                         variants: vec![
@@ -371,8 +375,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 explicit_value: None,
                             },
                         ],
-                    },
-                ))
+                    }))
             }
             ast::TypeKind::Pointer { is_mut, elem } => {
                 let base = self.evaluate_dynamic_typeof(elem);
@@ -471,13 +474,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let Some(current_return_ty) = self.current_return_type else {
             self.ctx
-                .struct_error(span, "propagation is only valid inside functions with a return type")
+                .struct_error(
+                    span,
+                    "propagation is only valid inside functions with a return type",
+                )
                 .emit();
             return TypeId::ERROR;
         };
         let norm_return = self.resolve_tv(current_return_ty);
 
-        let TypeKind::AnonymousEnum(operand_enum) = self.ctx.type_registry.get(norm_operand).clone()
+        let TypeKind::AnonymousEnum(operand_enum) =
+            self.ctx.type_registry.get(norm_operand).clone()
         else {
             let op = match kind {
                 ast::PropagateKind::Option => ".?",
@@ -485,7 +492,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             };
             let found = self.ctx.ty_to_string(operand_ty);
             self.ctx
-                .struct_error(span, format!("`{}` requires a builtin optional or result value", op))
+                .struct_error(
+                    span,
+                    format!("`{}` requires a builtin optional or result value", op),
+                )
                 .with_hint(format!("found `{}`", found))
                 .emit();
             return TypeId::ERROR;

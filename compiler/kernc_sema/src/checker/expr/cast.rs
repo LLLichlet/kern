@@ -157,10 +157,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     fn is_object_pointer_type(&self, ty: TypeId) -> bool {
         let norm = self.ctx.type_registry.normalize(ty);
-        matches!(
-            self.ctx.type_registry.get(norm),
-            TypeKind::Pointer { .. }
-        )
+        matches!(self.ctx.type_registry.get(norm), TypeKind::Pointer { .. })
     }
 
     fn is_address_pointer_type(&self, ty: TypeId) -> bool {

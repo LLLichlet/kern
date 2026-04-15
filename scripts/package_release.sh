@@ -4,6 +4,23 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
+usage() {
+    cat <<'EOF'
+Usage:
+  scripts/package_release.sh [VERSION] [TARGET] [--skip-build]
+
+Arguments:
+  VERSION       Archive version label, defaults to "dev"
+  TARGET        Target triple label in the archive name
+  --skip-build  Reuse existing release binaries instead of rebuilding
+EOF
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    usage
+    exit 0
+fi
+
 # Avoid AppleDouble metadata files when packaging on macOS runners.
 export COPYFILE_DISABLE=1
 

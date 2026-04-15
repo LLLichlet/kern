@@ -4,6 +4,19 @@ param (
     [switch]$SkipBuild
 )
 
+if ($args -contains "-h" -or $args -contains "--help") {
+    Write-Host @"
+Usage:
+  scripts/package_release.ps1 [-Version <label>] [-Target <triple>] [-SkipBuild]
+
+Arguments:
+  -Version    Archive version label, defaults to "dev"
+  -Target     Target triple label in the archive name
+  -SkipBuild  Reuse existing release binaries instead of rebuilding
+"@
+    exit 0
+}
+
 $DistName = "kern-$Version-$Target"
 $ZipFile = "$DistName.zip"
 

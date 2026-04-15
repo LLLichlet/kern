@@ -469,7 +469,7 @@ impl *mut Editor {
             .Delete => self.command_delete_at(),
             .Enter => self.run_prompt(alloc),
             .{ Byte: byte } => {
-                if (byte >= u8.{32} and byte != u8.{127}) {
+                if (byte >= 32 and byte != 127) {
                     self.command_insert_byte(alloc, byte);
                 }
             },

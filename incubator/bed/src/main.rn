@@ -41,7 +41,7 @@ fn main(argc: i32, argv: **u8) i32 {
     let gpa = GPA.{ backing: page }..&;
     let args = proc.args(argc, argv);
 
-    let mut editor_state = if (args.len() > 1) {
+    let editor_state = (if (args.len() > 1) {
         let path = match (args.get(1)) {
             .{ Some: value } => value,
             .None => "",
@@ -61,10 +61,10 @@ fn main(argc: i32, argv: **u8) i32 {
                 return 1;
             },
         }
-    };
-    defer editor_state..&.deinit(gpa);
+    })..&;
+    defer editor_state.deinit(gpa);
 
-    let mut raw_mode = match (term.stdin_raw_mode()) {
+    let raw_mode = (match (term.stdin_raw_mode()) {
         .{ Ok: value } => value,
         .{ Err: .NotTerminal } => {
             io.println("bed: stdin is not a terminal", .{});
@@ -74,11 +74,11 @@ fn main(argc: i32, argv: **u8) i32 {
             io.println("bed: failed to enter raw mode", .{});
             return 1;
         },
-    };
-    defer raw_mode..&.deinit();
+    })..&;
+    defer raw_mode.deinit();
 
-    let mut stdout = fs.stdout();
-    let mut stdin = fs.stdin();
+    let stdout = fs.stdout()..&;
+    let stdin = fs.stdin()..&;
     let frame = String.{}..&;
     defer frame.deinit(gpa);
     let last_frame = String.{}..&;
@@ -91,17 +91,17 @@ fn main(argc: i32, argv: **u8) i32 {
     let mut ui_active = false;
     defer {
         if (ui_active) {
-            leave_ui(gpa, frame, stdout..&);
+            leave_ui(gpa, frame, stdout);
         }
     };
 
-    if (!enter_ui(gpa, frame, stdout..&)) {
+    if (!enter_ui(gpa, frame, stdout)) {
         io.println("bed: failed to initialize terminal UI", .{});
         return 1;
     }
     ui_active = true;
 
-    for (; !editor_state..&.should_quit(); ) {
+    for (; !editor_state.should_quit(); ) {
         let size = match (term.stdout_size()) {
             .{ Ok: value } => value,
             .{ Err: _ } => term.Size.{ rows: 24, cols: 80 },
@@ -109,17 +109,17 @@ fn main(argc: i32, argv: **u8) i32 {
         if (size.rows != last_rows or size.cols != last_cols) {
             last_rows = size.rows;
             last_cols = size.cols;
-            pending_render = editor_state..&.resize(size.rows, size.cols) or pending_render;
+            pending_render = editor_state.resize(size.rows, size.cols) or pending_render;
             full_redraw = true;
         }
 
         if (pending_render) {
-            if (!editor_state..&.render_into(gpa, frame, full_redraw)) {
+            if (!editor_state.render_into(gpa, frame, full_redraw)) {
                 io.println("bed: render failed", .{});
                 return 1;
             }
             if (frame.as_str() != last_frame.as_str()) {
-                if (!flush_output(stdout..&, frame.as_str())) {
+                if (!flush_output(stdout, frame.as_str())) {
                     return 1;
                 }
                 if (!last_frame.clone_from(gpa, frame.as_str())) {
@@ -130,7 +130,7 @@ fn main(argc: i32, argv: **u8) i32 {
             full_redraw = false;
         }
 
-        let key = match (input.read_key(stdin..&)) {
+        let key = match (input.read_key(stdin)) {
             .{ Ok: value } => value,
             .{ Err: _ } => return 1,
         };
@@ -138,7 +138,7 @@ fn main(argc: i32, argv: **u8) i32 {
             .NoInput => continue,
             _ => {}
         }
-        editor_state..&.handle_key(gpa, key);
+        editor_state.handle_key(gpa, key);
         pending_render = true;
     }
 

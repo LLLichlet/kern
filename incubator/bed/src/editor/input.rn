@@ -1,0 +1,921 @@
+use base.mem.alloc.Allocator;
+use ..{Editor, Key, TAB_STOP};
+
+impl *mut Editor {
+    fn set_message(alloc: *mut Allocator, text: []u8) void {
+        let _ = self.message..&.clone_from(alloc, text);
+    }
+
+    fn clear_pending_count() void {
+        self.pending_count = 0;
+        self.has_pending_count = false;
+    }
+
+    fn push_count_digit(byte: u8) void {
+        let digit = byte as usize - b'0' as usize;
+        if (!self.has_pending_count) {
+            self.pending_count = digit;
+            self.has_pending_count = true;
+            return;
+        }
+        self.pending_count = self.pending_count * 10 + digit;
+    }
+
+    fn consume_count_or_one() usize {
+        let count = if (self.has_pending_count and self.pending_count > 0) self.pending_count else 1;
+        self.clear_pending_count();
+        return count;
+    }
+
+    fn consume_count_or_zero() usize {
+        let count = if (self.has_pending_count) self.pending_count else 0;
+        self.clear_pending_count();
+        return count;
+    }
+
+    fn active_pane_label() []u8 {
+        match (self.active_pane) {
+            .Editor => return "EDITOR",
+            .Output => return "OUTPUT",
+        }
+    }
+
+    fn insert_tab(alloc: *mut Allocator) void {
+        let cursor = self.active_cursor();
+        let text_buffer = self.active_buffer_mut();
+        let spaces = TAB_STOP - (cursor.col % TAB_STOP);
+        for (let mut i = 0; i < spaces; i += 1) {
+            if (!text_buffer.insert_byte(alloc, cursor.row, cursor.col, b' ')) {
+                self.set_message(alloc, "insert failed");
+                return;
+            }
+            cursor.col += 1;
+        }
+        self.remember_preferred_col();
+    }
+
+    fn toggle_pane(alloc: *mut Allocator) void {
+        self.pending_normal = .None;
+        self.clear_pending_count();
+        if (!self.has_output) {
+            if (self.output_history.len > 0) {
+                if (self.restore_output_history_entry(alloc, self.output_history_index, true)) {
+                    return;
+                }
+            }
+            self.active_pane = .Editor;
+            return;
+        }
+        match (self.active_pane) {
+            .Editor => self.active_pane = .Output,
+            .Output => self.active_pane = .Editor,
+        }
+    }
+
+    fn handle_pending_normal_key(alloc: *mut Allocator, key: Key) bool {
+        match (self.pending_normal) {
+            .None => return false,
+            .G => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => match (byte) {
+                        b'g' => {
+                            let count = self.consume_count_or_zero();
+                            if (self.active_pane == .Output and self.has_output) {
+                                if (count == 0) {
+                                    self.output_goto_row(0);
+                                } else {
+                                    self.output_goto_row(count - 1);
+                                }
+                            } else {
+                                if (count == 0) {
+                                    self.goto_row(0);
+                                } else {
+                                    self.goto_row(count - 1);
+                                }
+                            }
+                            return true;
+                        },
+                        b'e' => {
+                            if (self.active_pane == .Output and self.has_output) {
+                                self.clear_pending_count();
+                                return false;
+                            }
+                            let count = self.consume_count_or_one();
+                            for (let mut i = 0; i < count; i += 1) {
+                                self.move_word_end_backward();
+                            }
+                            return true;
+                        },
+                        _ => {
+                            self.clear_pending_count();
+                            return false;
+                        },
+                    },
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
+                }
+            },
+            .Z => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => match (byte) {
+                        b'z' => {
+                            self.clear_pending_count();
+                            self.align_cursor_middle();
+                            return true;
+                        },
+                        b't' => {
+                            self.clear_pending_count();
+                            self.align_cursor_top();
+                            return true;
+                        },
+                        b'b' => {
+                            self.clear_pending_count();
+                            self.align_cursor_bottom();
+                            return true;
+                        },
+                        _ => {
+                            self.clear_pending_count();
+                            return false;
+                        },
+                    },
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
+                }
+            },
+            .CtrlW => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => match (byte) {
+                        b'w' => {
+                            let count = self.consume_count_or_zero();
+                            if (count > 0) {
+                                self.focus_window_number(count - 1);
+                            } else {
+                                self.focus_next_window();
+                            }
+                            return true;
+                        },
+                        b'W' => {
+                            let count = self.consume_count_or_zero();
+                            if (count > 0) {
+                                self.focus_window_number(count - 1);
+                            } else {
+                                self.focus_prev_window();
+                            }
+                            return true;
+                        },
+                        b'p' => {
+                            self.clear_pending_count();
+                            self.focus_previous_window();
+                            return true;
+                        },
+                        b't' => {
+                            self.clear_pending_count();
+                            self.focus_top_left_window();
+                            return true;
+                        },
+                        b'b' => {
+                            self.clear_pending_count();
+                            self.focus_bottom_right_window();
+                            return true;
+                        },
+                        b'h' => {
+                            self.clear_pending_count();
+                            self.focus_left_window();
+                            return true;
+                        },
+                        b'j' => {
+                            self.clear_pending_count();
+                            self.focus_down_window();
+                            return true;
+                        },
+                        b'k' => {
+                            self.clear_pending_count();
+                            self.focus_up_window();
+                            return true;
+                        },
+                        b'l' => {
+                            self.clear_pending_count();
+                            self.focus_right_window();
+                            return true;
+                        },
+                        b'H' => {
+                            self.clear_pending_count();
+                            self.move_active_window_far_left();
+                            return true;
+                        },
+                        b'J' => {
+                            self.clear_pending_count();
+                            self.move_active_window_far_bottom();
+                            return true;
+                        },
+                        b'K' => {
+                            self.clear_pending_count();
+                            self.move_active_window_far_top();
+                            return true;
+                        },
+                        b'L' => {
+                            self.clear_pending_count();
+                            self.move_active_window_far_right();
+                            return true;
+                        },
+                        b's' => {
+                            self.clear_pending_count();
+                            self.split_window(alloc, .Rows);
+                            return true;
+                        },
+                        b'v' => {
+                            self.clear_pending_count();
+                            self.split_window(alloc, .Cols);
+                            return true;
+                        },
+                        b'q' => {
+                            self.clear_pending_count();
+                            self.close_active_window(alloc);
+                            return true;
+                        },
+                        b'o' => {
+                            self.clear_pending_count();
+                            self.only_window(alloc);
+                            return true;
+                        },
+                        b'=' => {
+                            self.clear_pending_count();
+                            self.equalize_windows();
+                            return true;
+                        },
+                        b'+' => {
+                            self.clear_pending_count();
+                            self.adjust_active_window_height(1);
+                            return true;
+                        },
+                        b'-' => {
+                            self.clear_pending_count();
+                            self.adjust_active_window_height(-1);
+                            return true;
+                        },
+                        b'>' => {
+                            self.clear_pending_count();
+                            self.adjust_active_window_width(1);
+                            return true;
+                        },
+                        b'<' => {
+                            self.clear_pending_count();
+                            self.adjust_active_window_width(-1);
+                            return true;
+                        },
+                        _ => {
+                            self.clear_pending_count();
+                            return false;
+                        },
+                    },
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
+                }
+            },
+            .FindForward => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            if (!self.run_find(.Forward, false, byte, true)) {
+                                break;
+                            }
+                        }
+                        return true;
+                    },
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
+                }
+            },
+            .TillForward => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            if (!self.run_find(.Forward, true, byte, true)) {
+                                break;
+                            }
+                        }
+                        return true;
+                    },
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
+                }
+            },
+            .FindBackward => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            if (!self.run_find(.Backward, false, byte, true)) {
+                                break;
+                            }
+                        }
+                        return true;
+                    },
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
+                }
+            },
+            .TillBackward => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            if (!self.run_find(.Backward, true, byte, true)) {
+                                break;
+                            }
+                        }
+                        return true;
+                    },
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
+                }
+            },
+        }
+    }
+
+    fn handle_normal_key(alloc: *mut Allocator, key: Key) void {
+        if (self.active_pane == .Output and self.has_output) {
+            self.handle_output_key(alloc, key);
+            return;
+        }
+
+        if (self.handle_pending_normal_key(alloc, key)) {
+            return;
+        }
+
+        match (key) {
+            .CtrlB => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.page_up();
+                }
+            },
+            .CtrlD => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.half_page_down();
+                }
+            },
+            .CtrlF => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.page_down();
+                }
+            },
+            .CtrlU => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.half_page_up();
+                }
+            },
+            .CtrlW => {
+                self.pending_normal = .CtrlW;
+            },
+            .ArrowLeft => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.move_left();
+                }
+            },
+            .ArrowRight => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.move_right();
+                }
+            },
+            .ArrowUp => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.move_up();
+                }
+            },
+            .ArrowDown => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.move_down();
+                }
+            },
+            .Home => {
+                self.clear_pending_count();
+                self.move_line_start();
+            },
+            .End => {
+                self.clear_pending_count();
+                self.move_line_end();
+            },
+            .Delete => {
+                let cursor = self.active_cursor();
+                let text_buffer = self.active_buffer_mut();
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    let _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
+                }
+                self.clamp_cursor();
+                self.remember_preferred_col();
+            },
+            .PageUp => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.page_up();
+                }
+            },
+            .PageDown => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.page_down();
+                }
+            },
+            .Escape => {
+                self.pending_normal = .None;
+                self.clear_pending_count();
+            },
+            .NoInput => {}
+            .CtrlC => self.wants_quit = true,
+            .Eof => self.wants_quit = true,
+            .{ Byte: byte } => {
+                if (byte >= b'1' and byte <= b'9') {
+                    self.push_count_digit(byte);
+                    return;
+                }
+                if (byte == b'0' and self.has_pending_count) {
+                    self.push_count_digit(byte);
+                    return;
+                }
+
+                match (byte) {
+                    b'h' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_left();
+                        }
+                    },
+                    b'j' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_down();
+                        }
+                    },
+                    b'k' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_up();
+                        }
+                    },
+                    b'l' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_right();
+                        }
+                    },
+                    b'0' => {
+                        self.clear_pending_count();
+                        self.move_line_start();
+                    },
+                    b'^' => {
+                        self.clear_pending_count();
+                        self.move_first_non_blank();
+                    },
+                    b'$' => {
+                        self.clear_pending_count();
+                        self.move_line_end();
+                    },
+                    b'g' => self.pending_normal = .G,
+                    b'z' => self.pending_normal = .Z,
+                    b'G' => {
+                        let count = self.consume_count_or_zero();
+                        if (count == 0) {
+                            self.goto_row(self.active_buffer().line_count());
+                        } else {
+                            self.goto_row(count - 1);
+                        }
+                    },
+                    b'w' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_word_forward();
+                        }
+                    },
+                    b'b' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_word_backward();
+                        }
+                    },
+                    b'e' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_word_end();
+                        }
+                    },
+                    b'W' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_word_forward_blank();
+                        }
+                        self.remember_preferred_col();
+                    },
+                    b'B' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_word_backward_blank();
+                        }
+                        self.remember_preferred_col();
+                    },
+                    b'E' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_word_end_blank();
+                        }
+                        self.remember_preferred_col();
+                    },
+                    b'H' => {
+                        self.clear_pending_count();
+                        self.goto_screen_top();
+                    },
+                    b'M' => {
+                        self.clear_pending_count();
+                        self.goto_screen_middle();
+                    },
+                    b'L' => {
+                        self.clear_pending_count();
+                        self.goto_screen_bottom();
+                    },
+                    b'f' => self.pending_normal = .FindForward,
+                    b't' => self.pending_normal = .TillForward,
+                    b'F' => self.pending_normal = .FindBackward,
+                    b'T' => self.pending_normal = .TillBackward,
+                    b';' => {
+                        let count = self.consume_count_or_one();
+                        self.repeat_find_count(false, count);
+                    },
+                    b',' => {
+                        let count = self.consume_count_or_one();
+                        self.repeat_find_count(true, count);
+                    },
+                    b'i' => {
+                        self.clear_pending_count();
+                        self.mode = .Insert;
+                    },
+                    b'a' => {
+                        self.clear_pending_count();
+                        self.move_right();
+                        self.mode = .Insert;
+                    },
+                    b'I' => {
+                        self.clear_pending_count();
+                        self.move_first_non_blank();
+                        self.mode = .Insert;
+                    },
+                    b'A' => {
+                        self.clear_pending_count();
+                        self.move_line_end();
+                        self.mode = .Insert;
+                    },
+                    b'{' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_paragraph_backward();
+                        }
+                    },
+                    b'}' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.move_paragraph_forward();
+                        }
+                    },
+                    b'%' => {
+                        self.clear_pending_count();
+                        self.jump_match_delimiter();
+                    },
+                    b':' => self.enter_command(),
+                    b'>' => self.enter_shell(),
+                    b'\t' => self.toggle_pane(alloc),
+                    b'Q' => self.close_output(alloc),
+                    b'x' => {
+                        let cursor = self.active_cursor();
+                        let text_buffer = self.active_buffer_mut();
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            let _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
+                        }
+                        self.clamp_cursor();
+                        self.remember_preferred_col();
+                    },
+                    b'o' => {
+                        let cursor = self.active_cursor();
+                        let text_buffer = self.active_buffer_mut();
+                        self.clear_pending_count();
+                        if (text_buffer.insert_blank_line_below(alloc, cursor.row)) {
+                            cursor.row += 1;
+                            cursor.col = 0;
+                            self.remember_preferred_col();
+                            self.mode = .Insert;
+                        } else {
+                            self.set_message(alloc, "insert failed");
+                        }
+                    },
+                    b'O' => {
+                        let cursor = self.active_cursor();
+                        let text_buffer = self.active_buffer_mut();
+                        self.clear_pending_count();
+                        if (text_buffer.insert_blank_line_above(alloc, cursor.row)) {
+                            cursor.col = 0;
+                            self.remember_preferred_col();
+                            self.mode = .Insert;
+                        } else {
+                            self.set_message(alloc, "insert failed");
+                        }
+                    },
+                    _ => self.clear_pending_count(),
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn handle_output_key(alloc: *mut Allocator, key: Key) void {
+        if (self.handle_pending_normal_key(alloc, key)) {
+            return;
+        }
+
+        match (key) {
+            .CtrlB => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_page_up();
+                }
+            },
+            .CtrlD => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_half_page_down();
+                }
+            },
+            .CtrlF => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_page_down();
+                }
+            },
+            .CtrlU => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_half_page_up();
+                }
+            },
+            .ArrowLeft => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_move_left();
+                }
+            },
+            .ArrowRight => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_move_right();
+                }
+            },
+            .ArrowUp => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_move_up();
+                }
+            },
+            .ArrowDown => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_move_down();
+                }
+            },
+            .Home => {
+                self.clear_pending_count();
+                self.output_move_line_start();
+            },
+            .End => {
+                self.clear_pending_count();
+                self.output_move_line_end();
+            },
+            .PageUp => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_page_up();
+                }
+            },
+            .PageDown => {
+                let count = self.consume_count_or_one();
+                for (let mut i = 0; i < count; i += 1) {
+                    self.output_page_down();
+                }
+            },
+            .Escape => {
+                self.pending_normal = .None;
+                self.clear_pending_count();
+            },
+            .NoInput => {}
+            .CtrlC => self.wants_quit = true,
+            .Eof => self.wants_quit = true,
+            .{ Byte: byte } => {
+                if (byte >= b'1' and byte <= b'9') {
+                    self.push_count_digit(byte);
+                    return;
+                }
+                if (byte == b'0' and self.has_pending_count) {
+                    self.push_count_digit(byte);
+                    return;
+                }
+
+                match (byte) {
+                    b'h' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.output_move_left();
+                        }
+                    },
+                    b'j' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.output_move_down();
+                        }
+                    },
+                    b'k' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.output_move_up();
+                        }
+                    },
+                    b'l' => {
+                        let count = self.consume_count_or_one();
+                        for (let mut i = 0; i < count; i += 1) {
+                            self.output_move_right();
+                        }
+                    },
+                    b'0' => {
+                        self.clear_pending_count();
+                        self.output_move_line_start();
+                    },
+                    b'$' => {
+                        self.clear_pending_count();
+                        self.output_move_line_end();
+                    },
+                    b'g' => self.pending_normal = .G,
+                    b'G' => {
+                        let count = self.consume_count_or_zero();
+                        if (count == 0) {
+                            self.output_goto_row(self.output.&.line_count());
+                        } else {
+                            self.output_goto_row(count - 1);
+                        }
+                    },
+                    b'H' => {
+                        self.clear_pending_count();
+                        self.output_goto_screen_top();
+                    },
+                    b'M' => {
+                        self.clear_pending_count();
+                        self.output_goto_screen_middle();
+                    },
+                    b'L' => {
+                        self.clear_pending_count();
+                        self.output_goto_screen_bottom();
+                    },
+                    b':' => self.enter_command(),
+                    b'>' => self.enter_shell(),
+                    b'\t' => self.toggle_pane(alloc),
+                    b'q' => self.close_output(alloc),
+                    b'Q' => self.close_output(alloc),
+                    b'[' => self.show_prev_output_history(alloc),
+                    b']' => self.show_next_output_history(alloc),
+                    _ => self.clear_pending_count(),
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn handle_insert_key(alloc: *mut Allocator, key: Key) void {
+        match (key) {
+            .Escape => {
+                self.pending_normal = .None;
+                self.clear_pending_count();
+                self.mode = .Normal;
+            },
+            .NoInput => {}
+            .ArrowLeft => self.move_left(),
+            .ArrowRight => self.move_right(),
+            .ArrowUp => self.move_up(),
+            .ArrowDown => self.move_down(),
+            .Home => self.move_line_start(),
+            .End => self.move_line_end(),
+            .Delete => {
+                let cursor = self.active_cursor();
+                let text_buffer = self.active_buffer_mut();
+                let _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
+                self.remember_preferred_col();
+            },
+            .PageUp => self.page_up(),
+            .PageDown => self.page_down(),
+            .Backspace => {
+                let cursor = self.active_cursor();
+                let text_buffer = self.active_buffer_mut();
+                cursor.* = text_buffer.delete_backward(alloc, cursor.row, cursor.col);
+                self.remember_preferred_col();
+            },
+            .Enter => {
+                let cursor = self.active_cursor();
+                let text_buffer = self.active_buffer_mut();
+                if (text_buffer.split_line(alloc, cursor.row, cursor.col)) {
+                    cursor.row += 1;
+                    cursor.col = 0;
+                    self.remember_preferred_col();
+                } else {
+                    self.set_message(alloc, "split failed");
+                }
+            },
+            .{ Byte: byte } => {
+                if (byte == b'\t') {
+                    self.insert_tab(alloc);
+                    return;
+                }
+                if (byte >= 32 and byte != 127) {
+                    let cursor = self.active_cursor();
+                    let text_buffer = self.active_buffer_mut();
+                    if (text_buffer.insert_byte(alloc, cursor.row, cursor.col, byte)) {
+                        cursor.col += 1;
+                        self.remember_preferred_col();
+                    } else {
+                        self.set_message(alloc, "insert failed");
+                    }
+                }
+            },
+            _ => {}
+        }
+    }
+
+    /// Dispatches one normalized key into the current editor mode.
+    pub fn handle_key(alloc: *mut Allocator, key: Key) void {
+        match (self.mode) {
+            .Normal => self.handle_normal_key(alloc, key),
+            .Insert => self.handle_insert_key(alloc, key),
+            .Command => self.handle_command_key(alloc, key),
+        }
+        self.clamp_cursor();
+        self.clamp_output_cursor();
+        self.ensure_output_cursor_visible();
+    }
+
+    /// Returns one visible buffer line.
+    pub fn line(row: usize) []u8 {
+        return self.active_buffer().line(row);
+    }
+}

@@ -37,7 +37,7 @@ fn push_rendered_line(out: *mut String, alloc: *mut Allocator, text: []u8, max_c
             continue;
         }
 
-        let shown = if (byte < u8.{32} and byte != b' ') { b'?' } else byte;
+        let shown = if (byte < 32 and byte != b' ') { b'?' } else byte;
         if (!out.push_char(alloc, shown)) {
             return false;
         }

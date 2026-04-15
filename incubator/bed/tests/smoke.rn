@@ -12,9 +12,9 @@ fn contains(text: []u8, needle: []u8) bool {
     if (#needle > #text) {
         return false;
     }
-    for (let mut i = usize.{0}; i + #needle <= #text; i += 1) {
+    for (let mut i = 0; i + #needle <= #text; i += 1) {
         let mut matched = true;
-        for (let mut j = usize.{0}; j < #needle; j += 1) {
+        for (let mut j = 0; j < #needle; j += 1) {
             if (text.[i + j] != needle.[j]) {
                 matched = false;
                 break;
@@ -31,9 +31,9 @@ fn find_index(text: []u8, needle: []u8) usize {
     if (#needle == 0 or #needle > #text) {
         return #text;
     }
-    for (let mut i = usize.{0}; i + #needle <= #text; i += 1) {
+    for (let mut i = 0; i + #needle <= #text; i += 1) {
         let mut matched = true;
-        for (let mut j = usize.{0}; j < #needle; j += 1) {
+        for (let mut j = 0; j < #needle; j += 1) {
             if (text.[i + j] != needle.[j]) {
                 matched = false;
                 break;
@@ -47,7 +47,7 @@ fn find_index(text: []u8, needle: []u8) usize {
 }
 
 fn find_byte(text: []u8, needle: u8) usize {
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    for (let mut i = 0; i < #text; i += 1) {
         if (text.[i] == needle) {
             return i;
         }
@@ -56,9 +56,9 @@ fn find_byte(text: []u8, needle: u8) usize {
 }
 
 fn line_slice(text: []u8, line_index: usize) []u8 {
-    let mut start = usize.{0};
-    let mut current = usize.{0};
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut start = 0;
+    let mut current = 0;
+    for (let mut i = 0; i < #text; i += 1) {
         if (current == line_index and text.[i] == b'\n') {
             return text.[start .. i];
         }
@@ -74,7 +74,7 @@ fn line_slice(text: []u8, line_index: usize) []u8 {
 }
 
 fn find_line_with(text: []u8, needle: []u8, max_lines: usize) usize {
-    for (let mut line = usize.{0}; line < max_lines; line += 1) {
+    for (let mut line = 0; line < max_lines; line += 1) {
         if (contains(line_slice(text, line), needle)) {
             return line;
         }
@@ -83,7 +83,7 @@ fn find_line_with(text: []u8, needle: []u8, max_lines: usize) usize {
 }
 
 fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    for (let mut i = 0; i < #text; i += 1) {
         state.handle_key(gpa, input.Key.{ Byte: text.[i] });
     }
 }
@@ -170,32 +170,32 @@ fn check_buffer_editing() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut text = test.expect_ok(buffer.empty(gpa, ""));
-    defer text..&.deinit(gpa);
+    let text = test.expect_ok(buffer.empty(gpa, ""))..&;
+    defer text.deinit(gpa);
 
-    test.assert(text..&.insert_byte(gpa, 0, 0, b'a'), "expected insert a to succeed", .{});
-    test.assert(text..&.insert_byte(gpa, 0, 1, b'b'), "expected insert b to succeed", .{});
-    test.assert(text..&.split_line(gpa, 0, 1), "expected split to succeed", .{});
-    test.eq(text.&.line_count(), usize.{2});
-    test.eq(text.&.line(0), "a");
-    test.eq(text.&.line(1), "b");
+    test.assert(text.insert_byte(gpa, 0, 0, b'a'), "expected insert a to succeed", .{});
+    test.assert(text.insert_byte(gpa, 0, 1, b'b'), "expected insert b to succeed", .{});
+    test.assert(text.split_line(gpa, 0, 1), "expected split to succeed", .{});
+    test.eq(text.line_count(), 2);
+    test.eq(text.line(0), "a");
+    test.eq(text.line(1), "b");
 
-    let cursor = text..&.delete_backward(gpa, 1, 0);
-    test.eq(cursor.row, usize.{0});
-    test.eq(cursor.col, usize.{1});
-    test.eq(text.&.line_count(), usize.{1});
-    test.eq(text.&.line(0), "ab");
+    let cursor = text.delete_backward(gpa, 1, 0);
+    test.eq(cursor.row, 0);
+    test.eq(cursor.col, 1);
+    test.eq(text.line_count(), 1);
+    test.eq(text.line(0), "ab");
 
-    test.assert(text..&.delete_at(gpa, 0, 1), "expected delete at cursor to succeed", .{});
-    test.eq(text.&.line(0), "a");
+    test.assert(text.delete_at(gpa, 0, 1), "expected delete at cursor to succeed", .{});
+    test.eq(text.line(0), "a");
 }
 
 fn check_escape_decode() void {
-    match (input.map_csi_tilde(usize.{3})) {
+    match (input.map_csi_tilde(3)) {
         .Delete => {}
         _ => test.fail("expected CSI 3~ to decode as delete", .{}),
     }
-    match (input.map_csi_tilde(usize.{5})) {
+    match (input.map_csi_tilde(5)) {
         .PageUp => {}
         _ => test.fail("expected CSI 5~ to decode as page up", .{}),
     }
@@ -213,169 +213,169 @@ fn check_editor_resize_and_command_cursor() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{40}, usize.{120}), "expected initial resize to report change", .{});
-    test.assert(!state..&.resize(usize.{40}, usize.{120}), "expected stable resize to report no change", .{});
+    test.assert(state.resize(40, 120), "expected initial resize to report change", .{});
+    test.assert(!state.resize(40, 120), "expected stable resize to report no change", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b':' });
-    state..&.handle_key(gpa, .{ Byte: b'w' });
-    state..&.handle_key(gpa, .{ Byte: b'q' });
-    state..&.handle_key(gpa, .ArrowLeft);
-    state..&.handle_key(gpa, .{ Byte: b'!' });
-    state..&.handle_key(gpa, .End);
-    state..&.handle_key(gpa, .Backspace);
-    state..&.handle_key(gpa, .Escape);
-    test.assert(!state..&.should_quit(), "expected command editing path not to quit editor", .{});
+    state.handle_key(gpa, .{ Byte: b':' });
+    state.handle_key(gpa, .{ Byte: b'w' });
+    state.handle_key(gpa, .{ Byte: b'q' });
+    state.handle_key(gpa, .ArrowLeft);
+    state.handle_key(gpa, .{ Byte: b'!' });
+    state.handle_key(gpa, .End);
+    state.handle_key(gpa, .Backspace);
+    state.handle_key(gpa, .Escape);
+    test.assert(!state.should_quit(), "expected command editing path not to quit editor", .{});
 }
 
 fn check_editor_normal_mode_subset() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    state..&.handle_key(gpa, .{ Byte: b'i' });
-    type_text(state..&, gpa, "one two");
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state, gpa, "one two");
+    state.handle_key(gpa, .Escape);
 
-    state..&.handle_key(gpa, .{ Byte: b'0' });
-    state..&.handle_key(gpa, .{ Byte: b'w' });
-    test.eq(state..&.cursor_row(), usize.{0});
-    test.eq(state..&.cursor_col(), usize.{4});
+    state.handle_key(gpa, .{ Byte: b'0' });
+    state.handle_key(gpa, .{ Byte: b'w' });
+    test.eq(state.cursor_row(), 0);
+    test.eq(state.cursor_col(), 4);
 
-    state..&.handle_key(gpa, .{ Byte: b'e' });
-    test.eq(state..&.cursor_col(), usize.{6});
+    state.handle_key(gpa, .{ Byte: b'e' });
+    test.eq(state.cursor_col(), 6);
 
-    state..&.handle_key(gpa, .{ Byte: b'b' });
-    test.eq(state..&.cursor_col(), usize.{4});
+    state.handle_key(gpa, .{ Byte: b'b' });
+    test.eq(state.cursor_col(), 4);
 
-    state..&.handle_key(gpa, .{ Byte: b'A' });
-    state..&.handle_key(gpa, .{ Byte: b'!' });
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b'A' });
+    state.handle_key(gpa, .{ Byte: b'!' });
+    state.handle_key(gpa, .Escape);
 
-    state..&.handle_key(gpa, .{ Byte: b'O' });
-    state..&.handle_key(gpa, .{ Byte: b'X' });
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b'O' });
+    state.handle_key(gpa, .{ Byte: b'X' });
+    state.handle_key(gpa, .Escape);
 
-    state..&.handle_key(gpa, .{ Byte: b'G' });
-    test.eq(state..&.cursor_row(), usize.{1});
+    state.handle_key(gpa, .{ Byte: b'G' });
+    test.eq(state.cursor_row(), 1);
 
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: b'0' });
-    test.eq(state..&.cursor_row(), usize.{0});
-    test.eq(state..&.line(0), "X");
-    test.eq(state..&.line(1), "one two!");
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'0' });
+    test.eq(state.cursor_row(), 0);
+    test.eq(state.line(0), "X");
+    test.eq(state.line(1), "one two!");
 }
 
 fn check_editor_extended_normal_motions() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    state..&.handle_key(gpa, .{ Byte: b'i' });
-    type_text(state..&, gpa, "foo, bar");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "abcdef");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "ab");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "abcdef");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "row4");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "row5");
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state, gpa, "foo, bar");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "abcdef");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "ab");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "abcdef");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "row4");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "row5");
+    state.handle_key(gpa, .Escape);
 
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: b'0' });
-    state..&.handle_key(gpa, .{ Byte: b'w' });
-    expect_cursor(state..&, usize.{0}, usize.{3}, "expected w to stop on punctuation word");
-    state..&.handle_key(gpa, .{ Byte: b'w' });
-    expect_cursor(state..&, usize.{0}, usize.{5}, "expected second w to reach next word");
-    state..&.handle_key(gpa, .{ Byte: b'b' });
-    expect_cursor(state..&, usize.{0}, usize.{3}, "expected b to return to punctuation word");
-    state..&.handle_key(gpa, .{ Byte: b'W' });
-    expect_cursor(state..&, usize.{0}, usize.{5}, "expected W to skip punctuation inside WORD");
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: b'e' });
-    expect_cursor(state..&, usize.{0}, usize.{3}, "expected ge to move to previous word end");
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'0' });
+    state.handle_key(gpa, .{ Byte: b'w' });
+    expect_cursor(state, 0, 3, "expected w to stop on punctuation word");
+    state.handle_key(gpa, .{ Byte: b'w' });
+    expect_cursor(state, 0, 5, "expected second w to reach next word");
+    state.handle_key(gpa, .{ Byte: b'b' });
+    expect_cursor(state, 0, 3, "expected b to return to punctuation word");
+    state.handle_key(gpa, .{ Byte: b'W' });
+    expect_cursor(state, 0, 5, "expected W to skip punctuation inside WORD");
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'e' });
+    expect_cursor(state, 0, 3, "expected ge to move to previous word end");
 
-    state..&.handle_key(gpa, .{ Byte: b'0' });
-    state..&.handle_key(gpa, .{ Byte: b'f' });
-    state..&.handle_key(gpa, .{ Byte: b'o' });
-    expect_cursor(state..&, usize.{0}, usize.{1}, "expected fo to find first o");
-    state..&.handle_key(gpa, .{ Byte: b';' });
-    expect_cursor(state..&, usize.{0}, usize.{2}, "expected ; to repeat forward find");
-    state..&.handle_key(gpa, .{ Byte: b',' });
-    expect_cursor(state..&, usize.{0}, usize.{1}, "expected , to repeat find in reverse");
-    state..&.handle_key(gpa, .{ Byte: b'0' });
-    state..&.handle_key(gpa, .{ Byte: b't' });
-    state..&.handle_key(gpa, .{ Byte: b'b' });
-    expect_cursor(state..&, usize.{0}, usize.{4}, "expected tb to stop before target");
-    state..&.handle_key(gpa, .{ Byte: b';' });
-    expect_cursor(state..&, usize.{0}, usize.{4}, "expected repeated tb without another match to stay put");
+    state.handle_key(gpa, .{ Byte: b'0' });
+    state.handle_key(gpa, .{ Byte: b'f' });
+    state.handle_key(gpa, .{ Byte: b'o' });
+    expect_cursor(state, 0, 1, "expected fo to find first o");
+    state.handle_key(gpa, .{ Byte: b';' });
+    expect_cursor(state, 0, 2, "expected ; to repeat forward find");
+    state.handle_key(gpa, .{ Byte: b',' });
+    expect_cursor(state, 0, 1, "expected , to repeat find in reverse");
+    state.handle_key(gpa, .{ Byte: b'0' });
+    state.handle_key(gpa, .{ Byte: b't' });
+    state.handle_key(gpa, .{ Byte: b'b' });
+    expect_cursor(state, 0, 4, "expected tb to stop before target");
+    state.handle_key(gpa, .{ Byte: b';' });
+    expect_cursor(state, 0, 4, "expected repeated tb without another match to stay put");
 
-    state..&.handle_key(gpa, .{ Byte: b'G' });
-    state..&.handle_key(gpa, .{ Byte: b'k' });
-    state..&.handle_key(gpa, .{ Byte: b'0' });
-    state..&.handle_key(gpa, .{ Byte: b'$' });
-    expect_cursor(state..&, usize.{4}, usize.{4}, "expected $ to set preferred column");
-    state..&.handle_key(gpa, .{ Byte: b'k' });
-    expect_cursor(state..&, usize.{3}, usize.{4}, "expected k to preserve preferred column on long line");
-    state..&.handle_key(gpa, .{ Byte: b'k' });
-    expect_cursor(state..&, usize.{2}, usize.{2}, "expected k to clamp on short line");
-    state..&.handle_key(gpa, .{ Byte: b'k' });
-    expect_cursor(state..&, usize.{1}, usize.{4}, "expected preferred column to restore on longer line");
+    state.handle_key(gpa, .{ Byte: b'G' });
+    state.handle_key(gpa, .{ Byte: b'k' });
+    state.handle_key(gpa, .{ Byte: b'0' });
+    state.handle_key(gpa, .{ Byte: b'$' });
+    expect_cursor(state, 4, 4, "expected $ to set preferred column");
+    state.handle_key(gpa, .{ Byte: b'k' });
+    expect_cursor(state, 3, 4, "expected k to preserve preferred column on long line");
+    state.handle_key(gpa, .{ Byte: b'k' });
+    expect_cursor(state, 2, 2, "expected k to clamp on short line");
+    state.handle_key(gpa, .{ Byte: b'k' });
+    expect_cursor(state, 1, 4, "expected preferred column to restore on longer line");
 
-    test.assert(state..&.resize(usize.{5}, usize.{80}), "expected resize for screen motion test", .{});
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .CtrlD);
-    expect_cursor(state..&, usize.{2}, usize.{2}, "expected ctrl-d to move half a screen down");
-    state..&.handle_key(gpa, .{ Byte: b'L' });
-    expect_cursor(state..&, usize.{5}, usize.{4}, "expected L to jump to bottom visible row");
-    state..&.handle_key(gpa, .{ Byte: b'H' });
-    expect_cursor(state..&, usize.{2}, usize.{2}, "expected H to jump to top visible row");
-    state..&.handle_key(gpa, .{ Byte: b'M' });
-    expect_cursor(state..&, usize.{4}, usize.{4}, "expected M to jump to middle visible row");
-    state..&.handle_key(gpa, .CtrlU);
-    expect_cursor(state..&, usize.{0}, usize.{4}, "expected ctrl-u to move half a screen up");
+    test.assert(state.resize(5, 80), "expected resize for screen motion test", .{});
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .CtrlD);
+    expect_cursor(state, 2, 2, "expected ctrl-d to move half a screen down");
+    state.handle_key(gpa, .{ Byte: b'L' });
+    expect_cursor(state, 5, 4, "expected L to jump to bottom visible row");
+    state.handle_key(gpa, .{ Byte: b'H' });
+    expect_cursor(state, 2, 2, "expected H to jump to top visible row");
+    state.handle_key(gpa, .{ Byte: b'M' });
+    expect_cursor(state, 4, 4, "expected M to jump to middle visible row");
+    state.handle_key(gpa, .CtrlU);
+    expect_cursor(state, 0, 4, "expected ctrl-u to move half a screen up");
 
-    state..&.handle_key(gpa, .{ Byte: b'0' });
-    state..&.handle_key(gpa, .{ Byte: b'2' });
-    state..&.handle_key(gpa, .{ Byte: b'w' });
-    expect_cursor(state..&, usize.{0}, usize.{5}, "expected count prefix to repeat w");
-    state..&.handle_key(gpa, .{ Byte: b'5' });
-    state..&.handle_key(gpa, .{ Byte: b'G' });
-    expect_cursor(state..&, usize.{4}, usize.{4}, "expected count prefix to target G line");
-    state..&.handle_key(gpa, .{ Byte: b'2' });
-    state..&.handle_key(gpa, .{ Byte: b'k' });
-    expect_cursor(state..&, usize.{2}, usize.{2}, "expected count prefix to repeat vertical motion");
+    state.handle_key(gpa, .{ Byte: b'0' });
+    state.handle_key(gpa, .{ Byte: b'2' });
+    state.handle_key(gpa, .{ Byte: b'w' });
+    expect_cursor(state, 0, 5, "expected count prefix to repeat w");
+    state.handle_key(gpa, .{ Byte: b'5' });
+    state.handle_key(gpa, .{ Byte: b'G' });
+    expect_cursor(state, 4, 4, "expected count prefix to target G line");
+    state.handle_key(gpa, .{ Byte: b'2' });
+    state.handle_key(gpa, .{ Byte: b'k' });
+    expect_cursor(state, 2, 2, "expected count prefix to repeat vertical motion");
 }
 
 fn check_command_line_viewport_render() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{2}, usize.{8}), "expected resize for render viewport test", .{});
-    state..&.handle_key(gpa, .{ Byte: b':' });
-    for (let mut i = usize.{0}; i < #"abcdefghij"; i += 1) {
-        state..&.handle_key(gpa, .{ Byte: "abcdefghij".[i] });
+    test.assert(state.resize(2, 8), "expected resize for render viewport test", .{});
+    state.handle_key(gpa, .{ Byte: b':' });
+    for (let mut i = 0; i < #"abcdefghij"; i += 1) {
+        state.handle_key(gpa, .{ Byte: "abcdefghij".[i] });
     }
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state..&.render_into(gpa, frame, true), "expected command viewport render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected command viewport render to succeed", .{});
     test.assert(contains(frame.as_str(), ":efghij"), "expected long command render to scroll visible slice", .{});
     test.assert(contains(frame.as_str(), "\x1b[2;8H"), "expected command cursor to remain visible at right edge", .{});
 }
@@ -384,34 +384,34 @@ fn check_insert_tab_and_line_number_render() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{8}, usize.{32}), "expected resize for tab and number render test", .{});
+    test.assert(state.resize(8, 32), "expected resize for tab and number render test", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'i' });
-    state..&.handle_key(gpa, .{ Byte: b'\t' });
-    type_text(state..&, gpa, "a");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "b");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "c");
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b'i' });
+    state.handle_key(gpa, .{ Byte: b'\t' });
+    type_text(state, gpa, "a");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "b");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "c");
+    state.handle_key(gpa, .Escape);
 
-    test.eq(state..&.line(0), "    a");
+    test.eq(state.line(0), "    a");
 
-    state..&.handle_key(gpa, .{ Byte: b':' });
-    type_text(state..&, gpa, "set number");
-    state..&.handle_key(gpa, .Enter);
-    state..&.handle_key(gpa, .{ Byte: b':' });
-    type_text(state..&, gpa, "set relativenumber");
-    state..&.handle_key(gpa, .Enter);
+    state.handle_key(gpa, .{ Byte: b':' });
+    type_text(state, gpa, "set number");
+    state.handle_key(gpa, .Enter);
+    state.handle_key(gpa, .{ Byte: b':' });
+    type_text(state, gpa, "set relativenumber");
+    state.handle_key(gpa, .Enter);
 
-    state..&.handle_key(gpa, .{ Byte: b'k' });
+    state.handle_key(gpa, .{ Byte: b'k' });
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state..&.render_into(gpa, frame, true), "expected line number render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected line number render to succeed", .{});
     test.assert(contains(frame.as_str(), "1     a"), "expected relative numbering to show distance for first line", .{});
     test.assert(contains(frame.as_str(), "2 b"), "expected current line to keep absolute number when number is enabled", .{});
     test.assert(contains(frame.as_str(), "1 c"), "expected relative numbering to show distance for later lines", .{});
@@ -421,42 +421,42 @@ fn check_split_window_and_window_commands() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{12}, usize.{40}), "expected resize for split-window test", .{});
+    test.assert(state.resize(12, 40), "expected resize for split-window test", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'i' });
-    type_text(state..&, gpa, "one");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "two");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "three");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "four");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "five");
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state, gpa, "one");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "two");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "three");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "four");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "five");
+    state.handle_key(gpa, .Escape);
 
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'g' });
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b's' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b's' });
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'w' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'w' });
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state..&.render_into(gpa, frame, true), "expected split-window render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected split-window render to succeed", .{});
     test.assert(contains(frame.as_str(), "[window W2/2]"), "expected render to include the inactive lower window separator", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"), "expected status line to show active editor window label", .{});
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'o' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'o' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected :only-style window close render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected :only-style window close render to succeed", .{});
     test.assert(!contains(frame.as_str(), "[window W2/2]"), "expected only-window command to remove the second split", .{});
 }
 
@@ -478,89 +478,89 @@ fn check_split_window_keeps_window_local_buffers() void {
     let _ = test.expect_ok(fs.write_all(gpa, path_a, "alpha\none"));
     let _ = test.expect_ok(fs.write_all(gpa, path_b, "beta\ntwo"));
 
-    let mut state = test.expect_ok(editor.open(gpa, path_a));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.open(gpa, path_a))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{10}, usize.{48}), "expected resize for window-local buffer test", .{});
+    test.assert(state.resize(10, 48), "expected resize for window-local buffer test", .{});
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b's' });
-    run_ex_command(state..&, gpa, "e /tmp/bed-window-b.txt");
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b's' });
+    run_ex_command(state, gpa, "e /tmp/bed-window-b.txt");
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after split edit to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after split edit to succeed", .{});
     test.assert(contains(frame.as_str(), path_b), "expected active lower window to track the edited file", .{});
-    test.eq(state..&.line(0), "beta");
+    test.eq(state.line(0), "beta");
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'w' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after switching back to upper window to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after switching back to upper window to succeed", .{});
     test.assert(contains(frame.as_str(), path_a), "expected upper window to keep the original file", .{});
-    test.eq(state..&.line(0), "alpha");
+    test.eq(state.line(0), "alpha");
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'w' });
-    test.eq(state..&.line(0), "beta");
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'q' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'w' });
+    test.eq(state.line(0), "beta");
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'q' });
 
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after closing lower window to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after closing lower window to succeed", .{});
     test.assert(contains(frame.as_str(), path_a), "expected remaining window to keep the original file after closing the edited split", .{});
-    test.eq(state..&.line(0), "alpha");
+    test.eq(state.line(0), "alpha");
 }
 
 fn check_multi_window_cycle_and_close() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{18}, usize.{48}), "expected resize for multi-window test", .{});
+    test.assert(state.resize(18, 48), "expected resize for multi-window test", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'i' });
-    type_text(state..&, gpa, "one");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "two");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "three");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "four");
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state, gpa, "one");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "two");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "three");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "four");
+    state.handle_key(gpa, .Escape);
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b's' });
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b's' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b's' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b's' });
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state..&.render_into(gpa, frame, true), "expected three-window render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected three-window render to succeed", .{});
     test.assert(contains(frame.as_str(), "[window W2/3]"), "expected render to include the second inactive window separator", .{});
     test.assert(contains(frame.as_str(), "[WINDOW W3/3]"), "expected render to include the active third window separator", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected status line to show the third active window", .{});
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'w' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after cycling to first window to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after cycling to first window to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w w to wrap back to the first window", .{});
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'w' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after cycling to second window to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after cycling to second window to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"), "expected ctrl-w w to advance to the second window", .{});
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'q' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'q' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after closing one of three windows to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after closing one of three windows to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected closing the middle window to keep focus on the replacement second window", .{});
     test.assert(contains(frame.as_str(), "[window W2/2]") or contains(frame.as_str(), "[WINDOW W2/2]"), "expected two-window layout after closing one split", .{});
 }
@@ -569,49 +569,49 @@ fn check_ctrl_w_navigation_commands() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{16}, usize.{48}), "expected resize for ctrl-w navigation test", .{});
+    test.assert(state.resize(16, 48), "expected resize for ctrl-w navigation test", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'i' });
-    type_text(state..&, gpa, "one");
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state, gpa, "one");
+    state.handle_key(gpa, .Escape);
 
-    ctrl_w(state..&, gpa, b's');
-    ctrl_w(state..&, gpa, b's');
+    ctrl_w(state, gpa, b's');
+    ctrl_w(state, gpa, b's');
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    ctrl_w(state..&, gpa, b'p');
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w p to succeed", .{});
+    ctrl_w(state, gpa, b'p');
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w p to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"), "expected ctrl-w p to jump to the previous active window", .{});
 
-    ctrl_w(state..&, gpa, b'p');
+    ctrl_w(state, gpa, b'p');
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after second ctrl-w p to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after second ctrl-w p to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected ctrl-w p to toggle back to the newer window", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'2' });
-    ctrl_w(state..&, gpa, b'w');
+    state.handle_key(gpa, .{ Byte: b'2' });
+    ctrl_w(state, gpa, b'w');
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after counted ctrl-w w to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after counted ctrl-w w to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"), "expected 2 ctrl-w w to jump to the second window", .{});
 
-    ctrl_w(state..&, gpa, b'W');
+    ctrl_w(state, gpa, b'W');
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w W to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w W to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w W to cycle backward", .{});
 
-    ctrl_w(state..&, gpa, b'b');
+    ctrl_w(state, gpa, b'b');
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w b to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w b to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected ctrl-w b to jump to the bottom-right window", .{});
 
-    ctrl_w(state..&, gpa, b't');
+    ctrl_w(state, gpa, b't');
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w t to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w t to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w t to jump to the top-left window", .{});
 }
 
@@ -619,18 +619,18 @@ fn check_window_and_layout_slots_are_reused() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{12}, usize.{48}), "expected resize for slot reuse test", .{});
+    test.assert(state.resize(12, 48), "expected resize for slot reuse test", .{});
 
-    for (let mut i = usize.{0}; i < 8; i += 1) {
-        ctrl_w(state..&, gpa, b's');
-        test.eq(state..&.window_slots(), usize.{2});
-        test.eq(state..&.layout_node_slots(), usize.{3});
-        ctrl_w(state..&, gpa, b'q');
-        test.eq(state..&.window_slots(), usize.{2});
-        test.eq(state..&.layout_node_slots(), usize.{3});
+    for (let mut i = 0; i < 8; i += 1) {
+        ctrl_w(state, gpa, b's');
+        test.eq(state.window_slots(), 2);
+        test.eq(state.layout_node_slots(), 3);
+        ctrl_w(state, gpa, b'q');
+        test.eq(state.window_slots(), 2);
+        test.eq(state.layout_node_slots(), 3);
     }
 }
 
@@ -652,17 +652,17 @@ fn check_vsplit_layout_and_window_resize_commands() void {
     let _ = test.expect_ok(fs.write_all(gpa, path_a, "left"));
     let _ = test.expect_ok(fs.write_all(gpa, path_b, "right"));
 
-    let mut state = test.expect_ok(editor.open(gpa, path_a));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.open(gpa, path_a))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{8}, usize.{48}), "expected resize for vsplit test", .{});
-    run_ex_command(state..&, gpa, "vsplit");
-    run_ex_command(state..&, gpa, "e /tmp/bed-vsplit-b.txt");
+    test.assert(state.resize(8, 48), "expected resize for vsplit test", .{});
+    run_ex_command(state, gpa, "vsplit");
+    run_ex_command(state, gpa, "e /tmp/bed-vsplit-b.txt");
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state..&.render_into(gpa, frame, true), "expected vsplit render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected vsplit render to succeed", .{});
     let text = frame.as_str();
     let left_index = find_index(text, "left");
     let right_index = find_index(text, "right");
@@ -670,32 +670,32 @@ fn check_vsplit_layout_and_window_resize_commands() void {
     test.assert(left_index < first_newline and right_index < first_newline, "expected vertical layout to render both windows on the first row", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected status line to show the second active window in vsplit", .{});
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'h' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'h' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w h to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w h to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"), "expected ctrl-w h to focus the left window", .{});
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'l' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'l' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w l to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w l to succeed", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected ctrl-w l to focus the right window", .{});
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'>' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'>' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after growing vsplit window to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after growing vsplit window to succeed", .{});
     let grown = frame.as_str();
     let left_grown = find_index(grown, "left");
     let right_grown = find_index(grown, "right");
     let first_grown_newline = find_byte(grown, b'\n');
     test.assert(left_grown < first_grown_newline and right_grown < first_grown_newline, "expected resize to preserve the vertical layout on the first row", .{});
 
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b'=' });
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b'=' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after equalizing windows to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after equalizing windows to succeed", .{});
     let equalized = frame.as_str();
     let left_equalized = find_index(equalized, "left");
     let right_equalized = find_index(equalized, "right");
@@ -727,26 +727,26 @@ fn check_nested_split_tree_layout() void {
     let _ = test.expect_ok(fs.write_all(gpa, path_top, "T0\nT1"));
     let _ = test.expect_ok(fs.write_all(gpa, path_bottom, "B0\nB1"));
 
-    let mut state = test.expect_ok(editor.open(gpa, path_left));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.open(gpa, path_left))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{12}, usize.{52}), "expected resize for nested split tree test", .{});
-    run_ex_command(state..&, gpa, "vsplit");
-    run_ex_command(state..&, gpa, "e /tmp/bed-tree-top.txt");
-    state..&.handle_key(gpa, .CtrlW);
-    state..&.handle_key(gpa, .{ Byte: b's' });
-    run_ex_command(state..&, gpa, "e /tmp/bed-tree-bottom.txt");
+    test.assert(state.resize(12, 52), "expected resize for nested split tree test", .{});
+    run_ex_command(state, gpa, "vsplit");
+    run_ex_command(state, gpa, "e /tmp/bed-tree-top.txt");
+    state.handle_key(gpa, .CtrlW);
+    state.handle_key(gpa, .{ Byte: b's' });
+    run_ex_command(state, gpa, "e /tmp/bed-tree-bottom.txt");
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state..&.render_into(gpa, frame, true), "expected nested split tree render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected nested split tree render to succeed", .{});
     let first = line_slice(frame.as_str(), 0);
-    let bottom_line = find_line_with(frame.as_str(), "B0", usize.{10});
+    let bottom_line = find_line_with(frame.as_str(), "B0", 10);
     let nested_line = line_slice(frame.as_str(), bottom_line);
     test.assert(contains(first, "L0") and contains(first, "T0"), "expected first row to show left pane with top-right pane", .{});
-    test.assert(find_line_with(frame.as_str(), "L2", usize.{10}) < usize.{10}, "expected left pane to remain visible below the nested right split", .{});
-    test.assert(bottom_line > 0 and bottom_line < usize.{10}, "expected bottom-right pane to render on a later editor row", .{});
+    test.assert(find_line_with(frame.as_str(), "L2", 10) < 10, "expected left pane to remain visible below the nested right split", .{});
+    test.assert(bottom_line > 0 and bottom_line < 10, "expected bottom-right pane to render on a later editor row", .{});
     test.assert(contains(nested_line, "B0") and !contains(nested_line, "T0"), "expected bottom-right pane to render independently under the top-right pane", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected active window label to reflect the nested third window", .{});
 }
@@ -775,119 +775,119 @@ fn check_ctrl_w_rearrange_commands() void {
     let _ = test.expect_ok(fs.write_all(gpa, path_top, "T0\nT1"));
     let _ = test.expect_ok(fs.write_all(gpa, path_bottom, "B0\nB1"));
 
-    let mut state = test.expect_ok(editor.open(gpa, path_left));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.open(gpa, path_left))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{12}, usize.{52}), "expected resize for ctrl-w rearrange test", .{});
-    run_ex_command(state..&, gpa, "vsplit");
-    run_ex_command(state..&, gpa, "e /tmp/bed-tree-top.txt");
-    ctrl_w(state..&, gpa, b's');
-    run_ex_command(state..&, gpa, "e /tmp/bed-tree-bottom.txt");
+    test.assert(state.resize(12, 52), "expected resize for ctrl-w rearrange test", .{});
+    run_ex_command(state, gpa, "vsplit");
+    run_ex_command(state, gpa, "e /tmp/bed-tree-top.txt");
+    ctrl_w(state, gpa, b's');
+    run_ex_command(state, gpa, "e /tmp/bed-tree-bottom.txt");
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    ctrl_w(state..&, gpa, b'H');
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w H to succeed", .{});
+    ctrl_w(state, gpa, b'H');
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w H to succeed", .{});
     let first_left = line_slice(frame.as_str(), 0);
     test.assert(contains(first_left, "B0") and contains(first_left, "L0"), "expected ctrl-w H to keep both active and existing content visible", .{});
     test.assert(find_index(first_left, "B0") < find_index(first_left, "L0"), "expected ctrl-w H to move the active window to the far left", .{});
 
-    ctrl_w(state..&, gpa, b'L');
+    ctrl_w(state, gpa, b'L');
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w L to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w L to succeed", .{});
     let first_right = line_slice(frame.as_str(), 0);
     test.assert(contains(first_right, "B0") and contains(first_right, "L0"), "expected ctrl-w L to keep both active and existing content visible", .{});
     test.assert(find_index(first_right, "L0") < find_index(first_right, "B0"), "expected ctrl-w L to move the active window to the far right", .{});
 
-    ctrl_w(state..&, gpa, b'K');
+    ctrl_w(state, gpa, b'K');
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w K to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w K to succeed", .{});
     let first_top = line_slice(frame.as_str(), 0);
     test.assert(contains(first_top, "B0"), "expected ctrl-w K to move the active window to the top row", .{});
     test.assert(!contains(first_top, "L0"), "expected ctrl-w K top row to belong to the moved active window", .{});
 
-    ctrl_w(state..&, gpa, b'J');
+    ctrl_w(state, gpa, b'J');
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w J to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w J to succeed", .{});
     let first_bottom = line_slice(frame.as_str(), 0);
-    let moved_line = find_line_with(frame.as_str(), "B0", usize.{10});
+    let moved_line = find_line_with(frame.as_str(), "B0", 10);
     test.assert(contains(first_bottom, "L0"), "expected ctrl-w J to leave the original layout at the top", .{});
-    test.assert(moved_line > 0 and moved_line < usize.{10}, "expected ctrl-w J to move the active window below the original layout", .{});
+    test.assert(moved_line > 0 and moved_line < 10, "expected ctrl-w J to move the active window below the original layout", .{});
 }
 
 fn check_additional_jump_keys() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{6}, usize.{40}), "expected resize for jump-key test", .{});
+    test.assert(state.resize(6, 40), "expected resize for jump-key test", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'i' });
-    type_text(state..&, gpa, "(abc)");
-    state..&.handle_key(gpa, .Enter);
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "para");
-    state..&.handle_key(gpa, .Enter);
-    type_text(state..&, gpa, "tail");
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state, gpa, "(abc)");
+    state.handle_key(gpa, .Enter);
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "para");
+    state.handle_key(gpa, .Enter);
+    type_text(state, gpa, "tail");
+    state.handle_key(gpa, .Escape);
 
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: b'g' });
-    state..&.handle_key(gpa, .{ Byte: b'0' });
-    state..&.handle_key(gpa, .{ Byte: b'%' });
-    expect_cursor(state..&, usize.{0}, usize.{4}, "expected % to jump to matching delimiter");
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'g' });
+    state.handle_key(gpa, .{ Byte: b'0' });
+    state.handle_key(gpa, .{ Byte: b'%' });
+    expect_cursor(state, 0, 4, "expected % to jump to matching delimiter");
 
-    state..&.handle_key(gpa, .{ Byte: b'0' });
-    state..&.handle_key(gpa, .{ Byte: b'}' });
-    expect_cursor(state..&, usize.{2}, usize.{0}, "expected } to jump to next paragraph start");
-    state..&.handle_key(gpa, .{ Byte: b'{' });
-    expect_cursor(state..&, usize.{0}, usize.{0}, "expected { to jump back to previous paragraph start");
+    state.handle_key(gpa, .{ Byte: b'0' });
+    state.handle_key(gpa, .{ Byte: b'}' });
+    expect_cursor(state, 2, 0, "expected } to jump to next paragraph start");
+    state.handle_key(gpa, .{ Byte: b'{' });
+    expect_cursor(state, 0, 0, "expected { to jump back to previous paragraph start");
 
-    state..&.handle_key(gpa, .{ Byte: b'G' });
-    state..&.handle_key(gpa, .CtrlB);
-    expect_cursor(state..&, usize.{0}, usize.{0}, "expected ctrl-b to page upward");
-    state..&.handle_key(gpa, .CtrlF);
-    expect_cursor(state..&, usize.{3}, usize.{0}, "expected ctrl-f to page downward");
+    state.handle_key(gpa, .{ Byte: b'G' });
+    state.handle_key(gpa, .CtrlB);
+    expect_cursor(state, 0, 0, "expected ctrl-b to page upward");
+    state.handle_key(gpa, .CtrlF);
+    expect_cursor(state, 3, 0, "expected ctrl-f to page downward");
 }
 
 fn check_prompt_history_navigation() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{8}, usize.{24}), "expected resize for prompt history test", .{});
+    test.assert(state.resize(8, 24), "expected resize for prompt history test", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b':' });
-    type_text(state..&, gpa, "w");
-    state..&.handle_key(gpa, .Enter);
+    state.handle_key(gpa, .{ Byte: b':' });
+    type_text(state, gpa, "w");
+    state.handle_key(gpa, .Enter);
 
-    state..&.handle_key(gpa, .{ Byte: b':' });
-    type_text(state..&, gpa, "draft");
-    state..&.handle_key(gpa, .ArrowUp);
+    state.handle_key(gpa, .{ Byte: b':' });
+    type_text(state, gpa, "draft");
+    state.handle_key(gpa, .ArrowUp);
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state..&.render_into(gpa, frame, true), "expected ex history render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected ex history render to succeed", .{});
     test.assert(contains(frame.as_str(), ":w"), "expected arrow-up to recall previous ex command", .{});
 
-    state..&.handle_key(gpa, .ArrowDown);
+    state.handle_key(gpa, .ArrowDown);
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected ex draft restore render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected ex draft restore render to succeed", .{});
     test.assert(contains(frame.as_str(), ":draft"), "expected arrow-down to restore prompt draft", .{});
-    state..&.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .Escape);
 
-    state..&.handle_key(gpa, .{ Byte: b'>' });
-    type_text(state..&, gpa, "echo prompt_history");
-    state..&.handle_key(gpa, .Enter);
-    state..&.handle_key(gpa, .{ Byte: b'>' });
-    state..&.handle_key(gpa, .ArrowUp);
+    state.handle_key(gpa, .{ Byte: b'>' });
+    type_text(state, gpa, "echo prompt_history");
+    state.handle_key(gpa, .Enter);
+    state.handle_key(gpa, .{ Byte: b'>' });
+    state.handle_key(gpa, .ArrowUp);
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected shell history render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected shell history render to succeed", .{});
     test.assert(contains(frame.as_str(), ">echo prompt_history"), "expected arrow-up to recall previous shell command", .{});
 }
 
@@ -895,26 +895,26 @@ fn check_cursor_shape_changes_with_mode() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{4}, usize.{16}), "expected resize for cursor shape test", .{});
+    test.assert(state.resize(4, 16), "expected resize for cursor shape test", .{});
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state..&.render_into(gpa, frame, true), "expected normal-mode render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected normal-mode render to succeed", .{});
     test.assert(contains(frame.as_str(), "\x1b[2 q"), "expected normal mode to render block cursor", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'i' });
+    state.handle_key(gpa, .{ Byte: b'i' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected insert-mode render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected insert-mode render to succeed", .{});
     test.assert(contains(frame.as_str(), "\x1b[6 q"), "expected insert mode to render bar cursor", .{});
 
-    state..&.handle_key(gpa, .Escape);
-    state..&.handle_key(gpa, .{ Byte: b':' });
+    state.handle_key(gpa, .Escape);
+    state.handle_key(gpa, .{ Byte: b':' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected command-mode render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected command-mode render to succeed", .{});
     test.assert(contains(frame.as_str(), "\x1b[6 q"), "expected command mode to render bar cursor", .{});
 }
 
@@ -922,49 +922,49 @@ fn check_shell_prompt_and_output_render() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut state = test.expect_ok(editor.empty(gpa));
-    defer state..&.deinit(gpa);
+    let state = test.expect_ok(editor.empty(gpa))..&;
+    defer state.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{8}, usize.{64}), "expected resize for shell render test", .{});
-    state..&.handle_key(gpa, .{ Byte: b'>' });
-    type_text(state..&, gpa, "echo hi");
-    state..&.handle_key(gpa, .Enter);
-    state..&.handle_key(gpa, .{ Byte: b'>' });
-    type_text(state..&, gpa, "echo two");
-    state..&.handle_key(gpa, .Enter);
+    test.assert(state.resize(8, 64), "expected resize for shell render test", .{});
+    state.handle_key(gpa, .{ Byte: b'>' });
+    type_text(state, gpa, "echo hi");
+    state.handle_key(gpa, .Enter);
+    state.handle_key(gpa, .{ Byte: b'>' });
+    type_text(state, gpa, "echo two");
+    state.handle_key(gpa, .Enter);
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state..&.render_into(gpa, frame, true), "expected shell render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected shell render to succeed", .{});
     test.assert(contains(frame.as_str(), "[OUTPUT TEMP 2/2] > echo two [exit 0]"), "expected output separator to include temp history position and shell command", .{});
     test.assert(contains(frame.as_str(), "two"), "expected latest shell output to render in split pane", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [OUTPUT] --"), "expected status line to show output pane focus", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'[' });
+    state.handle_key(gpa, .{ Byte: b'[' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected previous-output render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected previous-output render to succeed", .{});
     test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"), "expected output history recall to show earlier shell entry", .{});
     test.assert(contains(frame.as_str(), "hi"), "expected recalled shell output to render in split pane", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'q' });
+    state.handle_key(gpa, .{ Byte: b'q' });
 
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after hiding shell output to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after hiding shell output to succeed", .{});
     test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"), "expected hiding output to remove split separator", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR] --"), "expected status line to return focus to editor pane", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'\t' });
+    state.handle_key(gpa, .{ Byte: b'\t' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after reopening shell output to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after reopening shell output to succeed", .{});
     test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"), "expected tab to reopen the selected temporary shell output", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'\t' });
+    state.handle_key(gpa, .{ Byte: b'\t' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected editor-focus render with visible shell output to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected editor-focus render with visible shell output to succeed", .{});
     test.assert(contains(frame.as_str(), "[output temp 1/2] > echo hi [exit 0]"), "expected inactive output separator to remain visible while editing", .{});
-    state..&.handle_key(gpa, .{ Byte: b'Q' });
+    state.handle_key(gpa, .{ Byte: b'Q' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after closing shell output from editor to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true), "expected render after closing shell output from editor to succeed", .{});
     test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"), "expected editor-side close to hide the temporary shell output", .{});
 }
 

@@ -644,7 +644,7 @@ Files and directories do not implicitly become part of the compilation unit just
 
   * **File Modules**: `mod utils;` instructs the compiler to look for `utils.rn`.
   * **Directory Modules**: If `utils` is a directory, the compiler looks for `utils/init.rn`.
-  * **Visibility**: By default, modules are private. Use `pub mod utils;` to expose a module publicly, or `pub.. mod utils;` to expose it to the parent module subtree.
+  * **Visibility**: By default, modules are private. Use `pub mod utils;` to expose a module publicly, `pub.. mod utils;` to expose it to the parent module subtree, or `pub/ mod utils;` to expose it throughout the current package.
 
 <!-- end list -->
 
@@ -664,21 +664,18 @@ mod windows;
 
 ### 8.2 Imports and Path Resolution (`use`)
 
-Absolute paths in Kern are resolved through two precise roots:
+Kern splits import roots explicitly instead of overloading one "absolute" syntax:
 
-1.  **Compiler Root Directory**: The root module entry point provided to `kernc` (e.g., treating the project root similar to `crate::`).
-2.  **CLI Alias Mappings**: External package paths explicitly mapped via compiler options (e.g., `--module-path std=./libs/std` allows `use std.io;`).
+1.  **External package root**: bare imports such as `use std.io;` resolve only through CLI alias mappings like `--module-path std=./libs/std`.
+2.  **Current module**: `use .utils;`
+3.  **Parent module**: `use ..common.types;`
+4.  **Current package root**: `use /sys.os;`
 
-Paths are navigated strictly:
-
-  * **Absolute import**: `use std.io.File;`
-  * **Relative import (Current)**: `use .utils;` (Starts from the current module)
-  * **Relative import (Parent)**: `use ..common.types;` (Starts from the parent module)
-  * **Grouped imports**: `use sys.os.{Handle, write, exit};`
+Grouped imports keep the same anchor as their base path, for example `use /sys.os.{Handle, write, exit};`.
 
 ### 8.3 Facade Pattern and Re-exports (`pub use`)
 
-Kern supports the Facade pattern via `pub use`. This allows you to construct a clean, unified public API while keeping the internal module layout complex and conditionally compiled. Kern also supports `pub..` on items and re-exports when an API should be visible throughout the parent module subtree without being public outside it.
+Kern supports the Facade pattern via `pub use`. This allows you to construct a clean, unified public API while keeping the internal module layout complex and conditionally compiled. Kern also supports `pub..` when an API should be visible throughout the parent module subtree, and `pub/` when it should stay package-internal without becoming fully public.
 
 ```kern
 // sys/os/init.rn

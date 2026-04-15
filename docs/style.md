@@ -157,7 +157,7 @@ address of rodata.
 Use visibility to describe the intended sharing boundary directly:
 
 - `pub` for package-facing API
-- `pub~` for package-internal API
+- `pub/` for package-internal API
 - `pub..` for parent-module-tree API
 
 Prefer these over needless `init.rn` forwarding layers when the real intent is

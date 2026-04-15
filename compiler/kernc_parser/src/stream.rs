@@ -3,7 +3,10 @@ use kernc_utils::Span;
 
 pub struct TokenStream<'a> {
     lexer: Tokenizer<'a>,
-    /// Buffered tokens that support arbitrary lookahead.
+    /// The current token is cached separately so normal peek/bump traffic
+    /// avoids pushing every token through the general lookahead buffer.
+    current: Option<Token>,
+    /// Buffered lookahead tokens beyond `current`.
     buffer: Vec<Token>,
     buffer_start: usize,
     /// Span of the most recently consumed token, used for diagnostics.
@@ -14,15 +17,43 @@ impl<'a> TokenStream<'a> {
     pub fn new(lexer: Tokenizer<'a>) -> Self {
         Self {
             lexer,
+            current: None,
             buffer: Vec::new(),
             buffer_start: 0,
             last_span: Span::default(),
         }
     }
 
-    /// Fill the buffer until it contains at least `n + 1` items or EOF is reached.
+    fn ensure_current(&mut self) -> Token {
+        if let Some(token) = self.current {
+            return token;
+        }
+
+        let token = if self.buffer_start < self.buffer.len() {
+            let token = self.buffer[self.buffer_start];
+            self.buffer_start += 1;
+            if self.buffer_start >= 64 && self.buffer_start * 2 >= self.buffer.len() {
+                self.compact_buffer();
+            }
+            token
+        } else {
+            self.buffer.clear();
+            self.buffer_start = 0;
+            self.lexer.next_token()
+        };
+
+        self.current = Some(token);
+        token
+    }
+
+    /// Fill the lookahead buffer until it contains at least `n` items after
+    /// `current`, or EOF is reached.
     fn fill_buffer(&mut self, n: usize) {
-        while self.buffer.len().saturating_sub(self.buffer_start) <= n {
+        if self.ensure_current().tag == TokenType::Eof {
+            return;
+        }
+
+        while self.buffer.len().saturating_sub(self.buffer_start) < n {
             let token = self.lexer.next_token();
             let is_eof = token.tag == TokenType::Eof;
             self.buffer.push(token);
@@ -37,37 +68,37 @@ impl<'a> TokenStream<'a> {
     /// Peek the `n`th token without consuming it.
     /// `n = 0` is the current token, `n = 1` is the next token, and so on.
     pub fn peek_nth(&mut self, n: usize) -> Token {
+        let current = self.ensure_current();
+        if n == 0 {
+            return current;
+        }
+
         self.fill_buffer(n);
 
         // If the requested index is past the buffered tail, return EOF.
         let buffered_len = self.buffer.len().saturating_sub(self.buffer_start);
-        if n >= buffered_len {
-            return self.buffer.last().copied().unwrap_or({
-                // This should be unreachable unless buffer management regressed.
-                Token {
-                    tag: TokenType::Eof,
-                    span: self.last_span,
-                }
-            });
+        if n > buffered_len {
+            return self.buffer.last().copied().unwrap_or(current);
         }
 
-        self.buffer[self.buffer_start + n]
+        self.buffer[self.buffer_start + (n - 1)]
     }
 
     /// Peek only the tag of the `n`th token without copying the full token payload.
     pub fn peek_tag_nth(&mut self, n: usize) -> TokenType {
+        let current = self.ensure_current();
+        if n == 0 {
+            return current.tag;
+        }
+
         self.fill_buffer(n);
 
         let buffered_len = self.buffer.len().saturating_sub(self.buffer_start);
-        if n >= buffered_len {
-            return self
-                .buffer
-                .last()
-                .map(|token| token.tag)
-                .unwrap_or(TokenType::Eof);
+        if n > buffered_len {
+            return self.buffer.last().map(|token| token.tag).unwrap_or(current.tag);
         }
 
-        self.buffer[self.buffer_start + n].tag
+        self.buffer[self.buffer_start + (n - 1)].tag
     }
 
     /// Peek the current token.
@@ -82,28 +113,25 @@ impl<'a> TokenStream<'a> {
 
     /// Consume and return the current token.
     pub fn bump(&mut self) -> Token {
-        // Fast path for the common case with no buffered lookahead.
-        if self.buffer_start >= self.buffer.len() {
-            self.buffer.clear();
-            self.buffer_start = 0;
-            let t = self.lexer.next_token();
-            self.last_span = t.span;
-            return t;
+        let token = self.ensure_current();
+
+        if token.tag == TokenType::Eof {
+            self.last_span = token.span;
+            return token;
         }
 
-        // Pop the front of the lookahead buffer.
-        let token = self
-            .buffer
-            .get(self.buffer_start)
-            .copied()
-            .unwrap_or(Token {
-                tag: TokenType::Eof,
-                span: self.last_span,
-            });
-        self.buffer_start += 1;
-        if self.buffer_start >= 64 && self.buffer_start * 2 >= self.buffer.len() {
-            self.compact_buffer();
+        if self.buffer_start < self.buffer.len() {
+            self.current = Some(self.buffer[self.buffer_start]);
+            self.buffer_start += 1;
+            if self.buffer_start >= 64 && self.buffer_start * 2 >= self.buffer.len() {
+                self.compact_buffer();
+            }
+        } else {
+            self.current = None;
+            self.buffer.clear();
+            self.buffer_start = 0;
         }
+
         self.last_span = token.span;
         token
     }

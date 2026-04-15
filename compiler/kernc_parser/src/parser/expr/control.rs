@@ -4,6 +4,15 @@ use kernc_ast::*;
 use kernc_lexer::{Token, TokenType};
 use kernc_utils::{DiagnosticCode, Span};
 
+#[derive(Clone, Copy)]
+enum PatternLead {
+    Ignore,
+    Destructure,
+    Variant,
+    Typed,
+    Binding,
+}
+
 impl<'a> Parser<'a> {
     pub fn parse_block_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
         let mut stmts = Vec::new();
@@ -207,12 +216,8 @@ impl<'a> Parser<'a> {
     fn parse_single_match_pattern(&mut self) -> ParseResult<MatchPattern> {
         let pat_start = self.peek().span;
 
-        if self.check(TokenType::Underscore)
-            || self.check(TokenType::DotLBrace)
-            || self.check(TokenType::Dot)
-            || self.looks_like_typed_pattern()
-        {
-            let pattern = self.parse_pattern()?;
+        if let Some(lead) = self.classify_pattern_lead(false) {
+            let pattern = self.parse_pattern_from_lead(pat_start, lead)?;
             return Ok(MatchPattern {
                 span: pattern.span,
                 kind: MatchPatternKind::Pattern(pattern),
@@ -350,35 +355,10 @@ impl<'a> Parser<'a> {
 
     fn parse_pattern(&mut self) -> ParseResult<Pattern> {
         let start_span = self.peek().span;
-
-        if self.match_token(&[TokenType::Underscore]) {
-            return Ok(Pattern {
-                span: start_span,
-                kind: PatternKind::Ignore,
-            });
-        }
-
-        if self.match_token(&[TokenType::DotLBrace]) {
-            return self.parse_braced_destructure_pattern(None, start_span);
-        }
-
-        if self.match_token(&[TokenType::Dot]) {
-            let variant = self.parse_unit_variant_pattern_after_dot(None)?;
-            return Ok(Pattern {
-                span: start_span.to(self.stream.prev_span()),
-                kind: PatternKind::Variant(variant),
-            });
-        }
-
-        if self.looks_like_typed_pattern() {
-            return self.parse_typed_pattern(start_span);
-        }
-
-        let binding = self.parse_binding_pattern()?;
-        Ok(Pattern {
-            span: binding.span,
-            kind: PatternKind::Binding(binding),
-        })
+        let lead = self
+            .classify_pattern_lead(true)
+            .unwrap_or(PatternLead::Binding);
+        self.parse_pattern_from_lead(start_span, lead)
     }
 
     fn parse_let_pattern(&mut self) -> ParseResult<LetPattern> {
@@ -387,6 +367,67 @@ impl<'a> Parser<'a> {
             span: pattern.span,
             pattern,
         })
+    }
+
+    fn classify_pattern_lead(&mut self, allow_binding: bool) -> Option<PatternLead> {
+        match self.stream.peek_tag_nth(0) {
+            TokenType::Underscore => Some(PatternLead::Ignore),
+            TokenType::DotLBrace => Some(PatternLead::Destructure),
+            TokenType::Dot => Some(PatternLead::Variant),
+            TokenType::Identifier => {
+                if self.looks_like_typed_pattern() {
+                    Some(PatternLead::Typed)
+                } else if allow_binding {
+                    Some(PatternLead::Binding)
+                } else {
+                    None
+                }
+            }
+            TokenType::Mut => {
+                if allow_binding {
+                    Some(PatternLead::Binding)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn parse_pattern_from_lead(
+        &mut self,
+        start_span: Span,
+        lead: PatternLead,
+    ) -> ParseResult<Pattern> {
+        match lead {
+            PatternLead::Ignore => {
+                self.expect(TokenType::Underscore)?;
+                Ok(Pattern {
+                    span: start_span,
+                    kind: PatternKind::Ignore,
+                })
+            }
+            PatternLead::Destructure => {
+                self.expect(TokenType::DotLBrace)?;
+                self.parse_braced_destructure_pattern(None, start_span)
+            }
+            PatternLead::Variant => {
+                self.expect(TokenType::Dot)?;
+                let variant = self.parse_unit_variant_pattern_after_dot(None)?;
+                Ok(Pattern {
+                    span: start_span.to(self.stream.prev_span()),
+                    kind: PatternKind::Variant(variant),
+                })
+            }
+            PatternLead::Typed => self.parse_typed_pattern(start_span),
+            PatternLead::Binding => {
+                let binding = self.parse_binding_pattern()?;
+                Ok(Pattern {
+                    span: binding.span,
+                    kind: PatternKind::Binding(binding),
+                })
+            }
+        }
     }
 
     fn lookahead_type_path_end(&mut self, start: usize) -> Option<usize> {

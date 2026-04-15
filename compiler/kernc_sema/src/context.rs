@@ -1,7 +1,8 @@
 use kernc_utils::AtomicOrdering;
 use kernc_utils::config::RuntimeEntry;
 use kernc_utils::{
-    DiagnosticBuilder, DiagnosticLevel, FastHashMap, FileId, NodeId, Session, Span, SymbolId,
+    DiagnosticBuilder, DiagnosticLevel, FastHashMap, FastHashSet, FileId, NodeId, Session, Span,
+    SymbolId,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
@@ -34,6 +35,7 @@ pub struct SemaStructureSnapshot {
     pub root_module_package_names: FastHashMap<DefId, SymbolId>,
     pub module_defs_by_scope: FastHashMap<ScopeId, DefId>,
     pub parent_modules_by_def: FastHashMap<DefId, DefId>,
+    pub defs_without_parent_module: FastHashSet<DefId>,
     pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
 }
 
@@ -105,6 +107,7 @@ pub struct SemaContext<'a> {
     pub root_module_package_names: FastHashMap<DefId, SymbolId>,
     pub module_defs_by_scope: FastHashMap<ScopeId, DefId>,
     pub parent_modules_by_def: FastHashMap<DefId, DefId>,
+    pub defs_without_parent_module: FastHashSet<DefId>,
     pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
     pub expr_timing_stats: ExprTimingStats,
     pub(crate) call_signature_instantiation_cache: FastHashMap<TypeId, TypeId>,
@@ -143,6 +146,7 @@ impl<'a> SemaContext<'a> {
             root_module_package_names: FastHashMap::default(),
             module_defs_by_scope: FastHashMap::default(),
             parent_modules_by_def: FastHashMap::default(),
+            defs_without_parent_module: FastHashSet::default(),
             owner_scopes_by_def: FastHashMap::default(),
             expr_timing_stats: ExprTimingStats::default(),
             call_signature_instantiation_cache: FastHashMap::default(),
@@ -168,6 +172,7 @@ impl<'a> SemaContext<'a> {
     pub fn add_def(&mut self, def: Def) -> DefId {
         let id = DefId(self.defs.len() as u32);
         self.defs.push(def);
+        self.defs_without_parent_module.insert(id);
         id
     }
 
@@ -197,6 +202,7 @@ impl<'a> SemaContext<'a> {
             root_module_package_names: self.root_module_package_names.clone(),
             module_defs_by_scope: self.module_defs_by_scope.clone(),
             parent_modules_by_def: self.parent_modules_by_def.clone(),
+            defs_without_parent_module: self.defs_without_parent_module.clone(),
             owner_scopes_by_def: self.owner_scopes_by_def.clone(),
         }
     }
@@ -219,6 +225,7 @@ impl<'a> SemaContext<'a> {
             root_module_package_names: self.root_module_package_names,
             module_defs_by_scope: self.module_defs_by_scope,
             parent_modules_by_def: self.parent_modules_by_def,
+            defs_without_parent_module: self.defs_without_parent_module,
             owner_scopes_by_def: self.owner_scopes_by_def,
         }
     }
@@ -242,6 +249,7 @@ impl<'a> SemaContext<'a> {
         self.root_module_package_names = snapshot.root_module_package_names;
         self.module_defs_by_scope = snapshot.module_defs_by_scope;
         self.parent_modules_by_def = snapshot.parent_modules_by_def;
+        self.defs_without_parent_module = snapshot.defs_without_parent_module;
         self.owner_scopes_by_def = snapshot.owner_scopes_by_def;
         self.expr_timing_stats = ExprTimingStats::default();
         self.call_signature_instantiation_cache.clear();
@@ -466,6 +474,7 @@ impl<'a> SemaContext<'a> {
     ) {
         if let Some(module_id) = parent_module {
             self.parent_modules_by_def.insert(def_id, module_id);
+            self.defs_without_parent_module.remove(&def_id);
         }
         if let Some(scope_id) = owner_scope {
             self.owner_scopes_by_def.insert(def_id, scope_id);
@@ -534,6 +543,13 @@ impl<'a> SemaContext<'a> {
             },
             None => None,
         };
+
+        if parent.is_some() {
+            return parent;
+        }
+        if self.defs_without_parent_module.contains(&def_id) {
+            return None;
+        }
 
         // Legacy / malformed defs can still fall back to the module item scan, but the common
         // case should resolve directly from the def itself or the precomputed owner maps.

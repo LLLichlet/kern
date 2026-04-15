@@ -335,6 +335,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(super) fn bind_type_var(&mut self, vid: u32, ty: TypeId) {
+        let ty = self.resolve_tv(ty);
+        if matches!(self.ctx.type_registry.get(ty), TypeKind::TypeVar(bound_vid) if *bound_vid == vid)
+        {
+            return;
+        }
+
         let vid = vid as usize;
         if self.type_vars.len() <= vid {
             self.type_vars.resize(vid + 1, None);

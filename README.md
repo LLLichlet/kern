@@ -124,7 +124,17 @@ The project is still experimental, but the repository documentation now describe
 
 The easiest way to install Kern is via our official installation scripts. This will automatically download and install the pre-compiled toolchain (`kernc`, `craft`, `kern-lsp`, and the standard library) to your local environment (`~/.kern` on Unix, `%USERPROFILE%\.kern` on Windows).
 
-Official release artifacts are published for Linux `x86_64`, Windows `x86_64`, macOS `x86_64`, and macOS `aarch64`.
+Current official host-tool release artifacts are produced for these bounded
+baselines:
+
+- Linux `x86_64-linux-gnu`, built on `ubuntu-24.04`
+- Windows `x86_64-windows-msvc`, built on `windows-latest` with static CRT
+- macOS `x86_64-apple-darwin`, built on `macos-15-intel`
+- macOS `aarch64-apple-darwin`, built on `macos-14`
+
+Those labels describe the current official release build baselines. They should
+not be read as a blanket promise that one archive runs on every historical
+distro, every older macOS release, or every old Windows version.
 
 Windows release packaging has one important explicit rule: official host-tool
 artifacts are shipped as static-CRT binaries. This is not a cosmetic choice.
@@ -140,6 +150,14 @@ system DLLs such as `KERNEL32.dll`, `ADVAPI32.dll`, `SHELL32.dll`, `ole32.dll`,
 and `bcryptprimitives.dll`. Those are OS ABI dependencies for the host tools
 themselves, not hidden libc baggage for Kern programs.
 
+Linux and macOS currently have a different host-tool reality: the shipped Unix
+archives are not yet fully static. `kernc` and `craft` currently inherit host
+runtime dependencies from the Rust + LLVM + C++ toolchain stack, which means a
+clean machine can still fail if its shared-library set or libc baseline is too
+old. The official installers now verify the installed binaries immediately
+after extraction and print targeted remediation hints instead of silently
+claiming success.
+
 **For Linux / macOS:**
 
 ```bash
@@ -153,6 +171,20 @@ powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Ex
 ```
 
 *(After installation, you may need to restart your terminal or update your PATH variables as prompted by the script).*
+
+If a Unix installer verification step fails, the most common causes are:
+
+- missing shared libraries such as `libstdc++`, `zlib`, or `zstd`
+- an older glibc baseline than the release archive was built against
+
+In that situation, install the missing runtime libraries for your distro or
+build Kern from source on the target machine.
+
+If you need the detailed host-tool distribution policy rather than the short
+installation summary here, see:
+
+- [Windows Distribution Guide](docs/windows-distribution.md)
+- [Unix Distribution Guide](docs/unix-distribution.md)
 
 ## VS Code Extension
 
@@ -204,10 +236,16 @@ One more Windows-specific footgun: the release archive label is
 `x86_64-windows-msvc`, but the actual Cargo target triple is
 `x86_64-pc-windows-msvc`. The packaging script handles that mapping explicitly.
 
+For Linux and macOS, the current Unix packaging script is intentionally
+host-native. The archive label must match the machine actually building the
+release, because the script packages from the host's `target/release/` output
+rather than pretending to do generic cross-target host-tool packaging.
+
 ## Documentation
 
   * **[The `kernc` Compiler Guide](docs/kernc.md)**: CLI usage, driver modes, linking profiles, and build-system integration guidance.
   * **[Windows Distribution Guide](docs/windows-distribution.md)**: Windows host-tool release policy, static CRT packaging, install assumptions, and common packaging footguns.
+  * **[Unix Distribution Guide](docs/unix-distribution.md)**: Linux/macOS host-tool release policy, bounded host baselines, installer verification, and Unix packaging footguns.
   * **[Runtime And Library Architecture](docs/runtime-architecture.md)**: the `base`/`sys`/`rt`/`std` split, hosted versus freestanding, and why libc is optional rather than foundational.
   * **[Kern Language Design Document](docs/design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for the current version.
   * **[`craft` Package And Build Guide](docs/craft.md)**: the current package, lockfile, dependency-resolution, and build-planning model.

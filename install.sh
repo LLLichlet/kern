@@ -1,86 +1,222 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-echo "Welcome to the Kern Programming Language Installer!"
+DEFAULT_VERSION="v0.7.0"
+TMP_ROOT=""
 
-# 动态获取 GitHub 上最新的 Release Tag
-echo "=> Fetching latest version info from GitHub..."
-LATEST_VERSION=$(curl -s https://api.github.com/repos/softfault/kern/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+info() {
+    echo "$@"
+}
 
-if [ -z "$LATEST_VERSION" ]; then
-    echo "Warning: Failed to fetch latest version from GitHub."
-    echo "Falling back to default fallback version."
-    VERSION="v0.7.0"
-else
-    VERSION="$LATEST_VERSION"
-fi
+warn() {
+    echo "Warning: $*" >&2
+}
 
-echo "=> Preparing to install Kern ${VERSION} toolchain..."
-
-# 动态探测操作系统
-OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
-if [ "$OS_NAME" = "linux" ]; then
-    OS="linux-gnu"
-elif [ "$OS_NAME" = "darwin" ]; then
-    OS="apple-darwin"
-else
-    echo "Unsupported OS: $OS_NAME"
+fail() {
+    echo "Error: $*" >&2
     exit 1
-fi
+}
 
-# 动态探测 CPU 架构
-ARCH=$(uname -m)
-if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    ARCH="aarch64"
-elif [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ]; then
-    ARCH="x86_64"
-else
-    echo "Unsupported Architecture: $ARCH"
+cleanup() {
+    if [ -n "${TMP_ROOT}" ] && [ -d "${TMP_ROOT}" ]; then
+        rm -rf "${TMP_ROOT}"
+    fi
+}
+
+require_tool() {
+    command -v "$1" >/dev/null 2>&1 || fail "Required tool \`$1\` was not found in PATH."
+}
+
+fetch_latest_version() {
+    curl -fsSL "https://api.github.com/repos/softfault/kern/releases/latest" \
+        | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
+        | head -n 1
+}
+
+detect_unix_target() {
+    local os_name arch os
+
+    os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "${os_name}" in
+        linux)
+            os="linux-gnu"
+            ;;
+        darwin)
+            os="apple-darwin"
+            ;;
+        *)
+            fail "Unsupported OS: ${os_name}"
+            ;;
+    esac
+
+    arch=$(uname -m)
+    case "${arch}" in
+        aarch64|arm64)
+            arch="aarch64"
+            ;;
+        x86_64|amd64)
+            arch="x86_64"
+            ;;
+        *)
+            fail "Unsupported architecture: ${arch}"
+            ;;
+    esac
+
+    echo "${arch}-${os}"
+}
+
+select_rc_file() {
+    local shell_name
+
+    shell_name=$(basename "${SHELL:-}")
+    case "${shell_name}" in
+        zsh)
+            echo "${HOME}/.zshrc"
+            ;;
+        bash)
+            echo "${HOME}/.bashrc"
+            ;;
+        *)
+            echo "${HOME}/.profile"
+            ;;
+    esac
+}
+
+report_linux_failure() {
+    local binary_path="$1"
+
+    if command -v ldd >/dev/null 2>&1; then
+        local ldd_output
+        ldd_output=$(ldd "${binary_path}" 2>&1 || true)
+        if printf '%s\n' "${ldd_output}" | grep -Fq "not found"; then
+            warn "Shared-library resolution failed for ${binary_path}:"
+            printf '%s\n' "${ldd_output}" | grep -F "not found" >&2 || true
+            warn "Install the missing runtime libraries for your distro, then rerun '${binary_path} --version'."
+            warn "Common package names include libstdc++, zlib, and zstd."
+            return
+        fi
+    fi
+
+    warn "The binary still failed after the dynamic loader resolved its libraries."
+    warn "This commonly means the release archive was built against a newer glibc baseline than this machine provides."
+    warn "If this host is on an older distro, build Kern from source on the target machine."
+}
+
+report_darwin_failure() {
+    local binary_path="$1"
+
+    warn "macOS could not start ${binary_path}."
+    if command -v otool >/dev/null 2>&1; then
+        warn "Inspect linked host libraries with: otool -L ${binary_path}"
+    fi
+    warn "If the binary is blocked by local security policy, rerun it manually once to inspect the macOS error dialog/output."
+}
+
+verify_binary() {
+    local target="$1"
+    local binary_name="$2"
+    local binary_path="${KERN_BIN}/${binary_name}"
+    local output
+
+    [ -x "${binary_path}" ] || fail "Installed binary ${binary_path} is missing or not executable."
+
+    if output=$("${binary_path}" --version 2>&1); then
+        info "=> Verified ${binary_name}: ${output}"
+        return 0
+    fi
+
+    warn "Failed to start ${binary_name} after installation."
+    printf '%s\n' "${output}" >&2
+
+    case "${target}" in
+        *linux-gnu)
+            report_linux_failure "${binary_path}"
+            ;;
+        *apple-darwin)
+            report_darwin_failure "${binary_path}"
+            ;;
+    esac
+
+    warn "Installed files remain in ${KERN_HOME}, but the toolchain is not ready to use yet."
     exit 1
-fi
+}
 
-# 拼装 Target Triple
-TARGET="${ARCH}-${OS}"
-DIST_NAME="kern-${VERSION}-${TARGET}"
-TARBALL="${DIST_NAME}.tar.gz"
+configure_path() {
+    local rc_file
 
-DOWNLOAD_URL="https://github.com/softfault/kern/releases/download/${VERSION}/${TARBALL}"
+    rc_file=$(select_rc_file)
+    touch "${rc_file}"
 
-KERN_HOME="${HOME}/.kern"
-KERN_BIN="${KERN_HOME}/bin"
+    info "=> Configuring PATH..."
+    if ! grep -Fqs "${KERN_BIN}" "${rc_file}"; then
+        {
+            echo ""
+            echo "# Kern Programming Language"
+            echo "export PATH=\"${KERN_BIN}:\$PATH\""
+        } >> "${rc_file}"
+        info "Added ${KERN_BIN} to your PATH in ${rc_file}."
+        info "Please run 'source ${rc_file}' or restart your terminal to apply changes."
+    else
+        info "${KERN_BIN} is already in your PATH."
+    fi
+}
 
-echo "=> Creating installation directory at ${KERN_HOME}..."
-mkdir -p "${KERN_HOME}"
+main() {
+    local latest_version version target dist_name tarball download_url archive_path extract_root
 
-echo "=> Downloading Kern ${VERSION} for ${TARGET}..."
-curl -L -# -o "/tmp/${TARBALL}" "${DOWNLOAD_URL}"
+    require_tool curl
+    require_tool tar
+    require_tool uname
 
-echo "=> Extracting toolchain..."
-tar -xzf "/tmp/${TARBALL}" -C "/tmp"
-# 把解压出来的 bin 和 lib 平移到 ~/.kern 目录
-cp -r "/tmp/${DIST_NAME}/"* "${KERN_HOME}/"
-rm -rf "/tmp/${TARBALL}" "/tmp/${DIST_NAME}"
+    info "Welcome to the Kern Programming Language Installer!"
+    info "=> Fetching latest version info from GitHub..."
 
-echo "=> Configuring PATH..."
-RC_FILE=""
-if [ -n "$BASH_VERSION" ]; then
-    RC_FILE="${HOME}/.bashrc"
-elif [ -n "$ZSH_VERSION" ]; then
-    RC_FILE="${HOME}/.zshrc"
-else
-    RC_FILE="${HOME}/.profile"
-fi
+    latest_version="$(fetch_latest_version || true)"
+    if [ -z "${latest_version}" ]; then
+        warn "Failed to fetch the latest version from GitHub."
+        warn "Falling back to ${DEFAULT_VERSION}."
+        version="${DEFAULT_VERSION}"
+    else
+        version="${latest_version}"
+    fi
 
-if ! grep -q "${KERN_BIN}" "${RC_FILE}"; then
-    echo "" >> "${RC_FILE}"
-    echo "# Kern Programming Language" >> "${RC_FILE}"
-    echo "export PATH=\"${KERN_BIN}:\$PATH\"" >> "${RC_FILE}"
-    echo "Added ${KERN_BIN} to your PATH in ${RC_FILE}."
-    echo "Please run 'source ${RC_FILE}' or restart your terminal to apply changes."
-else
-    echo "${KERN_BIN} is already in your PATH."
-fi
+    target="$(detect_unix_target)"
+    dist_name="kern-${version}-${target}"
+    tarball="${dist_name}.tar.gz"
+    download_url="https://github.com/softfault/kern/releases/download/${version}/${tarball}"
 
-echo ""
-echo "Kern ${VERSION} toolchain installed successfully!"
-echo "Run 'kernc --version', 'craft --version', and 'kern-lsp --version' (or launch it via your editor) to verify."
+    KERN_HOME="${HOME}/.kern"
+    KERN_BIN="${KERN_HOME}/bin"
+    export KERN_HOME KERN_BIN
+
+    info "=> Preparing to install Kern ${version} toolchain for ${target}..."
+    info "=> Creating installation directory at ${KERN_HOME}..."
+    mkdir -p "${KERN_HOME}"
+
+    TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/kern-install-XXXXXX")
+    archive_path="${TMP_ROOT}/${tarball}"
+    extract_root="${TMP_ROOT}/extract"
+    mkdir -p "${extract_root}"
+
+    info "=> Downloading Kern ${version}..."
+    curl -fL -# -o "${archive_path}" "${download_url}" \
+        || fail "Download failed. Verify the release exists for ${target} and try again."
+
+    info "=> Extracting toolchain..."
+    tar -xzf "${archive_path}" -C "${extract_root}"
+    cp -R "${extract_root}/${dist_name}/." "${KERN_HOME}/"
+
+    info "=> Verifying installed tools..."
+    verify_binary "${target}" "kernc"
+    verify_binary "${target}" "craft"
+    verify_binary "${target}" "kern-lsp"
+
+    configure_path
+
+    echo ""
+    info "Kern ${version} toolchain installed successfully!"
+    info "Run 'kernc --version', 'craft --version', and 'kern-lsp --version' to verify your shell PATH."
+}
+
+trap cleanup EXIT
+main "$@"

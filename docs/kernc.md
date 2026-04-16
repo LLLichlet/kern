@@ -282,6 +282,39 @@ Current practical boundary:
 - static CRT solves the redistributable problem; it does not erase the Win32
   API baseline required by the host tools
 
+See also:
+
+- [Windows Distribution Guide](./windows-distribution.md)
+- [Unix Distribution Guide](./unix-distribution.md)
+
+### Unix Host-Tool Distribution Notes
+
+Do not conflate three different things on Linux/macOS:
+
+- the Kern program being compiled
+- the Rust host tool that is doing the compilation (`kernc`, `craft`, `kern-lsp`)
+- the final package/distribution policy for those host tools
+
+`--runtime-entry`, `--runtime-libc`, `--entry-symbol`, and library-bundle
+selection still describe the **compiled Kern program**. They do not mean the
+Unix host tools themselves are fully static or universally portable.
+
+Current practical boundary:
+
+- official Unix host-tool archives are host-native release artifacts
+- the Linux release baseline is currently the pinned `ubuntu-24.04` workflow
+  host, not a promise of universal glibc portability
+- the macOS release baselines are currently `macos-15-intel` for
+  `x86_64-apple-darwin` and `macos-14` for `aarch64-apple-darwin`
+- official Unix installers must verify that `kernc`, `craft`, and `kern-lsp`
+  actually start before claiming success
+- older or more minimal Unix systems may need additional runtime libraries or a
+  source build on the target machine
+
+For the full policy and packaging constraints, see:
+
+- [Unix Distribution Guide](./unix-distribution.md)
+
 ### Assembly Dialect
 
 Use `--asm-dialect intel` or `--asm-dialect att` to configure inline assembly formatting.

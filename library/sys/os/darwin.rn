@@ -5,7 +5,6 @@
 //! Design:
 //! keep libc-backed OS calls explicit and close to the platform ABI.
 
-use base.mem.ptr;
 use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
@@ -263,7 +262,7 @@ pub fn environment_entries() ?**u8 {
     if (!PROCESS_ENV_READY or PROCESS_ENV == 0) {
         return .None;
     }
-    return .{ Some: ptr[*u8](PROCESS_ENV) };
+    return .{ Some: PROCESS_ENV as **u8 };
 }
 
 /// Returns the process handle for standard input.

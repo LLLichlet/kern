@@ -359,7 +359,7 @@ private:
     LastError = Message;
   }
 
-  SmallString<32> CpuName = "generic";
+  SmallString<32> CpuName{"generic"};
   bool HasGeneratedObjectsDir = false;
   bool HasCacheDir = false;
   SmallString<0> GeneratedObjectsDir;

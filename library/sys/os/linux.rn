@@ -6,7 +6,6 @@
 //! keep the syscall boundary direct and typed.
 
 use base.coll.String;
-use base.mem.ptr;
 use base.mem.alloc.Allocator;
 use base.abi;
 use sys.os.{FileType, Metadata, TerminalSize};
@@ -283,7 +282,7 @@ pub fn environment_entries() ?**u8 {
     if (!PROCESS_ENV_READY or PROCESS_ENV == 0) {
         return .None;
     }
-    return .{ Some: ptr[*u8](PROCESS_ENV) };
+    return .{ Some: PROCESS_ENV as **u8 };
 }
 
 /// Returns the process handle for standard input.

@@ -104,6 +104,28 @@ fn run_ex_command(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
     state.handle_key(gpa, .Enter);
 }
 
+fn smoke_temp_root(gpa: *mut GPA) String {
+    let root = String.{}..&;
+    test.assert(root.push_str(gpa, "t"), "expected smoke temp root allocation", .{});
+    let _ = test.expect_ok(fs.create_dir_all(gpa, root.as_str()));
+    return root.*;
+}
+
+fn smoke_temp_path(gpa: *mut GPA, name: []u8) String {
+    let root = smoke_temp_root(gpa)..&;
+    defer root.deinit(gpa);
+    let path = test.expect_ok(fs.join(gpa, root.as_str(), name))..&;
+    return path.*;
+}
+
+fn run_edit_command(state: *mut editor.Editor, gpa: *mut GPA, path: []u8) void {
+    let command = String.{}..&;
+    defer command.deinit(gpa);
+    test.assert(command.push_str(gpa, "e "), "expected edit command prefix allocation", .{});
+    test.assert(command.push_str(gpa, path), "expected edit command path allocation", .{});
+    run_ex_command(state, gpa, command.as_str());
+}
+
 fn check_command_parse() void {
     match (command.parse("q")) {
         .Quit => {}
@@ -463,42 +485,44 @@ fn check_split_window_and_window_commands() void {
 fn check_split_window_keeps_window_local_buffers() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let path_a = "/tmp/bed-window-a.txt";
-    let path_b = "/tmp/bed-window-b.txt";
+    let path_a = smoke_temp_path(gpa, "bed-window-a.txt")..&;
+    let path_b = smoke_temp_path(gpa, "bed-window-b.txt")..&;
+    defer path_a.deinit(gpa);
+    defer path_b.deinit(gpa);
 
-    let _ = fs.remove_file_if_exists(gpa, path_a);
-    let _ = fs.remove_file_if_exists(gpa, path_b);
+    let _ = fs.remove_file_if_exists(gpa, path_a.as_str());
+    let _ = fs.remove_file_if_exists(gpa, path_b.as_str());
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_a);
+        let _ = fs.remove_file_if_exists(gpa, path_a.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_b);
+        let _ = fs.remove_file_if_exists(gpa, path_b.as_str());
     };
 
-    let _ = test.expect_ok(fs.write_all(gpa, path_a, "alpha\none"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_b, "beta\ntwo"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_a.as_str(), "alpha\none"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_b.as_str(), "beta\ntwo"));
 
-    let state = test.expect_ok(editor.open(gpa, path_a))..&;
+    let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
     defer state.deinit(gpa);
 
     test.assert(state.resize(10, 48), "expected resize for window-local buffer test", .{});
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b's' });
-    run_ex_command(state, gpa, "e /tmp/bed-window-b.txt");
+    run_edit_command(state, gpa, path_b.as_str());
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
     test.assert(state.render_into(gpa, frame, true), "expected render after split edit to succeed", .{});
-    test.assert(contains(frame.as_str(), path_b), "expected active lower window to track the edited file", .{});
+    test.assert(contains(frame.as_str(), path_b.as_str()), "expected active lower window to track the edited file", .{});
     test.eq(state.line(0), "beta");
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
     test.assert(state.render_into(gpa, frame, true), "expected render after switching back to upper window to succeed", .{});
-    test.assert(contains(frame.as_str(), path_a), "expected upper window to keep the original file", .{});
+    test.assert(contains(frame.as_str(), path_a.as_str()), "expected upper window to keep the original file", .{});
     test.eq(state.line(0), "alpha");
 
     state.handle_key(gpa, .CtrlW);
@@ -509,7 +533,7 @@ fn check_split_window_keeps_window_local_buffers() void {
 
     frame.clear();
     test.assert(state.render_into(gpa, frame, true), "expected render after closing lower window to succeed", .{});
-    test.assert(contains(frame.as_str(), path_a), "expected remaining window to keep the original file after closing the edited split", .{});
+    test.assert(contains(frame.as_str(), path_a.as_str()), "expected remaining window to keep the original file after closing the edited split", .{});
     test.eq(state.line(0), "alpha");
 }
 
@@ -637,27 +661,29 @@ fn check_window_and_layout_slots_are_reused() void {
 fn check_vsplit_layout_and_window_resize_commands() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let path_a = "/tmp/bed-vsplit-a.txt";
-    let path_b = "/tmp/bed-vsplit-b.txt";
+    let path_a = smoke_temp_path(gpa, "bed-vsplit-a.txt")..&;
+    let path_b = smoke_temp_path(gpa, "bed-vsplit-b.txt")..&;
+    defer path_a.deinit(gpa);
+    defer path_b.deinit(gpa);
 
-    let _ = fs.remove_file_if_exists(gpa, path_a);
-    let _ = fs.remove_file_if_exists(gpa, path_b);
+    let _ = fs.remove_file_if_exists(gpa, path_a.as_str());
+    let _ = fs.remove_file_if_exists(gpa, path_b.as_str());
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_a);
+        let _ = fs.remove_file_if_exists(gpa, path_a.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_b);
+        let _ = fs.remove_file_if_exists(gpa, path_b.as_str());
     };
 
-    let _ = test.expect_ok(fs.write_all(gpa, path_a, "left"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_b, "right"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_a.as_str(), "left"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_b.as_str(), "right"));
 
-    let state = test.expect_ok(editor.open(gpa, path_a))..&;
+    let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
     defer state.deinit(gpa);
 
     test.assert(state.resize(8, 48), "expected resize for vsplit test", .{});
     run_ex_command(state, gpa, "vsplit");
-    run_ex_command(state, gpa, "e /tmp/bed-vsplit-b.txt");
+    run_edit_command(state, gpa, path_b.as_str());
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
@@ -706,36 +732,39 @@ fn check_vsplit_layout_and_window_resize_commands() void {
 fn check_nested_split_tree_layout() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let path_left = "/tmp/bed-tree-left.txt";
-    let path_top = "/tmp/bed-tree-top.txt";
-    let path_bottom = "/tmp/bed-tree-bottom.txt";
+    let path_left = smoke_temp_path(gpa, "bed-tree-left.txt")..&;
+    let path_top = smoke_temp_path(gpa, "bed-tree-top.txt")..&;
+    let path_bottom = smoke_temp_path(gpa, "bed-tree-bottom.txt")..&;
+    defer path_left.deinit(gpa);
+    defer path_top.deinit(gpa);
+    defer path_bottom.deinit(gpa);
 
-    let _ = fs.remove_file_if_exists(gpa, path_left);
-    let _ = fs.remove_file_if_exists(gpa, path_top);
-    let _ = fs.remove_file_if_exists(gpa, path_bottom);
+    let _ = fs.remove_file_if_exists(gpa, path_left.as_str());
+    let _ = fs.remove_file_if_exists(gpa, path_top.as_str());
+    let _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_left);
+        let _ = fs.remove_file_if_exists(gpa, path_left.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_top);
+        let _ = fs.remove_file_if_exists(gpa, path_top.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_bottom);
+        let _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
     };
 
-    let _ = test.expect_ok(fs.write_all(gpa, path_left, "L0\nL1\nL2\nL3"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_top, "T0\nT1"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_bottom, "B0\nB1"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_left.as_str(), "L0\nL1\nL2\nL3"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_top.as_str(), "T0\nT1"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_bottom.as_str(), "B0\nB1"));
 
-    let state = test.expect_ok(editor.open(gpa, path_left))..&;
+    let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
     defer state.deinit(gpa);
 
     test.assert(state.resize(12, 52), "expected resize for nested split tree test", .{});
     run_ex_command(state, gpa, "vsplit");
-    run_ex_command(state, gpa, "e /tmp/bed-tree-top.txt");
+    run_edit_command(state, gpa, path_top.as_str());
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b's' });
-    run_ex_command(state, gpa, "e /tmp/bed-tree-bottom.txt");
+    run_edit_command(state, gpa, path_bottom.as_str());
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
@@ -754,35 +783,38 @@ fn check_nested_split_tree_layout() void {
 fn check_ctrl_w_rearrange_commands() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let path_left = "/tmp/bed-tree-left.txt";
-    let path_top = "/tmp/bed-tree-top.txt";
-    let path_bottom = "/tmp/bed-tree-bottom.txt";
+    let path_left = smoke_temp_path(gpa, "bed-tree-left.txt")..&;
+    let path_top = smoke_temp_path(gpa, "bed-tree-top.txt")..&;
+    let path_bottom = smoke_temp_path(gpa, "bed-tree-bottom.txt")..&;
+    defer path_left.deinit(gpa);
+    defer path_top.deinit(gpa);
+    defer path_bottom.deinit(gpa);
 
-    let _ = fs.remove_file_if_exists(gpa, path_left);
-    let _ = fs.remove_file_if_exists(gpa, path_top);
-    let _ = fs.remove_file_if_exists(gpa, path_bottom);
+    let _ = fs.remove_file_if_exists(gpa, path_left.as_str());
+    let _ = fs.remove_file_if_exists(gpa, path_top.as_str());
+    let _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_left);
+        let _ = fs.remove_file_if_exists(gpa, path_left.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_top);
+        let _ = fs.remove_file_if_exists(gpa, path_top.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_bottom);
+        let _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
     };
 
-    let _ = test.expect_ok(fs.write_all(gpa, path_left, "L0\nL1\nL2\nL3"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_top, "T0\nT1"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_bottom, "B0\nB1"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_left.as_str(), "L0\nL1\nL2\nL3"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_top.as_str(), "T0\nT1"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_bottom.as_str(), "B0\nB1"));
 
-    let state = test.expect_ok(editor.open(gpa, path_left))..&;
+    let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
     defer state.deinit(gpa);
 
     test.assert(state.resize(12, 52), "expected resize for ctrl-w rearrange test", .{});
     run_ex_command(state, gpa, "vsplit");
-    run_ex_command(state, gpa, "e /tmp/bed-tree-top.txt");
+    run_edit_command(state, gpa, path_top.as_str());
     ctrl_w(state, gpa, b's');
-    run_ex_command(state, gpa, "e /tmp/bed-tree-bottom.txt");
+    run_edit_command(state, gpa, path_bottom.as_str());
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);

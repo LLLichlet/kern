@@ -111,13 +111,6 @@ impl CompilerDriver {
             return false;
         }
 
-        if target.is_windows {
-            eprintln!(
-                "Error: preserved linker-input directories are not supported for Windows targets yet."
-            );
-            return false;
-        }
-
         if self.options.report_progress {
             println!("Merging linker inputs for target: {} ...", target.triple);
         }
@@ -185,6 +178,23 @@ impl CompilerDriver {
     fn build_link_command(&self, extra_inputs: &[String], target: &LinkTarget) -> Command {
         let cc_compiler = self.resolve_linker_driver(target.is_windows);
         let mut cmd = Command::new(&cc_compiler);
+        let requests_llvm_lto = self
+            .options
+            .linker_args
+            .iter()
+            .any(|arg| arg.starts_with("-flto"));
+
+        if target.is_windows
+            && requests_llvm_lto
+            && !self
+                .options
+                .linker_args
+                .iter()
+                .any(|arg| arg.starts_with("-fuse-ld="))
+        {
+            // LLVM bitcode inputs on Windows require the lld linker path.
+            cmd.arg("-fuse-ld=lld");
+        }
 
         for input in extra_inputs {
             cmd.arg(input);
@@ -222,17 +232,30 @@ impl CompilerDriver {
         target: &LinkTarget,
         output_path: &str,
     ) -> Command {
-        let cc_compiler = self.resolve_linker_driver(target.is_windows);
-        let mut cmd = Command::new(&cc_compiler);
-        cmd.arg("-r");
+        let mut cmd = if target.is_windows {
+            Command::new("llvm-lib")
+        } else {
+            let cc_compiler = self.resolve_linker_driver(target.is_windows);
+            let mut cmd = Command::new(&cc_compiler);
+            cmd.arg("-r");
+            cmd
+        };
         for input in inputs {
             cmd.arg(input);
         }
-        cmd.arg("-o").arg(output_path);
+        if target.is_windows {
+            cmd.arg(format!("/out:{output_path}"));
+        } else {
+            cmd.arg("-o").arg(output_path);
+        }
         cmd
     }
 
     fn apply_runtime_contract(&self, cmd: &mut Command, is_windows: bool, is_darwin: bool) {
+        if is_windows && !matches!(self.options.runtime_entry, RuntimeEntry::None) {
+            cmd.arg("-lshell32");
+        }
+
         match self.options.runtime_entry {
             RuntimeEntry::None => {
                 if let Some(entry_symbol) = &self.options.entry_symbol {
@@ -269,10 +292,14 @@ impl CompilerDriver {
                             self.options.entry_symbol.as_deref().unwrap_or("_start")
                         ));
                     } else if is_windows {
+                        cmd.arg("-Wl,/subsystem:console");
                         cmd.arg("-lkernel32");
-                        if let Some(entry_symbol) = &self.options.entry_symbol {
-                            cmd.arg(format!("-Wl,/entry:{}", entry_symbol));
-                        }
+                        let entry_symbol = self
+                            .options
+                            .entry_symbol
+                            .as_deref()
+                            .unwrap_or("mainCRTStartup");
+                        cmd.arg(format!("-Wl,/entry:{}", entry_symbol));
                     } else {
                         cmd.arg("-no-pie");
                         cmd.arg("-nostartfiles");
@@ -322,16 +349,16 @@ impl CompilerDriver {
 
     fn apply_thin_lto_cache_options(&self, cmd: &mut Command, target: &LinkTarget) {
         if target.is_windows
-            || !self.options.linker_args.iter().any(|arg| arg == "-flto=thin")
-            || self
+            || !self
                 .options
                 .linker_args
                 .iter()
-                .any(|arg| {
-                    arg.contains("thinlto-cache-dir")
-                        || arg.contains("cache_path_lto")
-                        || arg.contains("plugin-opt,cache-dir=")
-                })
+                .any(|arg| arg == "-flto=thin")
+            || self.options.linker_args.iter().any(|arg| {
+                arg.contains("thinlto-cache-dir")
+                    || arg.contains("cache_path_lto")
+                    || arg.contains("plugin-opt,cache-dir=")
+            })
         {
             return;
         }
@@ -491,7 +518,10 @@ mod tests {
         let cache_dir = format!("{}.thinlto-cache.d", output.to_string_lossy());
 
         if target.is_darwin {
-            assert!(args.iter().any(|arg| arg == &format!("-Wl,-cache_path_lto,{}", cache_dir)));
+            assert!(
+                args.iter()
+                    .any(|arg| arg == &format!("-Wl,-cache_path_lto,{}", cache_dir))
+            );
         } else if !target.is_windows {
             assert!(
                 args.iter()
@@ -529,7 +559,8 @@ mod tests {
 
         assert_eq!(
             args.iter()
-                .filter(|arg| arg.contains("thinlto-cache-dir") || arg.contains("plugin-opt,cache-dir="))
+                .filter(|arg| arg.contains("thinlto-cache-dir")
+                    || arg.contains("plugin-opt,cache-dir="))
                 .count(),
             1
         );

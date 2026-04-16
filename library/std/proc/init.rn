@@ -40,21 +40,6 @@ extern {
     fn system_ferror(stream: *mut PipeStream) i32;
 }
 
-#[if(os == "windows")]
-extern {
-    #[export_name("_popen")]
-    fn system_popen(command: *u8, mode: *u8) *mut PipeStream;
-
-    #[export_name("_pclose")]
-    fn system_pclose(stream: *mut PipeStream) i32;
-
-    #[export_name("fread")]
-    fn system_fread(ptr: *mut u8, size: usize, count: usize, stream: *mut PipeStream) usize;
-
-    #[export_name("ferror")]
-    fn system_ferror(stream: *mut PipeStream) i32;
-}
-
 /// A borrowed unmanaged view over process arguments.
 ///
 /// `argv` points to a C-style array of zero-terminated UTF-8 byte strings that
@@ -77,14 +62,17 @@ pub type Error = enum {
     ReadFailed,
 };
 
+#[if(os == "darwin")]
 fn alloc_c_string(alloc: *mut Allocator, text: []u8) ?*mut u8 {
     return abi.cstr.alloc_z(alloc, text);
 }
 
+#[if(os == "darwin")]
 fn free_c_string(alloc: *mut Allocator, text: []u8, ptr: *mut u8) void {
     abi.cstr.free_z(alloc, text, ptr);
 }
 
+#[if(os == "darwin")]
 fn build_shell_command(alloc: *mut Allocator, command: []u8) String!Error {
     let mut wrapped = String.{};
     if (!wrapped..&.push_str(alloc, "(")
@@ -108,19 +96,20 @@ fn map_shell_capture_error(err: os.Error) Error {
     return .SpawnFailed;
 }
 
-#[if(os == "linux")]
-fn decode_shell_status(raw: i32) i32 {
-    return (raw >> 8) & 255;
+#[if(os == "windows")]
+fn map_shell_capture_error(err: os.Error) Error {
+    if (err.code == 8 or err.code == 14) {
+        return .OutOfMemory;
+    }
+    if (err.code == 5 or err.code == 6 or err.code == 109) {
+        return .ReadFailed;
+    }
+    return .SpawnFailed;
 }
 
 #[if(os == "darwin")]
 fn decode_shell_status(raw: i32) i32 {
     return (raw >> 8) & 255;
-}
-
-#[if(os == "windows")]
-fn decode_shell_status(raw: i32) i32 {
-    return raw;
 }
 
 /// Wraps raw process entry arguments in a borrowed view.
@@ -129,14 +118,24 @@ pub fn args(argc: i32, argv: **u8) Args {
 }
 
 /// Runs one hosted shell command and captures combined stdout/stderr.
+#[if(os == "linux")]
 pub fn shell_capture(alloc: *mut Allocator, command: []u8) Capture!Error {
-    #[if(os == "linux")]
-    {
-        let capture = os.shell_capture(alloc, command)
-            .map_err(map_shell_capture_error).!;
-        return .{ Ok: .{ output: capture.output, status: capture.status } };
-    }
+    let capture = os.shell_capture(alloc, command)
+        .map_err(map_shell_capture_error).!;
+    return .{ Ok: .{ output: capture.output, status: capture.status } };
+}
 
+/// Runs one hosted shell command and captures combined stdout/stderr.
+#[if(os == "windows")]
+pub fn shell_capture(alloc: *mut Allocator, command: []u8) Capture!Error {
+    let capture = os.shell_capture(alloc, command)
+        .map_err(map_shell_capture_error).!;
+    return .{ Ok: .{ output: capture.output, status: capture.status } };
+}
+
+/// Runs one hosted shell command and captures combined stdout/stderr.
+#[if(os == "darwin")]
+pub fn shell_capture(alloc: *mut Allocator, command: []u8) Capture!Error {
     let mut wrapped = build_shell_command(alloc, command).!;
     defer wrapped..&.deinit(alloc);
 

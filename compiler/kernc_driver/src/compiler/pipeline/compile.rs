@@ -156,8 +156,12 @@ impl CompilerDriver {
         let target = self.normalized_target();
         let module_name = self.module_name_for_codegen(input_file);
         let codegen_plan_started = Instant::now();
+        let preserve_native_thin_linker_inputs = self.options.lto_mode == LtoMode::Thin
+            && self.options.driver_mode.emits_linker_input()
+            && self.options.emit_multi_linker_input_dir
+            && !self.emit_thin_lto_bitcode_linker_input();
         let codegen_plan = Some(match self.options.lto_mode {
-            LtoMode::Thin => plan_codegen_units_with_mir_summary(
+            LtoMode::Thin if !preserve_native_thin_linker_inputs => plan_codegen_units_with_mir_summary(
                 &mast_module,
                 &mir_report.summary,
                 self.options.codegen_units,
@@ -505,6 +509,21 @@ impl CompilerDriver {
                     return None;
                 }
             };
+        let emit_multi_linker_input_dir = self.options.driver_mode.emits_linker_input()
+            && self.options.emit_multi_linker_input_dir;
+        if self.options.driver_mode.emits_linker_input()
+            && emit_multi_linker_input_dir
+            && !self.emit_thin_lto_bitcode_linker_input()
+        {
+            return self.compile_partitioned_units_preserve_native_linker_inputs(
+                pipeline,
+                mast_module,
+                codegen_unit_plans,
+                started,
+                mir_unit_batch.wall_duration,
+            );
+        }
+
         let asm_dialect = self.codegen_asm_dialect();
         let worker_count = Self::codegen_worker_count(mir_unit_batch.reports.len());
         let mut pending = mir_unit_batch.reports.iter().collect::<Vec<_>>();
@@ -606,8 +625,6 @@ impl CompilerDriver {
             }));
 
         let thin_lto_started = Instant::now();
-        let emit_multi_linker_input_dir = self.options.driver_mode.emits_linker_input()
-            && self.options.emit_multi_linker_input_dir;
         if self.emit_thin_lto_bitcode_linker_input() {
             if emit_multi_linker_input_dir && !self.prepare_multi_linker_input_output_dir() {
                 return None;
@@ -797,6 +814,117 @@ impl CompilerDriver {
         }
         drop(thin_lto_output_guard);
         linked.then_some(Self::build_compile_report(
+            pipeline.report,
+            std::mem::take(pipeline.phase_timings),
+            codegen_report,
+            Some(emit_report),
+        ))
+    }
+
+    fn compile_partitioned_units_preserve_native_linker_inputs(
+        &self,
+        pipeline: &mut CompilePipelineContext<'_, '_>,
+        mast_module: &kernc_mast::MastModule,
+        codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
+        codegen_units_started: Instant,
+        mir_units_duration: Duration,
+    ) -> Option<CompileReport> {
+        if !self.prepare_multi_linker_input_output_dir() {
+            return None;
+        }
+
+        let build_context = CodegenUnitBuildContext {
+            module_name: pipeline.module_name,
+            target_triple: &pipeline.target.triple,
+            session: pipeline.sema.sess,
+            type_registry: &pipeline.sema.type_registry,
+            collect_diagnostics: pipeline.report.collect_codegen_diagnostics,
+        };
+        let unit_batch =
+            match self.codegen_unit_artifacts(mast_module, codegen_unit_plans, &build_context) {
+                Ok(artifacts) => artifacts,
+                Err(err) => {
+                    eprintln!("Error: LLVM failed to generate intermediate file: {err}");
+                    return None;
+                }
+            };
+
+        let mut codegen_report = CodegenReport::default();
+        let mut emit_report = EmitObjectReport::default();
+        let mut object_paths = vec![String::new(); unit_batch.artifacts.len()];
+        for artifact in unit_batch.artifacts {
+            Self::absorb_codegen_report(&mut codegen_report, artifact.codegen_report);
+            Self::absorb_emit_report(&mut emit_report, artifact.emit_report);
+            object_paths[artifact.index] = artifact.object_path;
+        }
+
+        pipeline.phase_timings.push(PhaseTiming {
+            name: "codegen_units",
+            duration: codegen_units_started.elapsed(),
+        });
+        pipeline.phase_timings.push(PhaseTiming {
+            name: "  mir_units",
+            duration: mir_units_duration,
+        });
+        pipeline
+            .phase_timings
+            .extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+                name: timing.name,
+                duration: timing.duration,
+            }));
+        pipeline
+            .phase_timings
+            .extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+                name: timing.name,
+                duration: timing.duration,
+            }));
+
+        let merged_output_path = if pipeline.target.is_windows {
+            PathBuf::from(self.make_multi_linker_input_dir_path())
+                .join("merged.lib")
+                .to_string_lossy()
+                .to_string()
+        } else {
+            self.make_multi_linker_input_codegen_unit_path("merged")
+        };
+        let merged = Self::measure_phase(pipeline.phase_timings, "merge_object", || {
+            self.run_relocatable_link_command(
+                &object_paths,
+                pipeline.target,
+                &merged_output_path,
+                &self.options.output_file,
+                "Successfully emitted linker input",
+            )
+        });
+        if !merged {
+            return None;
+        }
+
+        for object_path in &object_paths {
+            if object_path == &merged_output_path {
+                continue;
+            }
+            if let Err(err) = fs::remove_file(object_path) {
+                eprintln!(
+                    "Error: Failed to discard temporary preserved linker input `{}`: {}",
+                    object_path, err
+                );
+                return None;
+            }
+        }
+
+        if let Err(err) =
+            self.write_multi_linker_input_manifest(std::slice::from_ref(&merged_output_path))
+        {
+            eprintln!(
+                "Error: Failed to record preserved linker inputs `{}`: {}",
+                self.options.output_file, err
+            );
+            return None;
+        }
+
+        Self::print_buffered_diagnostics(pipeline.sema.sess);
+        Some(Self::build_compile_report(
             pipeline.report,
             std::mem::take(pipeline.phase_timings),
             codegen_report,

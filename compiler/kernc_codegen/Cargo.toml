@@ -14,3 +14,6 @@ kernc_mono = { workspace = true }
 kernc_sema = { workspace = true }
 kernc_mir = { workspace = true }
 target-lexicon = { workspace = true }
+
+[build-dependencies]
+cc = "1.2"

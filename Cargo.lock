@@ -70,6 +70,7 @@ dependencies = [
 name = "kernc_codegen"
 version = "0.7.0"
 dependencies = [
+ "cc",
  "kernc_ast",
  "kernc_mir",
  "kernc_mono",

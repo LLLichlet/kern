@@ -136,8 +136,7 @@ impl CompilerDriver {
             .all_symbols()
             .filter_map(|(_name, info)| {
                 let def_id = info.def_id?;
-                let definition_span = self
-                    .canonical_scope_definition_span(def_id, info.span, ctx);
+                let definition_span = self.canonical_scope_definition_span(def_id, info.span, ctx);
                 Some((
                     info.span,
                     AnalysisSemanticEntry {
@@ -220,7 +219,8 @@ impl CompilerDriver {
             else {
                 continue;
             };
-            let Some(kernc_sema::def::Def::Trait(trait_def)) = ctx.defs.get(trait_def_id.0 as usize)
+            let Some(kernc_sema::def::Def::Trait(trait_def)) =
+                ctx.defs.get(trait_def_id.0 as usize)
             else {
                 continue;
             };

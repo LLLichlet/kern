@@ -95,7 +95,11 @@ impl<'a> TokenStream<'a> {
 
         let buffered_len = self.buffer.len().saturating_sub(self.buffer_start);
         if n > buffered_len {
-            return self.buffer.last().map(|token| token.tag).unwrap_or(current.tag);
+            return self
+                .buffer
+                .last()
+                .map(|token| token.tag)
+                .unwrap_or(current.tag);
         }
 
         self.buffer[self.buffer_start + (n - 1)].tag

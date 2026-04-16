@@ -344,10 +344,9 @@ fn compile_report_only_collects_codegen_diagnostics_when_requested() {
     assert!(without_diagnostics.ir_hot_functions.is_empty());
     assert_eq!(without_diagnostics.codegen_alloca_stats, Default::default());
     assert!(
-        without_diagnostics
-            .phase_timings
-            .iter()
-            .all(|phase| !phase.name.starts_with("  lower_") && !phase.name.starts_with("    expr_"))
+        without_diagnostics.phase_timings.iter().all(
+            |phase| !phase.name.starts_with("  lower_") && !phase.name.starts_with("    expr_")
+        )
     );
 
     let with_diagnostics = CompilerDriver::new(CompileOptions {

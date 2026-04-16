@@ -91,6 +91,29 @@ impl<'ctx> Builder<'ctx> {
         }))
     }
 
+    pub fn build_volatile_store<V: BasicValue<'ctx>>(
+        &self,
+        ptr: PointerValue<'ctx>,
+        value: V,
+    ) -> LlvmResult<InstructionValue<'ctx>> {
+        let inst = self.build_store(ptr, value)?;
+        inst.set_volatile(true);
+        Ok(inst)
+    }
+
+    pub fn build_volatile_load<T: AsTypeRef>(
+        &self,
+        ty: T,
+        ptr: PointerValue<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let value = self.build_load(ty, ptr, name)?;
+        if let Some(inst) = value.as_instruction_value() {
+            inst.set_volatile(true);
+        }
+        Ok(value)
+    }
+
     /// # Safety
     /// `pointee_ty` must match the actual pointee type of `ptr`, and `indexes`
     /// must describe a valid in-bounds GEP for that allocation.

@@ -5,7 +5,7 @@
 //! Design:
 //! keep libc-backed OS calls explicit and close to the platform ABI.
 
-use base.mem.non_null_ptr_from_addr;
+use base.mem.ptr;
 use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
@@ -27,7 +27,7 @@ extern {
     fn system_unlink(path: *u8) i32;
 
     #[export_name("closedir")]
-    fn system_closedir(dir: *mut u8) i32;
+    fn system_closedir(dir: *mut void) i32;
 
     #[export_name("mkdir")]
     fn system_mkdir(path: *u8, mode: i32) i32;
@@ -45,10 +45,10 @@ extern {
     fn system_exit(code: i32) void;
 
     #[export_name("mmap")]
-    pub fn mmap(addr: ?*mut u8, len: usize, prot: i32, flags: i32, fd: i32, offset: isize) ^mut u8;
+    pub fn mmap(addr: *mut void, len: usize, prot: i32, flags: i32, fd: i32, offset: isize) *mut void;
 
     #[export_name("munmap")]
-    pub fn munmap(addr: ^mut u8, len: usize) i32;
+    pub fn munmap(addr: *mut void, len: usize) i32;
 
     #[export_name("isatty")]
     fn system_isatty(fd: i32) i32;
@@ -72,10 +72,10 @@ extern {
     fn system_stat(path: *u8, stat: *mut Stat) i32;
 
     #[export_name("opendir")]
-    fn system_opendir(path: *u8) *mut u8;
+    fn system_opendir(path: *u8) *mut void;
 
     #[export_name("readdir")]
-    fn system_readdir(dir: *mut u8) *mut Dirent;
+    fn system_readdir(dir: *mut void) *mut Dirent;
 }
 
 #[if(arch == "x86_64")]
@@ -84,10 +84,10 @@ extern {
     fn system_stat(path: *u8, stat: *mut Stat) i32;
 
     #[export_name("opendir$INODE64")]
-    fn system_opendir(path: *u8) *mut u8;
+    fn system_opendir(path: *u8) *mut void;
 
     #[export_name("readdir$INODE64")]
-    fn system_readdir(dir: *mut u8) *mut Dirent;
+    fn system_readdir(dir: *mut void) *mut Dirent;
 }
 
 /// A raw Darwin file descriptor.
@@ -263,7 +263,7 @@ pub fn environment_entries() ?**u8 {
     if (!PROCESS_ENV_READY or PROCESS_ENV == 0) {
         return .None;
     }
-    return .{ Some: non_null_ptr_from_addr[*u8](PROCESS_ENV) };
+    return .{ Some: ptr[*u8](PROCESS_ENV) };
 }
 
 /// Returns the process handle for standard input.
@@ -407,7 +407,7 @@ pub fn metadata(path: *u8) Metadata!Error {
 pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) usize!Error {
     let _ = search_path;
     let dir = system_opendir(path);
-    if (dir == 0) {
+    if ((dir as usize) == 0) {
         return .{ Err: last_error() };
     }
     defer {

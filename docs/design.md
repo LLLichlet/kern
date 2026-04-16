@@ -91,39 +91,42 @@ In Kern, **mutability is a property of storage, not an intrinsic part of the bas
       * This is the same style of split that Kern uses for pointers: `*mut T` grants write access through the pointer, while `let mut p` only controls whether the pointer variable itself may be rebound.
   * **Top-Down Bidirectional Flow**: Kern uses contextual typing. Literals like `10` are "type-neutral" and absorb the **Expected Type** flowing down from declarations or function signatures.
 
-### 2.3 Pointers, Nullability, and Volatility
+### 2.3 Pointers, Optionals, and Volatility
 
 Pointers explicitly carry mutability permissions and pointer-family semantics.
 
-In Kern, a pointer is still a first-class value type. It can be stored, passed,
-returned, compared, used as the target of an `impl` block, and manipulated with
-ordinary explicit syntax. Kern does not model pointers as a hidden
-borrow/reference system.
+In Kern, a pointer is a first-class plain value. It can be stored, passed,
+returned, compared, used as the target of an `impl` block, and converted to or
+from integer address values with explicit casts. Kern does not model pointers
+as a hidden borrow/reference system.
 
-Kern uses three pointer families:
+Kern currently uses two pointer families:
 
   * **Object Pointers**:
-      * `*T`: immutable non-null object pointer
-      * `*mut T`: mutable non-null object pointer
-      * these are the ordinary pointer family used for real object access
-  * **Nullable Object Pointers**:
-      * `?*T`
-      * `?*mut T`
-      * this is the only canonical null model for object pointers
-      * `?*T.None` is the canonical null value
+      * `*T`: immutable raw pointer
+      * `*mut T`: mutable raw pointer
+      * these are ordinary pointer values for object access and general memory work
+      * they may be cast to and from `usize` / `isize` explicitly
+      * they are not hidden non-null references
   * **Address / Volatile Pointers**:
       * `^T`: immutable address / volatile pointer
       * `^mut T`: mutable address / volatile pointer
-      * these are the raw-address family used for MMIO, fixed hardware
-        addresses, and other address-oriented boundaries
-      * unlike object pointers, they may represent address `0`
+      * these are the explicit MMIO / fixed-address family
+      * dereferencing them performs volatile memory access
+      * they remain ordinary values and do not disable explicit casts or arithmetic
+
+`?T` and `T!E` are builtin enum families, not pointer modifiers. This means:
+
+  * `?*T` is simply `?` applied to `*T`
+  * `?^T` is simply `?` applied to `^T`
+  * builtin carriers do not receive hidden nullable-pointer compression or privileged ABI treatment
+  * if an ordinary user-defined enum has the same shape, it has the same semantic standing
 
 The cast boundary is intentionally explicit:
 
-  * `usize as ^T` enters pointer space as a raw address / volatile pointer
-  * `usize as ?*T` or `usize as ?*mut T` performs the nullable object-pointer
-    null-filtering conversion directly
-  * direct `usize as *T` or `usize as *mut T` is forbidden
+  * `usize as *T`, `usize as *mut T`, `usize as ^T`, and `usize as ^mut T` enter pointer space directly
+  * pointer-to-integer exits such as `ptr as usize` are equally direct
+  * optional carriers are constructed as ordinary enum values such as `?*u8.{ Some: ptr }` or `?*u8.None`
 
 Core operators remain simple:
 
@@ -132,18 +135,13 @@ Core operators remain simple:
       * `obj..&` obtains `*mut T` and requires a mutable location
   * **Dereference**: `ptr.*` (postfix)
 
-Pointer arithmetic on object pointers remains available, but it is routed
-through ordinary builtin operator traits and the canonical `base.mem.ptr`
-implementations rather than through hidden compiler-only pointer magic.
+Pointer arithmetic stays explicit:
 
-  * `ptr + n` and `ptr - n` for `*T` / `*mut T` use `Add[usize]`,
-    `Add[isize]`, `Sub[usize]`, and `Sub[isize]`
-  * offsets are scaled by the element size (`@sizeOf[T]()`)
-  * the offset operand must be `usize` or `isize`
-  * subtracting two identical object pointer types yields an `isize` distance
-    measured in elements
-  * byte-wise stepping is explicit through helper methods such as
-    `ptr.byte_add(...)` and `ptr.byte_sub(...)`
+  * `*T` / `*mut T` expose typed arithmetic through the ordinary `base.mem.ptr` implementations
+  * `ptr + n` and `ptr - n` for object pointers scale by the element size (`@sizeOf[T]()`), while `ptr.byte_add(...)` and `ptr.byte_sub(...)` step in bytes
+  * subtracting two identical object-pointer types yields an `isize` element distance
+  * `^T` / `^mut T` retain builtin raw-address arithmetic with `usize` / `isize`, plus subtraction between identical address-pointer types
+  * opaque FFI boundaries should use `*void` / `*mut void` instead of byte-pointer punning
 
 ### 2.4 Arrays and Slices
 
@@ -795,6 +793,11 @@ result-carrying values:
 
 These are canonical language forms, not library aliases that happen to enjoy
 special treatment.
+
+They also do not receive hidden representation privileges. In particular,
+builtin `?T` / `T!E` are not special nullable-pointer or ABI escape hatches;
+they are builtin enum families and should be reasoned about the same way as
+ordinary enums with the same shape.
 
 ```kern
 let present = ?i32.{ Some: 7 };

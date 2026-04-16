@@ -10,5 +10,5 @@ pub mod alloc;
 
 pub use .layout.{Layout, layout_of, array_layout_of};
 pub use .bytes.memmove;
-pub use .ptr.{ptr_from_addr, mut_ptr_from_addr, non_null_ptr_from_addr, non_null_mut_ptr_from_addr};
+pub use .ptr.{ptr, mut_ptr, addr_ptr, mut_addr_ptr};
 pub use .alloc.Allocator;

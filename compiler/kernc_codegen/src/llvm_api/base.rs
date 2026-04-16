@@ -9,7 +9,7 @@ use llvm_sys::core::{
     LLVMGetParam, LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
     LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct, LLVMSetAlignment,
     LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
-    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
+    LLVMSetVolatile, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::{
@@ -1121,6 +1121,10 @@ impl<'ctx> InstructionValue<'ctx> {
 
     pub fn set_alignment(self, bytes: u32) {
         unsafe { LLVMSetAlignment(self.raw, bytes) };
+    }
+
+    pub fn set_volatile(self, is_volatile: bool) {
+        unsafe { LLVMSetVolatile(self.raw, bool_to_llvm(is_volatile)) };
     }
 
     pub fn get_next_instruction(self) -> Option<InstructionValue<'ctx>> {

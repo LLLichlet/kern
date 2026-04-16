@@ -205,7 +205,7 @@ fn main() i32 {
         String::from_utf8_lossy(&rejected.stderr)
     );
 
-    let null_cast = compile_source(
+    let null_cast = build_and_run_source(
         r#"
 fn main() i32 {
     let ptr = 0 as *mut i32;
@@ -214,20 +214,15 @@ fn main() i32 {
 "#,
     );
 
-    assert!(
-        !null_cast.status.success(),
-        "kernc unexpectedly accepted a null raw-pointer cast:\nstdout:\n{}\nstderr:\n{}",
+    assert_eq!(
+        null_cast.status.code(),
+        Some(0),
+        "raw-pointer null-cast regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&null_cast.stdout),
         String::from_utf8_lossy(&null_cast.stderr)
     );
-    assert!(
-        String::from_utf8_lossy(&null_cast.stderr)
-            .contains("non-null raw pointers cannot be created from the constant address `0`"),
-        "unexpected stderr:\n{}",
-        String::from_utf8_lossy(&null_cast.stderr)
-    );
 
-    let rejected_non_zero = compile_source(
+    let direct_non_zero = build_and_run_source(
         r#"
 fn main() i32 {
     let ptr = 1 as *mut i32;
@@ -236,20 +231,15 @@ fn main() i32 {
 "#,
     );
 
-    assert!(
-        !rejected_non_zero.status.success(),
-        "kernc unexpectedly accepted a non-zero integer-to-pointer cast:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&rejected_non_zero.stdout),
-        String::from_utf8_lossy(&rejected_non_zero.stderr)
-    );
-    assert!(
-        String::from_utf8_lossy(&rejected_non_zero.stderr)
-            .contains("integer addresses cannot be cast directly to non-null object pointers"),
-        "unexpected stderr:\n{}",
-        String::from_utf8_lossy(&rejected_non_zero.stderr)
+    assert_eq!(
+        direct_non_zero.status.code(),
+        Some(0),
+        "direct integer-to-pointer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&direct_non_zero.stdout),
+        String::from_utf8_lossy(&direct_non_zero.stderr)
     );
 
-    let optional = build_and_run_source(
+    let optional = compile_source(
         r#"
 fn main() i32 {
     let zero = 0 as ?*mut i32;
@@ -269,10 +259,9 @@ fn main() i32 {
 "#,
     );
 
-    assert_eq!(
-        optional.status.code(),
-        Some(3),
-        "direct optional pointer cast regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+    assert!(
+        !optional.status.success(),
+        "kernc unexpectedly accepted direct integer-to-builtin-option pointer casts:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&optional.stdout),
         String::from_utf8_lossy(&optional.stderr)
     );
@@ -287,8 +276,7 @@ type Boxed[T] = struct {
 };
 
 fn make_ptr[T](addr: usize) *mut T {
-    let .{ Some: ptr } = addr as ?*mut T else @trap();
-    return ptr;
+    return addr as *mut T;
 }
 
 fn clear[T](value: *mut Boxed[T]) void {
@@ -313,42 +301,35 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_optional_volatile_pointer_types() {
-    let output = compile_source(
+fn accepts_optional_volatile_pointer_types() {
+    let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = ?^mut i32.None;
+    let ptr = ?^mut i32.{ Some: 1 as ^mut i32 };
     return match (ptr) {
-        .None => 0,
-        .{ Some: _ } => 1,
+        .None => 1,
+        .{ Some: raw } => if ((raw as usize) == 1) 0 else 2,
     };
 }
 "#,
     );
 
-    assert!(
-        !output.status.success(),
-        "kernc unexpectedly accepted `?^T`:\nstdout:\n{}\nstderr:\n{}",
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optional volatile-pointer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("`?^T` is not a valid type; `^T` already covers raw address `0`"),
-        "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
 
 #[test]
-fn supports_pointer_airlock_casts_through_volatile_pointers() {
+fn keeps_optional_pointer_values_as_plain_builtin_enums() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let zero = 0 as ^mut i32;
-    let none = zero as ?*mut i32;
-    let one = 1 as ^mut i32;
-    let some = one as ?*mut i32;
+    let none = (?*mut i32).None;
+    let some = (?*mut i32).{ Some: 1 as *mut i32 };
 
     let none_score = match (none) {
         .None => i32.{0},
@@ -367,7 +348,7 @@ fn main() i32 {
     assert_eq!(
         output.status.code(),
         Some(3),
-        "pointer airlock regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        "optional pointer enum regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -378,8 +359,8 @@ fn rejects_unsupported_object_pointer_addition_forms_after_trait_routing() {
     let output = compile_source(
         r#"
 fn main() i32 {
-    let .{ Some: lhs } = 1 as ?*mut i32 else @trap();
-    let .{ Some: rhs } = 2 as ?*mut i32 else @trap();
+    let lhs = 1 as *mut i32;
+    let rhs = 2 as *mut i32;
     let _ = lhs + rhs;
     return 0;
 }
@@ -405,7 +386,7 @@ fn keeps_object_pointer_offset_arithmetic_available_through_operator_impls() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let .{ Some: ptr } = 100 as ?*mut i32 else @trap();
+    let ptr = 100 as *mut i32;
     let next = ptr + usize.{7};
     let prev = next - usize.{3};
     return (prev as usize) as i32;
@@ -427,7 +408,7 @@ fn keeps_zero_sized_object_pointer_offsets_stable_through_operator_impls() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let .{ Some: ptr } = 77 as ?*mut void else @trap();
+    let ptr = 77 as *mut void;
     let next = ptr + usize.{9};
     let prev = next - usize.{4};
     return if ((prev as usize) == 77) 0 else 1;
@@ -467,8 +448,8 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_direct_volatile_to_object_pointer_casts() {
-    let output = compile_source(
+fn permits_direct_volatile_to_object_pointer_casts() {
+    let output = build_and_run_source(
         r#"
 fn main() i32 {
     let raw = 1 as ^mut i32;
@@ -478,17 +459,50 @@ fn main() i32 {
 "#,
     );
 
-    assert!(
-        !output.status.success(),
-        "kernc unexpectedly accepted `^T as *T`:\nstdout:\n{}\nstderr:\n{}",
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "volatile-to-object pointer cast regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn emits_volatile_loads_and_stores_for_address_pointer_dereferences() {
+    let output = emit_llvm_ir_with_args(
+        "kernc_volatile_pointer_ir",
+        r#"
+#[export_name("kern_read_reg")]
+extern fn read_reg(reg: ^u32) u32 {
+    return reg.*;
+}
+
+#[export_name("kern_write_reg")]
+extern fn write_reg(reg: ^mut u32, value: u32) void {
+    reg.* = value;
+}
+"#,
+        &[],
+    );
+
     assert!(
+        output.status.success(),
+        "kernc failed to emit LLVM IR for volatile pointer regression:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-            .contains("cannot cast an address pointer directly to a non-null object pointer"),
-        "unexpected stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let ir = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        ir.contains("load volatile i32"),
+        "expected volatile load for `^T` dereference, got LLVM IR:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("store volatile i32"),
+        "expected volatile store for `^mut T` dereference, got LLVM IR:\n{}",
+        ir
     );
 }
 

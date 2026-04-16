@@ -1,29 +1,23 @@
 //! Pointer/address conversion helpers.
 //!
 //! Design:
-//! keep the `usize -> ?*T` null-filtering cast reusable inside the standard
-//! libraries without repeating match boilerplate at every call site.
+//! keep raw-address to pointer conversion centralized in one module and keep
+//! convenience methods near the pointer families themselves.
 
-/// Converts a raw address into a nullable object pointer.
-pub/ fn ptr_from_addr[T](addr: usize) ?*T {
-    return addr as ?*T;
+pub/ fn ptr[T](addr: usize) *T {
+    return addr as *T;
 }
 
-/// Converts a raw address into a nullable mutable object pointer.
-pub/ fn mut_ptr_from_addr[T](addr: usize) ?*mut T {
-    return addr as ?*mut T;
+pub/ fn mut_ptr[T](addr: usize) *mut T {
+    return addr as *mut T;
 }
 
-/// Converts a raw non-zero address into a non-null object pointer.
-pub/ fn non_null_ptr_from_addr[T](addr: usize) *T {
-    let .{ Some: ptr } = ptr_from_addr[T](addr) else @trap();
-    return ptr;
+pub/ fn addr_ptr[T](addr: usize) ^T {
+    return addr as ^T;
 }
 
-/// Converts a raw non-zero address into a non-null mutable object pointer.
-pub/ fn non_null_mut_ptr_from_addr[T](addr: usize) *mut T {
-    let .{ Some: ptr } = mut_ptr_from_addr[T](addr) else @trap();
-    return ptr;
+pub/ fn mut_addr_ptr[T](addr: usize) ^mut T {
+    return addr as ^mut T;
 }
 
 fn ptr_stride_bytes[T]() usize {
@@ -40,11 +34,11 @@ fn ptr_signed_byte_offset[T](offset: isize) isize {
 
 impl[T] *T {
     pub fn byte_add(offset: usize) *T {
-        return non_null_ptr_from_addr[T]((self as usize) + offset);
+        return ptr[T]((self as usize) + offset);
     }
 
     pub fn byte_sub(offset: usize) *T {
-        return non_null_ptr_from_addr[T]((self as usize) - offset);
+        return ptr[T]((self as usize) - offset);
     }
 }
 
@@ -52,7 +46,7 @@ impl[T] *T : Add[usize] {
     type Out = *T;
 
     pub fn add(offset: usize) *T {
-        return non_null_ptr_from_addr[T]((self as usize) + ptr_byte_offset[T](offset));
+        return ptr[T]((self as usize) + ptr_byte_offset[T](offset));
     }
 }
 
@@ -60,7 +54,7 @@ impl[T] *T : Add[isize] {
     type Out = *T;
 
     pub fn add(offset: isize) *T {
-        return non_null_ptr_from_addr[T](((self as isize) + ptr_signed_byte_offset[T](offset)) as usize);
+        return ptr[T](((self as isize) + ptr_signed_byte_offset[T](offset)) as usize);
     }
 }
 
@@ -68,7 +62,7 @@ impl[T] *T : Sub[usize] {
     type Out = *T;
 
     pub fn sub(offset: usize) *T {
-        return non_null_ptr_from_addr[T]((self as usize) - ptr_byte_offset[T](offset));
+        return ptr[T]((self as usize) - ptr_byte_offset[T](offset));
     }
 }
 
@@ -76,7 +70,7 @@ impl[T] *T : Sub[isize] {
     type Out = *T;
 
     pub fn sub(offset: isize) *T {
-        return non_null_ptr_from_addr[T](((self as isize) - ptr_signed_byte_offset[T](offset)) as usize);
+        return ptr[T](((self as isize) - ptr_signed_byte_offset[T](offset)) as usize);
     }
 }
 
@@ -96,17 +90,17 @@ impl[T] *mut T : Add[usize] {
     type Out = *mut T;
 
     pub fn add(offset: usize) *mut T {
-        return non_null_mut_ptr_from_addr[T]((self as usize) + ptr_byte_offset[T](offset));
+        return mut_ptr[T]((self as usize) + ptr_byte_offset[T](offset));
     }
 }
 
 impl[T] *mut T {
     pub fn byte_add(offset: usize) *mut T {
-        return non_null_mut_ptr_from_addr[T]((self as usize) + offset);
+        return mut_ptr[T]((self as usize) + offset);
     }
 
     pub fn byte_sub(offset: usize) *mut T {
-        return non_null_mut_ptr_from_addr[T]((self as usize) - offset);
+        return mut_ptr[T]((self as usize) - offset);
     }
 }
 
@@ -114,7 +108,7 @@ impl[T] *mut T : Add[isize] {
     type Out = *mut T;
 
     pub fn add(offset: isize) *mut T {
-        return non_null_mut_ptr_from_addr[T](((self as isize) + ptr_signed_byte_offset[T](offset)) as usize);
+        return mut_ptr[T](((self as isize) + ptr_signed_byte_offset[T](offset)) as usize);
     }
 }
 
@@ -122,7 +116,7 @@ impl[T] *mut T : Sub[usize] {
     type Out = *mut T;
 
     pub fn sub(offset: usize) *mut T {
-        return non_null_mut_ptr_from_addr[T]((self as usize) - ptr_byte_offset[T](offset));
+        return mut_ptr[T]((self as usize) - ptr_byte_offset[T](offset));
     }
 }
 
@@ -130,7 +124,7 @@ impl[T] *mut T : Sub[isize] {
     type Out = *mut T;
 
     pub fn sub(offset: isize) *mut T {
-        return non_null_mut_ptr_from_addr[T](((self as isize) - ptr_signed_byte_offset[T](offset)) as usize);
+        return mut_ptr[T](((self as isize) - ptr_signed_byte_offset[T](offset)) as usize);
     }
 }
 

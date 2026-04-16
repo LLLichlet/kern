@@ -203,17 +203,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                 }
                 _ => {
-                    self.ctx
-                        .struct_error(
-                            span,
-                            "raw pointers cannot be initialized with `.{...}`",
+                        self.ctx
+                            .struct_error(
+                                span,
+                                "raw pointers cannot be initialized with `.{...}`",
+                            )
+                            .with_hint(
+                                "use a real pointer-producing operation, or cast an integer address explicitly with `as *T` / `as *mut T`",
                         )
-                        .with_hint(
-                            "use a real pointer-producing operation, or cast to `?*T` and handle `.None` / `.{ Some: ptr }` explicitly",
-                        )
-                        .emit();
-                    return TypeId::ERROR;
-                }
+                            .emit();
+                        return TypeId::ERROR;
+                    }
             }
         }
 

@@ -69,7 +69,7 @@ fn get_windows(alloc: *mut Allocator, name: []u8) ?String {
     let c_name = abi.cstr.alloc_z(alloc, name).?;
     defer abi.cstr.free_z(alloc, name, c_name);
 
-    let required = os.get_environment_variable(c_name, 0, 0) as usize;
+    let required = os.get_environment_variable(c_name, 0 as *mut u8, 0) as usize;
     if (required == 0) {
         return .None;
     }
@@ -78,7 +78,7 @@ fn get_windows(alloc: *mut Allocator, name: []u8) ?String {
     let buffer = alloc.alloc(layout).?;
     defer alloc.free(buffer, layout);
 
-    let written = os.get_environment_variable(c_name, buffer, required as u32) as usize;
+    let written = os.get_environment_variable(c_name, buffer as *mut u8, required as u32) as usize;
     if (written == 0) {
         return .None;
     }
@@ -99,7 +99,7 @@ fn has_windows(alloc: *mut Allocator, name: []u8) bool {
     let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return false;
     defer abi.cstr.free_z(alloc, name, c_name);
 
-    return (os.get_environment_variable(c_name, 0, 0) as usize) != 0;
+    return (os.get_environment_variable(c_name, 0 as *mut u8, 0) as usize) != 0;
 }
 
 #[if(os == "linux" or os == "darwin")]

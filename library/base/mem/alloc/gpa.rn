@@ -6,7 +6,7 @@
 //! Design:
 //! keep corruption checks cheap and fail loudly on invalid frees.
 
-use base.mem.{Layout, non_null_mut_ptr_from_addr};
+use base.mem.{Layout, mut_ptr};
 use ..Allocator;
 
 type FreeBlock = struct {
@@ -65,7 +65,7 @@ fn gpa_align_up(value: usize, align: usize) usize {
 }
 
 fn gpa_dangling_ptr(align: usize) *mut u8 {
-    return non_null_mut_ptr_from_addr[u8](gpa_normalize_align(align));
+    return mut_ptr[u8](gpa_normalize_align(align));
 }
 
 fn gpa_default_chunk_size(size: usize) usize {
@@ -100,7 +100,7 @@ impl *mut GPA : Allocator {
     }
 
     fn push_chunk_as_free_block(chunk: *mut BackingChunk) void {
-        let block = non_null_mut_ptr_from_addr[FreeBlock](self.chunk_usable_start(chunk));
+        let block = mut_ptr[FreeBlock](self.chunk_usable_start(chunk));
         block.size = self.chunk_usable_size(chunk);
         self.insert_free_block(block);
     }
@@ -244,7 +244,7 @@ impl *mut GPA : Allocator {
                 let remainder_size = block_end - used_end;
 
                 if (remainder_size >= GPA_FREE_HEADER_SIZE) {
-                    let remainder = non_null_mut_ptr_from_addr[FreeBlock](used_end);
+                    let remainder = mut_ptr[FreeBlock](used_end);
                     remainder.size = remainder_size;
                     remainder.next = current.next;
                     match (prev) {
@@ -259,7 +259,7 @@ impl *mut GPA : Allocator {
                     };
                 }
 
-                let header = non_null_mut_ptr_from_addr[AllocationHeader](header_addr);
+                let header = mut_ptr[AllocationHeader](header_addr);
                 header.magic = GPA_ALLOC_MAGIC;
                 header.generation = self.generation;
                 header.size = taken_size;
@@ -267,7 +267,7 @@ impl *mut GPA : Allocator {
                 header.requested_size = layout.size;
                 header.requested_align = gpa_normalize_align(layout.align);
                 self.link_active(header);
-                return .{ Some: non_null_mut_ptr_from_addr[u8](user_addr) };
+                return .{ Some: mut_ptr[u8](user_addr) };
             }
 
             prev = .{ Some: current };
@@ -330,7 +330,7 @@ impl *mut GPA : Allocator {
             return;
         }
 
-        let header = non_null_mut_ptr_from_addr[AllocationHeader]((ptr as usize) - GPA_ALLOC_HEADER_SIZE);
+        let header = mut_ptr[AllocationHeader]((ptr as usize) - GPA_ALLOC_HEADER_SIZE);
         if (header.magic != GPA_ALLOC_MAGIC) {
             self.trap_invalid_free();
             return;
@@ -348,7 +348,7 @@ impl *mut GPA : Allocator {
         }
         self.unlink_active(header);
 
-        let block = non_null_mut_ptr_from_addr[FreeBlock]((header as usize) - header.lead);
+        let block = mut_ptr[FreeBlock]((header as usize) - header.lead);
         header.magic = GPA_FREED_MAGIC;
         block.size = header.size;
         self.insert_free_block(block);

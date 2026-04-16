@@ -1,32 +1,42 @@
-use base.mem;
-
 const WORD_BYTES = @sizeOf[usize]();
 const WORD_MASK = WORD_BYTES - 1;
 
 #[inline]
+fn byte_ptr(addr: usize) *u8 {
+    return addr as *u8;
+}
+
+#[inline]
+fn byte_mut_ptr(addr: usize) *mut u8 {
+    return addr as *mut u8;
+}
+
+#[inline]
 fn word_ptr(addr: usize) *usize {
-    let .{ Some: ptr } = addr as ?*usize else @trap();
-    return ptr;
+    return addr as *usize;
 }
 
 #[inline]
 fn word_mut_ptr(addr: usize) *mut usize {
-    let .{ Some: ptr } = addr as ?*mut usize else @trap();
-    return ptr;
+    return addr as *mut usize;
 }
 
 #[inline]
 fn copy_forward_bytes(dest: *mut u8, src: *u8, len: usize) void {
+    let dest_addr = dest as usize;
+    let src_addr = src as usize;
     for (let mut i = 0; i < len; i += 1) {
-        dest.byte_add(i).* = src.byte_add(i).*;
+        byte_mut_ptr(dest_addr + i).* = byte_ptr(src_addr + i).*;
     }
 }
 
 #[inline]
 fn copy_backward_bytes(dest: *mut u8, src: *u8, len: usize) void {
+    let dest_addr = dest as usize;
+    let src_addr = src as usize;
     for (let mut i = len; i > 0; ) {
         i -= 1;
-        dest.byte_add(i).* = src.byte_add(i).*;
+        byte_mut_ptr(dest_addr + i).* = byte_ptr(src_addr + i).*;
     }
 }
 
@@ -50,12 +60,13 @@ fn backward_suffix(dest_addr: usize, len: usize) usize {
 
 #[inline]
 fn copy_forward_words(dest: *mut u8, src: *u8, len: usize) void {
-    let dest_words = dest as *mut usize;
-    let src_words = src as *usize;
+    let dest_addr = dest as usize;
+    let src_addr = src as usize;
     let word_len = len / WORD_BYTES;
 
     for (let mut i = 0; i < word_len; i += 1) {
-        dest_words.byte_add(i * WORD_BYTES).* = src_words.byte_add(i * WORD_BYTES).*;
+        let offset = i * WORD_BYTES;
+        word_mut_ptr(dest_addr + offset).* = word_ptr(src_addr + offset).*;
     }
 }
 
@@ -87,11 +98,11 @@ fn fill_word(byte: u8) usize {
 
 #[inline]
 fn fill_words(dest: *mut u8, word: usize, len: usize) void {
-    let dest_words = dest as *mut usize;
+    let dest_addr = dest as usize;
     let word_len = len / WORD_BYTES;
 
     for (let mut i = 0; i < word_len; i += 1) {
-        dest_words.byte_add(i * WORD_BYTES).* = word;
+        word_mut_ptr(dest_addr + (i * WORD_BYTES)).* = word;
     }
 }
 
@@ -112,14 +123,18 @@ fn memcpy_impl(dest: *mut u8, src: *u8, len: usize) void {
 
     let word_bytes = ((len - prefix) / WORD_BYTES) * WORD_BYTES;
     if (word_bytes != 0) {
-        copy_forward_words(dest.byte_add(prefix), src.byte_add(prefix), word_bytes);
+        copy_forward_words(
+            byte_mut_ptr(dest_addr + prefix),
+            byte_ptr(src_addr + prefix),
+            word_bytes,
+        );
     }
 
     let tail = len - prefix - word_bytes;
     if (tail != 0) {
         copy_forward_bytes(
-            dest.byte_add(prefix + word_bytes),
-            src.byte_add(prefix + word_bytes),
+            byte_mut_ptr(dest_addr + prefix + word_bytes),
+            byte_ptr(src_addr + prefix + word_bytes),
             tail,
         );
     }
@@ -138,7 +153,7 @@ extern fn memset(dest: *mut u8, val: i32, len: usize) *mut u8 {
 
     if (WORD_BYTES == 1 or len < WORD_BYTES) {
         for (let mut i = 0; i < len; i += 1) {
-            dest.byte_add(i).* = byte;
+            byte_mut_ptr(dest_addr + i).* = byte;
         }
         return dest;
     }
@@ -146,20 +161,20 @@ extern fn memset(dest: *mut u8, val: i32, len: usize) *mut u8 {
     let prefix = forward_prefix(dest_addr);
     if (prefix != 0) {
         for (let mut i = 0; i < prefix; i += 1) {
-            dest.byte_add(i).* = byte;
+            byte_mut_ptr(dest_addr + i).* = byte;
         }
     }
 
     let word_bytes = ((len - prefix) / WORD_BYTES) * WORD_BYTES;
     if (word_bytes != 0) {
-        fill_words(dest.byte_add(prefix), fill_word(byte), word_bytes);
+        fill_words(byte_mut_ptr(dest_addr + prefix), fill_word(byte), word_bytes);
     }
 
     let tail = len - prefix - word_bytes;
     if (tail != 0) {
         let tail_start = prefix + word_bytes;
         for (let mut i = 0; i < tail; i += 1) {
-            dest.byte_add(tail_start + i).* = byte;
+            byte_mut_ptr(dest_addr + tail_start + i).* = byte;
         }
     }
 
@@ -180,8 +195,8 @@ extern fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
         let suffix = backward_suffix(dest_addr, len);
         if (suffix != 0) {
             copy_backward_bytes(
-                dest.byte_add(len - suffix),
-                src.byte_add(len - suffix),
+                byte_mut_ptr(dest_addr + len - suffix),
+                byte_ptr(src_addr + len - suffix),
                 suffix,
             );
         }

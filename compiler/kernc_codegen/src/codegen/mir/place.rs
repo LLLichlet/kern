@@ -56,6 +56,21 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
+    pub(super) fn mir_place_access_is_volatile(&self, body: &MirBody, place: &MirPlace) -> bool {
+        match place {
+            MirPlace::Local(_) | MirPlace::Global(_) => false,
+            MirPlace::Deref(operand) => self
+                .mir_operand_ty(body, operand)
+                .is_some_and(|ty| matches!(
+                    self.type_registry.get(self.type_registry.normalize(ty)),
+                    TypeKind::VolatilePtr { .. }
+                )),
+            MirPlace::Field { base, .. } | MirPlace::Index { base, .. } => {
+                self.mir_place_access_is_volatile(body, base)
+            }
+        }
+    }
+
     pub(super) fn mir_call_return_ty(
         &self,
         body: &MirBody,
@@ -380,6 +395,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_ty: TypeId,
         span: Span,
     ) -> BasicValueEnum<'ctx> {
+        let is_volatile = self.mir_place_access_is_volatile(body, place);
         if let MirPlace::Index { base, index } = place
             && let Some(base_ty) = self.mir_place_ty(body, base)
             && self.type_registry.is_simd(base_ty)
@@ -388,10 +404,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 return self.zero_i8_value();
             };
             let vector_ty = self.get_llvm_type(base_ty);
-            let vector_val = self
-                .builder
-                .build_load(vector_ty, base_ptr, "mir_simd_load")
-                .unwrap();
+            let vector_val = if is_volatile {
+                self.builder
+                    .build_volatile_load(vector_ty, base_ptr, "mir_simd_load")
+                    .unwrap()
+            } else {
+                self.builder.build_load(vector_ty, base_ptr, "mir_simd_load").unwrap()
+            };
             let idx_val = self.compile_mir_operand(body, index).into_int_value();
             return self
                 .builder
@@ -405,7 +424,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return self.get_undef_val(llvm_ty);
         }
         let llvm_ty = self.get_llvm_type(expected_ty);
-        self.builder.build_load(llvm_ty, ptr, "mir_load").unwrap()
+        if is_volatile {
+            self.builder
+                .build_volatile_load(llvm_ty, ptr, "mir_load")
+                .unwrap()
+        } else {
+            self.builder.build_load(llvm_ty, ptr, "mir_load").unwrap()
+        }
     }
 
     pub(super) fn compile_mir_slice_base_parts(
@@ -486,16 +511,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         place_ty: TypeId,
         span: Span,
     ) {
+        let is_volatile = self.mir_place_access_is_volatile(body, place);
         if let MirPlace::Index { base, index } = place
             && let Some(base_ty) = self.mir_place_ty(body, base)
             && self.type_registry.is_simd(base_ty)
         {
             let base_ptr = self.compile_mir_place_ptr(body, base, span);
             let vector_ty = self.get_llvm_type(base_ty);
-            let vector_val = self
-                .builder
-                .build_load(vector_ty, base_ptr, "mir_simd_store_load")
-                .unwrap();
+            let vector_val = if is_volatile {
+                self.builder
+                    .build_volatile_load(vector_ty, base_ptr, "mir_simd_store_load")
+                    .unwrap()
+            } else {
+                self.builder
+                    .build_load(vector_ty, base_ptr, "mir_simd_store_load")
+                    .unwrap()
+            };
             let idx_val = self.compile_mir_operand(body, index).into_int_value();
             let updated_vector = self
                 .builder
@@ -506,7 +537,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     "mir_simd_lane_set",
                 )
                 .unwrap();
-            self.builder.build_store(base_ptr, updated_vector).unwrap();
+            if is_volatile {
+                self.builder
+                    .build_volatile_store(base_ptr, updated_vector)
+                    .unwrap();
+            } else {
+                self.builder.build_store(base_ptr, updated_vector).unwrap();
+            }
             return;
         }
 
@@ -515,7 +552,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return;
         }
         let _ = place_ty;
-        self.builder.build_store(ptr, value).unwrap();
+        if is_volatile {
+            self.builder.build_volatile_store(ptr, value).unwrap();
+        } else {
+            self.builder.build_store(ptr, value).unwrap();
+        }
     }
 
     pub(super) fn compile_mir_assign_op(

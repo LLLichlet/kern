@@ -349,7 +349,10 @@ fn parses_install_with_root_and_named_bin() {
             );
             assert_eq!(ui, UiOptions::default());
             assert_eq!(selection, InstallSelection::Bin("helper".to_string()));
-            assert_eq!(root.as_deref(), Some(std::path::Path::new("/tmp/kern-root")));
+            assert_eq!(
+                root.as_deref(),
+                Some(std::path::Path::new("/tmp/kern-root"))
+            );
         }
         other => panic!("expected install command, got {other:?}"),
     }
@@ -375,7 +378,10 @@ fn parses_uninstall_with_root_and_named_bin() {
             assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
             assert_eq!(ui, UiOptions::default());
             assert_eq!(selection, InstallSelection::Bin("helper".to_string()));
-            assert_eq!(root.as_deref(), Some(std::path::Path::new("/tmp/kern-root")));
+            assert_eq!(
+                root.as_deref(),
+                Some(std::path::Path::new("/tmp/kern-root"))
+            );
         }
         other => panic!("expected uninstall command, got {other:?}"),
     }
@@ -392,7 +398,10 @@ fn parses_short_install_root_alias() {
 
     match cmd {
         Command::Install { root, .. } => {
-            assert_eq!(root.as_deref(), Some(std::path::Path::new("/tmp/kern-root")));
+            assert_eq!(
+                root.as_deref(),
+                Some(std::path::Path::new("/tmp/kern-root"))
+            );
         }
         other => panic!("expected install command, got {other:?}"),
     }

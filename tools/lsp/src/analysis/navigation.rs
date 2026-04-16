@@ -211,8 +211,7 @@ fn find_target_definition_span(
 ) -> Option<kernc_utils::Span> {
     let matching_entries =
         semantic_entries_at_position(session, semantic_entries, target_path, position);
-    best_target_entry(session, hovers, &matching_entries)
-        .map(|entry| entry.definition_span)
+    best_target_entry(session, hovers, &matching_entries).map(|entry| entry.definition_span)
 }
 
 pub(super) fn find_hover(
@@ -298,8 +297,7 @@ pub(super) fn build_rename_changes(
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> BTreeMap<String, Vec<TextEdit>> {
     let mut edits_by_uri = BTreeMap::<String, Vec<TextEdit>>::new();
-    let definition_spans =
-        rename_definition_span_group(target.definition_span, definition_links);
+    let definition_spans = rename_definition_span_group(target.definition_span, definition_links);
 
     let definition_edit = match &target.behavior {
         RenameBehavior::Standard => None,
@@ -313,7 +311,8 @@ pub(super) fn build_rename_changes(
 
     if matches!(target.behavior, RenameBehavior::Standard) {
         for definition_span in &definition_spans {
-            if let Some(edit) = rename_edit_from_span(session, *definition_span, new_name, uri_by_path)
+            if let Some(edit) =
+                rename_edit_from_span(session, *definition_span, new_name, uri_by_path)
             {
                 edits_by_uri.entry(edit.0).or_default().push(edit.1);
             }
@@ -497,8 +496,9 @@ fn best_target_entry<'a>(
     hovers: &[AnalysisHover],
     matching_entries: &[&'a AnalysisSemanticEntry],
 ) -> Option<&'a AnalysisSemanticEntry> {
-    let semantic = best_semantic_entry(matching_entries)
-        .filter(|entry| hover_for_definition_span(session, hovers, entry.definition_span).is_some());
+    let semantic = best_semantic_entry(matching_entries).filter(|entry| {
+        hover_for_definition_span(session, hovers, entry.definition_span).is_some()
+    });
     let definition = best_definition_entry_with_hover(session, hovers, matching_entries);
 
     match (definition, semantic) {

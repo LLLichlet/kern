@@ -1,4 +1,6 @@
-use super::options::{apply_host_linker_env, profile_linker_input_flavor};
+use super::options::{
+    apply_host_linker_env, normalize_windows_linker_input_options, profile_linker_input_flavor,
+};
 use super::{
     ActionTimingKind, BuiltLibraryPackage, BuiltStdPackage, ExecutionSummary, Result,
     base_compile_action_label, build_fingerprint, compile_with_shared_driver, ensure_parent_dir,
@@ -167,6 +169,20 @@ fn runtime_opt_level(profile: &crate::script::ScriptProfile) -> OptLevel {
     }
 }
 
+fn rt_entry_linker_input_flavor(
+    profile: &crate::script::ScriptProfile,
+) -> kernc_utils::config::LinkerInputFlavor {
+    if crate::script::host_target().os == crate::script::ScriptOs::Windows {
+        // Windows startup shims define linker-contract symbols such as
+        // `mainCRTStartup`, `__chkstk`, and `_fltused`. Preserve them as a
+        // concrete COFF object so the final link sees them as ordinary object
+        // definitions instead of ThinLTO-internalizable bitcode.
+        kernc_utils::config::LinkerInputFlavor::Object
+    } else {
+        profile_linker_input_flavor(profile, crate::graph::BuildDomain::Target)
+    }
+}
+
 pub(super) fn interface_alias_strings(
     aliases: &BTreeMap<String, PathBuf>,
 ) -> HashMap<String, String> {
@@ -324,6 +340,7 @@ pub(super) fn build_std_package(
     );
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
+    normalize_windows_linker_input_options(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let mut std_fingerprint_lines = vec![
         "std_runtime_layout=v6".to_string(),
@@ -479,6 +496,7 @@ pub(super) fn build_rt_package(
     );
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
+    normalize_windows_linker_input_options(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let rt_fingerprint = build_fingerprint(&[
         "rt_runtime_layout=v2".to_string(),
@@ -597,6 +615,7 @@ pub(super) fn build_base_package(
         .insert("base".to_string(), base_root.to_string_lossy().to_string());
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
+    normalize_windows_linker_input_options(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let base_fingerprint = build_fingerprint(&[
         "base_runtime_layout=v1".to_string(),
@@ -725,6 +744,7 @@ pub(super) fn build_sys_package(
     );
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
+    normalize_windows_linker_input_options(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let sys_fingerprint = build_fingerprint(&[
         "sys_runtime_layout=v1".to_string(),
@@ -818,8 +838,7 @@ pub(super) fn build_rt_entry_package(
     ensure_parent_dir(&object_path)?;
 
     let emit_multi_linker_input_dir = runtime_emit_multi_linker_input_dir(profile);
-    let linker_input_flavor =
-        profile_linker_input_flavor(profile, crate::graph::BuildDomain::Target);
+    let linker_input_flavor = rt_entry_linker_input_flavor(profile);
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -859,6 +878,7 @@ pub(super) fn build_rt_entry_package(
         }
     }
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
+    normalize_windows_linker_input_options(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let entry_fingerprint = build_fingerprint(&[
         "rt_runtime_layout=v1".to_string(),

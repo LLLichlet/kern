@@ -66,7 +66,7 @@ fn main() i32 {
         executable.display()
     );
 
-    let nm_output = Command::new("nm")
+    let nm_output = Command::new(symbol_dump_tool())
         .arg("--defined-only")
         .arg(&executable)
         .output()

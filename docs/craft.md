@@ -225,6 +225,7 @@ Manifest rules:
 - `[runtime].libc` controls libc linkage only
 - `[runtime].bundle` controls which official library root aliases are added
 - `[runtime].bundle` is alias wiring, not a scope prelude; ordinary `use` still applies
+- without an explicit `[runtime]` override, `craft` keeps runnable targets on the pure-first default (`entry = "rt"`, `libc = false`, `bundle = "std"`)
 - `sys`/`rt` implementation choice belongs to normal package/module wiring, not a manifest runtime-provider selector
 - test targets are listed under `[test].roots`, and each test name is derived from its file stem
 - example targets are listed under `[example].roots`, and each example name is derived from its file stem

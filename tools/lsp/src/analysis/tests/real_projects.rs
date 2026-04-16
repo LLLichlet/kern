@@ -95,16 +95,29 @@ fn bed_references_include_real_private_method_definition_and_uses() {
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let references = analysis
-        .references(&uri, position_of_nth(&source, "buffer_slot_mut", 1, 2), true)
+        .references(
+            &uri,
+            position_of_nth(&source, "buffer_slot_mut", 1, 2),
+            true,
+        )
         .unwrap();
 
     let window_view_path = root.join("incubator/bed/src/editor/window_view.rn");
 
     assert_eq!(references.len(), 4, "{references:#?}");
     assert!(references[..3].iter().all(|location| location.uri == uri));
-    assert_eq!(references[0].range.start, position_of_nth(&source, "buffer_slot_mut", 0, 0));
-    assert_eq!(references[1].range.start, position_of_nth(&source, "buffer_slot_mut", 1, 0));
-    assert_eq!(references[2].range.start, position_of_nth(&source, "buffer_slot_mut", 2, 0));
+    assert_eq!(
+        references[0].range.start,
+        position_of_nth(&source, "buffer_slot_mut", 0, 0)
+    );
+    assert_eq!(
+        references[1].range.start,
+        position_of_nth(&source, "buffer_slot_mut", 1, 0)
+    );
+    assert_eq!(
+        references[2].range.start,
+        position_of_nth(&source, "buffer_slot_mut", 2, 0)
+    );
     assert_eq!(
         normalize_path(&uri_to_file_path(&references[3].uri).unwrap()),
         normalize_path(&window_view_path)
@@ -171,16 +184,21 @@ fn bed_rename_updates_real_private_method_definition_and_uses() {
             "shared_buffer_slot_mut",
         )
         .unwrap();
-    let edits = edit.changes.get(&uri).expect("rename edits for source file");
+    let edits = edit
+        .changes
+        .get(&uri)
+        .expect("rename edits for source file");
     let window_view_edits = edit
         .changes
         .get(&window_view_uri)
         .expect("rename edits for dependent source file");
 
     assert_eq!(edits.len(), 3);
-    assert!(edits
-        .iter()
-        .all(|edit| edit.new_text == "shared_buffer_slot_mut"));
+    assert!(
+        edits
+            .iter()
+            .all(|edit| edit.new_text == "shared_buffer_slot_mut")
+    );
     assert_eq!(
         edits[0].range.start,
         position_of_nth(&source, "buffer_slot_mut", 0, 0)
@@ -208,7 +226,10 @@ fn json_hover_resolves_real_imported_function_signature() {
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let hover = analysis
-        .hover(&uri, position_of_nth(&source, "clone_owned_value_in_arena", 1, 2))
+        .hover(
+            &uri,
+            position_of_nth(&source, "clone_owned_value_in_arena", 1, 2),
+        )
         .unwrap()
         .unwrap();
 
@@ -230,7 +251,10 @@ fn json_goto_definition_resolves_real_imported_function_call() {
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let definition = analysis
-        .goto_definition(&uri, position_of_nth(&source, "clone_owned_value_in_arena", 1, 2))
+        .goto_definition(
+            &uri,
+            position_of_nth(&source, "clone_owned_value_in_arena", 1, 2),
+        )
         .unwrap()
         .unwrap();
 
@@ -257,16 +281,21 @@ fn json_rename_updates_real_imported_function_definition_import_and_calls() {
             "clone_owned_value_into_document_arena",
         )
         .unwrap();
-    let document_edits = edit.changes.get(&uri).expect("rename edits for document source file");
+    let document_edits = edit
+        .changes
+        .get(&uri)
+        .expect("rename edits for document source file");
     let owned_edits = edit
         .changes
         .get(&owned_uri)
         .expect("rename edits for imported definition file");
 
     assert_eq!(document_edits.len(), 3, "{document_edits:#?}");
-    assert!(document_edits
-        .iter()
-        .all(|edit| edit.new_text == "clone_owned_value_into_document_arena"));
+    assert!(
+        document_edits
+            .iter()
+            .all(|edit| edit.new_text == "clone_owned_value_into_document_arena")
+    );
     assert_eq!(
         document_edits[0].range.start,
         position_of_nth(&source, "clone_owned_value_in_arena", 0, 0)
@@ -281,7 +310,10 @@ fn json_rename_updates_real_imported_function_definition_import_and_calls() {
     );
 
     assert_eq!(owned_edits.len(), 1, "{owned_edits:#?}");
-    assert_eq!(owned_edits[0].new_text, "clone_owned_value_into_document_arena");
+    assert_eq!(
+        owned_edits[0].new_text,
+        "clone_owned_value_into_document_arena"
+    );
     assert_eq!(
         owned_edits[0].range.start,
         position_of_nth(&owned_source, "clone_owned_value_in_arena", 0, 0)

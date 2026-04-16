@@ -15,13 +15,16 @@ pub fn resolve_manifest_path(input: Option<&Path>) -> Result<PathBuf> {
             discover_from_dir(&cwd)
         }
     }?;
-    fs::canonicalize(&manifest_path).map_err(|err| Error::from_io(&manifest_path, err))
+    fs::canonicalize(&manifest_path)
+        .map(normalize_manifest_path)
+        .map_err(|err| Error::from_io(&manifest_path, err))
 }
 
 pub fn resolve_project_manifest_path(input: Option<&Path>) -> Result<PathBuf> {
     let manifest_path = discover_project_entry_manifest_path(input)?;
-    let manifest_path =
-        fs::canonicalize(&manifest_path).map_err(|err| Error::from_io(&manifest_path, err))?;
+    let manifest_path = fs::canonicalize(&manifest_path)
+        .map(normalize_manifest_path)
+        .map_err(|err| Error::from_io(&manifest_path, err))?;
     let mut current = manifest_path
         .parent()
         .and_then(Path::parent)
@@ -41,13 +44,30 @@ pub fn resolve_project_manifest_path(input: Option<&Path>) -> Result<PathBuf> {
                 .iter()
                 .any(|member| member.manifest_path == manifest_path)
         {
-            return fs::canonicalize(&candidate).map_err(|err| Error::from_io(&candidate, err));
+            return fs::canonicalize(&candidate)
+                .map(normalize_manifest_path)
+                .map_err(|err| Error::from_io(&candidate, err));
         }
 
         current = dir.parent().map(Path::to_path_buf);
     }
 
     Ok(manifest_path)
+}
+
+fn normalize_manifest_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let raw = path.to_string_lossy();
+        if let Some(stripped) = raw.strip_prefix("\\\\?\\UNC\\") {
+            return PathBuf::from(format!("\\\\{stripped}"));
+        }
+        if let Some(stripped) = raw.strip_prefix("\\\\?\\") {
+            return PathBuf::from(stripped);
+        }
+    }
+
+    path
 }
 
 fn discover_project_entry_manifest_path(input: Option<&Path>) -> Result<PathBuf> {
@@ -122,7 +142,7 @@ fn discover_from_dir(start: &Path) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_manifest_path, resolve_project_manifest_path};
+    use super::{normalize_manifest_path, resolve_manifest_path, resolve_project_manifest_path};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -143,7 +163,7 @@ mod tests {
         fs::write(root.join("Craft.toml"), "[package]\nname = \"demo\"\n").unwrap();
 
         let resolved = resolve_manifest_path(Some(&root.join(".").join("Craft.toml"))).unwrap();
-        let expected = fs::canonicalize(root.join("Craft.toml")).unwrap();
+        let expected = normalize_manifest_path(fs::canonicalize(root.join("Craft.toml")).unwrap());
         assert_eq!(resolved, expected);
 
         let _ = fs::remove_dir_all(root);
@@ -161,7 +181,8 @@ mod tests {
         .unwrap();
 
         let resolved = resolve_manifest_path(Some(&root.join("pkg").join("src"))).unwrap();
-        let expected = fs::canonicalize(root.join("pkg").join("Craft.toml")).unwrap();
+        let expected =
+            normalize_manifest_path(fs::canonicalize(root.join("pkg").join("Craft.toml")).unwrap());
         assert_eq!(resolved, expected);
 
         let _ = fs::remove_dir_all(root);
@@ -184,7 +205,7 @@ mod tests {
         .unwrap();
 
         let resolved = resolve_project_manifest_path(Some(&member)).unwrap();
-        let expected = fs::canonicalize(root.join("Craft.toml")).unwrap();
+        let expected = normalize_manifest_path(fs::canonicalize(root.join("Craft.toml")).unwrap());
         assert_eq!(resolved, expected);
 
         let _ = fs::remove_dir_all(root);

@@ -9,8 +9,8 @@ pub(crate) fn apply_target_runtime_defaults(options: &mut CompileOptions, target
             options.library_bundle = LibraryBundle::Std;
         }
         TargetKind::Bin | TargetKind::Example => {
-            options.runtime_entry = RuntimeEntry::Crt;
-            options.runtime_libc = true;
+            options.runtime_entry = RuntimeEntry::Rt;
+            options.runtime_libc = false;
             options.library_bundle = LibraryBundle::Std;
         }
         TargetKind::Test => {
@@ -38,13 +38,13 @@ mod tests {
     }
 
     #[test]
-    fn hosted_executable_targets_use_hosted_runtime_defaults() {
+    fn executable_targets_default_to_rt_without_libc() {
         for target_kind in [TargetKind::Bin, TargetKind::Example] {
             let mut options = CompileOptions::default();
             apply_target_runtime_defaults(&mut options, target_kind);
 
-            assert_eq!(options.runtime_entry, RuntimeEntry::Crt);
-            assert!(options.runtime_libc);
+            assert_eq!(options.runtime_entry, RuntimeEntry::Rt);
+            assert!(!options.runtime_libc);
             assert_eq!(options.library_bundle, LibraryBundle::Std);
         }
     }

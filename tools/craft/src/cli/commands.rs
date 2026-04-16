@@ -514,8 +514,8 @@ fn run_install(
     )?;
     let target_package_id = selected_target_package_id(&loaded, "install")?;
     let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
-    let build_plan =
-        build_plan.filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
+    let build_plan = build_plan
+        .filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
     let _ = analysis_context::sync_analysis_context(
         &loaded.manifest_path,
         &loaded.elaboration,
@@ -671,8 +671,8 @@ fn run_uninstall(
     )?;
     let target_package_id = selected_target_package_id(&loaded, "uninstall")?;
     let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
-    let build_plan =
-        build_plan.filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
+    let build_plan = build_plan
+        .filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
     let uninstall_units = select_install_units(&build_plan, &target_package_id, &selection)?;
     let install_root = resolve_install_root(root.as_deref())?;

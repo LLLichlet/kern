@@ -142,7 +142,9 @@ fn atomic_temp_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{copy_file_atomic, ensure_dir, ensure_workspace_gitignore_entry, write_file_atomic};
+    use super::{
+        copy_file_atomic, ensure_dir, ensure_workspace_gitignore_entry, write_file_atomic,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};

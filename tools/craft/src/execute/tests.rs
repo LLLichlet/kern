@@ -38,6 +38,42 @@ fn has_llvm_bitcode_magic(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn symbol_dump_tool() -> String {
+    for candidate in if cfg!(windows) {
+        vec!["llvm-nm.exe", "nm.exe"]
+    } else {
+        vec!["llvm-nm", "nm"]
+    } {
+        if let Some(path) = find_tool_in_path(candidate) {
+            return path;
+        }
+    }
+
+    if cfg!(windows) {
+        for candidate in [
+            r"C:\Program Files\LLVM\bin\llvm-nm.exe",
+            r"C:\LLVM-21\bin\llvm-nm.exe",
+        ] {
+            if Path::new(candidate).is_file() {
+                return candidate.to_string();
+            }
+        }
+    }
+
+    panic!("failed to locate `llvm-nm` or `nm` in PATH");
+}
+
+fn find_tool_in_path(name: &str) -> Option<String> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
 #[test]
 fn linker_input_manifest_controls_primary_output_resolution() {
     let root = temp_dir("craft-linker-input-manifest");

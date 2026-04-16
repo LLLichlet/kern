@@ -553,11 +553,13 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
     })
 }
 
-fn parse_run_selection(bin_name: Option<String>, example_name: Option<String>) -> Result<RunSelection> {
+fn parse_run_selection(
+    bin_name: Option<String>,
+    example_name: Option<String>,
+) -> Result<RunSelection> {
     match (bin_name, example_name) {
         (Some(_), Some(_)) => Err(Error::Usage(
-            "`craft run` accepts at most one of `--bin <NAME>` or `--example <NAME>`"
-                .to_string(),
+            "`craft run` accepts at most one of `--bin <NAME>` or `--example <NAME>`".to_string(),
         )),
         (Some(name), None) => Ok(RunSelection::Bin(name)),
         (None, Some(name)) => Ok(RunSelection::Example(name)),
@@ -574,9 +576,7 @@ fn install_selection_from_bin_name(bin_name: Option<String>) -> Result<InstallSe
 
 fn set_named_target(slot: &mut Option<String>, raw: &str, flag: &str) -> Result<()> {
     if slot.is_some() {
-        return Err(Error::Usage(format!(
-            "`{flag}` may only be provided once"
-        )));
+        return Err(Error::Usage(format!("`{flag}` may only be provided once")));
     }
     if raw.trim().is_empty() {
         return Err(Error::Usage("target names must not be empty".to_string()));

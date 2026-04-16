@@ -359,11 +359,13 @@ fn untitled_document_is_analyzed_without_file_uri_error() {
     });
 
     assert!(outcome.bundles.iter().any(|bundle| bundle.uri == uri));
-    assert!(outcome
-        .bundles
-        .iter()
-        .flat_map(|bundle| &bundle.diagnostics)
-        .all(|diagnostic| !diagnostic.message.contains("only file://")));
+    assert!(
+        outcome
+            .bundles
+            .iter()
+            .flat_map(|bundle| &bundle.diagnostics)
+            .all(|diagnostic| !diagnostic.message.contains("only file://"))
+    );
     assert_eq!(
         analysis.documents.get(&uri).unwrap().path,
         uri_to_analysis_path(&uri).unwrap()

@@ -103,6 +103,7 @@ impl AnalysisProject {
                     .entry(name.clone())
                     .or_insert_with(|| path.to_string_lossy().to_string());
             }
+            insert_self_library_alias(&mut compile_options, matched.package, matched.target_kind);
             if matched.target_kind == TargetKind::Lib {
                 compile_options.root_module_name = Some(matched.package.id.name.clone());
             }
@@ -120,6 +121,11 @@ impl AnalysisProject {
                 compile_options.root_module_name = Some(package.id.name.clone());
                 resolved_target_kind = Some(TargetKind::Lib);
             }
+            insert_self_library_alias(
+                &mut compile_options,
+                package,
+                resolved_target_kind.unwrap_or(TargetKind::Bin),
+            );
             compile_options.metadata_package_name = Some(package.id.name.clone());
         }
 
@@ -189,11 +195,7 @@ impl AnalysisProject {
                     .iter()
                     .flat_map(|package| package.script_roots.iter()),
             )
-            .filter_map(|script| {
-                target_match_score(&script.root, file).map(|score| (score, script))
-            })
-            .max_by_key(|(score, script)| (*score, script.root.components().count()))
-            .map(|(_, script)| script)
+            .find(|script| script.root == file)
     }
 
     fn apply_craft_compile_options(
@@ -365,6 +367,25 @@ impl AnalysisProject {
         )?;
         build_plan::derive(&elaboration, ScriptCommand::Build)
     }
+}
+
+fn insert_self_library_alias(
+    compile_options: &mut CompileOptions,
+    package: &AnalysisPackage,
+    target_kind: TargetKind,
+) {
+    if target_kind == TargetKind::Lib {
+        return;
+    }
+
+    let Some(lib_root) = &package.lib_root else {
+        return;
+    };
+
+    compile_options
+        .module_aliases
+        .entry(package.id.name.clone())
+        .or_insert_with(|| lib_root.to_string_lossy().to_string());
 }
 
 pub fn resolve_project_manifest_path(input: Option<&Path>) -> Result<PathBuf> {

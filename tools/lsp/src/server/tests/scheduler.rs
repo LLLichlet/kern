@@ -2,6 +2,7 @@ use super::super::scheduler::{
     drain_scheduler, execute_document_diagnostics, execute_document_request,
     flush_diagnostics_lane, publish_analysis_outcome, write_success_response,
 };
+use super::super::state::SchedulerDrainDecision;
 use super::super::*;
 use super::*;
 

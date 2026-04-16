@@ -153,10 +153,16 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     continue;
                 };
 
+                let alias_package_name = (!imported
+                    && self
+                        .ctx
+                        .current_package_name
+                        .is_some_and(|package_name| package_name == alias_sym))
+                .then_some(alias_sym);
                 let module_name = root.declared_root_name.unwrap_or(alias_sym);
                 if let Some(mod_id) = self.load_module(root.entry_path, None, module_name, imported)
                 {
-                    if let Some(package_name) = root.package_name {
+                    if let Some(package_name) = root.package_name.or(alias_package_name) {
                         self.ctx
                             .root_module_package_names
                             .insert(mod_id, package_name);

@@ -142,6 +142,11 @@ pub(super) fn target_match_score(root: &Path, file: &Path) -> Option<usize> {
         return Some(module_dir.components().count());
     }
 
+    let sibling_module_root = root.parent()?;
+    if file.starts_with(sibling_module_root) {
+        return Some(sibling_module_root.components().count());
+    }
+
     None
 }
 

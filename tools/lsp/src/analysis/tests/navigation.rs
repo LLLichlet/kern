@@ -544,7 +544,10 @@ fn goto_definition_in_untitled_document_preserves_untitled_uri() {
         .unwrap();
 
     assert_eq!(definition.uri, uri);
-    assert_eq!(definition.range.start, position_of_nth(source, "helper", 0, 0));
+    assert_eq!(
+        definition.range.start,
+        position_of_nth(source, "helper", 0, 0)
+    );
 }
 
 #[test]
@@ -1131,7 +1134,10 @@ fn definition_from_destructure_payload_binding_reference_resolves_local_binding(
         .unwrap();
 
     assert_eq!(definition.uri, uri);
-    assert_eq!(definition.range.start, position_of_nth(source, "inner", 0, 0));
+    assert_eq!(
+        definition.range.start,
+        position_of_nth(source, "inner", 0, 0)
+    );
 }
 
 #[test]
@@ -1162,7 +1168,10 @@ fn goto_definition_on_destructure_pun_definition_prefers_local_binding() {
         .unwrap();
 
     assert_eq!(definition.uri, uri);
-    assert_eq!(definition.range.start, position_of_nth(source, "value", 2, 0));
+    assert_eq!(
+        definition.range.start,
+        position_of_nth(source, "value", 2, 0)
+    );
 }
 
 #[test]
@@ -1192,8 +1201,14 @@ fn references_from_destructure_pun_definition_follow_local_binding() {
         .unwrap();
 
     assert_eq!(locations.len(), 2);
-    assert_eq!(locations[0].range.start, position_of_nth(source, "value", 2, 0));
-    assert_eq!(locations[1].range.start, position_of_nth(source, "value", 3, 0));
+    assert_eq!(
+        locations[0].range.start,
+        position_of_nth(source, "value", 2, 0)
+    );
+    assert_eq!(
+        locations[1].range.start,
+        position_of_nth(source, "value", 3, 0)
+    );
 }
 
 #[test]
@@ -1223,8 +1238,14 @@ fn document_highlights_on_destructure_pun_definition_follow_local_binding() {
         .unwrap();
 
     assert_eq!(highlights.len(), 2);
-    assert_eq!(highlights[0].range.start, position_of_nth(source, "value", 2, 0));
-    assert_eq!(highlights[1].range.start, position_of_nth(source, "value", 3, 0));
+    assert_eq!(
+        highlights[0].range.start,
+        position_of_nth(source, "value", 2, 0)
+    );
+    assert_eq!(
+        highlights[1].range.start,
+        position_of_nth(source, "value", 3, 0)
+    );
 }
 
 #[test]
@@ -1381,9 +1402,18 @@ fn references_for_trait_method_include_impl_definition_and_call_sites() {
         .unwrap();
 
     assert_eq!(locations.len(), 3);
-    assert_eq!(locations[0].range.start, position_of_nth(source, "foo", 0, 0));
-    assert_eq!(locations[1].range.start, position_of_nth(source, "foo", 1, 0));
-    assert_eq!(locations[2].range.start, position_of_nth(source, "foo", 2, 0));
+    assert_eq!(
+        locations[0].range.start,
+        position_of_nth(source, "foo", 0, 0)
+    );
+    assert_eq!(
+        locations[1].range.start,
+        position_of_nth(source, "foo", 1, 0)
+    );
+    assert_eq!(
+        locations[2].range.start,
+        position_of_nth(source, "foo", 2, 0)
+    );
 }
 
 #[test]
@@ -1414,9 +1444,18 @@ fn document_highlights_for_trait_impl_method_include_trait_and_call_sites() {
         .unwrap();
 
     assert_eq!(highlights.len(), 3);
-    assert_eq!(highlights[0].range.start, position_of_nth(source, "foo", 0, 0));
-    assert_eq!(highlights[1].range.start, position_of_nth(source, "foo", 1, 0));
-    assert_eq!(highlights[2].range.start, position_of_nth(source, "foo", 2, 0));
+    assert_eq!(
+        highlights[0].range.start,
+        position_of_nth(source, "foo", 0, 0)
+    );
+    assert_eq!(
+        highlights[1].range.start,
+        position_of_nth(source, "foo", 1, 0)
+    );
+    assert_eq!(
+        highlights[2].range.start,
+        position_of_nth(source, "foo", 2, 0)
+    );
 }
 
 #[test]

@@ -236,15 +236,38 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
         .join("std.o");
     let std_object_dir = super::multi_linker_input_dir(&std_object);
     assert!(std_object.is_file());
-    assert!(std_object_dir.is_dir());
     let linker_inputs = super::linker_input_paths_for_primary_output(&std_object).unwrap();
-    assert!(linker_inputs.len() > 1);
+    if cfg!(windows) {
+        assert!(!std_object_dir.is_dir());
+        assert_eq!(linker_inputs.len(), 1);
+    } else {
+        assert!(std_object_dir.is_dir());
+        assert!(linker_inputs.len() > 1);
+    }
     assert!(
         linker_inputs
             .iter()
             .all(|path| super::has_llvm_bitcode_magic(path)),
         "expected preserved runtime linker inputs to stay as ThinLTO bitcode"
     );
+
+    let rt_entry = profile_root
+        .join("obj")
+        .join("rt")
+        .join("entry")
+        .join("rt_entry_freestanding.o");
+    assert!(rt_entry.is_file());
+    if cfg!(windows) {
+        assert!(
+            !super::has_llvm_bitcode_magic(&rt_entry),
+            "expected Windows rt entry shim to remain a concrete object file"
+        );
+    } else {
+        assert!(
+            super::has_llvm_bitcode_magic(&rt_entry),
+            "expected non-Windows rt entry shim to follow the profile ThinLTO input flavor"
+        );
+    }
 
     let _ = fs::remove_dir_all(cache_root);
     let _ = fs::remove_dir_all(root);

@@ -181,7 +181,7 @@ pub(super) fn uri_to_analysis_path(uri: &str) -> Option<PathBuf> {
     uri_to_file_path(uri).or_else(|| untitled_uri_to_path(uri))
 }
 
-pub(super) fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
+pub(crate) fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
     let raw = uri.strip_prefix("file://")?;
     let decoded = percent_decode(raw).ok()?;
 

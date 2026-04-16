@@ -9,9 +9,7 @@ use self::dispatch::{
     handle_message as dispatch_handle_message,
     report_message_error as dispatch_report_message_error,
 };
-use self::state::{
-    AnalysisGeneration, RequestContext, SchedulerDrainDecision, SchedulerLane, ServerState,
-};
+use self::state::{AnalysisGeneration, RequestContext, SchedulerLane, ServerState};
 use crate::analysis::AnalysisEngine;
 use crate::protocol::{IncomingMessage, error_response};
 use crate::transport::{MessageReader, MessageWriter};

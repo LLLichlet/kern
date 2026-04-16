@@ -117,6 +117,48 @@ root = \"src/lib.rn\"
 }
 
 #[test]
+fn bin_analysis_maps_current_package_name_to_local_library_root() {
+    let root = temp_dir("craft-project-bin-self-alias");
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        "\
+[package]
+name = \"demo\"
+version = \"0.1.0\"
+kern = \"0.7.0\"
+
+[lib]
+root = \"src/lib.rn\"
+
+[[bin]]
+name = \"demo\"
+root = \"src/main.rn\"
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.rn"),
+        "pub fn helper() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "use demo.helper;\n").unwrap();
+
+    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+    let resolved = project.resolve_for_file(&root.join("src/main.rn"), &CompileOptions::default());
+
+    assert_eq!(
+        resolved
+            .compile_options
+            .module_aliases
+            .get("demo")
+            .and_then(|path| normalize_test_optional_path(Some(path))),
+        Some(normalize_test_path(&root.join("src/lib.rn")))
+    );
+}
+
+#[test]
 fn resolves_external_path_dependency_aliases_for_analysis() {
     let root = temp_dir("craft-project-external-analysis");
     let deps_dir = root.join("deps");

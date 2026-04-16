@@ -125,6 +125,22 @@ fn normalize_codegen_options_for_driver_mode(options: &mut CompileOptions) {
     options.emit_multi_linker_input_dir = false;
 }
 
+pub(super) fn normalize_windows_linker_input_options(options: &mut CompileOptions) {
+    let is_windows_target = options.target.triple.to_string().contains("windows");
+    if !is_windows_target || !options.driver_mode.emits_linker_input() || options.codegen_units <= 1
+    {
+        return;
+    }
+
+    // Preserving multiple COFF linker inputs for downstream package links is
+    // not reliable yet: exported generic/runtime definitions can be left
+    // undefined across the per-CGU object or ThinLTO bitcode outputs. Emit a
+    // single linker input instead while keeping the selected linker-input
+    // flavor (for example ThinLTO bitcode) intact.
+    options.codegen_units = 1;
+    options.emit_multi_linker_input_dir = false;
+}
+
 pub(super) fn profile_linker_input_flavor(
     profile: &crate::script::ScriptProfile,
     domain: BuildDomain,
@@ -197,6 +213,7 @@ pub(super) fn compile_action_options(
         action.source_path(),
     )?);
     normalize_codegen_options_for_driver_mode(&mut options);
+    normalize_windows_linker_input_options(&mut options);
     Ok(options)
 }
 

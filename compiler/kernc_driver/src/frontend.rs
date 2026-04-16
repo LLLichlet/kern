@@ -77,8 +77,8 @@ impl FrontendPruneProfile {
     }
 
     fn apply(&self, session: &mut Session) {
-        session.target = kernc_utils::config::TargetMachine::new(&self.target_triple)
-        .unwrap_or_default();
+        session.target =
+            kernc_utils::config::TargetMachine::new(&self.target_triple).unwrap_or_default();
         session.custom_defines = self.custom_defines.iter().cloned().collect();
     }
 }
@@ -226,13 +226,15 @@ impl FrontendDatabase {
             let Some(pruned_record) = self.pruned_modules.get_with(
                 &self.db,
                 "frontend_pruned_module",
-                (normalized.to_path_buf(), collect_docs, prune_profile.clone()),
+                (
+                    normalized.to_path_buf(),
+                    collect_docs,
+                    prune_profile.clone(),
+                ),
                 || {
                     let prune_started = Instant::now();
-                    let record = self.compute_pruned_parse_record(
-                        raw_record_for_prune.as_ref(),
-                        &prune_profile,
-                    );
+                    let record = self
+                        .compute_pruned_parse_record(raw_record_for_prune.as_ref(), &prune_profile);
                     computed_prune_timings.prune = prune_started.elapsed();
                     Ok(record.map(Arc::new))
                 },

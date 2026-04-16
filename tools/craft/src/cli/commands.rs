@@ -26,7 +26,7 @@ use super::render::{
     print_generated_files_for_unit, print_link_actions, print_link_actions_for_unit,
     render_execution_timings,
 };
-use super::{Command, RunSelection};
+use super::{Command, InstallSelection, RunSelection};
 
 pub(super) fn run_command(command: Command) -> Result<()> {
     match command {
@@ -70,6 +70,19 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             ui,
             include_examples,
         } => run_build(path, feature_selection, ui, include_examples),
+        Command::Install {
+            path,
+            feature_selection,
+            ui,
+            selection,
+            root,
+        } => run_install(path, feature_selection, ui, selection, root),
+        Command::Uninstall {
+            path,
+            ui,
+            selection,
+            root,
+        } => run_uninstall(path, ui, selection, root),
         Command::Run {
             path,
             feature_selection,
@@ -485,6 +498,85 @@ fn run_build(
     Ok(())
 }
 
+fn run_install(
+    path: Option<PathBuf>,
+    feature_selection: elaborate::FeatureSelection,
+    ui: super::UiOptions,
+    selection: InstallSelection,
+    root: Option<PathBuf>,
+) -> Result<()> {
+    let render = Renderer::new(ui);
+    let (loaded, _workspace_lock) = load_locked_package_graph(
+        path.as_deref(),
+        crate::script::ScriptCommand::Build,
+        &feature_selection,
+        "install",
+    )?;
+    let target_package_id = selected_target_package_id(&loaded, "install")?;
+    let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+    let build_plan =
+        build_plan.filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
+    let _ = analysis_context::sync_analysis_context(
+        &loaded.manifest_path,
+        &loaded.elaboration,
+        &build_plan,
+        &feature_selection,
+    );
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let install_units = select_install_units(&build_plan, &target_package_id, &selection)?;
+    let install_root = resolve_install_root(root.as_deref())?;
+    let install_bin_dir = install_root.join("bin");
+
+    render.header_with_path(
+        "install",
+        &loaded.manifest,
+        &loaded.manifest_path,
+        &feature_selection,
+    );
+    render.summary("root", install_root.display());
+    render.summary(
+        "targets",
+        install_units
+            .iter()
+            .map(|unit| format_unit_label(unit))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+    if render.is_verbose() {
+        render.section("actions");
+    }
+    for unit in &install_units {
+        print_generated_files_for_unit(&render, unit);
+    }
+    for unit in &install_units {
+        print_compile_actions_for_unit(&render, &action_plan, unit);
+    }
+    for unit in &install_units {
+        print_link_actions_for_unit(&render, &action_plan, unit);
+    }
+
+    let execution = execute::build(&build_plan, &action_plan)?;
+    for unit in &install_units {
+        let link_action = link_action_for_unit(&action_plan, unit)?;
+        let installed_path = install_bin_dir.join(installed_file_name(link_action));
+        crate::local_state::copy_file_atomic(&link_action.artifact_path, &installed_path)?;
+        render.action(
+            Tone::Generate,
+            "install",
+            format_unit_label(unit),
+            format!("-> {}", installed_path.display()),
+        );
+    }
+    render_execution_timings(&render, &execution);
+    render.ok(format!(
+        "installed {} binary target(s) into {}",
+        install_units.len(),
+        install_bin_dir.display()
+    ));
+
+    Ok(())
+}
+
 fn run_doc(
     path: Option<PathBuf>,
     feature_selection: elaborate::FeatureSelection,
@@ -558,6 +650,81 @@ fn run_doc(
     render.ok(format!(
         "doc generation completed (compile {}, link {})",
         execution.compile_actions, execution.link_actions
+    ));
+
+    Ok(())
+}
+
+fn run_uninstall(
+    path: Option<PathBuf>,
+    ui: super::UiOptions,
+    selection: InstallSelection,
+    root: Option<PathBuf>,
+) -> Result<()> {
+    let render = Renderer::new(ui);
+    let feature_selection = elaborate::FeatureSelection::default();
+    let (loaded, _workspace_lock) = load_locked_package_graph(
+        path.as_deref(),
+        crate::script::ScriptCommand::Build,
+        &feature_selection,
+        "uninstall",
+    )?;
+    let target_package_id = selected_target_package_id(&loaded, "uninstall")?;
+    let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+    let build_plan =
+        build_plan.filtered_package_closure(&[(graph::BuildDomain::Target, target_package_id.clone())]);
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let uninstall_units = select_install_units(&build_plan, &target_package_id, &selection)?;
+    let install_root = resolve_install_root(root.as_deref())?;
+    let install_bin_dir = install_root.join("bin");
+    let mut removed = 0usize;
+    let mut missing = 0usize;
+
+    render.header_with_path(
+        "uninstall",
+        &loaded.manifest,
+        &loaded.manifest_path,
+        &feature_selection,
+    );
+    render.summary("root", install_root.display());
+    render.summary(
+        "targets",
+        uninstall_units
+            .iter()
+            .map(|unit| format_unit_label(unit))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+
+    for unit in &uninstall_units {
+        let link_action = link_action_for_unit(&action_plan, unit)?;
+        let installed_path = install_bin_dir.join(installed_file_name(link_action));
+        if installed_path.exists() {
+            fs::remove_file(&installed_path).map_err(|err| Error::from_io(&installed_path, err))?;
+            removed += 1;
+            render.action(
+                Tone::Generate,
+                "remove",
+                format_unit_label(unit),
+                format!("-> {}", installed_path.display()),
+            );
+        } else {
+            missing += 1;
+            render.action(
+                Tone::Muted,
+                "skip",
+                format_unit_label(unit),
+                format!("missing {}", installed_path.display()),
+            );
+        }
+    }
+
+    render.summary("removed", removed);
+    if missing > 0 {
+        render.summary("missing", missing);
+    }
+    render.ok(format!(
+        "uninstall completed ({removed} removed, {missing} missing)"
     ));
 
     Ok(())
@@ -998,6 +1165,124 @@ fn select_unique_run_unit<'a>(
             }
         }
     }
+}
+
+fn select_install_units<'a>(
+    build_plan: &'a build_plan::BuildPlan,
+    package_id: &graph::PackageId,
+    selection: &InstallSelection,
+) -> Result<Vec<&'a build_plan::BuildUnit>> {
+    let bins = build_plan
+        .packages
+        .iter()
+        .flat_map(|package| &package.units)
+        .filter(|unit| unit.package_id == *package_id && unit.target_kind == TargetKind::Bin)
+        .collect::<Vec<_>>();
+
+    match selection {
+        InstallSelection::AllBins => {
+            if bins.is_empty() {
+                return Err(Error::Usage(
+                    "the selected package does not declare any `bin` targets".to_string(),
+                ));
+            }
+            Ok(bins)
+        }
+        InstallSelection::Bin(name) => bins
+            .into_iter()
+            .find(|unit| unit.target_name.as_deref() == Some(name.as_str()))
+            .map(|unit| vec![unit])
+            .ok_or_else(|| {
+                Error::Usage(format!(
+                    "could not find `bin` target `{name}` in the selected package"
+                ))
+            }),
+    }
+}
+
+fn selected_target_package_id(
+    loaded: &LoadedPackageGraph,
+    command: &str,
+) -> Result<graph::PackageId> {
+    if let Some(package_id) = &loaded.selected_package_id {
+        return Ok(package_id.clone());
+    }
+    if loaded.manifest.package.is_none() {
+        return Err(Error::Usage(format!(
+            "`craft {command}` requires a package selection; pass `--project-path` to a workspace member"
+        )));
+    }
+    loaded
+        .elaboration
+        .packages
+        .iter()
+        .find(|package| package.plan.manifest_path == loaded.manifest_path)
+        .map(|package| package.package_id.clone())
+        .ok_or_else(|| {
+            Error::Execution(format!(
+                "failed to resolve selected package for `{}`",
+                loaded.manifest_path.display()
+            ))
+        })
+}
+
+fn link_action_for_unit<'a>(
+    action_plan: &'a build_plan::ActionPlan,
+    unit: &build_plan::BuildUnit,
+) -> Result<&'a build_plan::LinkAction> {
+    action_plan
+        .link_actions
+        .iter()
+        .find(|action| {
+            action.domain == unit.domain
+                && action.package_id == unit.package_id
+                && action.target_kind == unit.target_kind
+                && action.target_name == unit.target_name
+                && action.artifact_name == unit.artifact_name
+        })
+        .ok_or_else(|| {
+            Error::Execution(format!(
+                "missing link action for target `{}`",
+                format_unit_label(unit)
+            ))
+        })
+}
+
+fn resolve_install_root(explicit_root: Option<&Path>) -> Result<PathBuf> {
+    let root = match explicit_root {
+        Some(root) => root.to_path_buf(),
+        None => default_install_root()?,
+    };
+    let canonical = if root.exists() {
+        fs::canonicalize(&root).map_err(|err| Error::from_io(&root, err))?
+    } else {
+        root
+    };
+    Ok(canonical)
+}
+
+fn default_install_root() -> Result<PathBuf> {
+    if let Some(kern_home) = std::env::var_os("KERN_HOME") {
+        return Ok(PathBuf::from(kern_home));
+    }
+    if cfg!(windows) {
+        if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+            return Ok(PathBuf::from(user_profile).join(".kern"));
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        return Ok(PathBuf::from(home).join(".kern"));
+    }
+    Err(Error::Execution(
+        "could not determine install root; pass `--root <PATH>` or set `KERN_HOME`".to_string(),
+    ))
+}
+
+fn installed_file_name(action: &build_plan::LinkAction) -> &std::ffi::OsStr {
+    action
+        .artifact_path
+        .file_name()
+        .expect("link actions always produce a file name")
 }
 
 struct LoadedPackageGraph {

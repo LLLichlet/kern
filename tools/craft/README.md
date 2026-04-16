@@ -28,6 +28,7 @@ The current implementation covers:
 - build-plan derivation from normalized package targets and resolved dependencies
 - package-level `build.rn` discovery, validation, and per-target link-plan orchestration for execution-sensitive adaptation
 - host `craft build/run/test` execution through explicit `kernc` compile/link action graphs
+- `craft install/uninstall` for copying package `bin` targets into an install root
 - `craft fetch` materialization of external sources into `.craft/sources`
 - canonicalized workspace identity for shared `.craft` locks and state paths
 - atomic writes for shared workspace state such as `Craft.lock` and `.craft/analysis.toml`
@@ -42,6 +43,8 @@ The current command surface is:
 - `craft fetch`
 - `craft publish`
 - `craft build`
+- `craft install`
+- `craft uninstall`
 - `craft run`
 - `craft test`
 
@@ -59,6 +62,10 @@ Derived tool state stays under `.craft/`, and `craft` maintains a root
 `craft publish` is also local-only. It checks for a current canonical
 `Craft.lock` plus required package metadata, but it does not upload anywhere or
 rewrite the lockfile implicitly.
+
+`craft install` defaults to the active Kern home (`KERN_HOME` or `~/.kern`) and
+copies selected package binaries into `bin/`. `craft uninstall` removes those
+installed binaries using the same package-target selection rules.
 
 ## Important Internal Modules
 

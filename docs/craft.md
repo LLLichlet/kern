@@ -273,6 +273,8 @@ The current command surface accepts:
 
 - `--project-path <path>`
 - `--profile <dev|release>`
+- `--root <path>` for install roots
+- `--bin <name>` for selecting one installed runnable target
 - `--no-default-features`
 - `--features <a,b,c>`
 
@@ -642,6 +644,8 @@ The current command surface is intentionally narrow:
 - `craft lock`
 - `craft fetch`
 - `craft build`
+- `craft install`
+- `craft uninstall`
 - `craft run`
 - `craft test`
 
@@ -652,6 +656,8 @@ Current behavior:
 - `fetch` materializes external package sources into the local cache
   - source backends are explicit package paths or git repositories
 - `build` executes the selected build plan
+- `install` builds selected package `bin` targets and copies them into the active install root's `bin/` directory
+- `uninstall` removes installed package `bin` targets from that same install root
 - `run` builds and runs the selected runnable binary from its owning package root
 - `test` builds and runs test targets from their owning package roots
 

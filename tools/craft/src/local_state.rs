@@ -49,6 +49,41 @@ pub(crate) fn write_file_atomic(path: &Path, contents: impl AsRef<[u8]>) -> Resu
     Ok(())
 }
 
+pub(crate) fn copy_file_atomic(source: &Path, dest: &Path) -> Result<()> {
+    ensure_parent_dir(dest)?;
+    let temp_path = atomic_temp_path(dest);
+    fs::copy(source, &temp_path).map_err(|err| {
+        let _ = fs::remove_file(&temp_path);
+        Error::from_io(&temp_path, err)
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = fs::metadata(source)
+            .map_err(|err| Error::from_io(source, err))?
+            .permissions()
+            .mode();
+        let permissions = std::fs::Permissions::from_mode(mode);
+        fs::set_permissions(&temp_path, permissions).map_err(|err| {
+            let _ = fs::remove_file(&temp_path);
+            Error::from_io(&temp_path, err)
+        })?;
+    }
+
+    #[cfg(windows)]
+    if dest.exists() {
+        fs::remove_file(dest).map_err(|err| Error::from_io(dest, err))?;
+    }
+
+    fs::rename(&temp_path, dest).map_err(|err| {
+        let _ = fs::remove_file(&temp_path);
+        Error::from_io(dest, err)
+    })?;
+    Ok(())
+}
+
 pub(crate) fn ensure_workspace_gitignore_entry(workspace_root: &Path) -> Result<bool> {
     let gitignore_path = workspace_root.join(".gitignore");
     match fs::read_to_string(&gitignore_path) {
@@ -107,7 +142,7 @@ fn atomic_temp_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_dir, ensure_workspace_gitignore_entry, write_file_atomic};
+    use super::{copy_file_atomic, ensure_dir, ensure_workspace_gitignore_entry, write_file_atomic};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -189,6 +224,22 @@ mod tests {
         let after = fs::metadata(&path).unwrap().modified().unwrap();
 
         assert_eq!(before, after);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn atomic_copy_replaces_existing_file_contents() {
+        let root = temp_dir("craft-local-state-atomic-copy");
+        let source = root.join("source.bin");
+        let dest = root.join(".craft").join("tool.bin");
+        fs::write(&source, b"first").unwrap();
+
+        copy_file_atomic(&source, &dest).unwrap();
+        fs::write(&source, b"second").unwrap();
+        copy_file_atomic(&source, &dest).unwrap();
+
+        assert_eq!(fs::read(&dest).unwrap(), b"second");
 
         let _ = fs::remove_dir_all(root);
     }

@@ -53,6 +53,19 @@ pub enum Command {
         ui: UiOptions,
         include_examples: bool,
     },
+    Install {
+        path: Option<PathBuf>,
+        feature_selection: elaborate::FeatureSelection,
+        ui: UiOptions,
+        selection: InstallSelection,
+        root: Option<PathBuf>,
+    },
+    Uninstall {
+        path: Option<PathBuf>,
+        ui: UiOptions,
+        selection: InstallSelection,
+        root: Option<PathBuf>,
+    },
     Run {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
@@ -71,6 +84,12 @@ pub enum RunSelection {
     DefaultBin,
     Bin(String),
     Example(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallSelection {
+    AllBins,
+    Bin(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -176,13 +195,32 @@ where
                 include_examples: options.include_examples,
             })
         }
+        "install" => {
+            let options = parse_command_options(rest, install_option_mode())?;
+            Ok(Command::Install {
+                path: options.path,
+                feature_selection: options.feature_selection,
+                ui: options.ui,
+                selection: install_selection_from_bin_name(options.bin_name)?,
+                root: options.install_root,
+            })
+        }
+        "uninstall" => {
+            let options = parse_command_options(rest, uninstall_option_mode())?;
+            Ok(Command::Uninstall {
+                path: options.path,
+                ui: options.ui,
+                selection: install_selection_from_bin_name(options.bin_name)?,
+                root: options.install_root,
+            })
+        }
         "run" => {
             let options = parse_command_options(rest, run_option_mode())?;
             Ok(Command::Run {
                 path: options.path,
                 feature_selection: options.feature_selection,
                 ui: options.ui,
-                selection: options.run_selection,
+                selection: parse_run_selection(options.bin_name, options.example_name)?,
             })
         }
         "test" => {
@@ -205,7 +243,9 @@ where
 struct CommandOptionMode {
     allow_feature_selection: bool,
     allow_examples: bool,
-    allow_run_selection: bool,
+    allow_bin_selection: bool,
+    allow_example_selection: bool,
+    allow_install_root: bool,
 }
 
 struct ParsedCommandOptions {
@@ -213,14 +253,18 @@ struct ParsedCommandOptions {
     feature_selection: elaborate::FeatureSelection,
     ui: UiOptions,
     include_examples: bool,
-    run_selection: RunSelection,
+    bin_name: Option<String>,
+    example_name: Option<String>,
+    install_root: Option<PathBuf>,
 }
 
 fn init_option_mode() -> CommandOptionMode {
     CommandOptionMode {
         allow_feature_selection: false,
         allow_examples: false,
-        allow_run_selection: false,
+        allow_bin_selection: false,
+        allow_example_selection: false,
+        allow_install_root: false,
     }
 }
 
@@ -228,7 +272,9 @@ fn default_option_mode() -> CommandOptionMode {
     CommandOptionMode {
         allow_feature_selection: true,
         allow_examples: false,
-        allow_run_selection: false,
+        allow_bin_selection: false,
+        allow_example_selection: false,
+        allow_install_root: false,
     }
 }
 
@@ -236,7 +282,29 @@ fn build_option_mode() -> CommandOptionMode {
     CommandOptionMode {
         allow_feature_selection: true,
         allow_examples: true,
-        allow_run_selection: false,
+        allow_bin_selection: false,
+        allow_example_selection: false,
+        allow_install_root: false,
+    }
+}
+
+fn install_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        allow_feature_selection: true,
+        allow_examples: false,
+        allow_bin_selection: true,
+        allow_example_selection: false,
+        allow_install_root: true,
+    }
+}
+
+fn uninstall_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        allow_feature_selection: false,
+        allow_examples: false,
+        allow_bin_selection: true,
+        allow_example_selection: false,
+        allow_install_root: true,
     }
 }
 
@@ -244,7 +312,9 @@ fn run_option_mode() -> CommandOptionMode {
     CommandOptionMode {
         allow_feature_selection: true,
         allow_examples: false,
-        allow_run_selection: true,
+        allow_bin_selection: true,
+        allow_example_selection: true,
+        allow_install_root: false,
     }
 }
 
@@ -253,7 +323,9 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
     let mut feature_selection = elaborate::FeatureSelection::default();
     let mut ui = UiOptions::default();
     let mut include_examples = false;
-    let mut run_selection = RunSelection::DefaultBin;
+    let mut bin_name: Option<String> = None;
+    let mut example_name: Option<String> = None;
+    let mut install_root: Option<PathBuf> = None;
     let mut idx = 0;
 
     while idx < args.len() {
@@ -280,7 +352,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             continue;
         }
         if arg == "--bin" {
-            if !mode.allow_run_selection {
+            if !mode.allow_bin_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
                     usage()
@@ -289,24 +361,23 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             let Some(value) = args.get(idx + 1) else {
                 return Err(Error::Usage("`--bin` requires a target name".to_string()));
             };
-            run_selection = parse_run_selection(&run_selection, RunSelection::Bin(value.clone()))?;
+            set_named_target(&mut bin_name, value, "--bin")?;
             idx += 2;
             continue;
         }
         if let Some(value) = arg.strip_prefix("--bin=") {
-            if !mode.allow_run_selection {
+            if !mode.allow_bin_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `--bin`\n\n{}",
                     usage()
                 )));
             }
-            run_selection =
-                parse_run_selection(&run_selection, RunSelection::Bin(value.to_string()))?;
+            set_named_target(&mut bin_name, value, "--bin")?;
             idx += 1;
             continue;
         }
         if arg == "--example" {
-            if !mode.allow_run_selection {
+            if !mode.allow_example_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
                     usage()
@@ -317,20 +388,45 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
                     "`--example` requires a target name".to_string(),
                 ));
             };
-            run_selection =
-                parse_run_selection(&run_selection, RunSelection::Example(value.clone()))?;
+            set_named_target(&mut example_name, value, "--example")?;
             idx += 2;
             continue;
         }
         if let Some(value) = arg.strip_prefix("--example=") {
-            if !mode.allow_run_selection {
+            if !mode.allow_example_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `--example`\n\n{}",
                     usage()
                 )));
             }
-            run_selection =
-                parse_run_selection(&run_selection, RunSelection::Example(value.to_string()))?;
+            set_named_target(&mut example_name, value, "--example")?;
+            idx += 1;
+            continue;
+        }
+        if arg == "--root" || arg == "-r" {
+            if !mode.allow_install_root {
+                return Err(Error::Usage(format!(
+                    "unsupported option `{arg}`\n\n{}",
+                    usage()
+                )));
+            }
+            let Some(value) = args.get(idx + 1) else {
+                return Err(Error::Usage(
+                    "`--root` requires an installation root path".to_string(),
+                ));
+            };
+            set_optional_path(&mut install_root, value, "--root")?;
+            idx += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--root=") {
+            if !mode.allow_install_root {
+                return Err(Error::Usage(format!(
+                    "unsupported option `--root`\n\n{}",
+                    usage()
+                )));
+            }
+            set_optional_path(&mut install_root, value, "--root")?;
             idx += 1;
             continue;
         }
@@ -365,7 +461,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             idx += 1;
             continue;
         }
-        if arg == "--project-path" {
+        if arg == "--project-path" || arg == "-p" {
             let Some(value) = args.get(idx + 1) else {
                 return Err(Error::Usage(
                     "`--project-path` requires a package or workspace path".to_string(),
@@ -451,27 +547,42 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
         feature_selection,
         ui,
         include_examples,
-        run_selection,
+        bin_name,
+        example_name,
+        install_root,
     })
 }
 
-fn parse_run_selection(current: &RunSelection, next: RunSelection) -> Result<RunSelection> {
-    match current {
-        RunSelection::DefaultBin => {}
-        RunSelection::Bin(_) | RunSelection::Example(_) => {
-            return Err(Error::Usage(
-                "`craft run` accepts at most one of `--bin <NAME>` or `--example <NAME>`"
-                    .to_string(),
-            ));
-        }
+fn parse_run_selection(bin_name: Option<String>, example_name: Option<String>) -> Result<RunSelection> {
+    match (bin_name, example_name) {
+        (Some(_), Some(_)) => Err(Error::Usage(
+            "`craft run` accepts at most one of `--bin <NAME>` or `--example <NAME>`"
+                .to_string(),
+        )),
+        (Some(name), None) => Ok(RunSelection::Bin(name)),
+        (None, Some(name)) => Ok(RunSelection::Example(name)),
+        (None, None) => Ok(RunSelection::DefaultBin),
     }
+}
 
-    match &next {
-        RunSelection::Bin(name) | RunSelection::Example(name) if name.trim().is_empty() => Err(
-            Error::Usage("run target names must not be empty".to_string()),
-        ),
-        _ => Ok(next),
+fn install_selection_from_bin_name(bin_name: Option<String>) -> Result<InstallSelection> {
+    match bin_name {
+        Some(name) => Ok(InstallSelection::Bin(name)),
+        None => Ok(InstallSelection::AllBins),
     }
+}
+
+fn set_named_target(slot: &mut Option<String>, raw: &str, flag: &str) -> Result<()> {
+    if slot.is_some() {
+        return Err(Error::Usage(format!(
+            "`{flag}` may only be provided once"
+        )));
+    }
+    if raw.trim().is_empty() {
+        return Err(Error::Usage("target names must not be empty".to_string()));
+    }
+    *slot = Some(raw.to_string());
+    Ok(())
 }
 
 fn parse_color_choice(raw: &str) -> Result<ColorChoice> {
@@ -496,9 +607,13 @@ fn parse_profile_selection(raw: &str) -> Result<crate::script::ProfileSelection>
 }
 
 fn set_project_path(slot: &mut Option<PathBuf>, raw: &str) -> Result<()> {
+    set_optional_path(slot, raw, "--project-path")
+}
+
+fn set_optional_path(slot: &mut Option<PathBuf>, raw: &str, flag: &str) -> Result<()> {
     if let Some(existing_path) = slot {
         return Err(Error::Usage(format!(
-            "multiple `--project-path` values provided: `{}` and `{raw}`",
+            "multiple `{flag}` values provided: `{}` and `{raw}`",
             existing_path.display()
         )));
     }
@@ -542,14 +657,17 @@ fn usage() -> &'static str {
         "  publish  Run release-oriented publish readiness checks without uploading anywhere\n",
         "  doc      Build library metadata and render native package docs to Markdown\n",
         "  build    Build the selected package graph and print the derived action plan\n",
+        "  install  Build package `bin` targets and copy them into an install root\n",
+        "  uninstall Remove installed package `bin` targets from an install root\n",
         "  run      Build and run a selected `bin` or `example` target\n",
         "  test     Build and run all discovered `test` targets\n",
         "\n",
         "Options:\n",
-        "  --project-path <PATH>    Select the package or workspace root (or `Craft.toml` path)\n",
+        "  --project-path, -p <PATH> Select the package or workspace root (or `Craft.toml` path)\n",
         "  --profile <NAME>         Profile selection: dev (default) or release\n",
         "  --examples               Include `[example].roots` targets when running `craft build`\n",
-        "  --bin <NAME>             Select a named `bin` target when running `craft run`\n",
+        "  --root, -r <PATH>        Install root for `install`/`uninstall` (binaries go under `PATH/bin`)\n",
+        "  --bin <NAME>             Select a named `bin` target for `run`/`install`/`uninstall`\n",
         "  --example <NAME>         Select a named `example` target when running `craft run`\n",
         "  --no-default-features    Disable the implicit `default` feature\n",
         "  --features <FEATURES>    Enable a comma-separated feature list\n",
@@ -566,6 +684,8 @@ fn usage() -> &'static str {
         "  craft init\n",
         "  craft check\n",
         "  craft build --project-path path/to/pkg --profile release\n",
+        "  craft install --project-path incubator/bed\n",
+        "  craft uninstall --project-path incubator/bed\n",
         "  craft doc --verbose\n",
         "  craft build --timings\n",
         "  craft run --features tls,simd\n",

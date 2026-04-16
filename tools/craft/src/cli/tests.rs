@@ -1,5 +1,5 @@
 use super::{
-    ColorChoice, Command, RunSelection, UiOptions, parse_args, run_command,
+    ColorChoice, Command, InstallSelection, RunSelection, UiOptions, parse_args, run_command,
     summarize_check_sources, summarize_source_security, validate_check_source_policy,
 };
 use crate::elaborate::FeatureSelection;
@@ -94,6 +94,30 @@ roots = ["examples/sample.rn"]
     .unwrap();
 }
 
+fn write_multi_bin_package(root: &std::path::Path) {
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+
+[[bin]]
+name = "helper"
+root = "src/helper.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("src/helper.rn"), "fn main() i32 { return 0; }\n").unwrap();
+}
+
 fn write_workspace_with_member_test_package(root: &std::path::Path) -> PathBuf {
     let member = root.join("member");
     fs::create_dir_all(member.join("tests")).unwrap();
@@ -170,6 +194,25 @@ fn parses_init_with_project_path() {
             assert_eq!(ui, UiOptions::default());
         }
         other => panic!("expected init command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_short_project_path_alias() {
+    let cmd = parse_args(["check".to_string(), "-p".to_string(), "demo".to_string()]).unwrap();
+
+    match cmd {
+        Command::Check {
+            path,
+            feature_selection,
+            ui,
+        } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert!(feature_selection.enable_default);
+            assert!(feature_selection.explicit.is_empty());
+            assert_eq!(ui, UiOptions::default());
+        }
+        other => panic!("expected check command, got {other:?}"),
     }
 }
 
@@ -273,6 +316,85 @@ fn parses_build_with_release_profile() {
             assert!(!include_examples);
         }
         other => panic!("expected build command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_install_with_root_and_named_bin() {
+    let cmd = parse_args([
+        "install".to_string(),
+        "--project-path".to_string(),
+        "demo".to_string(),
+        "--profile".to_string(),
+        "release".to_string(),
+        "--bin".to_string(),
+        "helper".to_string(),
+        "--root".to_string(),
+        "/tmp/kern-root".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Install {
+            path,
+            feature_selection,
+            ui,
+            selection,
+            root,
+        } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert_eq!(
+                feature_selection.profile,
+                crate::script::ProfileSelection::Release
+            );
+            assert_eq!(ui, UiOptions::default());
+            assert_eq!(selection, InstallSelection::Bin("helper".to_string()));
+            assert_eq!(root.as_deref(), Some(std::path::Path::new("/tmp/kern-root")));
+        }
+        other => panic!("expected install command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_uninstall_with_root_and_named_bin() {
+    let cmd = parse_args([
+        "uninstall".to_string(),
+        "--project-path=demo".to_string(),
+        "--bin=helper".to_string(),
+        "--root=/tmp/kern-root".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Uninstall {
+            path,
+            ui,
+            selection,
+            root,
+        } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert_eq!(ui, UiOptions::default());
+            assert_eq!(selection, InstallSelection::Bin("helper".to_string()));
+            assert_eq!(root.as_deref(), Some(std::path::Path::new("/tmp/kern-root")));
+        }
+        other => panic!("expected uninstall command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_short_install_root_alias() {
+    let cmd = parse_args([
+        "install".to_string(),
+        "-r".to_string(),
+        "/tmp/kern-root".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Install { root, .. } => {
+            assert_eq!(root.as_deref(), Some(std::path::Path::new("/tmp/kern-root")));
+        }
+        other => panic!("expected install command, got {other:?}"),
     }
 }
 
@@ -828,6 +950,72 @@ fn build_command_can_include_examples() {
     );
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn install_command_copies_selected_bin_into_root_bin_dir() {
+    let root = temp_dir("craft-cli-install");
+    let install_root = temp_dir("craft-cli-install-root");
+    write_multi_bin_package(&root);
+
+    run_command(Command::Install {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        selection: InstallSelection::Bin("helper".to_string()),
+        root: Some(install_root.clone()),
+    })
+    .unwrap();
+
+    assert!(
+        install_root
+            .join("bin")
+            .join(format!("helper{}", std::env::consts::EXE_SUFFIX))
+            .is_file()
+    );
+    assert!(
+        !install_root
+            .join("bin")
+            .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
+            .exists()
+    );
+
+    let _ = fs::remove_dir_all(root);
+    let _ = fs::remove_dir_all(install_root);
+}
+
+#[test]
+fn uninstall_command_removes_selected_installed_bin() {
+    let root = temp_dir("craft-cli-uninstall");
+    let install_root = temp_dir("craft-cli-uninstall-root");
+    write_multi_bin_package(&root);
+
+    run_command(Command::Install {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        selection: InstallSelection::Bin("helper".to_string()),
+        root: Some(install_root.clone()),
+    })
+    .unwrap();
+
+    run_command(Command::Uninstall {
+        path: Some(root.clone()),
+        ui: UiOptions::default(),
+        selection: InstallSelection::Bin("helper".to_string()),
+        root: Some(install_root.clone()),
+    })
+    .unwrap();
+
+    assert!(
+        !install_root
+            .join("bin")
+            .join(format!("helper{}", std::env::consts::EXE_SUFFIX))
+            .exists()
+    );
+
+    let _ = fs::remove_dir_all(root);
+    let _ = fs::remove_dir_all(install_root);
 }
 
 #[test]

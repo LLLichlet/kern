@@ -234,7 +234,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         let started = self.ctx.collects_timings().then(Instant::now);
-        if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone()
+        let named_type = match self.ctx.type_registry.get(search_norm) {
+            TypeKind::Def(def_id, generic_args) => Some((*def_id, generic_args.to_vec())),
+            _ => None,
+        };
+        if let Some((def_id, generic_args)) = named_type
             && let Some(candidate) = self.resolve_named_type_field(
                 current_module_id,
                 def_id,
@@ -256,7 +260,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         if let TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) =
-            self.ctx.type_registry.get(search_norm).clone()
+            self.ctx.type_registry.get(search_norm)
             && let Some(field) = fields.iter().find(|field| field.name == member_name)
         {
             return Some(MemberResolution {

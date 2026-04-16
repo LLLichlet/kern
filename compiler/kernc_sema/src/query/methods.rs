@@ -9,9 +9,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         candidates: &mut Vec<MemberCandidate>,
     ) {
         self.for_each_matching_bound_trait_object(search_norm, env, |this, bound_norm| {
-            if let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
-                this.ctx.type_registry.get(bound_norm).clone()
-            {
+            let trait_object = match this.ctx.type_registry.get(bound_norm) {
+                TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) => {
+                    Some((*trait_def_id, trait_args.to_vec(), assoc_bindings.to_vec()))
+                }
+                _ => None,
+            };
+            if let Some((trait_def_id, trait_args, assoc_bindings)) = trait_object {
                 this.collect_trait_object_method_candidates(
                     trait_def_id,
                     &trait_args,
@@ -347,9 +351,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
         let trait_object_ty = self.ctx.type_registry.normalize(trait_object_ty);
-        let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
-            self.ctx.type_registry.get(trait_object_ty).clone()
-        else {
+        let trait_object = match self.ctx.type_registry.get(trait_object_ty) {
+            TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) => {
+                Some((*trait_def_id, trait_args.to_vec(), assoc_bindings.to_vec()))
+            }
+            _ => None,
+        };
+        let Some((trait_def_id, trait_args, assoc_bindings)) = trait_object else {
             return None;
         };
 
@@ -423,16 +431,16 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 params,
                 ret,
                 is_variadic,
-            } = self.ctx.type_registry.get(method_ty).clone()
+            } = self.ctx.type_registry.get(method_ty)
             {
-                let mut new_params = params;
+                let mut new_params = params.clone();
                 if !new_params.is_empty() {
                     new_params[0] = receiver_ty;
                 }
                 method_ty = self.ctx.type_registry.intern(TypeKind::Function {
                     params: new_params,
-                    ret,
-                    is_variadic,
+                    ret: *ret,
+                    is_variadic: *is_variadic,
                 });
             }
 
@@ -486,9 +494,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             };
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
 
-            if let TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) =
-                self.ctx.type_registry.get(inst_super_norm).clone()
-            {
+            let super_trait = match self.ctx.type_registry.get(inst_super_norm) {
+                TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => {
+                    Some((*super_def_id, super_args.to_vec(), super_assoc_bindings.to_vec()))
+                }
+                _ => None,
+            };
+            if let Some((super_def_id, super_args, super_assoc_bindings)) = super_trait {
                 self.collect_trait_methods_in_hierarchy(
                     super_def_id,
                     &super_args,
@@ -556,16 +568,16 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 params,
                 ret,
                 is_variadic,
-            } = self.ctx.type_registry.get(method_ty).clone()
+            } = self.ctx.type_registry.get(method_ty)
             {
-                let mut new_params = params;
+                let mut new_params = params.clone();
                 if !new_params.is_empty() {
                     new_params[0] = receiver_ty;
                 }
                 method_ty = self.ctx.type_registry.intern(TypeKind::Function {
                     params: new_params,
-                    ret,
-                    is_variadic,
+                    ret: *ret,
+                    is_variadic: *is_variadic,
                 });
             }
 
@@ -619,8 +631,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             };
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
 
-            if let TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) =
-                self.ctx.type_registry.get(inst_super_norm).clone()
+            let super_trait = match self.ctx.type_registry.get(inst_super_norm) {
+                TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => {
+                    Some((*super_def_id, super_args.to_vec(), super_assoc_bindings.to_vec()))
+                }
+                _ => None,
+            };
+            if let Some((super_def_id, super_args, super_assoc_bindings)) = super_trait
                 && let Some(resolution) = self.resolve_trait_method_in_hierarchy(
                     super_def_id,
                     TraitMethodLookup {

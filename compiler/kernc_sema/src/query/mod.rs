@@ -199,47 +199,54 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         let mut candidates = Vec::new();
         let base_norm = base_type(self.ctx, receiver_ty);
 
-        if let TypeKind::Module(module_def_id) = self.ctx.type_registry.get(base_norm).clone() {
-            self.collect_module_candidates(current_module_id, module_def_id, &mut candidates);
+        if let TypeKind::Module(module_def_id) = self.ctx.type_registry.get(base_norm) {
+            self.collect_module_candidates(current_module_id, *module_def_id, &mut candidates);
             return candidates;
         }
 
         let search_types = self.search_types(receiver_ty);
         for search_norm in search_types.iter() {
-            match self.ctx.type_registry.get(search_norm).clone() {
-                TypeKind::Def(def_id, generic_args) => {
-                    self.collect_named_type_field_candidates(
-                        current_module_id,
-                        def_id,
-                        &generic_args,
+            if let Some((def_id, generic_args)) = match self.ctx.type_registry.get(search_norm) {
+                TypeKind::Def(def_id, generic_args) => Some((*def_id, generic_args.to_vec())),
+                _ => None,
+            } {
+                self.collect_named_type_field_candidates(
+                    current_module_id,
+                    def_id,
+                    &generic_args,
+                    &mut candidates,
+                );
+            } else if let TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) =
+                self.ctx.type_registry.get(search_norm)
+            {
+                for field in fields {
+                    push_member_candidate(
                         &mut candidates,
+                        MemberCandidate {
+                            name: field.name,
+                            kind: SymbolKind::Var,
+                            type_id: field.ty,
+                            def_id: None,
+                            definition_span: Span::default(),
+                            is_mut: false,
+                        },
                     );
                 }
-                TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => {
-                    for field in fields {
-                        push_member_candidate(
-                            &mut candidates,
-                            MemberCandidate {
-                                name: field.name,
-                                kind: SymbolKind::Var,
-                                type_id: field.ty,
-                                def_id: None,
-                                definition_span: Span::default(),
-                                is_mut: false,
-                            },
-                        );
+            } else if let Some((trait_def_id, trait_args, assoc_bindings)) =
+                match self.ctx.type_registry.get(search_norm) {
+                    TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) => {
+                        Some((*trait_def_id, trait_args.to_vec(), assoc_bindings.to_vec()))
                     }
+                    _ => None,
                 }
-                TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) => {
-                    self.collect_trait_object_method_candidates(
-                        trait_def_id,
-                        &trait_args,
-                        &assoc_bindings,
-                        receiver_ty,
-                        &mut candidates,
-                    );
-                }
-                _ => {}
+            {
+                self.collect_trait_object_method_candidates(
+                    trait_def_id,
+                    &trait_args,
+                    &assoc_bindings,
+                    receiver_ty,
+                    &mut candidates,
+                );
             }
 
             self.collect_bound_method_candidates(search_norm, receiver_ty, env, &mut candidates);
@@ -271,9 +278,9 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
         let base_norm = base_type(self.ctx, receiver_ty);
 
-        if let TypeKind::Module(module_def_id) = self.ctx.type_registry.get(base_norm).clone() {
+        if let TypeKind::Module(module_def_id) = self.ctx.type_registry.get(base_norm) {
             let resolution =
-                self.resolve_module_member(current_module_id, module_def_id, member_name);
+                self.resolve_module_member(current_module_id, *module_def_id, member_name);
             if let Some(resolution) = resolution {
                 self.cache_member_resolution(cache_key, can_use_cache, &resolution);
                 return Some(resolution);
@@ -313,26 +320,23 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         let base_norm = base_type(self.ctx, receiver_ty);
         let mut search_tys = SearchTypes::new(receiver_norm);
 
-        match self.ctx.type_registry.get(receiver_norm).clone() {
-            TypeKind::Pointer { is_mut: true, elem } => {
-                search_tys.push_if_absent(self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem,
-                }));
-            }
-            TypeKind::VolatilePtr { is_mut: true, elem } => {
-                search_tys.push_if_absent(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                    is_mut: false,
-                    elem,
-                }));
-            }
-            TypeKind::Slice { is_mut: true, elem } => {
-                search_tys.push_if_absent(self.ctx.type_registry.intern(TypeKind::Slice {
-                    is_mut: false,
-                    elem,
-                }));
-            }
-            _ => {}
+        let downgraded = match self.ctx.type_registry.get(receiver_norm) {
+            TypeKind::Pointer { is_mut: true, elem } => Some(TypeKind::Pointer {
+                is_mut: false,
+                elem: *elem,
+            }),
+            TypeKind::VolatilePtr { is_mut: true, elem } => Some(TypeKind::VolatilePtr {
+                is_mut: false,
+                elem: *elem,
+            }),
+            TypeKind::Slice { is_mut: true, elem } => Some(TypeKind::Slice {
+                is_mut: false,
+                elem: *elem,
+            }),
+            _ => None,
+        };
+        if let Some(ty) = downgraded {
+            search_tys.push_if_absent(self.ctx.type_registry.intern(ty));
         }
 
         search_tys.push_if_absent(base_norm);
@@ -357,8 +361,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 fn base_type(ctx: &SemaContext<'_>, mut ty: TypeId) -> TypeId {
     loop {
         let norm = ctx.type_registry.normalize(ty);
-        match ctx.type_registry.get(norm).clone() {
-            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => ty = elem,
+        match ctx.type_registry.get(norm) {
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => ty = *elem,
             _ => return norm,
         }
     }

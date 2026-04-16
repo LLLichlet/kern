@@ -507,8 +507,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
         // 2. Extract the resolved function signature.
         let sig_ty = f.resolved_sig.unwrap_or(TypeId::ERROR);
-        let (param_tys, ret_ty) = match self.ctx.type_registry.get(sig_ty).clone() {
-            TypeKind::Function { params, ret, .. } => (params, ret),
+        let (param_tys, ret_ty) = match self.ctx.type_registry.get(sig_ty) {
+            TypeKind::Function { params, ret, .. } => (params.clone(), *ret),
             _ => (Vec::new(), TypeId::ERROR),
         };
 

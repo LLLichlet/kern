@@ -123,6 +123,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         match op {
             BinaryOperator::Add | BinaryOperator::Subtract => {
+                if is_l_ptr || is_r_ptr {
+                    return true;
+                }
                 (self.ctx.type_registry.is_integer(l_norm)
                     && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)
@@ -418,40 +421,40 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         use BinaryOperator::*;
         match op {
             Add | Subtract => {
-                if is_l_addr_ptr || is_r_addr_ptr {
+                if is_l_ptr || is_r_ptr {
+                    let rhs_is_offset = r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE;
+                    let lhs_is_offset = l_norm == TypeId::USIZE || l_norm == TypeId::ISIZE;
+
                     if op == Add {
-                        // `^ptr + int` or `int + ^ptr`.
-                        if is_l_addr_ptr && (r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE) {
+                        if is_l_ptr && rhs_is_offset {
                             return l_norm;
                         }
-                        if is_r_addr_ptr && (l_norm == TypeId::USIZE || l_norm == TypeId::ISIZE) {
+                        if is_r_ptr && lhs_is_offset {
                             return r_norm;
                         }
-                    } else if op == Subtract {
-                        // `^ptr - int`
-                        if is_l_addr_ptr && (r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE) {
+                    } else {
+                        if is_l_ptr && rhs_is_offset {
                             return l_norm;
                         }
-                        // `^ptr - ^ptr` yields an offset.
-                        if is_l_addr_ptr && is_r_addr_ptr {
+                        if is_l_ptr && is_r_ptr {
                             if l_norm == r_norm {
-                                return TypeId::ISIZE; // Pointer subtraction yields a signed offset.
-                            } else {
-                                self.ctx
-                                    .struct_error(
-                                        lhs.span,
-                                        "cannot subtract pointers of different types",
-                                    )
-                                    .with_hint("both pointers must point to the exact same type")
-                                    .emit();
-                                return TypeId::ERROR;
+                                return TypeId::ISIZE;
                             }
+
+                            self.ctx
+                                .struct_error(
+                                    lhs.span,
+                                    "cannot subtract pointers of different types",
+                                )
+                                .with_hint("both pointers must point to the exact same type")
+                                .emit();
+                            return TypeId::ERROR;
                         }
                     }
 
-                    // Reject invalid pointer arithmetic combinations.
-                    self.ctx.struct_error(lhs.span, "invalid pointer arithmetic")
-                        .with_hint("address arithmetic is only builtin for `^T`/`^mut T`, using `usize`/`isize` offsets or subtraction between identical address-pointer types")
+                    self.ctx
+                        .struct_error(lhs.span, "invalid pointer arithmetic")
+                        .with_hint("builtin pointer arithmetic only supports `ptr +/- usize`, `ptr +/- isize`, and `ptr - ptr` for identical pointer types")
                         .emit();
                     return TypeId::ERROR;
                 }

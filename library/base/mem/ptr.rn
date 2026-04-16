@@ -20,18 +20,6 @@ pub/ fn mut_addr_ptr[T](addr: usize) ^mut T {
     return addr as ^mut T;
 }
 
-fn ptr_stride_bytes[T]() usize {
-    return @sizeOf[T]();
-}
-
-fn ptr_byte_offset[T](offset: usize) usize {
-    return offset * ptr_stride_bytes[T]();
-}
-
-fn ptr_signed_byte_offset[T](offset: isize) isize {
-    return offset * (ptr_stride_bytes[T]() as isize);
-}
-
 impl[T] *T {
     pub fn byte_add(offset: usize) *T {
         return ptr[T]((self as usize) + offset);
@@ -42,58 +30,6 @@ impl[T] *T {
     }
 }
 
-impl[T] *T : Add[usize] {
-    type Out = *T;
-
-    pub fn add(offset: usize) *T {
-        return ptr[T]((self as usize) + ptr_byte_offset[T](offset));
-    }
-}
-
-impl[T] *T : Add[isize] {
-    type Out = *T;
-
-    pub fn add(offset: isize) *T {
-        return ptr[T](((self as isize) + ptr_signed_byte_offset[T](offset)) as usize);
-    }
-}
-
-impl[T] *T : Sub[usize] {
-    type Out = *T;
-
-    pub fn sub(offset: usize) *T {
-        return ptr[T]((self as usize) - ptr_byte_offset[T](offset));
-    }
-}
-
-impl[T] *T : Sub[isize] {
-    type Out = *T;
-
-    pub fn sub(offset: isize) *T {
-        return ptr[T](((self as isize) - ptr_signed_byte_offset[T](offset)) as usize);
-    }
-}
-
-impl[T] *T : Sub[*T] {
-    type Out = isize;
-
-    pub fn sub(other: *T) isize {
-        let stride = ptr_stride_bytes[T]();
-        if (stride == 0) {
-            return 0;
-        }
-        return ((self as isize) - (other as isize)) / (stride as isize);
-    }
-}
-
-impl[T] *mut T : Add[usize] {
-    type Out = *mut T;
-
-    pub fn add(offset: usize) *mut T {
-        return mut_ptr[T]((self as usize) + ptr_byte_offset[T](offset));
-    }
-}
-
 impl[T] *mut T {
     pub fn byte_add(offset: usize) *mut T {
         return mut_ptr[T]((self as usize) + offset);
@@ -101,41 +37,5 @@ impl[T] *mut T {
 
     pub fn byte_sub(offset: usize) *mut T {
         return mut_ptr[T]((self as usize) - offset);
-    }
-}
-
-impl[T] *mut T : Add[isize] {
-    type Out = *mut T;
-
-    pub fn add(offset: isize) *mut T {
-        return mut_ptr[T](((self as isize) + ptr_signed_byte_offset[T](offset)) as usize);
-    }
-}
-
-impl[T] *mut T : Sub[usize] {
-    type Out = *mut T;
-
-    pub fn sub(offset: usize) *mut T {
-        return mut_ptr[T]((self as usize) - ptr_byte_offset[T](offset));
-    }
-}
-
-impl[T] *mut T : Sub[isize] {
-    type Out = *mut T;
-
-    pub fn sub(offset: isize) *mut T {
-        return mut_ptr[T](((self as isize) - ptr_signed_byte_offset[T](offset)) as usize);
-    }
-}
-
-impl[T] *mut T : Sub[*mut T] {
-    type Out = isize;
-
-    pub fn sub(other: *mut T) isize {
-        let stride = ptr_stride_bytes[T]();
-        if (stride == 0) {
-            return 0;
-        }
-        return ((self as isize) - (other as isize)) / (stride as isize);
     }
 }

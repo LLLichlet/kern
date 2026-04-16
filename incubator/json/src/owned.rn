@@ -115,10 +115,8 @@ fn owned_value_block_layout(capacity: usize) ?Layout {
 }
 
 fn owned_value_block_entries(block: *mut OwnedValueNodeBlock) *mut OwnedValue {
-    let .{ Some: entries } =
-        (block as usize + OWNED_VALUE_BLOCK_ENTRIES_OFFSET) as ?*mut OwnedValue
-        else @trap();
-    return entries;
+    let block_bytes = block as *mut u8;
+    return (block_bytes + OWNED_VALUE_BLOCK_ENTRIES_OFFSET) as *mut OwnedValue;
 }
 
 fn owned_value_pool_next_capacity(current: usize) usize {

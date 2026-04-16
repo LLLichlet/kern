@@ -355,7 +355,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_unsupported_object_pointer_addition_forms_after_trait_routing() {
+fn rejects_unsupported_object_pointer_addition_forms_in_builtin_pointer_arithmetic() {
     let output = compile_source(
         r#"
 fn main() i32 {
@@ -375,14 +375,14 @@ fn main() i32 {
     );
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .contains("operator `+` is not available for `*mut i32` and `*mut i32`"),
+            .contains("invalid pointer arithmetic"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
 
 #[test]
-fn keeps_object_pointer_offset_arithmetic_available_through_operator_impls() {
+fn keeps_object_pointer_offset_arithmetic_available_as_a_builtin_primitive() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
@@ -404,7 +404,7 @@ fn main() i32 {
 }
 
 #[test]
-fn keeps_zero_sized_object_pointer_offsets_stable_through_operator_impls() {
+fn keeps_zero_sized_object_pointer_offsets_stable_as_a_builtin_primitive() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {

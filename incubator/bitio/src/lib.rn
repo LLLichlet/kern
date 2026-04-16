@@ -4,7 +4,6 @@
 //! keep the first layer allocator-free, explicit, and suitable for protocol or
 //! codec crates that need precise control over reads and writes.
 
-
 pub type BitIoError = enum {
     UnexpectedEof,
     BufferTooSmall,
@@ -342,8 +341,7 @@ impl *mut BitWriter {
         }
 
         let .{ Some: ptr } = self.*.ptr else return .{ Err: BitIoError.BufferTooSmall };
-        let .{ Some: out } = ((ptr as usize) + byte_index) as ?*mut u8
-            else return .{ Err: BitIoError.BufferTooSmall };
+        let out = ptr + byte_index;
         if (bit_index == 0) {
             out.* = 0;
         }

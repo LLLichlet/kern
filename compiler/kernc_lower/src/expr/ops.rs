@@ -72,15 +72,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         match op {
             ast::BinaryOperator::Add | ast::BinaryOperator::Subtract => {
-                let is_l_addr_ptr = matches!(
-                    self.ctx.type_registry.get(l_norm),
-                    TypeKind::VolatilePtr { .. }
-                );
-                let is_r_addr_ptr = matches!(
-                    self.ctx.type_registry.get(r_norm),
-                    TypeKind::VolatilePtr { .. }
-                );
-                if is_l_addr_ptr || is_r_addr_ptr {
+                if is_l_ptr || is_r_ptr {
                     return true;
                 }
 

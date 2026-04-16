@@ -50,7 +50,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     fn resolve_item(&mut self, item_id: DefId, parent_scope: ScopeId) {
-        let Some(def_ptr) = self.ctx.defs.get(item_id.0 as usize).map(std::ptr::from_ref) else {
+        let Some(def_ptr) = self
+            .ctx
+            .defs
+            .get(item_id.0 as usize)
+            .map(std::ptr::from_ref)
+        else {
             return;
         };
 
@@ -71,12 +76,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
-    fn resolve_function_item(
-        &mut self,
-        item_id: DefId,
-        f: &FunctionDef,
-        parent_scope: ScopeId,
-    ) {
+    fn resolve_function_item(&mut self, item_id: DefId, f: &FunctionDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let func_scope = self.ctx.scopes.enter_scope();
 
@@ -137,12 +137,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
-    fn resolve_struct_item(
-        &mut self,
-        item_id: DefId,
-        s: &StructDef,
-        parent_scope: ScopeId,
-    ) {
+    fn resolve_struct_item(&mut self, item_id: DefId, s: &StructDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let struct_scope = self.ctx.scopes.enter_scope();
 
@@ -166,12 +161,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.update_type(s.name, struct_ty);
     }
 
-    fn resolve_union_item(
-        &mut self,
-        item_id: DefId,
-        u: &UnionDef,
-        parent_scope: ScopeId,
-    ) {
+    fn resolve_union_item(&mut self, item_id: DefId, u: &UnionDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let union_scope = self.ctx.scopes.enter_scope();
 

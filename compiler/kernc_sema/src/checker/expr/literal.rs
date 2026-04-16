@@ -8,7 +8,7 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
 type StructLiteralDefInfo = (
-    Vec<(kernc_utils::SymbolId, TypeId, bool)>,
+    Vec<(kernc_utils::SymbolId, TypeId, bool, Option<Span>)>,
     String,
     Vec<ast::GenericParam>,
     Vec<TypeId>,
@@ -710,6 +710,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                         .copied()
                                         .unwrap_or(TypeId::ERROR),
                                     field.default_value.is_some(),
+                                    Some(field.name_span),
                                 )
                             })
                             .collect();
@@ -734,6 +735,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                         .copied()
                                         .unwrap_or(TypeId::ERROR),
                                     false,
+                                    Some(field.name_span),
                                 )
                             })
                             .collect();
@@ -760,7 +762,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             {
                 let defs: Vec<_> = fields
                     .iter()
-                    .map(|field| (field.name, field.ty, false))
+                    .map(|field| (field.name, field.ty, false, None))
                     .collect();
                 (
                     defs,
@@ -773,7 +775,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             {
                 let defs: Vec<_> = fields
                     .iter()
-                    .map(|field| (field.name, field.ty, false))
+                    .map(|field| (field.name, field.ty, false, None))
                     .collect();
                 (
                     defs,
@@ -797,6 +799,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 2. Check the types of user-provided field initializers.
         for init_f in init_fields {
             if let Some(def_f) = def_fields.iter().find(|f| f.0 == init_f.name) {
+                if let Some(definition_span) = def_f.3 {
+                    self.ctx
+                        .record_identifier_reference(init_f.name_span, definition_span);
+                }
                 let mut f_ty = def_f.1;
 
                 if f_ty == TypeId::ERROR {

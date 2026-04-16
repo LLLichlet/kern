@@ -136,11 +136,13 @@ impl CompilerDriver {
             .all_symbols()
             .filter_map(|(_name, info)| {
                 let def_id = info.def_id?;
+                let definition_span = self
+                    .canonical_scope_definition_span(def_id, info.span, ctx);
                 Some((
                     info.span,
                     AnalysisSemanticEntry {
                         span: info.span,
-                        definition_span: info.span,
+                        definition_span,
                         kind: self.semantic_kind_from_scope_symbol_kind(info.kind, def_id, ctx),
                         role: AnalysisSemanticRole::Definition,
                         is_mut: info.is_mut,
@@ -176,6 +178,106 @@ impl CompilerDriver {
             )
         });
         entries
+    }
+
+    pub(super) fn collect_analysis_definition_links(
+        &self,
+        ctx: &SemaContext<'_>,
+    ) -> Vec<AnalysisDefinitionLink> {
+        let mut links = Vec::new();
+
+        for (_name, info) in ctx.scopes.all_symbols() {
+            let Some(def_id) = info.def_id else {
+                continue;
+            };
+            let canonical_span = self.canonical_scope_definition_span(def_id, info.span, ctx);
+            if canonical_span == info.span {
+                continue;
+            }
+
+            links.push(AnalysisDefinitionLink {
+                definition_span: info.span,
+                linked_definition_span: canonical_span,
+            });
+            links.push(AnalysisDefinitionLink {
+                definition_span: canonical_span,
+                linked_definition_span: info.span,
+            });
+        }
+
+        for def in &ctx.defs {
+            let kernc_sema::def::Def::Impl(impl_def) = def else {
+                continue;
+            };
+            let Some(trait_type) = &impl_def.trait_type else {
+                continue;
+            };
+            let Some(&trait_ty) = ctx.node_types.get(&trait_type.id) else {
+                continue;
+            };
+            let kernc_sema::ty::TypeKind::TraitObject(trait_def_id, _, _) =
+                ctx.type_registry.get(ctx.type_registry.normalize(trait_ty))
+            else {
+                continue;
+            };
+            let Some(kernc_sema::def::Def::Trait(trait_def)) = ctx.defs.get(trait_def_id.0 as usize)
+            else {
+                continue;
+            };
+
+            for method_id in &impl_def.methods {
+                let Some(kernc_sema::def::Def::Function(function)) =
+                    ctx.defs.get(method_id.0 as usize)
+                else {
+                    continue;
+                };
+                let Some(trait_method_span) = trait_def
+                    .methods
+                    .iter()
+                    .find(|method| method.name == function.name)
+                    .map(|method| method.name_span)
+                else {
+                    continue;
+                };
+
+                links.push(AnalysisDefinitionLink {
+                    definition_span: trait_method_span,
+                    linked_definition_span: function.name_span,
+                });
+                links.push(AnalysisDefinitionLink {
+                    definition_span: function.name_span,
+                    linked_definition_span: trait_method_span,
+                });
+            }
+        }
+
+        links.sort_by_key(|link| {
+            (
+                link.definition_span.file.0,
+                link.definition_span.start,
+                link.definition_span.end,
+                link.linked_definition_span.file.0,
+                link.linked_definition_span.start,
+                link.linked_definition_span.end,
+            )
+        });
+        links.dedup_by(|left, right| {
+            left.definition_span == right.definition_span
+                && left.linked_definition_span == right.linked_definition_span
+        });
+        links
+    }
+
+    fn canonical_scope_definition_span(
+        &self,
+        def_id: DefId,
+        fallback_span: kernc_utils::Span,
+        ctx: &SemaContext<'_>,
+    ) -> kernc_utils::Span {
+        match &ctx.defs[def_id.0 as usize] {
+            kernc_sema::def::Def::Function(function) => function.name_span,
+            _ => fallback_span,
+        }
     }
 
     fn semantic_kind_from_scope_symbol_kind(
@@ -815,93 +917,14 @@ impl CompilerDriver {
     }
 
     fn describe_type_node(&self, ctx: &SemaContext<'_>, ty: &ast::TypeNode) -> String {
-        match &ty.kind {
-            ast::TypeKind::Path { segments, .. } => {
-                let mut rendered = segments
-                    .iter()
-                    .map(|segment| ctx.resolve(segment.name).to_string())
-                    .collect::<Vec<_>>()
-                    .join(".");
-                for (index, segment) in segments.iter().enumerate() {
-                    if !segment.args.is_empty() {
-                        let generic_text = segment
-                            .args
-                            .iter()
-                            .map(|arg| match arg {
-                                ast::TypeArg::Positional(generic) => {
-                                    self.describe_type_node(ctx, generic)
-                                }
-                                ast::TypeArg::AssocBinding { name, value, .. } => format!(
-                                    "{} = {}",
-                                    ctx.resolve(*name),
-                                    self.describe_type_node(ctx, value)
-                                ),
-                            })
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        let split_at = segments[..=index]
-                            .iter()
-                            .map(|segment| ctx.resolve(segment.name).to_string())
-                            .collect::<Vec<_>>()
-                            .join(".");
-                        rendered = split_at;
-                        rendered.push('[');
-                        rendered.push_str(&generic_text);
-                        rendered.push(']');
-                        if index + 1 < segments.len() {
-                            rendered.push('.');
-                            rendered.push_str(
-                                &segments[index + 1..]
-                                    .iter()
-                                    .map(|segment| ctx.resolve(segment.name).to_string())
-                                    .collect::<Vec<_>>()
-                                    .join("."),
-                            );
-                        }
-                        break;
-                    }
-                }
-                rendered
-            }
-            ast::TypeKind::Pointer { is_mut, elem } => {
-                if *is_mut {
-                    format!("*mut {}", self.describe_type_node(ctx, elem))
-                } else {
-                    format!("*{}", self.describe_type_node(ctx, elem))
-                }
-            }
-            ast::TypeKind::VolatilePtr { is_mut, elem } => {
-                if *is_mut {
-                    format!("^mut {}", self.describe_type_node(ctx, elem))
-                } else {
-                    format!("^{}", self.describe_type_node(ctx, elem))
-                }
-            }
-            ast::TypeKind::Slice { is_mut, elem } => {
-                if *is_mut {
-                    format!("[]mut {}", self.describe_type_node(ctx, elem))
-                } else {
-                    format!("[]{}", self.describe_type_node(ctx, elem))
-                }
-            }
-            ast::TypeKind::Array { is_mut, elem, .. } => {
-                if *is_mut {
-                    format!("[_]mut {}", self.describe_type_node(ctx, elem))
-                } else {
-                    format!("[_]{}", self.describe_type_node(ctx, elem))
-                }
-            }
-            ast::TypeKind::ArrayInfer { is_mut, elem } => {
-                if *is_mut {
-                    format!("[_]mut {}", self.describe_type_node(ctx, elem))
-                } else {
-                    format!("[_]{}", self.describe_type_node(ctx, elem))
-                }
-            }
-            ast::TypeKind::SelfType => "Self".to_string(),
-            ast::TypeKind::Void => "void".to_string(),
-            ast::TypeKind::Never => "!".to_string(),
-            _ => "<type>".to_string(),
+        if let Some(ty_id) = ctx.node_types.get(&ty.id).copied() {
+            return ctx.ty_to_string(ty_id);
         }
+
+        ctx.sess
+            .source_manager
+            .slice_source(ty.span)
+            .trim()
+            .to_string()
     }
 }

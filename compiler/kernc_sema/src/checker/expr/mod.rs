@@ -2,9 +2,7 @@ use crate::context::SemaContext;
 use crate::def::DefId;
 use crate::passes::TypeResolver;
 use crate::scope::ScopeId;
-use crate::ty::{
-    AnonymousEnum, AnonymousVariant, BuiltinAnonymousEnumKind, TypeId, TypeKind,
-};
+use crate::ty::{AnonymousEnum, AnonymousVariant, BuiltinAnonymousEnumKind, TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::Span;
 use std::time::{Duration, Instant};
@@ -551,26 +549,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let ok = self.fresh_type_var();
                 let ok_name = self.ctx.intern("Ok");
                 let err_name = self.ctx.intern("Err");
-                Some(self.ctx.type_registry.intern(TypeKind::AnonymousEnum(
-                    AnonymousEnum {
-                        backing_ty: None,
-                        builtin: Some(BuiltinAnonymousEnumKind::Result),
-                        variants: vec![
-                            AnonymousVariant {
-                                name: ok_name,
-                                name_span: Span::default(),
-                                payload_ty: Some(ok),
-                                explicit_value: None,
-                            },
-                            AnonymousVariant {
-                                name: err_name,
-                                name_span: Span::default(),
-                                payload_ty: Some(ret_err_ty),
-                                explicit_value: None,
-                            },
-                        ],
-                    },
-                )))
+                Some(
+                    self.ctx
+                        .type_registry
+                        .intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                            backing_ty: None,
+                            builtin: Some(BuiltinAnonymousEnumKind::Result),
+                            variants: vec![
+                                AnonymousVariant {
+                                    name: ok_name,
+                                    name_span: Span::default(),
+                                    payload_ty: Some(ok),
+                                    explicit_value: None,
+                                },
+                                AnonymousVariant {
+                                    name: err_name,
+                                    name_span: Span::default(),
+                                    payload_ty: Some(ret_err_ty),
+                                    explicit_value: None,
+                                },
+                            ],
+                        })),
+                )
             }
         };
 

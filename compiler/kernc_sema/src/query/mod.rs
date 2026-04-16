@@ -216,7 +216,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     &generic_args,
                     &mut candidates,
                 );
-            } else if let TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) =
+            } else if let TypeKind::AnonymousStruct(_, fields)
+            | TypeKind::AnonymousUnion(_, fields) =
                 self.ctx.type_registry.get(search_norm)
             {
                 for field in fields {

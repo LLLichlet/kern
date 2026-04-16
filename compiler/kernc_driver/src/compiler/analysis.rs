@@ -13,10 +13,10 @@ use super::completion::CompletionModel;
 use super::flow::FlowModel;
 use super::signature::SignatureModel;
 use super::{
-    AnalysisArtifact, AnalysisHover, AnalysisOutline, AnalysisReference, AnalysisReport,
-    AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSpanReplacement,
-    AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding,
-    AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind,
+    AnalysisArtifact, AnalysisDefinitionLink, AnalysisHover, AnalysisOutline, AnalysisReference,
+    AnalysisReport, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
+    AnalysisSpanReplacement, AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind,
+    AnalysisUnusedBinding, AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind,
     CollectedStructureArtifact, CompileStructureArtifact, CompilerDriver,
     ImportedStructureArtifact, ParsedModule, ParsedModuleArtifact, PhaseTiming, SourceOverrides,
     StructureArtifact, TargetedAnalysisReport,

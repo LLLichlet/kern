@@ -618,6 +618,7 @@ impl<'a> Parser<'a> {
 
         let mut path = Vec::new();
         let target: UseTarget;
+        let mut binding_span = start;
 
         // 2. Consume path segments until the target form is known.
         loop {
@@ -631,6 +632,7 @@ impl<'a> Parser<'a> {
             }
 
             let id = self.expect(TokenType::Identifier)?;
+            binding_span = id.span;
             path.push(self.intern_token(id));
 
             if self.match_token(&[TokenType::DotLBrace]) {
@@ -642,6 +644,7 @@ impl<'a> Parser<'a> {
                 let mut alias = None;
                 if self.match_token(&[TokenType::As]) {
                     let a = self.expect(TokenType::Identifier)?;
+                    binding_span = a.span;
                     alias = Some(self.intern_token(a));
                 }
                 target = UseTarget::Module(alias);
@@ -660,10 +663,7 @@ impl<'a> Parser<'a> {
         Ok(Decl {
             id: self.new_id(),
             span: start.to(self.stream.prev_span()),
-            name_span: path
-                .last()
-                .map(|_| self.stream.prev_span())
-                .unwrap_or(start),
+            name_span: binding_span,
             name,
             vis,
             docs: None,
@@ -677,24 +677,22 @@ impl<'a> Parser<'a> {
         let mut members = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
             let start_span = self.peek().span;
-            let mut member_path = Vec::new();
+            let first_tok = self.expect(TokenType::Identifier)?;
+            let mut member_path = vec![self.intern_token(first_tok)];
+            let mut binding_span = first_tok.span;
 
             // 1. Parse a dotted member path such as `env.Args`.
-            loop {
+            while self.match_token(&[TokenType::Dot]) {
                 let m_tok = self.expect(TokenType::Identifier)?;
+                binding_span = m_tok.span;
                 member_path.push(self.intern_token(m_tok));
-
-                if self.match_token(&[TokenType::Dot]) {
-                    continue;
-                } else {
-                    break;
-                }
             }
 
             // 2. Parse an optional alias.
             let mut alias = None;
             if self.match_token(&[TokenType::As]) {
                 let a_tok = self.expect(TokenType::Identifier)?;
+                binding_span = a_tok.span;
                 alias = Some(self.intern_token(a_tok));
             }
 
@@ -705,6 +703,7 @@ impl<'a> Parser<'a> {
                 path: member_path,
                 alias,
                 span: start_span.to(end_span),
+                binding_span,
             });
 
             // 4. Consume the member separator.

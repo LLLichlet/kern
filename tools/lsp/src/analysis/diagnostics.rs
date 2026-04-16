@@ -38,6 +38,7 @@ pub(super) fn diagnostics_from_session(
                 session,
                 diag,
                 fallback_file.as_ref(),
+                Some(&uri_by_path),
             ));
     }
 
@@ -62,7 +63,7 @@ pub(super) fn convert_diagnostic(
     session: &kernc_utils::Session,
     diagnostic: &kernc_utils::Diagnostic,
 ) -> Diagnostic {
-    convert_diagnostic_with_fallback(session, diagnostic, None)
+    convert_diagnostic_with_fallback(session, diagnostic, None, None)
 }
 
 pub(super) fn convert_diagnostic_for_document(
@@ -71,13 +72,20 @@ pub(super) fn convert_diagnostic_for_document(
     document: &OpenDocument,
 ) -> Diagnostic {
     let fallback = SourceFile::new(document.path.clone(), document.text.clone());
-    convert_diagnostic_with_fallback(session, diagnostic, Some(&fallback))
+    let uri_by_path = BTreeMap::from([(super::normalize_path(&document.path), String::new())]);
+    let mut converted =
+        convert_diagnostic_with_fallback(session, diagnostic, Some(&fallback), Some(&uri_by_path));
+    if let Some(related_information) = converted.related_information.as_mut() {
+        related_information.retain(|related| !related.location.uri.is_empty());
+    }
+    converted
 }
 
 fn convert_diagnostic_with_fallback(
     session: &kernc_utils::Session,
     diagnostic: &kernc_utils::Diagnostic,
     fallback_file: Option<&SourceFile>,
+    uri_by_path: Option<&BTreeMap<PathBuf, String>>,
 ) -> Diagnostic {
     Diagnostic {
         range: diagnostic_range(session, diagnostic.primary_span, fallback_file),
@@ -86,7 +94,7 @@ fn convert_diagnostic_with_fallback(
         message: diagnostic_message(diagnostic),
         code: diagnostic.code.map(|code| code.as_str().to_string()),
         tags: diagnostic_tags(diagnostic),
-        related_information: diagnostic_related_information(session, diagnostic),
+        related_information: diagnostic_related_information(session, diagnostic, uri_by_path),
     }
 }
 
@@ -148,13 +156,18 @@ fn diagnostic_tags(diagnostic: &kernc_utils::Diagnostic) -> Option<Vec<Diagnosti
 fn diagnostic_related_information(
     session: &kernc_utils::Session,
     diagnostic: &kernc_utils::Diagnostic,
+    uri_by_path: Option<&BTreeMap<PathBuf, String>>,
 ) -> Option<Vec<DiagnosticRelatedInformation>> {
     let related_information = diagnostic
         .related_spans
         .iter()
         .filter_map(|(span, message)| {
             let path = session.source_manager.get_file_path(span.file)?;
-            let uri = super::file_path_to_uri(path).ok()?;
+            let normalized = super::normalize_path(path);
+            let uri = uri_by_path
+                .and_then(|map| map.get(&normalized))
+                .cloned()
+                .or_else(|| super::file_path_to_uri(path).ok())?;
             Some(DiagnosticRelatedInformation {
                 location: Location {
                     uri,

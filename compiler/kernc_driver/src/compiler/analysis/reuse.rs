@@ -581,6 +581,7 @@ fn normalize_use_target_for_body_only_comparison(target: &mut ast::UseTarget) {
     if let ast::UseTarget::Members(members) = target {
         for member in members {
             member.span = Span::default();
+            member.binding_span = Span::default();
         }
     }
 }

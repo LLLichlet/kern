@@ -84,13 +84,13 @@ fn structured_quick_fix(
             lsp_diagnostic,
         )),
         Some(DiagnosticCode::RequiresLetMut) => {
-            let_mut_code_action(artifact, diagnostic, lsp_diagnostic)
+            let_mut_code_action(uri, artifact, diagnostic, lsp_diagnostic)
         }
         Some(DiagnosticCode::NonexhaustiveMatch) => {
-            add_match_catch_all_code_action(artifact, diagnostic, lsp_diagnostic)
+            add_match_catch_all_code_action(uri, artifact, diagnostic, lsp_diagnostic)
         }
         Some(DiagnosticCode::IrrefutableLetElse) => {
-            remove_irrefutable_let_else_code_action(artifact, diagnostic, lsp_diagnostic)
+            remove_irrefutable_let_else_code_action(uri, artifact, diagnostic, lsp_diagnostic)
         }
         _ => None,
     }
@@ -171,7 +171,7 @@ fn fallback_text_quick_fix(
         ));
     }
     if diagnostic.hints.iter().any(suggests_let_mut_fix) {
-        return let_mut_code_action(artifact, diagnostic, lsp_diagnostic);
+        return let_mut_code_action(uri, artifact, diagnostic, lsp_diagnostic);
     }
     if diagnostic.message == "match expression is not exhaustive"
         || diagnostic.message == "match expression must be exhaustive"
@@ -180,7 +180,7 @@ fn fallback_text_quick_fix(
             .iter()
             .any(|hint| hint.contains("catch-all branch") || hint.starts_with("missing variants:"))
     {
-        return add_match_catch_all_code_action(artifact, diagnostic, lsp_diagnostic);
+        return add_match_catch_all_code_action(uri, artifact, diagnostic, lsp_diagnostic);
     }
     if diagnostic.message == "irrefutable `let` bindings cannot use `else`"
         || diagnostic.message == "irrefutable `let` patterns cannot use `else`"
@@ -189,7 +189,7 @@ fn fallback_text_quick_fix(
             .iter()
             .any(|hint| hint.contains("remove the `else` block") && hint.contains("refutable"))
     {
-        return remove_irrefutable_let_else_code_action(artifact, diagnostic, lsp_diagnostic);
+        return remove_irrefutable_let_else_code_action(uri, artifact, diagnostic, lsp_diagnostic);
     }
 
     None
@@ -254,6 +254,7 @@ fn single_edit_code_action(
 }
 
 fn let_mut_code_action(
+    uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
     lsp_diagnostic: Diagnostic,
@@ -265,14 +266,8 @@ fn let_mut_code_action(
         .get_file(definition_span.file)?;
     let insertion_offset = let_mut_insertion_offset(file, definition_span.start)?;
     let insertion_range = empty_range_at(file, insertion_offset);
-    let target_uri = artifact
-        .session
-        .source_manager
-        .get_file_path(definition_span.file)
-        .and_then(|path| super::file_path_to_uri(path).ok())?;
-
     Some(insert_text_code_action(
-        &target_uri,
+        uri,
         "Change to `let mut`",
         "mut ",
         insertion_range,
@@ -362,6 +357,7 @@ fn unused_private_item_code_action(
 }
 
 fn add_match_catch_all_code_action(
+    uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
     lsp_diagnostic: Diagnostic,
@@ -385,7 +381,7 @@ fn add_match_catch_all_code_action(
     };
 
     Some(single_edit_code_action(
-        &file_uri(artifact, diagnostic.primary_span.file)?,
+        uri,
         "Add `_ => @unreachable()` arm",
         TextEdit {
             range: insertion_range,
@@ -397,6 +393,7 @@ fn add_match_catch_all_code_action(
 }
 
 fn remove_irrefutable_let_else_code_action(
+    uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
     lsp_diagnostic: Diagnostic,
@@ -413,7 +410,7 @@ fn remove_irrefutable_let_else_code_action(
     };
 
     Some(single_edit_code_action(
-        &file_uri(artifact, diagnostic.primary_span.file)?,
+        uri,
         "Remove invalid `else` branch",
         TextEdit {
             range: delete_range,
@@ -506,14 +503,6 @@ fn spans_overlap(left: kernc_utils::Span, right: kernc_utils::Span) -> bool {
 
 fn span_len(span: kernc_utils::Span) -> usize {
     span.end.saturating_sub(span.start)
-}
-
-fn file_uri(artifact: &AnalysisArtifact, file_id: kernc_utils::FileId) -> Option<String> {
-    artifact
-        .session
-        .source_manager
-        .get_file_path(file_id)
-        .and_then(|path| super::file_path_to_uri(path).ok())
 }
 
 fn top_level_token_offset(

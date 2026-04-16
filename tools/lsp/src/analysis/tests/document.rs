@@ -333,3 +333,39 @@ fn file_uri_roundtrips() {
     let parsed = uri_to_file_path(&uri).unwrap();
     assert_eq!(parsed, path);
 }
+
+#[test]
+fn untitled_uri_maps_to_stable_virtual_path() {
+    let uri = untitled_uri("Untitled-1");
+    let first = uri_to_analysis_path(&uri).unwrap();
+    let second = uri_to_analysis_path(&uri).unwrap();
+
+    assert_eq!(first, second);
+    assert!(first.to_string_lossy().contains("Untitled-1"));
+}
+
+#[test]
+fn untitled_document_is_analyzed_without_file_uri_error() {
+    let mut analysis = AnalysisEngine::default();
+    let uri = untitled_uri("Untitled-2");
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: "fn main() i32 { return 1; }\n".to_string(),
+        },
+    });
+
+    assert!(outcome.bundles.iter().any(|bundle| bundle.uri == uri));
+    assert!(outcome
+        .bundles
+        .iter()
+        .flat_map(|bundle| &bundle.diagnostics)
+        .all(|diagnostic| !diagnostic.message.contains("only file://")));
+    assert_eq!(
+        analysis.documents.get(&uri).unwrap().path,
+        uri_to_analysis_path(&uri).unwrap()
+    );
+}

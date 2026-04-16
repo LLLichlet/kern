@@ -26,6 +26,7 @@ impl CompilerDriver {
             .map(|reference| (reference.reference_span, reference.definition_span))
             .collect::<Vec<_>>();
         let hovers = self.collect_analysis_hovers(&ctx);
+        let definition_links = self.collect_analysis_definition_links(&ctx);
         let semantic_entries = self.collect_analysis_semantic_entries(&symbols, &ctx, &references);
         let completion_model = self.collect_completion_model(&mut ctx, &analysis_asts);
         let signature_model = self.collect_signature_model(&mut ctx, &analysis_asts);
@@ -42,6 +43,7 @@ impl CompilerDriver {
             symbols,
             references,
             hovers,
+            definition_links,
             semantic_entries,
             asts: analysis_asts,
             resolved_globals,
@@ -207,6 +209,7 @@ impl CompilerDriver {
             symbols: Vec::new(),
             references: Vec::new(),
             hovers: Vec::new(),
+            definition_links: Vec::new(),
             semantic_entries: Vec::new(),
             asts: Vec::new(),
             resolved_globals: Vec::new(),

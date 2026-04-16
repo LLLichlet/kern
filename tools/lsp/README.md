@@ -59,7 +59,8 @@ plus a small set of compiler-guided semantic repairs.
 
 Current limitations:
 
-- only `file://` URIs are supported
+- `file://` and `untitled:` document URIs are supported, but other custom URI
+  schemes are still rejected
 - analysis defaults to `--library-bundle std`, but this can be overridden at
   server startup with `--library-bundle <none|base|std>`,
   `--module-path name=path`, and `--module-interface-path name=path`

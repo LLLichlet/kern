@@ -20,10 +20,14 @@ import {
     resolveCraftCommand,
 } from "./craftContext";
 import {
+    type AutoSuggestMode,
+    type AutoSuggestDocument,
     createAutoSuggestRequest,
+    createAutoSuggestDocument,
     matchesAutoSuggestRequest,
     shouldAutoTriggerSuggest,
     shouldHideAutoTriggeredSuggest,
+    updateAutoSuggestDocument,
 } from "./clientBehavior";
 import { DiagnosticBuffer } from "./diagnosticBuffer";
 
@@ -37,20 +41,28 @@ let diagnosticBuffer:
 let pendingAutoSuggestRequest:
     | ReturnType<typeof createAutoSuggestRequest>
     | undefined;
+let pendingAutoSuggestTimer: NodeJS.Timeout | undefined;
+let autoSuggestDocuments = new Map<string, AutoSuggestDocument>();
 
 const DIAGNOSTIC_DISPLAY_DELAY_MS = 180;
+const AUTO_SUGGEST_DEBOUNCE_MS = 90;
 
 type WorkspaceRoot = {
     fsPath: string;
     name: string;
 };
 
+const KERN_DOCUMENT_SELECTOR = [
+    { scheme: "file", language: "kern" },
+    { scheme: "untitled", language: "kern" },
+];
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     outputChannel = vscode.window.createOutputChannel("Kern Language Server");
-    statusItem = vscode.languages.createLanguageStatusItem("kern.lsp.status", {
-        language: "kern",
-        scheme: "file",
-    });
+    statusItem = vscode.languages.createLanguageStatusItem(
+        "kern.lsp.status",
+        KERN_DOCUMENT_SELECTOR,
+    );
     statusItem.name = "Kern Language Server";
     statusItem.command = {
         command: "kern.showLanguageServerOutput",
@@ -75,6 +87,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
 
     context.subscriptions.push(
+        vscode.workspace.onDidCloseTextDocument((document) => {
+            autoSuggestDocuments.delete(document.uri.toString());
+        }),
+    );
+    context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (
                 event.affectsConfiguration("kern.server") ||
@@ -98,30 +115,81 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 return;
             }
             if (event.contentChanges.length !== 1) {
+                autoSuggestDocuments.set(
+                    event.document.uri.toString(),
+                    createAutoSuggestDocument(event.document.getText()),
+                );
                 return;
             }
 
+            cancelPendingAutoSuggest();
+
             const change = event.contentChanges[0];
+            const documentUri = event.document.uri.toString();
+            const autoSuggestDocument = autoSuggestDocuments.get(documentUri);
+            const nextAutoSuggestDocument = autoSuggestDocument
+                ? updateAutoSuggestDocument(
+                      autoSuggestDocument,
+                      {
+                          line: change.range.start.line,
+                          character: change.range.start.character,
+                      },
+                      {
+                          line: change.range.end.line,
+                          character: change.range.end.character,
+                      },
+                      change.text,
+                  )
+                : createAutoSuggestDocument(event.document.getText());
+            autoSuggestDocuments.set(documentUri, nextAutoSuggestDocument);
             const insertedOffset =
                 event.document.offsetAt(change.range.start) + change.text.length;
+            const autoSuggestMode = vscode.workspace
+                .getConfiguration("kern")
+                .get<AutoSuggestMode>("editor.autoSuggest", "keywords");
             if (
                 !shouldAutoTriggerSuggest(
+                    autoSuggestMode,
                     change.text,
                     change.rangeLength ?? 0,
-                    event.document.getText(),
-                    insertedOffset,
+                    nextAutoSuggestDocument,
+                    {
+                        line: change.range.start.line,
+                        character: change.range.start.character + change.text.length,
+                    },
                 )
             ) {
                 return;
             }
 
             pendingAutoSuggestRequest = createAutoSuggestRequest(
-                event.document.uri.toString(),
+                documentUri,
                 event.document.version,
                 insertedOffset,
                 Date.now(),
             );
-            void vscode.commands.executeCommand("editor.action.triggerSuggest");
+            const request = pendingAutoSuggestRequest;
+            pendingAutoSuggestTimer = setTimeout(() => {
+                pendingAutoSuggestTimer = undefined;
+                const activeEditor = vscode.window.activeTextEditor;
+                if (
+                    !activeEditor ||
+                    activeEditor.document.uri.toString() !== request.documentUri ||
+                    activeEditor.document.version !== request.documentVersion
+                ) {
+                    return;
+                }
+                if (
+                    !activeEditor.selection.isEmpty ||
+                    activeEditor.document.offsetAt(activeEditor.selection.active) !== request.offset
+                ) {
+                    return;
+                }
+                if (pendingAutoSuggestRequest !== request) {
+                    return;
+                }
+                void vscode.commands.executeCommand("editor.action.triggerSuggest");
+            }, AUTO_SUGGEST_DEBOUNCE_MS);
         }),
     );
 
@@ -174,7 +242,7 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
     const server = resolution;
     fileWatchers = createLanguageServerWatchers();
     diagnosticBuffer = new DiagnosticBuffer(DIAGNOSTIC_DISPLAY_DELAY_MS);
-    pendingAutoSuggestRequest = undefined;
+    cancelPendingAutoSuggest();
     appendOutput(
         `Starting kern-lsp (${server.source}): ${server.command} ${server.args.join(" ")}`.trim(),
     );
@@ -198,7 +266,7 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
     };
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ scheme: "file", language: "kern" }],
+        documentSelector: KERN_DOCUMENT_SELECTOR,
         outputChannel,
         revealOutputChannelOn: RevealOutputChannelOn.Never,
         initializationFailedHandler: (error) => {
@@ -324,7 +392,8 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
 }
 
 async function stopLanguageServer(): Promise<void> {
-    pendingAutoSuggestRequest = undefined;
+    cancelPendingAutoSuggest();
+    autoSuggestDocuments.clear();
     disposeWatchers();
     diagnosticBuffer?.clear();
     diagnosticBuffer = undefined;
@@ -339,6 +408,14 @@ async function stopLanguageServer(): Promise<void> {
 
 function appendOutput(message: string): void {
     outputChannel?.appendLine(`[kern] ${message}`);
+}
+
+function cancelPendingAutoSuggest(): void {
+    if (pendingAutoSuggestTimer) {
+        clearTimeout(pendingAutoSuggestTimer);
+        pendingAutoSuggestTimer = undefined;
+    }
+    pendingAutoSuggestRequest = undefined;
 }
 
 function workspaceRoots(): WorkspaceRoot[] {

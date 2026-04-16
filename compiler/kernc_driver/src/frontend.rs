@@ -619,6 +619,7 @@ impl CachedAstRebinder<'_> {
             *alias = self.rebind_symbol(*alias);
         }
         self.rebind_span(&mut member.span);
+        self.rebind_span(&mut member.binding_span);
     }
 
     fn rebind_expr(&mut self, expr: &mut ast::Expr) {

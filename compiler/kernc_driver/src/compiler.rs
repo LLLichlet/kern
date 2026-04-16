@@ -109,6 +109,12 @@ pub struct AnalysisHover {
     pub contents: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct AnalysisDefinitionLink {
+    pub definition_span: kernc_utils::Span,
+    pub linked_definition_span: kernc_utils::Span,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnalysisSemanticRole {
     Definition,
@@ -512,6 +518,7 @@ pub struct AnalysisArtifact {
     pub symbols: Vec<AnalysisSymbol>,
     pub references: Vec<AnalysisReference>,
     pub hovers: Vec<AnalysisHover>,
+    pub definition_links: Vec<AnalysisDefinitionLink>,
     pub semantic_entries: Vec<AnalysisSemanticEntry>,
     asts: Vec<(DefId, ast::Module)>,
     resolved_globals: Vec<ResolvedGlobalType>,

@@ -111,14 +111,14 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                     }
 
                     let name_to_bind = alias.unwrap_or(target_name);
-                    self.define_import(
-                        current_scope,
-                        name_to_bind,
-                        symbol_info.clone(),
-                        import.vis,
-                        import.span,
-                        emit_errors,
-                    );
+                        self.define_import(
+                            current_scope,
+                            name_to_bind,
+                            symbol_info.clone(),
+                            import.vis,
+                            import.binding_span,
+                            emit_errors,
+                        );
                     true
                 } else {
                     if emit_errors {

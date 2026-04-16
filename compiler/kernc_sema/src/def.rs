@@ -72,6 +72,7 @@ pub struct ImportDef {
     pub target: ast::UseTarget,
     pub vis: Visibility,
     pub span: Span,
+    pub binding_span: Span,
 }
 
 #[derive(Debug, Clone)]

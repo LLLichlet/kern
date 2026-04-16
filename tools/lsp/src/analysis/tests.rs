@@ -5,13 +5,15 @@ mod dirty_cache;
 mod document;
 mod navigation;
 mod project_resolution;
+mod real_projects;
 mod semantic_tokens;
 
 use super::cache::AnalysisCacheKey;
 use super::semantic::{SemanticModifiers, SemanticTokenTypes};
 use super::{
     AnalysisEngine, AnalysisSettings, DiagnosticBundle, byte_offset_to_position, cleared_uris,
-    file_path_to_uri, hash_source_text, normalize_path, position_to_byte_offset, uri_to_file_path,
+    file_path_to_uri, hash_source_text, normalize_path, position_to_byte_offset,
+    uri_to_analysis_path, uri_to_file_path,
 };
 use crate::protocol::{
     DiagnosticTag, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -58,6 +60,35 @@ fn unique_temp_file_path(prefix: &str) -> PathBuf {
         nanos,
         counter
     ))
+}
+
+fn untitled_uri(name: &str) -> String {
+    format!("untitled:{name}")
+}
+
+fn workspace_root() -> PathBuf {
+    normalize_path(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap(),
+    )
+}
+
+fn open_workspace_document(analysis: &mut AnalysisEngine, path: &PathBuf) -> (String, String) {
+    let uri = file_path_to_uri(path).unwrap();
+    let source = fs::read_to_string(path).unwrap();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.clone(),
+        },
+    });
+
+    (uri, source)
 }
 
 fn position_of_nth(source: &str, needle: &str, occurrence: usize, char_offset: u32) -> Position {

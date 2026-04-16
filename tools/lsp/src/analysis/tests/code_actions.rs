@@ -197,6 +197,45 @@ fn code_actions_offer_let_mut_fix() {
 }
 
 #[test]
+fn code_actions_keep_untitled_uri_for_same_file_fix() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() void {\n    let value = 1;\n    value = 2;\n}\n";
+    let uri = untitled_uri("Untitled-CodeAction");
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 2,
+                    character: 4,
+                },
+                end: Position {
+                    line: 2,
+                    character: 13,
+                },
+            },
+        )
+        .unwrap();
+
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Change to `let mut`")
+        .unwrap();
+    let edit = action.edit.as_ref().unwrap();
+    assert!(edit.changes.contains_key(&uri));
+}
+
+#[test]
 fn code_actions_offer_unused_binding_rename_fix() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn main(unused_param: i32) i32 {\n    return 0;\n}\n";

@@ -495,9 +495,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
 
             let super_trait = match self.ctx.type_registry.get(inst_super_norm) {
-                TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => {
-                    Some((*super_def_id, super_args.to_vec(), super_assoc_bindings.to_vec()))
-                }
+                TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => Some((
+                    *super_def_id,
+                    super_args.to_vec(),
+                    super_assoc_bindings.to_vec(),
+                )),
                 _ => None,
             };
             if let Some((super_def_id, super_args, super_assoc_bindings)) = super_trait {
@@ -632,9 +634,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
 
             let super_trait = match self.ctx.type_registry.get(inst_super_norm) {
-                TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => {
-                    Some((*super_def_id, super_args.to_vec(), super_assoc_bindings.to_vec()))
-                }
+                TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => Some((
+                    *super_def_id,
+                    super_args.to_vec(),
+                    super_assoc_bindings.to_vec(),
+                )),
                 _ => None,
             };
             if let Some((super_def_id, super_args, super_assoc_bindings)) = super_trait

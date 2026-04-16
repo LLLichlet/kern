@@ -97,10 +97,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     pub(crate) fn ensure_impl_signature_types_resolved(&mut self, impl_id: DefId) {
-        let Some(impl_ptr) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| match def {
-            Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-            _ => None,
-        }) else {
+        let Some(impl_ptr) = self
+            .ctx
+            .defs
+            .get(impl_id.0 as usize)
+            .and_then(|def| match def {
+                Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                _ => None,
+            })
+        else {
             return;
         };
         // Safety: this helper only reads the impl definition while mutating type state. It never

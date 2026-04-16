@@ -34,6 +34,16 @@
   ],
   "main": "./extension.js",
   "contributes": {
+    "configurationDefaults": {
+      "[kern]": {
+        "editor.quickSuggestions": {
+          "other": true,
+          "comments": false,
+          "strings": false
+        },
+        "editor.wordBasedSuggestions": "off"
+      }
+    },
     "languages": [
       {
         "id": "kern",
@@ -119,6 +129,21 @@
           "type": "boolean",
           "default": false,
           "description": "Disable default craft features for workspace analysis."
+        },
+        "kern.editor.autoSuggest": {
+          "type": "string",
+          "default": "keywords",
+          "enum": [
+            "off",
+            "keywords",
+            "aggressive"
+          ],
+          "enumDescriptions": [
+            "Never force-open the suggestion widget from the extension.",
+            "Only auto-trigger suggestions for likely keyword prefixes in code positions.",
+            "Auto-trigger suggestions for most identifier typing in code positions."
+          ],
+          "description": "Controls how aggressively the Kern extension asks VS Code to open completions while typing. This does not affect explicit completion requests."
         }
       }
     }

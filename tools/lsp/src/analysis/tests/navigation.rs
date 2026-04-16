@@ -524,6 +524,30 @@ fn hover_resolves_std_module_docs_from_use_alias() {
 }
 
 #[test]
+fn goto_definition_in_untitled_document_preserves_untitled_uri() {
+    let mut analysis = AnalysisEngine::default();
+    let uri = untitled_uri("Untitled-Definition");
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "helper()", 1, 2))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(definition.uri, uri);
+    assert_eq!(definition.range.start, position_of_nth(source, "helper", 0, 0));
+}
+
+#[test]
 fn hover_resolves_std_reexported_function_docs_from_member_access() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
@@ -667,6 +691,166 @@ fn hover_resolves_struct_field_from_reference() {
         .unwrap();
 
     assert!(hover.contents.value.contains("field value: i32"));
+}
+
+#[test]
+fn hover_resolves_struct_field_from_literal_initializer() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    return counter.value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_struct_field_literal_initializer", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "value", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("field value: i32"));
+}
+
+#[test]
+fn hover_renders_complex_nested_pointer_field_types() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Payload = struct { x: **i32, y: *mut *mut f64 };\n",
+        "type Complex = struct { ptr: *mut *[]*[4]Payload };\n",
+        "fn main() i32 {\n",
+        "    let complex = Complex.{ ptr: @trap() };\n",
+        "    let _ = complex.ptr;\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_complex_nested_pointer_field", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "ptr", 2, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("field ptr: *mut *[]*[4]Payload"),
+        "{}",
+        hover.contents.value
+    );
+}
+
+#[test]
+fn definition_resolves_struct_field_from_literal_initializer() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    return counter.value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("definition_struct_field_literal_initializer", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "value", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(definition.uri, uri);
+    assert_eq!(
+        definition.range.start,
+        position_of_nth(source, "value", 0, 0)
+    );
+}
+
+#[test]
+fn document_symbols_render_complex_impl_target_types() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Payload = struct { x: **i32, y: *mut *mut f64 };\n",
+        "impl *mut *[]*[4]Payload {\n",
+        "    fn depth() i32 { return 0; }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("document_symbols_complex_impl_target", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let symbols = analysis.document_symbols(&uri).unwrap();
+    let impl_symbol = symbols
+        .iter()
+        .find(|symbol| symbol.detail.as_deref() == Some("impl"))
+        .expect("expected impl symbol");
+
+    assert_eq!(impl_symbol.name, "impl *mut *[]*[4]Payload");
+}
+
+#[test]
+fn document_symbols_render_anonymous_struct_impl_target_types() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "impl *mut [4]struct { x: **i32, y: *mut *mut f64 } {\n",
+        "    fn depth() i32 { return 0; }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("document_symbols_anon_struct_impl_target", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let symbols = analysis.document_symbols(&uri).unwrap();
+    let impl_symbol = symbols
+        .iter()
+        .find(|symbol| symbol.detail.as_deref() == Some("impl"))
+        .expect("expected impl symbol");
+
+    assert_eq!(
+        impl_symbol.name,
+        "impl *mut [4]struct { x: **i32, y: *mut *mut f64 }"
+    );
 }
 
 #[test]
@@ -823,7 +1007,11 @@ fn hover_resolves_local_definition_without_references() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("var value: i32"));
+    assert!(
+        hover.contents.value.contains("var value: i32"),
+        "{}",
+        hover.contents.value
+    );
 }
 
 #[test]
@@ -855,6 +1043,380 @@ fn hover_on_impl_method_definition_prefers_method_span() {
     assert!(hover.contents.value.contains("fn get:"));
     assert_eq!(range.start, position_of_nth(source, "get", 0, 0));
     assert_eq!(range.end, position_of_nth(source, "get", 0, 3));
+}
+
+#[test]
+fn hover_on_destructure_pun_prefers_local_binding() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let Counter.{ value } = counter;\n",
+        "    return value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_destructure_pun", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "value", 2, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("var value: i32"));
+}
+
+#[test]
+fn hover_on_destructure_payload_binding_prefers_local_binding() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "pub type Option[T] = enum { Some: T, None };\n",
+        "fn main(value: Option[i32]) i32 {\n",
+        "    let .{ Some: inner } = value else return 0;\n",
+        "    return inner;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_destructure_payload_binding", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "inner", 0, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("var inner: i32"));
+}
+
+#[test]
+fn definition_from_destructure_payload_binding_reference_resolves_local_binding() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "pub type Option[T] = enum { Some: T, None };\n",
+        "fn main(value: Option[i32]) i32 {\n",
+        "    let .{ Some: inner } = value else return 0;\n",
+        "    return inner;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("definition_destructure_payload_binding", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "inner", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(definition.uri, uri);
+    assert_eq!(definition.range.start, position_of_nth(source, "inner", 0, 0));
+}
+
+#[test]
+fn goto_definition_on_destructure_pun_definition_prefers_local_binding() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let Counter.{ value } = counter;\n",
+        "    return value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("definition_destructure_pun_definition", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "value", 2, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(definition.uri, uri);
+    assert_eq!(definition.range.start, position_of_nth(source, "value", 2, 0));
+}
+
+#[test]
+fn references_from_destructure_pun_definition_follow_local_binding() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let Counter.{ value } = counter;\n",
+        "    return value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("references_destructure_pun_definition", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let locations = analysis
+        .references(&uri, position_of_nth(source, "value", 2, 1), true)
+        .unwrap();
+
+    assert_eq!(locations.len(), 2);
+    assert_eq!(locations[0].range.start, position_of_nth(source, "value", 2, 0));
+    assert_eq!(locations[1].range.start, position_of_nth(source, "value", 3, 0));
+}
+
+#[test]
+fn document_highlights_on_destructure_pun_definition_follow_local_binding() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let Counter.{ value } = counter;\n",
+        "    return value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("highlights_destructure_pun_definition", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let highlights = analysis
+        .document_highlights(&uri, position_of_nth(source, "value", 2, 1))
+        .unwrap();
+
+    assert_eq!(highlights.len(), 2);
+    assert_eq!(highlights[0].range.start, position_of_nth(source, "value", 2, 0));
+    assert_eq!(highlights[1].range.start, position_of_nth(source, "value", 3, 0));
+}
+
+#[test]
+fn rename_destructure_payload_binding_updates_definition_and_references() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "pub type Option[T] = enum { Some: T, None };\n",
+        "fn main(value: Option[i32]) i32 {\n",
+        "    let .{ Some: inner } = value else return 0;\n",
+        "    return inner;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("rename_destructure_payload_binding", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let edit = analysis
+        .rename(&uri, position_of_nth(source, "inner", 0, 1), "payload")
+        .unwrap();
+    let edits = edit.changes.get(&uri).unwrap();
+
+    assert_eq!(edits.len(), 2);
+    assert!(edits.iter().all(|edit| edit.new_text == "payload"));
+    assert_eq!(edits[0].range.start, position_of_nth(source, "inner", 0, 0));
+    assert_eq!(edits[1].range.start, position_of_nth(source, "inner", 1, 0));
+}
+
+#[test]
+fn hover_on_match_payload_binding_prefers_local_binding() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "pub type Option[T] = enum { Some: T, None };\n",
+        "fn main(value: Option[i32]) i32 {\n",
+        "    return match (value) {\n",
+        "        .{ Some: payload } => payload,\n",
+        "        .None => 0,\n",
+        "    };\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_match_payload_binding", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "payload", 0, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("var payload: i32"));
+}
+
+#[test]
+fn goto_definition_resolves_trait_object_method_references_to_trait_method() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Base = trait { foo: fn() i32, };\n",
+        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{3};\n",
+        "    let base = *Base.{ value.& };\n",
+        "    return base.foo();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("definition_trait_object_method", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "foo", 2, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(definition.uri, uri);
+    assert_eq!(definition.range.start, position_of_nth(source, "foo", 0, 0));
+}
+
+#[test]
+fn hover_resolves_trait_object_method_references_to_trait_method() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Base = trait { foo: fn() i32, };\n",
+        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{3};\n",
+        "    let base = *Base.{ value.& };\n",
+        "    return base.foo();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_trait_object_method", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "foo", 2, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("fn foo:"));
+}
+
+#[test]
+fn references_for_trait_method_include_impl_definition_and_call_sites() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Base = trait { foo: fn() i32, };\n",
+        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{3};\n",
+        "    let base = *Base.{ value.& };\n",
+        "    return base.foo();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("references_trait_method_group", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let locations = analysis
+        .references(&uri, position_of_nth(source, "foo", 2, 1), true)
+        .unwrap();
+
+    assert_eq!(locations.len(), 3);
+    assert_eq!(locations[0].range.start, position_of_nth(source, "foo", 0, 0));
+    assert_eq!(locations[1].range.start, position_of_nth(source, "foo", 1, 0));
+    assert_eq!(locations[2].range.start, position_of_nth(source, "foo", 2, 0));
+}
+
+#[test]
+fn document_highlights_for_trait_impl_method_include_trait_and_call_sites() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Base = trait { foo: fn() i32, };\n",
+        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{3};\n",
+        "    let base = *Base.{ value.& };\n",
+        "    return base.foo();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("highlights_trait_method_group", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let highlights = analysis
+        .document_highlights(&uri, position_of_nth(source, "foo", 1, 1))
+        .unwrap();
+
+    assert_eq!(highlights.len(), 3);
+    assert_eq!(highlights[0].range.start, position_of_nth(source, "foo", 0, 0));
+    assert_eq!(highlights[1].range.start, position_of_nth(source, "foo", 1, 0));
+    assert_eq!(highlights[2].range.start, position_of_nth(source, "foo", 2, 0));
 }
 
 #[test]
@@ -942,6 +1504,110 @@ fn rename_updates_local_binding_definition_and_references() {
     assert_eq!(edits[0].range.start, position_of_nth(source, "value", 0, 0));
     assert_eq!(edits[1].range.start, position_of_nth(source, "value", 1, 0));
     assert_eq!(edits[2].range.start, position_of_nth(source, "value", 2, 0));
+}
+
+#[test]
+fn rename_destructure_pun_expands_pattern_and_updates_uses() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    let Counter.{ value } = counter;\n",
+        "    return value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("rename_destructure_pun", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let edit = analysis
+        .rename(&uri, position_of_nth(source, "value", 2, 1), "answer")
+        .unwrap_or_else(|err| panic!("{err}"));
+    let edits = edit.changes.get(&uri).unwrap();
+
+    assert_eq!(edits.len(), 2);
+    assert_eq!(edits[0].range.start, position_of_nth(source, "value", 2, 0));
+    assert_eq!(edits[0].new_text, "value: answer");
+    assert_eq!(edits[1].range.start, position_of_nth(source, "value", 3, 0));
+    assert_eq!(edits[1].new_text, "answer");
+}
+
+#[test]
+fn rename_trait_method_reference_updates_trait_impl_and_call_sites() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Base = trait { foo: fn() i32, };\n",
+        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{3};\n",
+        "    let base = *Base.{ value.& };\n",
+        "    return base.foo();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("rename_trait_method_reference", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let edit = analysis
+        .rename(&uri, position_of_nth(source, "foo", 2, 1), "read")
+        .unwrap();
+    let edits = edit.changes.get(&uri).unwrap();
+
+    assert_eq!(edits.len(), 3);
+    assert!(edits.iter().all(|edit| edit.new_text == "read"));
+    assert_eq!(edits[0].range.start, position_of_nth(source, "foo", 0, 0));
+    assert_eq!(edits[1].range.start, position_of_nth(source, "foo", 1, 0));
+    assert_eq!(edits[2].range.start, position_of_nth(source, "foo", 2, 0));
+}
+
+#[test]
+fn rename_trait_impl_method_updates_trait_and_call_sites() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Base = trait { foo: fn() i32, };\n",
+        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{3};\n",
+        "    let base = *Base.{ value.& };\n",
+        "    return base.foo();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("rename_trait_impl_method", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let edit = analysis
+        .rename(&uri, position_of_nth(source, "foo", 1, 1), "read")
+        .unwrap();
+    let edits = edit.changes.get(&uri).unwrap();
+
+    assert_eq!(edits.len(), 3);
+    assert!(edits.iter().all(|edit| edit.new_text == "read"));
+    assert_eq!(edits[0].range.start, position_of_nth(source, "foo", 0, 0));
+    assert_eq!(edits[1].range.start, position_of_nth(source, "foo", 1, 0));
+    assert_eq!(edits[2].range.start, position_of_nth(source, "foo", 2, 0));
 }
 
 #[test]

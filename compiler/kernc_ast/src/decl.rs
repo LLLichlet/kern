@@ -126,6 +126,7 @@ pub struct UseMember {
     pub path: Vec<SymbolId>,
     pub alias: Option<SymbolId>,
     pub span: Span,
+    pub binding_span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

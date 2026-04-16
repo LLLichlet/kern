@@ -793,10 +793,10 @@ fn function_path(ctx: &SemaContext<'_>, function: &FunctionDef) -> String {
 }
 
 fn impl_path(ctx: &SemaContext<'_>, impl_def: &ImplDef) -> String {
-    let mut target = type_path_label(ctx, &impl_def.target_type);
+    let mut target = type_node_label(ctx, &impl_def.target_type);
     if let Some(trait_type) = &impl_def.trait_type {
         target.push_str(" as ");
-        target.push_str(&type_path_label(ctx, trait_type));
+        target.push_str(&type_node_label(ctx, trait_type));
     }
     if let Some(module_id) = impl_def.parent_module {
         format!("{}.{}", module_path(ctx, module_id), target)
@@ -894,23 +894,6 @@ fn generic_params_label(ctx: &SemaContext<'_>, generics: &[ast::GenericParam]) -
         .map(|param| ctx.resolve(param.name).to_string())
         .collect::<Vec<_>>();
     format!("[{}]", names.join(", "))
-}
-
-fn type_path_label(ctx: &SemaContext<'_>, type_node: &ast::TypeNode) -> String {
-    let mut text = type_node_label(ctx, type_node);
-    loop {
-        let trimmed = text.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("*mut ") {
-            text = rest.to_string();
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix('*') {
-            text = rest.trim_start().to_string();
-            continue;
-        }
-        break;
-    }
-    text
 }
 
 fn trait_method_signature(ctx: &SemaContext<'_>, method: &ast::StructFieldDef) -> Option<String> {
@@ -1201,6 +1184,119 @@ mod tests {
     }
 
     #[test]
+    fn collect_kmeta_doc_items_keep_pointer_impl_targets_distinct() {
+        let mut session = Session::new();
+        let source = "i32 *i32 Marker";
+        let file_id = session
+            .source_manager
+            .add_file("doc_test.rn".to_string(), source.to_string());
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_name = ctx.intern("root");
+        let marker_name = ctx.intern("Marker");
+        let tag_name = ctx.intern("tag");
+        let i32_name = ctx.intern("i32");
+
+        let module_id = ctx.add_def(Def::Module(ModuleDef {
+            id: DefId(0),
+            name: root_name,
+            parent: None,
+            is_imported: false,
+            scope_id: ScopeId(0),
+            dir_path: PathBuf::new(),
+            file_id,
+            submodules: HashMap::new(),
+            items: Vec::new(),
+            imports: Vec::new(),
+            is_init: true,
+            docs: None,
+        }));
+
+        let value_target = path_type(file_id, 0, 3, i32_name);
+        let pointer_target = pointer_type(file_id, 4, 8, path_type(file_id, 5, 8, i32_name));
+        let trait_type = path_type(file_id, 9, 15, marker_name);
+
+        let value_impl_id = ctx.add_def(Def::Impl(ImplDef {
+            id: DefId(1),
+            parent_module: Some(module_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            target_type: value_target,
+            trait_type: Some(trait_type.clone()),
+            assoc_types: Vec::new(),
+            methods: Vec::new(),
+            span: Span::default(),
+        }));
+
+        let pointer_impl_id = ctx.add_def(Def::Impl(ImplDef {
+            id: DefId(2),
+            parent_module: Some(module_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            target_type: pointer_target,
+            trait_type: Some(trait_type),
+            assoc_types: Vec::new(),
+            methods: Vec::new(),
+            span: Span::default(),
+        }));
+
+        ctx.add_def(Def::Function(FunctionDef {
+            id: DefId(3),
+            name: tag_name,
+            name_span: Span::default(),
+            vis: Visibility::Private,
+            parent: Some(value_impl_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: void_type(),
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: Some(doc_block("Value tag.")),
+            attributes: Vec::new(),
+        }));
+
+        ctx.add_def(Def::Function(FunctionDef {
+            id: DefId(4),
+            name: tag_name,
+            name_span: Span::default(),
+            vis: Visibility::Private,
+            parent: Some(pointer_impl_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: void_type(),
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: Some(doc_block("Pointer tag.")),
+            attributes: Vec::new(),
+        }));
+
+        let items = collect_kmeta_doc_items(&ctx);
+        let paths = items
+            .iter()
+            .map(|item| item.path.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(paths.contains(&"root.i32 as Marker.tag"));
+        assert!(paths.contains(&"root.*i32 as Marker.tag"));
+    }
+
+    #[test]
     fn collect_kmeta_doc_items_include_public_struct_fields_in_signature() {
         let mut session = Session::new();
         let file_id = session
@@ -1320,6 +1416,26 @@ mod tests {
             id: NodeId(0),
             span: Span::default(),
             kind: ast::TypeKind::Void,
+        }
+    }
+
+    fn pointer_type(
+        file_id: kernc_utils::FileId,
+        start: usize,
+        end: usize,
+        elem: ast::TypeNode,
+    ) -> ast::TypeNode {
+        ast::TypeNode {
+            id: NodeId(0),
+            span: Span {
+                file: file_id,
+                start,
+                end,
+            },
+            kind: ast::TypeKind::Pointer {
+                is_mut: false,
+                elem: Box::new(elem),
+            },
         }
     }
 }

@@ -2,7 +2,9 @@ use super::{AnalysisOutcome, TextDocumentContentChangeEvent};
 use crate::protocol::{Position, Range};
 use kernc_lexer::{Token, TokenType, Tokenizer};
 use kernc_utils::FileId;
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -175,6 +177,10 @@ pub(super) fn single_server_diagnostic(uri: String, message: impl Into<String>) 
     }
 }
 
+pub(super) fn uri_to_analysis_path(uri: &str) -> Option<PathBuf> {
+    uri_to_file_path(uri).or_else(|| untitled_uri_to_path(uri))
+}
+
 pub(super) fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
     let raw = uri.strip_prefix("file://")?;
     let decoded = percent_decode(raw).ok()?;
@@ -192,6 +198,12 @@ pub(super) fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
     }
 }
 
+fn untitled_uri_to_path(uri: &str) -> Option<PathBuf> {
+    let raw = uri.strip_prefix("untitled:")?;
+    let decoded = percent_decode(raw).unwrap_or_else(|_| raw.to_string());
+    Some(untitled_root().join(untitled_file_name(uri, &decoded)))
+}
+
 pub(super) fn file_path_to_uri(path: &Path) -> io::Result<String> {
     let normalized =
         normalize_platform_path(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
@@ -206,6 +218,58 @@ pub(super) fn file_path_to_uri(path: &Path) -> io::Result<String> {
     #[cfg(not(windows))]
     {
         Ok(format!("file://{}", percent_encode(&raw)))
+    }
+}
+
+fn untitled_root() -> PathBuf {
+    #[cfg(windows)]
+    {
+        PathBuf::from(r"C:\__kern_lsp_untitled__")
+    }
+
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/__kern_lsp_untitled__")
+    }
+}
+
+fn untitled_file_name(uri: &str, decoded: &str) -> String {
+    let name_hint = decoded
+        .rsplit(['/', '\\'])
+        .find(|segment| !segment.is_empty())
+        .unwrap_or("untitled");
+    let sanitized = sanitize_untitled_name(name_hint);
+    let (stem, ext) = split_file_name(&sanitized);
+    let mut hasher = DefaultHasher::new();
+    uri.hash(&mut hasher);
+    let hash = hasher.finish();
+    format!("{stem}-{hash:016x}{ext}")
+}
+
+fn sanitize_untitled_name(name: &str) -> String {
+    let mut sanitized = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        sanitized.push_str("untitled");
+    }
+    if !sanitized.contains('.') {
+        sanitized.push_str(".rn");
+    }
+    sanitized
+}
+
+fn split_file_name(name: &str) -> (&str, &str) {
+    match name.rfind('.') {
+        Some(index) if index > 0 => (&name[..index], &name[index..]),
+        _ => (name, ""),
     }
 }
 

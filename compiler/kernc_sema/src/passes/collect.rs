@@ -143,6 +143,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         target: target.clone(),
                         vis: decl.vis,
                         span: decl.span,
+                        binding_span: decl.name_span,
                     });
                 }
                 DeclKind::ModDecl => {
@@ -224,6 +225,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Decl {
                     kind: DeclKind::Use { kind, path, target },
                     span,
+                    name_span,
                     ..
                 } => {
                     imports.push(ImportDef {
@@ -232,6 +234,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         target,
                         vis: decl.vis,
                         span,
+                        binding_span: name_span,
                     });
                 }
                 Decl {

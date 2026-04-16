@@ -204,6 +204,11 @@ Current explicit boundary:
 - `--emit-llvm` with `--codegen-units > 1` requires `--lto full`
 - preserved per-CGU linker-input directories are incompatible with `--lto full`
 - `--link-only` cannot perform LTO
+- ThinLTO compile-only native-object preservation keeps the planned per-CGU
+  native linker inputs when they remain directly linkable, and otherwise falls
+  back to a single merged native linker input. If higher-level tooling needs
+  the exact ThinLTO prelink artifacts instead, keep the linker inputs as
+  bitcode rather than native objects.
 
 ### Target Triple
 
@@ -219,6 +224,63 @@ The target triple affects:
 - Pointer size and layout decisions
 - LLVM target selection
 - Platform-specific default link behavior
+
+### Windows Host-Tool Distribution Notes
+
+Do not conflate three different things on Windows:
+
+- the Kern program being compiled
+- the Rust host tool that is doing the compilation (`kernc`, `craft`, `kern-lsp`)
+- the final package/distribution policy for those host tools
+
+`--runtime-entry`, `--runtime-libc`, `--entry-symbol`, and library-bundle
+selection describe the **compiled Kern program**. They do not control whether
+the Rust host tools themselves link the MSVC CRT statically or dynamically.
+
+For the host tools:
+
+- a plain `cargo build --release` on `x86_64-pc-windows-msvc` may still produce
+  binaries that depend on `VCRUNTIME140*.dll` and the UCRT redistributable set
+- official Windows release packaging must therefore build with
+  `-C target-feature=+crt-static`
+- that static-CRT policy removes the VC++ redistributable dependency for the
+  shipped host tools, but it does **not** remove ordinary Win32 system-library
+  imports such as `KERNEL32.dll`, `ADVAPI32.dll`, `SHELL32.dll`, `ole32.dll`,
+  `bcryptprimitives.dll`, or `api-ms-win-core-synch-l1-2-0.dll`
+
+Those remaining imports are host-OS ABI dependencies, not hidden libc baggage
+in Kern's language/runtime model.
+
+The official Windows packaging path is therefore:
+
+```powershell
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = "-C target-feature=+crt-static"
+cargo build --release --target x86_64-pc-windows-msvc -p kernc_cli --bin kernc
+cargo build --release --target x86_64-pc-windows-msvc -p craft
+cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
+```
+
+Or, equivalently, use the repository release script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package_release.ps1 -Version v0.7.0
+```
+
+Two Windows-specific details are easy to miss:
+
+- the archive label is `x86_64-windows-msvc`
+- the actual Cargo target triple is `x86_64-pc-windows-msvc`
+
+The packaging script handles that translation and packages from
+`target/x86_64-pc-windows-msvc/release/`, not from `target/release/`.
+
+Current practical boundary:
+
+- official Windows host-tool archives are meant for modern Windows systems
+- very old Windows versions should not be promised implicitly just because the
+  binaries no longer depend on the VC++ redistributable
+- static CRT solves the redistributable problem; it does not erase the Win32
+  API baseline required by the host tools
 
 ### Assembly Dialect
 
@@ -408,5 +470,6 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 ## See Also
 
 - [Runtime And Library Architecture](./runtime-architecture.md)
+- [Windows Distribution Guide](./windows-distribution.md)
 - [Kern Language Design Document](./design.md)
 - [Project README](../README.md)

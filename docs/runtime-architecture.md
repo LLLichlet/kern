@@ -197,6 +197,46 @@ This is the place for project policy. Most users set runtime/library intent in
 `Craft.toml` rather than repeating low-level `kernc` flags in every build
 invocation.
 
+`craft` also keeps the default runnable profile pure-first:
+
+- `lib` defaults to `runtime_entry = none`, `runtime_libc = false`, `library_bundle = std`
+- `bin`, `example`, and `test` default to `runtime_entry = rt`, `runtime_libc = false`, `library_bundle = std`
+- libc / CRT startup remains an explicit opt-in policy choice, not the default executable baseline
+
+## Windows Host Tools Versus Kern Runtime Policy
+
+Windows is an easy place to blur unrelated layers together, so the separation
+must stay explicit.
+
+For Kern programs:
+
+- `runtime_entry` controls who owns program startup
+- `runtime_libc` controls whether libc is linked into the compiled program
+- neither axis says anything about how the Rust host tools are distributed
+
+For the shipped host tools (`kernc`, `craft`, `kern-lsp`):
+
+- they are ordinary Windows user processes, not freestanding kernels
+- official release archives use a static CRT build so the tools do not require
+  the VC++ redistributable on a clean user machine
+- that packaging policy is about tool distribution hygiene, not about Kern
+  language semantics
+
+This distinction matters:
+
+- a static-CRT host tool can still import normal Win32 system DLLs
+- that does not mean Kern secretly depends on libc
+- it also does not mean `runtime_libc = yes`
+- it only means the host executable is calling the Windows OS ABI directly, as
+  any normal native Windows tool would
+
+So the rule for Kern's philosophy is:
+
+- pure-first still refers to the compiled Kern program and its runtime choices
+- Windows host-tool packaging should avoid unnecessary redistributable baggage
+- system-ABI imports for the host tools are acceptable when they reflect the
+  real OS boundary rather than an avoidable extra runtime layer
+
 ## Summary
 
 The model is simple:

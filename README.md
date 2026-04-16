@@ -17,6 +17,10 @@ Kern is built on the observation that languages often trade off abstraction capa
 * **Mechanism Trinity:** Kern relies on three core mechanisms to maintain its philosophy: a strictly explicit module tree (`mod`), strongly-typed zero-cost generics, and precise state management via exhaustive `match` blocks.
 * **Freestanding by Default:** Kern assumes nothing about your target environment. It is a pure bare-metal compiler with zero OS dependencies, which makes it suitable for kernel and firmware work.
 
+Pointers remain pointer-first raw values: `*T` / `*mut T` are plain pointers,
+`^T` / `^mut T` are the volatile/MMIO pointer family, and builtin `?T` / `T!E`
+remain builtin enum carriers rather than hidden nullable/reference machinery.
+
 ## Compiler Architecture (Workspace)
 
 The `kernc` compiler is built as a highly decoupled, multi-pass Rust workspace. This clean pipeline guarantees maintainability and clear semantic boundaries:
@@ -41,6 +45,8 @@ Kern ships four explicit public library layers:
 `std` does not mirror `base`, `sys`, or `rt` namespaces. Low-level code should import the owning layer directly.
 Hosted support is an OS concern, not a C concern: `std` remains ordinary Kern code layered on `base` plus `sys`, while libc stays an optional external runtime/provider choice rather than a foundation for `std`.
 Freestanding in Kern is therefore libc-free in the strong sense: `std` can remain fully usable without libc, `sys` owns the hosted OS boundary, and `rt` owns startup glue.
+`craft` follows the same pure-first policy by default: runnable targets use `rt`
+startup without libc unless a project opts into libc/CRT explicitly.
 
 Before 1.0, Kern does not preserve historical syntax baggage or compatibility shims just because an older spelling once existed. When the language or toolchain is cleaned up, the current form becomes the only supported form across the repository.
 
@@ -120,6 +126,20 @@ The easiest way to install Kern is via our official installation scripts. This w
 
 Official release artifacts are published for Linux `x86_64`, Windows `x86_64`, macOS `x86_64`, and macOS `aarch64`.
 
+Windows release packaging has one important explicit rule: official host-tool
+artifacts are shipped as static-CRT binaries. This is not a cosmetic choice.
+The default Rust/MSVC release path can depend on `VCRUNTIME140*.dll` and the
+UCRT redistributable set, which means a "clean" user machine may fail before
+`kernc`, `craft`, or `kern-lsp` even start. Official Windows archives are
+therefore built with `-C target-feature=+crt-static` so the shipped tools do
+not require the VC++ redistributable.
+
+That does **not** mean the Windows tools are freestanding in the bare-metal
+sense. They are still normal Win32 user processes and still import Windows
+system DLLs such as `KERNEL32.dll`, `ADVAPI32.dll`, `SHELL32.dll`, `ole32.dll`,
+and `bcryptprimitives.dll`. Those are OS ABI dependencies for the host tools
+themselves, not hidden libc baggage for Kern programs.
+
 **For Linux / macOS:**
 
 ```bash
@@ -159,9 +179,35 @@ cargo build --release
 
 This produces `kernc`, `craft`, and `kern-lsp` in `target/release/`.
 
+On Windows, the command above is fine for local development, but it is **not**
+the authoritative release-packaging path. A plain `cargo build --release` on
+`x86_64-pc-windows-msvc` may produce host tools that still require the VC++
+redistributable at runtime.
+
+For official-style Windows release binaries, build the real Cargo target triple
+explicitly and enable static CRT:
+
+```powershell
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = "-C target-feature=+crt-static"
+cargo build --release --target x86_64-pc-windows-msvc -p kernc_cli --bin kernc
+cargo build --release --target x86_64-pc-windows-msvc -p craft
+cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
+```
+
+The packaged release script already applies this policy on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package_release.ps1 -Version v0.7.0
+```
+
+One more Windows-specific footgun: the release archive label is
+`x86_64-windows-msvc`, but the actual Cargo target triple is
+`x86_64-pc-windows-msvc`. The packaging script handles that mapping explicitly.
+
 ## Documentation
 
   * **[The `kernc` Compiler Guide](docs/kernc.md)**: CLI usage, driver modes, linking profiles, and build-system integration guidance.
+  * **[Windows Distribution Guide](docs/windows-distribution.md)**: Windows host-tool release policy, static CRT packaging, install assumptions, and common packaging footguns.
   * **[Runtime And Library Architecture](docs/runtime-architecture.md)**: the `base`/`sys`/`rt`/`std` split, hosted versus freestanding, and why libc is optional rather than foundational.
   * **[Kern Language Design Document](docs/design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for the current version.
   * **[`craft` Package And Build Guide](docs/craft.md)**: the current package, lockfile, dependency-resolution, and build-planning model.

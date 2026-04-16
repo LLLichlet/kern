@@ -5,6 +5,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+const ARCHIVE_MAGIC: &[u8] = b"!<arch>\n";
+
 impl CompilerDriver {
     pub(super) fn link_only(&self) -> bool {
         if self.options.linker_inputs.is_empty() {
@@ -197,11 +199,11 @@ impl CompilerDriver {
         }
 
         for input in extra_inputs {
-            cmd.arg(input);
+            Self::push_link_input_arg(&mut cmd, input, target.is_windows);
         }
 
         for input in &self.options.linker_inputs {
-            cmd.arg(input);
+            Self::push_link_input_arg(&mut cmd, input, target.is_windows);
         }
 
         cmd.arg("-o").arg(&self.options.output_file);
@@ -224,6 +226,21 @@ impl CompilerDriver {
         self.apply_dead_strip_options(&mut cmd, target.is_windows, target.is_darwin);
 
         cmd
+    }
+
+    fn push_link_input_arg(cmd: &mut Command, input: &str, is_windows: bool) {
+        if is_windows && Self::is_archive_link_input(input) && !input.ends_with(".lib") {
+            cmd.arg(format!("-Wl,/wholearchive:{input}"));
+        } else {
+            cmd.arg(input);
+        }
+    }
+
+    fn is_archive_link_input(input: &str) -> bool {
+        let Ok(bytes) = fs::read(input) else {
+            return false;
+        };
+        bytes.starts_with(ARCHIVE_MAGIC)
     }
 
     fn build_relocatable_link_command(
@@ -528,7 +545,11 @@ mod tests {
                     .any(|arg| arg == &format!("-Wl,-plugin-opt,cache-dir={}", cache_dir))
             );
         }
-        assert!(PathBuf::from(&cache_dir).is_dir());
+        if target.is_windows {
+            assert!(!PathBuf::from(&cache_dir).is_dir());
+        } else {
+            assert!(PathBuf::from(&cache_dir).is_dir());
+        }
 
         let _ = fs::remove_dir_all(&root);
     }

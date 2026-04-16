@@ -211,3 +211,16 @@ extern fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
 
     return dest;
 }
+
+#[noinline]
+#[export_name("strlen")]
+extern fn strlen(str: *u8) usize {
+    let base = str as ^u8;
+    let mut len = 0;
+    for (;;) {
+        if ((base + len).* == 0) {
+            return len;
+        }
+        len += 1;
+    }
+}

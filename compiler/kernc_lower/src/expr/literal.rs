@@ -876,11 +876,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             _ => false,
         };
 
-        let source_trait_norm = match self
-            .ctx
-            .type_registry
-            .get(l_norm)
-        {
+        let source_trait_norm = match self.ctx.type_registry.get(l_norm) {
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.ctx.type_registry.normalize(*elem);
                 if matches!(

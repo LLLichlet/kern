@@ -161,11 +161,13 @@ impl CompilerDriver {
             && self.options.emit_multi_linker_input_dir
             && !self.emit_thin_lto_bitcode_linker_input();
         let codegen_plan = Some(match self.options.lto_mode {
-            LtoMode::Thin if !preserve_native_thin_linker_inputs => plan_codegen_units_with_mir_summary(
-                &mast_module,
-                &mir_report.summary,
-                self.options.codegen_units,
-            ),
+            LtoMode::Thin if !preserve_native_thin_linker_inputs => {
+                plan_codegen_units_with_mir_summary(
+                    &mast_module,
+                    &mir_report.summary,
+                    self.options.codegen_units,
+                )
+            }
             _ => plan_codegen_units_with_mir_workload(
                 &mast_module,
                 &mir_report.summary,

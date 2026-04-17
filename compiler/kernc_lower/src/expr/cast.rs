@@ -130,8 +130,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let conc_trait_object_elem = match conc_kind {
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.ctx.type_registry.normalize(elem);
-                matches!(self.ctx.type_registry.get(elem_norm), TypeKind::TraitObject(..))
-                    .then_some(elem_norm)
+                matches!(
+                    self.ctx.type_registry.get(elem_norm),
+                    TypeKind::TraitObject(..)
+                )
+                .then_some(elem_norm)
             }
             _ => None,
         };
@@ -1013,5 +1016,4 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             MastCastKind::Bitcast
         }
     }
-
 }

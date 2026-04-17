@@ -59,12 +59,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(super) fn mir_place_access_is_volatile(&self, body: &MirBody, place: &MirPlace) -> bool {
         match place {
             MirPlace::Local(_) | MirPlace::Global(_) => false,
-            MirPlace::Deref(operand) => self
-                .mir_operand_ty(body, operand)
-                .is_some_and(|ty| matches!(
+            MirPlace::Deref(operand) => self.mir_operand_ty(body, operand).is_some_and(|ty| {
+                matches!(
                     self.type_registry.get(self.type_registry.normalize(ty)),
                     TypeKind::VolatilePtr { .. }
-                )),
+                )
+            }),
             MirPlace::Field { base, .. } | MirPlace::Index { base, .. } => {
                 self.mir_place_access_is_volatile(body, base)
             }
@@ -409,7 +409,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .build_volatile_load(vector_ty, base_ptr, "mir_simd_load")
                     .unwrap()
             } else {
-                self.builder.build_load(vector_ty, base_ptr, "mir_simd_load").unwrap()
+                self.builder
+                    .build_load(vector_ty, base_ptr, "mir_simd_load")
+                    .unwrap()
             };
             let idx_val = self.compile_mir_operand(body, index).into_int_value();
             return self

@@ -1,8 +1,8 @@
 use crate::SemaContext;
 use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
-use kernc_ast::{UsePathKind, UseTarget, UseTree};
 use kernc_ast::Visibility;
+use kernc_ast::{UsePathKind, UseTarget, UseTree};
 use kernc_utils::{Span, SymbolId};
 
 pub struct ImportResolver<'a, 'ctx> {
@@ -86,21 +86,19 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         let current_scope = self.get_module_scope(current_mod_id);
 
         match &import.target {
-            UseTarget::Module(alias) => {
-                self.resolve_flat_import(
-                    current_mod_id,
-                    current_scope,
-                    import.path_kind,
-                    import.vis,
-                    FlatImport {
-                        path: import.path.clone(),
-                        alias: *alias,
-                        span: import.span,
-                        binding_span: import.binding_span,
-                    },
-                    emit_errors,
-                )
-            },
+            UseTarget::Module(alias) => self.resolve_flat_import(
+                current_mod_id,
+                current_scope,
+                import.path_kind,
+                import.vis,
+                FlatImport {
+                    path: import.path.clone(),
+                    alias: *alias,
+                    span: import.span,
+                    binding_span: import.binding_span,
+                },
+                emit_errors,
+            ),
             UseTarget::Tree(items) => {
                 let flat_imports = Self::flatten_use_trees(&import.path, items);
                 let mut all_resolved = true;
@@ -192,7 +190,10 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         {
             let target_name = flat.alias.unwrap_or(*flat.path.last().unwrap());
             let symbol_info = if matches!(kind, UsePathKind::External) && flat.path.len() == 1 {
-                self.ctx.scopes.resolve_in(ScopeId(0), flat.path[0]).cloned()
+                self.ctx
+                    .scopes
+                    .resolve_in(ScopeId(0), flat.path[0])
+                    .cloned()
             } else {
                 let (parent_path, last_segment) = flat.path.split_at(flat.path.len() - 1);
                 let (parent_mod_id, parent_scope) = match self.resolve_path(
@@ -260,16 +261,11 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         let (parent_path, last_segment) = flat.path.split_at(flat.path.len() - 1);
         let target_name = last_segment[0];
 
-        let (parent_mod_id, parent_scope) = match self.resolve_path(
-            current_mod_id,
-            kind,
-            parent_path,
-            flat.span,
-            emit_errors,
-        ) {
-            Some(res) => res,
-            None => return false,
-        };
+        let (parent_mod_id, parent_scope) =
+            match self.resolve_path(current_mod_id, kind, parent_path, flat.span, emit_errors) {
+                Some(res) => res,
+                None => return false,
+            };
 
         if let Some(symbol_info) = self.ctx.scopes.resolve_in(parent_scope, target_name) {
             if !self.check_visibility(symbol_info, current_mod_id, parent_mod_id) {

@@ -219,10 +219,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let global_impls = self.ctx.global_impls.clone();
         for impl_id in global_impls {
-            let Some(impl_def) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| match def {
-                Def::Impl(impl_def) => Some(impl_def.clone()),
-                _ => None,
-            }) else {
+            let Some(impl_def) = self
+                .ctx
+                .defs
+                .get(impl_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Impl(impl_def) => Some(impl_def.clone()),
+                    _ => None,
+                })
+            else {
                 continue;
             };
 
@@ -320,34 +325,34 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     elem,
                 }))
             }
-            TypeKind::Pointer { is_mut, elem } => self
-                .vtable_downgraded_search_type(elem)
-                .map(|down_elem| {
+            TypeKind::Pointer { is_mut, elem } => {
+                self.vtable_downgraded_search_type(elem).map(|down_elem| {
                     self.ctx.type_registry.intern(TypeKind::Pointer {
                         is_mut,
                         elem: down_elem,
                     })
-                }),
+                })
+            }
             TypeKind::VolatilePtr { is_mut: true, elem } => {
                 Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
                     is_mut: false,
                     elem,
                 }))
             }
-            TypeKind::VolatilePtr { is_mut, elem } => self
-                .vtable_downgraded_search_type(elem)
-                .map(|down_elem| {
+            TypeKind::VolatilePtr { is_mut, elem } => {
+                self.vtable_downgraded_search_type(elem).map(|down_elem| {
                     self.ctx.type_registry.intern(TypeKind::VolatilePtr {
                         is_mut,
                         elem: down_elem,
                     })
-                }),
-            TypeKind::Slice { is_mut: true, elem } => Some(self.ctx.type_registry.intern(
-                TypeKind::Slice {
+                })
+            }
+            TypeKind::Slice { is_mut: true, elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::Slice {
                     is_mut: false,
                     elem,
-                },
-            )),
+                }))
+            }
             _ => None,
         }
     }
@@ -506,7 +511,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             attributes: vec![],
         });
 
-        self.vtable_method_adapter_cache.insert(cache_key, adapter_id);
+        self.vtable_method_adapter_cache
+            .insert(cache_key, adapter_id);
         Some(adapter_id)
     }
 

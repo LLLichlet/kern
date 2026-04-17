@@ -436,8 +436,7 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("invalid pointer arithmetic"),
+        String::from_utf8_lossy(&output.stderr).contains("invalid pointer arithmetic"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );

@@ -47,7 +47,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
 
             if (actual_fat_pointer_value
-                || !matches!(act_kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }))
+                || !matches!(
+                    act_kind,
+                    TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+                ))
                 && self.check_value_to_trait_object_pointer(expr, *e_mut, e_norm, act)
             {
                 return true;

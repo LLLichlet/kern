@@ -46,9 +46,7 @@ pub fn run_thin_lto(
 
     let object_count = session.object_count();
     if object_count == 0 {
-        return Err(session.last_error(
-            "LLVM ThinLTO did not produce any object files".to_string(),
-        ));
+        return Err(session.last_error("LLVM ThinLTO did not produce any object files".to_string()));
     }
 
     let mut objects = Vec::with_capacity(object_count);
@@ -175,11 +173,7 @@ impl ThinLtoSession {
         Ok(ThinLtoObject::Buffer(buffer))
     }
 
-    fn run_bool(
-        &self,
-        status: i32,
-        fallback: impl Into<String>,
-    ) -> Result<(), String> {
+    fn run_bool(&self, status: i32, fallback: impl Into<String>) -> Result<(), String> {
         if status != 0 {
             Ok(())
         } else {
@@ -225,8 +219,7 @@ struct ThinLtoSessionOpaque {
 unsafe extern "C" {
     fn kern_thinlto_session_create() -> *mut ThinLtoSessionOpaque;
     fn kern_thinlto_session_dispose(session: *mut ThinLtoSessionOpaque);
-    fn kern_thinlto_session_set_cpu(session: *mut ThinLtoSessionOpaque, cpu: *const c_char)
-    -> i32;
+    fn kern_thinlto_session_set_cpu(session: *mut ThinLtoSessionOpaque, cpu: *const c_char) -> i32;
     fn kern_thinlto_session_set_generated_objects_dir(
         session: *mut ThinLtoSessionOpaque,
         dir: *const c_char,

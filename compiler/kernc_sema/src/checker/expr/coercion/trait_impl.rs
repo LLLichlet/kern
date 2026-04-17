@@ -42,23 +42,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     elem,
                 }))
             }
-            TypeKind::VolatilePtr { is_mut, elem } => match self.ctx.type_registry.get(elem).clone()
-            {
-                TypeKind::Slice {
-                    is_mut: true,
-                    elem: slice_elem,
-                } => {
-                    let downgraded_slice = self.ctx.type_registry.intern(TypeKind::Slice {
-                        is_mut: false,
+            TypeKind::VolatilePtr { is_mut, elem } => {
+                match self.ctx.type_registry.get(elem).clone() {
+                    TypeKind::Slice {
+                        is_mut: true,
                         elem: slice_elem,
-                    });
-                    Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                        is_mut,
-                        elem: downgraded_slice,
-                    }))
+                    } => {
+                        let downgraded_slice = self.ctx.type_registry.intern(TypeKind::Slice {
+                            is_mut: false,
+                            elem: slice_elem,
+                        });
+                        Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                            is_mut,
+                            elem: downgraded_slice,
+                        }))
+                    }
+                    _ => None,
                 }
-                _ => None,
-            },
+            }
             TypeKind::Slice { is_mut: true, elem } => {
                 Some(self.ctx.type_registry.intern(TypeKind::Slice {
                     is_mut: false,

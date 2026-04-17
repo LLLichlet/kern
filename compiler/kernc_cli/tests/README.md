@@ -23,7 +23,7 @@ cargo test -p kernc_cli --test regressions
 ```
 
 ```bash
-bash ./scripts/run_kernc_cli_tests.sh smoke
+python3 -m ops ci kernc-tests --mode smoke
 ```
 
 Available test layers:

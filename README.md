@@ -18,8 +18,8 @@ Kern is built on the observation that languages often trade off abstraction capa
 * **Freestanding by Default:** Kern assumes nothing about your target environment. It is a pure bare-metal compiler with zero OS dependencies, which makes it suitable for kernel and firmware work.
 
 Pointers remain pointer-first raw values: `*T` / `*mut T` are plain pointers,
-`^T` / `^mut T` are the volatile/MMIO pointer family, and builtin `?T` / `T!E`
-remain builtin enum carriers rather than hidden nullable/reference machinery.
+`^T` / `^mut T` are the volatile/MMIO pointer family, and `?T` / `T!E` are
+built-in enum forms rather than implicit nullable/reference machinery.
 
 ## Compiler Architecture (Workspace)
 
@@ -174,8 +174,6 @@ The user-facing installers are native scripts:
 
 - `install.sh` performs Unix installation directly
 - `install.ps1` performs Windows installation directly
-
-Python remains a repository/CI operations dependency, not a user-install prerequisite.
 
 *(After installation, you may need to restart your terminal or update your PATH variables as prompted by the script).*
 

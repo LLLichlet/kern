@@ -168,9 +168,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          cargo build --release -p kernc_cli --bin kernc
-          cargo build --release -p craft
-          cargo build --release -p kern-lsp
+          $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = "-C target-feature=+crt-static"
+          cargo build --release --target ${{ matrix.rust_target }} -p kernc_cli --bin kernc
+          cargo build --release --target ${{ matrix.rust_target }} -p craft
+          cargo build --release --target ${{ matrix.rust_target }} -p kern-lsp
           $TOOLCHAIN_VERSION = "llvm-$env:KERN_CI_LLVM_VERSION"
           py -3 -m ops release package-toolchain --version $TOOLCHAIN_VERSION --target ${{ matrix.target }}
           echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-$TOOLCHAIN_VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV
@@ -262,7 +263,7 @@ jobs:
         shell: powershell
         run: |
           $VERSION = $env:KERN_RELEASE_VERSION.TrimStart('v')
-          npm run package:vsix -- --target ${{ matrix.vsce_target }} --server-source ..\..\target\release\kern-lsp.exe --out kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix
+          npm run package:vsix -- --target ${{ matrix.vsce_target }} --server-source ..\..\target\${{ matrix.rust_target }}\release\kern-lsp.exe --out kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix
           echo "VSCODE_ARTIFACT=kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix" >> $env:GITHUB_ENV
 
       - name: Upload VS Code Extension Artifact

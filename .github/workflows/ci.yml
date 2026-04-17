@@ -118,9 +118,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          cargo build --release -p kernc_cli --bin kernc
-          cargo build --release -p craft
-          cargo build --release -p kern-lsp
+          $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = "-C target-feature=+crt-static"
+          cargo build --release --target ${{ matrix.rust_target }} -p kernc_cli --bin kernc
+          cargo build --release --target ${{ matrix.rust_target }} -p craft
+          cargo build --release --target ${{ matrix.rust_target }} -p kern-lsp
           $TOOLCHAIN_VERSION = "llvm-$env:KERN_CI_LLVM_VERSION-ci"
           py -3 -m ops release package-toolchain --version $TOOLCHAIN_VERSION --target ${{ matrix.target }}
           echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-$TOOLCHAIN_VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV

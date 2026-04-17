@@ -129,7 +129,11 @@ The script currently enforces the important Windows-specific rules:
 
 ## Installation Model
 
-The Windows installer downloads the prebuilt archive and expands it into:
+The user-facing Windows installer is the repository root [install.ps1](/home/lenovo/kern/install.ps1)
+entrypoint. It should perform installation directly instead of delegating to
+repository Python tooling.
+
+It downloads the prebuilt archive and expands it into:
 
 ```text
 %USERPROFILE%\.kern
@@ -145,6 +149,9 @@ to the user PATH.
 
 This means the quality of the release archive matters directly. If the archive
 itself is wrong, the installer will faithfully install the wrong thing.
+
+The Python `ops` entrypoints remain valid for CI and repository engineering,
+but they are not the user-install contract on Windows.
 
 ## Common Windows Footguns
 

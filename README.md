@@ -170,6 +170,13 @@ curl -sSf https://raw.githubusercontent.com/softfault/kern/main/install.sh | bas
 powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
+The user-facing installers are native scripts:
+
+- `install.sh` performs Unix installation directly
+- `install.ps1` performs Windows installation directly
+
+Python remains a repository/CI operations dependency, not a user-install prerequisite.
+
 *(After installation, you may need to restart your terminal or update your PATH variables as prompted by the script).*
 
 If a Unix installer verification step fails, the most common causes are:

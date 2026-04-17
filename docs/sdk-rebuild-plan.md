@@ -58,8 +58,12 @@ The canonical implemented paths now include:
 ```text
 python -m ops ci ...
 python -m ops release package
-python -m ops install
 ```
+
+For installation, the intended split is:
+
+- user-facing install: native `install.sh` / `install.ps1`
+- repository and CI automation: `python -m ops install`
 
 ## SDK Layout Direction
 

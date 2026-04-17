@@ -171,7 +171,11 @@ The script should enforce the important Unix-specific rules:
 
 ## Installation Model
 
-The Unix installer downloads the prebuilt archive and expands it into:
+The user-facing Unix installer is the repository root [install.sh](/home/lenovo/kern/install.sh)
+entrypoint. It should perform installation directly instead of trampolining into
+repository Python tooling.
+
+It downloads the prebuilt archive and expands it into:
 
 ```text
 ~/.kern
@@ -193,6 +197,9 @@ run:
 - `kern-lsp --version`
 
 before it claims success.
+
+The Python `ops` entrypoints remain valid for CI and repository engineering,
+but they are not the user-install contract on Unix.
 
 If startup fails, the installer should stop and print the most likely host-side
 remediation instead of silently leaving the user with a broken installation.

@@ -380,7 +380,7 @@ def _bundle_host_toolchain(
         size=None,
     )
 
-    extra_runtime_lib_dirs: set[Path] = set()
+    extra_runtime_libs: set[Path] = set()
     for component, source in bundled_toolchain.tools.items():
         try:
             target = host_root / source.relative_to(bundled_toolchain.prefix)
@@ -389,8 +389,6 @@ def _bundle_host_toolchain(
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
-            for candidate in _external_tool_runtime_libdirs(source):
-                extra_runtime_lib_dirs.add(candidate)
         ensure(target.is_file(), f"bundled toolchain component `{component}` is missing at `{target}`")
         records[component] = ArtifactRecord(
             path=target.relative_to(dist_dir).as_posix(),
@@ -399,13 +397,30 @@ def _bundle_host_toolchain(
             size=file_size(target),
         )
 
-    for extra_lib_dir in sorted(extra_runtime_lib_dirs):
-        copy_directory_contents(extra_lib_dir, lib_dir)
+    if host.archive_target.endswith("apple-darwin"):
+        extra_runtime_libs = _macos_collect_external_runtime_libs(
+            roots=sorted((host_root / "bin").glob("*")) + sorted(lib_dir.glob("*.dylib")),
+            bundled_prefix=bundled_toolchain.prefix,
+        )
+        for dylib in sorted(extra_runtime_libs):
+            destination = lib_dir / dylib.name
+            if not destination.exists():
+                shutil.copy2(dylib, destination)
+    else:
+        extra_runtime_lib_dirs = _external_runtime_libdirs_for_bundled_tools(
+            bundled_toolchain.tools.values(),
+            bundled_prefix=bundled_toolchain.prefix,
+        )
+        for extra_lib_dir in sorted(extra_runtime_lib_dirs):
+            copy_directory_contents(extra_lib_dir, lib_dir)
 
     if host.archive_target.endswith("apple-darwin"):
         _rewrite_macos_toolchain_load_commands(
             host_root,
-            original_libdirs={bundled_toolchain.libdir, *extra_runtime_lib_dirs},
+            original_libdirs={
+                bundled_toolchain.libdir,
+                *(path.parent for path in extra_runtime_libs),
+            },
         )
 
     if bundled_toolchain.resource_dir is not None and bundled_toolchain.resource_dir.exists():
@@ -462,6 +477,60 @@ def _external_tool_runtime_libdirs(tool_path: Path) -> list[Path]:
     prefix = tool_path.parent.parent
     candidates = [prefix / "lib", prefix / "lib64"]
     return [candidate for candidate in candidates if candidate.is_dir()]
+
+
+def _external_runtime_libdirs_for_bundled_tools(
+    tool_paths: object,
+    *,
+    bundled_prefix: Path,
+) -> set[Path]:
+    extra_runtime_lib_dirs: set[Path] = set()
+    for tool_path in tool_paths:
+        path = Path(tool_path)
+        if path.is_relative_to(bundled_prefix):
+            continue
+        for candidate in _external_tool_runtime_libdirs(path):
+            extra_runtime_lib_dirs.add(candidate)
+    return extra_runtime_lib_dirs
+
+
+def _macos_collect_external_runtime_libs(
+    *,
+    roots: list[Path],
+    bundled_prefix: Path,
+) -> set[Path]:
+    require_tool("otool")
+
+    bundled_prefix = bundled_prefix.resolve()
+    queued = [path.resolve() for path in roots if path.is_file()]
+    visited: set[Path] = set()
+    external_libs: set[Path] = set()
+
+    while queued:
+        current = queued.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+
+        for dependency in _macos_load_dependencies(current):
+            dependency_path = Path(dependency)
+            if not dependency_path.is_absolute() or not dependency_path.is_file():
+                continue
+            resolved = dependency_path.resolve()
+            if resolved.is_relative_to(bundled_prefix):
+                queued.append(resolved)
+                continue
+            if _is_macos_system_library(resolved):
+                continue
+            external_libs.add(resolved)
+            queued.append(resolved)
+
+    return external_libs
+
+
+def _is_macos_system_library(path: Path) -> bool:
+    raw = str(path)
+    return raw.startswith("/usr/lib/") or raw.startswith("/System/Library/")
 
 
 def _rewrite_macos_toolchain_load_commands(

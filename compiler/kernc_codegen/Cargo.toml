@@ -17,3 +17,4 @@ target-lexicon = { workspace = true }
 
 [build-dependencies]
 cc = "1.2"
+llvm-sys = { workspace = true }

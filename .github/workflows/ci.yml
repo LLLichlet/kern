@@ -30,16 +30,19 @@ jobs:
             os: ubuntu-24.04
             target: x86_64-linux-gnu
             rust_target: x86_64-unknown-linux-gnu
+            artifact_ext: tar.gz
             test_mode: all
           - name: windows
             os: windows-latest
             target: x86_64-windows-msvc
             rust_target: x86_64-pc-windows-msvc
+            artifact_ext: zip
             test_mode: smoke
           - name: macos
             os: macos-14
             target: aarch64-apple-darwin
             rust_target: aarch64-apple-darwin
+            artifact_ext: tar.gz
             test_mode: all
 
     permissions:
@@ -67,7 +70,7 @@ jobs:
       - name: Setup LLVM
         uses: ./.github/actions/setup-llvm
         with:
-          mode: target
+          mode: bootstrap
           host-target: ${{ matrix.target }}
 
       - name: Export Kern Toolchain Root (Unix)
@@ -83,20 +86,83 @@ jobs:
           echo "KERN_TOOLCHAIN_ROOT=$env:LLVM_SYS_211_PREFIX" >> $env:GITHUB_ENV
           echo "KERN_DEBUG_LTO_LINK=1" >> $env:GITHUB_ENV
 
-      - name: Print Published Toolchain Diagnostics (Unix)
+      - name: Print Bootstrap Toolchain Diagnostics (Unix)
         if: runner.os != 'Windows'
         run: python3 -m ops ci toolchain-info
 
-      - name: Print Published Toolchain Diagnostics (Windows)
+      - name: Print Bootstrap Toolchain Diagnostics (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: py -3 -m ops ci toolchain-info
 
-      - name: Assert Published Toolchain Health (Unix)
+      - name: Assert Bootstrap Toolchain Health (Unix)
         if: runner.os != 'Windows'
         run: python3 -m ops ci toolchain-health
 
-      - name: Assert Published Toolchain Health (Windows)
+      - name: Assert Bootstrap Toolchain Health (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: py -3 -m ops ci toolchain-health
+
+      - name: Package Controlled Toolchain (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cargo build --release -p kernc_cli --bin kernc
+          cargo build --release -p craft
+          cargo build --release -p kern-lsp
+          TOOLCHAIN_VERSION=llvm-${KERN_CI_LLVM_VERSION}-ci
+          python3 -m ops release package-toolchain --version "$TOOLCHAIN_VERSION" --target "${{ matrix.target }}"
+          echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-${TOOLCHAIN_VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> "$GITHUB_ENV"
+
+      - name: Package Controlled Toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          cargo build --release -p kernc_cli --bin kernc
+          cargo build --release -p craft
+          cargo build --release -p kern-lsp
+          $TOOLCHAIN_VERSION = "llvm-$env:KERN_CI_LLVM_VERSION-ci"
+          py -3 -m ops release package-toolchain --version $TOOLCHAIN_VERSION --target ${{ matrix.target }}
+          echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-$TOOLCHAIN_VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV
+
+      - name: Verify Controlled Toolchain Artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          python3 -m ops ci verify-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --target "${{ matrix.target }}"
+
+      - name: Verify Controlled Toolchain Artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          py -3 -m ops ci verify-packaged-toolchain --archive-path $env:TOOLCHAIN_ARTIFACT_FILE --target ${{ matrix.target }}
+
+      - name: Install Controlled Toolchain (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          python3 -m ops ci install-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --dest "${RUNNER_TEMP}/kern-ci-toolchain" --target "${{ matrix.target }}" --format github-env >> "$GITHUB_ENV"
+          echo "${RUNNER_TEMP}/kern-ci-toolchain/toolchain/host/bin" >> "$GITHUB_PATH"
+
+      - name: Install Controlled Toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          py -3 -m ops ci install-packaged-toolchain --archive-path $env:TOOLCHAIN_ARTIFACT_FILE --dest "$env:RUNNER_TEMP\kern-ci-toolchain" --target ${{ matrix.target }} --format github-env >> $env:GITHUB_ENV
+          echo "$env:RUNNER_TEMP\kern-ci-toolchain\toolchain\host\bin" >> $env:GITHUB_PATH
+
+      - name: Print Controlled Toolchain Diagnostics (Unix)
+        if: runner.os != 'Windows'
+        run: python3 -m ops ci toolchain-info
+
+      - name: Print Controlled Toolchain Diagnostics (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: py -3 -m ops ci toolchain-info
+
+      - name: Assert Controlled Toolchain Health (Unix)
+        if: runner.os != 'Windows'
+        run: python3 -m ops ci toolchain-health
+
+      - name: Assert Controlled Toolchain Health (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: py -3 -m ops ci toolchain-health

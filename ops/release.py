@@ -398,6 +398,16 @@ def _bundle_host_toolchain(
         )
 
     if host.archive_target.endswith("apple-darwin"):
+        extra_runtime_lib_dirs = _external_runtime_libdirs_for_bundled_tools(
+            bundled_toolchain.tools.values(),
+            bundled_prefix=bundled_toolchain.prefix,
+        )
+        for extra_lib_dir in sorted(extra_runtime_lib_dirs):
+            for dylib in sorted(extra_lib_dir.glob("*.dylib")):
+                destination = lib_dir / dylib.name
+                if not destination.exists():
+                    shutil.copy2(dylib, destination)
+
         extra_runtime_libs = _macos_collect_external_runtime_libs(
             roots=sorted((host_root / "bin").glob("*")) + sorted(lib_dir.glob("*.dylib")),
             bundled_prefix=bundled_toolchain.prefix,
@@ -419,6 +429,7 @@ def _bundle_host_toolchain(
             host_root,
             original_libdirs={
                 bundled_toolchain.libdir,
+                *extra_runtime_lib_dirs,
                 *(path.parent for path in extra_runtime_libs),
             },
         )

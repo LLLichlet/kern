@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
+import sys
 import tarfile
 import zipfile
 from dataclasses import dataclass
@@ -296,17 +298,21 @@ def install_packaged_toolchain_archive(args: PackagedToolchainInstallArgs) -> in
     host = detect_host_target()
     expected_target = args.target or host.archive_target
     install_root = Path(args.dest).expanduser().resolve()
+    noisy_stdout = contextlib.nullcontext()
+    if args.format == "github-env":
+        noisy_stdout = contextlib.redirect_stdout(sys.stderr)
 
     temp_root = make_temp_dir("kern-toolchain-install-")
     try:
-        extract_root = temp_root / "extract"
-        extract_root.mkdir(parents=True, exist_ok=True)
-        root = _extract_archive_for_validation(archive, extract_root)
-        _validate_toolchain_root(root, expected_target)
+        with noisy_stdout:
+            extract_root = temp_root / "extract"
+            extract_root.mkdir(parents=True, exist_ok=True)
+            root = _extract_archive_for_validation(archive, extract_root)
+            _validate_toolchain_root(root, expected_target)
 
-        if install_root.exists():
-            shutil.rmtree(install_root)
-        shutil.copytree(root, install_root)
+            if install_root.exists():
+                shutil.rmtree(install_root)
+            shutil.copytree(root, install_root)
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
 

@@ -460,6 +460,44 @@ def _tool_candidate_names(name: str, major: str, is_windows: bool) -> list[str]:
     return [plain, versioned]
 
 
+def _resolve_homebrew_tool(
+    *,
+    formula_names: Iterable[str],
+    name: str,
+    major: str,
+    required: bool,
+) -> Path | None:
+    brew = shutil.which("brew")
+    if brew is None:
+        if required:
+            raise OpsError("failed to locate `brew` while resolving a Homebrew-managed LLVM tool")
+        return None
+
+    for formula in formula_names:
+        completed = run_capture([brew, "--prefix", formula])
+        if completed.returncode != 0:
+            continue
+        prefix = (completed.stdout or "").strip()
+        if not prefix:
+            continue
+        candidate = _resolve_llvm_tool(
+            name=name,
+            major=major,
+            bindir=Path(prefix).resolve() / "bin",
+            is_windows=False,
+            required=False,
+            allow_path_lookup=False,
+        )
+        if candidate is not None:
+            return candidate
+
+    if required:
+        raise OpsError(
+            f"failed to resolve Homebrew-managed LLVM tool `{name}` from formulas: {', '.join(formula_names)}"
+        )
+    return None
+
+
 def _resolve_llvm_tool(
     *,
     name: str,
@@ -582,9 +620,16 @@ def resolve_bundled_toolchain(
             major=major,
             bindir=bindir,
             is_windows=False,
-            required=True,
+            required=False,
             allow_path_lookup=False,
         )
+        if lld is None:
+            lld = _resolve_homebrew_tool(
+                formula_names=(f"lld@{major}", "lld"),
+                name="ld64.lld",
+                major=major,
+                required=True,
+            )
         assert lld is not None
         tools["lld"] = lld
     else:

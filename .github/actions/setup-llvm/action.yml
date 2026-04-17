@@ -52,6 +52,12 @@ runs:
         LLVM_PREFIX="$(brew --prefix "$LLVM_FORMULA")"
         echo "${KERN_CI_LLVM_PREFIX_ENV}=$LLVM_PREFIX" >> "$GITHUB_ENV"
         echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
+        for EXTRA_FORMULA in ${KERN_CI_BREW_EXTRA_FORMULAS}; do
+          EXTRA_PREFIX="$(brew --prefix "$EXTRA_FORMULA")"
+          if [ -d "$EXTRA_PREFIX/bin" ]; then
+            echo "$EXTRA_PREFIX/bin" >> "$GITHUB_PATH"
+          fi
+        done
         echo "PKG_CONFIG_PATH=$(brew --prefix libxml2)/lib/pkgconfig" >> "$GITHUB_ENV"
 
     - name: Cache LLVM Archive Install

@@ -15,6 +15,7 @@ from .common import (
     BundledToolchain,
     HostTarget,
     bundled_resource_dir_path,
+    canonical_toolchain_component_names,
     copy_directory_contents,
     detect_host_target,
     ensure,
@@ -349,6 +350,7 @@ def _bundle_host_toolchain(
     bindir_rel = bundled_toolchain.bindir.relative_to(bundled_toolchain.prefix)
     libdir_rel = bundled_toolchain.libdir.relative_to(bundled_toolchain.prefix)
     includedir_rel = bundled_toolchain.includedir.relative_to(bundled_toolchain.prefix)
+    canonical_names = canonical_toolchain_component_names(host.archive_target)
 
     copied_bin_dir = host_root / bindir_rel
     copied_lib_dir = host_root / libdir_rel
@@ -378,7 +380,13 @@ def _bundle_host_toolchain(
     )
 
     for component, source in bundled_toolchain.tools.items():
-        target = host_root / source.relative_to(bundled_toolchain.prefix)
+        try:
+            target = host_root / source.relative_to(bundled_toolchain.prefix)
+        except ValueError:
+            target = bin_dir / canonical_names.get(component, source.name)
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
         ensure(target.is_file(), f"bundled toolchain component `{component}` is missing at `{target}`")
         records[component] = ArtifactRecord(
             path=target.relative_to(dist_dir).as_posix(),

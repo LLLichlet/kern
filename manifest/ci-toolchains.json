@@ -56,7 +56,8 @@
       "primary_formula": "llvm@21",
       "fallback_formula": "llvm",
       "extra_formulas": [
-        "libxml2"
+        "libxml2",
+        "lld@21"
       ],
       "host_targets": {
         "aarch64-apple-darwin": {

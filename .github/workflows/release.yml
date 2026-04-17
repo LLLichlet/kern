@@ -403,6 +403,10 @@ jobs:
       - name: Resolve Toolchain Release Version
         run: |
           python3 -m ops ci toolchain-spec --runner-os Linux --mode current --host-target x86_64-linux-gnu --format github-env >> "$GITHUB_ENV"
+
+      - name: Resolve Toolchain Release Tag
+        run: |
+          test -n "${KERN_CI_LLVM_VERSION}"
           echo "KERN_TOOLCHAIN_RELEASE_TAG=toolchain-llvm-${KERN_CI_LLVM_VERSION}" >> "$GITHUB_ENV"
 
       - name: Download Toolchain Artifacts

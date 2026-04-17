@@ -56,17 +56,41 @@ pub fn resolve_project_manifest_path(input: Option<&Path>) -> Result<PathBuf> {
 }
 
 fn normalize_manifest_path(path: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let raw = path.to_string_lossy();
-        if let Some(stripped) = raw.strip_prefix("\\\\?\\UNC\\") {
-            return PathBuf::from(format!("\\\\{stripped}"));
-        }
-        if let Some(stripped) = raw.strip_prefix("\\\\?\\") {
-            return PathBuf::from(stripped);
-        }
-    }
+    let path = strip_windows_verbatim_prefix(path);
+    strip_macos_private_var_prefix(path)
+}
 
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\UNC\\") {
+        return PathBuf::from(format!("\\\\{stripped}"));
+    }
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\") {
+        return PathBuf::from(stripped);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(target_os = "macos")]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("/private/var/") {
+        return PathBuf::from(format!("/var/{stripped}"));
+    }
+    if raw == "/private/var" {
+        return PathBuf::from("/var");
+    }
+    path
+}
+
+#[cfg(not(target_os = "macos"))]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
     path
 }
 
@@ -209,5 +233,14 @@ mod tests {
         assert_eq!(resolved, expected);
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn normalize_manifest_path_strips_private_var_prefix() {
+        assert_eq!(
+            normalize_manifest_path(PathBuf::from("/private/var/folders/example/Craft.toml")),
+            PathBuf::from("/var/folders/example/Craft.toml")
+        );
     }
 }

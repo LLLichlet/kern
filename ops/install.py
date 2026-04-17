@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import tempfile
 import urllib.error
 import urllib.request
 import zipfile
@@ -22,6 +21,7 @@ if __package__ in (None, ""):
         ensure,
         file_size,
         info,
+        make_temp_dir,
         read_json,
         sha256_directory,
         sha256_file,
@@ -34,6 +34,7 @@ else:
         ensure,
         file_size,
         info,
+        make_temp_dir,
         read_json,
         sha256_directory,
         sha256_file,
@@ -100,7 +101,7 @@ def install_release(args: InstallReleaseArgs) -> int:
 
     archive_path: Path
     version = args.version
-    temp_root = Path(tempfile.mkdtemp(prefix="kern-install-"))
+    temp_root = make_temp_dir("kern-install-")
     try:
         if args.archive:
             archive_path = Path(args.archive).expanduser().resolve()
@@ -198,7 +199,7 @@ def _validate_manifest_toolchain(sdk_root: Path, manifest: dict[str, object]) ->
     if not bundled:
         return
 
-    required = ["clang", "clangxx", "lld", "llvm_ar"]
+    required = ["clang", "clangxx", "lld", "llvm_ar", "llvm_config", "lib_dir", "include_dir"]
     host_target = str(manifest.get("host_target", ""))
     if host_target.endswith("windows-msvc"):
         required.append("llvm_lib")

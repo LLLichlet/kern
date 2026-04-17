@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
 import tarfile
 import zipfile
 from dataclasses import dataclass
@@ -17,6 +16,7 @@ from .common import (
     file_size,
     info,
     load_workspace_version,
+    make_temp_dir,
     read_json,
     repo_root,
     resolve_bundled_toolchain,
@@ -100,7 +100,7 @@ def run_craft_policy_checks() -> int:
     root = repo_root()
     current_kern_version = load_workspace_version()
     fixtures_root = root / "tools" / "craft" / "fixtures" / "release-policy"
-    temp_root = Path(tempfile.mkdtemp(prefix="craft-policy-"))
+    temp_root = make_temp_dir("craft-policy-")
 
     try:
         allowed = _prepare_fixture(fixtures_root / "allowed", temp_root, current_kern_version)
@@ -212,6 +212,7 @@ def print_toolchain_info() -> int:
     info(f"resolved_toolchain.prefix: {bundled.prefix}")
     info(f"resolved_toolchain.bindir: {bundled.bindir}")
     info(f"resolved_toolchain.libdir: {bundled.libdir}")
+    info(f"resolved_toolchain.includedir: {bundled.includedir}")
     info(f"resolved_toolchain.version: {bundled.version}")
     for name, path in bundled.tools.items():
         info(f"resolved_toolchain.tool.{name}: {path}")
@@ -274,7 +275,7 @@ def verify_packaged_toolchain_archive(args: PackagedToolchainVerifyArgs) -> int:
 
     host = detect_host_target()
     expected_target = args.target or host.archive_target
-    temp_root = Path(tempfile.mkdtemp(prefix="kern-toolchain-verify-"))
+    temp_root = make_temp_dir("kern-toolchain-verify-")
     try:
         extract_root = temp_root / "extract"
         extract_root.mkdir(parents=True, exist_ok=True)
@@ -296,7 +297,7 @@ def install_packaged_toolchain_archive(args: PackagedToolchainInstallArgs) -> in
     expected_target = args.target or host.archive_target
     install_root = Path(args.dest).expanduser().resolve()
 
-    temp_root = Path(tempfile.mkdtemp(prefix="kern-toolchain-install-"))
+    temp_root = make_temp_dir("kern-toolchain-install-")
     try:
         extract_root = temp_root / "extract"
         extract_root.mkdir(parents=True, exist_ok=True)
@@ -381,6 +382,7 @@ def assert_toolchain_health() -> int:
         info(f"toolchain_health.{name}: {path} :: {first_line}")
 
     ensure(bundled.libdir.is_dir(), f"toolchain libdir `{bundled.libdir}` is missing")
+    ensure(bundled.includedir.is_dir(), f"toolchain includedir `{bundled.includedir}` is missing")
     ensure(
         bundled.resource_dir is None or bundled.resource_dir.is_dir(),
         f"clang resource dir `{bundled.resource_dir}` is missing",
@@ -410,13 +412,12 @@ def _validate_toolchain_root(toolchain_root: Path, expected_target: str) -> None
         manifest.get("host_target") == expected_target,
         f"toolchain host target mismatch in `{manifest_path}`",
     )
-    ensure((toolchain_root / "toolchain" / "host" / "bin").is_dir(), "toolchain bin layout is incomplete")
-    ensure((toolchain_root / "toolchain" / "host" / "lib").is_dir(), "toolchain lib layout is incomplete")
+    ensure((toolchain_root / "toolchain" / "host").is_dir(), "toolchain host layout is incomplete")
 
     components = manifest.get("components")
     ensure(isinstance(components, dict), "toolchain manifest components are invalid")
 
-    required = ["clang", "clangxx", "lld", "llvm_ar"]
+    required = ["clang", "clangxx", "lld", "llvm_ar", "llvm_config", "lib_dir", "include_dir"]
     if expected_target.endswith("windows-msvc"):
         required.append("llvm_lib")
 
@@ -500,6 +501,7 @@ def _component_key_from_tool(tool: str) -> str:
         "clang": "clang",
         "clang++": "clangxx",
         "llvm-ar": "llvm_ar",
+        "llvm-config": "llvm_config",
         "ld.lld": "lld",
         "ld64.lld": "lld",
         "lld-link": "lld",

@@ -5,6 +5,7 @@ import os
 import platform
 import shutil
 import subprocess
+import tempfile
 from hashlib import sha256
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,7 @@ class BundledToolchain:
     prefix: Path
     bindir: Path
     libdir: Path
+    includedir: Path
     version: str
     tools: dict[str, Path]
     resource_dir: Path | None
@@ -46,7 +48,7 @@ class BundledToolchain:
 class ArtifactRecord:
     path: str
     kind: str
-    sha256: str
+    sha256: str | None
     size: int | None
 
 
@@ -171,13 +173,21 @@ def sdk_manifest(
         "clangxx": None,
         "lld": None,
         "llvm_ar": None,
+        "llvm_config": None,
     }
     strategy = "system-fallback"
     bundled = False
     source: dict[str, object] | None = None
+    layout = {
+        "root": "toolchain",
+        "host_root": "toolchain/host",
+        "bin_dir": "toolchain/host/bin",
+        "lib_dir": "toolchain/host/lib",
+        "include_dir": "toolchain/host/include",
+        "sysroot_dir": "toolchain/host/sysroot",
+    }
 
     if bundled_toolchain is not None:
-        canonical_names = canonical_toolchain_component_names(archive_target)
         bundled = True
         strategy = "bundled-first"
         source = {
@@ -198,22 +208,26 @@ def sdk_manifest(
         else:
             components = {
                 name: {
-                    "path": f"toolchain/host/bin/{canonical_names.get(name, path.name)}",
+                    "path": _bundled_component_path(bundled_toolchain, path),
                 }
                 for name, path in bundled_toolchain.tools.items()
             }
             if bundled_toolchain.resource_dir is not None:
-                parts = bundled_toolchain.resource_dir.parts
-                if "clang" in parts:
-                    clang_index = parts.index("clang")
-                    resource_rel = "/".join(parts[clang_index:])
-                else:
-                    resource_rel = bundled_toolchain.resource_dir.name
                 components["clang_resource_dir"] = {
-                    "path": f"toolchain/host/lib/{resource_rel}",
+                    "path": bundled_resource_dir_path(bundled_toolchain),
                 }
+            components["lib_dir"] = {
+                "path": _bundled_component_path(bundled_toolchain, bundled_toolchain.libdir),
+                "kind": "directory",
+            }
+            components["include_dir"] = {
+                "path": _bundled_component_path(bundled_toolchain, bundled_toolchain.includedir),
+                "kind": "directory",
+            }
+        layout = toolchain_layout_paths(bundled_toolchain)
         toolchain_notes = [
             "The SDK bundles the host LLVM/Clang toolchain used for release validation.",
+            "The bundled toolchain preserves a relocatable LLVM development prefix for source builds.",
             "Host OS SDK/libc components may still be required by the platform linker/runtime.",
         ]
 
@@ -225,13 +239,7 @@ def sdk_manifest(
         "binaries": list(HOST_TOOL_BINARIES),
         "libraries": list(OFFICIAL_LIBRARY_LAYERS),
         "toolchain": {
-            "layout": {
-                "root": "toolchain",
-                "host_root": "toolchain/host",
-                "bin_dir": "toolchain/host/bin",
-                "lib_dir": "toolchain/host/lib",
-                "sysroot_dir": "toolchain/host/sysroot",
-            },
+            "layout": layout,
             "bundled": bundled,
             "strategy": strategy,
             "resolver_order": [
@@ -260,8 +268,35 @@ def canonical_toolchain_component_names(archive_target: str) -> dict[str, str]:
             else "ld.lld"
         ),
         "llvm_ar": f"llvm-ar{exe_suffix}",
+        "llvm_config": f"llvm-config{exe_suffix}",
         "llvm_lib": "llvm-lib.exe",
     }
+
+
+def toolchain_layout_paths(bundled_toolchain: BundledToolchain) -> dict[str, str]:
+    return {
+        "root": "toolchain",
+        "host_root": "toolchain/host",
+        "bin_dir": _bundled_component_path(bundled_toolchain, bundled_toolchain.bindir),
+        "lib_dir": _bundled_component_path(bundled_toolchain, bundled_toolchain.libdir),
+        "include_dir": _bundled_component_path(bundled_toolchain, bundled_toolchain.includedir),
+        "sysroot_dir": "toolchain/host/sysroot",
+    }
+
+
+def _bundled_component_path(bundled_toolchain: BundledToolchain, path: Path) -> str:
+    try:
+        relative = path.relative_to(bundled_toolchain.prefix)
+    except ValueError as err:
+        raise OpsError(
+            f"toolchain path `{path}` does not live under prefix `{bundled_toolchain.prefix}`"
+        ) from err
+    return f"toolchain/host/{relative.as_posix()}"
+
+
+def bundled_resource_dir_path(bundled_toolchain: BundledToolchain) -> str:
+    ensure(bundled_toolchain.resource_dir is not None, "bundled toolchain has no clang resource dir")
+    return f"toolchain/host/lib/clang/{bundled_toolchain.resource_dir.name}"
 
 
 def toolchain_manifest(
@@ -271,7 +306,6 @@ def toolchain_manifest(
     bundled_toolchain: BundledToolchain,
     bundled_component_records: dict[str, ArtifactRecord] | None = None,
 ) -> dict[str, object]:
-    canonical_names = canonical_toolchain_component_names(archive_target)
     if bundled_component_records is not None:
         components = {
             name: {
@@ -285,20 +319,22 @@ def toolchain_manifest(
     else:
         components = {
             name: {
-                "path": f"toolchain/host/bin/{canonical_names.get(name, path.name)}",
+                "path": _bundled_component_path(bundled_toolchain, path),
             }
             for name, path in bundled_toolchain.tools.items()
         }
         if bundled_toolchain.resource_dir is not None:
-            parts = bundled_toolchain.resource_dir.parts
-            if "clang" in parts:
-                clang_index = parts.index("clang")
-                resource_rel = "/".join(parts[clang_index:])
-            else:
-                resource_rel = bundled_toolchain.resource_dir.name
             components["clang_resource_dir"] = {
-                "path": f"toolchain/host/lib/{resource_rel}",
+                "path": bundled_resource_dir_path(bundled_toolchain),
             }
+        components["lib_dir"] = {
+            "path": _bundled_component_path(bundled_toolchain, bundled_toolchain.libdir),
+            "kind": "directory",
+        }
+        components["include_dir"] = {
+            "path": _bundled_component_path(bundled_toolchain, bundled_toolchain.includedir),
+            "kind": "directory",
+        }
 
     return {
         "schema_version": 1,
@@ -306,13 +342,7 @@ def toolchain_manifest(
         "host_target": archive_target,
         "layout_version": 1,
         "provider": "bundled-host-llvm",
-        "layout": {
-            "root": "toolchain",
-            "host_root": "toolchain/host",
-            "bin_dir": "toolchain/host/bin",
-            "lib_dir": "toolchain/host/lib",
-            "sysroot_dir": "toolchain/host/sysroot",
-        },
+        "layout": toolchain_layout_paths(bundled_toolchain),
         "source": {
             "label": bundled_toolchain.source_label,
             "version": bundled_toolchain.version,
@@ -321,6 +351,7 @@ def toolchain_manifest(
         "notes": [
             "This archive contains the controlled host LLVM/Clang toolchain used by Kern packaging.",
             "It is intended for CI, release engineering, and SDK assembly.",
+            "The archive preserves a relocatable LLVM development prefix for source builds.",
             "Host OS SDK/libc components may still remain platform responsibilities.",
         ],
     }
@@ -360,6 +391,15 @@ def sha256_directory(path: Path) -> str:
 
 def file_size(path: Path) -> int:
     return path.stat().st_size
+
+
+def make_temp_dir(prefix: str) -> Path:
+    preferred_root = os.environ.get("KERN_OPS_TEMP_ROOT") or os.environ.get("RUNNER_TEMP")
+    if preferred_root:
+        root = Path(preferred_root).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(prefix=prefix, dir=root))
+    return Path(tempfile.mkdtemp(prefix=prefix))
 
 
 def find_llvm_sys_prefix() -> tuple[str, Path] | None:
@@ -427,16 +467,18 @@ def _resolve_llvm_tool(
     bindir: Path,
     is_windows: bool,
     required: bool,
+    allow_path_lookup: bool = True,
 ) -> Path | None:
     for candidate in _tool_candidate_names(name, major, is_windows):
         direct = bindir / candidate
         if direct.is_file():
             return direct
 
-    for candidate in _tool_candidate_names(name, major, is_windows):
-        resolved = shutil.which(candidate)
-        if resolved is not None:
-            return Path(resolved)
+    if allow_path_lookup:
+        for candidate in _tool_candidate_names(name, major, is_windows):
+            resolved = shutil.which(candidate)
+            if resolved is not None:
+                return Path(resolved)
 
     if required:
         raise OpsError(f"failed to resolve LLVM tool `{name}` for the current packaging environment")
@@ -472,29 +514,28 @@ def resolve_bundled_toolchain(
         bindir=prefix / "bin",
         is_windows=host.is_windows,
         required=False,
+        allow_path_lookup=False,
     )
-    if llvm_config is None:
-        llvm_config_path = shutil.which("llvm-config-21") or shutil.which("llvm-config")
-        ensure(
-            llvm_config_path is not None,
-            f"failed to resolve `llvm-config` for LLVM prefix `{prefix}`",
-        )
-        llvm_config = Path(llvm_config_path).resolve()
+    ensure(llvm_config is not None, f"failed to resolve `llvm-config` within LLVM prefix `{prefix}`")
 
     version = _tool_output([str(llvm_config), "--version"])
     major = _version_major(version)
     bindir = Path(_tool_output([str(llvm_config), "--bindir"])).resolve()
     libdir = Path(_tool_output([str(llvm_config), "--libdir"])).resolve()
+    includedir = Path(_tool_output([str(llvm_config), "--includedir"])).resolve()
     ensure(bindir.is_dir(), f"LLVM bindir `{bindir}` does not exist")
     ensure(libdir.is_dir(), f"LLVM libdir `{libdir}` does not exist")
+    ensure(includedir.is_dir(), f"LLVM includedir `{includedir}` does not exist")
 
     tools: dict[str, Path] = {
+        "llvm_config": llvm_config,
         "clang": _resolve_llvm_tool(
             name="clang",
             major=major,
             bindir=bindir,
             is_windows=host.is_windows,
             required=True,
+            allow_path_lookup=False,
         ),
         "clangxx": _resolve_llvm_tool(
             name="clang++",
@@ -502,6 +543,7 @@ def resolve_bundled_toolchain(
             bindir=bindir,
             is_windows=host.is_windows,
             required=True,
+            allow_path_lookup=False,
         ),
         "llvm_ar": _resolve_llvm_tool(
             name="llvm-ar",
@@ -509,6 +551,7 @@ def resolve_bundled_toolchain(
             bindir=bindir,
             is_windows=host.is_windows,
             required=True,
+            allow_path_lookup=False,
         ),
     }
 
@@ -519,6 +562,7 @@ def resolve_bundled_toolchain(
             bindir=bindir,
             is_windows=True,
             required=True,
+            allow_path_lookup=False,
         )
         llvm_lib = _resolve_llvm_tool(
             name="llvm-lib",
@@ -526,6 +570,7 @@ def resolve_bundled_toolchain(
             bindir=bindir,
             is_windows=True,
             required=True,
+            allow_path_lookup=False,
         )
         assert lld is not None
         assert llvm_lib is not None
@@ -538,6 +583,7 @@ def resolve_bundled_toolchain(
             bindir=bindir,
             is_windows=False,
             required=True,
+            allow_path_lookup=False,
         )
         assert lld is not None
         tools["lld"] = lld
@@ -548,6 +594,7 @@ def resolve_bundled_toolchain(
             bindir=bindir,
             is_windows=False,
             required=True,
+            allow_path_lookup=False,
         )
         assert lld is not None
         tools["lld"] = lld
@@ -571,6 +618,7 @@ def resolve_bundled_toolchain(
         prefix=prefix,
         bindir=bindir,
         libdir=libdir,
+        includedir=includedir,
         version=version,
         tools=tools,
         resource_dir=resource_dir,

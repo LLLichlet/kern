@@ -7,7 +7,6 @@ import zipfile
 from glob import glob
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from .common import (
     ArtifactRecord,
@@ -15,7 +14,7 @@ from .common import (
     OFFICIAL_LIBRARY_LAYERS,
     BundledToolchain,
     HostTarget,
-    canonical_toolchain_component_names,
+    bundled_resource_dir_path,
     copy_directory_contents,
     detect_host_target,
     ensure,
@@ -26,7 +25,6 @@ from .common import (
     require_tool,
     resolve_bundled_toolchain,
     run,
-    sha256_directory,
     sha256_file,
     sdk_manifest,
     toolchain_manifest,
@@ -332,23 +330,6 @@ def _prepare_toolchain_dist_dir(
         ),
     )
 
-
-def _copy_file(source: Path, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, dest)
-
-
-def _copy_selected_files(source: Path, dest: Path, *, predicate: Callable[[Path], bool]) -> None:
-    for path in sorted(source.rglob("*")):
-        if path.is_dir():
-            continue
-        relative = path.relative_to(source)
-        if predicate(relative):
-            target = dest / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
-
-
 def _bundle_host_toolchain(
     dist_dir: Path,
     host: HostTarget,
@@ -365,12 +346,40 @@ def _bundle_host_toolchain(
         f"{bundled_toolchain.version} from {bundled_toolchain.source_label}: {bundled_toolchain.prefix}"
     )
 
-    canonical_names = canonical_toolchain_component_names(host.archive_target)
+    bindir_rel = bundled_toolchain.bindir.relative_to(bundled_toolchain.prefix)
+    libdir_rel = bundled_toolchain.libdir.relative_to(bundled_toolchain.prefix)
+    includedir_rel = bundled_toolchain.includedir.relative_to(bundled_toolchain.prefix)
+
+    copied_bin_dir = host_root / bindir_rel
+    copied_lib_dir = host_root / libdir_rel
+    copied_include_dir = host_root / includedir_rel
+
+    copy_directory_contents(bundled_toolchain.bindir, copied_bin_dir)
+    copy_directory_contents(bundled_toolchain.libdir, copied_lib_dir)
+    copy_directory_contents(bundled_toolchain.includedir, copied_include_dir)
+
+    records["bin_dir"] = ArtifactRecord(
+        path=copied_bin_dir.relative_to(dist_dir).as_posix(),
+        kind="directory",
+        sha256=None,
+        size=None,
+    )
+    records["lib_dir"] = ArtifactRecord(
+        path=copied_lib_dir.relative_to(dist_dir).as_posix(),
+        kind="directory",
+        sha256=None,
+        size=None,
+    )
+    records["include_dir"] = ArtifactRecord(
+        path=copied_include_dir.relative_to(dist_dir).as_posix(),
+        kind="directory",
+        sha256=None,
+        size=None,
+    )
 
     for component, source in bundled_toolchain.tools.items():
-        target_name = canonical_names.get(component, source.name)
-        target = bin_dir / target_name
-        _copy_file(source, target)
+        target = host_root / source.relative_to(bundled_toolchain.prefix)
+        ensure(target.is_file(), f"bundled toolchain component `{component}` is missing at `{target}`")
         records[component] = ArtifactRecord(
             path=target.relative_to(dist_dir).as_posix(),
             kind="file",
@@ -378,31 +387,14 @@ def _bundle_host_toolchain(
             size=file_size(target),
         )
 
-    if host.is_windows:
-        for dll in sorted(bundled_toolchain.bindir.glob("*.dll")):
-            _copy_file(dll, bin_dir / dll.name)
-
-    def include_lib(relative: Path) -> bool:
-        if not relative.parts:
-            return False
-        if relative.parts[0] in {"cmake", "pkgconfig"}:
-            return False
-        name = relative.name
-        return (
-            ".so." in name
-            or name.endswith((".so", ".dylib", ".dll", ".lib", ".def", ".json"))
-            or name == "LLVMgold.so"
-        )
-
-    _copy_selected_files(bundled_toolchain.libdir, lib_dir, predicate=include_lib)
-
     if bundled_toolchain.resource_dir is not None and bundled_toolchain.resource_dir.exists():
-        resource_dest = lib_dir / "clang" / bundled_toolchain.resource_dir.name
-        copy_directory_contents(bundled_toolchain.resource_dir, resource_dest)
+        resource_dest = dist_dir / bundled_resource_dir_path(bundled_toolchain)
+        if not resource_dest.exists():
+            copy_directory_contents(bundled_toolchain.resource_dir, resource_dest)
         records["clang_resource_dir"] = ArtifactRecord(
             path=resource_dest.relative_to(dist_dir).as_posix(),
             kind="directory",
-            sha256=sha256_directory(resource_dest),
+            sha256=None,
             size=None,
         )
 
@@ -430,9 +422,12 @@ def _bundle_host_toolchain(
                 "",
                 f"- Source: {bundled_toolchain.source_label}",
                 f"- Version: {bundled_toolchain.version}",
-                f"- Bundled executables: {', '.join(sorted(canonical_names.values()))}",
+                f"- Bundled bindir: {copied_bin_dir.relative_to(dist_dir).as_posix()}",
+                f"- Bundled libdir: {copied_lib_dir.relative_to(dist_dir).as_posix()}",
+                f"- Bundled includedir: {copied_include_dir.relative_to(dist_dir).as_posix()}",
                 "",
                 "The SDK keeps user installs pointed at this bundled toolchain first.",
+                "The packaged toolchain preserves a relocatable LLVM development prefix for source builds.",
                 "Host OS SDK/libc pieces may still remain platform responsibilities.",
                 "",
             ]

@@ -64,6 +64,23 @@ jobs:
       - name: Setup LLVM
         uses: ./.github/actions/setup-llvm
 
+      - name: Configure ThinLTO CI Toolchain (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x ./scripts/ci-llvm-clang.sh ./scripts/ci-llvm-clang++.sh ./scripts/print_ci_toolchain_info.sh
+          echo "CC=${GITHUB_WORKSPACE}/scripts/ci-llvm-clang.sh" >> "$GITHUB_ENV"
+          echo "CXX=${GITHUB_WORKSPACE}/scripts/ci-llvm-clang++.sh" >> "$GITHUB_ENV"
+          echo "KERN_DEBUG_LTO_LINK=1" >> "$GITHUB_ENV"
+
+      - name: Print CI Toolchain Diagnostics (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/print_ci_toolchain_info.sh
+
+      - name: Print CI Toolchain Diagnostics (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\scripts\print_ci_toolchain_info.ps1
+
       - name: Install VS Code Extension Dependencies
         working-directory: editors/vscode
         run: npm ci

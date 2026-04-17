@@ -87,7 +87,7 @@ impl CompilerDriver {
             }
             Ok(status) => {
                 eprintln!("Error: Linker failed with exit code {}", status);
-                self.maybe_print_lto_toolchain_hint(target);
+                self.maybe_print_lto_toolchain_hint(target, &cmd);
                 false
             }
             Err(err) => {
@@ -181,38 +181,6 @@ impl CompilerDriver {
     fn build_link_command(&self, extra_inputs: &[String], target: &LinkTarget) -> Command {
         let cc_compiler = self.resolve_linker_driver(target.is_windows);
         let mut cmd = Command::new(&cc_compiler);
-        let requests_llvm_lto = self
-            .options
-            .linker_args
-            .iter()
-            .any(|arg| arg.starts_with("-flto"));
-        let explicit_fuse_ld = self
-            .options
-            .linker_args
-            .iter()
-            .any(|arg| arg.starts_with("-fuse-ld="));
-        let auto_fuse_ld = if !requests_llvm_lto || explicit_fuse_ld {
-            None
-        } else if target.is_windows {
-            Some("lld")
-        } else if target.is_darwin && find_llvm_tool("ld64.lld", false).is_some() {
-            Some("ld64.lld")
-        } else if !target.is_darwin && find_llvm_tool("ld.lld", false).is_some() {
-            Some("lld")
-        } else {
-            None
-        };
-
-        if requests_llvm_lto && let Some(bin_dir) = llvm_prefix_bin_dir() {
-            prepend_path_env(&mut cmd, &bin_dir);
-        }
-
-        if let Some(linker_name) = auto_fuse_ld {
-            // LLVM bitcode inputs should stay on the same LLVM linker family
-            // that produced them when an in-prefix lld is available.
-            cmd.arg(format!("-fuse-ld={linker_name}"));
-        }
-
         for input in extra_inputs {
             Self::push_link_input_arg(&mut cmd, input, target.is_windows);
         }
@@ -237,7 +205,7 @@ impl CompilerDriver {
             cmd.arg(arg);
         }
 
-        self.apply_thin_lto_cache_options(&mut cmd, target, auto_fuse_ld.is_some());
+        self.apply_thin_lto_cache_options(&mut cmd, target);
         self.apply_dead_strip_options(&mut cmd, target.is_windows, target.is_darwin);
 
         cmd
@@ -379,12 +347,7 @@ impl CompilerDriver {
         }
     }
 
-    fn apply_thin_lto_cache_options(
-        &self,
-        cmd: &mut Command,
-        target: &LinkTarget,
-        auto_use_lld: bool,
-    ) {
+    fn apply_thin_lto_cache_options(&self, cmd: &mut Command, target: &LinkTarget) {
         if target.is_windows
             || !self
                 .options
@@ -418,12 +381,11 @@ impl CompilerDriver {
             return;
         }
 
-        let uses_lld = auto_use_lld
-            || self
-                .options
-                .linker_args
-                .iter()
-                .any(|arg| arg == "-fuse-ld=lld" || arg == "-fuse-ld=ld64.lld");
+        let uses_lld = self
+            .options
+            .linker_args
+            .iter()
+            .any(|arg| arg == "-fuse-ld=lld" || arg == "-fuse-ld=ld64.lld");
 
         if target.is_darwin {
             cmd.arg(format!("-Wl,-cache_path_lto,{}", cache_dir));
@@ -440,7 +402,7 @@ impl CompilerDriver {
         }
     }
 
-    fn maybe_print_lto_toolchain_hint(&self, target: &LinkTarget) {
+    fn maybe_print_lto_toolchain_hint(&self, target: &LinkTarget, cmd: &Command) {
         let requests_llvm_lto = self
             .options
             .linker_args
@@ -457,12 +419,21 @@ impl CompilerDriver {
             "Note: LLVM LTO links require the final linker toolchain to match the LLVM version used for codegen."
         );
         eprintln!(
-            "      If you see Producer/Reader version mismatches, use a matching clang/lld pair via PATH or CC."
+            "      Configure the build/test environment to use a matching Clang + LTO linker toolchain."
         );
         eprintln!(
-            "      Current runtime LLVM_SYS prefix: {}",
-            llvm_prefix
+            "      Configured link driver: {}",
+            self.options.linker_cmd
         );
+        if let Ok(cc_env) = env::var("CC") {
+            eprintln!("      CC environment: {}", cc_env);
+        }
+        eprintln!("      Resolved link command: {}", self.format_command(cmd));
+        eprintln!("      Current runtime LLVM_SYS prefix: {}", llvm_prefix);
+        if env::var_os("KERN_DEBUG_LTO_LINK").is_some() {
+            let path = env::var("PATH").unwrap_or_else(|_| "<unset>".to_string());
+            eprintln!("      PATH: {}", path);
+        }
     }
 
     fn format_command(&self, cmd: &Command) -> String {
@@ -481,11 +452,6 @@ fn llvm_prefix_dir() -> Option<PathBuf> {
     env::vars().find_map(|(key, value)| {
         (key.starts_with("LLVM_SYS_") && key.ends_with("_PREFIX")).then(|| PathBuf::from(value))
     })
-}
-
-fn llvm_prefix_bin_dir() -> Option<PathBuf> {
-    let bin_dir = llvm_prefix_dir()?.join("bin");
-    bin_dir.is_dir().then_some(bin_dir)
 }
 
 fn find_llvm_tool(tool: &str, is_windows: bool) -> Option<String> {
@@ -517,16 +483,6 @@ fn find_llvm_tool_in_prefix(prefix: &std::path::Path, tool: &str, is_windows: bo
     versioned
         .is_file()
         .then(|| versioned.to_string_lossy().to_string())
-}
-
-fn prepend_path_env(cmd: &mut Command, dir: &std::path::Path) {
-    let mut paths = vec![dir.to_path_buf()];
-    if let Some(existing) = env::var_os("PATH") {
-        paths.extend(env::split_paths(&existing));
-    }
-    if let Ok(joined) = env::join_paths(paths) {
-        cmd.env("PATH", joined);
-    }
 }
 
 fn shell_quote(input: &str) -> String {
@@ -638,16 +594,12 @@ mod tests {
                 args.iter()
                     .any(|arg| arg == &format!("-Wl,-cache_path_lto,{}", cache_dir))
             );
-            if find_llvm_tool("ld64.lld", false).is_some() {
-                assert!(args.iter().any(|arg| arg == "-fuse-ld=ld64.lld"));
-            }
         } else if !target.is_windows {
             if find_llvm_tool("ld.lld", false).is_some() {
                 assert!(
                     args.iter()
                         .any(|arg| arg == &format!("-Wl,--thinlto-cache-dir={}", cache_dir))
                 );
-                assert!(args.iter().any(|arg| arg == "-fuse-ld=lld"));
             } else {
                 assert!(
                     args.iter()

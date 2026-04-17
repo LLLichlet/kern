@@ -189,12 +189,12 @@ pub(crate) fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
     {
         let trimmed = decoded.strip_prefix('/').unwrap_or(&decoded);
         let with_separators = trimmed.replace('/', "\\");
-        Some(PathBuf::from(with_separators))
+        Some(normalize_platform_path(PathBuf::from(with_separators)))
     }
 
     #[cfg(not(windows))]
     {
-        Some(PathBuf::from(decoded))
+        Some(normalize_platform_path(PathBuf::from(decoded)))
     }
 }
 
@@ -588,6 +588,15 @@ fn is_keyword(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn uri_to_file_path_strips_private_var_prefix() {
+        assert_eq!(
+            super::uri_to_file_path("file:///private/var/folders/example").unwrap(),
+            std::path::PathBuf::from("/var/folders/example")
+        );
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn normalize_platform_path_strips_private_var_prefix() {

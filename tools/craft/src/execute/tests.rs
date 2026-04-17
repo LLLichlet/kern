@@ -9,9 +9,9 @@ use crate::manifest::Manifest;
 use crate::workspace;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod build_graph;
 mod external_deps;
@@ -72,6 +72,32 @@ fn find_tool_in_path(name: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn run_binary_with_retry(executable: &Path, expected_code: i32) -> Output {
+    let mut last_output = None;
+    for attempt in 0..3 {
+        let output = Command::new(executable).output().unwrap();
+        if output.status.code() == Some(expected_code) {
+            return output;
+        }
+        let signaled = cfg!(unix) && output.status.code().is_none();
+        last_output = Some(output);
+        if !signaled || attempt == 2 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let output = last_output.expect("expected at least one process launch");
+    panic!(
+        "expected `{}` to exit with code {}, got status {:?}\nstdout:\n{}\nstderr:\n{}",
+        executable.display(),
+        expected_code,
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]

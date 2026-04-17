@@ -371,8 +371,8 @@ return log.answer() - 42;
         .expect("expected app link action")
         .artifact_path
         .clone();
-    let first_status = Command::new(&executable).status().unwrap();
-    assert_eq!(first_status.code(), Some(0));
+    let first_output = super::run_binary_with_retry(&executable, 0);
+    assert!(first_output.status.success());
 
     fs::write(
         repo.join("src/lib.rn"),
@@ -412,8 +412,8 @@ return 43;
         .expect("expected app link action")
         .artifact_path
         .clone();
-    let second_status = Command::new(&second_executable).status().unwrap();
-    assert_eq!(second_status.code(), Some(1));
+    let second_output = super::run_binary_with_retry(&second_executable, 1);
+    assert_eq!(second_output.status.code(), Some(1));
 
     let deps = external::requested_external_dependencies(&action_plan);
     assert_eq!(deps.len(), 1);

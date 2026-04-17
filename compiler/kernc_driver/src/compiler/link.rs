@@ -191,19 +191,26 @@ impl CompilerDriver {
             .linker_args
             .iter()
             .any(|arg| arg.starts_with("-fuse-ld="));
-        let auto_use_lld = requests_llvm_lto
-            && !explicit_fuse_ld
-            && !target.is_darwin
-            && (target.is_windows || find_llvm_tool("ld.lld", target.is_windows).is_some());
+        let auto_fuse_ld = if !requests_llvm_lto || explicit_fuse_ld {
+            None
+        } else if target.is_windows {
+            Some("lld")
+        } else if target.is_darwin && find_llvm_tool("ld64.lld", false).is_some() {
+            Some("ld64.lld")
+        } else if !target.is_darwin && find_llvm_tool("ld.lld", false).is_some() {
+            Some("lld")
+        } else {
+            None
+        };
 
         if requests_llvm_lto && let Some(bin_dir) = llvm_prefix_bin_dir() {
             prepend_path_env(&mut cmd, &bin_dir);
         }
 
-        if auto_use_lld {
+        if let Some(linker_name) = auto_fuse_ld {
             // LLVM bitcode inputs should stay on the same LLVM linker family
             // that produced them when an in-prefix lld is available.
-            cmd.arg("-fuse-ld=lld");
+            cmd.arg(format!("-fuse-ld={linker_name}"));
         }
 
         for input in extra_inputs {
@@ -230,7 +237,7 @@ impl CompilerDriver {
             cmd.arg(arg);
         }
 
-        self.apply_thin_lto_cache_options(&mut cmd, target, auto_use_lld);
+        self.apply_thin_lto_cache_options(&mut cmd, target, auto_fuse_ld.is_some());
         self.apply_dead_strip_options(&mut cmd, target.is_windows, target.is_darwin);
 
         cmd
@@ -631,6 +638,9 @@ mod tests {
                 args.iter()
                     .any(|arg| arg == &format!("-Wl,-cache_path_lto,{}", cache_dir))
             );
+            if find_llvm_tool("ld64.lld", false).is_some() {
+                assert!(args.iter().any(|arg| arg == "-fuse-ld=ld64.lld"));
+            }
         } else if !target.is_windows {
             if find_llvm_tool("ld.lld", false).is_some() {
                 assert!(

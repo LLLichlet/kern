@@ -470,6 +470,19 @@ def _bundle_host_toolchain(
         ),
         encoding="utf-8",
     )
+
+    for component, record in list(records.items()):
+        if record.kind != "file":
+            continue
+        target = dist_dir / record.path
+        ensure(target.is_file(), f"bundled toolchain component `{component}` is missing at `{target}`")
+        records[component] = ArtifactRecord(
+            path=record.path,
+            kind=record.kind,
+            sha256=sha256_file(target),
+            size=file_size(target),
+        )
+
     return records
 
 
@@ -522,6 +535,14 @@ def _macos_collect_external_runtime_libs(
                 continue
             if _is_macos_system_library(resolved):
                 continue
+            # Preserve both the original load-command path and the fully
+            # resolved file. Homebrew commonly records dylib dependencies
+            # through `/usr/local/opt/...` symlinks while the real payload
+            # lives under `/usr/local/Cellar/...`. Packaging only the resolved
+            # filename misses compatibility aliases like `libzstd.1.dylib`,
+            # which later prevents load-command rewriting from matching the
+            # original dependency spelling during verification.
+            external_libs.add(dependency_path)
             external_libs.add(resolved)
             queued.append(resolved)
 
@@ -554,7 +575,12 @@ def _rewrite_macos_toolchain_load_commands(
             dependency_path = Path(dependency)
             if not dependency_path.is_absolute():
                 continue
-            if not any(dependency_path.is_relative_to(libdir) for libdir in original_libdirs):
+            dependency_resolved = dependency_path.resolve(strict=False)
+            if not any(
+                dependency_path.is_relative_to(libdir)
+                or dependency_resolved.is_relative_to(libdir)
+                for libdir in original_libdirs
+            ):
                 continue
 
             replacement = _macos_local_dylib_reference(target, dependency_path.name, lib_dir=lib_dir)

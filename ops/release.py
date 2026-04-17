@@ -26,6 +26,7 @@ from .common import (
     require_tool,
     resolve_bundled_toolchain,
     run,
+    run_capture,
     sha256_file,
     sdk_manifest,
     toolchain_manifest,
@@ -401,6 +402,12 @@ def _bundle_host_toolchain(
     for extra_lib_dir in sorted(extra_runtime_lib_dirs):
         copy_directory_contents(extra_lib_dir, lib_dir)
 
+    if host.archive_target.endswith("apple-darwin"):
+        _rewrite_macos_toolchain_load_commands(
+            host_root,
+            original_libdirs={bundled_toolchain.libdir, *extra_runtime_lib_dirs},
+        )
+
     if bundled_toolchain.resource_dir is not None and bundled_toolchain.resource_dir.exists():
         resource_dest = dist_dir / bundled_resource_dir_path(bundled_toolchain)
         if not resource_dest.exists():
@@ -455,6 +462,71 @@ def _external_tool_runtime_libdirs(tool_path: Path) -> list[Path]:
     prefix = tool_path.parent.parent
     candidates = [prefix / "lib", prefix / "lib64"]
     return [candidate for candidate in candidates if candidate.is_dir()]
+
+
+def _rewrite_macos_toolchain_load_commands(
+    host_root: Path,
+    *,
+    original_libdirs: set[Path],
+) -> None:
+    require_tool("otool")
+    require_tool("install_name_tool")
+
+    lib_dir = (host_root / "lib").resolve()
+    original_libdirs = {path.resolve() for path in original_libdirs}
+    targets = sorted((host_root / "bin").glob("*")) + sorted(lib_dir.glob("*.dylib"))
+    modified: list[Path] = []
+
+    for target in targets:
+        if not target.is_file():
+            continue
+
+        for dependency in _macos_load_dependencies(target):
+            dependency_path = Path(dependency)
+            if not dependency_path.is_absolute():
+                continue
+            if not any(dependency_path.is_relative_to(libdir) for libdir in original_libdirs):
+                continue
+
+            replacement = _macos_local_dylib_reference(target, dependency_path.name, lib_dir=lib_dir)
+            run(
+                [
+                    "install_name_tool",
+                    "-change",
+                    dependency,
+                    replacement,
+                    str(target),
+                ]
+            )
+            modified.append(target)
+
+        if target.parent == lib_dir and target.suffix == ".dylib":
+            dylib_id = _macos_local_dylib_reference(target, target.name, lib_dir=lib_dir)
+            run(["install_name_tool", "-id", dylib_id, str(target)])
+            modified.append(target)
+
+    if shutil.which("codesign") is not None:
+        for target in sorted(set(modified)):
+            run(["codesign", "--force", "--sign", "-", str(target)])
+
+
+def _macos_load_dependencies(path: Path) -> list[str]:
+    completed = run_capture(["otool", "-L", str(path)])
+    ensure(completed.returncode == 0, f"failed to inspect Mach-O load commands for `{path}`")
+    dependencies: list[str] = []
+    for line in (completed.stdout or "").splitlines()[1:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        dependency, _, _ = stripped.partition(" (compatibility version")
+        dependencies.append(dependency.strip())
+    return dependencies
+
+
+def _macos_local_dylib_reference(path: Path, dylib_name: str, *, lib_dir: Path) -> str:
+    if path.parent.resolve() == lib_dir:
+        return f"@loader_path/{dylib_name}"
+    return f"@loader_path/../lib/{dylib_name}"
 
 
 def _resolve_checksum_inputs(root: Path, patterns: tuple[str, ...]) -> list[Path]:

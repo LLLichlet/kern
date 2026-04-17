@@ -430,6 +430,9 @@ def _validate_toolchain_root(toolchain_root: Path, expected_target: str) -> None
     if isinstance(resource_entry, dict):
         _validate_component_record(toolchain_root, "clang_resource_dir", resource_entry)
 
+    if expected_target.endswith("apple-darwin"):
+        _validate_macos_toolchain_relocation(toolchain_root)
+
 
 def _validate_component_record(root: Path, component: str, entry: dict[str, object]) -> None:
     relative_path = entry.get("path")
@@ -466,6 +469,33 @@ def _validate_component_record(root: Path, component: str, entry: dict[str, obje
             actual_sha == expected_sha,
             f"toolchain component `{component}` checksum mismatch at `{target}`",
         )
+
+
+def _validate_macos_toolchain_relocation(toolchain_root: Path) -> None:
+    if shutil.which("otool") is None:
+        raise OpsError("failed to locate `otool` while validating packaged macOS toolchain relocation")
+
+    host_root = toolchain_root / "toolchain" / "host"
+    paths = sorted((host_root / "bin").glob("*")) + sorted((host_root / "lib").glob("*.dylib"))
+    forbidden_prefixes = (
+        "/opt/homebrew/opt/",
+        "/usr/local/opt/",
+        "/opt/homebrew/Cellar/",
+        "/usr/local/Cellar/",
+    )
+
+    for path in paths:
+        if not path.is_file():
+            continue
+        completed = run_capture(["otool", "-L", str(path)])
+        ensure(completed.returncode == 0, f"failed to inspect Mach-O dependencies for `{path}`")
+        for line in (completed.stdout or "").splitlines()[1:]:
+            dependency = line.strip().partition(" (compatibility version")[0].strip()
+            if dependency.startswith(forbidden_prefixes):
+                raise OpsError(
+                    "packaged macOS toolchain still depends on a Homebrew prefix: "
+                    f"`{path}` -> `{dependency}`"
+                )
 
 
 def _prepare_fixture(source_dir: Path, temp_root: Path, current_kern_version: str) -> Path:

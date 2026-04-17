@@ -379,6 +379,7 @@ def _bundle_host_toolchain(
         size=None,
     )
 
+    extra_runtime_lib_dirs: set[Path] = set()
     for component, source in bundled_toolchain.tools.items():
         try:
             target = host_root / source.relative_to(bundled_toolchain.prefix)
@@ -387,6 +388,8 @@ def _bundle_host_toolchain(
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
+            for candidate in _external_tool_runtime_libdirs(source):
+                extra_runtime_lib_dirs.add(candidate)
         ensure(target.is_file(), f"bundled toolchain component `{component}` is missing at `{target}`")
         records[component] = ArtifactRecord(
             path=target.relative_to(dist_dir).as_posix(),
@@ -394,6 +397,9 @@ def _bundle_host_toolchain(
             sha256=sha256_file(target),
             size=file_size(target),
         )
+
+    for extra_lib_dir in sorted(extra_runtime_lib_dirs):
+        copy_directory_contents(extra_lib_dir, lib_dir)
 
     if bundled_toolchain.resource_dir is not None and bundled_toolchain.resource_dir.exists():
         resource_dest = dist_dir / bundled_resource_dir_path(bundled_toolchain)
@@ -443,6 +449,12 @@ def _bundle_host_toolchain(
         encoding="utf-8",
     )
     return records
+
+
+def _external_tool_runtime_libdirs(tool_path: Path) -> list[Path]:
+    prefix = tool_path.parent.parent
+    candidates = [prefix / "lib", prefix / "lib64"]
+    return [candidate for candidate in candidates if candidate.is_dir()]
 
 
 def _resolve_checksum_inputs(root: Path, patterns: tuple[str, ...]) -> list[Path]:

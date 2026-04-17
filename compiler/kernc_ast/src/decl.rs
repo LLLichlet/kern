@@ -118,15 +118,23 @@ pub enum UsePathKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum UseTarget {
     Module(Option<SymbolId>),
-    Members(Vec<UseMember>),
+    Tree(Vec<UseTree>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UseMember {
-    pub path: Vec<SymbolId>,
-    pub alias: Option<SymbolId>,
-    pub span: Span,
-    pub binding_span: Span,
+pub enum UseTree {
+    SelfModule {
+        alias: Option<SymbolId>,
+        span: Span,
+        binding_span: Span,
+    },
+    Path {
+        path: Vec<SymbolId>,
+        alias: Option<SymbolId>,
+        nested: Option<Vec<UseTree>>,
+        span: Span,
+        binding_span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

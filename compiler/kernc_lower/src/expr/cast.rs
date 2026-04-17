@@ -118,11 +118,44 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return MastExpr::new(exp_ty, mast_kind, span);
         }
 
-        // 2. Implicit pointer-to-trait-object packing.
+        let conc_is_fat_pointer_value = match conc_kind {
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => matches!(
+                self.ctx
+                    .type_registry
+                    .get(self.ctx.type_registry.normalize(elem)),
+                TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
+            ),
+            _ => false,
+        };
+        let conc_trait_object_elem = match conc_kind {
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let elem_norm = self.ctx.type_registry.normalize(elem);
+                matches!(self.ctx.type_registry.get(elem_norm), TypeKind::TraitObject(..))
+                    .then_some(elem_norm)
+            }
+            _ => None,
+        };
+
+        // 2. Implicit thin-pointer-to-trait-object packing.
         if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm)
+                && let Some(actual_elem_norm) = conc_trait_object_elem
+                && conc_is_fat_pointer_value
+                && self.is_trait_object_upcast(actual_elem_norm, e_inner_norm)
+            {
+                return self.lower_trait_object_upcast(
+                    MastExpr::new(concrete_ty, mast_kind, span),
+                    exp_ty,
+                    actual_elem_norm,
+                    e_inner_norm,
+                    span,
+                );
+            }
+
+            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm)
                 && let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } = conc_kind
+                && !conc_is_fat_pointer_value
             {
                 let actual_elem_norm = match conc_kind {
                     TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
@@ -145,7 +178,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     );
                 }
 
-                let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
+                let vtable_id = self.get_or_create_vtable(concrete_ty, concrete_ty, e_inner_norm);
                 let Some(meta_expr) = self.vtable_global_meta_expr(vtable_id, span) else {
                     return MastExpr::new(exp_ty, MastExprKind::Trap, span);
                 };
@@ -161,7 +194,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 3. Implicitly take the address of bare values and pack them as trait objects.
+        // 3. Implicitly take the address of non-thin values and pack them as trait objects.
         if let TypeKind::Pointer {
             is_mut: e_mut,
             elem: e_inner,
@@ -169,10 +202,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm)
-                && !matches!(
+                && (!matches!(
                     conc_kind,
                     TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
-                )
+                ) || conc_is_fat_pointer_value)
             {
                 let ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                     is_mut: e_mut,
@@ -187,7 +220,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 );
 
                 // After materialization, trait-object packing is identical to the pointer path.
-                let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
+                let vtable_id = self.get_or_create_vtable(ptr_ty, concrete_ty, e_inner_norm);
                 let Some(meta_expr) = self.vtable_global_meta_expr(vtable_id, span) else {
                     return MastExpr::new(exp_ty, MastExprKind::Trap, span);
                 };

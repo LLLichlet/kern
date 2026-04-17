@@ -303,6 +303,93 @@ fn main() i32 {
 }
 
 #[test]
+fn hosted_std_io_prints_generic_slices() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_printable_slices",
+        r#"
+use std.io;
+
+fn main() i32 {
+    let values = [4]usize.{ 9, 1, 7, 3 };
+    let ordered = values.[0 .. 4];
+
+    let mut scratch = [3]usize.{ 5, 4, 6 };
+    let window = scratch..[0 .. 3];
+
+    io.println("{} {}", .{ ordered, window, });
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std io printable slices program to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&run_output.stdout);
+    assert!(
+        stdout.contains("[9, 1, 7, 3] [5, 4, 6]"),
+        "unexpected stdout:\n{}",
+        stdout
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn hosted_std_io_prints_custom_value_printable() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_printable_value_impl",
+        r#"
+use std.io;
+use std.io.{Printable, Writer};
+
+type Pair = struct {
+    left: usize,
+    right: usize,
+};
+
+impl Pair : Printable {
+    pub fn fmt(writer: *mut Writer) void {
+        let _ = writer.write("(");
+        self.left.&.fmt(writer);
+        let _ = writer.write(", ");
+        self.right.&.fmt(writer);
+        let _ = writer.write(")");
+    }
+}
+
+fn main() i32 {
+    let pair = Pair.{ left: 2, right: 5 };
+    io.println("{}", .{ pair, });
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std io custom value printable program to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&run_output.stdout);
+    assert!(stdout.contains("(2, 5)"), "unexpected stdout:\n{}", stdout);
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn test_expect_err_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_expect_err_fail",

@@ -1,11 +1,20 @@
 use crate::SemaContext;
 use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
-use kernc_ast::{UsePathKind, UseTarget};
+use kernc_ast::{UsePathKind, UseTarget, UseTree};
+use kernc_ast::Visibility;
 use kernc_utils::{Span, SymbolId};
 
 pub struct ImportResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
+}
+
+#[derive(Clone)]
+struct FlatImport {
+    path: Vec<SymbolId>,
+    alias: Option<SymbolId>,
+    span: Span,
+    binding_span: Span,
 }
 
 impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
@@ -78,141 +87,225 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
         match &import.target {
             UseTarget::Module(alias) => {
-                // Split `use .utils.print_point;` into parent path `[utils]` and target `print_point`.
-                let (parent_path, last_segment) = import.path.split_at(import.path.len() - 1);
-                let target_name = last_segment[0];
-
-                let (parent_mod_id, parent_scope) = match self.resolve_path(
+                self.resolve_flat_import(
                     current_mod_id,
+                    current_scope,
                     import.path_kind,
-                    parent_path,
-                    import.span,
+                    import.vis,
+                    FlatImport {
+                        path: import.path.clone(),
+                        alias: *alias,
+                        span: import.span,
+                        binding_span: import.binding_span,
+                    },
                     emit_errors,
-                ) {
-                    Some(res) => res,
-                    None => return false,
-                };
-
-                if let Some(symbol_info) = self.ctx.scopes.resolve_in(parent_scope, target_name) {
-                    if !self.check_visibility(symbol_info, current_mod_id, parent_mod_id) {
-                        if emit_errors {
-                            let name_str = self.ctx.resolve(target_name).to_string();
-                            self.ctx
-                                .struct_error(
-                                    import.span,
-                                    format!(
-                                        "Symbol `{}` is not visible from this module",
-                                        name_str
-                                    ),
-                                )
-                                .emit();
-                        }
-                        return false;
-                    }
-
-                    let name_to_bind = alias.unwrap_or(target_name);
-                    self.define_import(
-                        current_scope,
-                        name_to_bind,
-                        symbol_info.clone(),
-                        import.vis,
-                        import.binding_span,
-                        emit_errors,
-                    );
-                    true
-                } else {
-                    if emit_errors {
-                        let name_str = self.ctx.resolve(target_name).to_string();
-                        self.ctx
-                            .struct_error(
-                                import.span,
-                                format!("Cannot find module or symbol `{}`", name_str),
-                            )
-                            .emit();
-                    }
-                    false
-                }
-            }
-            UseTarget::Members(members) => {
-                // 1. Resolve the base module path first, for example `std` in `use std.{env.Args};`.
-                let (target_mod_id, _) = match self.resolve_path(
-                    current_mod_id,
-                    import.path_kind,
-                    &import.path,
-                    import.span,
-                    emit_errors,
-                ) {
-                    Some(res) => res,
-                    None => return false,
-                };
-
+                )
+            },
+            UseTarget::Tree(items) => {
+                let flat_imports = Self::flatten_use_trees(&import.path, items);
                 let mut all_resolved = true;
-
-                // 2. Resolve each brace member relative to that base module.
-                for member in members {
-                    // Split each member path into its prefix and final symbol.
-                    let (member_prefix, last_segment) = member.path.split_at(member.path.len() - 1);
-                    let target_name = last_segment[0];
-
-                    // Reuse `resolve_path` starting from the already resolved base module.
-                    let (mem_mod_id, mem_scope) = match self.resolve_path(
-                        target_mod_id,
-                        UsePathKind::Current,
-                        member_prefix,
-                        member.span,
+                for flat in flat_imports {
+                    if !self.resolve_flat_import(
+                        current_mod_id,
+                        current_scope,
+                        import.path_kind,
+                        import.vis,
+                        flat,
                         emit_errors,
                     ) {
-                        Some(res) => res,
-                        None => {
-                            all_resolved = false;
-                            continue;
-                        }
-                    };
-
-                    // Look up the final symbol in the resolved scope.
-                    if let Some(symbol_info) = self.ctx.scopes.resolve_in(mem_scope, target_name) {
-                        // Visibility must be checked against the member's effective parent module.
-                        if !self.check_visibility(symbol_info, current_mod_id, mem_mod_id) {
-                            if emit_errors {
-                                let name_str = self.ctx.resolve(target_name).to_string();
-                                self.ctx
-                                    .struct_error(
-                                        member.span,
-                                        format!(
-                                            "Symbol `{}` is not visible from this module and cannot be imported",
-                                            name_str
-                                        ),
-                                    )
-                                    .emit();
-                            }
-                            all_resolved = false;
-                            continue;
-                        }
-
-                        let name_to_bind = member.alias.unwrap_or(target_name);
-                        self.define_import(
-                            current_scope,
-                            name_to_bind,
-                            symbol_info.clone(),
-                            import.vis,
-                            member.span,
-                            emit_errors,
-                        );
-                    } else {
-                        if emit_errors {
-                            let name_str = self.ctx.resolve(target_name).to_string();
-                            self.ctx
-                                .struct_error(
-                                    member.span,
-                                    format!("Cannot find `{}` in the target module", name_str),
-                                )
-                                .emit();
-                        }
                         all_resolved = false;
                     }
                 }
                 all_resolved
             }
+        }
+    }
+
+    fn flatten_use_trees(base_path: &[SymbolId], items: &[UseTree]) -> Vec<FlatImport> {
+        let mut flat = Vec::new();
+        for item in items {
+            Self::flatten_use_tree_item(base_path, item, &mut flat);
+        }
+        flat
+    }
+
+    fn flatten_use_tree_item(base_path: &[SymbolId], item: &UseTree, flat: &mut Vec<FlatImport>) {
+        match item {
+            UseTree::SelfModule {
+                alias,
+                span,
+                binding_span,
+            } => flat.push(FlatImport {
+                path: base_path.to_vec(),
+                alias: *alias,
+                span: *span,
+                binding_span: *binding_span,
+            }),
+            UseTree::Path {
+                path,
+                alias,
+                nested,
+                span,
+                binding_span,
+            } => {
+                let mut full_path = base_path.to_vec();
+                full_path.extend(path.iter().copied());
+
+                if alias.is_some() || nested.is_none() {
+                    flat.push(FlatImport {
+                        path: full_path.clone(),
+                        alias: *alias,
+                        span: *span,
+                        binding_span: *binding_span,
+                    });
+                }
+
+                if let Some(nested) = nested {
+                    for child in nested {
+                        Self::flatten_use_tree_item(&full_path, child, flat);
+                    }
+                }
+            }
+        }
+    }
+
+    fn resolve_flat_import(
+        &mut self,
+        current_mod_id: DefId,
+        current_scope: ScopeId,
+        kind: UsePathKind,
+        vis: Visibility,
+        flat: FlatImport,
+        emit_errors: bool,
+    ) -> bool {
+        if flat.path.is_empty() {
+            if emit_errors {
+                self.ctx
+                    .struct_error(flat.span, "imports cannot target an empty path")
+                    .emit();
+            }
+            return false;
+        }
+
+        if let Some((mod_id, mod_scope)) =
+            self.resolve_path(current_mod_id, kind, &flat.path, flat.span, false)
+        {
+            let target_name = flat.alias.unwrap_or(*flat.path.last().unwrap());
+            let symbol_info = if matches!(kind, UsePathKind::External) && flat.path.len() == 1 {
+                self.ctx.scopes.resolve_in(ScopeId(0), flat.path[0]).cloned()
+            } else {
+                let (parent_path, last_segment) = flat.path.split_at(flat.path.len() - 1);
+                let (parent_mod_id, parent_scope) = match self.resolve_path(
+                    current_mod_id,
+                    kind,
+                    parent_path,
+                    flat.span,
+                    emit_errors,
+                ) {
+                    Some(res) => res,
+                    None => return false,
+                };
+                let Some(symbol_info) = self
+                    .ctx
+                    .scopes
+                    .resolve_in(parent_scope, last_segment[0])
+                    .cloned()
+                else {
+                    if emit_errors {
+                        let name_str = self.ctx.resolve(last_segment[0]).to_string();
+                        self.ctx
+                            .struct_error(
+                                flat.span,
+                                format!("Cannot find module or symbol `{}`", name_str),
+                            )
+                            .emit();
+                    }
+                    return false;
+                };
+
+                if !self.check_visibility(&symbol_info, current_mod_id, parent_mod_id) {
+                    if emit_errors {
+                        let name_str = self.ctx.resolve(last_segment[0]).to_string();
+                        self.ctx
+                            .struct_error(
+                                flat.span,
+                                format!("Symbol `{}` is not visible from this module", name_str),
+                            )
+                            .emit();
+                    }
+                    return false;
+                }
+
+                Some(symbol_info)
+            };
+
+            if let Some(symbol_info) = symbol_info
+                && symbol_info.kind == SymbolKind::Module
+                && symbol_info.def_id == Some(mod_id)
+            {
+                self.define_import(
+                    current_scope,
+                    target_name,
+                    symbol_info,
+                    vis,
+                    flat.binding_span,
+                    emit_errors,
+                );
+                return true;
+            }
+
+            let _ = mod_scope;
+        }
+
+        let (parent_path, last_segment) = flat.path.split_at(flat.path.len() - 1);
+        let target_name = last_segment[0];
+
+        let (parent_mod_id, parent_scope) = match self.resolve_path(
+            current_mod_id,
+            kind,
+            parent_path,
+            flat.span,
+            emit_errors,
+        ) {
+            Some(res) => res,
+            None => return false,
+        };
+
+        if let Some(symbol_info) = self.ctx.scopes.resolve_in(parent_scope, target_name) {
+            if !self.check_visibility(symbol_info, current_mod_id, parent_mod_id) {
+                if emit_errors {
+                    let name_str = self.ctx.resolve(target_name).to_string();
+                    self.ctx
+                        .struct_error(
+                            flat.span,
+                            format!("Symbol `{}` is not visible from this module", name_str),
+                        )
+                        .emit();
+                }
+                return false;
+            }
+
+            let name_to_bind = flat.alias.unwrap_or(target_name);
+            self.define_import(
+                current_scope,
+                name_to_bind,
+                symbol_info.clone(),
+                vis,
+                flat.binding_span,
+                emit_errors,
+            );
+            true
+        } else {
+            if emit_errors {
+                let name_str = self.ctx.resolve(target_name).to_string();
+                self.ctx
+                    .struct_error(
+                        flat.span,
+                        format!("Cannot find module or symbol `{}`", name_str),
+                    )
+                    .emit();
+            }
+            false
         }
     }
 

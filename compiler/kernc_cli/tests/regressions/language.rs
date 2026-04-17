@@ -42,6 +42,68 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_root_module_use_imports_for_std_and_base() {
+    let output = build_and_run_source_with_std(
+        r#"
+use std;
+use base;
+
+fn main() i32 {
+    let same = base.coll.bytes_eq("ok", "ok");
+    if (!same) {
+        return 1;
+    }
+    std.io.print("{}", .{"ok",});
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "ok");
+}
+
+#[test]
+fn runs_nested_use_trees_with_grouped_self_imports() {
+    let output = build_and_run_source_with_std(
+        r#"
+use std.{. as stdlib, io.{., Printable, Writer as W}};
+
+type Pair = struct {
+    value: usize,
+};
+
+impl Pair : Printable {
+    pub fn fmt(writer: *mut W) void {
+        let _ = writer.write("[");
+        self.value.&.fmt(writer);
+        let _ = writer.write("]");
+    }
+}
+
+fn main() i32 {
+    stdlib.io.print("{}", .{ Pair.{ value: 1 }, });
+    io.println("{}", .{ Pair.{ value: 2 }, });
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "[1][2]\n");
+}
+
+#[test]
 fn runs_explicit_loc_intrinsic_and_const_loc_values() {
     let output = build_and_run_source(
         r#"

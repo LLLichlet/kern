@@ -2,7 +2,8 @@ use super::Lowerer;
 use kernc_mast::*;
 use kernc_mono::MonoId;
 use kernc_sema::checker::Substituter;
-use kernc_sema::def::{Def, DefId, ImplDef, TraitDef};
+use kernc_sema::def::{Def, ImplDef, TraitDef};
+use kernc_sema::query::MemberQuery;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 use std::collections::{HashMap, HashSet};
@@ -120,10 +121,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         Some(self.collect_transitive_supertraits(trait_norm).len() + direct_idx)
     }
 
-    pub(crate) fn get_or_create_vtable(&mut self, source_ty: TypeId, trait_ty: TypeId) -> MonoId {
-        let norm_source = self.ctx.type_registry.normalize(source_ty);
+    pub(crate) fn get_or_create_vtable(
+        &mut self,
+        data_ptr_ty: TypeId,
+        receiver_ty: TypeId,
+        trait_ty: TypeId,
+    ) -> MonoId {
+        let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
+        let norm_receiver = self.ctx.type_registry.normalize(receiver_ty);
         let norm_trait = self.ctx.type_registry.normalize(trait_ty);
-        let key = (norm_source, norm_trait);
+        let key = (norm_data_ptr, norm_receiver, norm_trait);
         if let Some(&id) = self.vtable_cache.get(&key) {
             return id;
         }
@@ -133,7 +140,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 other => {
                     return this.build_invalid_vtable(
                         key,
-                        source_ty,
+                        data_ptr_ty,
+                        receiver_ty,
                         trait_ty,
                         format!(
                             "Kern ICE (Lowering): Target must be a TraitObject, found: {:?}",
@@ -148,7 +156,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             } else {
                 return this.build_invalid_vtable(
                     key,
-                    source_ty,
+                    data_ptr_ty,
+                    receiver_ty,
                     trait_ty,
                     format!(
                         "Kern ICE (Lowering): DefId {} is not a Trait!",
@@ -157,122 +166,355 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 );
             };
 
-            let (base_source_ty, source_args) = this.resolve_vtable_source_base(source_ty);
-
-            let impl_def = match this.find_matching_impl_block(base_source_ty, trait_def_id) {
-                Some(def) => def,
-                None => {
-                    let src_name = this.ctx.ty_to_string(base_source_ty);
-                    let trait_name = this.ctx.resolve(trait_def.name);
-                    return this.build_invalid_vtable(
-                        key,
-                        source_ty,
-                        trait_ty,
-                        format!(
-                            "Kern ICE (Lowering): Impl block missing for cast `{} as {}`. Sema failed to enforce Trait bounding contract.",
-                            src_name, trait_name
-                        ),
-                    );
-                }
-            };
+            let (impl_def, impl_args) =
+                match this.find_matching_impl_block(norm_receiver, norm_data_ptr, norm_trait) {
+                    Some(found) => found,
+                    None => {
+                        let src_name = this.ctx.ty_to_string(norm_receiver);
+                        let trait_name = this.ctx.resolve(trait_def.name);
+                        return this.build_invalid_vtable(
+                            key,
+                            data_ptr_ty,
+                            receiver_ty,
+                            trait_ty,
+                            format!(
+                                "Kern ICE (Lowering): Impl block missing for cast `{} as {}`. Sema failed to enforce Trait bounding contract.",
+                                src_name, trait_name
+                            ),
+                        );
+                    }
+                };
 
             let vtable_id = this.new_mono_id();
             this.vtable_cache.insert(key, vtable_id);
 
             this.build_and_inject_vtable_global(
                 vtable_id,
-                source_ty,
+                data_ptr_ty,
+                receiver_ty,
                 norm_trait,
                 &trait_def,
                 &impl_def,
-                &source_args,
+                &impl_args,
             );
 
             vtable_id
         })
     }
 
-    pub(crate) fn resolve_vtable_source_base(&self, source_ty: TypeId) -> (TypeId, Vec<TypeId>) {
-        let mut base_ty = source_ty;
-        loop {
-            let norm = self.ctx.type_registry.normalize(base_ty);
-            match self.ctx.type_registry.get(norm) {
-                TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
-                    base_ty = *elem;
-                }
-                _ => {
-                    base_ty = norm;
-                    break;
-                }
-            }
-        }
-
-        let source_args = match self.ctx.type_registry.get(base_ty) {
-            TypeKind::Def(_, args) | TypeKind::Enum(_, args) => args.clone(),
-            _ => Vec::new(),
-        };
-
-        (base_ty, source_args)
-    }
-
     pub(crate) fn find_matching_impl_block(
-        &self,
-        base_source_ty: TypeId,
-        target_trait_id: DefId,
-    ) -> Option<ImplDef> {
-        let get_base_def_id = |ty: TypeId| -> Option<DefId> {
-            let norm = self.ctx.type_registry.normalize(ty);
-            match self.ctx.type_registry.get(norm) {
-                TypeKind::Def(id, _) | TypeKind::Enum(id, _) => Some(*id),
-                _ => None,
-            }
+        &mut self,
+        receiver_ty: TypeId,
+        data_ptr_ty: TypeId,
+        target_trait_ty: TypeId,
+    ) -> Option<(ImplDef, Vec<TypeId>)> {
+        let norm_receiver = self.ctx.type_registry.normalize(receiver_ty);
+        let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
+        let target_trait_norm = self.ctx.type_registry.normalize(target_trait_ty);
+        let target_trait_id = match self.ctx.type_registry.get(target_trait_norm) {
+            TypeKind::TraitObject(id, _, _) => *id,
+            _ => return None,
         };
+        let search_types = self.vtable_impl_search_types(norm_receiver, norm_data_ptr);
 
-        let src_base_id = get_base_def_id(base_source_ty);
-        let norm_src_base = self.ctx.type_registry.normalize(base_source_ty);
+        let global_impls = self.ctx.global_impls.clone();
+        for impl_id in global_impls {
+            let Some(impl_def) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| match def {
+                Def::Impl(impl_def) => Some(impl_def.clone()),
+                _ => None,
+            }) else {
+                continue;
+            };
 
-        for &impl_id in &self.ctx.global_impls {
-            if let Def::Impl(impl_def) = &self.ctx.defs[impl_id.0 as usize]
-                && let Some(impl_trait_node) = &impl_def.trait_type
-            {
-                let i_trait_ty = self
-                    .ctx
-                    .node_types
-                    .get(&impl_trait_node.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+            let Some(impl_trait_node) = &impl_def.trait_type else {
+                continue;
+            };
 
-                if let TypeKind::TraitObject(i_trait_id, _, _) =
-                    self.ctx.type_registry.get(i_trait_ty)
-                    && *i_trait_id == target_trait_id
-                {
-                    let i_target_ty = self
-                        .ctx
-                        .node_types
-                        .get(&impl_def.target_type.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
-                    let (i_target_base, _) = self.resolve_vtable_source_base(i_target_ty);
+            let impl_trait_ty = self
+                .ctx
+                .node_types
+                .get(&impl_trait_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            if impl_trait_ty == TypeId::ERROR {
+                continue;
+            }
 
-                    if let (Some(target_id), Some(src_id)) =
-                        (get_base_def_id(i_target_base), src_base_id)
-                    {
-                        if target_id == src_id {
-                            return Some(impl_def.clone());
-                        }
-                    } else if self.ctx.type_registry.normalize(i_target_base) == norm_src_base {
-                        return Some(impl_def.clone());
-                    }
+            let impl_trait_norm = self.ctx.type_registry.normalize(impl_trait_ty);
+            if !matches!(
+                self.ctx.type_registry.get(impl_trait_norm),
+                TypeKind::TraitObject(i_trait_id, _, _) if *i_trait_id == target_trait_id
+            ) {
+                continue;
+            }
+
+            for search_ty in &search_types {
+                let Some(resolved_impl_args) = MemberQuery::new(self.ctx)
+                    .resolve_impl_applicability_for_type(*search_ty, impl_id)
+                else {
+                    continue;
+                };
+
+                let instantiated_trait_ty = if resolved_impl_args.is_empty() {
+                    impl_trait_ty
+                } else {
+                    let subst_map = impl_def
+                        .generics
+                        .iter()
+                        .zip(resolved_impl_args.iter())
+                        .map(|(param, arg)| (param.name, *arg))
+                        .collect::<HashMap<_, _>>();
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                    subst.substitute(impl_trait_ty)
+                };
+
+                if self.ctx.type_registry.normalize(instantiated_trait_ty) == target_trait_norm {
+                    return Some((impl_def.clone(), resolved_impl_args));
                 }
             }
         }
         None
     }
 
+    fn vtable_impl_search_types(
+        &mut self,
+        receiver_ty: TypeId,
+        data_ptr_ty: TypeId,
+    ) -> Vec<TypeId> {
+        let mut search_tys = self.vtable_receiver_search_types(receiver_ty);
+        let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
+        let norm_receiver = self.ctx.type_registry.normalize(receiver_ty);
+        if norm_data_ptr != norm_receiver {
+            for candidate in self.vtable_receiver_search_types(norm_data_ptr) {
+                if !search_tys.contains(&candidate) {
+                    search_tys.push(candidate);
+                }
+            }
+        }
+        search_tys
+    }
+
+    fn vtable_receiver_search_types(&mut self, source_ty: TypeId) -> Vec<TypeId> {
+        let mut search_tys = Vec::new();
+        let mut current_ty = self.ctx.type_registry.normalize(source_ty);
+
+        loop {
+            if !search_tys.contains(&current_ty) {
+                search_tys.push(current_ty);
+            }
+
+            let Some(next_ty) = self.vtable_downgraded_search_type(current_ty) else {
+                break;
+            };
+            current_ty = self.ctx.type_registry.normalize(next_ty);
+        }
+
+        search_tys
+    }
+
+    fn vtable_downgraded_search_type(&mut self, source_ty: TypeId) -> Option<TypeId> {
+        match self.ctx.type_registry.get(source_ty).clone() {
+            TypeKind::Pointer { is_mut: true, elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem,
+                }))
+            }
+            TypeKind::Pointer { is_mut, elem } => self
+                .vtable_downgraded_search_type(elem)
+                .map(|down_elem| {
+                    self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut,
+                        elem: down_elem,
+                    })
+                }),
+            TypeKind::VolatilePtr { is_mut: true, elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                    is_mut: false,
+                    elem,
+                }))
+            }
+            TypeKind::VolatilePtr { is_mut, elem } => self
+                .vtable_downgraded_search_type(elem)
+                .map(|down_elem| {
+                    self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                        is_mut,
+                        elem: down_elem,
+                    })
+                }),
+            TypeKind::Slice { is_mut: true, elem } => Some(self.ctx.type_registry.intern(
+                TypeKind::Slice {
+                    is_mut: false,
+                    elem,
+                },
+            )),
+            _ => None,
+        }
+    }
+
+    fn lower_vtable_method_self_arg(
+        &mut self,
+        data_sym: SymbolId,
+        data_ptr_ty: TypeId,
+        self_ty: TypeId,
+        span: Span,
+    ) -> Option<MastExpr> {
+        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::VOID,
+        });
+        let data_var = MastExpr::new(void_ptr_ty, MastExprKind::Var(data_sym), span);
+        let direct_search_tys = self.vtable_receiver_search_types(data_ptr_ty);
+        let self_norm = self.ctx.type_registry.normalize(self_ty);
+
+        if direct_search_tys.contains(&self_norm) {
+            return Some(MastExpr::new(
+                self_ty,
+                MastExprKind::Cast {
+                    kind: MastCastKind::Bitcast,
+                    operand: Box::new(data_var),
+                },
+                span,
+            ));
+        }
+
+        let storage_ptr_ty = match self
+            .ctx
+            .type_registry
+            .get(self.ctx.type_registry.normalize(data_ptr_ty))
+            .clone()
+        {
+            TypeKind::Pointer { is_mut, .. } => self.ctx.type_registry.intern(TypeKind::Pointer {
+                is_mut,
+                elem: self_ty,
+            }),
+            TypeKind::VolatilePtr { is_mut, .. } => {
+                self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                    is_mut,
+                    elem: self_ty,
+                })
+            }
+            other => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): trait-object data pointer must be pointer-shaped while adapting a vtable method receiver, found {:?}.",
+                        other
+                    ),
+                );
+                return None;
+            }
+        };
+
+        let storage_ptr = MastExpr::new(
+            storage_ptr_ty,
+            MastExprKind::Cast {
+                kind: MastCastKind::Bitcast,
+                operand: Box::new(data_var),
+            },
+            span,
+        );
+        Some(MastExpr::new(
+            self_ty,
+            MastExprKind::Deref(Box::new(storage_ptr)),
+            span,
+        ))
+    }
+
+    fn get_or_create_vtable_method_adapter(
+        &mut self,
+        target_mono_id: MonoId,
+        data_ptr_ty: TypeId,
+        fn_ty: TypeId,
+        span: Span,
+    ) -> Option<MonoId> {
+        let (params, ret_ty) = self.fn_like_signature(fn_ty, span)?;
+        let Some((&self_ty, tail_params)) = params.split_first() else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): trait method signature is missing its receiver while building a vtable adapter.",
+            );
+            return None;
+        };
+
+        let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
+        let norm_self = self.ctx.type_registry.normalize(self_ty);
+        let cache_key = (target_mono_id, norm_data_ptr, norm_self);
+        if let Some(&adapter_id) = self.vtable_method_adapter_cache.get(&cache_key) {
+            return Some(adapter_id);
+        }
+
+        let adapter_id = self.new_mono_id();
+        let data_sym = self.fresh_synth_symbol("vtable_data");
+        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::VOID,
+        });
+        let target_fn_ty = self.ctx.type_registry.intern(TypeKind::Function {
+            params: params.clone(),
+            ret: ret_ty,
+            is_variadic: false,
+        });
+
+        let mut mast_params = Vec::with_capacity(tail_params.len() + 1);
+        mast_params.push(MastParam {
+            name: data_sym,
+            ty: void_ptr_ty,
+            is_mut: false,
+        });
+
+        let mut call_args = Vec::with_capacity(params.len());
+        call_args.push(self.lower_vtable_method_self_arg(data_sym, data_ptr_ty, self_ty, span)?);
+
+        for &param_ty in tail_params {
+            let arg_sym = self.fresh_synth_symbol("vtable_arg");
+            mast_params.push(MastParam {
+                name: arg_sym,
+                ty: param_ty,
+                is_mut: false,
+            });
+            call_args.push(MastExpr::new(param_ty, MastExprKind::Var(arg_sym), span));
+        }
+
+        let call_expr = MastExpr::new(
+            ret_ty,
+            MastExprKind::Call {
+                callee: Box::new(MastExpr::new(
+                    target_fn_ty,
+                    MastExprKind::FuncRef(target_mono_id),
+                    span,
+                )),
+                args: call_args,
+            },
+            span,
+        );
+
+        self.module.functions.push(MastFunction {
+            id: adapter_id,
+            name: format!("__vtable_method_adapter_{}", adapter_id.0),
+            linkage: MastLinkage::Internal,
+            params: mast_params,
+            ret_ty,
+            body: Some(MastBlock {
+                stmts: vec![],
+                result: Some(Box::new(call_expr)),
+                defers: vec![],
+            }),
+            is_extern: false,
+            is_variadic: false,
+            inline_hint: MastInlineHint::None,
+            attributes: vec![],
+        });
+
+        self.vtable_method_adapter_cache.insert(cache_key, adapter_id);
+        Some(adapter_id)
+    }
+
     fn build_invalid_vtable(
         &mut self,
-        key: (TypeId, TypeId),
-        source_ty: TypeId,
+        key: (TypeId, TypeId, TypeId),
+        data_ptr_ty: TypeId,
+        receiver_ty: TypeId,
         trait_ty: TypeId,
         message: String,
     ) -> MonoId {
@@ -297,7 +539,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         self.module.globals.push(MastGlobal {
             id,
-            name: format!("__vtable_invalid_{}_{}", source_ty.0, trait_ty.0),
+            name: format!(
+                "__vtable_invalid_{}_{}_{}",
+                data_ptr_ty.0, receiver_ty.0, trait_ty.0
+            ),
             linkage: MastLinkage::Internal,
             ty: vtable_array_ty,
             is_mut: false,
@@ -316,11 +561,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn build_and_inject_vtable_global(
         &mut self,
         vtable_id: MonoId,
-        source_ty: TypeId,
+        data_ptr_ty: TypeId,
+        receiver_ty: TypeId,
         actual_trait_ty: TypeId,
         trait_def: &TraitDef,
         impl_def: &ImplDef,
-        source_args: &[TypeId],
+        impl_args: &[TypeId],
     ) {
         let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
@@ -329,7 +575,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut vtable_entries = Vec::new();
 
         for super_trait_ty in self.collect_transitive_supertraits(actual_trait_ty) {
-            let super_vtable_id = self.get_or_create_vtable(source_ty, super_trait_ty);
+            let super_vtable_id =
+                self.get_or_create_vtable(data_ptr_ty, receiver_ty, super_trait_ty);
             match self.vtable_global_void_ptr_expr(super_vtable_id, Span::default()) {
                 Some(expr) => vtable_entries.push(expr),
                 None => vtable_entries.push(MastExpr::new(
@@ -341,18 +588,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         for method in &trait_def.methods {
-            let mut method_mono_id = None;
+            let mut method_entry = None;
 
             for &m_id in &impl_def.methods {
                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
                     && f.name == method.name
                 {
-                    method_mono_id = Some(self.instantiate_function(m_id, source_args));
+                    let method_mono_id = self.instantiate_function(m_id, impl_args);
+                    let method_fn_ty = self
+                        .ctx
+                        .type_registry
+                        .intern(TypeKind::FnDef(m_id, impl_args.to_vec()));
+                    method_entry = self.get_or_create_vtable_method_adapter(
+                        method_mono_id,
+                        data_ptr_ty,
+                        method_fn_ty,
+                        Span::default(),
+                    );
                     break;
                 }
             }
 
-            let m_id = match method_mono_id {
+            let m_id = match method_entry {
                 Some(id) => id,
                 None => {
                     let method_name = self.ctx.resolve(method.name);
@@ -394,7 +651,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         self.module.globals.push(MastGlobal {
             id: vtable_id,
-            name: format!("__vtable_{}_{}", source_ty.0, actual_trait_ty.0),
+            name: format!(
+                "__vtable_{}_{}_{}",
+                data_ptr_ty.0, receiver_ty.0, actual_trait_ty.0
+            ),
             linkage: MastLinkage::Internal,
             ty: vtable_array_ty,
             is_mut: false,

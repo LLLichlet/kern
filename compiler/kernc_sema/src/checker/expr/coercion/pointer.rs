@@ -15,10 +15,41 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         } = exp_kind
         {
             let e_norm = self.resolve_tv(*e_inner);
-            if self.check_pointer_to_pointer_coercion(*e_mut, e_norm, act, act_kind) {
+            let actual_fat_pointer_value = match act_kind {
+                TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                    let elem_norm = self.resolve_tv(*elem);
+                    matches!(
+                        self.ctx.type_registry.get(elem_norm),
+                        TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
+                    )
+                }
+                _ => false,
+            };
+
+            if !actual_fat_pointer_value
+                && self.check_pointer_to_pointer_coercion(*e_mut, e_norm, act, act_kind)
+            {
                 return true;
             }
-            if self.check_value_to_trait_object_pointer(expr, *e_mut, e_norm, act, act_kind) {
+
+            if actual_fat_pointer_value
+                && let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } =
+                    act_kind
+            {
+                let actual_elem_norm = self.resolve_tv(*elem);
+                if matches!(
+                    self.ctx.type_registry.get(actual_elem_norm),
+                    TypeKind::TraitObject(..)
+                ) && self.is_trait_object_upcast(actual_elem_norm, e_norm)
+                {
+                    return true;
+                }
+            }
+
+            if (actual_fat_pointer_value
+                || !matches!(act_kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }))
+                && self.check_value_to_trait_object_pointer(expr, *e_mut, e_norm, act)
+            {
                 return true;
             }
         }
@@ -161,18 +192,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_mut: bool,
         expected_elem: TypeId,
         actual_ty: TypeId,
-        act_kind: &TypeKind,
     ) -> bool {
         if !matches!(
             self.ctx.type_registry.get(expected_elem),
             TypeKind::TraitObject(..)
-        ) {
-            return false;
-        }
-
-        if matches!(
-            act_kind,
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         ) {
             return false;
         }
@@ -189,6 +212,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 )
                 .emit();
             return false;
+        }
+
+        if self.check_trait_impl(actual_ty, expected_elem) {
+            return true;
         }
 
         let virtual_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {

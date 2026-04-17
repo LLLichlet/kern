@@ -607,21 +607,47 @@ impl CachedAstRebinder<'_> {
                     *alias = self.rebind_symbol(*alias);
                 }
             }
-            ast::UseTarget::Members(members) => {
-                for member in members {
-                    self.rebind_use_member(member);
+            ast::UseTarget::Tree(items) => {
+                for item in items {
+                    self.rebind_use_tree(item);
                 }
             }
         }
     }
 
-    fn rebind_use_member(&mut self, member: &mut ast::UseMember) {
-        self.rebind_symbols(&mut member.path);
-        if let Some(alias) = &mut member.alias {
-            *alias = self.rebind_symbol(*alias);
+    fn rebind_use_tree(&mut self, tree: &mut ast::UseTree) {
+        match tree {
+            ast::UseTree::SelfModule {
+                alias,
+                span,
+                binding_span,
+            } => {
+                if let Some(alias) = alias {
+                    *alias = self.rebind_symbol(*alias);
+                }
+                self.rebind_span(span);
+                self.rebind_span(binding_span);
+            }
+            ast::UseTree::Path {
+                path,
+                alias,
+                nested,
+                span,
+                binding_span,
+            } => {
+                self.rebind_symbols(path);
+                if let Some(alias) = alias {
+                    *alias = self.rebind_symbol(*alias);
+                }
+                if let Some(nested) = nested {
+                    for item in nested {
+                        self.rebind_use_tree(item);
+                    }
+                }
+                self.rebind_span(span);
+                self.rebind_span(binding_span);
+            }
         }
-        self.rebind_span(&mut member.span);
-        self.rebind_span(&mut member.binding_span);
     }
 
     fn rebind_expr(&mut self, expr: &mut ast::Expr) {

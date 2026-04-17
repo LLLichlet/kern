@@ -252,10 +252,10 @@ fn main() i32 {
         let ast::DeclKind::Use { target, .. } = &module.decls[0].kind else {
             panic!("expected use declaration");
         };
-        let ast::UseTarget::Members(members) = target else {
-            panic!("expected grouped use members");
+        let ast::UseTarget::Tree(items) = target else {
+            panic!("expected grouped use tree");
         };
-        assert_eq!(members.len(), 1);
+        assert_eq!(items.len(), 1);
 
         let ast::DeclKind::TypeAlias {
             generics, target, ..

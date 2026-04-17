@@ -623,11 +623,11 @@ impl<'a> Parser<'a> {
         // 2. Consume path segments until the target form is known.
         loop {
             if self.match_token(&[TokenType::LBrace]) {
-                target = self.parse_use_members()?;
+                target = UseTarget::Tree(self.parse_use_tree_items()?);
                 break;
             }
             if self.match_token(&[TokenType::DotLBrace]) {
-                target = self.parse_use_members()?;
+                target = UseTarget::Tree(self.parse_use_tree_items()?);
                 break;
             }
 
@@ -636,7 +636,7 @@ impl<'a> Parser<'a> {
             path.push(self.intern_token(id));
 
             if self.match_token(&[TokenType::DotLBrace]) {
-                target = self.parse_use_members()?;
+                target = UseTarget::Tree(self.parse_use_tree_items()?);
                 break;
             } else if self.match_token(&[TokenType::Dot]) {
                 continue;
@@ -672,47 +672,72 @@ impl<'a> Parser<'a> {
         })
     }
 
-    // Helper for brace member imports such as `{ Point, env.Args, new_point as np }`.
-    fn parse_use_members(&mut self) -> ParseResult<UseTarget> {
-        let mut members = Vec::new();
+    // Helper for brace member imports such as `{ ., env.Args, io.{Printable as P} }`.
+    fn parse_use_tree_items(&mut self) -> ParseResult<Vec<UseTree>> {
+        let mut items = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let start_span = self.peek().span;
-            let first_tok = self.expect(TokenType::Identifier)?;
-            let mut member_path = vec![self.intern_token(first_tok)];
-            let mut binding_span = first_tok.span;
-
-            // 1. Parse a dotted member path such as `env.Args`.
-            while self.match_token(&[TokenType::Dot]) {
-                let m_tok = self.expect(TokenType::Identifier)?;
-                binding_span = m_tok.span;
-                member_path.push(self.intern_token(m_tok));
+            items.push(self.parse_use_tree_item()?);
+            if !self.continue_after_comma(&[TokenType::RBrace]) {
+                break;
             }
+        }
+        self.expect(TokenType::RBrace)?;
+        Ok(items)
+    }
 
-            // 2. Parse an optional alias.
+    fn parse_use_tree_item(&mut self) -> ParseResult<UseTree> {
+        let start_span = self.peek().span;
+
+        if self.match_token(&[TokenType::Dot]) {
+            let mut binding_span = self.stream.prev_span();
             let mut alias = None;
             if self.match_token(&[TokenType::As]) {
                 let a_tok = self.expect(TokenType::Identifier)?;
                 binding_span = a_tok.span;
                 alias = Some(self.intern_token(a_tok));
             }
-
             let end_span = self.stream.prev_span();
-
-            // 3. Record the parsed member.
-            members.push(UseMember {
-                path: member_path,
+            return Ok(UseTree::SelfModule {
                 alias,
                 span: start_span.to(end_span),
                 binding_span,
             });
+        }
 
-            // 4. Consume the member separator.
-            if !self.continue_after_comma(&[TokenType::RBrace]) {
+        let first_tok = self.expect(TokenType::Identifier)?;
+        let mut path = vec![self.intern_token(first_tok)];
+        let mut binding_span = first_tok.span;
+        let mut nested = None;
+
+        while self.match_token(&[TokenType::Dot]) {
+            if self.check(TokenType::LBrace) {
                 break;
             }
+            let m_tok = self.expect(TokenType::Identifier)?;
+            binding_span = m_tok.span;
+            path.push(self.intern_token(m_tok));
         }
-        self.expect(TokenType::RBrace)?;
-        Ok(UseTarget::Members(members))
+
+        if self.match_token(&[TokenType::DotLBrace]) || self.match_token(&[TokenType::LBrace]) {
+            nested = Some(self.parse_use_tree_items()?);
+            binding_span = self.stream.prev_span();
+        }
+
+        let mut alias = None;
+        if self.match_token(&[TokenType::As]) {
+            let a_tok = self.expect(TokenType::Identifier)?;
+            binding_span = a_tok.span;
+            alias = Some(self.intern_token(a_tok));
+        }
+
+        let end_span = self.stream.prev_span();
+        Ok(UseTree::Path {
+            path,
+            alias,
+            nested,
+            span: start_span.to(end_span),
+            binding_span,
+        })
     }
 
     /// Convert a parsed path expression into a type node.

@@ -272,13 +272,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 {
                     referenced.insert(root);
                 }
-                if let ast::UseTarget::Members(members) = target {
-                    for member in members {
-                        if let Some(&root) = member.path.first()
-                            && alias_names.contains(&root)
-                        {
-                            referenced.insert(root);
-                        }
+                if let ast::UseTarget::Tree(items) = target {
+                    for item in items {
+                        Self::collect_use_tree_alias_references(item, alias_names, referenced);
                     }
                 }
             }
@@ -321,6 +317,28 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 for item in items {
                     if let ast::MetaItem::Call(_, expr) = item {
                         Self::collect_expr_alias_references(expr, alias_names, referenced);
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_use_tree_alias_references(
+        tree: &ast::UseTree,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
+    ) {
+        match tree {
+            ast::UseTree::SelfModule { .. } => {}
+            ast::UseTree::Path { path, nested, .. } => {
+                if let Some(&root) = path.first()
+                    && alias_names.contains(&root)
+                {
+                    referenced.insert(root);
+                }
+                if let Some(nested) = nested {
+                    for item in nested {
+                        Self::collect_use_tree_alias_references(item, alias_names, referenced);
                     }
                 }
             }

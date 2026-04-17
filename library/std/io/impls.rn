@@ -5,9 +5,35 @@ use base.coll.{List, String};
 /// Built-in `Printable` implementations.
 
 /// Formats a byte slice as raw text.
-impl *[]u8 : Printable {
+impl []u8 : Printable {
     pub fn fmt(writer: *mut Writer) void {
-        let _ = writer.write(self.*);
+        let _ = writer.write(self);
+    }
+}
+
+fn write_printable_slice[T](items: []T, writer: *mut Writer) void
+    where *T: Printable,
+{
+    let _ = writer.write("[");
+
+    let len = #items;
+    for (let mut i = 0; i < len; i += 1) {
+        let item = items.[i];
+        item.&.fmt(writer);
+
+        if (i + 1 < len) {
+            let _ = writer.write(", ");
+        }
+    }
+
+    let _ = writer.write("]");
+}
+
+impl[T] []T : Printable
+    where *T: Printable,
+{
+    pub fn fmt(writer: *mut Writer) void {
+        write_printable_slice(self, writer);
     }
 }
 

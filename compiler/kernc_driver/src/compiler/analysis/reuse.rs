@@ -578,10 +578,34 @@ fn normalize_binding_pattern_for_body_only_comparison(pattern: &mut ast::Binding
 }
 
 fn normalize_use_target_for_body_only_comparison(target: &mut ast::UseTarget) {
-    if let ast::UseTarget::Members(members) = target {
-        for member in members {
-            member.span = Span::default();
-            member.binding_span = Span::default();
+    if let ast::UseTarget::Tree(items) = target {
+        for item in items {
+            normalize_use_tree_for_body_only_comparison(item);
+        }
+    }
+}
+
+fn normalize_use_tree_for_body_only_comparison(tree: &mut ast::UseTree) {
+    match tree {
+        ast::UseTree::SelfModule {
+            span, binding_span, ..
+        } => {
+            *span = Span::default();
+            *binding_span = Span::default();
+        }
+        ast::UseTree::Path {
+            nested,
+            span,
+            binding_span,
+            ..
+        } => {
+            *span = Span::default();
+            *binding_span = Span::default();
+            if let Some(nested) = nested {
+                for item in nested {
+                    normalize_use_tree_for_body_only_comparison(item);
+                }
+            }
         }
     }
 }

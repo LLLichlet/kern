@@ -865,11 +865,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> MastExprKind {
         let l = self.lower_expr(inner, subst_map, None);
+        let l_norm = self.ctx.type_registry.normalize(l.ty);
+        let l_is_fat_pointer_value = match self.ctx.type_registry.get(l_norm).clone() {
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => matches!(
+                self.ctx
+                    .type_registry
+                    .get(self.ctx.type_registry.normalize(elem)),
+                TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
+            ),
+            _ => false,
+        };
 
         let source_trait_norm = match self
             .ctx
             .type_registry
-            .get(self.ctx.type_registry.normalize(l.ty))
+            .get(l_norm)
         {
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.ctx.type_registry.normalize(*elem);
@@ -893,15 +903,33 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .kind;
         }
 
+        let (data_ptr_expr, data_ptr_ty, receiver_ty) = if l_is_fat_pointer_value {
+            let boxed_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                is_mut: false,
+                elem: l.ty,
+            });
+            (
+                MastExpr::new(
+                    boxed_ptr_ty,
+                    MastExprKind::AddressOf(Box::new(l.clone())),
+                    span,
+                ),
+                boxed_ptr_ty,
+                l.ty,
+            )
+        } else {
+            (l.clone(), l.ty, l.ty)
+        };
+
         // Look up or synthesize the vtable.
-        let vtable_id = self.get_or_create_vtable(l.ty, trait_norm);
+        let vtable_id = self.get_or_create_vtable(data_ptr_ty, receiver_ty, trait_norm);
         let Some(meta_expr) = self.vtable_global_meta_expr(vtable_id, span) else {
             return MastExprKind::Trap;
         };
 
         // Build the low-level constructor payload.
         MastExprKind::ConstructFatPointer {
-            data_ptr: Box::new(l),
+            data_ptr: Box::new(data_ptr_expr),
             meta: Box::new(meta_expr),
         }
     }

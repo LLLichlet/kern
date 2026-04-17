@@ -282,17 +282,27 @@ def _resolve_expected_archive_sha256(policy: CiToolchainPolicy) -> str | None:
     if not isinstance(checksum_url, str):
         raise OpsError(f"invalid archive_sha256_url for `{policy.runner_os}` in `{CI_TOOLCHAINS_MANIFEST}`")
 
+    format_vars = {
+        "llvm_version": policy.llvm_version,
+        "host_target": policy.host_target or "",
+    }
+    resolved_checksum_url = checksum_url.format(**format_vars)
+
     try:
-        with urllib.request.urlopen(checksum_url) as response:
+        with urllib.request.urlopen(resolved_checksum_url) as response:
             payload = response.read().decode("utf-8")
     except urllib.error.URLError as err:
-        raise OpsError(f"failed to download archive checksum from `{checksum_url}`: {err}") from err
+        raise OpsError(
+            f"failed to download archive checksum from `{resolved_checksum_url}`: {err}"
+        ) from err
 
     first_line = next((line.strip() for line in payload.splitlines() if line.strip()), "")
     if not first_line:
-        raise OpsError(f"archive checksum file `{checksum_url}` is empty")
+        raise OpsError(f"archive checksum file `{resolved_checksum_url}` is empty")
 
     checksum = first_line.split()[0]
     if len(checksum) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in checksum):
-        raise OpsError(f"archive checksum file `{checksum_url}` does not start with a sha256 digest")
+        raise OpsError(
+            f"archive checksum file `{resolved_checksum_url}` does not start with a sha256 digest"
+        )
     return checksum.lower()

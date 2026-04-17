@@ -1,6 +1,7 @@
 use super::{CompilerDriver, LinkTarget, TempDirGuard, TempFileGuard};
 use kernc_codegen::{ThinLtoModule, ThinLtoObject, ThinLtoOptions, run_thin_lto};
 use kernc_utils::config::{RuntimeEntry, runtime_links_libc, runtime_uses_crt_startup};
+use kernc_utils::llvm_bitcode::file_has_llvm_bitcode_magic;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -670,12 +671,7 @@ impl CompilerDriver {
 }
 
 fn llvm_bitcode_file(path: &str) -> bool {
-    fs::read(path)
-        .map(|bytes| {
-            bytes.starts_with(b"BC\xc0\xde")
-                || bytes.starts_with(&[0xDE, 0xC0, 0x17, 0x0B])
-        })
-        .unwrap_or(false)
+    file_has_llvm_bitcode_magic(std::path::Path::new(path))
 }
 
 fn ensure_output_dir(path: &std::path::Path, label: &str) -> bool {

@@ -7,6 +7,7 @@ use crate::build_plan;
 use crate::elaborate::{FeatureSelection, plan};
 use crate::manifest::Manifest;
 use crate::workspace;
+use kernc_utils::llvm_bitcode::file_has_llvm_bitcode_magic;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -33,12 +34,7 @@ fn temp_dir(prefix: &str) -> PathBuf {
 }
 
 fn has_llvm_bitcode_magic(path: &Path) -> bool {
-    fs::read(path)
-        .map(|bytes| {
-            bytes.starts_with(b"BC\xc0\xde")
-                || bytes.starts_with(&[0xDE, 0xC0, 0x17, 0x0B])
-        })
-        .unwrap_or(false)
+    file_has_llvm_bitcode_magic(path)
 }
 
 fn symbol_dump_tool() -> String {

@@ -1,6 +1,7 @@
 use super::*;
 use crate::CodegenPlanFallback;
 use kernc_utils::config::{LibraryBundle, RuntimeEntry};
+use kernc_utils::llvm_bitcode::file_has_llvm_bitcode_magic;
 
 mod codegen;
 mod imported;
@@ -17,12 +18,7 @@ fn manifest_object_paths(manifest: &std::path::Path) -> Vec<String> {
 }
 
 fn has_llvm_bitcode_magic(path: &std::path::Path) -> bool {
-    fs::read(path)
-        .map(|bytes| {
-            bytes.starts_with(b"BC\xc0\xde")
-                || bytes.starts_with(&[0xDE, 0xC0, 0x17, 0x0B])
-        })
-        .unwrap_or(false)
+    file_has_llvm_bitcode_magic(path)
 }
 
 fn symbol_dump_tool() -> String {

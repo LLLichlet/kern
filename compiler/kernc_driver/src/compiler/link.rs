@@ -380,6 +380,14 @@ impl CompilerDriver {
             return;
         }
 
+        // Homebrew/standalone LLVM clang on Darwin does not provide a stable
+        // cache-flag contract across linker backends. Prefer a portable final
+        // link over forcing an auto-managed ThinLTO cache. Explicit user cache
+        // flags still pass through unchanged via `linker_args`.
+        if target.is_darwin {
+            return;
+        }
+
         let cache_dir = self.make_thin_lto_cache_dir_path();
         let cache_dir_path = PathBuf::from(&cache_dir);
         if cache_dir_path.is_file() && fs::remove_file(&cache_dir_path).is_err() {
@@ -398,9 +406,7 @@ impl CompilerDriver {
             return;
         }
 
-        if target.is_darwin {
-            cmd.arg(format!("-Wl,-cache_path_lto,{}", cache_dir));
-        } else if self
+        if self
             .options
             .linker_args
             .iter()
@@ -534,12 +540,7 @@ mod tests {
         let args = command_args(&cmd);
         let cache_dir = format!("{}.thinlto-cache.d", output.to_string_lossy());
 
-        if target.is_darwin {
-            assert!(
-                args.iter()
-                    .any(|arg| arg == &format!("-Wl,-cache_path_lto,{}", cache_dir))
-            );
-        } else if !target.is_windows {
+        if !target.is_windows {
             assert!(
                 args.iter()
                     .any(|arg| arg == &format!("-Wl,-plugin-opt,cache-dir={}", cache_dir))
@@ -550,6 +551,46 @@ mod tests {
         } else {
             assert!(PathBuf::from(&cache_dir).is_dir());
         }
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn thin_lto_links_skip_auto_cache_flags_on_darwin() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_link_thinlto_cache_darwin_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let output = root.join("main.out");
+        let driver = CompilerDriver::new(CompileOptions {
+            output_file: output.to_string_lossy().to_string(),
+            linker_args: vec!["-flto=thin".to_string()],
+            ..CompileOptions::default()
+        });
+        let target = LinkTarget {
+            triple: "aarch64-apple-darwin".to_string(),
+            is_windows: false,
+            is_darwin: true,
+        };
+
+        let cmd = driver.build_link_command(&[], &target);
+        let args = command_args(&cmd);
+        let cache_dir = format!("{}.thinlto-cache.d", output.to_string_lossy());
+
+        assert!(
+            !args.iter().any(|arg| {
+                arg.contains("thinlto-cache-dir")
+                    || arg.contains("cache_path_lto")
+                    || arg.contains("plugin-opt,cache-dir=")
+            }),
+            "unexpected Darwin ThinLTO cache flag injection: {args:?}"
+        );
+        assert!(!PathBuf::from(&cache_dir).exists());
 
         let _ = fs::remove_dir_all(&root);
     }

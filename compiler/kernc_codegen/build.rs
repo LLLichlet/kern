@@ -14,7 +14,7 @@ fn main() {
     build.cpp(true);
     build.static_crt(true);
     build.file("src/thinlto_bridge.cpp");
-    build.include(PathBuf::from(llvm_includedir));
+    add_llvm_include_dir(&mut build, &llvm_includedir);
     build.flag_if_supported("-std=c++17");
     build.flag_if_supported("/std:c++17");
     build.flag_if_supported("/EHsc");
@@ -56,4 +56,18 @@ fn llvm_include_dir(llvm_libdir: &str) -> String {
     }
 
     panic!("failed to infer the LLVM include directory from `{llvm_libdir}`");
+}
+
+fn add_llvm_include_dir(build: &mut cc::Build, llvm_includedir: &str) {
+    let compiler = build.get_compiler();
+
+    if compiler.is_like_msvc() {
+        build.flag_if_supported("/experimental:external");
+        build.flag_if_supported("/external:W0");
+        build.flag(&format!("/external:I{llvm_includedir}"));
+        return;
+    }
+
+    build.flag("-isystem");
+    build.flag(llvm_includedir);
 }

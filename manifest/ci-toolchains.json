@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "toolchains": {
+    "Linux": {
+      "llvm_version": "21.1.8",
+      "llvm_major": 21,
+      "prefix_env": "LLVM_SYS_211_PREFIX",
+      "provider_kind": "package-manager",
+      "provider": "apt.llvm.org",
+      "bootstrap_provider_kind": "package-manager",
+      "bootstrap_provider": "apt.llvm.org",
+      "target_provider_kind": "archive",
+      "target_provider": "kern-vendor-artifact",
+      "required_tools": [
+        "clang",
+        "clang++",
+        "llvm-ar",
+        "ld.lld"
+      ],
+      "apt_packages": [
+        "llvm-21-dev",
+        "libclang-21-dev",
+        "libpolly-21-dev",
+        "lld-21",
+        "libzstd-dev",
+        "zlib1g-dev"
+      ],
+      "host_targets": {
+        "x86_64-linux-gnu": {
+          "target_archive_url": "https://github.com/softfault/kern/releases/download/toolchain-llvm-{llvm_version}/kern-toolchain-llvm-{llvm_version}-x86_64-linux-gnu.tar.gz",
+          "target_archive_sha256_url": "https://github.com/softfault/kern/releases/download/toolchain-llvm-{llvm_version}/kern-toolchain-llvm-{llvm_version}-x86_64-linux-gnu.tar.gz.sha256",
+          "target_archive_root": "kern-toolchain-llvm-{llvm_version}-x86_64-linux-gnu",
+          "target_install_dir": "kern-toolchain-llvm-21-x86_64-linux-gnu",
+          "target_archive_prefix_subdir": "toolchain/host"
+        }
+      }
+    },
+    "macOS": {
+      "llvm_version": "21.1.8",
+      "llvm_major": 21,
+      "prefix_env": "LLVM_SYS_211_PREFIX",
+      "provider_kind": "package-manager",
+      "provider": "homebrew",
+      "bootstrap_provider_kind": "package-manager",
+      "bootstrap_provider": "homebrew",
+      "target_provider_kind": "archive",
+      "target_provider": "kern-vendor-artifact",
+      "required_tools": [
+        "clang",
+        "clang++",
+        "llvm-ar",
+        "ld64.lld"
+      ],
+      "primary_formula": "llvm@21",
+      "fallback_formula": "llvm",
+      "extra_formulas": [
+        "libxml2"
+      ],
+      "host_targets": {
+        "aarch64-apple-darwin": {
+          "target_archive_url": "https://github.com/softfault/kern/releases/download/toolchain-llvm-{llvm_version}/kern-toolchain-llvm-{llvm_version}-aarch64-apple-darwin.tar.gz",
+          "target_archive_sha256_url": "https://github.com/softfault/kern/releases/download/toolchain-llvm-{llvm_version}/kern-toolchain-llvm-{llvm_version}-aarch64-apple-darwin.tar.gz.sha256",
+          "target_archive_root": "kern-toolchain-llvm-{llvm_version}-aarch64-apple-darwin",
+          "target_install_dir": "kern-toolchain-llvm-21-aarch64-apple-darwin",
+          "target_archive_prefix_subdir": "toolchain/host"
+        },
+        "x86_64-apple-darwin": {
+          "target_archive_url": "https://github.com/softfault/kern/releases/download/toolchain-llvm-{llvm_version}/kern-toolchain-llvm-{llvm_version}-x86_64-apple-darwin.tar.gz",
+          "target_archive_sha256_url": "https://github.com/softfault/kern/releases/download/toolchain-llvm-{llvm_version}/kern-toolchain-llvm-{llvm_version}-x86_64-apple-darwin.tar.gz.sha256",
+          "target_archive_root": "kern-toolchain-llvm-{llvm_version}-x86_64-apple-darwin",
+          "target_install_dir": "kern-toolchain-llvm-21-x86_64-apple-darwin",
+          "target_archive_prefix_subdir": "toolchain/host"
+        }
+      }
+    },
+    "Windows": {
+      "llvm_version": "21.1.8",
+      "llvm_major": 21,
+      "prefix_env": "LLVM_SYS_211_PREFIX",
+      "provider_kind": "archive",
+      "provider": "llvm-release-archive",
+      "bootstrap_provider_kind": "archive",
+      "bootstrap_provider": "llvm-release-archive",
+      "target_provider_kind": "archive",
+      "target_provider": "kern-vendor-artifact",
+      "required_tools": [
+        "clang",
+        "clang++",
+        "llvm-ar",
+        "lld-link",
+        "llvm-lib"
+      ],
+      "archive_url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-{llvm_version}/clang+llvm-{llvm_version}-x86_64-pc-windows-msvc.tar.xz",
+      "archive_sha256": null,
+      "archive_root": "clang+llvm-{llvm_version}-x86_64-pc-windows-msvc",
+      "install_dir": "LLVM-21",
+      "archive_prefix_subdir": "",
+      "vcpkg_package": "libxml2:x64-windows-static",
+      "vcpkg_cache_key": "vcpkg-libxml2-x64-windows-static-v1",
+      "host_targets": {
+        "x86_64-windows-msvc": {
+          "target_archive_url": "https://github.com/softfault/kern/releases/download/toolchain-llvm-{llvm_version}/kern-toolchain-llvm-{llvm_version}-x86_64-windows-msvc.zip",
+          "target_archive_sha256_url": "https://github.com/softfault/kern/releases/download/toolchain-llvm-{llvm_version}/kern-toolchain-llvm-{llvm_version}-x86_64-windows-msvc.zip.sha256",
+          "target_archive_root": "kern-toolchain-llvm-{llvm_version}-x86_64-windows-msvc",
+          "target_install_dir": "kern-toolchain-llvm-21-x86_64-windows-msvc",
+          "target_archive_prefix_subdir": "toolchain/host",
+          "target_vcpkg_package": "",
+          "target_vcpkg_cache_key": ""
+        }
+      }
+    }
+  }
+}

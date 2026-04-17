@@ -1,3 +1,8 @@
 target/
 .craft/
 .codex
+__pycache__/
+/kern-*/
+/kern-*.tar.gz
+/kern-*.zip
+/kern-*.sha256

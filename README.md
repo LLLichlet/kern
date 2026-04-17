@@ -226,10 +226,10 @@ cargo build --release --target x86_64-pc-windows-msvc -p craft
 cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
 ```
 
-The packaged release script already applies this policy on Windows:
+The Python packaging entrypoint already applies this policy on Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package_release.ps1 -Version v0.7.0
+py -3 -m ops release package --version v0.7.0 --target x86_64-windows-msvc
 ```
 
 One more Windows-specific footgun: the release archive label is

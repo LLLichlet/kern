@@ -28,14 +28,17 @@ jobs:
         include:
           - name: linux
             os: ubuntu-24.04
+            target: x86_64-linux-gnu
             rust_target: x86_64-unknown-linux-gnu
             test_mode: all
           - name: windows
             os: windows-latest
+            target: x86_64-windows-msvc
             rust_target: x86_64-pc-windows-msvc
             test_mode: smoke
           - name: macos
             os: macos-14
+            target: aarch64-apple-darwin
             rust_target: aarch64-apple-darwin
             test_mode: all
 
@@ -63,23 +66,40 @@ jobs:
 
       - name: Setup LLVM
         uses: ./.github/actions/setup-llvm
+        with:
+          mode: target
+          host-target: ${{ matrix.target }}
 
-      - name: Configure ThinLTO CI Toolchain (Unix)
+      - name: Export Kern Toolchain Root (Unix)
         if: runner.os != 'Windows'
         run: |
-          chmod +x ./scripts/ci-llvm-clang.sh ./scripts/ci-llvm-clang++.sh ./scripts/print_ci_toolchain_info.sh
-          echo "CC=${GITHUB_WORKSPACE}/scripts/ci-llvm-clang.sh" >> "$GITHUB_ENV"
-          echo "CXX=${GITHUB_WORKSPACE}/scripts/ci-llvm-clang++.sh" >> "$GITHUB_ENV"
+          echo "KERN_TOOLCHAIN_ROOT=${LLVM_SYS_211_PREFIX}" >> "$GITHUB_ENV"
           echo "KERN_DEBUG_LTO_LINK=1" >> "$GITHUB_ENV"
 
-      - name: Print CI Toolchain Diagnostics (Unix)
-        if: runner.os != 'Windows'
-        run: bash ./scripts/print_ci_toolchain_info.sh
-
-      - name: Print CI Toolchain Diagnostics (Windows)
+      - name: Export Kern Toolchain Root (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: .\scripts\print_ci_toolchain_info.ps1
+        run: |
+          echo "KERN_TOOLCHAIN_ROOT=$env:LLVM_SYS_211_PREFIX" >> $env:GITHUB_ENV
+          echo "KERN_DEBUG_LTO_LINK=1" >> $env:GITHUB_ENV
+
+      - name: Print Published Toolchain Diagnostics (Unix)
+        if: runner.os != 'Windows'
+        run: python3 -m ops ci toolchain-info
+
+      - name: Print Published Toolchain Diagnostics (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: py -3 -m ops ci toolchain-info
+
+      - name: Assert Published Toolchain Health (Unix)
+        if: runner.os != 'Windows'
+        run: python3 -m ops ci toolchain-health
+
+      - name: Assert Published Toolchain Health (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: py -3 -m ops ci toolchain-health
 
       - name: Install VS Code Extension Dependencies
         working-directory: editors/vscode
@@ -87,12 +107,12 @@ jobs:
 
       - name: Run kernc Integration Tests (Unix)
         if: runner.os != 'Windows'
-        run: bash ./scripts/run_kernc_cli_tests.sh ${{ matrix.test_mode }}
+        run: python3 -m ops ci kernc-tests --mode ${{ matrix.test_mode }}
 
       - name: Run kernc Integration Tests (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: .\scripts\run_kernc_cli_tests.ps1 -Mode ${{ matrix.test_mode }}
+        run: py -3 -m ops ci kernc-tests --mode ${{ matrix.test_mode }}
 
       - name: Test craft (Unix)
         if: runner.os != 'Windows'
@@ -105,12 +125,12 @@ jobs:
 
       - name: Check craft Release Source Policy (Unix)
         if: runner.os != 'Windows'
-        run: bash ./scripts/run_craft_policy_checks.sh
+        run: python3 -m ops ci craft-policy
 
       - name: Check craft Release Source Policy (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: .\scripts\run_craft_policy_checks.ps1
+        run: py -3 -m ops ci craft-policy
 
       - name: Test kern-lsp (Unix)
         if: runner.os != 'Windows'
@@ -155,3 +175,49 @@ jobs:
               if leaked:
                   raise SystemExit(f"unexpected node_modules in VSIX: {leaked[:10]}")
           PY
+
+  verify-bootstrap-toolchain-assembly:
+    name: Verify Bootstrap Toolchain Assembly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache Cargo Artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Bootstrap LLVM
+        uses: ./.github/actions/setup-llvm
+        with:
+          mode: bootstrap
+          host-target: x86_64-linux-gnu
+
+      - name: Export Bootstrap Toolchain Root
+        run: |
+          echo "KERN_TOOLCHAIN_ROOT=${LLVM_SYS_211_PREFIX}" >> "$GITHUB_ENV"
+          echo "KERN_DEBUG_LTO_LINK=1" >> "$GITHUB_ENV"
+
+      - name: Print Bootstrap Toolchain Diagnostics
+        run: python3 -m ops ci toolchain-info
+
+      - name: Assert Bootstrap Toolchain Health
+        run: python3 -m ops ci toolchain-health
+
+      - name: Package Bootstrap Toolchain Artifact
+        run: |
+          TOOLCHAIN_VERSION=llvm-${KERN_CI_LLVM_VERSION}-bootstrap-check
+          python3 -m ops release package-toolchain --version "$TOOLCHAIN_VERSION" --target x86_64-linux-gnu
+          echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-${TOOLCHAIN_VERSION}-x86_64-linux-gnu.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Verify Bootstrap Toolchain Artifact
+        run: |
+          python3 -m ops ci verify-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --target x86_64-linux-gnu

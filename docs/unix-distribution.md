@@ -35,18 +35,22 @@ Official Linux/macOS release archives must satisfy all of the following:
 - package only host-native targets that the build machine actually matches
 - label the archive with that real host target
 - package binaries that were built for that same host target
+- bundle the validated host LLVM/Clang toolchain under `toolchain/host/`
 - verify `kernc`, `craft`, and `kern-lsp` start successfully after installation
 - avoid promising that current Unix archives are fully static
 - avoid promising that one Unix archive runs on every distro or every historical
   OS release
 
 This policy exists because current Unix host-tool binaries still inherit runtime
-dependencies from the Rust + LLVM + C++ host stack.
+dependencies from the Rust + C++ host stack, while the SDK now also carries a
+bundled LLVM/Clang toolchain for compile/link stability.
 
 Today that means a clean user machine can still fail because of:
 
 - missing shared libraries such as `libstdc++`, `zlib`, or `zstd`
 - an older `glibc` baseline than the release archive was built against
+- missing or incompatible host OS libc / SDK pieces outside the bundled
+  `toolchain/host/` payload
 - local macOS policy or loader behavior outside the scope of "just unzip it"
 
 So the rule is simple:
@@ -134,15 +138,15 @@ distribution compatibility.
 For release-quality host-native Unix archives:
 
 ```bash
-bash ./scripts/package_release.sh v0.7.0 <host-target>
+python3 -m ops release package --version v0.7.0 --target <host-target>
 ```
 
 Examples:
 
 ```bash
-bash ./scripts/package_release.sh v0.7.0 x86_64-linux-gnu
-bash ./scripts/package_release.sh v0.7.0 x86_64-apple-darwin
-bash ./scripts/package_release.sh v0.7.0 aarch64-apple-darwin
+python3 -m ops release package --version v0.7.0 --target x86_64-linux-gnu
+python3 -m ops release package --version v0.7.0 --target x86_64-apple-darwin
+python3 -m ops release package --version v0.7.0 --target aarch64-apple-darwin
 ```
 
 The important policy point is that `<host-target>` is a host label, not a free
@@ -151,10 +155,11 @@ host-native and must reject mismatched labels.
 
 ## Official Packaging Script
 
-The repository Unix release script is the canonical packaging entry point:
+The repository Python operations entry point is the canonical packaging entry
+point:
 
 ```bash
-bash ./scripts/package_release.sh v0.7.0 <host-target>
+python3 -m ops release package --version v0.7.0 --target <host-target>
 ```
 
 The script should enforce the important Unix-specific rules:

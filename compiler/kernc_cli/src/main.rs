@@ -47,6 +47,7 @@ fn print_usage(program_name: &str) {
     println!("  --asm-dialect <D>    Set assembly dialect: intel (default) or att");
     println!("  --codegen-units <N>  Split code generation into N lowered codegen units");
     println!("  --lto <M>            Cross-CGU optimization mode: none, full, thin");
+    println!("  --toolchain-root <d> Prefer toolchain binaries from directory <d>");
     println!("  --link-driver <cmd>  Set the linker driver command (default: $CC or cc)");
     println!("  --runtime-entry <m>  Runtime entry contract: none, rt, crt");
     println!("  --runtime-libc <b>   Whether libc is linked: yes, no");
@@ -219,6 +220,11 @@ fn parse_args() -> CompileOptions {
     let mut options = CompileOptions::default();
 
     // Read environment variables before parsing CLI arguments.
+    if let Ok(toolchain_root) = env::var("KERN_TOOLCHAIN_ROOT")
+        && !toolchain_root.is_empty()
+    {
+        options.toolchain_root = Some(toolchain_root);
+    }
     if let Ok(cc_env) = env::var("CC") {
         options.linker_cmd = cc_env;
     }
@@ -260,6 +266,12 @@ fn parse_args() -> CompileOptions {
         if let Some(value) = consume_long_option_value(&arg, "--link-driver", &mut args, "command")
         {
             options.linker_cmd = value;
+            continue;
+        }
+        if let Some(value) =
+            consume_long_option_value(&arg, "--toolchain-root", &mut args, "directory")
+        {
+            options.toolchain_root = Some(value);
             continue;
         }
         if let Some(value) = arg.strip_prefix("--emit-llvm=") {

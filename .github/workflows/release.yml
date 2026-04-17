@@ -77,23 +77,40 @@ jobs:
 
       - name: Setup LLVM
         uses: ./.github/actions/setup-llvm
+        with:
+          mode: bootstrap
+          host-target: ${{ matrix.target }}
 
-      - name: Configure ThinLTO CI Toolchain (Unix)
+      - name: Export Kern Toolchain Root (Unix)
         if: runner.os != 'Windows'
         run: |
-          chmod +x ./scripts/ci-llvm-clang.sh ./scripts/ci-llvm-clang++.sh ./scripts/print_ci_toolchain_info.sh
-          echo "CC=${GITHUB_WORKSPACE}/scripts/ci-llvm-clang.sh" >> "$GITHUB_ENV"
-          echo "CXX=${GITHUB_WORKSPACE}/scripts/ci-llvm-clang++.sh" >> "$GITHUB_ENV"
+          echo "KERN_TOOLCHAIN_ROOT=${LLVM_SYS_211_PREFIX}" >> "$GITHUB_ENV"
           echo "KERN_DEBUG_LTO_LINK=1" >> "$GITHUB_ENV"
+
+      - name: Export Kern Toolchain Root (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          echo "KERN_TOOLCHAIN_ROOT=$env:LLVM_SYS_211_PREFIX" >> $env:GITHUB_ENV
+          echo "KERN_DEBUG_LTO_LINK=1" >> $env:GITHUB_ENV
 
       - name: Print CI Toolchain Diagnostics (Unix)
         if: runner.os != 'Windows'
-        run: bash ./scripts/print_ci_toolchain_info.sh
+        run: python3 -m ops ci toolchain-info
 
       - name: Print CI Toolchain Diagnostics (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: .\scripts\print_ci_toolchain_info.ps1
+        run: py -3 -m ops ci toolchain-info
+
+      - name: Assert CI Toolchain Health (Unix)
+        if: runner.os != 'Windows'
+        run: python3 -m ops ci toolchain-health
+
+      - name: Assert CI Toolchain Health (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: py -3 -m ops ci toolchain-health
 
       - name: Install VS Code Extension Dependencies
         working-directory: editors/vscode
@@ -121,21 +138,21 @@ jobs:
 
       - name: Run kernc Integration Tests (Unix)
         if: runner.os != 'Windows'
-        run: bash ./scripts/run_kernc_cli_tests.sh ${{ matrix.test_mode }}
+        run: python3 -m ops ci kernc-tests --mode ${{ matrix.test_mode }}
 
       - name: Run kernc Integration Tests (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: .\scripts\run_kernc_cli_tests.ps1 -Mode ${{ matrix.test_mode }}
+        run: py -3 -m ops ci kernc-tests --mode ${{ matrix.test_mode }}
 
       - name: Check craft Release Source Policy (Unix)
         if: runner.os != 'Windows'
-        run: bash ./scripts/run_craft_policy_checks.sh
+        run: python3 -m ops ci craft-policy
 
       - name: Check craft Release Source Policy (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: .\scripts\run_craft_policy_checks.ps1
+        run: py -3 -m ops ci craft-policy
 
       - name: Package Toolchain (Unix)
         if: matrix.os != 'windows-latest'
@@ -143,9 +160,9 @@ jobs:
           cargo build --release -p kernc_cli --bin kernc
           cargo build --release -p craft
           cargo build --release -p kern-lsp
-          VERSION=${KERN_RELEASE_VERSION}
-          ./scripts/package_release.sh "$VERSION" "${{ matrix.target }}" --skip-build
-          echo "ARTIFACT_FILE=kern-${VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $GITHUB_ENV
+          TOOLCHAIN_VERSION=llvm-${KERN_CI_LLVM_VERSION}
+          python3 -m ops release package-toolchain --version "$TOOLCHAIN_VERSION" --target "${{ matrix.target }}"
+          echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-${TOOLCHAIN_VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $GITHUB_ENV
 
       - name: Package Toolchain (Windows)
         if: matrix.os == 'windows-latest'
@@ -154,15 +171,81 @@ jobs:
           cargo build --release -p kernc_cli --bin kernc
           cargo build --release -p craft
           cargo build --release -p kern-lsp
+          $TOOLCHAIN_VERSION = "llvm-$env:KERN_CI_LLVM_VERSION"
+          py -3 -m ops release package-toolchain --version $TOOLCHAIN_VERSION --target ${{ matrix.target }}
+          echo "TOOLCHAIN_ARTIFACT_FILE=kern-toolchain-$TOOLCHAIN_VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV
+
+      - name: Verify Packaged Toolchain (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          python3 -m ops ci verify-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --target "${{ matrix.target }}"
+
+      - name: Verify Packaged Toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          py -3 -m ops ci verify-packaged-toolchain --archive-path $env:TOOLCHAIN_ARTIFACT_FILE --target ${{ matrix.target }}
+
+      - name: Install Packaged Toolchain (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          python3 -m ops ci install-packaged-toolchain --archive-path "${{ env.TOOLCHAIN_ARTIFACT_FILE }}" --dest "${RUNNER_TEMP}/kern-release-toolchain" --target "${{ matrix.target }}" --format github-env >> "$GITHUB_ENV"
+          echo "${RUNNER_TEMP}/kern-release-toolchain/toolchain/host/bin" >> "$GITHUB_PATH"
+
+      - name: Install Packaged Toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          py -3 -m ops ci install-packaged-toolchain --archive-path $env:TOOLCHAIN_ARTIFACT_FILE --dest "$env:RUNNER_TEMP\kern-release-toolchain" --target ${{ matrix.target }} --format github-env >> $env:GITHUB_ENV
+          echo "$env:RUNNER_TEMP\kern-release-toolchain\toolchain\host\bin" >> $env:GITHUB_PATH
+
+      - name: Print Controlled Toolchain Diagnostics (Unix)
+        if: runner.os != 'Windows'
+        run: python3 -m ops ci toolchain-info
+
+      - name: Print Controlled Toolchain Diagnostics (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: py -3 -m ops ci toolchain-info
+
+      - name: Package SDK (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          VERSION=${KERN_RELEASE_VERSION}
+          python3 -m ops release package --version "$VERSION" --target "${{ matrix.target }}" --skip-build
+          echo "ARTIFACT_FILE=kern-${VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $GITHUB_ENV
+
+      - name: Package SDK (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
           $VERSION = $env:KERN_RELEASE_VERSION
-          .\scripts\package_release.ps1 -Version $VERSION -Target ${{ matrix.target }} -SkipBuild
+          py -3 -m ops release package --version $VERSION --target ${{ matrix.target }} --skip-build
           echo "ARTIFACT_FILE=kern-$VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV
+
+      - name: Smoke Install Packaged SDK (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          python3 -m ops install --archive "${{ env.ARTIFACT_FILE }}" --dest "${RUNNER_TEMP}/kern-sdk-smoke" --no-path
+
+      - name: Smoke Install Packaged SDK (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          py -3 -m ops install --archive $env:ARTIFACT_FILE --dest "$env:RUNNER_TEMP\kern-sdk-smoke" --no-path
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ env.ARTIFACT_FILE }}
+          name: sdk-${{ env.ARTIFACT_FILE }}
           path: ${{ env.ARTIFACT_FILE }}
+          if-no-files-found: error
+
+      - name: Upload Toolchain Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: toolchain-${{ env.TOOLCHAIN_ARTIFACT_FILE }}
+          path: ${{ env.TOOLCHAIN_ARTIFACT_FILE }}
           if-no-files-found: error
 
       - name: Package VS Code Extension (Unix)
@@ -185,14 +268,100 @@ jobs:
       - name: Upload VS Code Extension Artifact
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ env.VSCODE_ARTIFACT }}
+          name: vscode-${{ env.VSCODE_ARTIFACT }}
           path: editors/vscode/${{ env.VSCODE_ARTIFACT }}
           if-no-files-found: error
+
+  verify-published-toolchain:
+    name: Verify Published Toolchain ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    needs: publish-toolchain-release
+    if: github.event_name == 'push'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-linux-gnu
+            rust_target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-windows-msvc
+            rust_target: x86_64-pc-windows-msvc
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            rust_target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+            rust_target: aarch64-apple-darwin
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache Cargo Artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Published LLVM
+        uses: ./.github/actions/setup-llvm
+        with:
+          mode: target
+          host-target: ${{ matrix.target }}
+
+      - name: Export Published Toolchain Root (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          echo "KERN_TOOLCHAIN_ROOT=${LLVM_SYS_211_PREFIX}" >> "$GITHUB_ENV"
+          echo "KERN_DEBUG_LTO_LINK=1" >> "$GITHUB_ENV"
+
+      - name: Export Published Toolchain Root (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          echo "KERN_TOOLCHAIN_ROOT=$env:LLVM_SYS_211_PREFIX" >> $env:GITHUB_ENV
+          echo "KERN_DEBUG_LTO_LINK=1" >> $env:GITHUB_ENV
+
+      - name: Print Published Toolchain Diagnostics (Unix)
+        if: runner.os != 'Windows'
+        run: python3 -m ops ci toolchain-info
+
+      - name: Print Published Toolchain Diagnostics (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: py -3 -m ops ci toolchain-info
+
+      - name: Assert Published Toolchain Health (Unix)
+        if: runner.os != 'Windows'
+        run: python3 -m ops ci toolchain-health
+
+      - name: Assert Published Toolchain Health (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: py -3 -m ops ci toolchain-health
+
+      - name: Verify ThinLTO Craft Path (Unix)
+        if: runner.os != 'Windows'
+        run: cargo test -p craft release_thinlto_build_produces_runnable_binary -- --exact
+
+      - name: Verify ThinLTO Craft Path (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: cargo test -p craft release_thinlto_build_produces_runnable_binary -- --exact
 
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-24.04
-    needs: build
+    needs:
+      - build
+      - verify-published-toolchain
     if: github.event_name == 'push'
     permissions:
       contents: write
@@ -201,7 +370,14 @@ jobs:
       - name: Download Release Artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: kern-*
+          pattern: sdk-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download VS Code Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vscode-*
           path: dist
           merge-multiple: true
 
@@ -210,3 +386,41 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+  publish-toolchain-release:
+    name: Publish Toolchain Release
+    runs-on: ubuntu-24.04
+    needs: build
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Resolve Toolchain Release Version
+        run: |
+          python3 -m ops ci toolchain-spec --runner-os Linux --mode current --host-target x86_64-linux-gnu --format github-env >> "$GITHUB_ENV"
+          echo "KERN_TOOLCHAIN_RELEASE_TAG=toolchain-llvm-${KERN_CI_LLVM_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Download Toolchain Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: toolchain-*
+          path: toolchain-dist
+          merge-multiple: true
+
+      - name: Generate Toolchain Checksums
+        run: |
+          python3 -m ops release write-checksums "toolchain-dist/*" --manifest-path "toolchain-dist/toolchain-release-manifest.json" --channel toolchain --release-tag "${KERN_TOOLCHAIN_RELEASE_TAG}"
+
+      - name: Upload Toolchain Release Artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.KERN_TOOLCHAIN_RELEASE_TAG }}
+          name: Kern Toolchain LLVM ${{ env.KERN_CI_LLVM_VERSION }}
+          files: toolchain-dist/*
+          overwrite_files: true
+          generate_release_notes: false
+          make_latest: false

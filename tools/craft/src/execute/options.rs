@@ -266,6 +266,11 @@ pub(super) fn link_action_options(
 }
 
 pub(super) fn apply_host_linker_env(options: &mut CompileOptions) {
+    if let Ok(toolchain_root) = std::env::var("KERN_TOOLCHAIN_ROOT")
+        && !toolchain_root.is_empty()
+    {
+        options.toolchain_root = Some(toolchain_root);
+    }
     if let Ok(cc_env) = std::env::var("CC") {
         options.linker_cmd = cc_env;
     }

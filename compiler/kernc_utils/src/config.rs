@@ -281,6 +281,7 @@ pub struct CompileOptions {
     // Interface alias mapping table rooted at the `kmeta` directory.
     pub module_interface_aliases: HashMap<String, String>,
     pub asm_dialect: AsmDialect,
+    pub toolchain_root: Option<String>,
     pub linker_cmd: String,
     pub linker_inputs: Vec<String>,
     pub linker_search_paths: Vec<String>,
@@ -320,6 +321,7 @@ impl Default for CompileOptions {
             module_aliases: HashMap::new(),
             module_interface_aliases: HashMap::new(),
             asm_dialect: AsmDialect::default(),
+            toolchain_root: None,
             linker_cmd: "cc".to_string(),
             linker_inputs: Vec::new(),
             linker_search_paths: Vec::new(),

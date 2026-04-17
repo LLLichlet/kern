@@ -260,10 +260,10 @@ cargo build --release --target x86_64-pc-windows-msvc -p craft
 cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
 ```
 
-Or, equivalently, use the repository release script:
+Or, equivalently, use the repository Python packaging entrypoint:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package_release.ps1 -Version v0.7.0
+py -3 -m ops release package --version v0.7.0 --target x86_64-windows-msvc
 ```
 
 Two Windows-specific details are easy to miss:

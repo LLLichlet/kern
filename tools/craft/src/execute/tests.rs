@@ -170,6 +170,34 @@ root = "src/main.rn"
     build(&build_plan, &action_plan).unwrap()
 }
 
+#[test]
+fn release_thinlto_build_produces_runnable_binary() {
+    let root = temp_dir("craft-release-thinlto-run");
+    let _summary = build_release_hello_workspace(
+        &root,
+        r#"
+[profile.release]
+opt = 3
+codegen-units = 2
+lto = "thin"
+"#,
+    );
+
+    let executable = root
+        .join(".craft")
+        .join("build")
+        .join("release")
+        .join("target")
+        .join("out")
+        .join("hello-0.1.0")
+        .join("bin")
+        .join("hello");
+    let output = run_binary_with_retry(&executable, 0);
+    assert!(output.status.success());
+
+    let _ = fs::remove_dir_all(root);
+}
+
 fn init_git_package(repo: &Path, manifest: &str, lib_source: &str) {
     fs::create_dir_all(repo.join("src")).unwrap();
     fs::write(repo.join("Craft.toml"), manifest).unwrap();

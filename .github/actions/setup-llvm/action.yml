@@ -2,70 +2,116 @@ name: Setup LLVM
 description: Install the LLVM toolchain and platform prerequisites used by Kern CI.
 
 inputs:
-  llvm-version:
-    description: LLVM release version to install on Windows.
+  mode:
+    description: Which CI toolchain policy mode to resolve.
     required: false
-    default: 21.1.8
+    default: current
+  host-target:
+    description: Host archive target label for target-specific toolchain policy resolution.
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
-    - name: Install LLVM 21 (Linux)
-      if: runner.os == 'Linux'
+    - name: Resolve CI Toolchain Policy (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        python3 -m ops ci toolchain-spec --runner-os "${{ runner.os }}" --mode "${{ inputs.mode }}" --host-target "${{ inputs.host-target }}" --format github-env >> "$GITHUB_ENV"
+
+    - name: Resolve CI Toolchain Policy (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        py -3 -m ops ci toolchain-spec --runner-os "${{ runner.os }}" --mode "${{ inputs.mode }}" --host-target "${{ inputs.host-target }}" --format github-env >> $env:GITHUB_ENV
+
+    - name: Install LLVM 21 (Linux Package Manager)
+      if: runner.os == 'Linux' && env.KERN_CI_PROVIDER_KIND == 'package-manager'
       shell: bash
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        sudo ./llvm.sh 21
-        sudo apt-get install -y llvm-21-dev libclang-21-dev libpolly-21-dev libzstd-dev zlib1g-dev
-        LLVM_PREFIX="$(llvm-config-21 --prefix)"
-        echo "LLVM_SYS_211_PREFIX=$LLVM_PREFIX" >> "$GITHUB_ENV"
+        sudo ./llvm.sh "${KERN_CI_LLVM_MAJOR}"
+        sudo apt-get install -y ${KERN_CI_APT_PACKAGES}
+        LLVM_PREFIX="$(llvm-config-${KERN_CI_LLVM_MAJOR} --prefix)"
+        echo "${KERN_CI_LLVM_PREFIX_ENV}=$LLVM_PREFIX" >> "$GITHUB_ENV"
         echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
 
-    - name: Install LLVM 21 (macOS)
-      if: runner.os == 'macOS'
+    - name: Install LLVM 21 (macOS Package Manager)
+      if: runner.os == 'macOS' && env.KERN_CI_PROVIDER_KIND == 'package-manager'
       shell: bash
       env:
         HOMEBREW_NO_AUTO_UPDATE: "1"
       run: |
-        LLVM_FORMULA="llvm@21"
+        LLVM_FORMULA="${KERN_CI_BREW_PRIMARY_FORMULA}"
         if ! brew info "$LLVM_FORMULA" >/dev/null 2>&1; then
-          LLVM_FORMULA="llvm"
+          LLVM_FORMULA="${KERN_CI_BREW_FALLBACK_FORMULA}"
         fi
-        brew install "$LLVM_FORMULA" libxml2
+        brew install "$LLVM_FORMULA" ${KERN_CI_BREW_EXTRA_FORMULAS}
         LLVM_PREFIX="$(brew --prefix "$LLVM_FORMULA")"
-        echo "LLVM_SYS_211_PREFIX=$LLVM_PREFIX" >> "$GITHUB_ENV"
+        echo "${KERN_CI_LLVM_PREFIX_ENV}=$LLVM_PREFIX" >> "$GITHUB_ENV"
         echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
         echo "PKG_CONFIG_PATH=$(brew --prefix libxml2)/lib/pkgconfig" >> "$GITHUB_ENV"
-        echo "SDKROOT=$(xcrun --show-sdk-path)" >> "$GITHUB_ENV"
 
-    - name: Cache LLVM 21 (Windows)
+    - name: Cache LLVM Archive Install
       id: cache-llvm
-      if: runner.os == 'Windows'
+      if: env.KERN_CI_PROVIDER_KIND == 'archive'
       uses: actions/cache@v5
       with:
-        path: ${{ github.workspace }}\LLVM-21
-        key: ${{ runner.os }}-llvm-${{ inputs.llvm-version }}
+        path: ${{ github.workspace }}/${{ env.KERN_CI_INSTALL_DIR }}
+        key: ${{ runner.os }}-${{ env.KERN_CI_MODE }}-${{ env.KERN_CI_HOST_TARGET }}-${{ env.KERN_CI_TOOLCHAIN_PROVIDER }}-llvm-${{ env.KERN_CI_LLVM_VERSION }}
 
-    - name: Install LLVM 21 (Windows)
-      if: runner.os == 'Windows' && steps.cache-llvm.outputs.cache-hit != 'true'
+    - name: Install LLVM Archive (Unix)
+      if: runner.os != 'Windows' && env.KERN_CI_PROVIDER_KIND == 'archive' && steps.cache-llvm.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        curl -L "${KERN_CI_ARCHIVE_URL}" -o llvm.archive
+        python3 -m ops ci verify-toolchain-archive --runner-os "${{ runner.os }}" --mode "${{ inputs.mode }}" --host-target "${{ inputs.host-target }}" --archive-path llvm.archive
+        tar -xf llvm.archive
+        rm -rf "${KERN_CI_INSTALL_DIR}"
+        mv "${KERN_CI_ARCHIVE_ROOT}" "${KERN_CI_INSTALL_DIR}"
+
+    - name: Install LLVM Archive (Windows)
+      if: runner.os == 'Windows' && env.KERN_CI_PROVIDER_KIND == 'archive' && steps.cache-llvm.outputs.cache-hit != 'true'
       shell: powershell
       run: |
-        Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ inputs.llvm-version }}/clang+llvm-${{ inputs.llvm-version }}-x86_64-pc-windows-msvc.tar.xz" -OutFile "llvm.tar.xz"
-        tar -xf llvm.tar.xz
-        Remove-Item -Recurse -Force "LLVM-21" -ErrorAction SilentlyContinue
-        Rename-Item "clang+llvm-${{ inputs.llvm-version }}-x86_64-pc-windows-msvc" "LLVM-21"
+        Invoke-WebRequest -Uri $env:KERN_CI_ARCHIVE_URL -OutFile "llvm.archive"
+        py -3 -m ops ci verify-toolchain-archive --runner-os "${{ runner.os }}" --mode "${{ inputs.mode }}" --host-target "${{ inputs.host-target }}" --archive-path llvm.archive
+        tar -xf llvm.archive
+        Remove-Item -Recurse -Force $env:KERN_CI_INSTALL_DIR -ErrorAction SilentlyContinue
+        Rename-Item $env:KERN_CI_ARCHIVE_ROOT $env:KERN_CI_INSTALL_DIR
 
-    - name: Configure LLVM 21 (Windows)
-      if: runner.os == 'Windows'
+    - name: Configure LLVM Archive Provider (Unix)
+      if: runner.os != 'Windows' && env.KERN_CI_PROVIDER_KIND == 'archive'
+      shell: bash
+      run: |
+        LLVM_PREFIX="${GITHUB_WORKSPACE}/${KERN_CI_INSTALL_DIR}"
+        if [ -n "${KERN_CI_ARCHIVE_PREFIX_SUBDIR}" ]; then
+          LLVM_PREFIX="${LLVM_PREFIX}/${KERN_CI_ARCHIVE_PREFIX_SUBDIR}"
+        fi
+        echo "${KERN_CI_LLVM_PREFIX_ENV}=$LLVM_PREFIX" >> "$GITHUB_ENV"
+        echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
+
+    - name: Configure LLVM Archive Provider (Windows)
+      if: runner.os == 'Windows' && env.KERN_CI_PROVIDER_KIND == 'archive'
       shell: powershell
       run: |
-        $llvmPath = (Resolve-Path "LLVM-21").Path
-        echo "LLVM_SYS_211_PREFIX=$llvmPath" >> $env:GITHUB_ENV
+        $llvmPath = (Resolve-Path $env:KERN_CI_INSTALL_DIR).Path
+        if ($env:KERN_CI_ARCHIVE_PREFIX_SUBDIR -ne "") {
+          $llvmPath = (Join-Path $llvmPath $env:KERN_CI_ARCHIVE_PREFIX_SUBDIR)
+        }
+        echo "$env:KERN_CI_LLVM_PREFIX_ENV=$llvmPath" >> $env:GITHUB_ENV
         echo "$llvmPath\bin" >> $env:GITHUB_PATH
 
+    - name: Configure macOS SDK Environment
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        echo "SDKROOT=$(xcrun --show-sdk-path)" >> "$GITHUB_ENV"
+
     - name: Configure vcpkg Binary Cache (Windows)
-      if: runner.os == 'Windows'
+      if: runner.os == 'Windows' && env.KERN_CI_WINDOWS_VCPKG_PACKAGE != ''
       shell: powershell
       run: |
         $cachePath = "$env:GITHUB_WORKSPACE\.vcpkg-cache"
@@ -73,17 +119,17 @@ runs:
         echo "VCPKG_DEFAULT_BINARY_CACHE=$cachePath" >> $env:GITHUB_ENV
 
     - name: Cache vcpkg Binary Artifacts (Windows)
-      if: runner.os == 'Windows'
+      if: runner.os == 'Windows' && env.KERN_CI_WINDOWS_VCPKG_PACKAGE != ''
       uses: actions/cache@v5
       with:
         path: ${{ github.workspace }}\.vcpkg-cache
-        key: ${{ runner.os }}-vcpkg-libxml2-x64-windows-static-v1
+        key: ${{ runner.os }}-${{ env.KERN_CI_WINDOWS_VCPKG_CACHE_KEY }}
 
     - name: Install libxml2 via vcpkg (Windows)
-      if: runner.os == 'Windows'
+      if: runner.os == 'Windows' && env.KERN_CI_WINDOWS_VCPKG_PACKAGE != ''
       shell: powershell
       run: |
-        vcpkg install libxml2:x64-windows-static "--binarysource=clear;files,$env:VCPKG_DEFAULT_BINARY_CACHE,readwrite"
+        vcpkg install $env:KERN_CI_WINDOWS_VCPKG_PACKAGE "--binarysource=clear;files,$env:VCPKG_DEFAULT_BINARY_CACHE,readwrite"
         $vcpkgLib = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib\libxml2.lib"
-        $llvmLib = "LLVM-21\lib\libxml2s.lib"
+        $llvmLib = "$env:KERN_CI_INSTALL_DIR\lib\libxml2s.lib"
         Copy-Item $vcpkgLib -Destination $llvmLib -Force

@@ -35,6 +35,7 @@ Official Windows release archives must satisfy all of the following:
 - build the host tools for the real Cargo target triple `x86_64-pc-windows-msvc`
 - label the release archive as `x86_64-windows-msvc`
 - package binaries from `target/x86_64-pc-windows-msvc/release/`
+- bundle the validated host LLVM/Clang toolchain under `toolchain/host/`
 - build the host tools with `-C target-feature=+crt-static`
 
 This policy exists because a plain Rust/MSVC release build can depend on:
@@ -44,7 +45,8 @@ This policy exists because a plain Rust/MSVC release build can depend on:
 - `api-ms-win-crt-*`
 
 That dependency set is unacceptable for an official Windows archive because a
-clean user machine may fail before the tool even starts.
+clean user machine may fail before the tool even starts. The SDK should carry
+its own host LLVM/Clang toolchain instead of expecting users to provision it.
 
 So the rule is simple:
 
@@ -109,10 +111,11 @@ target/x86_64-pc-windows-msvc/release/
 
 ## Official Packaging Script
 
-The repository release script is the canonical Windows packaging entry point:
+The repository Python operations entry point is the canonical Windows packaging
+entry point:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package_release.ps1 -Version v0.7.0
+py -3 -m ops release package --version v0.7.0 --target x86_64-windows-msvc
 ```
 
 The script currently enforces the important Windows-specific rules:
@@ -183,25 +186,7 @@ ABI baseline used by the host tools.
 If a tool imports `KERNEL32.dll` or `SHELL32.dll`, that is normal host-OS
 behavior, not a violation of Kern's pure-first language/runtime model.
 
-### 5. PowerShell Execution Policy
-
-On some machines:
-
-```powershell
-.\scripts\package_release.ps1
-```
-
-may be blocked by execution policy.
-
-Use:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package_release.ps1 ...
-```
-
-for explicit local invocation.
-
-### 6. Promising Very Old Windows Versions
+### 5. Promising Very Old Windows Versions
 
 Do not overstate compatibility just because the VC++ redistributable dependency
 has been removed.

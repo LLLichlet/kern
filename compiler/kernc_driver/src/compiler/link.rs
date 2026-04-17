@@ -671,7 +671,10 @@ impl CompilerDriver {
 
 fn llvm_bitcode_file(path: &str) -> bool {
     fs::read(path)
-        .map(|bytes| bytes.starts_with(b"BC\xc0\xde"))
+        .map(|bytes| {
+            bytes.starts_with(b"BC\xc0\xde")
+                || bytes.starts_with(&[0xDE, 0xC0, 0x17, 0x0B])
+        })
         .unwrap_or(false)
 }
 

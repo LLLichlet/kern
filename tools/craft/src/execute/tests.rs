@@ -34,7 +34,10 @@ fn temp_dir(prefix: &str) -> PathBuf {
 
 fn has_llvm_bitcode_magic(path: &Path) -> bool {
     fs::read(path)
-        .map(|bytes| bytes.starts_with(b"BC\xc0\xde"))
+        .map(|bytes| {
+            bytes.starts_with(b"BC\xc0\xde")
+                || bytes.starts_with(&[0xDE, 0xC0, 0x17, 0x0B])
+        })
         .unwrap_or(false)
 }
 

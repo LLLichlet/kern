@@ -18,7 +18,9 @@ runs:
         chmod +x llvm.sh
         sudo ./llvm.sh 21
         sudo apt-get install -y llvm-21-dev libclang-21-dev libpolly-21-dev libzstd-dev zlib1g-dev
-        echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> "$GITHUB_ENV"
+        LLVM_PREFIX="$(llvm-config-21 --prefix)"
+        echo "LLVM_SYS_211_PREFIX=$LLVM_PREFIX" >> "$GITHUB_ENV"
+        echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
 
     - name: Install LLVM 21 (macOS)
       if: runner.os == 'macOS'

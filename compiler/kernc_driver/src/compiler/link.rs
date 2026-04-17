@@ -87,6 +87,7 @@ impl CompilerDriver {
             }
             Ok(status) => {
                 eprintln!("Error: Linker failed with exit code {}", status);
+                self.maybe_print_lto_toolchain_hint(target);
                 false
             }
             Err(err) => {
@@ -430,6 +431,31 @@ impl CompilerDriver {
         if self.options.print_link_command {
             println!("Link command: {}", self.format_command(cmd));
         }
+    }
+
+    fn maybe_print_lto_toolchain_hint(&self, target: &LinkTarget) {
+        let requests_llvm_lto = self
+            .options
+            .linker_args
+            .iter()
+            .any(|arg| arg.starts_with("-flto"));
+        if !requests_llvm_lto || target.is_windows {
+            return;
+        }
+
+        let llvm_prefix = llvm_prefix_dir()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<unset>".to_string());
+        eprintln!(
+            "Note: LLVM LTO links require the final linker toolchain to match the LLVM version used for codegen."
+        );
+        eprintln!(
+            "      If you see Producer/Reader version mismatches, use a matching clang/lld pair via PATH or CC."
+        );
+        eprintln!(
+            "      Current runtime LLVM_SYS prefix: {}",
+            llvm_prefix
+        );
     }
 
     fn format_command(&self, cmd: &Command) -> String {

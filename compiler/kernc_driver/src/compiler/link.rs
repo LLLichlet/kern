@@ -171,7 +171,7 @@ impl CompilerDriver {
             .iter()
             .any(|arg| arg.starts_with("-flto"));
         if self.options.linker_cmd == "cc" && (is_windows || requests_llvm_lto) {
-            "clang".to_string()
+            find_llvm_tool("clang", is_windows).unwrap_or_else(|| "clang".to_string())
         } else {
             self.options.linker_cmd.clone()
         }
@@ -185,16 +185,23 @@ impl CompilerDriver {
             .linker_args
             .iter()
             .any(|arg| arg.starts_with("-flto"));
+        let explicit_fuse_ld = self
+            .options
+            .linker_args
+            .iter()
+            .any(|arg| arg.starts_with("-fuse-ld="));
+        let auto_use_lld = requests_llvm_lto
+            && !explicit_fuse_ld
+            && !target.is_darwin
+            && (target.is_windows || find_llvm_tool("ld.lld", target.is_windows).is_some());
 
-        if target.is_windows
-            && requests_llvm_lto
-            && !self
-                .options
-                .linker_args
-                .iter()
-                .any(|arg| arg.starts_with("-fuse-ld="))
-        {
-            // LLVM bitcode inputs on Windows require the lld linker path.
+        if requests_llvm_lto && let Some(bin_dir) = llvm_prefix_bin_dir() {
+            prepend_path_env(&mut cmd, &bin_dir);
+        }
+
+        if auto_use_lld {
+            // LLVM bitcode inputs should stay on the same LLVM linker family
+            // that produced them when an in-prefix lld is available.
             cmd.arg("-fuse-ld=lld");
         }
 
@@ -222,7 +229,7 @@ impl CompilerDriver {
             cmd.arg(arg);
         }
 
-        self.apply_thin_lto_cache_options(&mut cmd, target);
+        self.apply_thin_lto_cache_options(&mut cmd, target, auto_use_lld);
         self.apply_dead_strip_options(&mut cmd, target.is_windows, target.is_darwin);
 
         cmd
@@ -364,7 +371,12 @@ impl CompilerDriver {
         }
     }
 
-    fn apply_thin_lto_cache_options(&self, cmd: &mut Command, target: &LinkTarget) {
+    fn apply_thin_lto_cache_options(
+        &self,
+        cmd: &mut Command,
+        target: &LinkTarget,
+        auto_use_lld: bool,
+    ) {
         if target.is_windows
             || !self
                 .options
@@ -377,14 +389,6 @@ impl CompilerDriver {
                     || arg.contains("plugin-opt,cache-dir=")
             })
         {
-            return;
-        }
-
-        // Homebrew/standalone LLVM clang on Darwin does not provide a stable
-        // cache-flag contract across linker backends. Prefer a portable final
-        // link over forcing an auto-managed ThinLTO cache. Explicit user cache
-        // flags still pass through unchanged via `linker_args`.
-        if target.is_darwin {
             return;
         }
 
@@ -406,12 +410,16 @@ impl CompilerDriver {
             return;
         }
 
-        if self
-            .options
-            .linker_args
-            .iter()
-            .any(|arg| arg == "-fuse-ld=lld" || arg == "-fuse-ld=ld64.lld")
-        {
+        let uses_lld = auto_use_lld
+            || self
+                .options
+                .linker_args
+                .iter()
+                .any(|arg| arg == "-fuse-ld=lld" || arg == "-fuse-ld=ld64.lld");
+
+        if target.is_darwin {
+            cmd.arg(format!("-Wl,-cache_path_lto,{}", cache_dir));
+        } else if uses_lld {
             cmd.arg(format!("-Wl,--thinlto-cache-dir={}", cache_dir));
         } else {
             cmd.arg(format!("-Wl,-plugin-opt,cache-dir={}", cache_dir));
@@ -433,6 +441,58 @@ impl CompilerDriver {
         }
 
         parts.join(" ")
+    }
+}
+
+fn llvm_prefix_dir() -> Option<PathBuf> {
+    env::vars().find_map(|(key, value)| {
+        (key.starts_with("LLVM_SYS_") && key.ends_with("_PREFIX")).then(|| PathBuf::from(value))
+    })
+}
+
+fn llvm_prefix_bin_dir() -> Option<PathBuf> {
+    let bin_dir = llvm_prefix_dir()?.join("bin");
+    bin_dir.is_dir().then_some(bin_dir)
+}
+
+fn find_llvm_tool(tool: &str, is_windows: bool) -> Option<String> {
+    let prefix = llvm_prefix_dir()?;
+    find_llvm_tool_in_prefix(&prefix, tool, is_windows)
+}
+
+fn find_llvm_tool_in_prefix(prefix: &std::path::Path, tool: &str, is_windows: bool) -> Option<String> {
+    let bin_dir = prefix.join("bin");
+    let tool_name = if is_windows {
+        format!("{tool}.exe")
+    } else {
+        tool.to_string()
+    };
+    let direct = bin_dir.join(&tool_name);
+    if direct.is_file() {
+        return Some(direct.to_string_lossy().to_string());
+    }
+
+    let suffix = prefix
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("llvm-"))?;
+    let versioned = if is_windows {
+        bin_dir.join(format!("{tool}-{suffix}.exe"))
+    } else {
+        bin_dir.join(format!("{tool}-{suffix}"))
+    };
+    versioned
+        .is_file()
+        .then(|| versioned.to_string_lossy().to_string())
+}
+
+fn prepend_path_env(cmd: &mut Command, dir: &std::path::Path) {
+    let mut paths = vec![dir.to_path_buf()];
+    if let Some(existing) = env::var_os("PATH") {
+        paths.extend(env::split_paths(&existing));
+    }
+    if let Ok(joined) = env::join_paths(paths) {
+        cmd.env("PATH", joined);
     }
 }
 
@@ -540,11 +600,24 @@ mod tests {
         let args = command_args(&cmd);
         let cache_dir = format!("{}.thinlto-cache.d", output.to_string_lossy());
 
-        if !target.is_windows {
+        if target.is_darwin {
             assert!(
                 args.iter()
-                    .any(|arg| arg == &format!("-Wl,-plugin-opt,cache-dir={}", cache_dir))
+                    .any(|arg| arg == &format!("-Wl,-cache_path_lto,{}", cache_dir))
             );
+        } else if !target.is_windows {
+            if find_llvm_tool("ld.lld", false).is_some() {
+                assert!(
+                    args.iter()
+                        .any(|arg| arg == &format!("-Wl,--thinlto-cache-dir={}", cache_dir))
+                );
+                assert!(args.iter().any(|arg| arg == "-fuse-ld=lld"));
+            } else {
+                assert!(
+                    args.iter()
+                        .any(|arg| arg == &format!("-Wl,-plugin-opt,cache-dir={}", cache_dir))
+                );
+            }
         }
         if target.is_windows {
             assert!(!PathBuf::from(&cache_dir).is_dir());
@@ -556,41 +629,31 @@ mod tests {
     }
 
     #[test]
-    fn thin_lto_links_skip_auto_cache_flags_on_darwin() {
+    fn llvm_tool_lookup_prefers_prefix_bin_tools() {
         let root = std::env::temp_dir().join(format!(
-            "kern_link_thinlto_cache_darwin_{}_{}",
+            "kern_link_llvm_tool_lookup_{}_{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        fs::create_dir_all(&root).unwrap();
-        let output = root.join("main.out");
-        let driver = CompilerDriver::new(CompileOptions {
-            output_file: output.to_string_lossy().to_string(),
-            linker_args: vec!["-flto=thin".to_string()],
-            ..CompileOptions::default()
-        });
-        let target = LinkTarget {
-            triple: "aarch64-apple-darwin".to_string(),
-            is_windows: false,
-            is_darwin: true,
-        };
+        let bin_dir = root.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::write(bin_dir.join("clang"), "").unwrap();
+        fs::write(bin_dir.join("ld.lld"), "").unwrap();
 
-        let cmd = driver.build_link_command(&[], &target);
-        let args = command_args(&cmd);
-        let cache_dir = format!("{}.thinlto-cache.d", output.to_string_lossy());
+        let clang = find_llvm_tool_in_prefix(&root, "clang", false);
+        let lld = find_llvm_tool_in_prefix(&root, "ld.lld", false);
 
-        assert!(
-            !args.iter().any(|arg| {
-                arg.contains("thinlto-cache-dir")
-                    || arg.contains("cache_path_lto")
-                    || arg.contains("plugin-opt,cache-dir=")
-            }),
-            "unexpected Darwin ThinLTO cache flag injection: {args:?}"
+        assert_eq!(
+            clang.as_deref(),
+            Some(bin_dir.join("clang").to_string_lossy().as_ref())
         );
-        assert!(!PathBuf::from(&cache_dir).exists());
+        assert_eq!(
+            lld.as_deref(),
+            Some(bin_dir.join("ld.lld").to_string_lossy().as_ref())
+        );
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -621,8 +684,11 @@ mod tests {
 
         assert_eq!(
             args.iter()
-                .filter(|arg| arg.contains("thinlto-cache-dir")
-                    || arg.contains("plugin-opt,cache-dir="))
+                .filter(|arg| {
+                    arg.contains("thinlto-cache-dir")
+                        || arg.contains("cache_path_lto")
+                        || arg.contains("plugin-opt,cache-dir=")
+                })
                 .count(),
             1
         );

@@ -888,5 +888,8 @@ kern = \"0.7.0\"
         .join("main.rn");
 
     let manifest = super::resolve_project_manifest_path(Some(&generated_path)).unwrap();
-    assert_eq!(manifest, root.join("Craft.toml"));
+    assert_eq!(
+        normalize_test_path(&manifest),
+        normalize_test_path(&root.join("Craft.toml"))
+    );
 }

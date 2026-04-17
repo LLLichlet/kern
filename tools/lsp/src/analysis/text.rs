@@ -302,6 +302,10 @@ fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
 #[cfg(target_os = "macos")]
 fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
     let raw = path.to_string_lossy();
+    // LSP file URIs on macOS often arrive as `/var/...`, but filesystem
+    // canonicalization may resolve the same path as `/private/var/...`.
+    // Analysis caches, project discovery, and craft analysis context compare
+    // paths structurally, so both spellings must collapse to one form.
     if let Some(stripped) = raw.strip_prefix("/private/var/") {
         return PathBuf::from(format!("/var/{stripped}"));
     }

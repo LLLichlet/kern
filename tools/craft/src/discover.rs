@@ -80,6 +80,13 @@ fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
 #[cfg(target_os = "macos")]
 fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
     let raw = path.to_string_lossy();
+    // macOS commonly exposes temporary and workspace paths through `/var/...`
+    // while `canonicalize()` resolves the same location under `/private/var/...`.
+    // If different subsystems compare those strings directly, workspace/package
+    // discovery and persisted analysis state stop matching each other even
+    // though they refer to the same inode tree. We normalize to the shorter
+    // `/var` spelling so URI-derived paths and canonicalized manifest paths
+    // share one stable identity.
     if let Some(stripped) = raw.strip_prefix("/private/var/") {
         return PathBuf::from(format!("/var/{stripped}"));
     }

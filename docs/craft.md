@@ -90,6 +90,31 @@ When adding new `.craft/` state, the default policy is:
 If a new feature cannot state its lock scope and replacement strategy clearly,
 its state model is still underspecified.
 
+## Path Identity
+
+`craft` treats path identity as part of correctness, not presentation.
+
+This matters especially on macOS. The system may expose temporary or workspace
+paths as `/var/...`, while `canonicalize()` resolves the same location as
+`/private/var/...`.
+
+Those two strings often refer to the same directory tree, but they are not
+textually equal. If one subsystem stores `/private/var/...` and another later
+looks up `/var/...`, project discovery, workspace membership checks, cached
+analysis context, and LSP project resolution can all fail even though the user
+is still pointing at the same files.
+
+The current rule is:
+
+- Windows verbatim prefixes are stripped
+- macOS `/private/var/...` paths are normalized to `/var/...`
+- path comparisons inside `craft` and `kern-lsp` should happen only after that
+  normalization
+
+This is not a cosmetic rewrite. It is required so manifest discovery,
+generated-source tracking, persisted analysis state, and LSP document URIs all
+share one stable path identity.
+
 ## Phase Model
 
 The package pipeline is split into four explicit artifacts:

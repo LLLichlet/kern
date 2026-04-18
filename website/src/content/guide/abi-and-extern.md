@@ -1,7 +1,7 @@
 ---
 title: "ABI And `extern`"
 summary: "Cross ABI boundaries explicitly: import foreign symbols with `extern { ... }` blocks and export ABI-visible symbols with `extern fn` plus attributes."
-order: 13
+order: 27
 ---
 
 Kern treats ABI boundaries as something you spell out, not something the

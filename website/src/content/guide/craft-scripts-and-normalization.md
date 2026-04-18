@@ -1,7 +1,7 @@
 ---
 title: "`craft.rn` And Normalization"
 summary: "Use `craft.rn` as the pre-resolution normalization step that adjusts package planning state before the graph is finalized."
-order: 17
+order: 31
 ---
 
 `craft.rn` is not a generic build hook.

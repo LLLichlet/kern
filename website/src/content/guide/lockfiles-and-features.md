@@ -1,7 +1,7 @@
 ---
 title: "Lockfiles And Features"
 summary: "Treat `Craft.lock` as the canonical resolved graph, and treat CLI feature selection as an execution input layered on top."
-order: 16
+order: 30
 ---
 
 `craft` accepts feature-selection flags, but that does not mean feature

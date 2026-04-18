@@ -1,7 +1,7 @@
 ---
 title: "External Statics And `link_section`"
 summary: "Import foreign data with `extern { static ... = T.{undef}; }`, export named globals with `#[export_name]`, and place globals into explicit output sections."
-order: 20
+order: 34
 ---
 
 The earlier ABI chapters established function imports and exports.

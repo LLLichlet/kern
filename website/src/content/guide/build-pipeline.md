@@ -1,7 +1,7 @@
 ---
 title: "Build Pipeline"
 summary: "See how `craft` and `kernc` fit together, and when to drop down to compiler-driver level."
-order: 8
+order: 16
 ---
 
 By the time you can build and run a minimal package, you should also understand

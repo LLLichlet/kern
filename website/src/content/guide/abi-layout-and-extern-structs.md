@@ -1,7 +1,7 @@
 ---
 title: "ABI Layout And `extern struct`"
 summary: "Use `extern type Name = struct { ... }` when layout is part of the contract, and keep ABI-visible pointers typed explicitly."
-order: 15
+order: 29
 ---
 
 The first `extern` chapter covered symbol boundaries.

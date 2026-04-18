@@ -1,7 +1,7 @@
 ---
 title: "Pointers And Slices"
 summary: "Work with `*T`, `*mut T`, `[]T`, and `[]mut T` using Kern's explicit permission model."
-order: 10
+order: 18
 ---
 
 Kern treats pointers and slices as ordinary first-class values, but it keeps

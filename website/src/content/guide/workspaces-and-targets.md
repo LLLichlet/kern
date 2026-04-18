@@ -1,7 +1,7 @@
 ---
 title: "Workspaces And Targets"
 summary: "Use a workspace root to coordinate multiple packages, share dependency declarations, and select `bin` / `example` / `test` targets through `craft`."
-order: 14
+order: 28
 ---
 
 Once a project is bigger than one package, you should stop thinking in terms of
@@ -145,6 +145,35 @@ util = { path = "util" }
 
 and the path was resolved relative to the workspace root.
 
+### Workspace Roots And Package Roots Stay Separate
+
+The workspace root coordinates the graph, but member package behavior still
+stays package-local where it should.
+
+For example, while writing this guide the current toolchain successfully ran a
+workspace member package whose `build.rn` used:
+
+```kern
+b.link_search("native");
+```
+
+with the native archive stored under:
+
+```text
+app/native/libdemo.a
+```
+
+The validated run printed:
+
+```text
+workspace-member-native=42
+```
+
+That matters because it shows two independent scopes working together:
+
+- the workspace root owns member discovery and shared dependency policy
+- the member package root still owns its own package-local sources, staged files, and relative `build.rn` paths
+
 ### `craft run` Selects One Runnable Target
 
 With exactly one binary target across the workspace, plain `craft run` worked.
@@ -159,6 +188,15 @@ That reflects the current command model:
 
 - plain `craft run` expects exactly one runnable binary
 - examples are runnable too, but you select them explicitly with `--example`
+
+If you need explicit binary selection, the current CLI also supports:
+
+```bash
+craft run --bin workspace-app --project-path ...
+```
+
+That keeps the command line honest once a workspace grows beyond the
+"exactly one runnable binary" shape.
 
 ## Practical Takeaway
 

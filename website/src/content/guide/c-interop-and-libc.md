@@ -1,17 +1,80 @@
 ---
 title: "C Interop And libc"
-summary: "Call real libc functions through `extern { ... }`, use variadic imports explicitly, and build zero-terminated strings for C APIs."
-order: 19
+summary: "Use `extern { ... }` for C ABI boundaries, keep libc optional by default, and opt into it only when you intentionally want that foreign interface."
+order: 33
 ---
 
 The earlier ABI chapters established the syntax.
 
-This chapter shows a real opt-in libc interop path that was validated against
-the current toolchain.
+This chapter covers two different cases that are easy to blur together:
 
-## A Validated Example
+- calling foreign code through the C ABI
+- opting into libc itself
 
-The package used for validation declared hosted libc access explicitly:
+Those are related, but they are not the same thing.
+
+## C Interop Does Not Automatically Require libc
+
+While writing this guide, the current toolchain successfully built and ran a
+package that linked a local C static library while keeping libc disabled:
+
+```toml
+[runtime]
+entry = "rt"
+libc = false
+bundle = "std"
+```
+
+```kern
+// build.rn
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_search("native");
+    b.link_system_lib("demo");
+}
+```
+
+```kern
+// src/main.rn
+use std.io;
+
+extern {
+    fn ext_add(lhs: i32, rhs: i32) i32;
+}
+
+fn main() i32 {
+    let value = ext_add(40, 2);
+    io.println("native-no-libc={}", .{value,});
+    if (value != 42) {
+        return 1;
+    }
+    return 0;
+}
+```
+
+The validated run printed:
+
+```text
+native-no-libc=42
+```
+
+That example is important because it shows the current Kern position clearly:
+
+- foreign C ABI calls are real
+- `build.rn` can provide the native link inputs
+- libc still remains optional
+
+So if you want to link a real foreign library or your own C object code, the
+first question is not "how do I turn libc on?".
+
+The first question is simply "what ABI and link inputs do I actually want?".
+
+## A Validated libc Example
+
+libc is still supported as an explicit interface when you want it.
+
+The package used for validation declared that choice directly:
 
 ```toml
 [runtime]
@@ -91,8 +154,11 @@ That combination matters:
 - `libc = true` enables libc linkage
 - `bundle = "std"` still gives access to `base`, `sys`, and `std` roots
 
-This is consistent with the rest of Kern's design. Hosted process behavior and
-libc linkage are explicit runtime choices, not hidden defaults.
+This is consistent with the rest of Kern's design:
+
+- hosted process behavior is an explicit runtime choice
+- libc linkage is an explicit runtime choice
+- neither one is a hidden default
 
 It is also important not to misread what this means:
 
@@ -141,12 +207,17 @@ zero-terminated foreign strings.
 
 ## Practical Takeaway
 
-For real C interop on the current toolchain:
+For real C interop on the current toolchain, separate these cases:
+
+- use `extern { ... }` whenever you need a C ABI boundary
+- keep `libc = false` if you only need ordinary foreign linkage and do not want libc itself
+- turn on `entry = "crt"` and `libc = true` only when you intentionally want libc / CRT participation
+
+For actual foreign calls:
 
 - import functions through `extern { ... }`
-- enable libc intentionally in `[runtime]`
 - pass `*u8` where the C ABI expects raw C strings
 - use `base.abi.cstr` when the string must be allocated dynamically
 
-That is the low-level, explicit model Kern is aiming for. It does not try to
-pretend C strings and Kern slices are the same thing.
+That is the low-level, explicit model Kern is aiming for.
+It does not pretend Kern slices, C strings, and libc are all the same thing.

@@ -1,7 +1,7 @@
 ---
 title: "Modules And Packages"
 summary: "Use explicit module trees inside one package, then step cleanly across package boundaries with `craft` dependencies."
-order: 9
+order: 17
 ---
 
 Kern keeps module shape and package boundaries explicit.

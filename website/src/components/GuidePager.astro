@@ -1,0 +1,31 @@
+---
+import type { CollectionEntry } from "astro:content";
+
+interface Props {
+  previous?: CollectionEntry<"guide">;
+  next?: CollectionEntry<"guide">;
+}
+
+const { previous, next } = Astro.props;
+---
+
+<div class="mt-10 grid gap-4 md:grid-cols-2">
+  {
+    previous ? (
+      <a class="card-surface rounded-[1.5rem] p-5 transition hover:-translate-y-1" href={`/guide/${previous.id}/`}>
+        <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-olive)]">Previous</div>
+        <div class="mt-2 text-2xl text-[color:var(--kern-ink)]">{previous.data.title}</div>
+      </a>
+    ) : (
+      <div />
+    )
+  }
+  {
+    next ? (
+      <a class="card-surface rounded-[1.5rem] p-5 text-right transition hover:-translate-y-1" href={`/guide/${next.id}/`}>
+        <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-olive)]">Next</div>
+        <div class="mt-2 text-2xl text-[color:var(--kern-ink)]">{next.data.title}</div>
+      </a>
+    ) : null
+  }
+</div>

@@ -8,6 +8,7 @@ on:
     paths-ignore:
       - "**/*.md"
       - "LICENSE"
+      - "website/**"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

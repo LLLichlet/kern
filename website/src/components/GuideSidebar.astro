@@ -1,0 +1,39 @@
+---
+import type { CollectionEntry } from "astro:content";
+
+interface Props {
+  entries: CollectionEntry<"guide">[];
+  currentId?: string;
+}
+
+const { entries, currentId } = Astro.props;
+---
+
+<aside class="card-surface rounded-[1.75rem] p-5 md:p-6">
+  <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-olive)]">
+    Guide Map
+  </div>
+  <nav class="mt-5 flex flex-col gap-2">
+    {
+      entries.map((entry) => {
+        const isActive = entry.id === currentId;
+        return (
+          <a
+            class:list={[
+              "rounded-2xl px-4 py-3 transition",
+              isActive
+                ? "bg-[rgba(50,86,71,0.1)] text-[color:var(--kern-olive)]"
+                : "text-[color:rgba(20,33,29,0.76)] hover:bg-[rgba(50,86,71,0.06)] hover:text-[color:var(--kern-clay)]"
+            ]}
+            href={`/guide/${entry.id}/`}
+          >
+            <div class="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
+              Chapter {entry.data.order}
+            </div>
+            <div class="mt-1 text-base font-semibold">{entry.data.title}</div>
+          </a>
+        );
+      })
+    }
+  </nav>
+</aside>

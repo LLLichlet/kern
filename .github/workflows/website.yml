@@ -1,0 +1,81 @@
+name: Website
+
+on:
+  pull_request:
+    paths:
+      - "website/**"
+      - ".github/workflows/website.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "website/**"
+      - ".github/workflows/website.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: website-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Website
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    outputs:
+      artifact-ready: ${{ steps.upload.outcome }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.12
+
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Install Website Dependencies
+        working-directory: website
+        env:
+          ASTRO_TELEMETRY_DISABLED: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Build Website
+        working-directory: website
+        env:
+          ASTRO_TELEMETRY_DISABLED: "1"
+          SITE_URL: https://${{ github.repository_owner }}.github.io
+          SITE_BASE: ${{ steps.pages.outputs.base_path }}
+        run: bun run build
+
+      - name: Upload Pages Artifact
+        id: upload
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+
+  deploy:
+    name: Deploy Website
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

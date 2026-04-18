@@ -1,0 +1,42 @@
+---
+import { navItems, siteMeta } from "@/lib/site";
+---
+
+<header class="sticky top-0 z-50 border-b border-[color:var(--kern-line)] bg-[rgba(251,247,238,0.84)] backdrop-blur-xl">
+  <div class="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 md:px-8">
+    <a class="flex items-center gap-3" href="/">
+      <div class="flex h-10 w-10 items-center justify-center rounded-2xl border border-[rgba(50,86,71,0.16)] bg-[linear-gradient(180deg,#fff7df_0%,#f1ddad_100%)] text-xl font-semibold text-[color:var(--kern-olive)] shadow-[0_8px_24px_rgba(31,43,36,0.08)]">
+        K
+      </div>
+      <div>
+        <div class="text-sm font-semibold uppercase tracking-[0.24em] text-[color:var(--kern-olive)]">
+          {siteMeta.shortTitle}
+        </div>
+        <div class="text-xs text-[color:rgba(20,33,29,0.64)]">
+          language • runtime • tooling
+        </div>
+      </div>
+    </a>
+
+    <nav class="hidden items-center gap-1 md:flex">
+      {
+        navItems.map((item) => (
+          <a
+            class="rounded-full px-4 py-2 text-sm font-medium text-[color:rgba(20,33,29,0.78)] transition hover:bg-[rgba(50,86,71,0.08)] hover:text-[color:var(--kern-olive)]"
+            href={item.href}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+      <a
+        class="ml-3 inline-flex items-center rounded-full bg-[color:var(--kern-ink)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[color:var(--kern-olive)]"
+        href={siteMeta.repoUrl}
+        target="_blank"
+        rel="noreferrer"
+      >
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>

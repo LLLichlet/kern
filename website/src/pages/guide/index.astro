@@ -1,0 +1,42 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import GuideSidebar from "@/components/GuideSidebar.astro";
+import { getCollection } from "astro:content";
+
+const guideEntries = (await getCollection("guide")).sort((left, right) => left.data.order - right.data.order);
+---
+
+<BaseLayout title="Guide" description="The structured learning path for Kern.">
+  <section class="mx-auto grid max-w-6xl gap-8 px-5 pb-20 pt-14 md:px-8 md:pt-18 lg:grid-cols-[0.8fr_1.2fr]">
+    <GuideSidebar entries={guideEntries} />
+
+    <div>
+      <div class="eyebrow">Guide</div>
+      <h1 class="mt-6 text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+        The public learning path starts here.
+      </h1>
+      <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(20,33,29,0.76)]">
+        This section is the website-native guide layer. It is where Kern should
+        gain a real onboarding path instead of asking readers to jump straight
+        into repository reference docs.
+      </p>
+
+      <div class="mt-10 grid gap-4">
+        {
+          guideEntries.map((entry) => (
+            <a
+              class="card-surface rounded-[1.75rem] p-6 transition hover:-translate-y-1 hover:border-[rgba(182,95,58,0.22)]"
+              href={`/guide/${entry.id}/`}
+            >
+              <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-olive)]">
+                Chapter {entry.data.order}
+              </div>
+              <h2 class="mt-4 text-3xl text-[color:var(--kern-ink)]">{entry.data.title}</h2>
+              <p class="mt-4 text-base leading-8 text-[color:rgba(20,33,29,0.74)]">{entry.data.summary}</p>
+            </a>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+</BaseLayout>

@@ -1,0 +1,22 @@
+---
+import { siteMeta } from "@/lib/site";
+---
+
+<footer class="border-t border-[color:var(--kern-line)] bg-[rgba(255,251,243,0.92)]">
+  <div class="mx-auto grid max-w-6xl gap-6 px-5 py-10 text-sm text-[color:rgba(20,33,29,0.72)] md:grid-cols-[1.5fr_1fr] md:px-8">
+    <div>
+      <div class="text-base font-semibold text-[color:var(--kern-ink)]">{siteMeta.title}</div>
+      <p class="mt-2 max-w-xl">
+        The website is the product-facing layer for Kern. The repository `docs/`
+        remain the current authoritative technical reference while the guide and
+        reference experience moves here.
+      </p>
+    </div>
+    <div class="md:justify-self-end">
+      <div class="font-semibold text-[color:var(--kern-ink)]">Repository</div>
+      <a class="mt-2 inline-flex text-[color:var(--kern-olive)] hover:text-[color:var(--kern-clay)]" href={siteMeta.repoUrl} target="_blank" rel="noreferrer">
+        {siteMeta.repoUrl}
+      </a>
+    </div>
+  </div>
+</footer>

@@ -1,0 +1,25 @@
+{
+  "name": "kern-website",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.12",
+  "scripts": {
+    "dev": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "build": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro check && mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "preview": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro preview",
+    "check": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro check"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-sans": "5.2.8",
+    "@fontsource/newsreader": "5.2.10",
+    "@tailwindcss/vite": "4.2.2",
+    "astro": "6.1.8",
+    "tailwindcss": "4.2.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.8",
+    "@types/node": "25.6.0",
+    "typescript": "6.0.3"
+  }
+}

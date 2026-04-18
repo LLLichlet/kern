@@ -1,0 +1,32 @@
+---
+import SiteFooter from "@/components/SiteFooter.astro";
+import SiteHeader from "@/components/SiteHeader.astro";
+import "@/styles/global.css";
+import { siteMeta } from "@/lib/site";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { title, description = siteMeta.description } = Astro.props;
+const pageTitle = title ? `${title} | ${siteMeta.title}` : siteMeta.title;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body class="grain">
+    <SiteHeader />
+    <main>
+      <slot />
+    </main>
+    <SiteFooter />
+  </body>
+</html>

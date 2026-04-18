@@ -1,0 +1,37 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { toolingProducts } from "@/lib/site";
+---
+
+<BaseLayout title="Tooling" description="The current Kern tooling stack: compiler, package manager, LSP, and editor integration.">
+  <section class="mx-auto max-w-6xl px-5 pb-20 pt-14 md:px-8 md:pt-18">
+    <div class="eyebrow">Tooling</div>
+    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+      Kern already has a toolchain story. The site should show it clearly.
+    </h1>
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(20,33,29,0.76)]">
+      `kernc`, `craft`, and `kern-lsp` are not interchangeable names for the
+      same thing. This page gives the website a place to explain the boundary
+      between them before the full product docs move here.
+    </p>
+
+    <div class="mt-10 grid gap-4 md:grid-cols-2">
+      {
+        toolingProducts.map((tool) => (
+          <a
+            class="card-surface rounded-[1.75rem] p-6 transition hover:-translate-y-1 hover:border-[rgba(182,95,58,0.22)]"
+            href={tool.href}
+            target={tool.href.startsWith("http") ? "_blank" : undefined}
+            rel={tool.href.startsWith("http") ? "noreferrer" : undefined}
+          >
+            <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-olive)]">
+              Product
+            </div>
+            <h2 class="mt-4 text-3xl text-[color:var(--kern-ink)]">{tool.name}</h2>
+            <p class="mt-4 text-base leading-8 text-[color:rgba(20,33,29,0.72)]">{tool.summary}</p>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>

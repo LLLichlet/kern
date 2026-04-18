@@ -6,3 +6,7 @@ __pycache__/
 /kern-*.tar.gz
 /kern-*.zip
 /kern-*.sha256
+/website/node_modules/
+/website/dist/
+/website/.astro/
+features.md

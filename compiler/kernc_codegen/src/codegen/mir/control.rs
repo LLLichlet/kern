@@ -209,10 +209,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         continue;
                     };
                     for value in &case.values {
-                        llvm_cases.push((
-                            target_val.get_type().const_int(*value as u64, false),
-                            case_block,
-                        ));
+                        llvm_cases.push((target_val.get_type().const_u128(*value), case_block));
                     }
                 }
 

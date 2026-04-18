@@ -1,9 +1,9 @@
 pub mod atomic;
 pub mod config;
-pub mod llvm_bitcode;
 mod diagnostic;
 mod fast_hash;
 mod interner;
+pub mod llvm_bitcode;
 mod node;
 mod session;
 mod source;

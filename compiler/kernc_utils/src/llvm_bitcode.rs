@@ -9,12 +9,13 @@ pub const LLVM_RAW_BITCODE_MAGIC: [u8; 4] = *b"BC\xc0\xde";
 pub const LLVM_WRAPPER_BITCODE_MAGIC: [u8; 4] = [0xDE, 0xC0, 0x17, 0x0B];
 
 pub fn is_llvm_bitcode(bytes: &[u8]) -> bool {
-    bytes.starts_with(&LLVM_RAW_BITCODE_MAGIC)
-        || bytes.starts_with(&LLVM_WRAPPER_BITCODE_MAGIC)
+    bytes.starts_with(&LLVM_RAW_BITCODE_MAGIC) || bytes.starts_with(&LLVM_WRAPPER_BITCODE_MAGIC)
 }
 
 pub fn file_has_llvm_bitcode_magic(path: &Path) -> bool {
-    fs::read(path).map(|bytes| is_llvm_bitcode(&bytes)).unwrap_or(false)
+    fs::read(path)
+        .map(|bytes| is_llvm_bitcode(&bytes))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

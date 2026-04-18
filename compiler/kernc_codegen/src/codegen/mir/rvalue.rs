@@ -172,7 +172,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         let tag_ty = tag_field_ty.into_int_type();
                         let union_field_ty = struct_ty.get_field_type_at_index(1).unwrap();
                         let union_ty = union_field_ty.into_struct_type();
-                        let tag_val = tag_ty.const_int(*tag_value as u64, false);
+                        let tag_val = tag_ty.const_u128(*tag_value);
 
                         let union_val = if let Some(payload) = field_values.first().copied() {
                             if let Some(packed) = self.pack_union_runtime_value(union_ty, payload) {

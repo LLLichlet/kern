@@ -1,9 +1,9 @@
 use llvm_sys::LLVMAttributeFunctionIndex;
 use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstInt,
-    LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal, LLVMConstVector,
-    LLVMCountParams, LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType,
-    LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator, LLVMGetElementType,
+    LLVMConstIntOfArbitraryPrecision, LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull,
+    LLVMConstReal, LLVMConstVector, LLVMCountParams, LLVMCountStructElementTypes, LLVMFunctionType,
+    LLVMGetAllocatedType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator, LLVMGetElementType,
     LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
     LLVMGetInstructionOpcode, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
     LLVMGetParam, LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
@@ -321,6 +321,17 @@ impl<'ctx> IntType<'ctx> {
 
     pub fn const_int(self, value: u64, sign_extend: bool) -> IntValue<'ctx> {
         IntValue::new(unsafe { LLVMConstInt(self.as_type_ref(), value, bool_to_llvm(sign_extend)) })
+    }
+
+    pub fn const_u128(self, value: u128) -> IntValue<'ctx> {
+        if self.bit_width() <= 64 {
+            return self.const_int(value as u64, false);
+        }
+
+        let words = [value as u64, (value >> 64) as u64];
+        IntValue::new(unsafe {
+            LLVMConstIntOfArbitraryPrecision(self.as_type_ref(), words.len() as u32, words.as_ptr())
+        })
     }
 
     pub fn const_array(self, values: &[IntValue<'ctx>]) -> ArrayValue<'ctx> {

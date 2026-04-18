@@ -184,10 +184,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .into()
                     }
                 } else {
-                    llvm_ty
-                        .into_int_type()
-                        .const_int(*value as u64, false)
-                        .into()
+                    llvm_ty.into_int_type().const_u128(*value).into()
                 }
             }
             MirConst::Float { ty, value } => self

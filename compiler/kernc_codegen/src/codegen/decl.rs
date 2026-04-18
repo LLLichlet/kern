@@ -174,7 +174,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             } => {
                 let struct_ty = *self.structs.get(data_struct_id)?;
                 let tag_ty = struct_ty.get_field_type_at_index(0)?.into_int_type();
-                let tag_val = tag_ty.const_int(*tag_value as u64, false);
+                let tag_val = tag_ty.const_u128(*tag_value);
 
                 let union_ty = struct_ty.get_field_type_at_index(1)?.into_struct_type();
                 let union_val = if let Some(payload) = payload {
@@ -207,12 +207,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 if llvm_ty.is_pointer_type() {
                     (*value == 0).then(|| llvm_ty.into_pointer_type().const_null().into())
                 } else {
-                    Some(
-                        llvm_ty
-                            .into_int_type()
-                            .const_int(*value as u64, false)
-                            .into(),
-                    )
+                    Some(llvm_ty.into_int_type().const_u128(*value).into())
                 }
             }
             MirConst::Float { ty, value } => Some(

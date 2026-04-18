@@ -91,6 +91,20 @@ fn plan_value_string(value: &crate::plan::PlanValue) -> String {
     }
 }
 
+fn resolve_link_search_paths(package_root: &Path, search_paths: &[String]) -> Vec<String> {
+    search_paths
+        .iter()
+        .map(|path| {
+            let candidate = Path::new(path);
+            if candidate.is_absolute() {
+                path.clone()
+            } else {
+                package_root.join(candidate).to_string_lossy().to_string()
+            }
+        })
+        .collect()
+}
+
 fn profile_opt_level(profile: &crate::script::ScriptProfile) -> OptLevel {
     match profile.opt {
         0 => OptLevel::O0,
@@ -251,7 +265,8 @@ pub(super) fn link_action_options(
         .map(|path| path.to_string_lossy().to_string())
         .collect();
     options.linker_libraries = action.link.system_libs.clone();
-    options.linker_search_paths = action.link.search_paths.clone();
+    options.linker_search_paths =
+        resolve_link_search_paths(&action.package_root_path, &action.link.search_paths);
     options.linker_args = action.link.args.clone();
     if profile_uses_cross_package_thin_lto(&compile_action.profile, compile_action.domain)
         && !options.linker_args.iter().any(|arg| arg == "-flto=thin")

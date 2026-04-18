@@ -371,6 +371,18 @@ pub fn craft(p: *mut plan.Plan) void {
 }
 ```
 
+Path semantics for `craft.rn` are intentionally display-oriented and
+workspace-relative:
+
+- `p.workspace.root` is the workspace root relative to itself, so it is `"."`
+- `p.package.root` is the current package root relative to the workspace root
+- for the root package, `p.package.root` is also `"."`
+- these values are canonical lock inputs, not machine-local absolute paths
+
+That split is important. `craft.rn` participates in elaboration and lock
+derivation, so its root strings are stable across machines as long as the
+workspace layout is the same.
+
 ### What `craft.rn` May Do
 
 - normalize checked-in package structure deterministically
@@ -524,6 +536,47 @@ Important:
 - `build.rn` replaces a unit source root; it does not implicitly add sibling modules into the original package `src/` tree
 - if you want `mod build_info;` to resolve against a generated file, copy or generate the entry source under the generated root as well, then bind that output with `set_source_root(...)` or `set_source_root_from(...)`
 
+### `build.rn` Path Semantics
+
+`build.rn` path semantics are intentionally different from `craft.rn`.
+
+- `b.workspace.root` is an absolute normalized path to the workspace root
+- `b.package.root` is an absolute normalized path to the current package root
+- for a workspace member package, those two values differ
+- for the workspace root package, they are the same absolute path
+
+This is deliberate. `build.rn` runs in the execution-oriented phase, so it
+needs direct filesystem coordinates rather than lock-stable display strings.
+
+Derived execution paths are also absolute:
+
+- `b.paths.build_root`
+- `b.paths.generated_root`
+- `b.paths.artifact_root`
+- `b.paths.object`
+- `b.paths.artifact`
+- `b.paths.metadata` when present
+
+Relative path rules:
+
+- `set_source_root("src/main.rn")` resolves from the current package root
+- `set_source_root("/abs/path/to/file.rn")` keeps the absolute path as given
+- `set_source_root_from(output)` is the preferred way to bind staged generated outputs
+- `link_search("native")` records a relative search path in the plan, then resolves it from the current package root during execution
+- `link_search("/abs/path")` keeps the absolute search path as given
+
+Package-relative staging rules:
+
+- `copy_package_file(...)` and `stage_copy_package_file(...)` read from the package root
+- `copy_package_file_to_artifact(...)` and `copy_package_dir_to_artifact(...)` also read from the package root
+- generated destination paths are relative to `b.paths.generated_root`
+- artifact destination paths are relative to `b.paths.artifact_root`
+
+The practical rule is simple:
+
+- use `craft.rn` roots for canonical workspace-relative elaboration
+- use `build.rn` roots and `b.paths.*` for real filesystem work
+
 ## Generated Files And Staged Actions
 
 `build.rn` does not work by mutating the filesystem invisibly during planning.
@@ -588,16 +641,16 @@ The current `Builder` API includes:
   - source-root override
   - source-root binding from explicit outputs
 - generated source production:
-  - `stage_generated(...)`
-  - `stage_copy_package_file(...)`
-  - `stage_copy_output(...)`
+  - `stage_generated(...)` and `emit_generated(...)`
+  - `stage_copy_package_file(...)` and `copy_package_file(...)`
+  - `stage_copy_output(...)` and `copy_output(...)`
   - `tool_path(dependency, tool)`
-  - `stage_generated_from_tool(dependency, tool, ...)`
+  - `stage_generated_from_tool(dependency, tool, ...)` and `emit_generated_from_tool(dependency, tool, ...)`
 - post-link artifact staging:
-  - `stage_artifact_file(...)`
-  - `stage_artifact_file_from_tool(dependency, tool, ...)`
-  - `stage_copy_package_file_to_artifact(...)`
-  - `stage_copy_package_dir_to_artifact(...)`
+  - `stage_artifact_file(...)` and `emit_artifact_file(...)`
+  - `stage_artifact_file_from_tool(dependency, tool, ...)` and `emit_artifact_file_from_tool(dependency, tool, ...)`
+  - `stage_copy_package_file_to_artifact(...)` and `copy_package_file_to_artifact(...)`
+  - `stage_copy_package_dir_to_artifact(...)` and `copy_package_dir_to_artifact(...)`
 - graph composition:
   - `output_path(output)`
   - `set_source_root_from(output)`

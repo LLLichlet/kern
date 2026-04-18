@@ -73,6 +73,64 @@ fn find_tool_in_path(name: &str) -> Option<String> {
     None
 }
 
+fn c_compiler_tool() -> String {
+    if let Ok(cc) = std::env::var("CC")
+        && !cc.is_empty()
+    {
+        return cc;
+    }
+    find_tool_in_path(if cfg!(windows) { "cc.exe" } else { "cc" })
+        .unwrap_or_else(|| if cfg!(windows) { "cc.exe" } else { "cc" }.to_string())
+}
+
+fn archive_tool() -> String {
+    find_tool_in_path(if cfg!(windows) {
+        "llvm-ar.exe"
+    } else {
+        "llvm-ar"
+    })
+    .or_else(|| find_tool_in_path(if cfg!(windows) { "ar.exe" } else { "ar" }))
+    .unwrap_or_else(|| if cfg!(windows) { "ar.exe" } else { "ar" }.to_string())
+}
+
+fn run_command_checked(command: &mut Command, label: &str) {
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{} failed\nstdout:\n{}\nstderr:\n{}",
+        label,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn create_demo_static_library(dir: &Path) {
+    fs::write(
+        dir.join("demo.c"),
+        r#"
+int ext_add(int lhs, int rhs) {
+    return lhs + rhs;
+}
+"#,
+    )
+    .unwrap();
+
+    let mut cc = Command::new(c_compiler_tool());
+    cc.arg("-c")
+        .arg("demo.c")
+        .arg("-o")
+        .arg("demo.o")
+        .current_dir(dir);
+    run_command_checked(&mut cc, "cc compile demo.c");
+
+    let mut ar = Command::new(archive_tool());
+    ar.arg("rcs")
+        .arg("libdemo.a")
+        .arg("demo.o")
+        .current_dir(dir);
+    run_command_checked(&mut ar, "archive libdemo.a");
+}
+
 fn run_binary_with_retry(executable: &Path, expected_code: i32) -> Output {
     let mut last_output = None;
     for attempt in 0..3 {
@@ -193,6 +251,204 @@ lto = "thin"
         .join("hello");
     let output = run_binary_with_retry(&executable, 0);
     assert!(output.status.success());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_can_link_native_static_library_from_root_package_path() {
+    let root = temp_dir("craft-build-native-link");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "native"
+version = "0.1.0"
+kern = "0.7.0"
+
+[runtime]
+entry = "rt"
+bundle = "std"
+
+[[bin]]
+name = "native"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_search(b.package.root);
+    b.link_system_lib("demo");
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+use std.io;
+
+extern {
+    fn ext_add(lhs: i32, rhs: i32) i32;
+}
+
+fn main() i32 {
+    let value = ext_add(20, 22);
+    io.println("native={}", .{value,});
+    if (value != 42) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    create_demo_static_library(&root);
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let link_action = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "native")
+        .unwrap();
+    let root_display = root.to_string_lossy().replace('\\', "/");
+
+    assert!(
+        link_action
+            .link
+            .search_paths
+            .iter()
+            .any(|path| path == &root_display)
+    );
+    assert!(link_action.link.system_libs.iter().any(|lib| lib == "demo"));
+
+    let _summary = build(&build_plan, &action_plan).unwrap();
+    let output = run_binary_with_retry(&link_action.artifact_path, 0);
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "native=42\n");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_resolves_relative_link_search_paths_from_member_package_root() {
+    let root = temp_dir("craft-build-native-member-link");
+    let app_dir = root.join("app");
+    let native_dir = app_dir.join("native");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::create_dir_all(&native_dir).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["app"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.0"
+
+[runtime]
+entry = "rt"
+bundle = "std"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_search("native");
+    b.link_system_lib("demo");
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("src/main.rn"),
+        r#"
+use std.io;
+
+extern {
+    fn ext_add(lhs: i32, rhs: i32) i32;
+}
+
+fn main() i32 {
+    let value = ext_add(9, 33);
+    io.println("member-native={}", .{value,});
+    if (value != 42) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    create_demo_static_library(&native_dir);
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let link_action = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "app")
+        .unwrap();
+
+    assert!(
+        link_action
+            .link
+            .search_paths
+            .iter()
+            .any(|path| path == "native")
+    );
+    assert_eq!(link_action.package_root_path, app_dir);
+
+    let _summary = build(&build_plan, &action_plan).unwrap();
+    let output = run_binary_with_retry(&link_action.artifact_path, 0);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "member-native=42\n"
+    );
 
     let _ = fs::remove_dir_all(root);
 }

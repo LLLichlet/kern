@@ -595,3 +595,385 @@ match (b.unit.domain) {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn build_script_roots_use_absolute_paths_for_workspace_root_package() {
+    let root = temp_dir("craft-build-plan-root-paths");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+b.define_string("package_root", b.package.root);
+b.define_string("workspace_root", b.workspace.root);
+b.link_search(b.package.root);
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let unit = build_plan.packages[0]
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+    let root_display = root.to_string_lossy().replace('\\', "/");
+
+    assert_eq!(
+        unit.define.get("package_root"),
+        Some(&crate::plan::PlanValue::String(root_display.clone()))
+    );
+    assert_eq!(
+        unit.define.get("workspace_root"),
+        Some(&crate::plan::PlanValue::String(root_display.clone()))
+    );
+    assert!(
+        unit.link
+            .search_paths
+            .iter()
+            .any(|path| path == &root_display)
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_roots_use_absolute_paths_for_workspace_members() {
+    let root = temp_dir("craft-build-plan-member-paths");
+    let app_dir = root.join("app");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["app"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(app_dir.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        app_dir.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+b.define_string("package_root", b.package.root);
+b.define_string("workspace_root", b.workspace.root);
+b.link_search(b.package.root);
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = crate::workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let package = build_plan
+        .packages
+        .iter()
+        .find(|package| package.package_id.name == "app")
+        .unwrap();
+    let unit = package
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+    let root_display = root.to_string_lossy().replace('\\', "/");
+    let app_display = app_dir.to_string_lossy().replace('\\', "/");
+
+    assert_eq!(
+        unit.define.get("package_root"),
+        Some(&crate::plan::PlanValue::String(app_display.clone()))
+    );
+    assert_eq!(
+        unit.define.get("workspace_root"),
+        Some(&crate::plan::PlanValue::String(root_display.clone()))
+    );
+    assert!(
+        unit.link
+            .search_paths
+            .iter()
+            .any(|path| path == &app_display)
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_exposes_expected_paths_for_lib_and_bin_units() {
+    let root = temp_dir("craft-build-plan-path-values");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[lib]
+root = "src/lib.rn"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.rn"),
+        "pub fn value() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+b.define_string("build_root", b.paths.build_root);
+b.define_string("generated_root", b.paths.generated_root);
+b.define_string("artifact_root", b.paths.artifact_root);
+b.define_string("object_path", b.paths.object);
+b.define_string("artifact_path", b.paths.artifact);
+match (b.paths.metadata) {
+    .{ Some: path } => b.define_string("metadata_path", path),
+    .None => b.define_string("metadata_path", "<none>"),
+}
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let package = build_plan
+        .packages
+        .iter()
+        .find(|package| package.package_id.name == "demo")
+        .unwrap();
+    let lib_unit = package
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Lib)
+        .unwrap();
+    let bin_unit = package
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+
+    let expected_build_root = workspace_build_root(&root, "dev", crate::graph::BuildDomain::Target)
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    let expected_lib_generated = generated_root_path(
+        &root,
+        crate::graph::BuildDomain::Target,
+        &package.package_id,
+        "dev",
+        TargetKind::Lib,
+        "demo",
+    )
+    .to_string_lossy()
+    .replace('\\', "/");
+    let expected_bin_generated = generated_root_path(
+        &root,
+        crate::graph::BuildDomain::Target,
+        &package.package_id,
+        "dev",
+        TargetKind::Bin,
+        "demo",
+    )
+    .to_string_lossy()
+    .replace('\\', "/");
+
+    let expected_lib_stage = artifact_root_path(
+        &root,
+        crate::graph::BuildDomain::Target,
+        &package.package_id,
+        "dev",
+        TargetKind::Lib,
+        "demo",
+    )
+    .to_string_lossy()
+    .replace('\\', "/");
+    let expected_bin_stage = artifact_root_path(
+        &root,
+        crate::graph::BuildDomain::Target,
+        &package.package_id,
+        "dev",
+        TargetKind::Bin,
+        "demo",
+    )
+    .to_string_lossy()
+    .replace('\\', "/");
+
+    let expected_lib_object = object_path(
+        &root,
+        crate::graph::BuildDomain::Target,
+        &package.package_id,
+        "dev",
+        TargetKind::Lib,
+        "demo",
+    )
+    .to_string_lossy()
+    .replace('\\', "/");
+    let expected_bin_object = object_path(
+        &root,
+        crate::graph::BuildDomain::Target,
+        &package.package_id,
+        "dev",
+        TargetKind::Bin,
+        "demo",
+    )
+    .to_string_lossy()
+    .replace('\\', "/");
+
+    let expected_lib_artifact = artifact_path(
+        &root,
+        &crate::script::host_target(),
+        crate::graph::BuildDomain::Target,
+        &package.package_id,
+        "dev",
+        TargetKind::Lib,
+        "demo",
+    )
+    .to_string_lossy()
+    .replace('\\', "/");
+    let expected_bin_artifact = artifact_path(
+        &root,
+        &crate::script::host_target(),
+        crate::graph::BuildDomain::Target,
+        &package.package_id,
+        "dev",
+        TargetKind::Bin,
+        "demo",
+    )
+    .to_string_lossy()
+    .replace('\\', "/");
+
+    let expected_lib_metadata = metadata_path(
+        &root,
+        crate::graph::BuildDomain::Target,
+        &package.package_id,
+        "dev",
+    )
+    .to_string_lossy()
+    .replace('\\', "/");
+
+    assert_eq!(
+        lib_unit.define.get("build_root"),
+        Some(&crate::plan::PlanValue::String(expected_build_root.clone()))
+    );
+    assert_eq!(
+        bin_unit.define.get("build_root"),
+        Some(&crate::plan::PlanValue::String(expected_build_root))
+    );
+    assert_eq!(
+        lib_unit.define.get("generated_root"),
+        Some(&crate::plan::PlanValue::String(expected_lib_generated))
+    );
+    assert_eq!(
+        bin_unit.define.get("generated_root"),
+        Some(&crate::plan::PlanValue::String(expected_bin_generated))
+    );
+    assert_eq!(
+        lib_unit.define.get("artifact_root"),
+        Some(&crate::plan::PlanValue::String(expected_lib_stage))
+    );
+    assert_eq!(
+        bin_unit.define.get("artifact_root"),
+        Some(&crate::plan::PlanValue::String(expected_bin_stage))
+    );
+    assert_eq!(
+        lib_unit.define.get("object_path"),
+        Some(&crate::plan::PlanValue::String(expected_lib_object))
+    );
+    assert_eq!(
+        bin_unit.define.get("object_path"),
+        Some(&crate::plan::PlanValue::String(expected_bin_object))
+    );
+    assert_eq!(
+        lib_unit.define.get("artifact_path"),
+        Some(&crate::plan::PlanValue::String(expected_lib_artifact))
+    );
+    assert_eq!(
+        bin_unit.define.get("artifact_path"),
+        Some(&crate::plan::PlanValue::String(expected_bin_artifact))
+    );
+    assert_eq!(
+        lib_unit.define.get("metadata_path"),
+        Some(&crate::plan::PlanValue::String(expected_lib_metadata))
+    );
+    assert_eq!(
+        bin_unit.define.get("metadata_path"),
+        Some(&crate::plan::PlanValue::String("<none>".to_string()))
+    );
+
+    let _ = fs::remove_dir_all(root);
+}

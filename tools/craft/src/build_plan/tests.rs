@@ -1,6 +1,7 @@
 use super::{
     ArtifactKind, DeriveOptions, GeneratedFileOrigin, SourceRootBinding, StagedActionKind,
-    StagedActionPhase, artifact_path, derive, derive_with_options,
+    StagedActionPhase, artifact_path, artifact_root_path, derive, derive_with_options,
+    generated_root_path, metadata_path, object_path, workspace_build_root,
 };
 use crate::elaborate::plan;
 use crate::graph::BuildDomain;

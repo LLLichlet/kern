@@ -277,13 +277,22 @@ fn craft_script_context(
         package: ScriptPackage {
             name: plan.package_id.name.clone(),
             version: plan.package_id.version.clone(),
-            root: relative_display(workspace_root, package_root),
+            root: script_root_display(workspace_root, package_root),
             is_root: plan.package_id.source == SourceId::Root,
         },
         workspace: ScriptWorkspace {
-            root: relative_display(workspace_root, workspace_root),
+            root: script_root_display(workspace_root, workspace_root),
             has_workspace,
         },
+    }
+}
+
+fn script_root_display(root: &Path, path: &Path) -> String {
+    let display = relative_display(root, path);
+    if display.is_empty() {
+        ".".to_string()
+    } else {
+        display
     }
 }
 
@@ -560,6 +569,7 @@ use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {
     p.define_string("workspace_root", p.workspace.root);
+    p.define_string("package_root", p.package.root);
     if (p.workspace.has_workspace) {
         p.cfg_bool("has_workspace", true);
     }
@@ -599,7 +609,11 @@ kern = "0.7.0"
         );
         assert_eq!(
             package.define.get("workspace_root"),
-            Some(&crate::plan::PlanValue::String(String::new()))
+            Some(&crate::plan::PlanValue::String(".".to_string()))
+        );
+        assert_eq!(
+            package.define.get("package_root"),
+            Some(&crate::plan::PlanValue::String("member".to_string()))
         );
         assert_eq!(
             package.define.get("package_name"),

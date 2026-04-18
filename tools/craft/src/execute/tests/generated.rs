@@ -560,3 +560,105 @@ return 0;
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn build_script_relative_source_root_uses_member_package_root() {
+    let root = temp_dir("craft-exec-member-relative-source-root");
+    let app_dir = root.join("app");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["app"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.0"
+
+[runtime]
+entry = "rt"
+bundle = "std"
+
+[[bin]]
+name = "app"
+root = "src/placeholder.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let _ = b;
+b.set_source_root("src/real_main.rn");
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("src/placeholder.rn"),
+        "fn main() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("src/real_main.rn"),
+        r#"
+use std.io;
+
+fn main() i32 {
+    io.println("member-source-root", .{});
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Run,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan =
+        crate::build_plan::derive(&elaboration, crate::script::ScriptCommand::Run).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let unit = build_plan
+        .packages
+        .iter()
+        .find(|package| package.package_id.name == "app")
+        .unwrap()
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == crate::plan::TargetKind::Bin)
+        .unwrap();
+
+    let crate::build_plan::SourceRootBinding::PackagePath(source_root) = &unit.source_root else {
+        panic!("expected relative source root to remain package-relative");
+    };
+    assert_eq!(source_root, "src/real_main.rn");
+
+    let summary = run(&build_plan, &action_plan, unit).unwrap();
+    assert!(summary.executable.is_file());
+    let output = run_binary_with_retry(&summary.executable, 0);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "member-source-root\n"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}

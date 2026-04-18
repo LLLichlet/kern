@@ -454,11 +454,11 @@ fn script_context_for_instance(
         package: script::ScriptPackage {
             name: package_elaboration.package_id.name.clone(),
             version: package_elaboration.package_id.version.clone(),
-            root: relative_display(workspace_root, package_root),
+            root: absolute_script_path(package_root),
             is_root: package_elaboration.package_id.source == crate::graph::SourceId::Root,
         },
         workspace: script::ScriptWorkspace {
-            root: relative_display(workspace_root, workspace_root),
+            root: absolute_script_path(workspace_root),
             has_workspace,
         },
         host: host.clone(),
@@ -467,6 +467,10 @@ fn script_context_for_instance(
         command,
         features: package_elaboration.selected_features.clone(),
     }
+}
+
+fn absolute_script_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn build_tool_index(

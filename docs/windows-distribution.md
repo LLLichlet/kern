@@ -160,6 +160,20 @@ bundled host LLVM/Clang toolchain. That means installer UX matters:
 - keep the `-Archive <path>` offline-install path available so one download can
   be reused across repeated installs
 
+The offline-install path should be documented concretely for users. A correct
+example is:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.0-x86_64-windows-msvc.zip
+```
+
+If the archive filename no longer contains the release tag, users should pass
+the version explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.0 -Archive .\kern.zip
+```
+
 The Python `ops` entrypoints remain valid for CI and repository engineering,
 but they are not the user-install contract on Windows.
 

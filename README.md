@@ -173,10 +173,20 @@ powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Ex
 On Windows, the first install downloads the bundled LLVM/Clang host toolchain
 inside the SDK archive. On slower links, or on machines where Defender scans
 large archives aggressively, that can take several minutes. If you would rather
-download once and reuse the archive, grab the release zip manually and run:
+download once and reuse the archive, use the offline archive path instead:
+
+1. Download `install.ps1` and the matching Windows release zip from GitHub Releases.
+2. Put them in the same directory, or note the full path to the zip.
+3. Open PowerShell in that directory and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-<version>-x86_64-windows-msvc.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.0-x86_64-windows-msvc.zip
+```
+
+If you renamed the zip, pass the version explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.0 -Archive .\kern.zip
 ```
 
 The user-facing installers are native scripts:

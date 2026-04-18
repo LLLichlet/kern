@@ -1,4 +1,5 @@
 use super::Lowerer;
+use crate::ActiveFunctionInstantiation;
 use kernc_ast as ast;
 use kernc_mast::*;
 use kernc_mono::MonoId;
@@ -25,10 +26,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn drain_pending_function_instantiations(&mut self) {
         let mut next_pending = 0;
         while next_pending < self.pending_function_instantiations.len() {
-            let (def_id, args, id) = self.pending_function_instantiations[next_pending].clone();
+            let (def_id, args, id, request_span) =
+                self.pending_function_instantiations[next_pending].clone();
             next_pending += 1;
             self.measure_phase("  lower_instantiate_function", |this| {
-                this.finish_function_instantiation(def_id, &args, id)
+                this.finish_function_instantiation(def_id, &args, id, request_span)
             });
         }
     }
@@ -152,7 +154,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         Some(subst_map)
     }
 
-    pub(crate) fn instantiate_function(&mut self, def_id: DefId, args: &[TypeId]) -> MonoId {
+    pub(crate) fn instantiate_function_at(
+        &mut self,
+        def_id: DefId,
+        args: &[TypeId],
+        request_span: Span,
+    ) -> MonoId {
         let key = self.measure_phase("  lower_mono_fn_key", |_this| (def_id, args.to_vec()));
         if let Some(id) = self.measure_phase("  lower_mono_fn_lookup", |this| {
             this.mono_cache.get(&key).copied()
@@ -160,11 +167,24 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.cache_stats.mono_function_hits += 1;
             return id;
         }
+        if let Some(ancestor_index) = self.detect_infinite_polymorphic_recursion(def_id, args) {
+            self.cache_stats.mono_function_misses += 1;
+            let id = self.new_mono_id();
+            self.mono_cache.insert(key, id);
+            self.placeholder_function(id, self.ctx.get_export_name(def_id, args));
+            self.emit_infinite_polymorphic_recursion_diagnostic(
+                ancestor_index,
+                def_id,
+                args,
+                request_span,
+            );
+            return id;
+        }
         self.cache_stats.mono_function_misses += 1;
         let id = self.new_mono_id();
         self.mono_cache.insert(key, id);
         self.pending_function_instantiations
-            .push((def_id, args.to_vec(), id));
+            .push((def_id, args.to_vec(), id, request_span));
         id
     }
 
@@ -173,6 +193,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         def_id: DefId,
         args: &[TypeId],
         id: MonoId,
+        request_span: Span,
     ) -> MonoId {
         let def = if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
             f.clone()
@@ -226,6 +247,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.placeholder_function(id, format!("__ice_fn_{}", id.0));
             return id;
         };
+
+        self.active_function_instantiations
+            .push(ActiveFunctionInstantiation {
+                def_id,
+                args: args
+                    .iter()
+                    .map(|arg| self.ctx.type_registry.normalize(*arg))
+                    .collect(),
+                request_span,
+            });
 
         let (
             saved_local_types,
@@ -295,6 +326,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         });
 
+        self.active_function_instantiations.pop();
+
         self.measure_phase("    lower_fn_scope_restore", |this| {
             this.local_types.pop();
             this.local_forwardings.pop();
@@ -332,6 +365,229 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             this.module.functions.push(mast_fn);
         });
         id
+    }
+
+    fn detect_infinite_polymorphic_recursion(
+        &self,
+        def_id: DefId,
+        args: &[TypeId],
+    ) -> Option<usize> {
+        let normalized_args: Vec<_> = args
+            .iter()
+            .map(|arg| self.ctx.type_registry.normalize(*arg))
+            .collect();
+
+        self.active_function_instantiations
+            .iter()
+            .enumerate()
+            .find_map(|(index, frame)| {
+                (frame.def_id == def_id
+                    && self.function_instantiation_strictly_grows(&frame.args, &normalized_args))
+                .then_some(index)
+            })
+    }
+
+    fn function_instantiation_strictly_grows(
+        &self,
+        previous_args: &[TypeId],
+        next_args: &[TypeId],
+    ) -> bool {
+        if previous_args == next_args {
+            return false;
+        }
+
+        previous_args.iter().any(|previous_arg| {
+            next_args.iter().any(|next_arg| {
+                matches!(
+                    self.type_containment(*previous_arg, *next_arg),
+                    TypeContainment::Proper
+                )
+            })
+        })
+    }
+
+    fn type_containment(&self, needle: TypeId, haystack: TypeId) -> TypeContainment {
+        let needle = self.ctx.type_registry.normalize(needle);
+        let haystack = self.ctx.type_registry.normalize(haystack);
+        if needle == haystack {
+            return TypeContainment::Equal;
+        }
+
+        let contains_child = |child: TypeId, this: &Self| match this.type_containment(needle, child)
+        {
+            TypeContainment::None => TypeContainment::None,
+            TypeContainment::Equal | TypeContainment::Proper => TypeContainment::Proper,
+        };
+
+        match self.ctx.type_registry.get(haystack).clone() {
+            TypeKind::Primitive(..)
+            | TypeKind::Param(..)
+            | TypeKind::Error
+            | TypeKind::Module(..)
+            | TypeKind::TypeVar(..) => TypeContainment::None,
+            TypeKind::Simd { elem, .. }
+            | TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::Array { elem, .. }
+            | TypeKind::ArrayInfer { elem, .. }
+            | TypeKind::Alias(_, elem)
+            | TypeKind::AnonymousEnumPayload(elem) => contains_child(elem, self),
+            TypeKind::Def(_, args)
+            | TypeKind::Enum(_, args)
+            | TypeKind::EnumPayload(_, args)
+            | TypeKind::FnDef(_, args)
+            | TypeKind::Associated(_, args) => args
+                .into_iter()
+                .map(|arg| contains_child(arg, self))
+                .find(|containment| *containment != TypeContainment::None)
+                .unwrap_or(TypeContainment::None),
+            TypeKind::TraitObject(_, args, assoc_bindings) => args
+                .into_iter()
+                .map(|arg| contains_child(arg, self))
+                .chain(
+                    assoc_bindings
+                        .into_iter()
+                        .map(|(_, assoc_ty)| contains_child(assoc_ty, self)),
+                )
+                .find(|containment| *containment != TypeContainment::None)
+                .unwrap_or(TypeContainment::None),
+            TypeKind::Projection {
+                target,
+                trait_args,
+                assoc_args,
+                ..
+            } => std::iter::once(contains_child(target, self))
+                .chain(trait_args.into_iter().map(|arg| contains_child(arg, self)))
+                .chain(assoc_args.into_iter().map(|arg| contains_child(arg, self)))
+                .find(|containment| *containment != TypeContainment::None)
+                .unwrap_or(TypeContainment::None),
+            TypeKind::ClosureInterface { params, ret } | TypeKind::Function { params, ret, .. } => {
+                params
+                    .into_iter()
+                    .map(|param| contains_child(param, self))
+                    .chain(std::iter::once(contains_child(ret, self)))
+                    .find(|containment| *containment != TypeContainment::None)
+                    .unwrap_or(TypeContainment::None)
+            }
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => captures
+                .into_iter()
+                .map(|capture| contains_child(capture, self))
+                .chain(params.into_iter().map(|param| contains_child(param, self)))
+                .chain(std::iter::once(contains_child(ret, self)))
+                .find(|containment| *containment != TypeContainment::None)
+                .unwrap_or(TypeContainment::None),
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields
+                .into_iter()
+                .map(|field| contains_child(field.ty, self))
+                .find(|containment| *containment != TypeContainment::None)
+                .unwrap_or(TypeContainment::None),
+            TypeKind::AnonymousEnum(enum_def) => enum_def
+                .backing_ty
+                .into_iter()
+                .map(|ty| contains_child(ty, self))
+                .chain(
+                    enum_def
+                        .variants
+                        .into_iter()
+                        .filter_map(|variant| variant.payload_ty)
+                        .map(|payload_ty| contains_child(payload_ty, self)),
+                )
+                .find(|containment| *containment != TypeContainment::None)
+                .unwrap_or(TypeContainment::None),
+        }
+    }
+
+    fn emit_infinite_polymorphic_recursion_diagnostic(
+        &mut self,
+        ancestor_index: usize,
+        def_id: DefId,
+        args: &[TypeId],
+        request_span: Span,
+    ) {
+        let current_display = self.function_instantiation_display(def_id, args);
+        let function_name = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(function) => self.ctx.resolve(function.name).to_string(),
+            _ => current_display.clone(),
+        };
+        let mut chain = self.active_function_instantiations[ancestor_index..]
+            .iter()
+            .map(|frame| self.function_instantiation_display(frame.def_id, &frame.args))
+            .collect::<Vec<_>>();
+        chain.push(current_display.clone());
+        let ancestor_frame = &self.active_function_instantiations[ancestor_index];
+        let ancestor_label = (ancestor_frame.request_span != Span::default()).then(|| {
+            (
+                ancestor_frame.request_span,
+                format!(
+                    "instantiation of `{}` entered the recursive chain here",
+                    self.function_instantiation_display(
+                        ancestor_frame.def_id,
+                        &ancestor_frame.args
+                    )
+                ),
+            )
+        });
+        let declaration_label = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(function) if function.name_span != Span::default() => Some((
+                function.name_span,
+                format!("generic function `{}` is declared here", function_name),
+            )),
+            _ => None,
+        };
+
+        let mut diag = self
+            .ctx
+            .struct_error(
+                request_span,
+                format!(
+                    "generic function `{}` recursively requires infinitely many specializations",
+                    function_name
+                ),
+            )
+            .with_hint(
+                "Kern monomorphizes generic functions; this recursive instantiation grows the type arguments instead of reusing an existing specialization",
+            )
+            .with_hint(format!("instantiation chain: {}", chain.join(" -> ")))
+            .with_hint(
+                "rewrite the recursion so recursive calls reuse the same specialization, or move the type growth into data instead of the call graph",
+            );
+
+        if let Some((span, label)) = ancestor_label {
+            diag = diag.with_span_label(span, label);
+        }
+
+        if let Some((span, label)) = declaration_label {
+            diag = diag.with_span_label(span, label);
+        }
+
+        diag.emit();
+    }
+
+    fn function_instantiation_display(&self, def_id: DefId, args: &[TypeId]) -> String {
+        let name = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(function) => self.ctx.resolve(function.name).to_string(),
+            other => other
+                .name()
+                .map(|name| self.ctx.resolve(name).to_string())
+                .unwrap_or_else(|| format!("def#{}", def_id.0)),
+        };
+
+        if args.is_empty() {
+            return name;
+        }
+
+        let rendered_args = args
+            .iter()
+            .map(|arg| self.ctx.ty_to_string(*arg))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{name}[{rendered_args}]")
     }
 
     pub(crate) fn instantiate_struct(&mut self, def_id: DefId, args: &[TypeId]) -> MonoId {
@@ -910,4 +1166,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
         self.lower_global(&global);
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypeContainment {
+    None,
+    Equal,
+    Proper,
 }

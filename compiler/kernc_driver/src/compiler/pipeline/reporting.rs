@@ -154,6 +154,7 @@ impl CompilerDriver {
     pub(in crate::compiler) fn report_diagnostics_if_errors(ctx: &mut SemaContext<'_>) -> bool {
         if ctx.has_errors() {
             ctx.sess.print_diagnostics();
+            ctx.sess.diagnostics.clear();
             return false;
         }
         true

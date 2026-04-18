@@ -26,6 +26,13 @@ enum LowerRootAction {
     LowerGlobal(DefId),
 }
 
+#[derive(Debug, Clone)]
+struct ActiveFunctionInstantiation {
+    def_id: DefId,
+    args: Vec<TypeId>,
+    request_span: Span,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LowerTiming {
     pub name: &'static str,
@@ -62,7 +69,8 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) mono_cache: HashMap<(DefId, Vec<TypeId>), MonoId>,
     pub(crate) pure_enum_tag_map: HashMap<(DefId, Vec<TypeId>), TypeId>,
     pub(crate) next_mono_id: u32,
-    pub(crate) pending_function_instantiations: Vec<(DefId, Vec<TypeId>, MonoId)>,
+    pub(crate) pending_function_instantiations: Vec<(DefId, Vec<TypeId>, MonoId, Span)>,
+    pub(crate) active_function_instantiations: Vec<ActiveFunctionInstantiation>,
     pub(crate) defer_stack: Vec<Vec<MastExpr>>,
     pub(crate) global_map: HashMap<DefId, MonoId>,
     pub(crate) global_symbol_map: HashMap<SymbolId, MonoId>,
@@ -230,6 +238,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             pure_enum_tag_map: HashMap::new(),
             next_mono_id: 1,
             pending_function_instantiations: Vec::new(),
+            active_function_instantiations: Vec::new(),
             defer_stack: Vec::new(),
             global_map: HashMap::new(),
             global_symbol_map: HashMap::new(),
@@ -615,7 +624,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             match action {
                 LowerRootAction::InstantiateFunction(id) => {
                     self.measure_phase("  lower_root_functions", |this| {
-                        this.instantiate_function(id, &[]);
+                        let request_span = match &this.ctx.defs[id.0 as usize] {
+                            Def::Function(function) => function.name_span,
+                            _ => Span::default(),
+                        };
+                        this.instantiate_function_at(id, &[], request_span);
                     })
                 }
                 LowerRootAction::LowerGlobal(id) => {

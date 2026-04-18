@@ -149,7 +149,7 @@ function Extract-ArchiveRoot([string]$ArchivePath, [string]$ExtractRoot) {
         Expand-Archive -Path $ArchivePath -DestinationPath $ExtractRoot -Force
     }
 
-    $roots = Get-ChildItem -Path $ExtractRoot -Directory
+    $roots = @(Get-ChildItem -Path $ExtractRoot -Directory)
     if ($roots.Count -ne 1) {
         Fail "expected exactly one SDK root in ``$ArchivePath``"
     }

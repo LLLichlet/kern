@@ -170,6 +170,15 @@ curl -sSf https://raw.githubusercontent.com/softfault/kern/main/install.sh | bas
 powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
+On Windows, the first install downloads the bundled LLVM/Clang host toolchain
+inside the SDK archive. On slower links, or on machines where Defender scans
+large archives aggressively, that can take several minutes. If you would rather
+download once and reuse the archive, grab the release zip manually and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-<version>-x86_64-windows-msvc.zip
+```
+
 The user-facing installers are native scripts:
 
 - `install.sh` performs Unix installation directly

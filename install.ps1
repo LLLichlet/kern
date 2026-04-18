@@ -21,6 +21,22 @@ function Info([string]$Message) {
     Write-Host $Message
 }
 
+function Format-ByteSize([Int64]$Bytes) {
+    $units = @("B", "KiB", "MiB", "GiB", "TiB")
+    $size = [double]$Bytes
+    $index = 0
+    while ($size -ge 1024 -and $index -lt ($units.Count - 1)) {
+        $size /= 1024
+        $index += 1
+    }
+
+    if ($index -eq 0) {
+        return "$([Int64]$size) $($units[$index])"
+    }
+
+    return ("{0:N1} {1}" -f $size, $units[$index])
+}
+
 function Get-HostTarget {
     $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
     if ($arch -ne [System.Runtime.InteropServices.Architecture]::X64) {
@@ -57,11 +73,65 @@ function Fetch-LatestVersion([string]$Repo) {
     return $null
 }
 
+function Download-WithCurl([string]$Url, [string]$Destination) {
+    $curl = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+    if ($null -eq $curl) {
+        return $false
+    }
+
+    Info "=> Using curl.exe for the SDK download..."
+    & $curl.Source --fail --location --retry 5 --retry-delay 2 --retry-all-errors --progress-bar --output $Destination $Url
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $Destination -PathType Leaf)) {
+        return $true
+    }
+
+    Remove-Item -Force $Destination -ErrorAction SilentlyContinue
+    return $false
+}
+
+function Download-WithBits([string]$Url, [string]$Destination) {
+    $bits = Get-Command "Start-BitsTransfer" -ErrorAction SilentlyContinue
+    if ($null -eq $bits) {
+        return $false
+    }
+
+    Info "=> Using BITS for the SDK download..."
+    try {
+        Start-BitsTransfer -Source $Url -Destination $Destination -DisplayName "Kern SDK" -Description "Downloading Kern SDK release archive"
+        return (Test-Path $Destination -PathType Leaf)
+    } catch {
+        Remove-Item -Force $Destination -ErrorAction SilentlyContinue
+        return $false
+    }
+}
+
+function Download-WithWebRequest([string]$Url, [string]$Destination) {
+    Info "=> Falling back to Invoke-WebRequest for the SDK download..."
+    Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+    return (Test-Path $Destination -PathType Leaf)
+}
+
 function Download-ReleaseArchive([string]$Repo, [string]$ResolvedVersion, [string]$ArchiveName, [string]$Destination) {
     $url = "https://github.com/$Repo/releases/download/$ResolvedVersion/$ArchiveName"
     Info "=> Downloading Kern $ResolvedVersion..."
+    Info "=> The Windows SDK archive includes the bundled LLVM/Clang host toolchain, so a first install can take several minutes."
+
     try {
-        Invoke-WebRequest -Uri $url -OutFile $Destination
+        $downloaded = (Download-WithCurl $url $Destination)
+        if (-not $downloaded) {
+            $downloaded = (Download-WithBits $url $Destination)
+        }
+        if (-not $downloaded) {
+            $downloaded = (Download-WithWebRequest $url $Destination)
+        }
+
+        if (-not $downloaded) {
+            Fail "download did not produce ``$Destination``"
+        }
+
+        $size = (Get-Item -LiteralPath $Destination).Length
+        Info "=> Downloaded $(Format-ByteSize $size) into $Destination"
+        Info "=> Tip: if you want repeated installs or a fully offline setup, download the release zip once and rerun install.ps1 -Archive <path>."
     } catch {
         Fail "download failed for ``$url``: $($_.Exception.Message)"
     }
@@ -69,8 +139,16 @@ function Download-ReleaseArchive([string]$Repo, [string]$ResolvedVersion, [strin
 
 function Extract-ArchiveRoot([string]$ArchivePath, [string]$ExtractRoot) {
     Info "=> Extracting toolchain..."
-    New-Item -ItemType Directory -Force -Path $ExtractRoot | Out-Null
-    Expand-Archive -Path $ArchivePath -DestinationPath $ExtractRoot -Force
+    try {
+        Remove-Item -Recurse -Force $ExtractRoot -ErrorAction SilentlyContinue
+        Add-Type -AssemblyName "System.IO.Compression.FileSystem"
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $ExtractRoot)
+    } catch {
+        Remove-Item -Recurse -Force $ExtractRoot -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force -Path $ExtractRoot | Out-Null
+        Expand-Archive -Path $ArchivePath -DestinationPath $ExtractRoot -Force
+    }
+
     $roots = Get-ChildItem -Path $ExtractRoot -Directory
     if ($roots.Count -ne 1) {
         Fail "expected exactly one SDK root in ``$ArchivePath``"

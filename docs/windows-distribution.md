@@ -150,6 +150,16 @@ to the user PATH.
 This means the quality of the release archive matters directly. If the archive
 itself is wrong, the installer will faithfully install the wrong thing.
 
+The current Windows SDK archive is intentionally heavy because it includes the
+bundled host LLVM/Clang toolchain. That means installer UX matters:
+
+- prefer `curl.exe` or another large-file-capable Windows transport over
+  defaulting straight to `Invoke-WebRequest`
+- expect first-install download and extraction to take noticeable time on
+  slower links or machines with aggressive antivirus scanning
+- keep the `-Archive <path>` offline-install path available so one download can
+  be reused across repeated installs
+
 The Python `ops` entrypoints remain valid for CI and repository engineering,
 but they are not the user-install contract on Windows.
 

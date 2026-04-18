@@ -13,7 +13,7 @@ It is:
 
 - monomorphized
 - explicit about emitted items
-- close to the needs of LLVM lowering
+- close to the needs of later MIR/backend lowering
 - simpler than the original typed AST for backend work
 
 It is not meant to be the primary home for every high-level analysis.
@@ -45,7 +45,8 @@ The current pipeline shape is:
 2. semantic resolution
 3. `Flow` analysis
 4. MAST lowering
-5. LLVM lowering
+5. MIR construction and optimization
+6. backend lowering/codegen
 
 In that model, MAST is not competing with `Flow`.
 It follows `Flow`.

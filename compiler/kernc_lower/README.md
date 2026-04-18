@@ -23,7 +23,7 @@ Instead:
 
 - `Flow` handles control-flow and dataflow analysis
 - `kernc_lower` consumes semantically checked program structure
-- MAST becomes the codegen-facing IR
+- MAST becomes the monomorphized lowering IR that feeds MIR construction and later backend work
 
 That means lowering does not need to carry every analysis concern with it.
 It can stay focused on:

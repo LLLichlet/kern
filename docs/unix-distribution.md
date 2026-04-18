@@ -171,7 +171,7 @@ The script should enforce the important Unix-specific rules:
 
 ## Installation Model
 
-The user-facing Unix installer is the repository root [install.sh](/home/lenovo/kern/install.sh)
+The user-facing Unix installer is the repository root [install.sh](../install.sh)
 entrypoint. It should perform installation directly instead of trampolining into
 repository Python tooling.
 

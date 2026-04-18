@@ -28,7 +28,7 @@ The dependency graph is:
 - `sys` is the operating-system and provider boundary
 - `rt` is startup and minimal runtime glue
 - `std` is ordinary Kern library code built on `base` plus `sys`
-- `libc` is an optional external package choice
+- `libc` is an optional external C ABI / ecosystem interface choice
 
 The important rule is that `std` does not become "real" by depending on libc.
 `std` is already complete as a Kern library layer because its hosted capabilities
@@ -45,7 +45,7 @@ This is why Kern treats libc as optional even for hosted programs. A project may
 
 - stay fully freestanding with no libc at all
 - use `std` while still remaining libc-free
-- select libc explicitly for performance, ABI, or ecosystem reasons
+- opt into libc explicitly for compatibility, foreign-library linkage, or other intentional ABI reasons
 
 That makes `kern` a genuine alternative foundation rather than a thin front-end over C.
 
@@ -69,7 +69,7 @@ This axis decides whether the root module must provide a program `main`.
 
 This exists because "uses libc" and "uses CRT startup" are related but not identical concerns. The toolchain should be able to express both explicitly instead of hiding them behind one overloaded mode.
 
-`runtime_libc` does not define whether hosted facilities exist. Hosted process access is modeled through the OS/provider boundary in `sys`; libc linkage is only one possible implementation choice for that boundary.
+`runtime_libc` does not define whether hosted facilities exist. Hosted process access is modeled through the OS/provider boundary in `sys`; libc linkage is a separate opt-in compatibility choice, not the thing that makes hosted facilities exist.
 
 `runtime_libc` also does not define whether `std` exists. `std` is a normal Kern
 library layer and remains valid without libc.
@@ -157,7 +157,7 @@ The practical rule is:
 - `std` may depend on `base` and `sys`
 - `std` must not require libc as a semantic foundation
 - hosted `std` facilities depend on OS/provider services exposed by `sys`, not on libc as a semantic prerequisite
-- libc may be used as an implementation detail behind `sys` or as an explicitly linked external package
+- libc remains outside that semantic stack as an explicitly selected foreign interface when a project wants it
 - `rt` stays a separate runtime-owned layer and is not mirrored through `std`
 - low-level modules such as allocators, collection primitives, ABI helpers, and page-backed memory stay in their owning layer instead of being duplicated under `std`
 
@@ -201,7 +201,7 @@ invocation.
 
 - `lib` defaults to `runtime_entry = none`, `runtime_libc = false`, `library_bundle = std`
 - `bin`, `example`, and `test` default to `runtime_entry = rt`, `runtime_libc = false`, `library_bundle = std`
-- libc / CRT startup remains an explicit opt-in policy choice, not the default executable baseline
+- libc / CRT startup remains an explicit opt-in policy choice, not the default executable baseline and not the foundation of hosted Kern code
 
 ## Windows Host Tools Versus Kern Runtime Policy
 

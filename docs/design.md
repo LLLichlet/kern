@@ -914,9 +914,12 @@ free(ptr_to_free, size);
 
 To maintain Kern's philosophy of "explicit over implicit", inline assembly does not use format strings with hidden index bindings. Instead, it leverages Kern's elided struct literal syntax (`.{ ... }`) to create a strict, named mapping between CPU registers and Kern variables.
 
-### 12.1 Syntax, Register Binding, and MAST Evaluation
+### 12.1 Syntax, Register Binding, and Compile-Time Validation
 
-The parameters passed to `@asm` (such as the `asm` string array, `clobbers`, and `volatile` flag) are **not runtime structures**. They are resolved and evaluated entirely at compile-time during the MAST (Monomorphized Abstract Syntax Tree) phase.
+The parameters passed to `@asm` (such as the `asm` string array, `clobbers`,
+and `volatile` flag) are **not runtime structures**. They are compiler-owned
+metadata resolved and validated at compile time, then consumed by later
+lowering/codegen stages rather than materialized as ordinary runtime values.
 
 ```kern
 pub fn outb_and_read(port: u16, data: u8) u8 {

@@ -129,7 +129,7 @@ The script currently enforces the important Windows-specific rules:
 
 ## Installation Model
 
-The user-facing Windows installer is the repository root [install.ps1](/home/lenovo/kern/install.ps1)
+The user-facing Windows installer is the repository root [install.ps1](../install.ps1)
 entrypoint. It should perform installation directly instead of delegating to
 repository Python tooling.
 

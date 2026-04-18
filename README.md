@@ -23,15 +23,32 @@ built-in enum forms rather than implicit nullable/reference machinery.
 
 ## Compiler Architecture (Workspace)
 
-The `kernc` compiler is built as a highly decoupled, multi-pass Rust workspace. This clean pipeline guarantees maintainability and clear semantic boundaries:
+The `kernc` compiler is built as a highly decoupled, multi-pass Rust workspace.
+The current high-level pipeline is:
 
-* `kernc_lexer` & `kernc_parser`: Transforms `.rn` source code into an unverified Abstract Syntax Tree.
-* `kernc_ast`: Defines the frontend syntax nodes and attributes.
-* `kernc_sema`: The heart of the compiler. Performs strict top-down bidirectional type checking, robust 3-phase constant evaluation (ConstEval), exhaustive pattern matching verification, and explicit module path resolution.
-* `kernc_lower` & `kernc_mast`: Lowers the semantically verified AST into the Monomorphized Abstract Syntax Tree (MAST), resolving all generics, applying let-binding hoisting to prevent side-effects, and laying out vtables.
-* `kernc_codegen`: Translates MAST into highly optimized LLVM IR.
-* `kernc_driver` & `kernc_cli`: Manages the compilation session, external linkage, and user-facing CLI.
-* `kernc_utils`: Handles rigorous internal diagnostics, span tracking, and ICE (Internal Compiler Error) reporting.
+```text
+source
+  -> lexer/parser -> AST
+  -> semantic analysis
+  -> Flow analysis
+  -> MAST lowering
+  -> MIR construction and optimization
+  -> LLVM IR / object emission / linking
+```
+
+The main workspace crates are:
+
+* `kernc_lexer` & `kernc_parser`: transform `.rn` source code into an unverified AST.
+* `kernc_ast`: defines the frontend syntax nodes and attributes.
+* `kernc_db`: provides the small query-driven incremental engine used for staged compiler caching.
+* `kernc_sema`: performs type checking, constant evaluation, exhaustiveness checks, and explicit module/path resolution.
+* `kernc_driver`: orchestrates staged analysis, incremental reuse, `Flow`, and compile-time reporting used by both CLI and LSP.
+* `kernc_flow`: defines shared flow-analysis contracts consumed across compiler layers.
+* `kernc_lower` & `kernc_mast`: lower semantically verified programs into the monomorphized lowering IR (MAST), including reachability-driven emission, closure lowering, and vtable/layout materialization.
+* `kernc_mir` & `kernc_mir_lower`: lift MAST into Kern MIR, run MIR verification and optimization passes, and produce backend-oriented mid-level IR.
+* `kernc_codegen`: translates MIR into LLVM IR, native linker inputs, and ThinLTO artifacts.
+* `kernc_cli`: exposes the user-facing `kernc` command.
+* `kernc_utils`: handles diagnostics, spans, source/session state, and ICE reporting.
 
 ## Official Library Layers
 
@@ -43,7 +60,7 @@ Kern ships four explicit public library layers:
 * `std`: high-level user-facing facilities built on top of `base` and `sys`.
 
 `std` does not mirror `base`, `sys`, or `rt` namespaces. Low-level code should import the owning layer directly.
-Hosted support is an OS concern, not a C concern: `std` remains ordinary Kern code layered on `base` plus `sys`, while libc stays an optional external runtime/provider choice rather than a foundation for `std`.
+Hosted support is an OS concern, not a C concern: `std` remains ordinary Kern code layered on `base` plus `sys`, while libc stays an optional external C ABI compatibility choice rather than a foundation for `std`.
 Freestanding in Kern is therefore libc-free in the strong sense: `std` can remain fully usable without libc, `sys` owns the hosted OS boundary, and `rt` owns startup glue.
 `craft` follows the same pure-first policy by default: runnable targets use `rt`
 startup without libc unless a project opts into libc/CRT explicitly.
@@ -71,7 +88,7 @@ impl *mut SerialPort {
         // Explicit uninitialized memory
         let mut status = u8.{undef};
         
-        // 2. Structured Inline Assembly (Compile-time MAST evaluation)
+        // 2. Structured Inline Assembly (Compile-time validated specification)
         @asm(.{
             asm: .{ "in al, dx", },
             outputs: .{ al: status..& }, // Mutable address-of operator
@@ -267,6 +284,7 @@ rather than pretending to do generic cross-target host-tool packaging.
 
 ## Documentation
 
+  * **[Documentation Map](docs/documentation-map.md)**: which documents are authoritative for language semantics, tool behavior, implementation details, and release/distribution policy.
   * **[The `kernc` Compiler Guide](docs/kernc.md)**: CLI usage, driver modes, linking profiles, and build-system integration guidance.
   * **[Windows Distribution Guide](docs/windows-distribution.md)**: Windows host-tool release policy, static CRT packaging, install assumptions, and common packaging footguns.
   * **[Unix Distribution Guide](docs/unix-distribution.md)**: Linux/macOS host-tool release policy, bounded host baselines, installer verification, and Unix packaging footguns.

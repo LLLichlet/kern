@@ -70,7 +70,7 @@ The current split is:
 `MAST` answers different questions:
 
 - what exact monomorphized function or global should be emitted?
-- what concrete control/data constructs should LLVM lowering see?
+- what concrete monomorphized structure should MIR construction and later backend lowering see?
 
 This keeps the analysis layer and the lowering layer separate instead of forcing
 one IR to serve both jobs poorly.

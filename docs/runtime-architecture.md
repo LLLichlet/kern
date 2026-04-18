@@ -120,7 +120,7 @@ Rules:
 - `main` must return `i32`
 - `argv` uses the raw C-style process ABI
 
-This is the correct low-level contract for Kern's philosophy. It is explicit, stable, and decoupled from allocation or slice construction.
+This is the current low-level contract. It is explicit, stable, and decoupled from allocation or slice construction.
 
 Higher-level argument handling belongs in ordinary libraries, not in the compiler-owned ABI itself. The current wrapper lives in `std.proc` as `std.proc.Args` and `std.proc.args(argc, argv)`.
 
@@ -165,8 +165,8 @@ The practical rule is:
 
 Before 1.0, Kern intentionally avoids carrying compatibility surface just to preserve superseded structure or spelling. The repository is kept on the current model only.
 
-Kern does not use a Rust-style semantic split where the compiler secretly
-relies on a special crate boundary. Library layering remains a normal toolchain
+Kern does not use a Rust-style semantic split where the compiler relies on a
+special crate boundary. Library layering remains a normal toolchain
 and package-architecture problem.
 
 ## Tooling Model
@@ -225,12 +225,12 @@ For the shipped host tools (`kernc`, `craft`, `kern-lsp`):
 This distinction matters:
 
 - a static-CRT host tool can still import normal Win32 system DLLs
-- that does not mean Kern secretly depends on libc
+- that does not mean Kern depends on libc as a hidden semantic base
 - it also does not mean `runtime_libc = yes`
 - it only means the host executable is calling the Windows OS ABI directly, as
   any normal native Windows tool would
 
-So the rule for Kern's philosophy is:
+So the rule is:
 
 - pure-first still refers to the compiled Kern program and its runtime choices
 - Windows host-tool packaging should avoid unnecessary redistributable baggage

@@ -8,7 +8,7 @@ This document describes the current architecture and operating model of
 - `kernc` compiles and links explicit inputs.
 - `craft` discovers packages, evaluates package configuration, resolves dependencies, manages lockfiles, derives build plans, and executes those plans.
 
-`craft` follows Kern's core values:
+`craft` follows these design rules:
 
 - orthogonality
 - explicit phase boundaries
@@ -137,7 +137,7 @@ Craft.toml
   -> execution
 ```
 
-This split is the core of the design.
+This split is a core part of the design.
 
 - `Craft.toml` carries static declarations.
 - `craft.rn` normalizes those declarations before resolution, but only from lock-stable inputs.
@@ -170,7 +170,7 @@ tools/
 docs/
 ```
 
-This is intentional. `craft` is not a compiler pass. It is a top-level toolchain manager that drives the compiler.
+This separation is intentional. `craft` is not a compiler pass. It is a top-level toolchain manager that drives the compiler.
 
 ## `Craft.toml`
 

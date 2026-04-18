@@ -1,16 +1,16 @@
 # Unix Distribution Guide
 
-This document defines the Linux and macOS host-tool distribution policy for the
-current 0.7.0 toolchain.
+This document describes the Linux and macOS host-tool distribution policy for
+the current 0.7.0 toolchain.
 
-It exists to keep three different concerns separate:
+It keeps three concerns separate:
 
 - Kern program semantics
 - Rust host-tool build/distribution policy
 - Unix host ABI realities
 
-If those layers are blurred together, Unix packaging quickly becomes easy to
-mislabel, easy to over-promise, and hard to debug on a clean user machine.
+If those layers are blurred together, Unix packaging becomes easy to mislabel,
+easy to over-promise, and hard to debug on a clean user machine.
 
 ## Scope
 
@@ -53,7 +53,7 @@ Today that means a clean user machine can still fail because of:
   `toolchain/host/` payload
 - local macOS policy or loader behavior outside the scope of "just unzip it"
 
-So the rule is simple:
+In practice:
 
 - local development may use ordinary `cargo build --release`
 - official Unix distribution must keep the archive label honest
@@ -250,7 +250,7 @@ For macOS, the useful questions are:
 - whether the installed tool starts on that host
 - whether local security policy blocks execution
 
-The useful policy is bounded support plus verification, not "pretend it is a
+The useful policy is bounded support plus verification, not "treat it as a
 fully static Unix binary."
 
 ### 5. Declaring Installer Success Before The Tools Start
@@ -258,7 +258,7 @@ fully static Unix binary."
 If the installer only downloads, extracts, and edits PATH, it can report
 "success" on a machine where the user still cannot launch `kernc`.
 
-That is not an acceptable official installation result.
+That is not a valid official installation result.
 
 ## Failure Modes And First Checks
 

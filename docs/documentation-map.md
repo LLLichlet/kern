@@ -3,9 +3,9 @@
 This document indexes the current Kern documentation set and clarifies which
 documents should be treated as authoritative for different audiences.
 
-It exists to support three different jobs cleanly:
+It supports three different jobs:
 
-- product-facing documentation such as the website and language guide
+- public documentation such as the website and language guide
 - tool-facing reference material for `kernc`, `craft`, and `kern-lsp`
 - implementation-facing notes for compiler/toolchain maintainers
 
@@ -17,7 +17,7 @@ The important rule is simple:
 
 ## Public Product Docs
 
-These are the current public, user-facing reference documents.
+These are the current public reference documents.
 
 - [`README.md`](../README.md): repository front page, high-level language/toolchain overview, installation, and documentation entry points
 - [`docs/design.md`](./design.md): current language semantics and syntax

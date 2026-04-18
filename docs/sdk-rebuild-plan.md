@@ -3,13 +3,13 @@
 This document defines the active restructuring pass for Kern's host tooling and
 release engineering.
 
-The motivation is not cosmetic. The current repository is too dependent on:
+The current repository is still too dependent on:
 
 - ad-hoc shell / PowerShell orchestration
 - CI runner defaults
-- host LLVM / linker behavior that is not under product control
+- host LLVM / linker behavior that is not yet under repository control
 
-That is acceptable for local experiments. It is not acceptable as the
+That is acceptable for local experiments. It is not suitable as the
 distribution model for `kernc`, `craft`, and `kern-lsp`.
 
 ## Environment Separation

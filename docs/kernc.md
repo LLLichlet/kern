@@ -106,8 +106,8 @@ Use `--module-path <name=path>` to map a module root name to a physical path:
 kernc --module-path std=./library/std app.rn
 ```
 
-This is the core mechanism for wiring module roots into the compiler. It is
-intentionally explicit and easy for package tools to drive.
+This is the core mechanism for wiring module roots into the compiler. It stays
+explicit and easy for package tools to drive.
 
 ### Runtime And Library Axes
 

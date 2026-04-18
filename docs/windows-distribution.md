@@ -1,16 +1,16 @@
 # Windows Distribution Guide
 
-This document defines the Windows host-tool distribution policy for the current
-0.7.0 toolchain.
+This document describes the Windows host-tool distribution policy for the
+current 0.7.0 toolchain.
 
-It exists to keep three different concerns separate:
+It keeps three concerns separate:
 
 - Kern program semantics
 - Rust host-tool build/distribution policy
 - Windows OS ABI realities
 
-If those layers are blurred together, Windows packaging quickly becomes hard to
-reason about and easy to break.
+If those layers are blurred together, Windows packaging becomes easy to misread
+and easy to break.
 
 ## Scope
 
@@ -44,11 +44,11 @@ This policy exists because a plain Rust/MSVC release build can depend on:
 - `VCRUNTIME140_1.dll`
 - `api-ms-win-crt-*`
 
-That dependency set is unacceptable for an official Windows archive because a
+That dependency set is not suitable for an official Windows archive because a
 clean user machine may fail before the tool even starts. The SDK should carry
 its own host LLVM/Clang toolchain instead of expecting users to provision it.
 
-So the rule is simple:
+In practice:
 
 - local development may use ordinary `cargo build --release`
 - official Windows distribution must use static CRT
@@ -148,7 +148,7 @@ It then adds:
 to the user PATH.
 
 This means the quality of the release archive matters directly. If the archive
-itself is wrong, the installer will faithfully install the wrong thing.
+itself is wrong, the installer will still install the wrong thing.
 
 The current Windows SDK archive is intentionally heavy because it includes the
 bundled host LLVM/Clang toolchain. That means installer UX matters:
@@ -160,8 +160,7 @@ bundled host LLVM/Clang toolchain. That means installer UX matters:
 - keep the `-Archive <path>` offline-install path available so one download can
   be reused across repeated installs
 
-The offline-install path should be documented concretely for users. A correct
-example is:
+The offline-install path should be documented concretely. A correct example is:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.0-x86_64-windows-msvc.zip

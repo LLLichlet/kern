@@ -793,6 +793,27 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             }
         }
 
+        if let Some(requirement) = self.ctx.direct_self_referential_impl_requirement(i) {
+            let target_str = self.ctx.ty_to_string(requirement.target_ty);
+            let trait_str = self.ctx.ty_to_string(requirement.trait_ty);
+            self.ctx
+                .struct_error(
+                    requirement.bound_span,
+                    "impl cannot require itself in its own where-clause",
+                )
+                .with_hint(format!(
+                    "this impl tries to prove `{}: {}` by assuming the same requirement",
+                    target_str, trait_str
+                ))
+                .with_hint(
+                    "remove the self-referential bound or introduce a different prerequisite trait",
+                )
+                .with_span_label(i.span, "while checking this impl")
+                .emit();
+            self.ctx.scopes.exit_scope();
+            return;
+        }
+
         let prev_bounds_len = self.ctx.active_bounds.len();
         for clause in &i.where_clauses {
             let target_ty = self.ctx.type_registry.normalize(

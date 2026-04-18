@@ -2,79 +2,95 @@ use super::*;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn check_trait_impl(&mut self, source_ty: TypeId, target_trait_ty: TypeId) -> bool {
-        let mut visited = FastHashSet::default();
-        if self.check_trait_impl_inner(source_ty, target_trait_ty, &mut visited) {
-            return true;
-        }
-
-        if self.check_builtin_auto_trait_impl(source_ty, target_trait_ty) {
-            return true;
-        }
-
-        // If a mutable pointer or slice lacks a direct impl, try its immutable form.
         let source_norm = self.resolve_tv(source_ty);
-        let downgraded = match self.ctx.type_registry.get(source_norm).clone() {
-            TypeKind::Pointer { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem,
-                }))
+        let target_norm = self.resolve_tv(target_trait_ty);
+        let obligation = (source_norm, target_norm);
+        if self.trait_obligation_stack.contains(&obligation) {
+            return false;
+        }
+        self.trait_obligation_stack.push(obligation);
+
+        let result = (|| {
+            let mut visited = FastHashSet::default();
+            if self.check_trait_impl_inner(source_ty, target_trait_ty, &mut visited) {
+                return true;
             }
-            TypeKind::Pointer { is_mut, elem } => match self.ctx.type_registry.get(elem).clone() {
-                TypeKind::Slice {
-                    is_mut: true,
-                    elem: slice_elem,
-                } => {
-                    let downgraded_slice = self.ctx.type_registry.intern(TypeKind::Slice {
-                        is_mut: false,
-                        elem: slice_elem,
-                    });
+
+            if self.check_builtin_auto_trait_impl(source_ty, target_trait_ty) {
+                return true;
+            }
+
+            // If a mutable pointer or slice lacks a direct impl, try its immutable form.
+            let source_norm = self.resolve_tv(source_ty);
+            let downgraded = match self.ctx.type_registry.get(source_norm).clone() {
+                TypeKind::Pointer { is_mut: true, elem } => {
                     Some(self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut,
-                        elem: downgraded_slice,
+                        is_mut: false,
+                        elem,
+                    }))
+                }
+                TypeKind::Pointer { is_mut, elem } => {
+                    match self.ctx.type_registry.get(elem).clone() {
+                        TypeKind::Slice {
+                            is_mut: true,
+                            elem: slice_elem,
+                        } => {
+                            let downgraded_slice = self.ctx.type_registry.intern(TypeKind::Slice {
+                                is_mut: false,
+                                elem: slice_elem,
+                            });
+                            Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                                is_mut,
+                                elem: downgraded_slice,
+                            }))
+                        }
+                        _ => None,
+                    }
+                }
+                TypeKind::VolatilePtr { is_mut: true, elem } => {
+                    Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                        is_mut: false,
+                        elem,
+                    }))
+                }
+                TypeKind::VolatilePtr { is_mut, elem } => {
+                    match self.ctx.type_registry.get(elem).clone() {
+                        TypeKind::Slice {
+                            is_mut: true,
+                            elem: slice_elem,
+                        } => {
+                            let downgraded_slice = self.ctx.type_registry.intern(TypeKind::Slice {
+                                is_mut: false,
+                                elem: slice_elem,
+                            });
+                            Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                                is_mut,
+                                elem: downgraded_slice,
+                            }))
+                        }
+                        _ => None,
+                    }
+                }
+                TypeKind::Slice { is_mut: true, elem } => {
+                    Some(self.ctx.type_registry.intern(TypeKind::Slice {
+                        is_mut: false,
+                        elem,
                     }))
                 }
                 _ => None,
-            },
-            TypeKind::VolatilePtr { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                    is_mut: false,
-                    elem,
-                }))
-            }
-            TypeKind::VolatilePtr { is_mut, elem } => {
-                match self.ctx.type_registry.get(elem).clone() {
-                    TypeKind::Slice {
-                        is_mut: true,
-                        elem: slice_elem,
-                    } => {
-                        let downgraded_slice = self.ctx.type_registry.intern(TypeKind::Slice {
-                            is_mut: false,
-                            elem: slice_elem,
-                        });
-                        Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                            is_mut,
-                            elem: downgraded_slice,
-                        }))
-                    }
-                    _ => None,
-                }
-            }
-            TypeKind::Slice { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::Slice {
-                    is_mut: false,
-                    elem,
-                }))
-            }
-            _ => None,
-        };
+            };
 
-        if let Some(down_ty) = downgraded {
-            let mut visited = FastHashSet::default(); // Restart the search with a fresh visited set.
-            return self.check_trait_impl_inner(down_ty, target_trait_ty, &mut visited);
-        }
+            if let Some(down_ty) = downgraded {
+                let mut visited = FastHashSet::default(); // Restart the search with a fresh visited set.
+                return self.check_trait_impl_inner(down_ty, target_trait_ty, &mut visited);
+            }
 
-        false
+            false
+        })();
+
+        let popped = self.trait_obligation_stack.pop();
+        debug_assert_eq!(popped, Some(obligation));
+        result
     }
 
     fn check_builtin_auto_trait_impl(
@@ -330,9 +346,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let inst_norm = self.resolve_tv(instantiated_trait_ty);
                 let mut trait_map = FastHashMap::default();
 
-                if inst_norm == target_norm
+                let directly_matches = inst_norm == target_norm
                     || instantiated_trait_ty == target_trait_ty
-                    || self.unify(target_trait_ty, instantiated_trait_ty, &mut trait_map)
+                    || self.unify(target_trait_ty, instantiated_trait_ty, &mut trait_map);
+
+                if directly_matches
+                    && crate::query::impl_bounds_satisfied(self, &impl_def.where_clauses, &map)
                 {
                     return true;
                 }
@@ -344,6 +363,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     ),
                     (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
                 ) && self.is_trait_object_upcast(instantiated_trait_ty, target_trait_ty)
+                    && crate::query::impl_bounds_satisfied(self, &impl_def.where_clauses, &map)
                 {
                     return true;
                 }

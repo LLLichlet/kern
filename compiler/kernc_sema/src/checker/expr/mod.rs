@@ -22,7 +22,10 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) current_return_type: Option<TypeId>,
     pub(crate) has_returned: bool,
     pub(crate) type_vars: Vec<Option<TypeId>>,
+    pub(crate) trait_obligation_stack: Vec<(TypeId, TypeId)>,
+    pub(crate) projection_normalization_stack: Vec<TypeId>,
     pub(crate) current_module_cache: Option<(ScopeId, Option<DefId>)>,
+    pub(crate) allow_uninstantiated_generic_function_items: bool,
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -32,8 +35,63 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             current_return_type,
             has_returned: false,
             type_vars: Vec::new(),
+            trait_obligation_stack: Vec::new(),
+            projection_normalization_stack: Vec::new(),
             current_module_cache: None,
+            allow_uninstantiated_generic_function_items: false,
         }
+    }
+
+    pub(crate) fn with_uninstantiated_generic_function_items_allowed<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let prev = self.allow_uninstantiated_generic_function_items;
+        self.allow_uninstantiated_generic_function_items = true;
+        let result = f(self);
+        self.allow_uninstantiated_generic_function_items = prev;
+        result
+    }
+
+    fn reject_uninstantiated_generic_function_item(&mut self, expr: &Expr, ty: TypeId) -> TypeId {
+        let norm_ty = self.resolve_tv(ty);
+        let TypeKind::FnDef(def_id, generic_args) = self.ctx.type_registry.get(norm_ty).clone()
+        else {
+            return ty;
+        };
+
+        let Some(function) = self
+            .ctx
+            .defs
+            .get(def_id.0 as usize)
+            .and_then(|def| match def {
+                crate::def::Def::Function(function) => Some(function),
+                _ => None,
+            })
+        else {
+            return ty;
+        };
+
+        if function.generics.is_empty() || generic_args.len() >= function.generics.len() {
+            return ty;
+        }
+
+        let fn_name = self.ctx.resolve(function.name).to_string();
+        self.ctx
+            .struct_error(
+                expr.span,
+                format!(
+                    "generic function `{}` cannot be used as a value without explicit instantiation",
+                    fn_name
+                ),
+            )
+            .with_hint(format!(
+                "use `{}[...]` with concrete generic arguments, for example `{}[i32]`",
+                fn_name, fn_name
+            ))
+            .with_hint("bare generic function items are only allowed in direct call position")
+            .emit();
+        TypeId::ERROR
     }
 
     fn timing_start(&self) -> Option<Instant> {
@@ -236,15 +294,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // === 8. Aggregate literals ===
             ExprKind::DataInit { type_node, literal } => {
                 let started = self.timing_start();
-                if let Some(t_node) = type_node {
-                    self.evaluate_dynamic_typeof(t_node);
-                }
-                let ty = self.check_data_init_expr(
-                    type_node.as_deref(),
-                    literal,
-                    expected_ty,
-                    expr.span,
-                );
+                let target_ty = if let Some(t_node) = type_node {
+                    self.evaluate_dynamic_typeof(t_node)
+                } else {
+                    self.resolve_data_init_target_type(None, expected_ty, expr.span)
+                };
+                let ty =
+                    self.check_data_init_expr(target_ty, literal, type_node.is_none(), expr.span);
                 self.record_expr_timing(started, |stats, elapsed| stats.aggregate += elapsed);
                 ty
             }
@@ -336,6 +392,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .emit();
                 TypeId::ERROR
             }
+        };
+
+        let ty = if self.allow_uninstantiated_generic_function_items {
+            ty
+        } else {
+            self.reject_uninstantiated_generic_function_item(expr, ty)
         };
 
         self.ctx.node_types.insert(expr.id, ty);

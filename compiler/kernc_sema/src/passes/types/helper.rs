@@ -1,4 +1,5 @@
 use super::*;
+use crate::ty::LayoutEngine;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub(super) fn check_type_generic_bounds(
@@ -382,7 +383,24 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         for clause in clauses {
             self.resolve_type(&clause.target_ty, scope);
             for bound in &clause.bounds {
-                self.resolve_type(bound, scope);
+                let bound_ty = self.resolve_type(bound, scope);
+                let bound_norm = self.ctx.type_registry.normalize(bound_ty);
+                if bound_norm != TypeId::ERROR
+                    && !matches!(
+                        self.ctx.type_registry.get(bound_norm),
+                        TypeKind::TraitObject(..)
+                    )
+                {
+                    let found = self.ctx.ty_to_string(bound_norm);
+                    self.ctx
+                        .struct_error(bound.span, "where-clause bounds must name a trait")
+                        .with_hint(format!("found `{}`", found))
+                        .with_hint(
+                            "write the right-hand side as a trait, for example `where T: Printable`",
+                        )
+                        .emit();
+                    self.ctx.node_types.insert(bound.id, TypeId::ERROR);
+                }
             }
         }
     }
@@ -425,6 +443,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             self.ctx.struct_error(span, "trait objects have dynamic size and cannot be used as naked types")
                 .with_hint("in Kern, you must explicitly use a pointer for dynamic dispatch, e.g., `*Trait` or `*mut Trait`")
                 .emit();
+            return;
         }
+
+        if norm == TypeId::ERROR || self.type_contains_params(norm) {
+            return;
+        }
+
+        let mut layout = LayoutEngine::new(self.ctx);
+        let _ = layout.compute_type_size_at(norm, span);
     }
 }

@@ -299,6 +299,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         if let Some(started) = started {
             self.ctx.expr_timing_stats.access_field_query_impl += started.elapsed();
         }
-        resolution
+        if resolution.is_some() {
+            return resolution;
+        }
+
+        self.resolve_named_invalid_impl_method(search_norm, member_name)
+            .map(|candidate| MemberResolution {
+                candidate,
+                owner_trait_ty: None,
+            })
     }
 }

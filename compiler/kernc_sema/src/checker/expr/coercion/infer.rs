@@ -140,51 +140,62 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     fn try_normalize_projection(&mut self, projection_ty: TypeId) -> Option<TypeId> {
-        let TypeKind::Projection {
-            target,
-            trait_def_id,
-            trait_args,
-            assoc_def_id,
-            assoc_args,
-        } = self.ctx.type_registry.get(projection_ty).clone()
-        else {
-            return None;
-        };
-
-        if !assoc_args.is_empty() {
+        if self.projection_normalization_stack.contains(&projection_ty) {
             return None;
         }
+        self.projection_normalization_stack.push(projection_ty);
 
-        let target_norm = self.resolve_tv(target);
-        if let TypeKind::TraitObject(target_trait_def_id, _, assoc_bindings) =
-            self.ctx.type_registry.get(target_norm).clone()
-            && target_trait_def_id == trait_def_id
-            && let Some((_, assoc_ty)) = assoc_bindings
-                .iter()
-                .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
-        {
-            return Some(self.resolve_tv(*assoc_ty));
-        }
+        let result = (|| {
+            let TypeKind::Projection {
+                target,
+                trait_def_id,
+                trait_args,
+                assoc_def_id,
+                assoc_args,
+            } = self.ctx.type_registry.get(projection_ty).clone()
+            else {
+                return None;
+            };
 
-        if let Some(bound_ty) = self.projection_assoc_from_env_bounds(
-            target_norm,
-            trait_def_id,
-            &trait_args,
-            assoc_def_id,
-        ) {
-            return Some(self.resolve_tv(bound_ty));
-        }
+            if !assoc_args.is_empty() {
+                return None;
+            }
 
-        if let Some(bound_ty) = self.projection_assoc_from_global_impls(
-            target_norm,
-            trait_def_id,
-            &trait_args,
-            assoc_def_id,
-        ) {
-            return Some(self.resolve_tv(bound_ty));
-        }
+            let target_norm = self.resolve_tv(target);
+            if let TypeKind::TraitObject(target_trait_def_id, _, assoc_bindings) =
+                self.ctx.type_registry.get(target_norm).clone()
+                && target_trait_def_id == trait_def_id
+                && let Some((_, assoc_ty)) = assoc_bindings
+                    .iter()
+                    .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+            {
+                return Some(self.resolve_tv(*assoc_ty));
+            }
 
-        None
+            if let Some(bound_ty) = self.projection_assoc_from_env_bounds(
+                target_norm,
+                trait_def_id,
+                &trait_args,
+                assoc_def_id,
+            ) {
+                return Some(self.resolve_tv(bound_ty));
+            }
+
+            if let Some(bound_ty) = self.projection_assoc_from_global_impls(
+                target_norm,
+                trait_def_id,
+                &trait_args,
+                assoc_def_id,
+            ) {
+                return Some(self.resolve_tv(bound_ty));
+            }
+
+            None
+        })();
+
+        let popped = self.projection_normalization_stack.pop();
+        debug_assert_eq!(popped, Some(projection_ty));
+        result
     }
 
     fn projection_assoc_from_env_bounds(

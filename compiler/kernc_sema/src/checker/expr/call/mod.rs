@@ -35,7 +35,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return self.check_asm_call(args, span);
         }
 
-        let callee_ty = self.check_expr(callee, None);
+        let callee_ty = self.with_uninstantiated_generic_function_items_allowed(|this| {
+            this.check_expr(callee, None)
+        });
         let norm_callee = self.resolve_tv(callee_ty);
 
         if norm_callee == TypeId::ERROR {
@@ -135,6 +137,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     args,
                     params,
                 );
+                let bit_ret = self.check_bit_intrinsic_call(
+                    intrinsic_name.as_str(),
+                    inferred_callee_ty.unwrap_or(norm_callee),
+                    args,
+                    params,
+                    ret,
+                );
+                if let Some(bit_ret) = bit_ret {
+                    final_ret = bit_ret;
+                }
                 let simd_ret = self.check_simd_intrinsic_call(
                     intrinsic_name.as_str(),
                     inferred_callee_ty.unwrap_or(norm_callee),
@@ -146,7 +158,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     final_ret = simd_ret;
                 }
 
-                Some(atomic_handled || simd_ret.is_some())
+                Some(atomic_handled || bit_ret.is_some() || simd_ret.is_some())
             })
             .unwrap_or(false);
         self.record_expr_timing(intrinsic_started, |stats, elapsed| {

@@ -247,7 +247,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         let mut resolved_trait_ty = None;
         if let Some(trait_ty) = &i.trait_type {
-            resolved_trait_ty = Some(self.resolve_type(trait_ty, impl_scope));
+            let resolved = self.resolve_type(trait_ty, impl_scope);
+            self.reject_explicit_builtin_numeric_marker_impl(i, resolved, trait_ty.span);
+            resolved_trait_ty = Some(resolved);
         }
 
         let canonical_trait_ty =
@@ -261,6 +263,53 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         self.ctx.scopes.exit_scope();
+    }
+
+    fn reject_explicit_builtin_numeric_marker_impl(
+        &mut self,
+        impl_def: &ImplDef,
+        trait_ty: TypeId,
+        span: Span,
+    ) {
+        let trait_norm = self.ctx.type_registry.normalize(trait_ty);
+        let TypeKind::TraitObject(trait_def_id, _, _) =
+            self.ctx.type_registry.get(trait_norm).clone()
+        else {
+            return;
+        };
+
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize) else {
+            return;
+        };
+        if !trait_def.is_builtin {
+            return;
+        }
+
+        let trait_name = self.ctx.resolve(trait_def.name).to_string();
+        if !matches!(
+            trait_name.as_str(),
+            "Integer" | "SignedInteger" | "UnsignedInteger" | "Float"
+        ) {
+            return;
+        }
+
+        self.ctx
+            .struct_error(
+                span,
+                format!(
+                    "builtin numeric marker trait `{}` cannot be implemented explicitly",
+                    trait_name
+                ),
+            )
+            .with_hint(format!(
+                "`{}` is assigned by the compiler for builtin numeric types only",
+                trait_name
+            ))
+            .with_hint(
+                "define a normal trait if you need a user-extensible numeric-like abstraction",
+            )
+            .with_span_label(impl_def.span, "while checking this impl")
+            .emit();
     }
 
     fn bind_trait_assoc_types(&mut self, assoc_type_ids: &[DefId], scope: ScopeId) {
@@ -525,7 +574,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         for variant in &a.variants {
             if let Some(payload_ty) = &variant.payload_type {
-                self.resolve_type(payload_ty, adt_scope);
+                let resolved_payload = self.resolve_type(payload_ty, adt_scope);
+                self.ensure_sized(resolved_payload, payload_ty.span);
             }
         }
 

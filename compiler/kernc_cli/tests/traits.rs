@@ -598,6 +598,72 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_explicit_impl_of_builtin_integer_marker_trait() {
+    let output = compile_source(
+        r#"
+impl *u8 : Integer {}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("builtin numeric marker trait `Integer` cannot be implemented explicitly"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_pointer_popcount_even_if_integer_marker_impl_is_attempted() {
+    let output = compile_source(
+        r#"
+impl *u8 : Integer {}
+
+fn main() i32 {
+    let p = 0 as *u8;
+    let _ = @popCount[*u8](p);
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("builtin numeric marker trait `Integer` cannot be implemented explicitly"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("LLVM IR Verification Failed"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Invalid LLVM IR generated"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_using_float_marker_as_operator_capability() {
     let output = compile_source(
         r#"

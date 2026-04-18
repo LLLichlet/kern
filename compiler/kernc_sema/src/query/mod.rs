@@ -389,7 +389,7 @@ fn trait_method_span(trait_def: &crate::def::TraitDef, method_name: SymbolId) ->
         .unwrap_or_default()
 }
 
-fn impl_bounds_satisfied(
+pub(crate) fn impl_bounds_satisfied(
     checker: &mut ExprChecker<'_, '_>,
     where_clauses: &[ast::WhereClause],
     map: &FastHashMap<SymbolId, TypeId>,

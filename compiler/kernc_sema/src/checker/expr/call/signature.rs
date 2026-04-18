@@ -474,7 +474,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         types: &[ast::TypeNode],
         span: Span,
     ) -> TypeId {
-        let target_ty = self.check_expr(target, None);
+        let target_ty = self.with_uninstantiated_generic_function_items_allowed(|this| {
+            this.check_expr(target, None)
+        });
         let target_norm = self.resolve_tv(target_ty);
 
         if target_norm == TypeId::ERROR {

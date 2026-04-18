@@ -1,6 +1,43 @@
 ﻿use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
+    fn check_bit_intrinsic_target_type(
+        &mut self,
+        ty: TypeId,
+        span: Span,
+        intrinsic_name: &str,
+    ) -> Option<TypeId> {
+        let norm = self.ctx.type_registry.normalize(ty);
+        if norm == TypeId::ERROR {
+            return None;
+        }
+
+        let is_supported = self.ctx.type_registry.is_integer(norm)
+            || self
+                .ctx
+                .type_registry
+                .simd_info(norm)
+                .is_some_and(|(elem_ty, _)| self.ctx.type_registry.is_integer(elem_ty));
+
+        if !is_supported {
+            let ty_str = self.ctx.ty_to_string(norm);
+            self.ctx
+                .struct_error(
+                    span,
+                    format!(
+                        "`{}` only supports integer scalar or integer SIMD types",
+                        intrinsic_name
+                    ),
+                )
+                .with_hint(format!("found `{}`", ty_str))
+                .with_hint("examples: `u32`, `i64`, `usize`, `u32x4`, `i16x8`")
+                .emit();
+            return None;
+        }
+
+        Some(norm)
+    }
+
     pub(super) fn eval_call(
         &mut self,
         callee: &Expr,
@@ -253,7 +290,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             .emit();
                         Err(ConstEvalError)
                     } else {
-                        Ok(ConstValue::Int(l / r))
+                        self.eval_const_int_division(l, r, span)
                     }
                 }
                 BinaryOperator::Modulo => {
@@ -263,11 +300,11 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             .emit();
                         Err(ConstEvalError)
                     } else {
-                        Ok(ConstValue::Int(l % r))
+                        self.eval_const_int_modulo(l, r, span)
                     }
                 }
-                BinaryOperator::ShiftLeft => Ok(ConstValue::Int(l << r)),
-                BinaryOperator::ShiftRight => Ok(ConstValue::Int(l >> r)),
+                BinaryOperator::ShiftLeft => self.eval_const_int_shift(l, r, true, false, span),
+                BinaryOperator::ShiftRight => self.eval_const_int_shift(l, r, false, false, span),
                 BinaryOperator::BitwiseAnd => Ok(ConstValue::Int(l & r)),
                 BinaryOperator::BitwiseOr => Ok(ConstValue::Int(l | r)),
                 BinaryOperator::BitwiseXor => Ok(ConstValue::Int(l ^ r)),
@@ -505,8 +542,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
+        let Some(target_ty) = self.check_bit_intrinsic_target_type(generic_args[0], span, name)
+        else {
+            return Err(ConstEvalError);
+        };
+
         if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
-            let target_ty = generic_args[0];
             let mut layout = LayoutEngine::new(self.ctx);
             let bit_width = layout.compute_type_size(target_ty) * 8;
 
@@ -589,11 +630,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         generic_args: &[TypeId],
         args: &[Expr],
         depth: usize,
-        _span: Span,
+        span: Span,
     ) -> ConstEvalResult<ConstValue> {
-        if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
-            let target_ty = generic_args[0];
+        let Some(target_ty) = self.check_bit_intrinsic_target_type(generic_args[0], span, "@bswap")
+        else {
+            return Err(ConstEvalError);
+        };
 
+        if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
             // Use the layout engine so the operation respects target bit width.
             let mut layout = LayoutEngine::new(self.ctx);
             let bit_width = layout.compute_type_size(target_ty) * 8;

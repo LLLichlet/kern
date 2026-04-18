@@ -260,6 +260,79 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         None
     }
 
+    pub(super) fn resolve_named_invalid_impl_method(
+        &mut self,
+        receiver_norm: TypeId,
+        member_name: SymbolId,
+    ) -> Option<MemberCandidate> {
+        let method_ids_ptr = self
+            .ctx
+            .impl_methods_by_name
+            .get(&member_name)
+            .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()))?;
+
+        let method_ids = unsafe { &*method_ids_ptr };
+        for &method_id in method_ids {
+            let Some((impl_id, function_name_span)) = self
+                .ctx
+                .defs
+                .get(method_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Function(function) => {
+                        function.parent.map(|parent| (parent, function.name_span))
+                    }
+                    _ => None,
+                })
+            else {
+                continue;
+            };
+
+            let Some(impl_ptr) = self
+                .ctx
+                .defs
+                .get(impl_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                    _ => None,
+                })
+            else {
+                continue;
+            };
+
+            let impl_def = unsafe { &*impl_ptr };
+            if self
+                .ctx
+                .direct_self_referential_impl_requirement(impl_def)
+                .is_none()
+            {
+                continue;
+            }
+
+            let impl_target_ty = self
+                .ctx
+                .node_types
+                .get(&impl_def.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let mut checker = ExprChecker::new(self.ctx, None);
+            let mut map = FastHashMap::default();
+            if !checker.unify(impl_target_ty, receiver_norm, &mut map) {
+                continue;
+            }
+
+            return Some(MemberCandidate {
+                name: member_name,
+                kind: SymbolKind::Function,
+                type_id: TypeId::ERROR,
+                def_id: Some(method_id),
+                definition_span: function_name_span,
+                is_mut: false,
+            });
+        }
+
+        None
+    }
+
     pub(super) fn resolve_impl_applicability(
         &mut self,
         receiver_norm: TypeId,
@@ -294,7 +367,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .copied()
                 .unwrap_or(TypeId::ERROR);
 
-            if impl_def.generics.is_empty() && impl_def.where_clauses.is_empty() {
+            if checker
+                .ctx
+                .direct_self_referential_impl_requirement(impl_def)
+                .is_some()
+            {
+                None
+            } else if impl_def.generics.is_empty() && impl_def.where_clauses.is_empty() {
                 if checker.ctx.type_registry.normalize(impl_target_ty) == receiver_norm {
                     Some(Vec::new())
                 } else {

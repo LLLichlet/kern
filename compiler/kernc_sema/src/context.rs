@@ -7,7 +7,7 @@ use kernc_utils::{
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
-use crate::def::{Def, DefId};
+use crate::def::{Def, DefId, ImplDef};
 use crate::scope::{ScopeId, SymbolTable};
 use crate::semantic::{SemanticDefinition, SemanticSymbolKind};
 use crate::ty::{TypeFormatter, TypeId, TypeRegistry};
@@ -37,6 +37,7 @@ pub struct SemaStructureSnapshot {
     pub parent_modules_by_def: FastHashMap<DefId, DefId>,
     pub defs_without_parent_module: FastHashSet<DefId>,
     pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
+    pub reported_recursive_layout_types: FastHashSet<TypeId>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -121,8 +122,16 @@ pub struct SemaContext<'a> {
     pub(crate) named_field_query_cache: FastHashMap<NamedFieldQueryKey, NamedFieldQueryValue>,
     pub(crate) member_resolution_query_cache:
         FastHashMap<MemberResolutionQueryKey, crate::query::MemberResolution>,
+    pub(crate) reported_recursive_layout_types: FastHashSet<TypeId>,
     identifier_references: Vec<(Span, Span)>,
     semantic_definitions: BTreeMap<Span, SemanticDefinition>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SelfReferentialImplRequirement {
+    pub bound_span: Span,
+    pub target_ty: TypeId,
+    pub trait_ty: TypeId,
 }
 
 impl<'a> SemaContext<'a> {
@@ -157,6 +166,7 @@ impl<'a> SemaContext<'a> {
             impl_applicability_cache: FastHashMap::default(),
             named_field_query_cache: FastHashMap::default(),
             member_resolution_query_cache: FastHashMap::default(),
+            reported_recursive_layout_types: FastHashSet::default(),
             global_impls: Vec::new(),
             trait_impls: Vec::new(),
             impl_methods_by_name: FastHashMap::default(),
@@ -204,6 +214,7 @@ impl<'a> SemaContext<'a> {
             parent_modules_by_def: self.parent_modules_by_def.clone(),
             defs_without_parent_module: self.defs_without_parent_module.clone(),
             owner_scopes_by_def: self.owner_scopes_by_def.clone(),
+            reported_recursive_layout_types: self.reported_recursive_layout_types.clone(),
         }
     }
 
@@ -227,6 +238,7 @@ impl<'a> SemaContext<'a> {
             parent_modules_by_def: self.parent_modules_by_def,
             defs_without_parent_module: self.defs_without_parent_module,
             owner_scopes_by_def: self.owner_scopes_by_def,
+            reported_recursive_layout_types: self.reported_recursive_layout_types,
         }
     }
 
@@ -251,6 +263,7 @@ impl<'a> SemaContext<'a> {
         self.parent_modules_by_def = snapshot.parent_modules_by_def;
         self.defs_without_parent_module = snapshot.defs_without_parent_module;
         self.owner_scopes_by_def = snapshot.owner_scopes_by_def;
+        self.reported_recursive_layout_types = snapshot.reported_recursive_layout_types;
         self.expr_timing_stats = ExprTimingStats::default();
         self.call_signature_instantiation_cache.clear();
         self.field_type_subst_cache.clear();
@@ -267,6 +280,76 @@ impl<'a> SemaContext<'a> {
         self.bound_trait_match_cache.clear();
         self.impl_applicability_cache.clear();
         self.member_resolution_query_cache.clear();
+    }
+
+    pub(crate) fn direct_self_referential_impl_requirement(
+        &self,
+        impl_def: &ImplDef,
+    ) -> Option<SelfReferentialImplRequirement> {
+        let Some(trait_ty_node) = &impl_def.trait_type else {
+            return None;
+        };
+
+        let impl_target_ty = self.type_registry.normalize(
+            self.node_types
+                .get(&impl_def.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR),
+        );
+        let impl_trait_ty = self.type_registry.normalize(
+            self.node_types
+                .get(&trait_ty_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR),
+        );
+        if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
+            return None;
+        }
+
+        for clause in &impl_def.where_clauses {
+            let clause_target_ty = self.type_registry.normalize(
+                self.node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
+            if clause_target_ty != impl_target_ty {
+                continue;
+            }
+
+            for bound in &clause.bounds {
+                let bound_ty = self.type_registry.normalize(
+                    self.node_types
+                        .get(&bound.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR),
+                );
+                if self.matches_impl_trait_obligation_head(bound_ty, impl_trait_ty) {
+                    return Some(SelfReferentialImplRequirement {
+                        bound_span: bound.span,
+                        target_ty: impl_target_ty,
+                        trait_ty: impl_trait_ty,
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
+    fn matches_impl_trait_obligation_head(&self, bound_ty: TypeId, impl_trait_ty: TypeId) -> bool {
+        let bound_norm = self.type_registry.normalize(bound_ty);
+        let impl_norm = self.type_registry.normalize(impl_trait_ty);
+        match (
+            self.type_registry.get(bound_norm),
+            self.type_registry.get(impl_norm),
+        ) {
+            (
+                crate::ty::TypeKind::TraitObject(bound_def_id, bound_args, _),
+                crate::ty::TypeKind::TraitObject(impl_def_id, impl_args, _),
+            ) => bound_def_id == impl_def_id && bound_args == impl_args,
+            _ => bound_norm == impl_norm,
+        }
     }
 
     /// Inject CLI-provided module aliases such as `std` into the root scope.

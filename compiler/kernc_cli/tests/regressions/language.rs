@@ -917,6 +917,652 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_infinite_polymorphic_recursion_with_instantiation_chain() {
+    let output = compile_source(
+        r#"
+type Wrap[T] = struct {
+    inner: T,
+};
+
+fn poly[T](x: T) i32 {
+    return poly[Wrap[T]](Wrap[T].{ inner: x });
+}
+
+fn main() i32 {
+    return poly[i32](0);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("infinitely many specializations"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("instantiation chain: poly[i32] -> poly[Wrap[i32]]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("stack overflow"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_uninstantiated_generic_function_items_in_value_position() {
+    let output = compile_source(
+        r#"
+fn id[T](x: T) T {
+    return x;
+}
+
+fn main() i32 {
+    let _ = id;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "generic function `id` cannot be used as a value without explicit instantiation"
+        ),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("use `id[...]` with concrete generic arguments"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern ICE"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_non_trait_where_clause_bounds() {
+    let output = compile_source(
+        r#"
+fn f[A](a: A) A where A: A {
+    return a;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("where-clause bounds must name a trait"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("found `A`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_invalid_assoc_projection_where_bound_without_overflowing() {
+    let output = compile_source(
+        r#"
+type N = trait { type O : N; };
+
+fn f[A](a: A) A where A.N.O : A { return a.a.a.a; }
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("where-clause bounds must name a trait"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("stack overflow"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_trait_impls_when_their_where_clauses_are_unsatisfied() {
+    let output = compile_source(
+        r#"
+type Marker = trait {};
+type Need = trait {};
+
+impl[T] T : Marker where T: Need {}
+
+fn requires_marker[T](value: T) void where T: Marker {
+    let _ = value;
+}
+
+fn main() i32 {
+    requires_marker(i32.{123});
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("required bound: `i32: Marker`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_self_recursive_trait_impl_where_clauses_without_overflowing() {
+    let output = compile_source(
+        r#"
+type Marker = trait {};
+
+impl[T] T : Marker where T: Marker {}
+
+fn requires_marker[T](value: T) void where T: Marker {
+    let _ = value;
+}
+
+fn main() i32 {
+    requires_marker(i32.{123});
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("impl cannot require itself in its own where-clause"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("stack overflow"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_self_referential_impl_where_clauses_with_associated_types() {
+    let output = compile_source(
+        r#"
+type Forge = trait {
+    type Out;
+    make: fn() Out,
+};
+
+type Carrier[T] = struct {};
+
+impl[T] Carrier[T] : Forge
+    where Carrier[T]: Forge,
+{
+    type Out = T;
+
+    fn make() Out {
+        return self.make();
+    }
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("impl cannot require itself in its own where-clause"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Carrier[T]: Forge"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn suppresses_followup_missing_method_error_for_self_referential_impls() {
+    let output = compile_source(
+        r#"
+type Forge = trait {
+    type Out;
+    make: fn() Out,
+};
+
+type Carrier[T] = struct {};
+
+impl[T] Carrier[T] : Forge
+    where Carrier[T]: Forge,
+{
+    type Out = T;
+
+    fn make() Out {
+        return self.make();
+    }
+}
+
+fn conjure[T]() T {
+    return Carrier[T].{}.make();
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("impl cannot require itself in its own where-clause"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("no field or method named `make` found"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_self_referential_generic_trait_impl_where_clauses() {
+    let output = compile_source(
+        r#"
+type Forge[T] = trait {
+    make: fn() T,
+};
+
+type Carrier[T] = struct {};
+
+impl[T] Carrier[T] : Forge[T]
+    where Carrier[T]: Forge[T],
+{
+    fn make() T {
+        return self.make();
+    }
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("impl cannot require itself in its own where-clause"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Carrier[T]: Forge[T]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn accepts_trait_impls_when_their_where_clauses_are_satisfied() {
+    let output = build_and_run_source(
+        r#"
+type Marker = trait {};
+type Need = trait {};
+
+impl i32 : Need {}
+impl[T] T : Marker where T: Need {}
+
+fn requires_marker[T](value: T) i32 where T: Marker {
+    let _ = value;
+    return 0;
+}
+
+fn main() i32 {
+    return requires_marker(i32.{123});
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "trait impl where-clause regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_direct_recursive_struct_layout_cycle() {
+    let output = compile_source(
+        r#"
+type Bad = struct {
+    inner: Bad,
+};
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("recursively contains itself by value"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("recursive layout chain: Bad -> Bad"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_direct_recursive_enum_payload_layout_cycle() {
+    let output = compile_source(
+        r#"
+type Bad = enum {
+    Loop: Bad,
+};
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("recursively contains itself by value"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("recursive layout chain: Bad -> Bad"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_indirect_recursive_struct_layout_cycle_with_chain() {
+    let output = compile_source(
+        r#"
+type A = struct {
+    b: B,
+};
+
+type B = struct {
+    a: A,
+};
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("recursively contains itself by value"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("recursive layout chain: A -> B -> A"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_constant_overshift_without_panicking() {
+    let output = compile_source(
+        r#"
+const BAD = 1 << 999;
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("shift amount in constant expression is too large"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_constant_division_overflow_without_panicking() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let _ = [((-170141183460469231731687303715884105728) / (-1))]u8.{ undef };
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("division overflow in constant expression"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert_eq!(
+        stderr
+            .matches("division overflow in constant expression")
+            .count(),
+        1,
+        "unexpected duplicated stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_array_length_constants_that_exceed_usize_range() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let _ = [18446744073709551616]u8.{ undef };
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("integer literal 18446744073709551616 is out of bounds for type `usize`")
+            || stderr.contains("constant expression is too large for this usize-like context"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn accepts_large_u128_constant_literals() {
+    let output = build_and_run_source(
+        r#"
+const MID = u128.{170141183460469231731687303715884105728};
+const MAX = u128.{340282366920938463463374607431768211455};
+
+fn main() i32 {
+    if (!(MAX > MID)) {
+        return 1;
+    }
+    if (!(MID > u128.{1})) {
+        return 2;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "large u128 literal regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn folds_large_u128_constant_comparisons_correctly() {
+    let output = build_and_run_source(
+        r#"
+const MID = u128.{170141183460469231731687303715884105728};
+const OK = MID > u128.{1};
+
+fn main() i32 {
+    return if (OK) 0 else 1;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "large u128 const comparison regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn prunes_mutually_exclusive_extern_blocks_before_name_collection() {
     let output = compile_source(
         r#"

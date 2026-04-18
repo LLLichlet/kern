@@ -98,9 +98,21 @@ impl CompilerDriver {
             return None;
         };
 
-        let structure = Self::measure_phase(&mut phase_timings, "analyze_structure", || {
-            self.analyze_compile_structure(input_file, &SourceOverrides::new())
-        })?;
+        let mut structure_session = Session::new();
+        structure_session.apply_options(&self.options);
+        let structure = match Self::measure_phase(&mut phase_timings, "analyze_structure", || {
+            self.try_analyze_compile_structure(
+                structure_session,
+                input_file,
+                &SourceOverrides::new(),
+            )
+        }) {
+            Ok(structure) => structure,
+            Err(session) => {
+                Self::print_buffered_diagnostics(&session);
+                return None;
+            }
+        };
         let crate::compiler::CompileStructureArtifact {
             session,
             snapshot,
@@ -111,7 +123,10 @@ impl CompilerDriver {
 
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(snapshot);
-        let body_pipeline = self.run_body_pipeline_with_report(&mut ctx)?;
+        let Some(body_pipeline) = self.run_body_pipeline_with_report(&mut ctx) else {
+            Self::print_buffered_diagnostics(ctx.sess);
+            return None;
+        };
         phase_timings.extend(body_pipeline.phase_timings.iter().copied());
         let loaded_sources = ctx
             .sess
@@ -141,7 +156,11 @@ impl CompilerDriver {
                 &body_pipeline.flow_lowering_hints,
                 &body_pipeline.lowered_module_items,
             )
-        })?;
+        });
+        let Some(lowered) = lowered else {
+            Self::print_buffered_diagnostics(ctx.sess);
+            return None;
+        };
         phase_timings.extend(lowered.phase_timings.iter().copied());
         let mast_module = lowered.module;
         let mast_workload = mast_module.workload_stats();

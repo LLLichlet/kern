@@ -1,6 +1,195 @@
 use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
+    fn integer_literal_magnitude(expr: &Expr) -> Option<(bool, u128)> {
+        match &expr.kind {
+            ExprKind::Integer(value) => Some((false, *value)),
+            ExprKind::Unary {
+                op: UnaryOperator::Negate,
+                operand,
+            } => match &operand.kind {
+                ExprKind::Integer(value) => Some((true, *value)),
+                _ => None,
+            },
+            ExprKind::DataInit {
+                literal: ast::DataLiteralKind::Scalar(inner),
+                ..
+            } => Self::integer_literal_magnitude(inner),
+            _ => None,
+        }
+    }
+
+    fn range_error_for_integer_literal(
+        &mut self,
+        expr: &Expr,
+        ty: TypeId,
+        rendered_value: &str,
+        min: &str,
+        max: &str,
+    ) -> ConstEvalResult<i128> {
+        self.ctx
+            .struct_error(
+                expr.span,
+                format!(
+                    "integer literal {} is out of bounds for type `{}`",
+                    rendered_value,
+                    self.ctx.ty_to_string(ty)
+                ),
+            )
+            .with_hint(format!("the valid range is {} to {}", min, max))
+            .emit();
+        Err(ConstEvalError)
+    }
+
+    fn bind_integer_literal_to_type(
+        &mut self,
+        expr: &Expr,
+        ty: TypeId,
+        norm: TypeId,
+        primitive: PrimitiveType,
+    ) -> ConstEvalResult<Option<i128>> {
+        let Some((is_negative, magnitude)) = Self::integer_literal_magnitude(expr) else {
+            return Ok(None);
+        };
+
+        let bit_width = crate::LayoutEngine::new(self.ctx).compute_type_size(norm) * 8;
+        let rendered_value = if is_negative {
+            format!("-{}", magnitude)
+        } else {
+            magnitude.to_string()
+        };
+
+        let is_signed = matches!(
+            primitive,
+            PrimitiveType::I8
+                | PrimitiveType::I16
+                | PrimitiveType::I32
+                | PrimitiveType::I64
+                | PrimitiveType::I128
+                | PrimitiveType::ISize
+        );
+        let is_unsigned = matches!(
+            primitive,
+            PrimitiveType::U8
+                | PrimitiveType::U16
+                | PrimitiveType::U32
+                | PrimitiveType::U64
+                | PrimitiveType::U128
+                | PrimitiveType::USize
+        );
+
+        if !is_signed && !is_unsigned {
+            return Ok(None);
+        }
+
+        if is_unsigned {
+            let max = if bit_width >= 128 {
+                u128::MAX
+            } else {
+                (1u128 << bit_width) - 1
+            };
+            if is_negative {
+                self.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", rendered_value, self.ctx.ty_to_string(ty)))
+                    .with_hint("if you need a bit-pattern of all 1s, use explicit bitwise negation (e.g., `~0`) or `as` cast")
+                    .emit();
+                return Err(ConstEvalError);
+            }
+            if magnitude > max {
+                return self
+                    .range_error_for_integer_literal(
+                        expr,
+                        ty,
+                        &rendered_value,
+                        "0",
+                        &max.to_string(),
+                    )
+                    .map(Some);
+            }
+            return Ok(Some(magnitude as i128));
+        }
+
+        let max = if bit_width >= 128 {
+            i128::MAX as u128
+        } else {
+            (1u128 << (bit_width - 1)) - 1
+        };
+        let min_magnitude = 1u128 << (bit_width - 1);
+        let min = if bit_width >= 128 {
+            i128::MIN.to_string()
+        } else {
+            format!("-{}", min_magnitude)
+        };
+        let max_str = max.to_string();
+
+        if is_negative {
+            if magnitude > min_magnitude {
+                return self
+                    .range_error_for_integer_literal(expr, ty, &rendered_value, &min, &max_str)
+                    .map(Some);
+            }
+            if bit_width >= 128 && magnitude == min_magnitude {
+                return Ok(Some(i128::MIN));
+            }
+            return Ok(Some(-(magnitude as i128)));
+        }
+
+        if magnitude > max {
+            return self
+                .range_error_for_integer_literal(expr, ty, &rendered_value, &min, &max_str)
+                .map(Some);
+        }
+
+        Ok(Some(magnitude as i128))
+    }
+
+    fn expr_uses_unsigned_integer_semantics(&mut self, expr: &Expr) -> bool {
+        let ty = self.expr_type(expr);
+        let norm = self.ctx.type_registry.normalize(ty);
+        matches!(
+            self.ctx.type_registry.get(norm),
+            TypeKind::Primitive(
+                PrimitiveType::U8
+                    | PrimitiveType::U16
+                    | PrimitiveType::U32
+                    | PrimitiveType::U64
+                    | PrimitiveType::U128
+                    | PrimitiveType::USize
+            )
+        )
+    }
+
+    fn eval_const_uint_division(
+        &mut self,
+        lhs: i128,
+        rhs: i128,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        if rhs == 0 {
+            self.ctx
+                .struct_error(span, "division by zero in constant expression")
+                .emit();
+            return Err(ConstEvalError);
+        }
+
+        Ok(ConstValue::Int(((lhs as u128) / (rhs as u128)) as i128))
+    }
+
+    fn eval_const_uint_modulo(
+        &mut self,
+        lhs: i128,
+        rhs: i128,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        if rhs == 0 {
+            self.ctx
+                .struct_error(span, "modulo by zero in constant expression")
+                .emit();
+            return Err(ConstEvalError);
+        }
+
+        Ok(ConstValue::Int(((lhs as u128) % (rhs as u128)) as i128))
+    }
+
     fn check_pattern_recursion_depth(
         &mut self,
         depth: usize,
@@ -132,7 +321,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 // Fold `-123` directly so it is treated as a signed literal.
                 if *op == UnaryOperator::Negate {
                     if let ExprKind::Integer(val) = &operand.kind {
-                        Ok(ConstValue::Int(-(*val as i128)))
+                        Ok(ConstValue::Int((*val as i128).wrapping_neg()))
                     } else if let ExprKind::Float(val) = &operand.kind {
                         Ok(ConstValue::Float(-*val))
                     } else {
@@ -422,6 +611,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             let norm = self.ctx.type_registry.normalize(ty);
 
             if let TypeKind::Primitive(p) = self.ctx.type_registry.get(norm).clone() {
+                let literal_bound = self.bind_integer_literal_to_type(expr, ty, norm, p)?;
                 let is_signed = matches!(
                     p,
                     PrimitiveType::I8
@@ -441,54 +631,56 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         | PrimitiveType::USize
                 );
 
-                // Reinterpret wrapped unsigned bit-patterns such as `!0`.
-                if is_unsigned {
-                    let mut layout = crate::LayoutEngine::new(self.ctx);
-                    let bit_width = layout.compute_type_size(norm) * 8;
-                    if bit_width < 128 {
-                        let mask = (1i128 << bit_width) - 1;
-                        v &= mask; // Truncate wrapped values like `-1` to the target bit-pattern.
+                if let Some(bound_v) = literal_bound {
+                    v = bound_v;
+                } else {
+                    // Reinterpret wrapped unsigned bit-patterns such as `!0`.
+                    if is_unsigned {
+                        let mut layout = crate::LayoutEngine::new(self.ctx);
+                        let bit_width = layout.compute_type_size(norm) * 8;
+                        if bit_width < 128 {
+                            let mask = (1i128 << bit_width) - 1;
+                            v &= mask; // Truncate wrapped values like `-1` to the target bit-pattern.
+                            if v < 0 {
+                                self.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", v, self.ctx.ty_to_string(ty)))
+                                    .with_hint("if you need a bit-pattern of all 1s, use explicit bitwise negation (e.g., `~0`) or `as` cast")
+                                    .emit();
+                                return Err(ConstEvalError);
+                            }
+                        }
                     }
-                }
 
-                // Unsigned integer targets reject negative values.
-                if is_unsigned && v < 0 {
-                    self.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", v, self.ctx.ty_to_string(ty)))
-                        .with_hint("if you need a bit-pattern of all 1s, use explicit bitwise negation (e.g., `~0`) or `as` cast")
-                        .emit();
-                    return Err(ConstEvalError);
-                }
+                    // Check that the value fits within the destination bit width.
+                    if (is_signed || is_unsigned)
+                        && p != PrimitiveType::I128
+                        && p != PrimitiveType::U128
+                    {
+                        let mut layout = crate::LayoutEngine::new(self.ctx);
+                        let bit_width = layout.compute_type_size(norm) * 8;
 
-                // Check that the value fits within the destination bit width.
-                if (is_signed || is_unsigned)
-                    && p != PrimitiveType::I128
-                    && p != PrimitiveType::U128
-                {
-                    let mut layout = crate::LayoutEngine::new(self.ctx);
-                    let bit_width = layout.compute_type_size(norm) * 8;
+                        let (min, max) = if is_signed {
+                            let max = (1i128 << (bit_width - 1)) - 1;
+                            let min = -(1i128 << (bit_width - 1));
+                            (min, max)
+                        } else {
+                            let max = ((1u128 << bit_width) - 1) as i128;
+                            (0, max)
+                        };
 
-                    let (min, max) = if is_signed {
-                        let max = (1i128 << (bit_width - 1)) - 1;
-                        let min = -(1i128 << (bit_width - 1));
-                        (min, max)
-                    } else {
-                        let max = ((1u128 << bit_width) - 1) as i128;
-                        (0, max)
-                    };
-
-                    if v < min || v > max {
-                        self.ctx
-                            .struct_error(
-                                expr.span,
-                                format!(
-                                    "integer literal {} is out of bounds for type `{}`",
-                                    v,
-                                    self.ctx.ty_to_string(ty)
-                                ),
-                            )
-                            .with_hint(format!("the valid range is {} to {}", min, max))
-                            .emit();
-                        return Err(ConstEvalError);
+                        if v < min || v > max {
+                            self.ctx
+                                .struct_error(
+                                    expr.span,
+                                    format!(
+                                        "integer literal {} is out of bounds for type `{}`",
+                                        v,
+                                        self.ctx.ty_to_string(ty)
+                                    ),
+                                )
+                                .with_hint(format!("the valid range is {} to {}", min, max))
+                                .emit();
+                            return Err(ConstEvalError);
+                        }
                     }
                 }
             }
@@ -512,6 +704,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     ) -> ConstEvalResult<ConstValue> {
         let left = self.eval_inner(lhs, depth + 1)?;
         let right = self.eval_inner(rhs, depth + 1)?;
+        let lhs_is_unsigned = self.expr_uses_unsigned_integer_semantics(lhs);
 
         match (left, right) {
             (ConstValue::Int(l), ConstValue::Int(r)) => {
@@ -521,36 +714,60 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     Subtract => Ok(ConstValue::Int(l.wrapping_sub(r))),
                     Multiply => Ok(ConstValue::Int(l.wrapping_mul(r))),
                     Divide => {
-                        if r == 0 {
-                            self.ctx
-                                .struct_error(span, "division by zero in constant expression")
-                                .emit();
-                            Err(ConstEvalError)
+                        if lhs_is_unsigned {
+                            self.eval_const_uint_division(l, r, span)
                         } else {
-                            Ok(ConstValue::Int(l / r))
+                            if r == 0 {
+                                self.ctx
+                                    .struct_error(span, "division by zero in constant expression")
+                                    .emit();
+                                Err(ConstEvalError)
+                            } else {
+                                self.eval_const_int_division(l, r, span)
+                            }
                         }
                     }
                     Modulo => {
-                        if r == 0 {
-                            self.ctx
-                                .struct_error(span, "modulo by zero in constant expression")
-                                .emit();
-                            Err(ConstEvalError)
+                        if lhs_is_unsigned {
+                            self.eval_const_uint_modulo(l, r, span)
                         } else {
-                            Ok(ConstValue::Int(l % r))
+                            if r == 0 {
+                                self.ctx
+                                    .struct_error(span, "modulo by zero in constant expression")
+                                    .emit();
+                                Err(ConstEvalError)
+                            } else {
+                                self.eval_const_int_modulo(l, r, span)
+                            }
                         }
                     }
-                    ShiftLeft => Ok(ConstValue::Int(l << r)),
-                    ShiftRight => Ok(ConstValue::Int(l >> r)),
+                    ShiftLeft => self.eval_const_int_shift(l, r, true, lhs_is_unsigned, span),
+                    ShiftRight => self.eval_const_int_shift(l, r, false, lhs_is_unsigned, span),
                     BitwiseAnd => Ok(ConstValue::Int(l & r)),
                     BitwiseOr => Ok(ConstValue::Int(l | r)),
                     BitwiseXor => Ok(ConstValue::Int(l ^ r)),
                     Equal => Ok(ConstValue::Bool(l == r)),
                     NotEqual => Ok(ConstValue::Bool(l != r)),
-                    LessThan => Ok(ConstValue::Bool(l < r)),
-                    LessOrEqual => Ok(ConstValue::Bool(l <= r)),
-                    GreaterThan => Ok(ConstValue::Bool(l > r)),
-                    GreaterOrEqual => Ok(ConstValue::Bool(l >= r)),
+                    LessThan => Ok(ConstValue::Bool(if lhs_is_unsigned {
+                        (l as u128) < (r as u128)
+                    } else {
+                        l < r
+                    })),
+                    LessOrEqual => Ok(ConstValue::Bool(if lhs_is_unsigned {
+                        (l as u128) <= (r as u128)
+                    } else {
+                        l <= r
+                    })),
+                    GreaterThan => Ok(ConstValue::Bool(if lhs_is_unsigned {
+                        (l as u128) > (r as u128)
+                    } else {
+                        l > r
+                    })),
+                    GreaterOrEqual => Ok(ConstValue::Bool(if lhs_is_unsigned {
+                        (l as u128) >= (r as u128)
+                    } else {
+                        l >= r
+                    })),
                     _ => {
                         self.ctx
                             .struct_error(span, "unsupported operator for constant integers")
@@ -623,6 +840,88 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         span,
                         "type mismatch or unsupported types in constant binary expression",
                     )
+                    .emit();
+                Err(ConstEvalError)
+            }
+        }
+    }
+
+    pub(super) fn eval_const_int_division(
+        &mut self,
+        lhs: i128,
+        rhs: i128,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        match lhs.checked_div(rhs) {
+            Some(value) => Ok(ConstValue::Int(value)),
+            None => {
+                self.ctx
+                    .struct_error(span, "division overflow in constant expression")
+                    .with_hint("this division cannot be represented in Kern's constant evaluator")
+                    .emit();
+                Err(ConstEvalError)
+            }
+        }
+    }
+
+    pub(super) fn eval_const_int_modulo(
+        &mut self,
+        lhs: i128,
+        rhs: i128,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        match lhs.checked_rem(rhs) {
+            Some(value) => Ok(ConstValue::Int(value)),
+            None => {
+                self.ctx
+                    .struct_error(span, "modulo overflow in constant expression")
+                    .with_hint("this remainder cannot be represented in Kern's constant evaluator")
+                    .emit();
+                Err(ConstEvalError)
+            }
+        }
+    }
+
+    pub(super) fn eval_const_int_shift(
+        &mut self,
+        lhs: i128,
+        rhs: i128,
+        is_left: bool,
+        unsigned_lhs: bool,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        if rhs < 0 {
+            self.ctx
+                .struct_error(
+                    span,
+                    "shift amount in constant expression must be non-negative",
+                )
+                .emit();
+            return Err(ConstEvalError);
+        }
+
+        let Ok(shift) = u32::try_from(rhs) else {
+            self.ctx
+                .struct_error(span, "shift amount in constant expression is too large")
+                .with_hint("constant integer shifts are evaluated on 128-bit values")
+                .emit();
+            return Err(ConstEvalError);
+        };
+
+        let value = if is_left {
+            (lhs as u128).checked_shl(shift).map(|value| value as i128)
+        } else if unsigned_lhs {
+            (lhs as u128).checked_shr(shift).map(|value| value as i128)
+        } else {
+            lhs.checked_shr(shift)
+        };
+
+        match value {
+            Some(value) => Ok(ConstValue::Int(value)),
+            None => {
+                self.ctx
+                    .struct_error(span, "shift amount in constant expression is too large")
+                    .with_hint("constant integer shifts are evaluated on 128-bit values")
                     .emit();
                 Err(ConstEvalError)
             }

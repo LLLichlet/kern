@@ -151,7 +151,22 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         .emit();
                     Err(ConstEvalError)
                 } else {
-                    Ok(val as u64)
+                    match u64::try_from(val) {
+                        Ok(value) => Ok(value),
+                        Err(_) => {
+                            self.ctx
+                                .struct_error(
+                                    expr.span,
+                                    "constant expression is too large for this usize-like context",
+                                )
+                                .with_hint(format!(
+                                    "array lengths and similar contexts require values in the range 0 to {}",
+                                    u64::MAX
+                                ))
+                                .emit();
+                            Err(ConstEvalError)
+                        }
+                    }
                 }
             }
             Ok(_) => {

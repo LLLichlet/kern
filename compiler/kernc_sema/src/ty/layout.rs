@@ -3,17 +3,24 @@ use crate::checker::Substituter;
 use crate::def::{Def, DefId};
 use crate::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_ast as ast;
-use kernc_utils::SymbolId;
+use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
 type StructMapping = (Vec<usize>, Vec<usize>);
 type NamedStructMappingKey = (DefId, Vec<TypeId>);
+
+#[derive(Clone, Copy)]
+struct ActiveLayoutFrame {
+    ty: TypeId,
+    span: Span,
+}
 
 pub struct LayoutEngine<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
     align_cache: HashMap<TypeId, u64>,
     size_cache: HashMap<TypeId, u64>,
     named_struct_mapping_cache: HashMap<NamedStructMappingKey, StructMapping>,
+    active_layout_stack: Vec<ActiveLayoutFrame>,
 }
 
 impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
@@ -23,6 +30,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             align_cache: HashMap::new(),
             size_cache: HashMap::new(),
             named_struct_mapping_cache: HashMap::new(),
+            active_layout_stack: Vec::new(),
         }
     }
 
@@ -32,7 +40,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         &mut self,
         def_id: DefId,
         generic_args: &[TypeId],
-        depth: usize,
+        _depth: usize,
     ) -> (Vec<usize>, Vec<usize>) {
         let cache_key = (def_id, generic_args.to_vec());
         if let Some(mapping) = self.named_struct_mapping_cache.get(&cache_key) {
@@ -48,8 +56,8 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
 
         for (ast_idx, field) in struct_def.fields.iter().enumerate() {
             let f_ty = self.resolve_field_type(&field.type_node, &map);
-            let f_align = self.compute_type_align_inner(f_ty, depth + 1);
-            let f_size = self.compute_type_size_inner(f_ty, depth + 1);
+            let f_align = self.compute_type_align_inner(f_ty, field.type_node.span);
+            let f_size = self.compute_type_size_inner(f_ty, field.type_node.span);
             field_metas.push((ast_idx, f_align, f_size));
         }
 
@@ -81,12 +89,12 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         &mut self,
         is_extern: bool,
         fields: &[crate::ty::AnonymousField],
-        depth: usize,
+        _depth: usize,
     ) -> (Vec<usize>, Vec<usize>) {
         let mut field_metas = Vec::new();
         for (ast_idx, f) in fields.iter().enumerate() {
-            let f_align = self.compute_type_align_inner(f.ty, depth + 1);
-            let f_size = self.compute_type_size_inner(f.ty, depth + 1);
+            let f_align = self.compute_type_align_inner(f.ty, Span::default());
+            let f_size = self.compute_type_size_inner(f.ty, Span::default());
             field_metas.push((ast_idx, f_align, f_size));
         }
 
@@ -111,18 +119,35 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     }
 
     pub fn compute_type_align(&mut self, ty: TypeId) -> u64 {
-        self.compute_type_align_inner(ty, 0)
+        self.compute_type_align_inner(ty, self.layout_request_span(ty))
     }
 
-    fn compute_type_align_inner(&mut self, ty: TypeId, depth: usize) -> u64 {
-        if depth > 100 {
-            return 1;
-        }
-
+    fn compute_type_align_inner(&mut self, ty: TypeId, request_span: Span) -> u64 {
         let norm = self.ctx.type_registry.normalize(ty);
         if let Some(&align) = self.align_cache.get(&norm) {
             return align;
         }
+
+        if let Some(ancestor_index) = self
+            .active_layout_stack
+            .iter()
+            .position(|frame| frame.ty == norm)
+        {
+            self.emit_recursive_layout_diagnostic(ancestor_index, norm, request_span);
+            return 1;
+        }
+
+        self.active_layout_stack.push(ActiveLayoutFrame {
+            ty: norm,
+            span: request_span,
+        });
+        let align = self.compute_type_align_body(norm, request_span);
+        self.active_layout_stack.pop();
+        self.align_cache.insert(norm, align);
+        align
+    }
+
+    fn compute_type_align_body(&mut self, norm: TypeId, request_span: Span) -> u64 {
         let kind = self.ctx.type_registry.get(norm).clone();
 
         let align = match kind {
@@ -134,23 +159,23 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 if elem == TypeId::BOOL {
                     1
                 } else {
-                    let elem_align = self.compute_type_align_inner(elem, depth + 1);
-                    let elem_size = self.compute_type_size_inner(elem, depth + 1);
+                    let elem_align = self.compute_type_align_inner(elem, request_span);
+                    let elem_size = self.compute_type_size_inner(elem, request_span);
                     elem_align.max(elem_size.saturating_mul(lanes as u64))
                 }
             }
 
             TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
-                self.compute_type_align_inner(elem, depth + 1)
+                self.compute_type_align_inner(elem, request_span)
             }
 
             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {
-                self.compute_def_align(def_id, &generic_args, depth)
+                self.compute_def_align(def_id, &generic_args)
             }
             TypeKind::AnonymousUnion(_, fields) => {
                 let mut max_align = 1;
                 for f in fields {
-                    let align = self.compute_type_align_inner(f.ty, depth + 1);
+                    let align = self.compute_type_align_inner(f.ty, request_span);
                     if align > max_align {
                         max_align = align;
                     }
@@ -159,10 +184,10 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
             TypeKind::AnonymousEnum(enum_def) => {
                 let tag_ty = enum_def.backing_ty.unwrap_or(TypeId::U32);
-                let mut max_align = self.compute_type_align_inner(tag_ty, depth + 1);
+                let mut max_align = self.compute_type_align_inner(tag_ty, request_span);
                 for variant in &enum_def.variants {
                     if let Some(payload_ty) = variant.payload_ty {
-                        let align = self.compute_type_align_inner(payload_ty, depth + 1);
+                        let align = self.compute_type_align_inner(payload_ty, variant.name_span);
                         if align > max_align {
                             max_align = align;
                         }
@@ -181,7 +206,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 let mut max_align = 1;
                 for variant in &enum_def.variants {
                     if let Some(payload_ty) = variant.payload_ty {
-                        let align = self.compute_type_align_inner(payload_ty, depth + 1);
+                        let align = self.compute_type_align_inner(payload_ty, variant.name_span);
                         if align > max_align {
                             max_align = align;
                         }
@@ -192,7 +217,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::AnonymousState { captures, .. } => {
                 let mut max_align = 1;
                 for cap_ty in captures {
-                    let align = self.compute_type_align_inner(cap_ty, depth + 1);
+                    let align = self.compute_type_align_inner(cap_ty, request_span);
                     if align > max_align {
                         max_align = align;
                     }
@@ -204,7 +229,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::AnonymousStruct(_, fields) => {
                 let mut max_align = 1;
                 for f in fields {
-                    let align = self.compute_type_align_inner(f.ty, depth + 1);
+                    let align = self.compute_type_align_inner(f.ty, request_span);
                     if align > max_align {
                         max_align = align;
                     }
@@ -224,7 +249,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 for v in &def.variants {
                     if let Some(payload) = &v.payload_type {
                         let p_ty = self.resolve_field_type(payload, &map);
-                        let align = self.compute_type_align_inner(p_ty, depth + 1);
+                        let align = self.compute_type_align_inner(p_ty, payload.span);
                         if align > max_payload_align {
                             max_payload_align = align;
                         }
@@ -243,23 +268,43 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
         };
 
-        self.align_cache.insert(norm, align);
         align
     }
 
     pub fn compute_type_size(&mut self, ty: TypeId) -> u64 {
-        self.compute_type_size_inner(ty, 0)
+        self.compute_type_size_inner(ty, self.layout_request_span(ty))
     }
 
-    fn compute_type_size_inner(&mut self, ty: TypeId, depth: usize) -> u64 {
-        if depth > 100 {
-            return 0;
-        }
+    pub fn compute_type_size_at(&mut self, ty: TypeId, span: Span) -> u64 {
+        self.compute_type_size_inner(ty, span)
+    }
 
+    fn compute_type_size_inner(&mut self, ty: TypeId, request_span: Span) -> u64 {
         let norm = self.ctx.type_registry.normalize(ty);
         if let Some(&size) = self.size_cache.get(&norm) {
             return size;
         }
+
+        if let Some(ancestor_index) = self
+            .active_layout_stack
+            .iter()
+            .position(|frame| frame.ty == norm)
+        {
+            self.emit_recursive_layout_diagnostic(ancestor_index, norm, request_span);
+            return 0;
+        }
+
+        self.active_layout_stack.push(ActiveLayoutFrame {
+            ty: norm,
+            span: request_span,
+        });
+        let size = self.compute_type_size_body(norm, request_span);
+        self.active_layout_stack.pop();
+        self.size_cache.insert(norm, size);
+        size
+    }
+
+    fn compute_type_size_body(&mut self, norm: TypeId, request_span: Span) -> u64 {
         let kind = self.ctx.type_registry.get(norm).clone();
 
         let size = match kind {
@@ -282,13 +327,13 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 if elem == TypeId::BOOL {
                     (lanes as u64).div_ceil(8)
                 } else {
-                    self.compute_type_size_inner(elem, depth + 1) * lanes as u64
+                    self.compute_type_size_inner(elem, request_span) * lanes as u64
                 }
             }
 
             // Fixed-size arrays have known size; `ArrayInfer` still counts as unknown here.
             TypeKind::Array { elem, len, .. } => {
-                self.compute_type_size_inner(elem, depth + 1) * len
+                self.compute_type_size_inner(elem, request_span) * len
             }
             TypeKind::ArrayInfer { .. } => {
                 self.ctx.emit_ice(kernc_utils::Span::default(), "Kern ICE (Layout): Cannot compute the size of an array with inferred length `[_]T`. It must be fully resolved.");
@@ -296,15 +341,15 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
 
             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {
-                self.compute_def_size(def_id, &generic_args, depth)
+                self.compute_def_size(def_id, &generic_args)
             }
             TypeKind::AnonymousState { captures, .. } => {
                 let mut offset = 0;
                 let mut max_align = 1;
 
                 for cap_ty in captures {
-                    let f_align = self.compute_type_align_inner(cap_ty, depth + 1);
-                    let f_size = self.compute_type_size_inner(cap_ty, depth + 1);
+                    let f_align = self.compute_type_align_inner(cap_ty, request_span);
+                    let f_size = self.compute_type_size_inner(cap_ty, request_span);
 
                     if f_align > max_align {
                         max_align = f_align;
@@ -318,14 +363,14 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
             TypeKind::ClosureInterface { .. } => 0,
             TypeKind::AnonymousStruct(is_extern, fields) => {
-                let (_, physical_to_ast) = self.get_anon_struct_mapping(is_extern, &fields, depth);
+                let (_, physical_to_ast) = self.get_anon_struct_mapping(is_extern, &fields, 0);
                 let mut offset = 0;
                 let mut max_align = 1;
 
                 for &ast_idx in &physical_to_ast {
                     let f = &fields[ast_idx];
-                    let f_align = self.compute_type_align_inner(f.ty, depth + 1);
-                    let f_size = self.compute_type_size_inner(f.ty, depth + 1);
+                    let f_align = self.compute_type_align_inner(f.ty, request_span);
+                    let f_size = self.compute_type_size_inner(f.ty, request_span);
                     if f_align > max_align {
                         max_align = f_align;
                     }
@@ -337,7 +382,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::AnonymousUnion(_, fields) => {
                 let mut max_size = 0;
                 for field in fields {
-                    let size = self.compute_type_size_inner(field.ty, depth + 1);
+                    let size = self.compute_type_size_inner(field.ty, request_span);
                     if size > max_size {
                         max_size = size;
                     }
@@ -346,14 +391,14 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
             TypeKind::AnonymousEnum(enum_def) => {
                 let tag_ty = enum_def.backing_ty.unwrap_or(TypeId::U32);
-                let tag_size = self.compute_type_size_inner(tag_ty, depth + 1);
-                let tag_align = self.compute_type_align_inner(tag_ty, depth + 1);
+                let tag_size = self.compute_type_size_inner(tag_ty, request_span);
+                let tag_align = self.compute_type_align_inner(tag_ty, request_span);
                 let payload_ty = self
                     .ctx
                     .type_registry
                     .intern(TypeKind::AnonymousEnumPayload(norm));
-                let payload_size = self.compute_type_size_inner(payload_ty, depth + 1);
-                let payload_align = self.compute_type_align_inner(payload_ty, depth + 1);
+                let payload_size = self.compute_type_size_inner(payload_ty, request_span);
+                let payload_align = self.compute_type_align_inner(payload_ty, request_span);
                 let max_align = tag_align.max(payload_align);
                 let payload_offset = Self::align_to(tag_size, payload_align);
                 Self::align_to(payload_offset + payload_size, max_align)
@@ -369,7 +414,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 let mut max_payload_size = 0;
                 for variant in &enum_def.variants {
                     if let Some(payload_ty) = variant.payload_ty {
-                        let size = self.compute_type_size_inner(payload_ty, depth + 1);
+                        let size = self.compute_type_size_inner(payload_ty, variant.name_span);
                         if size > max_payload_size {
                             max_payload_size = size;
                         }
@@ -390,7 +435,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 for v in &def.variants {
                     if let Some(payload) = &v.payload_type {
                         let p_ty = self.resolve_field_type(payload, &map);
-                        let size = self.compute_type_size_inner(p_ty, depth + 1);
+                        let size = self.compute_type_size_inner(p_ty, payload.span);
                         if size > max_payload_size {
                             max_payload_size = size;
                         }
@@ -412,7 +457,6 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
         };
 
-        self.size_cache.insert(norm, size);
         size
     }
 
@@ -521,18 +565,18 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         }
     }
 
-    fn compute_def_align(&mut self, def_id: DefId, generic_args: &[TypeId], depth: usize) -> u64 {
+    fn compute_def_align(&mut self, def_id: DefId, generic_args: &[TypeId]) -> u64 {
         let def = self.ctx.defs[def_id.0 as usize].clone();
         match def {
             Def::Struct(s) => {
-                let (_, physical_to_ast) = self.get_struct_mapping(def_id, generic_args, depth);
+                let (_, physical_to_ast) = self.get_struct_mapping(def_id, generic_args, 0);
                 let map = self.prepare_generic_subst(&s.generics, generic_args);
                 let mut max_align = 1;
 
                 for &ast_idx in &physical_to_ast {
                     let field = &s.fields[ast_idx];
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
-                    let f_align = self.compute_type_align_inner(f_ty, depth + 1);
+                    let f_align = self.compute_type_align_inner(f_ty, field.type_node.span);
 
                     if f_align > max_align {
                         max_align = f_align;
@@ -545,7 +589,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 let mut max_align = 1;
                 for field in &u.fields {
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
-                    let align = self.compute_type_align_inner(f_ty, depth + 1);
+                    let align = self.compute_type_align_inner(f_ty, field.type_node.span);
                     if align > max_align {
                         max_align = align;
                     }
@@ -560,13 +604,16 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                         .copied()
                         .unwrap_or(TypeId::U32)
                 });
-                let mut max_align = self.compute_type_align_inner(tag_ty, depth + 1);
+                let mut max_align = self.compute_type_align_inner(
+                    tag_ty,
+                    a.backing_type.as_ref().map_or(a.span, |bt| bt.span),
+                );
 
                 let map = self.prepare_generic_subst(&a.generics, generic_args);
                 for v in &a.variants {
                     if let Some(payload) = &v.payload_type {
                         let p_ty = self.resolve_field_type(payload, &map);
-                        let align = self.compute_type_align_inner(p_ty, depth + 1);
+                        let align = self.compute_type_align_inner(p_ty, payload.span);
                         if align > max_align {
                             max_align = align;
                         }
@@ -578,11 +625,11 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         }
     }
 
-    fn compute_def_size(&mut self, def_id: DefId, generic_args: &[TypeId], depth: usize) -> u64 {
+    fn compute_def_size(&mut self, def_id: DefId, generic_args: &[TypeId]) -> u64 {
         let def = self.ctx.defs[def_id.0 as usize].clone();
         match def {
             Def::Struct(s) => {
-                let (_, physical_to_ast) = self.get_struct_mapping(def_id, generic_args, depth);
+                let (_, physical_to_ast) = self.get_struct_mapping(def_id, generic_args, 0);
                 let map = self.prepare_generic_subst(&s.generics, generic_args);
                 let mut offset = 0;
                 let mut max_align = 1;
@@ -590,8 +637,8 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 for &ast_idx in &physical_to_ast {
                     let field = &s.fields[ast_idx];
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
-                    let f_align = self.compute_type_align_inner(f_ty, depth + 1);
-                    let f_size = self.compute_type_size_inner(f_ty, depth + 1);
+                    let f_align = self.compute_type_align_inner(f_ty, field.type_node.span);
+                    let f_size = self.compute_type_size_inner(f_ty, field.type_node.span);
 
                     if f_align > max_align {
                         max_align = f_align;
@@ -608,8 +655,8 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
 
                 for field in &u.fields {
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
-                    let f_align = self.compute_type_align_inner(f_ty, depth + 1);
-                    let f_size = self.compute_type_size_inner(f_ty, depth + 1);
+                    let f_align = self.compute_type_align_inner(f_ty, field.type_node.span);
+                    let f_size = self.compute_type_size_inner(f_ty, field.type_node.span);
 
                     if f_align > max_align {
                         max_align = f_align;
@@ -630,8 +677,9 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                         .unwrap_or(TypeId::U32)
                 });
 
-                let tag_align = self.compute_type_align_inner(tag_ty, depth + 1);
-                let tag_size = self.compute_type_size_inner(tag_ty, depth + 1);
+                let tag_span = a.backing_type.as_ref().map_or(a.span, |bt| bt.span);
+                let tag_align = self.compute_type_align_inner(tag_ty, tag_span);
+                let tag_size = self.compute_type_size_inner(tag_ty, tag_span);
 
                 let map = self.prepare_generic_subst(&a.generics, generic_args);
 
@@ -642,8 +690,8 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 for v in &a.variants {
                     if let Some(payload) = &v.payload_type {
                         let p_ty = self.resolve_field_type(payload, &map);
-                        let align = self.compute_type_align_inner(p_ty, depth + 1);
-                        let size = self.compute_type_size_inner(p_ty, depth + 1);
+                        let align = self.compute_type_align_inner(p_ty, payload.span);
+                        let size = self.compute_type_size_inner(p_ty, payload.span);
 
                         if align > max_payload_align {
                             max_payload_align = align;
@@ -703,5 +751,114 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             f_ty = subst.substitute(f_ty);
         }
         f_ty
+    }
+
+    fn layout_request_span(&self, ty: TypeId) -> Span {
+        let norm = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm) {
+            TypeKind::Def(def_id, _) | TypeKind::Enum(def_id, _) => self.def_span(*def_id),
+            _ => Span::default(),
+        }
+    }
+
+    fn def_span(&self, def_id: DefId) -> Span {
+        match self.ctx.defs.get(def_id.0 as usize) {
+            Some(Def::Struct(def)) => def.span,
+            Some(Def::Union(def)) => def.span,
+            Some(Def::Enum(def)) => def.span,
+            Some(Def::Trait(def)) => def.span,
+            Some(Def::AssociatedType(def)) => def.span,
+            Some(Def::Impl(def)) => def.span,
+            Some(Def::TypeAlias(def)) => def.span,
+            Some(Def::Function(def)) => def.span,
+            Some(Def::Global(def)) => def.span,
+            Some(Def::Module(_)) | None => Span::default(),
+        }
+    }
+
+    fn type_display(&self, ty: TypeId) -> String {
+        self.ctx.ty_to_string(ty)
+    }
+
+    fn emit_recursive_layout_diagnostic(
+        &mut self,
+        ancestor_index: usize,
+        ty: TypeId,
+        request_span: Span,
+    ) {
+        let cycle_frames = &self.active_layout_stack[ancestor_index..];
+        let mut cycle_types = cycle_frames
+            .iter()
+            .map(|frame| frame.ty)
+            .collect::<Vec<_>>();
+        cycle_types.push(ty);
+
+        if cycle_types
+            .iter()
+            .any(|cycle_ty| self.ctx.reported_recursive_layout_types.contains(cycle_ty))
+        {
+            return;
+        }
+
+        for cycle_ty in &cycle_types {
+            self.ctx.reported_recursive_layout_types.insert(*cycle_ty);
+        }
+
+        let type_name = self.type_display(ty);
+        let mut chain = cycle_frames
+            .iter()
+            .map(|frame| self.type_display(frame.ty))
+            .collect::<Vec<_>>();
+        chain.push(type_name.clone());
+
+        let primary_span = if request_span != Span::default() {
+            request_span
+        } else {
+            cycle_frames
+                .last()
+                .map(|frame| frame.span)
+                .filter(|span| *span != Span::default())
+                .unwrap_or_else(|| self.layout_request_span(ty))
+        };
+
+        let mut labels = Vec::new();
+        let mut labeled_types = Vec::new();
+        for cycle_ty in cycle_types {
+            if labeled_types.contains(&cycle_ty) {
+                continue;
+            }
+            labeled_types.push(cycle_ty);
+
+            let label_span = match self.ctx.type_registry.get(cycle_ty) {
+                TypeKind::Def(def_id, _) | TypeKind::Enum(def_id, _) => self.def_span(*def_id),
+                _ => Span::default(),
+            };
+            if label_span == Span::default() {
+                continue;
+            }
+
+            labels.push((
+                label_span,
+                format!("type `{}` is declared here", self.type_display(cycle_ty)),
+            ));
+        }
+
+        let mut diag = self
+            .ctx
+            .struct_error(
+                primary_span,
+                format!(
+                    "type `{}` recursively contains itself by value and therefore has infinite size",
+                    type_name
+                ),
+            )
+            .with_hint(format!("recursive layout chain: {}", chain.join(" -> ")))
+            .with_hint("break the cycle with an explicit pointer such as `*T` or `*mut T`");
+
+        for (label_span, label) in labels {
+            diag = diag.with_span_label(label_span, label);
+        }
+
+        diag.emit();
     }
 }

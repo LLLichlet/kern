@@ -16,7 +16,7 @@ type StructLiteralDefInfo = (
 );
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
-    fn resolve_data_init_target_type(
+    pub(crate) fn resolve_data_init_target_type(
         &mut self,
         type_node: Option<&ast::TypeNode>,
         expected_ty: Option<TypeId>,
@@ -138,17 +138,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     pub(crate) fn check_data_init_expr(
         &mut self,
-        type_node: Option<&ast::TypeNode>,
+        target_ty: TypeId,
         literal: &ast::DataLiteralKind,
-        expected_ty: Option<TypeId>,
+        is_untyped_literal: bool,
         span: Span,
     ) -> TypeId {
-        let target_ty = self.resolve_data_init_target_type(type_node, expected_ty, span);
         if target_ty == TypeId::ERROR {
             return TypeId::ERROR;
         }
 
-        self.check_data_literal(literal, target_ty, type_node.is_none(), span)
+        self.check_data_literal(literal, target_ty, is_untyped_literal, span)
     }
 
     fn check_data_literal(

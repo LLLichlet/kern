@@ -47,7 +47,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     match this.ctx.type_registry.get(norm_ty).clone() {
                         TypeKind::FnDef(fn_id, fn_args) => {
                             this.measure_phase("          lower_ident_fn_ref", |this| {
-                                let mono_id = this.instantiate_function(fn_id, &fn_args);
+                                let mono_id =
+                                    this.instantiate_function_at(fn_id, &fn_args, expr.span);
                                 MastExprKind::FuncRef(mono_id)
                             })
                         }
@@ -138,7 +139,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     if let TypeKind::FnDef(fn_id, fn_args) =
                         this.ctx.type_registry.get(norm_ty).clone()
                     {
-                        let mono_id = this.instantiate_function(fn_id, &fn_args);
+                        let mono_id = this.instantiate_function_at(fn_id, &fn_args, expr.span);
                         MastExprKind::FuncRef(mono_id)
                     } else {
                         // Fall back to normal struct or union field access lowering.
@@ -244,7 +245,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             ExprKind::GenericInstantiation { .. } => self
                 .measure_phase("        lower_expr_generic", |this| {
-                    this.lower_generic_instantiation(concrete_ty)
+                    this.lower_generic_instantiation(concrete_ty, expr.span)
                 }),
 
             ExprKind::SelfValue => MastExprKind::Var(self.ctx.intern("self")),

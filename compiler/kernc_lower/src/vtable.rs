@@ -600,7 +600,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
                     && f.name == method.name
                 {
-                    let method_mono_id = self.instantiate_function(m_id, impl_args);
+                    let method_mono_id = self.instantiate_function_at(m_id, impl_args, f.name_span);
                     let method_fn_ty = self
                         .ctx
                         .type_registry

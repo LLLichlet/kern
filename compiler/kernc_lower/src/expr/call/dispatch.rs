@@ -308,7 +308,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
 
                 arg_masts.insert(0, final_recv);
-                let mono_id = self.instantiate_function(func_id, &resolved_impl_args);
+                let mono_id = self.instantiate_function_at(func_id, &resolved_impl_args, call.span);
                 let func_ref =
                     MastExpr::new(call.norm_callee, MastExprKind::FuncRef(mono_id), call.span);
                 MastExprKind::Call {
@@ -360,7 +360,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             arg_masts.insert(0, recv);
         });
         let func_id = self.measure_phase("                lower_call_static_instantiate", |this| {
-            this.instantiate_function(method_id, generics)
+            this.instantiate_function_at(method_id, generics, call.span)
         });
         self.measure_phase("                lower_call_static_build", |_this| {
             let func_ref =
@@ -390,7 +390,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let mono_id = self.measure_phase("              lower_call_plain_instantiate", |this| {
-            this.instantiate_function(fn_id, &fn_args)
+            this.instantiate_function_at(fn_id, &fn_args, span)
         });
         self.measure_phase("              lower_call_plain_build", |_this| {
             let func_ref = MastExpr::new(callee_mast.ty, MastExprKind::FuncRef(mono_id), span);
@@ -623,7 +623,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn lower_generic_instantiation(&mut self, concrete_ty: TypeId) -> MastExprKind {
+    pub(crate) fn lower_generic_instantiation(
+        &mut self,
+        concrete_ty: TypeId,
+        span: Span,
+    ) -> MastExprKind {
         let fn_info =
             if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(concrete_ty) {
                 Some((*fn_id, fn_args.clone()))
@@ -631,7 +635,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 None
             };
         if let Some((fn_id, fn_args)) = fn_info {
-            let mono_id = self.instantiate_function(fn_id, &fn_args);
+            let mono_id = self.instantiate_function_at(fn_id, &fn_args, span);
             MastExprKind::FuncRef(mono_id)
         } else {
             MastExprKind::Integer(0)

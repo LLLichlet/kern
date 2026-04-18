@@ -1,6 +1,7 @@
 ---
 import SiteFooter from "@/components/SiteFooter.astro";
 import SiteHeader from "@/components/SiteHeader.astro";
+import { loadBrandSvg } from "@/lib/brand";
 import "@/styles/global.css";
 import { siteMeta } from "@/lib/site";
 
@@ -11,6 +12,8 @@ interface Props {
 
 const { title, description = siteMeta.description } = Astro.props;
 const pageTitle = title ? `${title} | ${siteMeta.title}` : siteMeta.title;
+const faviconSvg = loadBrandSvg();
+const faviconHref = `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`;
 ---
 
 <!doctype html>
@@ -20,9 +23,10 @@ const pageTitle = title ? `${title} | ${siteMeta.title}` : siteMeta.title;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#354a5e" />
+    <link rel="icon" type="image/svg+xml" href={faviconHref} />
   </head>
-  <body class="grain">
+  <body>
     <SiteHeader />
     <main>
       <slot />

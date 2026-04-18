@@ -165,5 +165,5 @@ Use this mental model:
 - if Kern already owns a specific zero-cost boundary packaging rule, BNC may apply
 - do not expect BNC to erase ABI or layout differences
 
-Kern is aiming for explicitness without unnecessary boilerplate, not for a
-"convert whatever fits" type system.
+The goal is explicit conversion rules without turning the type system into
+"convert whatever fits".

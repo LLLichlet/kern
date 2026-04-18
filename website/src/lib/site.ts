@@ -7,11 +7,9 @@ export const siteMeta = {
 };
 
 export const navItems = [
-  { href: "/", label: "Home" },
+  { href: "/install", label: "Install" },
   { href: "/guide", label: "Guide" },
   { href: "/reference", label: "Reference" },
-  { href: "/tooling", label: "Tooling" },
-  { href: "/architecture", label: "Architecture" },
   { href: "/docs", label: "Docs" }
 ];
 
@@ -48,25 +46,29 @@ export const referenceTracks = [
     title: "Language",
     description:
       "Types, control flow, traits, modules, intrinsics, inline assembly, and compile-time behavior.",
-    href: `${siteMeta.repoUrl}/blob/main/docs/design.md`
+    href: "/reference/language",
+    sourceHref: `${siteMeta.repoUrl}/blob/main/docs/design.md`
   },
   {
     title: "Runtime And Libraries",
     description:
       "The `base` / `sys` / `rt` / `std` model, freestanding versus hosted, and libc policy.",
-    href: `${siteMeta.repoUrl}/blob/main/docs/runtime-architecture.md`
+    href: "/reference/runtime",
+    sourceHref: `${siteMeta.repoUrl}/blob/main/docs/runtime-architecture.md`
   },
   {
     title: "Compiler Driver",
     description:
       "Driver modes, runtime/library flags, LLVM emission, linking, CGUs, and LTO behavior.",
-    href: `${siteMeta.repoUrl}/blob/main/docs/kernc.md`
+    href: "/reference/kernc",
+    sourceHref: `${siteMeta.repoUrl}/blob/main/docs/kernc.md`
   },
   {
     title: "Package Manager",
     description:
       "Workspaces, `Craft.lock`, dependency resolution, build plans, and execution.",
-    href: `${siteMeta.repoUrl}/blob/main/docs/craft.md`
+    href: "/reference/craft",
+    sourceHref: `${siteMeta.repoUrl}/blob/main/docs/craft.md`
   }
 ];
 
@@ -75,25 +77,25 @@ export const toolingProducts = [
     name: "kernc",
     summary:
       "The compiler and linker driver. It owns compilation of one explicit source entry or explicit link-only actions.",
-    href: "/reference"
+    href: "/reference/kernc"
   },
   {
     name: "craft",
     summary:
       "The package manager and build orchestrator. It owns workspaces, lockfiles, dependency resolution, and action graphs.",
-    href: `${siteMeta.repoUrl}/blob/main/docs/craft.md`
+    href: "/reference/craft"
   },
   {
     name: "kern-lsp",
     summary:
       "The language server. It reuses compiler analysis rather than implementing a separate frontend.",
-    href: `${siteMeta.repoUrl}/blob/main/tools/lsp/README.md`
+    href: "/tooling/editor-setup"
   },
   {
     name: "VS Code Extension",
     summary:
       "The first-party editor integration that launches `kern-lsp` and packages the language assets.",
-    href: `${siteMeta.repoUrl}/tree/main/editors/vscode`
+    href: "/tooling/editor-setup"
   }
 ];
 

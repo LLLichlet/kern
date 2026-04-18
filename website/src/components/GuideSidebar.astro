@@ -9,9 +9,14 @@ interface Props {
 const { entries, currentId } = Astro.props;
 ---
 
-<aside class="card-surface rounded-[1.75rem] p-5 md:p-6">
-  <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-olive)]">
-    Guide Map
+<aside class="guide-map card-surface rounded-lg p-5 md:p-6">
+  <div class="flex items-center justify-between gap-4">
+    <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">
+      Guide Map
+    </div>
+    <div class="text-[11px] tracking-[0.12em] text-[color:rgba(17,21,26,0.56)]">
+      {entries.length} chapters
+    </div>
   </div>
   <nav class="mt-5 flex flex-col gap-2">
     {
@@ -20,10 +25,10 @@ const { entries, currentId } = Astro.props;
         return (
           <a
             class:list={[
-              "rounded-2xl px-4 py-3 transition",
+              "rounded-md px-4 py-3 transition",
               isActive
-                ? "bg-[rgba(50,86,71,0.1)] text-[color:var(--kern-olive)]"
-                : "text-[color:rgba(20,33,29,0.76)] hover:bg-[rgba(50,86,71,0.06)] hover:text-[color:var(--kern-clay)]"
+                ? "bg-[color:var(--kern-soft)] text-[color:var(--kern-steel)]"
+                : "text-[color:rgba(21,26,32,0.76)] hover:bg-[color:var(--kern-soft)] hover:text-[color:var(--kern-steel-strong)]"
             ]}
             href={`/guide/${entry.id}/`}
           >

@@ -1,0 +1,189 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { siteMeta } from "@/lib/site";
+---
+
+<BaseLayout title="SDK Layout" description="What the Kern SDK archive contains, how release artifacts are split, and why the packaged toolchain layout is explicit.">
+  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
+    <div class="eyebrow">SDK Layout</div>
+    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+      SDK layout and artifacts
+    </h1>
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      This page describes what the released SDK contains, how it is laid out on disk,
+      and how that differs from standalone toolchain artifacts and editor packaging.
+    </p>
+
+    <div class="manual-callout mt-10">
+      <div class="manual-kicker">SDK Summary</div>
+      <ul class="mt-4 space-y-2 text-base">
+        <li>The SDK archive is the normal user-facing release artifact.</li>
+        <li>The standalone toolchain archive exists for CI, bootstrap, and controlled validation.</li>
+        <li>The VSIX is an editor integration artifact, not a replacement for the SDK itself.</li>
+      </ul>
+    </div>
+
+    <section class="manual-section">
+      <h2>Three release artifacts, three different jobs</h2>
+      <div class="manual-grid manual-grid-3 mt-6">
+        <section>
+          <div class="manual-kicker">SDK archive</div>
+          <p class="mt-3 text-base">
+            This is the normal artifact users install. It contains the Kern tools, the shipped library layers, and the packaged host toolchain layout.
+          </p>
+        </section>
+
+        <section>
+          <div class="manual-kicker">Standalone toolchain archive</div>
+          <p class="mt-3 text-base">
+            This is mainly for CI, bootstrap, and controlled host-tool validation. It is not the normal first thing an end user should download.
+          </p>
+        </section>
+
+        <section>
+          <div class="manual-kicker">VSIX / editor artifact</div>
+          <p class="mt-3 text-base">
+            The editor extension is a separate artifact that can bundle a platform-specific `kern-lsp`, but it does not replace the SDK.
+          </p>
+        </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Current SDK directory shape</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        The active release layout is deliberately moving toward a real SDK shape instead of ad-hoc packaging scripts.
+        The current archive already exposes the important structure directly.
+      </p>
+      <pre class="doc-code"><code>{`kern-<version>-<host-target>/
+  bin/
+  lib/kern/
+  manifest/sdk.json
+  toolchain/
+    host/
+      bin/
+      lib/
+      include/
+      sysroot/`}</code></pre>
+      <ul class="mt-5 space-y-3 text-base">
+        <li>`bin/` contains the host-facing Kern tools: `kernc`, `craft`, and `kern-lsp`.</li>
+        <li>`lib/kern/` contains the official shipped library layers: `base`, `sys`, `rt`, and `std`.</li>
+        <li>`manifest/sdk.json` records the SDK layout and the toolchain resolution metadata.</li>
+        <li>`toolchain/host/` contains the packaged host LLVM/Clang prefix used for release validation.</li>
+      </ul>
+    </section>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+        <section>
+          <h2 class="text-3xl text-[color:var(--kern-ink)]">What `sdk.json` is for</h2>
+          <p class="mt-4 text-base">
+            `manifest/sdk.json` is the structured description of the installed SDK:
+            binaries, library layers, toolchain layout, resolution strategy, and bundled component paths.
+          </p>
+          <ul class="mt-5 space-y-3 text-base">
+            <li>It records the SDK version and host target.</li>
+            <li>It records the toolchain resolver order.</li>
+            <li>It records whether the SDK is bundled-first or system-fallback.</li>
+            <li>It records the current packaged layout paths under `toolchain/host/`.</li>
+            <li>It can also carry per-component checksum and size metadata for packaged toolchain entries.</li>
+          </ul>
+        </section>
+
+        <section>
+          <div class="manual-kicker">Why the packaged toolchain exists</div>
+          <p class="mt-4 text-base">
+            The release model is trying to remove dependence on lucky host state. That is why the SDK prefers the packaged host toolchain when present.
+          </p>
+          <ul class="mt-5 space-y-3 text-base">
+            <li>It keeps the release environment closer to the environment users actually execute.</li>
+            <li>It stops release quality from depending on whatever LLVM happens to be on a CI runner.</li>
+            <li>It gives source-build and ambient PATH usage a lower-priority fallback role instead of making them the primary install path.</li>
+          </ul>
+        </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Toolchain resolution order</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        The intended installed-SDK behavior is already explicit. When `kernc` needs a host toolchain, the current resolver order is:
+      </p>
+      <ol class="mt-5 list-decimal space-y-3 pl-5 text-base">
+        <li>explicit `--toolchain-root`</li>
+        <li>SDK-relative bundled toolchain</li>
+        <li>explicit environment overrides</li>
+        <li>system `PATH`</li>
+      </ol>
+      <p class="mt-5 text-base">
+        That order matters because it makes the installed SDK self-describing and relocatable, while still leaving source-build and local override escape hatches available.
+      </p>
+    </section>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+        <section>
+          <h2 class="text-3xl text-[color:var(--kern-ink)]">What is bundled, and what is not</h2>
+          <ul class="mt-5 space-y-3 text-base">
+            <li>The packaged host LLVM/Clang prefix lives under `toolchain/host/`.</li>
+            <li>The Kern tools and official library layers live in the SDK root itself.</li>
+            <li>Platform SDKs and libc baselines are still host responsibilities unless Kern explicitly vendors them later.</li>
+            <li>That is why a bundled toolchain does not remove every host runtime dependency question.</li>
+          </ul>
+        </section>
+
+        <section>
+          <div class="manual-kicker">Why some archives are large</div>
+          <p class="mt-4 text-base">
+            The SDK is intentionally heavier than a bare three-binary download because it carries the packaged host toolchain layout.
+            On Windows in particular, first install can take noticeable time because the archive is large and antivirus scanning can be aggressive.
+          </p>
+        </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+        <section>
+          <div class="manual-kicker">This also explains the install scripts</div>
+          <p class="mt-4 text-base">
+            The user-facing contract stays native: `install.sh` on Unix and `install.ps1` on Windows.
+            The Python `ops` entrypoints remain the canonical repository and CI control flow, but they are not the user-facing install contract.
+          </p>
+        </section>
+
+        <section>
+          <div class="manual-kicker">What this page is trying to make explicit</div>
+          <p class="mt-4 text-base">
+            The release model is intentionally concrete: a visible SDK layout, visible manifest, visible host-tool payload,
+            and a clean distinction between user install artifacts, repository packaging flow, and editor integration.
+          </p>
+        </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Related documents</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        This page covers the public SDK shape. More detailed release engineering policy still lives in the repository docs for now.
+      </p>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href="/install">
+          Install
+        </a>
+        <a class="button-secondary" href="/build-from-source">
+          Build from source
+        </a>
+        <a class="button-secondary" href={`${siteMeta.repoUrl}/blob/main/docs/sdk-rebuild-plan.md`} target="_blank" rel="noreferrer">
+          SDK rebuild plan
+        </a>
+        <a class="button-secondary" href={`${siteMeta.repoUrl}/blob/main/docs/windows-distribution.md`} target="_blank" rel="noreferrer">
+          Windows distribution
+        </a>
+        <a class="button-secondary" href={`${siteMeta.repoUrl}/blob/main/docs/unix-distribution.md`} target="_blank" rel="noreferrer">
+          Unix distribution
+        </a>
+      </div>
+    </section>
+  </section>
+</BaseLayout>

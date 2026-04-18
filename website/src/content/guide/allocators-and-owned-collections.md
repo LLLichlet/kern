@@ -229,5 +229,5 @@ Use this rule set:
 - use `as_slice()` and `as_str()` when you want borrowed views
 - clean up with the same ownership model you allocated with
 
-That keeps Kern's container story explicit without making routine code
-painfully verbose.
+That keeps ownership explicit without making routine code unnecessarily
+verbose.

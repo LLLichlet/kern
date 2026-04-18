@@ -1,42 +1,132 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import GuideSidebar from "@/components/GuideSidebar.astro";
 import { getCollection } from "astro:content";
 
 const guideEntries = (await getCollection("guide")).sort((left, right) => left.data.order - right.data.order);
+const starterEntries = guideEntries.filter((entry) => entry.data.order <= 4);
+const coreEntries = guideEntries.filter((entry) => entry.data.order >= 5 && entry.data.order <= 8);
+const runtimeEntries = guideEntries.filter((entry) => entry.data.order >= 9 && entry.data.order <= 15);
+const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
 ---
 
 <BaseLayout title="Guide" description="The structured learning path for Kern.">
-  <section class="mx-auto grid max-w-6xl gap-8 px-5 pb-20 pt-14 md:px-8 md:pt-18 lg:grid-cols-[0.8fr_1.2fr]">
-    <GuideSidebar entries={guideEntries} />
-
-    <div>
+  <section class="mx-auto max-w-6xl px-5 pb-20 pt-14 md:px-8 md:pt-18">
+    <div class="max-w-4xl">
       <div class="eyebrow">Guide</div>
       <h1 class="mt-6 text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
-        The public learning path starts here.
+        Learn Kern in a few stages, not in one endless page.
       </h1>
-      <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(20,33,29,0.76)]">
-        This section is the website-native guide layer. It is where Kern should
-        gain a real onboarding path instead of asking readers to jump straight
-        into repository reference docs.
+      <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+        Start with the short path first. Then move deeper into language,
+        runtime, and build topics as needed. The full chapter index is still
+        available below, but it does not need to dominate the page.
       </p>
+    </div>
 
-      <div class="mt-10 grid gap-4">
-        {
-          guideEntries.map((entry) => (
-            <a
-              class="card-surface rounded-[1.75rem] p-6 transition hover:-translate-y-1 hover:border-[rgba(182,95,58,0.22)]"
-              href={`/guide/${entry.id}/`}
-            >
-              <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-olive)]">
-                Chapter {entry.data.order}
-              </div>
-              <h2 class="mt-4 text-3xl text-[color:var(--kern-ink)]">{entry.data.title}</h2>
-              <p class="mt-4 text-base leading-8 text-[color:rgba(20,33,29,0.74)]">{entry.data.summary}</p>
-            </a>
-          ))
-        }
-      </div>
+    <div class="mt-10 grid gap-4 md:grid-cols-2">
+      <section class="card-surface rounded-lg p-6">
+        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Recommended first</div>
+        <div class="mt-5 space-y-4">
+          {
+            starterEntries.map((entry) => (
+              <a class="block rounded-md border border-[color:var(--kern-line)] px-4 py-4 transition hover:bg-[color:var(--kern-soft)]" href={`/guide/${entry.id}/`}>
+                <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">
+                  Chapter {entry.data.order}
+                </div>
+                <div class="mt-2 text-xl font-semibold text-[color:var(--kern-ink)]">{entry.data.title}</div>
+                <p class="mt-2 text-sm leading-7 text-[color:rgba(21,26,32,0.72)]">{entry.data.summary}</p>
+              </a>
+            ))
+          }
+        </div>
+      </section>
+
+      <section class="card-surface rounded-lg p-6">
+        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Start sequence</div>
+        <ol class="mt-5 list-decimal space-y-3 pl-5 text-base leading-8 text-[color:rgba(21,26,32,0.74)]">
+          <li>Read the overview and getting started chapters first.</li>
+          <li>Read the language tour before diving into the full design reference.</li>
+          <li>Move into runtime, pointers, ABI, and interop once the basic source model feels natural.</li>
+          <li>Use the reference when you need exact rules rather than tutorial pacing.</li>
+        </ol>
+        <div class="mt-6 flex flex-wrap gap-3">
+          <a class="button-primary" href="/guide/getting-started/">
+            Start with Getting Started
+          </a>
+          <a class="button-secondary" href="/reference/language">
+            Open language reference
+          </a>
+        </div>
+      </section>
+    </div>
+
+    <div class="mt-10 grid gap-4 md:grid-cols-2">
+      <section class="card-surface rounded-lg p-6">
+        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Language Core</div>
+        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:rgba(21,26,32,0.74)]">
+          {
+            coreEntries.map((entry) => (
+              <li>
+                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={`/guide/${entry.id}/`}>
+                  Chapter {entry.data.order}: {entry.data.title}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+
+      <section class="card-surface rounded-lg p-6">
+        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Runtime And Libraries</div>
+        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:rgba(21,26,32,0.74)]">
+          {
+            runtimeEntries.slice(0, 6).map((entry) => (
+              <li>
+                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={`/guide/${entry.id}/`}>
+                  Chapter {entry.data.order}: {entry.data.title}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+    </div>
+
+    <div class="mt-4 grid gap-4 md:grid-cols-2">
+      <section class="card-surface rounded-lg p-6">
+        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Systems Topics</div>
+        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:rgba(21,26,32,0.74)]">
+          {
+            systemsEntries.slice(0, 10).map((entry) => (
+              <li>
+                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={`/guide/${entry.id}/`}>
+                  Chapter {entry.data.order}: {entry.data.title}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+
+      <details class="card-surface rounded-lg p-6">
+        <summary class="flex cursor-pointer items-center justify-between gap-4 text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">
+          <span>Complete Chapter Index</span>
+          <span class="text-[11px] tracking-[0.12em] text-[color:rgba(17,21,26,0.56)]">{guideEntries.length} chapters</span>
+        </summary>
+        <div class="mt-5 space-y-4">
+          {
+            guideEntries.map((entry) => (
+              <a class="block rounded-md border border-[color:var(--kern-line)] px-4 py-4 transition hover:bg-[color:var(--kern-soft)]" href={`/guide/${entry.id}/`}>
+                <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">
+                  Chapter {entry.data.order}
+                </div>
+                <div class="mt-2 text-lg font-semibold text-[color:var(--kern-ink)]">{entry.data.title}</div>
+                <p class="mt-2 text-sm leading-7 text-[color:rgba(21,26,32,0.72)]">{entry.data.summary}</p>
+              </a>
+            ))
+          }
+        </div>
+      </details>
     </div>
   </section>
 </BaseLayout>

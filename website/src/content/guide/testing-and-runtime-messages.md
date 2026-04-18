@@ -136,5 +136,5 @@ Reach for:
 - `std.test.eq` / `not_eq` / `assert` for executable checks
 - `std.test.expect_*` when you want to assert carrier shape directly
 
-That gives Kern a small but clear testing and diagnostics story without hiding
-failure policy under exceptions or global magic.
+That keeps testing and diagnostics small and explicit, without hiding failure
+policy under exceptions or global state.

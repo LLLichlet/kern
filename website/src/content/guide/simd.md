@@ -170,8 +170,8 @@ let total = @simdReduceAdd(clipped);
 
 is a horizontal reduction.
 
-Kern makes that boundary explicit instead of pretending lane-wise arithmetic
-and scalar reduction are the same kind of operation.
+Kern keeps that boundary explicit instead of treating lane-wise arithmetic and
+scalar reduction as the same kind of operation.
 
 ## Diagnostic Rules Worth Remembering
 
@@ -205,5 +205,5 @@ Think about Kern SIMD this way:
 - masks are values, not hidden control-flow state
 - scalarization happens only when you ask for it
 
-That gives Kern a serious SIMD story without smuggling platform-specific
-intrinsic culture into ordinary source code.
+This keeps SIMD operations explicit without folding platform-specific
+intrinsic conventions into ordinary source code.

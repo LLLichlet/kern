@@ -1,0 +1,122 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { siteMeta } from "@/lib/site";
+---
+
+<BaseLayout title="Build From Source" description="Build Kern from source for local development, and understand how that differs from release-quality packaging.">
+  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
+    <div class="eyebrow">Build From Source</div>
+    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+      Source builds are for local development, contribution, and host-specific recovery.
+    </h1>
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      If the official archive is not the right fit for your machine, or you are working on Kern itself,
+      build from source. Just keep one distinction explicit: a normal local build is not the same thing
+      as a release-quality packaged SDK.
+    </p>
+
+    <div class="manual-callout mt-10">
+      <div class="manual-kicker">Source Build Summary</div>
+      <ul class="mt-4 space-y-2 text-base">
+        <li>Use source builds when you are contributing, debugging, or recovering on a host where the release baseline is not appropriate.</li>
+        <li>A normal local build produces host tools under `target/release/` for day-to-day development.</li>
+        <li>Official archives still go through repository packaging scripts and platform policy checks.</li>
+      </ul>
+    </div>
+
+    <section class="manual-section">
+      <h2 class="text-3xl text-[color:var(--kern-ink)]">Local development build</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        The shortest local path is still the repository root plus Cargo. You need a current stable Rust toolchain and
+        the host LLVM development libraries available on your machine.
+      </p>
+      <pre class="doc-code"><code>{`git clone https://github.com/softfault/kern.git
+cd kern
+cargo build --release`}</code></pre>
+      <p class="mt-5 text-base">
+        That produces the host-facing tools in `target/release/`: `kernc`, `craft`, and `kern-lsp`.
+      </p>
+    </section>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+      <section>
+        <div class="manual-kicker">When A Source Build Is The Right Answer</div>
+        <ul class="mt-4 space-y-2 text-base">
+          <li>Your Unix machine is older than the official release archive's libc baseline.</li>
+          <li>You are changing compiler, `craft`, or `kern-lsp` code locally.</li>
+          <li>You want to debug the repository build and test flow directly.</li>
+          <li>You want to stage local binaries for editor or packaging work without waiting for a formal release.</li>
+        </ul>
+      </section>
+
+      <section>
+        <div class="manual-kicker">What This Path Does Not Promise</div>
+        <ul class="mt-4 space-y-2 text-base">
+          <li>It does not automatically produce the same layout as the official SDK archive.</li>
+          <li>It does not automatically enforce the official Windows static-CRT packaging policy.</li>
+          <li>It does not replace the release packaging scripts or release verification steps.</li>
+        </ul>
+      </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+      <section>
+        <div class="manual-kicker">Release-Quality Windows Host Tools</div>
+        <p class="mt-4 text-base">
+          Windows has one important explicit rule: the official archive is built for the real Cargo target triple
+          `x86_64-pc-windows-msvc`, but the release artifact is labeled `x86_64-windows-msvc`.
+        </p>
+        <pre class="doc-code"><code>{`cargo build --release --target x86_64-pc-windows-msvc -p kernc_cli --bin kernc
+cargo build --release --target x86_64-pc-windows-msvc -p craft
+cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
+
+py -3 -m ops release package --version v0.7.0 --target x86_64-windows-msvc`}</code></pre>
+        <p class="mt-5 text-base">
+          The packaging path is authoritative because it handles the Windows label mapping and static CRT policy explicitly.
+        </p>
+      </section>
+
+      <section>
+        <div class="manual-kicker">Release-Quality Unix Archives</div>
+        <p class="mt-4 text-base">
+          Unix release archives also go through the repository packaging path rather than treating a plain local build as a shippable SDK.
+        </p>
+        <pre class="doc-code"><code>{`python3 -m ops release package --version v0.7.0 --target x86_64-linux-gnu
+python3 -m ops release package --version v0.7.0 --target x86_64-apple-darwin
+python3 -m ops release package --version v0.7.0 --target aarch64-apple-darwin`}</code></pre>
+        <p class="mt-5 text-base">
+          Those archive labels are bounded host release identities, not a claim of universal cross-host compatibility.
+        </p>
+      </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2 class="text-3xl text-[color:var(--kern-ink)]">Where to go next</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        Once the tools build locally, the next question is usually one of two things: how to start using them,
+        or how the release/distribution policy works in detail.
+      </p>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href="/guide/getting-started/">
+          Open Getting Started
+        </a>
+        <a class="button-secondary" href="/sdk">
+          SDK layout and artifacts
+        </a>
+        <a class="button-secondary" href="/tooling/editor-setup">
+          Configure the editor
+        </a>
+        <a class="button-secondary" href={`${siteMeta.repoUrl}/blob/main/docs/windows-distribution.md`} target="_blank" rel="noreferrer">
+          Windows distribution policy
+        </a>
+        <a class="button-secondary" href={`${siteMeta.repoUrl}/blob/main/docs/unix-distribution.md`} target="_blank" rel="noreferrer">
+          Unix distribution policy
+        </a>
+      </div>
+    </section>
+  </section>
+</BaseLayout>

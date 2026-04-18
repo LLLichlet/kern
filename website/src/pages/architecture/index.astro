@@ -4,40 +4,42 @@ import { architectureLayers } from "@/lib/site";
 ---
 
 <BaseLayout title="Architecture" description="Compiler pipeline overview for the current Kern implementation.">
-  <section class="mx-auto max-w-6xl px-5 pb-20 pt-14 md:px-8 md:pt-18">
+  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
     <div class="eyebrow">Architecture</div>
     <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
-      The implementation has distinct layers. The docs should preserve them.
+      Architecture
     </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(20,33,29,0.76)]">
-      Kern is no longer a one-box "compiler" story. The current implementation
-      has separate frontend, analysis, lowering, MIR, and backend layers, plus
-      separate product tooling on top. This page gives the website an explicit
-      architectural spine.
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      This page outlines the current implementation layers: frontend, analysis,
+      lowering, MIR, backend, and the surrounding tooling.
     </p>
 
-    <div class="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <section class="manual-section">
+      <h2>Implementation layers</h2>
+      <div class="manual-directory mt-6">
       {
         architectureLayers.map((layer) => (
-          <article class="card-surface rounded-[1.75rem] p-6">
-            <h2 class="text-3xl text-[color:var(--kern-ink)]">{layer.title}</h2>
-            <p class="mt-4 text-base leading-8 text-[color:rgba(20,33,29,0.72)]">{layer.body}</p>
-          </article>
+          <div class="manual-directory-item">
+            <div class="manual-directory-heading">
+              <div class="manual-directory-title">{layer.title}</div>
+              <div class="manual-directory-meta">Layer</div>
+            </div>
+            <div class="manual-directory-body">{layer.body}</div>
+          </div>
         ))
       }
-    </div>
-
-    <div class="card-surface mt-10 rounded-[2rem] p-7 md:p-8">
-      <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-olive)]">
-        Current pipeline
       </div>
-      <pre class="mt-5 overflow-x-auto rounded-[1.5rem] bg-[rgba(20,33,29,0.04)] p-5 text-sm leading-7 text-[color:rgba(20,33,29,0.8)]"><code>{`source
+    </section>
+
+    <section class="manual-section">
+      <h2>Current pipeline</h2>
+      <pre class="doc-code"><code>{`source
   -> lexer/parser -> AST
   -> semantic analysis
   -> Flow analysis
   -> MAST lowering
   -> MIR construction and optimization
   -> LLVM IR / object emission / linking`}</code></pre>
-    </div>
+    </section>
   </section>
 </BaseLayout>

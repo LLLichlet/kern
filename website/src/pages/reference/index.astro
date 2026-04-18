@@ -4,43 +4,53 @@ import { referenceTracks } from "@/lib/site";
 ---
 
 <BaseLayout title="Reference" description="The current reference map for Kern language, runtime, compiler, and package behavior.">
-  <section class="mx-auto max-w-6xl px-5 pb-20 pt-14 md:px-8 md:pt-18">
+  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
     <div class="eyebrow">Reference</div>
     <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
-      The reference surface should be explicit, not improvised.
+      Reference
     </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(20,33,29,0.76)]">
-      Kern already has real technical reference material in the repository. This
-      page makes the reference model visible on the website before every detail
-      has been migrated into website-native pages.
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      This page maps the current reference surface on the website. Some parts are
+      already website-native; others still point at authoritative repository documents.
     </p>
 
-    <div class="mt-10 grid gap-4 md:grid-cols-2">
-      {
-        referenceTracks.map((track) => (
-          <a
-            class="card-surface rounded-[1.75rem] p-6 transition hover:-translate-y-1 hover:border-[rgba(50,86,71,0.2)]"
-            href={track.href}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <h2 class="text-3xl text-[color:var(--kern-ink)]">{track.title}</h2>
-            <p class="mt-4 text-base leading-8 text-[color:rgba(20,33,29,0.72)]">{track.description}</p>
-          </a>
-        ))
-      }
+    <div class="manual-callout mt-10">
+      <div class="manual-kicker">Reference Summary</div>
+      <ul class="mt-4 space-y-2 text-base">
+        <li>Language, runtime, compiler driver, and package manager each have separate reference tracks.</li>
+        <li>Website-native pages should only replace repository docs when they are equally authoritative.</li>
+        <li>Until then, this index should point to the real source of truth instead of hiding the transition.</li>
+      </ul>
     </div>
 
-    <div class="card-surface mt-10 rounded-[2rem] p-7 md:p-8">
-      <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-olive)]">
-        Migration rule
+    <section class="manual-section">
+      <h2>Reference tracks</h2>
+      <div class="manual-directory mt-6">
+        {
+          referenceTracks.map((track) => (
+            <div class="manual-directory-item">
+              <div class="manual-directory-heading">
+                <div class="manual-directory-title">{track.title}</div>
+                <div class="manual-directory-meta">Reference</div>
+              </div>
+              <div class="manual-directory-body">{track.description}</div>
+              <div class="manual-directory-links">
+                <a href={track.href}>Open website reference</a>
+                <a href={track.sourceHref} target="_blank" rel="noreferrer">Open repository source</a>
+              </div>
+            </div>
+          ))
+        }
       </div>
-      <p class="mt-5 max-w-3xl text-base leading-8 text-[color:rgba(20,33,29,0.76)]">
-        Website-native reference pages should only replace repository docs when
-        they become equally authoritative and are maintained with the same
-        discipline. Until then, this page should point to the real source of truth
-        instead of pretending the migration is already complete.
+    </section>
+
+    <section class="manual-section">
+      <h2>Migration rule</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        Website-native reference pages should replace repository docs only when
+        they become equally authoritative and are maintained with the same discipline.
+        Until then, this index should continue to point at the current source of truth.
       </p>
-    </div>
+    </section>
   </section>
 </BaseLayout>

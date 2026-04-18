@@ -1,0 +1,150 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { siteMeta } from "@/lib/site";
+---
+
+<BaseLayout title="Editor Setup" description="Set up VS Code and kern-lsp for a practical Kern editing workflow.">
+  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
+    <div class="eyebrow">Editor Setup</div>
+    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+      Configure the editor
+    </h1>
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      The normal editor path is VS Code plus the first-party extension. The extension
+      starts `kern-lsp` over stdio and reuses compiler analysis directly.
+    </p>
+
+    <div class="manual-callout mt-10">
+      <div class="manual-kicker">Editor Setup Summary</div>
+      <ul class="mt-4 space-y-2 text-base">
+        <li>Start from a working Kern install or a local source build that already produces `kern-lsp`.</li>
+        <li>The current stack already provides diagnostics, hover, completion, rename, semantic tokens, and code actions.</li>
+        <li>The extension can resolve `kern-lsp` from an explicit path, a bundled binary, a workspace build, or `PATH`.</li>
+      </ul>
+    </div>
+
+    <section class="manual-section">
+      <h2>Recommended path</h2>
+      <ol class="mt-5 list-decimal space-y-3 pl-5 text-base">
+          <li>Install Kern through the official installer or build it from source.</li>
+          <li>Open VS Code on your Kern workspace.</li>
+          <li>Install the first-party extension from `editors/vscode` or the packaged VSIX release when available.</li>
+          <li>Open a `.rn` file and confirm the editor activates Kern language support.</li>
+      </ol>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href="/install">
+          Install
+        </a>
+        <a class="button-secondary" href="/build-from-source">
+          Build from source
+        </a>
+        <a class="button-secondary" href={`${siteMeta.repoUrl}/tree/main/editors/vscode`} target="_blank" rel="noreferrer">
+          Extension source
+        </a>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>What the extension provides</h2>
+      <ul class="mt-5 space-y-3 text-base">
+          <li>Kern language registration for `.rn` files.</li>
+          <li>Language icon plus the optional `Kern Icons` file icon theme.</li>
+          <li>Diagnostics, hover, completion, rename, semantic tokens, and code actions through `kern-lsp`.</li>
+          <li>Commands for restarting the server, showing server output, and refreshing `craft` analysis context.</li>
+      </ul>
+    </section>
+
+    <section class="manual-section">
+      <h2>Language server resolution order</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        The current extension resolves the language server in a deliberately practical order:
+      </p>
+      <ol class="mt-5 list-decimal space-y-3 pl-5 text-base">
+        <li>`kern.server.path`</li>
+        <li>a bundled `kern-lsp` inside the extension</li>
+        <li>`target/debug/kern-lsp` or `target/release/kern-lsp` in the current workspace</li>
+        <li>`kern-lsp` on `PATH`</li>
+      </ol>
+      <p class="mt-5 text-base">
+        That makes repository-local extension development convenient without blocking separately installed toolchains.
+      </p>
+    </section>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+        <section>
+          <h2 class="text-3xl text-[color:var(--kern-ink)]">Useful settings</h2>
+          <p class="mt-4 text-base">
+          The first settings most users actually need are the server path, optional extra args, and the `craft` feature context used for analysis.
+          </p>
+          <pre class="doc-code"><code>{`{
+  "kern.server.path": "",
+  "kern.server.args": [],
+  "kern.server.env": {
+    "KERN_DEV": "1"
+  },
+  "kern.project.features": ["experimental"],
+  "kern.project.noDefaultFeatures": false
+}`}</code></pre>
+        </section>
+
+        <section>
+          <div class="manual-kicker">When analysis looks stale</div>
+          <ul class="mt-5 space-y-3 text-base">
+            <li>Run `Kern: Refresh Craft Analysis Context` after changing active features or environment assumptions.</li>
+            <li>Use `Kern: Restart Language Server` if the process path or environment changed underneath the extension.</li>
+            <li>Use `Kern: Show Language Server Output` when you need to see startup and diagnostics behavior directly.</li>
+          </ul>
+        </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+        <section>
+          <h2 class="text-3xl text-[color:var(--kern-ink)]">Repository extension development</h2>
+          <p class="mt-4 text-base">
+            If you are working on the extension itself, the repository path remains direct:
+          </p>
+          <pre class="doc-code"><code>{`cd editors/vscode
+npm ci
+npm run compile
+npm run check
+npm run test`}</code></pre>
+          <p class="mt-5 text-base">
+            Then open the repository in VS Code and press `F5` to launch an Extension Development Host.
+          </p>
+        </section>
+
+        <section>
+          <h2 class="text-3xl text-[color:var(--kern-ink)]">VSIX packaging</h2>
+          <p class="mt-4 text-base">
+            Release packaging bundles a platform-specific `kern-lsp` inside the extension so the published VSIX stays self-contained.
+          </p>
+          <pre class="doc-code"><code>{`cargo build -p kern-lsp --release
+cd editors/vscode
+npm run stage:server
+npm run package:vsix -- --target linux-x64`}</code></pre>
+        </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Related documents</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        This page covers the normal editor path. Packaging details and repository-specific release flow still live in the repository for now.
+      </p>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href="/install">
+          Install
+        </a>
+        <a class="button-secondary" href="/build-from-source">
+          Build from source
+        </a>
+        <a class="button-secondary" href={`${siteMeta.repoUrl}/tree/main/editors/vscode`} target="_blank" rel="noreferrer">
+          VS Code extension source
+        </a>
+      </div>
+    </section>
+  </section>
+</BaseLayout>

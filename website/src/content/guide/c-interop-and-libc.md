@@ -219,5 +219,5 @@ For actual foreign calls:
 - pass `*u8` where the C ABI expects raw C strings
 - use `base.abi.cstr` when the string must be allocated dynamically
 
-That is the low-level, explicit model Kern is aiming for.
-It does not pretend Kern slices, C strings, and libc are all the same thing.
+That is the current low-level interop model.
+Kern slices, C strings, and libc remain separate concepts.

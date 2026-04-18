@@ -1,6 +1,6 @@
 ---
 title: "Intrinsics And Atomics"
-summary: "Use compiler-owned `@...` intrinsics for type queries, bit operations, and explicit atomic/fence primitives without pretending they are ordinary library functions."
+summary: "Use compiler-owned `@...` intrinsics for type queries, bit operations, and explicit atomic and fence primitives."
 order: 23
 ---
 
@@ -110,7 +110,7 @@ atomicrmw xchg ...
 ```
 
 That confirms the current frontend and lowering path is carrying these
-operations as real atomics rather than disguising them as plain calls.
+operations as atomics rather than lowering them as plain calls.
 
 The standard library also exposes named wrappers for these ordering constants,
 but the important language rule is lower-level than the library surface: the
@@ -155,5 +155,4 @@ Keep these rules in mind:
 - bit intrinsics require valid integer-shaped inputs
 - atomic intrinsics require explicit type arguments and explicit compile-time orderings
 
-That explicitness is the point. Kern wants low-level operations to stay visible
-instead of being smuggled through vague helper APIs.
+These operations stay explicit at the language/compiler boundary.

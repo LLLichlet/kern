@@ -1,13 +1,10 @@
 ---
 title: "Closures And Anonymous Functions"
-summary: "Use `.[...]` closure syntax, distinguish closure state from `*Fn` fat pointers, and rely on explicit boundary conversions instead of hidden capture magic."
+summary: "Use `.[...]` closure syntax, distinguish closure state from `*Fn` fat pointers, and understand the current closure boundary model."
 order: 22
 ---
 
-Kern closures are explicit in exactly the places that matter.
-
-They are not magical opaque objects with invisible heap allocation or hidden
-capture rules.
+This chapter describes the current closure model in Kern.
 
 The language keeps two things separate:
 
@@ -131,12 +128,11 @@ Do not blur these two ideas together:
 - a closure expression creates a concrete anonymous state value
 - a `*Fn` or `*mut Fn` is the callable fat-pointer interface around that state
 
-Kern keeps that distinction visible because it avoids a lot of hidden runtime
-policy:
+Kern keeps that distinction visible:
 
-- no secret heap allocation
+- no implicit heap allocation
 - no invisible boxing
-- no pretend "everything is just one closure object" model
+- no collapsed "single closure object" model
 
 ## Advanced Note: Explicit Escape Exists
 
@@ -150,8 +146,7 @@ That means:
 - then build the closure fat pointer intentionally
 
 This is not yet a full heap-allocation tutorial chapter, but the direction is
-important: escaping closure state is explicit systems work, not a hidden
-language side effect.
+important: escaping closure state is explicit systems work.
 
 ## Practical Takeaway
 
@@ -162,5 +157,4 @@ Keep four rules in mind:
 - `*Fn` and `*mut Fn` are distinct callable interfaces
 - escaping closure state is explicit instead of automatic
 
-If you keep those boundaries straight, Kern closures stay predictable and
-low-level in the good sense.
+If you keep those boundaries straight, Kern closures remain predictable.

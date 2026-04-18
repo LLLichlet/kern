@@ -39,7 +39,7 @@ where the update step and termination condition should stay visible.
 
 ## `match`
 
-`match` is where Kern's state-model story becomes most visible.
+`match` makes state distinctions explicit in source.
 
 Given:
 

@@ -1,0 +1,87 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { siteMeta } from "@/lib/site";
+---
+
+<BaseLayout title="Language Reference" description="Current language-reference spine for Kern: values, storage, control flow, traits, modules, intrinsics, and ABI-facing syntax.">
+  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
+    <div class="eyebrow">Language Reference</div>
+    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+      Language reference
+    </h1>
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      This page maps the current language-reference surface: values and storage,
+      control flow, traits and generics, modules, intrinsics, and ABI-facing syntax.
+    </p>
+
+    <div class="manual-callout mt-10">
+      <div class="manual-kicker">Reference Summary</div>
+      <ul class="mt-4 space-y-2 text-base">
+        <li>Values and storage cover primitive scalars, arrays, slices, pointers, optionals, results, `void`, `!`, and storage mutability rules.</li>
+        <li>Control flow covers `if`, `for`, `match`, `let else`, exhaustiveness, divergence, and explicit value use or discard.</li>
+        <li>Abstraction covers traits, generics, associated items, closures, visibility, and Boundary Natural Conversion where the compiler has exact static knowledge.</li>
+      </ul>
+    </div>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+        <section>
+          <h2 class="text-3xl text-[color:var(--kern-ink)]">What belongs in the language track</h2>
+          <ul class="mt-5 space-y-3 text-base">
+          <li>Type spelling and value construction rules.</li>
+          <li>Storage and permission rules such as `let mut`, `*mut T`, `[]mut T`, and volatile pointer families.</li>
+          <li>Pattern syntax and exhaustiveness rules.</li>
+          <li>Trait and generic semantics, including what the compiler rejects structurally.</li>
+          <li>Attributes, inline assembly, and builtin intrinsics that are part of the source language itself.</li>
+          </ul>
+        </section>
+
+        <section>
+          <div class="manual-kicker">Boundaries</div>
+          <ul class="mt-5 space-y-3 text-base">
+          <li>Which package manager target selected a file.</li>
+          <li>Which runtime/library bundle defaults `craft` chooses.</li>
+          <li>How the host tools are packaged into an SDK archive.</li>
+          <li>Editor transport details for `kern-lsp`.</li>
+          </ul>
+        </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Related guide chapters</h2>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href="/guide/language-tour/">
+          Language tour
+        </a>
+        <a class="button-secondary" href="/guide/types-and-bindings/">
+          Types and bindings
+        </a>
+        <a class="button-secondary" href="/guide/enums-and-patterns/">
+          Enums and patterns
+        </a>
+        <a class="button-secondary" href="/guide/traits-and-generics/">
+          Traits and generics
+        </a>
+        <a class="button-secondary" href="/guide/inline-assembly/">
+          Inline assembly
+        </a>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Current authoritative source</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        The full detail still lives in the repository design document while the website-native reference is being built out.
+      </p>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/design.md`} target="_blank" rel="noreferrer">
+          Open language design doc
+        </a>
+        <a class="button-secondary" href="/reference">
+          Back to reference tracks
+        </a>
+      </div>
+    </section>
+  </section>
+</BaseLayout>

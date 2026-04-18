@@ -4,8 +4,8 @@ summary: "See how `craft` and `kernc` fit together, and when to drop down to com
 order: 16
 ---
 
-By the time you can build and run a minimal package, you should also understand
-what layer is doing what work.
+By the time you can build and run a minimal package, it helps to understand
+which layer is doing which work.
 
 ## The Short Version
 
@@ -31,9 +31,8 @@ source
   -> LLVM IR / object emission / linking
 ```
 
-This matters for documentation because the website should describe the current
-pipeline honestly instead of flattening everything into a generic "frontend and
-backend" story.
+The website guide should describe this pipeline directly instead of flattening
+it into a generic "frontend and backend" overview.
 
 ## When To Use `craft`
 
@@ -61,23 +60,20 @@ IR directly:
 kernc --emit-llvm --runtime-entry rt --library-bundle std src/main.rn
 ```
 
-That exact driver flow was exercised while writing this guide against the same
+That driver flow was exercised while writing this guide against the same
 minimal hello-style project used in the earlier chapters.
 
-The output is large, but the command teaches the right lesson:
+The output is large, but the command still illustrates the driver boundary:
 
 - source input is explicit
 - runtime entry is explicit
 - library bundle is explicit
 - LLVM IR is a first-class compiler-driver output mode
 
-## Why This Split Is Good
+## Why The Split Matters
 
-This separation keeps the toolchain understandable:
+This separation keeps the toolchain structure explicit:
 
 - package logic stays in the package tool
 - compiler-driver logic stays in the compiler driver
-- editor semantics can reuse compiler analysis instead of inventing a second frontend
-
-That is a healthier base for a systems language than one giant tool that tries
-to blur all responsibilities together.
+- editor semantics can reuse compiler analysis instead of requiring a separate frontend

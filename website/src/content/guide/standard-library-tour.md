@@ -137,7 +137,7 @@ let gpa = GPA.{ backing: page }..&;
 Then owned results such as `joined`, `normalized`, and `text` are cleaned up
 with `deinit(gpa)`.
 
-Kern does not pretend those allocations are free or ambient.
+Those allocations remain explicit.
 
 ### `std.fs` Separates Lexical Path Work From Real I/O
 
@@ -166,8 +166,7 @@ The actual filesystem effects happen later through calls like:
 - `fs.read_to_string`
 - `fs.remove_file_if_exists`
 
-That split is good because path logic stays testable without pretending it is
-the same thing as I/O.
+That split keeps path logic separate from I/O.
 
 ### `std.proc.args` Wraps The Entry ABI Instead Of Hiding It
 

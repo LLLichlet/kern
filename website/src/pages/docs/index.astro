@@ -4,46 +4,48 @@ import { authoritativeDocs, siteMeta } from "@/lib/site";
 ---
 
 <BaseLayout title="Docs" description="Current authoritative repository documents for Kern.">
-  <section class="mx-auto max-w-5xl px-5 pb-20 pt-14 md:px-8 md:pt-18">
+  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
     <div class="eyebrow">Current reference</div>
     <h1 class="mt-6 text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
-      The repository docs are still the current authority.
+      Repository docs
     </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(20,33,29,0.76)]">
-      This page is intentionally explicit about the transition: the website is
-      now the public-facing surface, but the repository `docs/` remain the
-      authoritative reference until guide and reference material move here in a
-      controlled way.
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      The repository `docs/` remain authoritative until the corresponding guide
+      and reference material has been migrated here.
     </p>
 
-    <div class="mt-10 grid gap-4 md:grid-cols-2">
+    <section class="manual-section">
+      <h2>Authoritative documents</h2>
+      <div class="manual-directory mt-6">
       {
         authoritativeDocs.map((doc) => (
           <a
-            class="card-surface rounded-[1.75rem] p-6 transition hover:-translate-y-1 hover:border-[rgba(50,86,71,0.2)]"
+            class="manual-directory-item"
             href={doc.href}
             target="_blank"
             rel="noreferrer"
           >
-            <h2 class="text-2xl text-[color:var(--kern-ink)]">{doc.title}</h2>
-            <p class="mt-4 text-base leading-8 text-[color:rgba(20,33,29,0.72)]">{doc.description}</p>
+            <div class="manual-directory-heading">
+              <div class="manual-directory-title">{doc.title}</div>
+              <div class="manual-directory-meta">Repository</div>
+            </div>
+            <div class="manual-directory-body">{doc.description}</div>
           </a>
         ))
       }
-    </div>
-
-    <div class="card-surface mt-10 rounded-[2rem] p-7 md:p-8">
-      <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-olive)]">
-        Why this split exists
       </div>
-      <ul class="mt-5 space-y-3 text-base leading-8 text-[color:rgba(20,33,29,0.76)]">
+    </section>
+
+    <section class="manual-section">
+      <h2>Current migration rule</h2>
+      <ul class="mt-5 space-y-3 text-base">
         <li>The compiler and tooling docs already describe the current implementation accurately.</li>
-        <li>The website should become the curated product layer rather than a rushed mirror of every repository file.</li>
+        <li>The website should not become a rushed mirror of every repository file.</li>
         <li>Reference-heavy pages can migrate into the website once their information architecture is settled.</li>
       </ul>
-      <a class="mt-6 inline-flex rounded-full bg-[color:var(--kern-ink)] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[color:var(--kern-olive)]" href={siteMeta.repoUrl} target="_blank" rel="noreferrer">
+      <a class="mt-6 button-primary" href={siteMeta.repoUrl} target="_blank" rel="noreferrer">
         Open repository
       </a>
-    </div>
+    </section>
   </section>
 </BaseLayout>

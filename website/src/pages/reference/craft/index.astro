@@ -1,0 +1,100 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { siteMeta } from "@/lib/site";
+---
+
+<BaseLayout title="craft Reference" description="Current reference for craft: manifests, workspaces, lockfiles, phase separation, scripts, and action-graph execution.">
+  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
+    <div class="eyebrow">Package Manager</div>
+    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+      `craft`
+    </h1>
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      `craft` is the package manager and build orchestrator. It discovers
+      workspaces, loads `Craft.toml`, evaluates `craft.rn`, resolves
+      dependencies, maintains `Craft.lock`, evaluates `build.rn`, and executes
+      the resulting action graph.
+    </p>
+
+    <div class="manual-callout mt-10">
+      <div class="manual-kicker">Reference Summary</div>
+      <ul class="mt-4 space-y-2 text-base">
+        <li>`Craft.toml` defines the checked-in package and workspace structure.</li>
+        <li>`craft.rn` can normalize lock-stable planning inputs before resolution.</li>
+        <li>`Craft.lock` records the canonical dependency graph for the workspace.</li>
+        <li>`build.rn` controls staging, generated sources, and linkage after resolution.</li>
+      </ul>
+    </div>
+
+    <section class="manual-section">
+      <h2>Phase split</h2>
+      <pre class="doc-code"><code>{`Craft.toml
+  -> craft.rn
+  -> normalized package graph
+  -> dependency resolution
+  -> Craft.lock
+  -> build.rn
+  -> explicit compile/link actions
+  -> execution`}</code></pre>
+      <ul class="mt-5 space-y-3 text-base">
+        <li>`craft.rn` may affect dependency resolution, but only from checked-in lock-stable inputs.</li>
+        <li>`build.rn` may affect execution, staging, generated sources, and link behavior.</li>
+        <li>`build.rn` must not change dependency resolution or lockfile identity.</li>
+      </ul>
+    </section>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+        <section>
+          <h2 class="text-3xl text-[color:var(--kern-ink)]">What `craft` covers</h2>
+          <ul class="mt-5 space-y-3 text-base">
+          <li>Workspace discovery and manifest loading.</li>
+          <li>Dependency resolution and `Craft.lock` materialization.</li>
+          <li>Target selection, profiles, and action graph execution.</li>
+          <li>Derived state under `.craft/` and the associated locking rules.</li>
+          </ul>
+        </section>
+
+        <section>
+          <div class="manual-kicker">Boundaries</div>
+          <ul class="mt-5 space-y-3 text-base">
+            <li>`craft` does not replace the language module system.</li>
+            <li>Machine-local pre-lock state must not leak into dependency resolution.</li>
+            <li>`kernc` remains a separate compiler driver rather than a hidden backend policy surface.</li>
+            <li>Workspace policy and compiler policy remain separate layers.</li>
+          </ul>
+        </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Related guide chapters</h2>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href="/guide/getting-started/">
+          Getting started
+        </a>
+        <a class="button-secondary" href="/guide/workspaces-and-targets/">
+          Workspaces and targets
+        </a>
+        <a class="button-secondary" href="/guide/lockfiles-and-features/">
+          Lockfiles and features
+        </a>
+        <a class="button-secondary" href="/guide/build-scripts-and-generated-sources/">
+          Build scripts and generated sources
+        </a>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Current authoritative source</h2>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/craft.md`} target="_blank" rel="noreferrer">
+          Open craft guide
+        </a>
+        <a class="button-secondary" href="/reference">
+          Back to reference tracks
+        </a>
+      </div>
+    </section>
+  </section>
+</BaseLayout>

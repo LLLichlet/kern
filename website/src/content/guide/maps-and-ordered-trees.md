@@ -216,4 +216,4 @@ Think about the split this way:
 - both are explicit owned library values
 - the right choice depends on whether key order is semantically important
 
-That keeps Kern's associative-container story simple and predictable.
+That keeps the associative-container model simple and predictable.

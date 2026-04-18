@@ -1,0 +1,79 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { siteMeta } from "@/lib/site";
+---
+
+<BaseLayout title="kernc Reference" description="Current reference for the kernc compiler driver: scope, modes, runtime axes, output forms, and platform-facing packaging notes.">
+  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
+    <div class="eyebrow">Compiler Driver</div>
+    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+      `kernc`
+    </h1>
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      `kernc` is the compiler and linker driver. It parses, analyzes, lowers,
+      emits LLVM or native linker inputs, and can invoke the final system linker.
+      Dependency resolution, lockfiles, and workspace planning remain outside it.
+    </p>
+
+    <div class="manual-callout mt-10">
+      <div class="manual-kicker">Reference Summary</div>
+      <ul class="mt-4 space-y-2 text-base">
+        <li>Default mode compiles the source input and links the final binary.</li>
+        <li>`-c` emits a linker input artifact and stops before the final system link step.</li>
+        <li>`--emit-llvm` exposes raw, verified, or optimized LLVM IR.</li>
+        <li>`--link-only` skips frontend and code generation stages and invokes the linker with explicit inputs.</li>
+      </ul>
+    </div>
+
+    <section class="manual-section">
+      <div class="manual-grid manual-grid-2">
+        <section>
+          <h2 class="text-3xl text-[color:var(--kern-ink)]">What `kernc` covers</h2>
+          <ul class="mt-5 space-y-3 text-base">
+          <li>One explicit source entry point or one explicit link-only action.</li>
+          <li>Runtime/library axes such as `--runtime-entry`, `--runtime-libc`, and `--library-bundle`.</li>
+          <li>LLVM emission, codegen units, and LTO behavior.</li>
+          <li>Target triples, output files, and linker-input emission.</li>
+          </ul>
+        </section>
+
+        <section>
+          <div class="manual-kicker">Boundaries</div>
+          <ul class="mt-5 space-y-3 text-base">
+          <li>Package graphs and dependency resolution.</li>
+          <li>Workspace selection and lockfile management.</li>
+          <li>Artifact caching across packages and targets.</li>
+          <li>The user-facing install contract or editor packaging.</li>
+          </ul>
+        </section>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Related guide chapters</h2>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href="/guide/tooling-model/">
+          Tooling model
+        </a>
+        <a class="button-secondary" href="/guide/build-pipeline/">
+          Build pipeline
+        </a>
+        <a class="button-secondary" href="/guide/libraries-and-runtime/">
+          Runtime and bundle model
+        </a>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Current authoritative source</h2>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/kernc.md`} target="_blank" rel="noreferrer">
+          Open kernc guide
+        </a>
+        <a class="button-secondary" href="/reference">
+          Back to reference tracks
+        </a>
+      </div>
+    </section>
+  </section>
+</BaseLayout>

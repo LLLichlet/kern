@@ -4,16 +4,16 @@ summary: "How this guide relates to the current repository docs and what the fir
 order: 1
 ---
 
-This guide is the product-facing learning path for Kern.
+This guide is the current website learning path for Kern.
 
 Today, the repository `docs/` directory still contains the authoritative
 technical reference for the current implementation. The website guide is being
 built on top of those documents instead of replacing them all at once.
 
-That means the current split is deliberate:
+That means the current split is:
 
 - `docs/` remains the current source of truth for language and tool behavior
-- the website guide becomes the curated path for learning Kern end to end
+- the website guide becomes the learning path for Kern end to end
 - reference-heavy details can move over gradually as the website matures
 
 The intended long-term split is:
@@ -43,5 +43,5 @@ guide:
 - `kernc --emit-llvm` was exercised against the same minimal project to confirm
   the compiler-driver walkthrough
 
-As the guide grows, that same rule should stay in place: tutorial material
+As the guide grows, the same rule should stay in place: tutorial material
 should come from code we have actually run, not just code that looks plausible.

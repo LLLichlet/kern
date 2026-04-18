@@ -13,8 +13,8 @@ Kern's current `base.coll` layer keeps this straightforward:
 - `String` is the owned growable byte string
 - borrowed slice and byte-string algorithms stay available on top
 
-That means the container story is not split into "special containers" and
-"special string magic". It stays close to slices and explicit ownership.
+That means containers and strings stay close to slices and explicit ownership
+instead of forming separate special-purpose models.
 
 ## A Validated Example
 

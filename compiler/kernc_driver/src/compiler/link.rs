@@ -551,7 +551,10 @@ impl CompilerDriver {
     }
 
     fn should_materialize_thin_lto_link_inputs(&self) -> bool {
-        self.options.linker_args.iter().any(|arg| arg == "-flto=thin")
+        self.options
+            .linker_args
+            .iter()
+            .any(|arg| arg == "-flto=thin")
             && self
                 .options
                 .linker_inputs
@@ -631,7 +634,9 @@ impl CompilerDriver {
             .map_err(|err| eprintln!("Error: {err}"))
             .ok()?;
         if generated_objects.is_empty() {
-            eprintln!("Error: ThinLTO did not materialize any object files during link-only prelinking.");
+            eprintln!(
+                "Error: ThinLTO did not materialize any object files during link-only prelinking."
+            );
             return None;
         }
 

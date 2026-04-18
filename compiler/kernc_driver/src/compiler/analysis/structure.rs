@@ -220,21 +220,15 @@ impl CompilerDriver {
             || {
                 Ok(self
                     .try_reuse_clean_typed_structure_artifact(input_file, source_overrides)
-                    .or_else(|| self.compute_structure_artifact(input_file)))
+                    .or_else(|| {
+                        self.compute_structure_artifact_into_session(&mut session, input_file)
+                    }))
             },
         ) {
             Ok(Some(structure)) => {
                 Ok(self.finalize_structure_artifact(input_file, source_overrides, structure))
             }
-            Ok(None) => {
-                let structure =
-                    self.compute_structure_artifact_into_session(&mut session, input_file);
-                structure
-                    .map(|structure| {
-                        self.finalize_structure_artifact(input_file, source_overrides, structure)
-                    })
-                    .ok_or_else(|| Box::new(session))
-            }
+            Ok(None) => Err(Box::new(session)),
             Err(_) => {
                 let structure =
                     self.compute_structure_artifact_into_session(&mut session, input_file);
@@ -297,14 +291,10 @@ impl CompilerDriver {
             self.frontend.db(),
             "driver_compile_structure_artifact",
             cache_key,
-            || Ok(self.compute_compile_structure_artifact(input_file)),
+            || Ok(self.compute_compile_structure_artifact_into_session(&mut session, input_file)),
         ) {
             Ok(Some(structure)) => Ok(structure),
-            Ok(None) => {
-                let structure =
-                    self.compute_compile_structure_artifact_into_session(&mut session, input_file);
-                structure.ok_or_else(|| Box::new(session))
-            }
+            Ok(None) => Err(Box::new(session)),
             Err(_) => {
                 let structure =
                     self.compute_compile_structure_artifact_into_session(&mut session, input_file);
@@ -474,7 +464,12 @@ impl CompilerDriver {
             || {
                 Ok(self
                     .try_reuse_clean_collected_structure_artifact(input_file, source_overrides)
-                    .or_else(|| self.compute_collected_structure_artifact(input_file)))
+                    .or_else(|| {
+                        self.compute_collected_structure_artifact_into_session(
+                            &mut session,
+                            input_file,
+                        )
+                    }))
             },
         ) {
             Ok(Some(collected)) => Ok(self.finalize_collected_structure_artifact(
@@ -482,19 +477,7 @@ impl CompilerDriver {
                 source_overrides,
                 collected,
             )),
-            Ok(None) => {
-                let collected = self
-                    .compute_collected_structure_artifact_into_session(&mut session, input_file);
-                collected
-                    .map(|collected| {
-                        self.finalize_collected_structure_artifact(
-                            input_file,
-                            source_overrides,
-                            collected,
-                        )
-                    })
-                    .ok_or_else(|| Box::new(session))
-            }
+            Ok(None) => Err(Box::new(session)),
             Err(_) => {
                 let collected = self
                     .compute_collected_structure_artifact_into_session(&mut session, input_file);
@@ -526,30 +509,22 @@ impl CompilerDriver {
             || {
                 Ok(self
                     .try_reuse_clean_imported_structure_artifact(input_file, source_overrides)
-                    .or_else(|| self.compute_imported_structure_artifact(input_file)))
+                    .or_else(|| {
+                        self.compute_imported_structure_artifact_into_session(
+                            &mut session,
+                            input_file,
+                        )
+                    }))
             },
         ) {
             Ok(Some(imported)) => Ok(imported),
-            Ok(None) => {
-                let imported =
-                    self.compute_imported_structure_artifact_into_session(&mut session, input_file);
-                imported.ok_or_else(|| Box::new(session))
-            }
+            Ok(None) => Err(Box::new(session)),
             Err(_) => {
                 let imported =
                     self.compute_imported_structure_artifact_into_session(&mut session, input_file);
                 imported.ok_or_else(|| Box::new(session))
             }
         }
-    }
-
-    pub(super) fn compute_collected_structure_artifact(
-        &self,
-        input_file: &str,
-    ) -> Option<CollectedStructureArtifact> {
-        let mut session = Session::new();
-        session.apply_options(&self.options);
-        self.compute_collected_structure_artifact_into_session(&mut session, input_file)
     }
 
     pub(super) fn compute_collected_structure_artifact_into_session(
@@ -560,15 +535,6 @@ impl CompilerDriver {
         let mut ctx = self.build_sema_context(session);
         let loaded = self.load_asts(&mut ctx, input_file, true)?;
         self.build_collected_structure_from_context(&mut ctx, loaded.asts)
-    }
-
-    pub(super) fn compute_imported_structure_artifact(
-        &self,
-        input_file: &str,
-    ) -> Option<ImportedStructureArtifact> {
-        let mut session = Session::new();
-        session.apply_options(&self.options);
-        self.compute_imported_structure_artifact_into_session(&mut session, input_file)
     }
 
     pub(super) fn compute_imported_structure_artifact_into_session(
@@ -597,12 +563,6 @@ impl CompilerDriver {
             snapshot,
             completion_model,
         })
-    }
-
-    pub(super) fn compute_structure_artifact(&self, input_file: &str) -> Option<StructureArtifact> {
-        let mut session = Session::new();
-        session.apply_options(&self.options);
-        self.compute_structure_artifact_into_session(&mut session, input_file)
     }
 
     pub(super) fn try_reuse_clean_typed_structure_artifact(
@@ -783,15 +743,6 @@ impl CompilerDriver {
                 .insert(normalized, imported.clone());
         }
         imported
-    }
-
-    pub(super) fn compute_compile_structure_artifact(
-        &self,
-        input_file: &str,
-    ) -> Option<CompileStructureArtifact> {
-        let mut session = Session::new();
-        session.apply_options(&self.options);
-        self.compute_compile_structure_artifact_into_session(&mut session, input_file)
     }
 
     pub(super) fn compute_compile_structure_artifact_into_session(

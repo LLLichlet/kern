@@ -1,140 +1,208 @@
 ---
+import QuickJumpPanel from "@/components/QuickJumpPanel.astro";
 import BaseLayout from "@/layouts/BaseLayout.astro";
 import { internalHref, siteMeta } from "@/lib/site";
+
+const quickJumps = [
+  {
+    kicker: "Install",
+    title: "Use the official release installer",
+    href: "/install",
+    summary: "This is the normal user path for `kernc`, `craft`, `kern-lsp`, the libraries, and the packaged host-tool payload."
+  },
+  {
+    kicker: "Offline",
+    title: "Reuse a downloaded archive locally",
+    href: "/install",
+    summary: "Both installers support a local archive path for repeated setups and offline machines."
+  },
+  {
+    kicker: "Verify",
+    title: "Check that the tools actually start",
+    href: "/install",
+    summary: "After extraction, verify `kernc`, `craft`, and `kern-lsp` before moving on to the guide."
+  },
+  {
+    kicker: "Repository",
+    title: "Build from source instead",
+    href: "/build-from-source",
+    summary: "Use this when you are developing Kern itself or the release baseline is not appropriate for the host."
+  }
+];
+
+const unixInstall = `curl -sSf https://raw.githubusercontent.com/softfault/kern/main/install.sh | bash`;
+
+const windowsInstall = `powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"`;
+
+const unixOffline = `curl -fsSLO https://raw.githubusercontent.com/softfault/kern/main/install.sh
+bash install.sh --archive ./kern-v0.7.0-x86_64-linux-gnu.tar.gz`;
+
+const windowsOffline = `powershell -ExecutionPolicy Bypass -File .\\install.ps1 -Archive .\\kern-v0.7.0-x86_64-windows-msvc.zip`;
+
+const windowsOfflineRenamed = `powershell -ExecutionPolicy Bypass -File .\\install.ps1 -Version v0.7.0 -Archive .\\kern.zip`;
+
+const verifyCommands = `kernc --version
+craft --version
+kern-lsp --version`;
 ---
 
-<BaseLayout title="Install" description="Install Kern from the official release archives, verify the toolchain, and understand the current host baselines.">
-  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
-    <div class="eyebrow">Install</div>
-    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
-      Install Kern
-    </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
-      The normal path is the official release archive plus the native installer script.
-      That installs `kernc`, `craft`, `kern-lsp`, the shipped library layers, and the
-      packaged host-tool payload in one predictable layout.
-    </p>
-
-    <div class="manual-callout mt-10">
-      <div class="manual-kicker">Install Summary</div>
-      <ul class="mt-4 space-y-2 text-base">
-        <li>Use the release installer unless you are actively developing the compiler itself.</li>
-        <li>Kern installs into `~/.kern` on Unix and `%USERPROFILE%\\.kern` on Windows.</li>
-        <li>After install, verify `kernc`, `craft`, and `kern-lsp` before doing anything else.</li>
-      </ul>
-    </div>
-
-    <section class="manual-section">
-      <div class="manual-kicker">Current Official Host Baselines</div>
-      <ul class="mt-4 space-y-2 text-base">
-        <li>Linux: `x86_64-linux-gnu`, built on `ubuntu-24.04`.</li>
-        <li>Windows: `x86_64-windows-msvc`, built on `windows-latest` with static CRT.</li>
-        <li>macOS Intel: `x86_64-apple-darwin`, built on `macos-15-intel`.</li>
-        <li>macOS Apple Silicon: `aarch64-apple-darwin`, built on `macos-14`.</li>
-      </ul>
-      <p class="mt-4 max-w-3xl text-base">
-        These are explicit release build baselines, not a blanket promise that one archive
-        runs on every older distro, every older macOS release, or every older Windows machine.
+<BaseLayout
+  title="Install"
+  description="Install Kern from the official release archives, verify the toolchain, and understand the current host baselines."
+>
+  <section class="doc-shell">
+    <div class="section-lead max-w-4xl">
+      <div class="eyebrow">Install</div>
+      <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+        Install Kern
+      </h1>
+      <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
+        The normal path is the official release archive plus the native installer script.
+        That installs `kernc`, `craft`, `kern-lsp`, the shipped library layers, and the packaged host-tool payload
+        in one predictable layout.
       </p>
-    </section>
+    </div>
+  </section>
 
-    <section class="manual-section">
-      <h2>Install Commands</h2>
-      <div class="manual-grid manual-grid-2 mt-6">
-        <section>
-          <div class="manual-kicker">Linux And macOS</div>
-          <p class="mt-3 text-base">
-            The Unix installer downloads the matching release archive and installs it into your local Kern root.
-          </p>
-          <pre class="doc-code"><code>{`curl -sSf https://raw.githubusercontent.com/softfault/kern/main/install.sh | bash`}</code></pre>
-        </section>
+  <section class="doc-shell section-divider">
+    <QuickJumpPanel
+      title="Start from the install shape you actually need"
+      summary="Most users need the official installer. Offline reuse, verification, and repository development are separate paths."
+      items={quickJumps}
+    />
+  </section>
 
-        <section>
-          <div class="manual-kicker">Windows PowerShell</div>
-          <p class="mt-3 text-base">
-            The Windows installer downloads the official SDK archive and expands the bundled host toolchain along with the Kern tools.
-          </p>
-          <pre class="doc-code"><code>{`powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"`}</code></pre>
-        </section>
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Baselines</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Current official host baselines</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        These are explicit release build baselines, not a blanket promise that one archive runs on every older distro,
+        every older macOS release, or every older Windows machine.
+      </p>
+    </div>
+    <div class="dense-link-list mt-8">
+      <div class="dense-link-item">
+        <div class="dense-link-title">Linux</div>
+        <p class="dense-link-summary">`x86_64-linux-gnu`, built on `ubuntu-24.04`.</p>
       </div>
-    </section>
+      <div class="dense-link-item">
+        <div class="dense-link-title">Windows</div>
+        <p class="dense-link-summary">`x86_64-windows-msvc`, built on `windows-latest` with static CRT.</p>
+      </div>
+      <div class="dense-link-item">
+        <div class="dense-link-title">macOS Intel</div>
+        <p class="dense-link-summary">`x86_64-apple-darwin`, built on `macos-15-intel`.</p>
+      </div>
+      <div class="dense-link-item">
+        <div class="dense-link-title">macOS Apple Silicon</div>
+        <p class="dense-link-summary">`aarch64-apple-darwin`, built on `macos-14`.</p>
+      </div>
+    </div>
+  </section>
 
-    <section class="manual-section">
-      <h2>Offline and repeated installs</h2>
-      <p class="mt-4 max-w-3xl text-base">
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Commands</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Install commands</h2>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-2">
+      <div>
+        <h3 class="text-2xl text-[color:var(--kern-ink)]">Linux and macOS</h3>
+        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
+          The Unix installer downloads the matching release archive and installs it into your local Kern root.
+        </p>
+        <pre class="doc-code mt-6"><code>{unixInstall}</code></pre>
+      </div>
+      <div>
+        <h3 class="text-2xl text-[color:var(--kern-ink)]">Windows PowerShell</h3>
+        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
+          The Windows installer downloads the official SDK archive and expands the bundled host toolchain along with the Kern tools.
+        </p>
+        <pre class="doc-code mt-6"><code>{windowsInstall}</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Offline</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Offline and repeated installs</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
         Both installers support a local archive path. Use this when you want one download for repeated setups,
         when the machine is offline, or when you are validating a specific release archive by hand.
       </p>
-
-      <div class="manual-grid mt-6">
-        <section>
-          <div class="manual-kicker">Unix local archive</div>
-          <p class="mt-3 text-base">
-            Download `install.sh` plus the matching `.tar.gz` from GitHub Releases, then point the installer at the local archive.
-          </p>
-          <pre class="doc-code"><code>{`curl -fsSLO https://raw.githubusercontent.com/softfault/kern/main/install.sh
-bash install.sh --archive ./kern-v0.7.0-x86_64-linux-gnu.tar.gz`}</code></pre>
-        </section>
-
-        <section>
-          <div class="manual-kicker">Windows local archive</div>
-          <p class="mt-3 text-base">
-            Download `install.ps1` and the matching release zip once, then rerun it against that local file whenever needed.
-          </p>
-          <pre class="doc-code"><code>{`powershell -ExecutionPolicy Bypass -File .\\install.ps1 -Archive .\\kern-v0.7.0-x86_64-windows-msvc.zip`}</code></pre>
-          <p class="mt-4 text-base">
-            If you renamed the zip, pass the version explicitly as well:
-          </p>
-          <pre class="doc-code"><code>{`powershell -ExecutionPolicy Bypass -File .\\install.ps1 -Version v0.7.0 -Archive .\\kern.zip`}</code></pre>
-        </section>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-2">
+      <div>
+        <h3 class="text-2xl text-[color:var(--kern-ink)]">Unix local archive</h3>
+        <pre class="doc-code mt-6"><code>{unixOffline}</code></pre>
       </div>
-    </section>
-
-    <section class="manual-section">
-      <h2>Verify the install</h2>
-      <p class="mt-4 max-w-3xl text-base">
-        Before opening the guide, confirm that the three user-facing tools actually start.
-      </p>
-      <pre class="doc-code"><code>{`kernc --version
-craft --version
-kern-lsp --version`}</code></pre>
-      <p class="mt-4 max-w-3xl text-base">
-        If your shell still cannot find them, restart the terminal or apply the PATH change the installer printed.
-      </p>
-
-      <div class="manual-callout mt-6">
-        <div class="manual-kicker">Common Failure Modes</div>
-        <ul class="mt-3 space-y-2 text-base">
-          <li>Unix startup can fail if required shared libraries such as `libstdc++`, `zlib`, or `zstd` are missing.</li>
-          <li>Unix startup can also fail if the machine is older than the release archive's libc baseline.</li>
-          <li>Windows first-time install can feel slow because the bundled host-tool payload is large and Defender may scan it.</li>
-          <li>A successful extraction is not enough. The installed binaries still need to start on the actual host.</li>
-        </ul>
+      <div>
+        <h3 class="text-2xl text-[color:var(--kern-ink)]">Windows local archive</h3>
+        <pre class="doc-code mt-6"><code>{windowsOffline}</code></pre>
+        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
+          If the archive was renamed, pass the version explicitly as well.
+        </p>
+        <pre class="doc-code mt-6"><code>{windowsOfflineRenamed}</code></pre>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="manual-section">
-      <h2>Related distribution docs</h2>
-      <p class="mt-4 max-w-3xl text-base">
-        The install page covers the normal user path. More detailed release and distribution policy still lives in the repository docs for now.
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Verify</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Check that the tools actually start</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        After install, verify `kernc`, `craft`, and `kern-lsp` before doing anything else. If your shell still cannot
+        find them, restart the terminal or apply the PATH change the installer printed.
       </p>
-      <div class="manual-links mt-6">
-          <a class="button-primary" href={internalHref("/guide/getting-started/")}>
-            Continue to Getting Started
-          </a>
-          <a class="button-secondary" href={internalHref("/sdk")}>
-            SDK layout and artifacts
-          </a>
-          <a class="button-secondary" href={internalHref("/build-from-source")}>
-            Build from source
-          </a>
-          <a class="button-secondary" href={`${siteMeta.repoUrl}/blob/main/docs/windows-distribution.md`} target="_blank" rel="noreferrer">
-            Windows distribution doc
-          </a>
-          <a class="button-secondary" href={`${siteMeta.repoUrl}/blob/main/docs/unix-distribution.md`} target="_blank" rel="noreferrer">
-            Unix distribution doc
-          </a>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
+      <pre class="doc-code"><code>{verifyCommands}</code></pre>
+      <div class="dense-link-list">
+        <div class="dense-link-item">
+          <div class="dense-link-title">Missing shared libraries on Unix</div>
+          <p class="dense-link-summary">Startup can fail if required shared libraries such as `libstdc++`, `zlib`, or `zstd` are missing.</p>
+        </div>
+        <div class="dense-link-item">
+          <div class="dense-link-title">Older libc baselines</div>
+          <p class="dense-link-summary">A successful extraction is not enough if the machine is older than the archive baseline.</p>
+        </div>
+        <div class="dense-link-item">
+          <div class="dense-link-title">Large Windows first install</div>
+          <p class="dense-link-summary">The packaged host-tool payload is large and Defender may scan it aggressively, so first install can feel slow.</p>
+        </div>
       </div>
-    </section>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Next</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">What to read after install</h2>
+    </div>
+    <div class="dense-link-list mt-8">
+      <a class="dense-link-item" href={internalHref("/guide/getting-started/")}>
+        <div class="dense-link-title">Continue to Getting Started</div>
+        <p class="dense-link-summary">Create a working package and use `craft` in the normal path.</p>
+      </a>
+      <a class="dense-link-item" href={internalHref("/sdk")}>
+        <div class="dense-link-title">Read the SDK layout page</div>
+        <p class="dense-link-summary">Understand the installed archive structure, bundled toolchain layout, and release artifacts.</p>
+      </a>
+      <a class="dense-link-item" href={internalHref("/build-from-source")}>
+        <div class="dense-link-title">Build from source</div>
+        <p class="dense-link-summary">Use this when you are developing Kern itself or the release archive is not the right host fit.</p>
+      </a>
+      <a class="dense-link-item" href={`${siteMeta.repoUrl}/blob/main/docs/windows-distribution.md`} target="_blank" rel="noreferrer">
+        <div class="dense-link-title">Windows distribution doc</div>
+        <p class="dense-link-summary">Repository distribution policy and packaging detail.</p>
+      </a>
+      <a class="dense-link-item" href={`${siteMeta.repoUrl}/blob/main/docs/unix-distribution.md`} target="_blank" rel="noreferrer">
+        <div class="dense-link-title">Unix distribution doc</div>
+        <p class="dense-link-summary">Unix release and archive policy detail.</p>
+      </a>
+    </div>
   </section>
 </BaseLayout>

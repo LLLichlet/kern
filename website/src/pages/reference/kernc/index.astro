@@ -1,46 +1,41 @@
 ---
+import QuickJumpPanel from "@/components/QuickJumpPanel.astro";
 import BaseLayout from "@/layouts/BaseLayout.astro";
 import { internalHref, siteMeta } from "@/lib/site";
----
 
-<BaseLayout title="kernc Reference" description="User-facing reference for kernc: driver modes, runtime flags, LLVM emission, direct linking, and freestanding build commands.">
-  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
-    <div class="eyebrow">Compiler Driver</div>
-    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
-      `kernc`
-    </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
-      `kernc` is the compiler and linker driver. It parses, checks, lowers,
-      emits LLVM or native linker inputs, and can invoke the final system
-      linker. It does not resolve packages or own lockfiles.
-    </p>
+const quickJumps = [
+  {
+    kicker: "Driver",
+    title: "Compile and link one file directly",
+    href: "/guide/getting-started/",
+    summary: "Use `kernc` when you want one explicit driver action instead of package discovery."
+  },
+  {
+    kicker: "IR",
+    title: "Inspect LLVM IR",
+    href: "/reference/kernc",
+    summary: "Emit raw, verified, or optimized LLVM IR to inspect the backend-facing program shape."
+  },
+  {
+    kicker: "Freestanding",
+    title: "Build `_start` without hosted startup",
+    href: "/guide/freestanding-and-linking/",
+    summary: "Use `--runtime-entry none`, keep libc disabled, and pass the entry symbol and linker arguments explicitly."
+  },
+  {
+    kicker: "Package",
+    title: "Go back up to `craft`",
+    href: "/reference/craft",
+    summary: "If workspaces, lockfiles, or `build.rn` matter, the package layer is the correct abstraction."
+  }
+];
 
-    <div class="manual-callout mt-10">
-      <div class="manual-kicker">Validated Surface</div>
-      <ul class="mt-4 space-y-2 text-base">
-        <li>The direct commands on this page were exercised while writing the site docs.</li>
-        <li>Hosted compile-and-link, compile-only plus `--link-only`, and `--emit-llvm` all work as documented.</li>
-        <li>Freestanding direct linking works with `--runtime-entry none`, `--entry-symbol _start`, and explicit linker args.</li>
-      </ul>
-    </div>
-
-    <section class="manual-section">
-      <h2>Driver modes</h2>
-      <pre class="doc-code"><code>{`kernc src/main.rn -o app
+const driverModes = `kernc src/main.rn -o app
 kernc -c src/main.rn -o app.o
 kernc --emit-llvm src/main.rn
-kernc --link-only --link-input app.o -o app`}</code></pre>
-      <ul class="mt-5 space-y-3 text-base">
-        <li>Default mode compiles the source input and links the final binary.</li>
-        <li>`-c` emits a linker input artifact and stops before the final system link.</li>
-        <li>`--emit-llvm[=raw|verified|optimized]` prints LLVM IR to stdout instead of linking.</li>
-        <li>`--link-only` skips the frontend and code generation and invokes the linker with explicit inputs.</li>
-      </ul>
-    </section>
+kernc --link-only --link-input app.o -o app`;
 
-    <section class="manual-section">
-      <h2>Core flags</h2>
-      <pre class="doc-code"><code>{`--runtime-entry none|rt|crt
+const coreFlags = `--runtime-entry none|rt|crt
 --runtime-libc yes|no
 --library-bundle none|base|std
 --entry-symbol _start
@@ -52,33 +47,16 @@ kernc --link-only --link-input app.o -o app`}</code></pre>
 --link-lib demo
 --link-arg ARG
 --print-link-command
---timings`}</code></pre>
-      <ul class="mt-5 space-y-3 text-base">
-        <li>`--runtime-entry` controls startup ownership.</li>
-        <li>`--runtime-libc` controls whether libc is linked.</li>
-        <li>`--library-bundle` wires the official library roots such as `base` or `std`.</li>
-        <li>`--entry-symbol` overrides the symbol used as the final linker entry.</li>
-        <li>`--module-path` and `--module-interface-path` are the explicit module-root hooks for direct-driver use.</li>
-      </ul>
-    </section>
+--timings`;
 
-    <section class="manual-section">
-      <h2>Hosted user program</h2>
-      <pre class="doc-code"><code>{`kernc \
+const hostedBuild = `kernc \
   --runtime-entry rt \
   --runtime-libc no \
   --library-bundle std \
   src/main.rn \
-  -o app`}</code></pre>
-      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:var(--kern-text-muted)]">
-        This is the normal direct-driver shape for one source file that wants
-        the hosted `rt` startup path and the `std` library bundle.
-      </p>
-    </section>
+  -o app`;
 
-    <section class="manual-section">
-      <h2>Split compile and link</h2>
-      <pre class="doc-code"><code>{`kernc -c \
+const splitBuild = `kernc -c \
   --runtime-entry rt \
   --runtime-libc no \
   --library-bundle std \
@@ -90,50 +68,29 @@ kernc --link-only \
   --runtime-libc no \
   --library-bundle std \
   --link-input app.o \
-  -o app`}</code></pre>
-      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:var(--kern-text-muted)]">
-        Use this when another tool needs to stage, inspect, cache, or post-process
-        the linker input before the final link step.
-      </p>
-    </section>
+  -o app`;
 
-    <section class="manual-section">
-      <h2>Inspect LLVM IR</h2>
-      <pre class="doc-code"><code>{`kernc --emit-llvm \
+const llvmBuild = `kernc --emit-llvm \
   --runtime-entry rt \
   --runtime-libc no \
   --library-bundle std \
-  src/main.rn > app.ll`}</code></pre>
-      <ul class="mt-5 space-y-3 text-base">
-        <li>Use `raw`, `verified`, or `optimized` when you need a specific pipeline stage.</li>
-        <li>The emitted IR still reflects the explicit runtime and library flags you selected.</li>
-      </ul>
-    </section>
+  src/main.rn > app.ll`;
 
-    <section class="manual-section">
-      <h2>Freestanding direct build</h2>
-      <pre class="doc-code"><code>{`#[export_name("_start")]
+const freestandingEntry = `#[export_name("_start")]
 fn kmain() void {
     for (;;) {}
     @unreachable();
-}`}</code></pre>
-      <pre class="doc-code mt-6"><code>{`kernc \
+}`;
+
+const freestandingBuild = `kernc \
   --runtime-entry none \
   --runtime-libc no \
   --library-bundle base \
   --entry-symbol _start \
   src/main.rn \
-  -o kernel.bin`}</code></pre>
-      <ul class="mt-5 space-y-3 text-base">
-        <li>`--runtime-entry none` means `kernc` does not require a program `main`.</li>
-        <li>`--library-bundle base` keeps the library surface freestanding-oriented.</li>
-        <li>`--entry-symbol _start` tells the final link which symbol should be treated as the entry.</li>
-      </ul>
-    </section>
+  -o kernel.bin`;
 
-    <section class="manual-section">
-      <h2>Freestanding with a linker script</h2>
-      <pre class="doc-code"><code>{`kernc \
+const linkerScriptBuild = `kernc \
   --runtime-entry none \
   --runtime-libc no \
   --library-bundle base \
@@ -141,47 +98,145 @@ fn kmain() void {
   --link-arg -T \
   --link-arg /absolute/path/to/kernel.ld \
   src/main.rn \
-  -o kernel.bin`}</code></pre>
-      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:var(--kern-text-muted)]">
-        `kernc` passes raw linker arguments through exactly as requested. When
-        you are inside a package project, prefer `craft` plus
-        `b.link_script("kernel.ld")` so the package root path is resolved
-        correctly for you.
-      </p>
-      <div class="manual-links mt-6">
-        <a class="button-primary" href={internalHref("/guide/freestanding-and-linking/")}>
-          Freestanding guide
-        </a>
-        <a class="button-secondary" href={internalHref("/reference/craft")}>
-          `craft` reference
-        </a>
-      </div>
-    </section>
+  -o kernel.bin`;
+---
 
-    <section class="manual-section">
-      <h2>When to use `kernc` directly</h2>
-      <ul class="mt-5 space-y-3 text-base">
-        <li>One explicit compile or link command in another build system.</li>
-        <li>IR inspection with `--emit-llvm`.</li>
-        <li>Freestanding bring-up before a package layout exists.</li>
-        <li>Explicit linker experimentation where you want full control over each argument.</li>
+<BaseLayout
+  title="kernc Reference"
+  description="User-facing reference for kernc: driver modes, runtime flags, LLVM emission, direct linking, and freestanding builds."
+>
+  <section class="doc-shell">
+    <div class="section-lead max-w-4xl">
+      <div class="eyebrow">Compiler Driver</div>
+      <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+        `kernc`
+      </h1>
+      <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
+        `kernc` parses, checks, lowers, emits LLVM or native linker inputs, and can
+        invoke the final system linker. It does not resolve packages or own lockfiles.
+        Use it when you want one exact compiler-driver action.
+      </p>
+      <div class="mt-8 max-w-3xl border-y border-[color:var(--kern-line)] py-5 text-sm leading-7 text-[color:var(--kern-text-muted)]">
+        The commands on this page were exercised while writing the docs, including hosted compile-and-link,
+        compile-only plus `--link-only`, `--emit-llvm`, and freestanding direct linking with an explicit entry symbol.
+      </div>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <QuickJumpPanel
+      title="Choose the driver mode first"
+      summary="Most confusion around `kernc` comes from mixing package concerns with driver concerns. Start from the exact action you want."
+      items={quickJumps}
+    />
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Modes</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Four direct driver shapes</h2>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+      <pre class="doc-code"><code>{driverModes}</code></pre>
+      <div class="tool-strip">
+        <div class="tool-strip-item">
+          <div class="tool-strip-name">Compile and link</div>
+          <p class="tool-strip-summary">The default mode compiles the source input and performs the final link in one command.</p>
+        </div>
+        <div class="tool-strip-item">
+          <div class="tool-strip-name">Compile only</div>
+          <p class="tool-strip-summary">`-c` emits a linker input artifact and stops before the final system link.</p>
+        </div>
+        <div class="tool-strip-item">
+          <div class="tool-strip-name">Emit LLVM</div>
+          <p class="tool-strip-summary">`--emit-llvm[=raw|verified|optimized]` prints IR instead of linking a program.</p>
+        </div>
+        <div class="tool-strip-item">
+          <div class="tool-strip-name">Link only</div>
+          <p class="tool-strip-summary">`--link-only` skips the frontend and codegen and invokes the linker with explicit inputs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Flags</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Core runtime, library, and linker flags</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        The important flags are the ones that decide startup ownership, library wiring, target identity,
+        and whether the final link happens under `kernc` or under another tool.
+      </p>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+      <pre class="doc-code"><code>{coreFlags}</code></pre>
+      <ul class="doc-bullet-columns">
+        <li>`--runtime-entry` controls startup ownership: `none`, `rt`, or `crt`.</li>
+        <li>`--runtime-libc` controls whether libc is linked.</li>
+        <li>`--library-bundle` wires the official root aliases such as `base` or `std`.</li>
+        <li>`--entry-symbol` selects the final linker entry symbol when startup is not owned by `rt`.</li>
+        <li>`--module-path` and `--module-interface-path` are for explicit module-root wiring in direct-driver setups.</li>
+        <li>`--link-input`, `--link-search`, `--link-lib`, and `--link-arg` are raw final-link controls.</li>
       </ul>
-    </section>
+    </div>
+  </section>
 
-    <section class="manual-section">
-      <h2>Maintainer deep dive</h2>
-      <p class="mt-4 max-w-3xl text-base">
-        If you are changing the compiler driver itself, the repository keeps
-        lower-level `kernc` integration details and implementation notes.
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Hosted</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Normal hosted direct builds</h2>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-3">
+      <pre class="doc-code"><code>{hostedBuild}</code></pre>
+      <pre class="doc-code"><code>{splitBuild}</code></pre>
+      <pre class="doc-code"><code>{llvmBuild}</code></pre>
+    </div>
+    <ul class="doc-bullet-columns mt-8">
+      <li>Use one-shot compile-and-link when you just want a binary.</li>
+      <li>Split compile and link when another build system wants to stage or post-process the linker input.</li>
+      <li>Use `--emit-llvm` when you need the backend-facing program form for debugging or validation.</li>
+    </ul>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Freestanding</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Direct `_start` binaries</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        A freestanding direct build should say so explicitly. Disable hosted startup, keep libc off,
+        choose the freestanding library bundle, and tell the final link which symbol is the entry.
       </p>
-      <div class="manual-links mt-6">
-        <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/kernc.md`} target="_blank" rel="noreferrer">
-          Open maintainer doc
-        </a>
-        <a class="button-secondary" href={internalHref("/reference")}>
-          Back to reference tracks
-        </a>
-      </div>
-    </section>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-3">
+      <pre class="doc-code"><code>{freestandingEntry}</code></pre>
+      <pre class="doc-code"><code>{freestandingBuild}</code></pre>
+      <pre class="doc-code"><code>{linkerScriptBuild}</code></pre>
+    </div>
+    <div class="dense-link-list mt-8">
+      <a class="dense-link-item" href={internalHref("/guide/freestanding-and-linking/")}>
+        <div class="dense-link-title">Open the freestanding guide</div>
+        <p class="dense-link-summary">Package-level `_start`, linker scripts, `craft` build wiring, and freestanding runtime choices.</p>
+      </a>
+      <a class="dense-link-item" href={internalHref("/reference/craft")}>
+        <div class="dense-link-title">Use `craft` when package layout matters</div>
+        <p class="dense-link-summary">Prefer `craft` plus `b.link_script(...)` when the build is already a package project rather than one raw driver command.</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Maintainers</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Lower-level driver notes</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        This site documents the user-facing driver surface. Repository internals and implementation notes still live separately.
+      </p>
+    </div>
+    <div class="dense-link-list mt-8">
+      <a class="dense-link-item" href={`${siteMeta.repoUrl}/blob/main/docs/kernc.md`} target="_blank" rel="noreferrer">
+        <div class="dense-link-title">Open the maintainer document</div>
+        <p class="dense-link-summary">Compiler-driver internals, implementation notes, and lower-level integration details for contributors.</p>
+      </a>
+    </div>
   </section>
 </BaseLayout>

@@ -1,37 +1,46 @@
 ---
+import QuickJumpPanel from "@/components/QuickJumpPanel.astro";
 import BaseLayout from "@/layouts/BaseLayout.astro";
 import { internalHref, siteMeta } from "@/lib/site";
----
 
-<BaseLayout title="craft Reference" description="User-facing reference for craft: commands, target selection, features, build scripts, lockfiles, and freestanding package workflows.">
-  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
-    <div class="eyebrow">Package Manager</div>
-    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
-      `craft`
-    </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
-      `craft` is the package manager and build orchestrator. It owns package
-      discovery, workspaces, dependency resolution, `Craft.lock`, `build.rn`,
-      and target execution. If the question is "which package or target should
-      be built?", this is the right layer.
-    </p>
+const quickJumps = [
+  {
+    kicker: "Loop",
+    title: "Run the normal package workflow",
+    href: "/guide/getting-started/",
+    summary: "`check`, `build`, `run`, and `test` are the normal entry points for day-to-day package work."
+  },
+  {
+    kicker: "Scripts",
+    title: "Use `build.rn` for generated files and linker setup",
+    href: "/guide/build-scripts-and-generated-sources/",
+    summary: "Keep dependency identity in `Craft.toml`, then use `build.rn` for staged sources, native inputs, and package-local build wiring."
+  },
+  {
+    kicker: "Freestanding",
+    title: "Package a kernel or `_start` binary",
+    href: "/guide/freestanding-and-linking/",
+    summary: "Use `entry = \"none\"`, keep `libc = false`, and attach the linker script through `b.link_script(...)`."
+  },
+  {
+    kicker: "Boundary",
+    title: "Drop to `kernc` for one explicit driver action",
+    href: "/reference/kernc",
+    summary: "Use `kernc` when you want one exact compile, emit, or link command without package planning."
+  }
+];
 
-    <div class="manual-callout mt-10">
-      <div class="manual-kicker">Validated Surface</div>
-      <ul class="mt-4 space-y-2 text-base">
-        <li>The commands on this page were checked against the current toolchain while writing the site docs.</li>
-        <li>`craft doc` requires at least one library target that emits package metadata.</li>
-        <li>Freestanding linker scripts should use `b.link_script(...)`, not raw `b.link_arg("-T")` path pairs.</li>
-      </ul>
-    </div>
+const commandLoop = `craft check
+craft build
+craft run
+craft test`;
 
-    <section class="manual-section">
-      <h2>Package shape</h2>
-      <pre class="doc-code"><code>{`hello/
+const packageShape = `hello/
   Craft.toml
   src/
-    main.rn`}</code></pre>
-      <pre class="doc-code mt-6"><code>{`[package]
+    main.rn`;
+
+const manifestExample = `[package]
 name = "hello"
 version = "0.1.0"
 kern = "0.7.0"
@@ -43,41 +52,9 @@ bundle = "std"
 
 [[bin]]
 name = "hello"
-root = "src/main.rn"`}</code></pre>
-      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:var(--kern-text-muted)]">
-        `craft` reads `Craft.toml`, derives the selected package graph, and then
-        drives `kernc` with explicit actions. `craft.rn` can normalize planning
-        inputs before resolution. `build.rn` runs after resolution and can stage
-        sources, tools, and link inputs.
-      </p>
-    </section>
+root = "src/main.rn"`;
 
-    <section class="manual-section">
-      <h2>Command reference</h2>
-      <pre class="doc-code"><code>{`craft check
-craft lock
-craft fetch
-craft doc
-craft build
-craft install
-craft uninstall
-craft run
-craft test`}</code></pre>
-      <ul class="mt-5 space-y-3 text-base">
-        <li>`craft check` validates manifests, scripts, and source analysis without doing the final link.</li>
-        <li>`craft lock` writes a deterministic `Craft.lock` for the selected package graph.</li>
-        <li>`craft fetch` materializes external packages into the local `.craft` cache.</li>
-        <li>`craft doc` builds native package docs and writes them under `.craft/docs` when the workspace contains a metadata-emitting library target.</li>
-        <li>`craft build` executes the derived compile and link actions.</li>
-        <li>`craft install` and `craft uninstall` manage built `bin` targets under `ROOT/bin`.</li>
-        <li>`craft run` builds and executes one selected `bin` or `example` target.</li>
-        <li>`craft test` builds and runs discovered test targets.</li>
-      </ul>
-    </section>
-
-    <section class="manual-section">
-      <h2>Common options</h2>
-      <pre class="doc-code"><code>{`--project-path path/to/pkg-or-workspace
+const optionsExample = `--project-path path/to/pkg-or-workspace
 --profile release
 --examples
 --bin app
@@ -86,117 +63,207 @@ craft test`}</code></pre>
 --no-default-features
 --root /tmp/install-root
 --verbose
---timings`}</code></pre>
-      <ul class="mt-5 space-y-3 text-base">
-        <li>`--project-path` selects the package root, workspace root, or a direct `Craft.toml` path.</li>
-        <li>`--profile` is currently `dev` or `release`.</li>
-        <li>`--examples` adds example targets to `craft build`.</li>
-        <li>`--bin` selects one named binary for `run`, `install`, or `uninstall`.</li>
-        <li>`--example` selects one example for `craft run`.</li>
-        <li>`--features` and `--no-default-features` control the package feature set used during planning.</li>
-        <li>`--root` controls where `install` and `uninstall` place binaries.</li>
-      </ul>
-    </section>
+--timings`;
 
-    <section class="manual-section">
-      <h2>Typical workflows</h2>
-      <pre class="doc-code"><code>{`craft check
-craft build
-craft run
-craft test
-
-craft build --project-path path/to/workspace --profile release
-craft build --examples
-craft run --example demo
-craft run --bin app
-craft lock
-craft fetch
-craft install --root /tmp/kern-install
-craft uninstall --root /tmp/kern-install`}</code></pre>
-      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:var(--kern-text-muted)]">
-        These are the day-to-day commands most users need. The same flows were
-        validated for the website docs using temporary packages under `/tmp`,
-        including `run`, `test`, `lock`, `fetch`, `install`, `uninstall`, and a
-        separate library package for `doc`.
-      </p>
-    </section>
-
-    <section class="manual-section">
-      <h2>`build.rn` boundary</h2>
-      <pre class="doc-code"><code>{`use craft.builder;
+const buildScriptExample = `use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
     let path = b.copy_package_file("templates/main.rn", "src/main.rn");
     b.set_source_root(path);
-}`}</code></pre>
-      <ul class="mt-5 space-y-3 text-base">
-        <li>`build.rn` runs after resolution and may not change dependency identity or lockfile shape.</li>
-        <li>Relative paths resolve from the current package root, not from the workspace root.</li>
-        <li>Use it for generated sources, staged artifact files, native link inputs, and package-local linker wiring.</li>
-      </ul>
-      <div class="manual-links mt-6">
-        <a class="button-primary" href={internalHref("/guide/build-scripts-and-generated-sources/")}>
-          Build script guide
-        </a>
-      </div>
-    </section>
+}`;
 
-    <section class="manual-section">
-      <h2>Freestanding package workflow</h2>
-      <pre class="doc-code"><code>{`[runtime]
+const freestandingManifest = `[runtime]
 entry = "none"
 libc = false
-bundle = "base"`}</code></pre>
-      <pre class="doc-code mt-6"><code>{`#[export_name("_start")]
+bundle = "base"`;
+
+const freestandingEntry = `#[export_name("_start")]
 fn kmain() void {
     for (;;) {}
     @unreachable();
-}`}</code></pre>
-      <pre class="doc-code mt-6"><code>{`use craft.builder;
+}`;
+
+const linkScriptExample = `use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
     b.link_script("kernel.ld");
-}`}</code></pre>
-      <ul class="mt-5 space-y-3 text-base">
-        <li>`entry = "none"` means the package owns `_start` and there is no required program `main`.</li>
-        <li>`link_script("kernel.ld")` resolves from the package root, checks that the script exists, and injects the correct linker arguments.</li>
-        <li>If you need raw linker control for other cases, keep using `link_arg(...)` explicitly.</li>
+}`;
+---
+
+<BaseLayout
+  title="craft Reference"
+  description="User-facing reference for craft: commands, target selection, features, lockfiles, build scripts, and freestanding package workflows."
+>
+  <section class="doc-shell">
+    <div class="section-lead max-w-4xl">
+      <div class="eyebrow">Package Manager</div>
+      <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+        `craft`
+      </h1>
+      <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
+        `craft` owns package discovery, workspaces, dependency resolution,
+        `Craft.lock`, target selection, `build.rn`, and target execution.
+        If the question is which package graph or target set should be built,
+        this is the tool layer that answers it.
+      </p>
+      <div class="mt-8 max-w-3xl border-y border-[color:var(--kern-line)] py-5 text-sm leading-7 text-[color:var(--kern-text-muted)]">
+        The user-facing commands on this page were checked against the current toolchain while writing the docs.
+        `craft doc` still requires at least one library target that emits package metadata, and freestanding linker
+        scripts should use `b.link_script(...)` instead of raw `-T` path pairs.
+      </div>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <QuickJumpPanel
+      title="Start from the task, not from the whole command surface"
+      summary="Most users only need one of these four paths. Use the guide for a workflow, or jump straight into the exact tool boundary."
+      items={quickJumps}
+    />
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Shape</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">A package is explicit on disk</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        `craft` reads `Craft.toml`, derives the selected package graph, and then drives `kernc`
+        with explicit compile and link actions. `craft.rn` can normalize planning inputs before
+        resolution. `build.rn` runs after resolution and can stage generated sources, native
+        files, and linker inputs.
+      </p>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+      <pre class="doc-code"><code>{packageShape}</code></pre>
+      <pre class="doc-code"><code>{manifestExample}</code></pre>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Commands</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">The normal package loop</h2>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
+      <pre class="doc-code"><code>{commandLoop}</code></pre>
+      <div class="tool-strip">
+        <div class="tool-strip-item">
+          <div class="tool-strip-name">`craft check`</div>
+          <p class="tool-strip-summary">Validate manifests, scripts, and source analysis without doing the final link.</p>
+        </div>
+        <div class="tool-strip-item">
+          <div class="tool-strip-name">`craft build`</div>
+          <p class="tool-strip-summary">Resolve the package graph, compile the selected targets, and execute the final link steps.</p>
+        </div>
+        <div class="tool-strip-item">
+          <div class="tool-strip-name">`craft run`</div>
+          <p class="tool-strip-summary">Build one selected `bin` or `example` target and then execute it.</p>
+        </div>
+        <div class="tool-strip-item">
+          <div class="tool-strip-name">`craft test`</div>
+          <p class="tool-strip-summary">Build and run discovered test targets under the same package-planning model.</p>
+        </div>
+        <div class="tool-strip-item">
+          <div class="tool-strip-name">`craft lock`, `fetch`, `doc`, `install`, `uninstall`</div>
+          <p class="tool-strip-summary">Use these when you need deterministic resolution, cache materialization, docs, or installed binaries under an explicit root.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Selection</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Target and feature selection</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        The most important flags are the ones that change which package graph or target set is being planned.
+        Use these when you want a different package root, profile, named target, or feature configuration.
+      </p>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+      <pre class="doc-code"><code>{optionsExample}</code></pre>
+      <ul class="doc-bullet-columns">
+        <li>`--project-path` can point at a package root, workspace root, or direct `Craft.toml` file.</li>
+        <li>`--profile` is currently `dev` or `release`.</li>
+        <li>`--bin`, `--example`, and `--examples` select which runnable targets are included.</li>
+        <li>`--features` and `--no-default-features` control the feature set used during planning and analysis.</li>
+        <li>`--root` only matters for `install` and `uninstall`, where it defines the destination prefix.</li>
+        <li>`--verbose` and `--timings` are for inspection rather than semantics.</li>
       </ul>
-      <div class="manual-links mt-6">
-        <a class="button-primary" href={internalHref("/guide/freestanding-and-linking/")}>
-          Freestanding guide
-        </a>
-      </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="manual-section">
-      <h2>When not to use `craft`</h2>
-      <p class="mt-4 max-w-3xl text-base leading-7 text-[color:var(--kern-text-muted)]">
-        Drop to `kernc` when you want one explicit compile or link command
-        without package discovery or workspace planning. `craft` is the right
-        tool for packages. `kernc` is the right tool for single driver actions.
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Scripts</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">`build.rn` is a post-resolution boundary</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        `build.rn` runs after dependency identity has already been chosen. Use it for generated
+        sources, copied files, tool outputs, native link inputs, or package-local linker wiring.
+        Do not treat it as a second manifest language that changes the lockfile shape.
       </p>
-      <div class="manual-links mt-6">
-        <a class="button-primary" href={internalHref("/reference/kernc")}>
-          Open `kernc` reference
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <pre class="doc-code"><code>{buildScriptExample}</code></pre>
+      <div class="dense-link-list">
+        <div class="dense-link-item">
+          <div class="dense-link-title">What it is for</div>
+          <p class="dense-link-summary">Generated sources, staged package files, native artifacts, and linker configuration that belongs to one package build.</p>
+        </div>
+        <div class="dense-link-item">
+          <div class="dense-link-title">What it does not do</div>
+          <p class="dense-link-summary">It does not rewrite dependency identity, workspace structure, or the meaning of `Craft.lock`.</p>
+        </div>
+        <a class="dense-link-item" href={internalHref("/guide/build-scripts-and-generated-sources/")}>
+          <div class="dense-link-title">Open the build script guide</div>
+          <p class="dense-link-summary">A guide-path explanation of generated files, staged inputs, and source-root replacement.</p>
         </a>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="manual-section">
-      <h2>Maintainer deep dive</h2>
-      <p class="mt-4 max-w-3xl text-base">
-        If you are working on the toolchain itself rather than just using it,
-        the repository still keeps lower-level `craft` internals.
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Freestanding</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Kernel and `_start` packages</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        A freestanding package should not pretend to be a hosted program. Use `entry = "none"` so
+        the package owns `_start`, keep `libc = false`, and wire the linker script through the build
+        API so the package root is resolved correctly.
       </p>
-      <div class="manual-links mt-6">
-        <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/craft.md`} target="_blank" rel="noreferrer">
-          Open maintainer doc
-        </a>
-        <a class="button-secondary" href={internalHref("/reference")}>
-          Back to reference tracks
-        </a>
-      </div>
-    </section>
+    </div>
+    <div class="mt-8 grid gap-8 lg:grid-cols-3">
+      <pre class="doc-code"><code>{freestandingManifest}</code></pre>
+      <pre class="doc-code"><code>{freestandingEntry}</code></pre>
+      <pre class="doc-code"><code>{linkScriptExample}</code></pre>
+    </div>
+    <ul class="doc-bullet-columns mt-8">
+      <li>`entry = "none"` means `craft` must not require a hosted program `main`.</li>
+      <li>`bundle = "base"` keeps the library wiring aligned with freestanding bring-up.</li>
+      <li>`b.link_script("kernel.ld")` resolves from the package root and emits the correct linker arguments.</li>
+      <li>If you want raw linker experimentation, that is usually the point where `kernc` becomes the clearer tool.</li>
+    </ul>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Boundary</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">When `craft` is the wrong layer</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        Use `craft` when packages, lockfiles, workspaces, features, or target discovery matter.
+        Use `kernc` when you want one explicit compile, LLVM emission, or direct link command without
+        package planning around it.
+      </p>
+    </div>
+    <div class="dense-link-list mt-8">
+      <a class="dense-link-item" href={internalHref("/reference/kernc")}>
+        <div class="dense-link-title">Open the `kernc` reference</div>
+        <p class="dense-link-summary">Direct driver modes, link-only actions, LLVM emission, freestanding direct builds, and raw linker flags.</p>
+      </a>
+      <a class="dense-link-item" href={`${siteMeta.repoUrl}/blob/main/docs/craft.md`} target="_blank" rel="noreferrer">
+        <div class="dense-link-title">Open the maintainer document</div>
+        <p class="dense-link-summary">Lower-level `craft` internals for toolchain contributors rather than normal package users.</p>
+      </a>
+    </div>
   </section>
 </BaseLayout>

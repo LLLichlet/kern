@@ -3,85 +3,103 @@ import BaseLayout from "@/layouts/BaseLayout.astro";
 import { internalHref, siteMeta } from "@/lib/site";
 ---
 
-<BaseLayout title="Language Reference" description="Current language-reference spine for Kern: values, storage, control flow, traits, modules, intrinsics, and ABI-facing syntax.">
-  <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
-    <div class="eyebrow">Language Reference</div>
-    <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
-      Language reference
-    </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
-      This page maps the current language-reference surface: values and storage,
-      control flow, traits and generics, modules, intrinsics, and ABI-facing syntax.
-    </p>
-
-    <div class="manual-callout mt-10">
-      <div class="manual-kicker">Reference Summary</div>
-      <ul class="mt-4 space-y-2 text-base">
-        <li>Values and storage cover primitive scalars, arrays, slices, pointers, optionals, results, `void`, `!`, and storage mutability rules.</li>
-        <li>Control flow covers `if`, `for`, `match`, `let else`, exhaustiveness, divergence, and explicit value use or discard.</li>
-        <li>Abstraction covers traits, generics, associated items, closures, visibility, and Boundary Natural Conversion where the compiler has exact static knowledge.</li>
-      </ul>
-    </div>
-
-    <section class="manual-section">
-      <div class="manual-grid manual-grid-2">
-        <section>
-          <h2 class="text-3xl text-[color:var(--kern-ink)]">What belongs in the language track</h2>
-          <ul class="mt-5 space-y-3 text-base">
-          <li>Type spelling and value construction rules.</li>
-          <li>Storage and permission rules such as `let mut`, `*mut T`, `[]mut T`, and volatile pointer families.</li>
-          <li>Pattern syntax and exhaustiveness rules.</li>
-          <li>Trait and generic semantics, including what the compiler rejects structurally.</li>
-          <li>Attributes, inline assembly, and builtin intrinsics that are part of the source language itself.</li>
-          </ul>
-        </section>
-
-        <section>
-          <div class="manual-kicker">Boundaries</div>
-          <ul class="mt-5 space-y-3 text-base">
-          <li>Which package manager target selected a file.</li>
-          <li>Which runtime/library bundle defaults `craft` chooses.</li>
-          <li>How the host tools are packaged into an SDK archive.</li>
-          <li>Editor transport details for `kern-lsp`.</li>
-          </ul>
-        </section>
-      </div>
-    </section>
-
-    <section class="manual-section">
-      <h2>Related guide chapters</h2>
-      <div class="manual-links mt-6">
-        <a class="button-primary" href={internalHref("/guide/language-tour/")}>
-          Language tour
-        </a>
-        <a class="button-secondary" href={internalHref("/guide/types-and-bindings/")}>
-          Types and bindings
-        </a>
-        <a class="button-secondary" href={internalHref("/guide/enums-and-patterns/")}>
-          Enums and patterns
-        </a>
-        <a class="button-secondary" href={internalHref("/guide/traits-and-generics/")}>
-          Traits and generics
-        </a>
-        <a class="button-secondary" href={internalHref("/guide/inline-assembly/")}>
-          Inline assembly
-        </a>
-      </div>
-    </section>
-
-    <section class="manual-section">
-      <h2>Current authoritative source</h2>
-      <p class="mt-4 max-w-3xl text-base">
-        The full detail still lives in the repository design document while the website-native reference is being built out.
+<BaseLayout
+  title="Language Reference"
+  description="Current language-reference spine for Kern: values, storage, control flow, traits, modules, intrinsics, and ABI-facing syntax."
+>
+  <section class="doc-shell">
+    <div class="section-lead max-w-4xl">
+      <div class="eyebrow">Language Reference</div>
+      <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
+        Language reference
+      </h1>
+      <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
+        This page maps the current language-reference surface: values and storage,
+        control flow, traits and generics, modules, intrinsics, inline assembly,
+        and ABI-facing syntax. The full authoritative detail still lives in the repository design document.
       </p>
-      <div class="manual-links mt-6">
-        <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/design.md`} target="_blank" rel="noreferrer">
-          Open language design doc
-        </a>
-        <a class="button-secondary" href={internalHref("/reference")}>
-          Back to reference tracks
-        </a>
-      </div>
-    </section>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Map</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Reference areas</h2>
+    </div>
+    <div class="doc-topic-grid mt-8">
+      <section>
+        <div class="doc-topic-title">Values and storage</div>
+        <ul class="doc-topic-list">
+          <li>Primitive scalars, arrays, slices, pointers, optionals, results, `void`, and `!`.</li>
+          <li>Storage mutability rules such as `let mut`, `*mut T`, `[N]mut T`, and `[]mut T`.</li>
+          <li>Construction, projection, conversion, and permission boundaries that stay visible in source.</li>
+        </ul>
+      </section>
+      <section>
+        <div class="doc-topic-title">Control and patterns</div>
+        <ul class="doc-topic-list">
+          <li>`if`, `for`, `match`, `let else`, divergence, and explicit value use or discard.</li>
+          <li>Pattern syntax and exhaustiveness rules.</li>
+          <li>Explicit rejection of structurally invalid control-flow or pattern claims.</li>
+        </ul>
+      </section>
+      <section>
+        <div class="doc-topic-title">Traits, modules, intrinsics</div>
+        <ul class="doc-topic-list">
+          <li>Traits, generics, associated items, visibility, closures, and structural well-formedness rules.</li>
+          <li>Modules, attributes, inline assembly, and builtin intrinsics that are part of the language itself.</li>
+          <li>Boundary Natural Conversion where the compiler has exact static knowledge.</li>
+        </ul>
+      </section>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Guide</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Related guide chapters</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        Use the guide when you want sequencing and examples. Use the design document when you need exact semantics.
+      </p>
+    </div>
+    <div class="dense-link-list mt-8">
+      <a class="dense-link-item" href={internalHref("/guide/language-tour/")}>
+        <div class="dense-link-title">Language tour</div>
+        <p class="dense-link-summary">The broad overview of syntax, values, modules, and program shape.</p>
+      </a>
+      <a class="dense-link-item" href={internalHref("/guide/types-and-bindings/")}>
+        <div class="dense-link-title">Types and bindings</div>
+        <p class="dense-link-summary">Storage, binding forms, permission boundaries, and explicit mutability rules.</p>
+      </a>
+      <a class="dense-link-item" href={internalHref("/guide/enums-and-patterns/")}>
+        <div class="dense-link-title">Enums and patterns</div>
+        <p class="dense-link-summary">Pattern syntax, nested matches, usefulness, and exhaustiveness.</p>
+      </a>
+      <a class="dense-link-item" href={internalHref("/guide/traits-and-generics/")}>
+        <div class="dense-link-title">Traits and generics</div>
+        <p class="dense-link-summary">Generic constraints, trait structure, supertraits, and what must be rejected structurally.</p>
+      </a>
+      <a class="dense-link-item" href={internalHref("/guide/inline-assembly/")}>
+        <div class="dense-link-title">Inline assembly</div>
+        <p class="dense-link-summary">The current `@asm` surface, operand structure, and low-level boundaries.</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Authority</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Current authoritative source</h2>
+    </div>
+    <div class="dense-link-list mt-8">
+      <a class="dense-link-item" href={`${siteMeta.repoUrl}/blob/main/docs/design.md`} target="_blank" rel="noreferrer">
+        <div class="dense-link-title">Open `docs/design.md`</div>
+        <p class="dense-link-summary">The complete language design document, including syntax, semantics, intrinsics, and structural type-system rules.</p>
+      </a>
+      <a class="dense-link-item" href={internalHref("/reference")}>
+        <div class="dense-link-title">Back to the reference index</div>
+        <p class="dense-link-summary">Compiler, package manager, runtime, and language tracks in one place.</p>
+      </a>
+    </div>
   </section>
 </BaseLayout>

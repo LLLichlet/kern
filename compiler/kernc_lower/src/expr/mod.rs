@@ -55,12 +55,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         TypeKind::Module(_) => {
                             this.measure_phase("          lower_ident_module", |this| {
                                 // Modules live in the global namespace and never participate in closure capture.
-                                this.lower_identifier(expr.id, *name)
+                                this.lower_identifier(expr.id, *name, subst_map)
                             })
                         }
                         _ => {
                             let kind = this.measure_phase("          lower_ident_value", |this| {
-                                this.lower_identifier(expr.id, *name)
+                                this.lower_identifier(expr.id, *name, subst_map)
                             });
 
                             // Ordinary variables still need closure-capture safety checks.

@@ -93,37 +93,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.type_contains_unresolved_params(elem)
                     || self.ctx.type_registry.const_generic_contains_params(len)
             }
-            TypeKind::ArrayInfer { elem, .. } => {
-                self.type_contains_unresolved_params(elem)
-            }
+            TypeKind::ArrayInfer { elem, .. } => self.type_contains_unresolved_params(elem),
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::Associated(_, args)
-            | TypeKind::FnDef(_, args) => args
-                .into_iter()
-                .any(|arg| {
-                    match arg {
-                        crate::ty::GenericArg::Type(ty) => self.type_contains_unresolved_params(ty),
-                        crate::ty::GenericArg::Const(value) => {
-                            self.ctx.type_registry.const_generic_contains_params(value)
-                        }
-                    }
-                }),
+            | TypeKind::FnDef(_, args) => args.into_iter().any(|arg| match arg {
+                crate::ty::GenericArg::Type(ty) => self.type_contains_unresolved_params(ty),
+                crate::ty::GenericArg::Const(value) => {
+                    self.ctx.type_registry.const_generic_contains_params(value)
+                }
+            }),
             TypeKind::TraitObject(_, args, assoc_bindings) => {
-                args.into_iter()
-                    .any(|arg| {
-                        match arg {
-                            crate::ty::GenericArg::Type(ty) => {
-                                self.type_contains_unresolved_params(ty)
-                            }
-                            crate::ty::GenericArg::Const(value) => {
-                                self.ctx.type_registry.const_generic_contains_params(value)
-                            }
-                        }
-                    })
-                    || assoc_bindings
-                        .into_iter()
-                        .any(|(_, ty)| self.type_contains_unresolved_params(ty))
+                args.into_iter().any(|arg| match arg {
+                    crate::ty::GenericArg::Type(ty) => self.type_contains_unresolved_params(ty),
+                    crate::ty::GenericArg::Const(value) => {
+                        self.ctx.type_registry.const_generic_contains_params(value)
+                    }
+                }) || assoc_bindings
+                    .into_iter()
+                    .any(|(_, ty)| self.type_contains_unresolved_params(ty))
             }
             TypeKind::Projection {
                 target,
@@ -132,30 +120,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 ..
             } => {
                 self.type_contains_unresolved_params(target)
-                    || trait_args
-                        .into_iter()
-                        .any(|arg| {
-                            match arg {
-                                crate::ty::GenericArg::Type(ty) => {
-                                    self.type_contains_unresolved_params(ty)
-                                }
-                                crate::ty::GenericArg::Const(value) => {
-                                    self.ctx.type_registry.const_generic_contains_params(value)
-                                }
-                            }
-                        })
-                    || assoc_args
-                        .into_iter()
-                        .any(|arg| {
-                            match arg {
-                                crate::ty::GenericArg::Type(ty) => {
-                                    self.type_contains_unresolved_params(ty)
-                                }
-                                crate::ty::GenericArg::Const(value) => {
-                                    self.ctx.type_registry.const_generic_contains_params(value)
-                                }
-                            }
-                        })
+                    || trait_args.into_iter().any(|arg| match arg {
+                        crate::ty::GenericArg::Type(ty) => self.type_contains_unresolved_params(ty),
+                        crate::ty::GenericArg::Const(value) => {
+                            self.ctx.type_registry.const_generic_contains_params(value)
+                        }
+                    })
+                    || assoc_args.into_iter().any(|arg| match arg {
+                        crate::ty::GenericArg::Type(ty) => self.type_contains_unresolved_params(ty),
+                        crate::ty::GenericArg::Const(value) => {
+                            self.ctx.type_registry.const_generic_contains_params(value)
+                        }
+                    })
             }
             TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
                 params

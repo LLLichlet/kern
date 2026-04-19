@@ -1,6 +1,6 @@
 use super::{
-    AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, LetPattern, MatchPattern,
-    GenericArg, PathAnchor, Pattern, Stmt, TypeNode, UnaryOperator,
+    AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, GenericArg, LetPattern,
+    MatchPattern, PathAnchor, Pattern, Stmt, TypeNode, UnaryOperator,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 

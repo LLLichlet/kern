@@ -108,6 +108,120 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
+    fn type_arg_is_direct_const_param_ref(&mut self, ty_node: &kernc_ast::TypeNode) -> bool {
+        let ast::TypeKind::Path {
+            anchor: None,
+            segments,
+        } = &ty_node.kind
+        else {
+            return false;
+        };
+        let [segment] = segments.as_slice() else {
+            return false;
+        };
+        if !segment.args.is_empty() {
+            return false;
+        }
+
+        self.ctx
+            .scopes
+            .resolve(segment.name)
+            .is_some_and(|info| info.kind == crate::scope::SymbolKind::ConstParam)
+    }
+
+    fn type_arg_is_payloadless_enum_value_ref(
+        &mut self,
+        ty_node: &kernc_ast::TypeNode,
+        span: Span,
+    ) -> bool {
+        let ast::TypeKind::Path { anchor, segments } = &ty_node.kind else {
+            return false;
+        };
+        if segments.len() < 2 || segments.iter().any(|segment| !segment.args.is_empty()) {
+            return false;
+        }
+
+        let last_segment = segments.last().unwrap();
+        let mut current_scope = match anchor {
+            Some(anchor) => {
+                let Some((_, scope)) = self.anchored_start_scope(*anchor, span) else {
+                    return false;
+                };
+                scope
+            }
+            None => match self.ctx.scopes.current_scope_id() {
+                Some(scope) => scope,
+                None => return false,
+            },
+        };
+
+        for (index, segment) in segments[..segments.len() - 1].iter().enumerate() {
+            let symbol = if index == 0 && anchor.is_none() {
+                self.ctx.scopes.resolve_from(current_scope, segment.name)
+            } else {
+                self.ctx.scopes.resolve_in(current_scope, segment.name)
+            };
+            let Some(symbol) = symbol.cloned() else {
+                return false;
+            };
+
+            match symbol.kind {
+                crate::scope::SymbolKind::Module => {
+                    let Some(def_id) = symbol.def_id else {
+                        return false;
+                    };
+                    let Some(crate::def::Def::Module(module)) =
+                        self.ctx.defs.get(def_id.0 as usize)
+                    else {
+                        return false;
+                    };
+                    current_scope = module.scope_id;
+                }
+                crate::scope::SymbolKind::Enum if index == segments.len() - 2 => {
+                    let Some(def_id) = symbol.def_id else {
+                        return false;
+                    };
+                    let Some(crate::def::Def::Enum(enum_def)) =
+                        self.ctx.defs.get(def_id.0 as usize)
+                    else {
+                        return false;
+                    };
+                    return enum_def.variants.iter().any(|variant| {
+                        variant.name == last_segment.name && variant.payload_type.is_none()
+                    });
+                }
+                crate::scope::SymbolKind::TypeAlias if index == segments.len() - 2 => {
+                    let alias_ty = self.ctx.type_registry.normalize(symbol.type_id);
+                    return match self.ctx.type_registry.get(alias_ty) {
+                        TypeKind::Enum(def_id, _) => self
+                            .ctx
+                            .defs
+                            .get(def_id.0 as usize)
+                            .and_then(|def| match def {
+                                crate::def::Def::Enum(enum_def) => Some(enum_def),
+                                _ => None,
+                            })
+                            .is_some_and(|enum_def| {
+                                enum_def.variants.iter().any(|variant| {
+                                    variant.name == last_segment.name
+                                        && variant.payload_type.is_none()
+                                })
+                            }),
+                        TypeKind::AnonymousEnum(enum_def) => {
+                            enum_def.variants.iter().any(|variant| {
+                                variant.name == last_segment.name && variant.payload_ty.is_none()
+                            })
+                        }
+                        _ => false,
+                    };
+                }
+                _ => return false,
+            }
+        }
+
+        false
+    }
+
     /// Main entry point for expression type checking.
     pub(crate) fn check_expr(&mut self, expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
         let ty = match &expr.kind {
@@ -270,6 +384,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     match arg {
                         ast::GenericArg::Type(ty_node)
                         | ast::GenericArg::AssocBinding { value: ty_node, .. } => {
+                            if matches!(arg, ast::GenericArg::Type(_))
+                                && (self.type_arg_is_direct_const_param_ref(ty_node)
+                                    || self
+                                        .type_arg_is_payloadless_enum_value_ref(ty_node, expr.span))
+                            {
+                                continue;
+                            }
                             self.evaluate_dynamic_typeof(ty_node);
                         }
                         ast::GenericArg::ConstExpr(expr) => {

@@ -10,6 +10,39 @@ use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn lower_const_generic_identifier(
+        &mut self,
+        name: SymbolId,
+        subst_map: &HashMap<SymbolId, GenericArg>,
+        span: Span,
+    ) -> Option<MastExprKind> {
+        let GenericArg::Const(value) = subst_map.get(&name).copied()? else {
+            return None;
+        };
+
+        let kind = match value {
+            kernc_sema::ty::ConstGeneric::Value(value) => match value.kind {
+                kernc_sema::ty::ConstGenericValueKind::Int(value) => {
+                    MastExprKind::Integer(value as u128)
+                }
+                kernc_sema::ty::ConstGenericValueKind::Bool(value) => MastExprKind::Bool(value),
+            },
+            other => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): unresolved const generic `{}` reached identifier lowering as {:?}.",
+                        self.ctx.resolve(name),
+                        other
+                    ),
+                );
+                MastExprKind::Trap
+            }
+        };
+
+        Some(kind)
+    }
+
     fn lower_access_ice(&mut self, span: Span, message: impl Into<String>) -> MastExprKind {
         self.ctx.emit_ice(span, message);
         MastExprKind::Trap
@@ -19,6 +52,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         expr_id: kernc_utils::NodeId,
         name: SymbolId,
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
         let name = self.measure_phase("          lower_ident_copy_source", |this| {
             this.identifier_copy_source(expr_id).unwrap_or(name)
@@ -36,6 +70,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             this.has_local_binding(name)
         }) {
             return MastExprKind::Var(name);
+        }
+
+        if let Some(kind) = self.measure_phase("          lower_ident_const_param", |this| {
+            this.lower_const_generic_identifier(name, subst_map, Span::default())
+        }) {
+            return kind;
         }
 
         let resolved_info = self.measure_phase("          lower_ident_scope_resolve", |this| {

@@ -50,7 +50,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if generic == concrete {
                     return true;
                 }
-                if self.ctx.type_registry.const_generic_contains_params(generic) {
+                if self
+                    .ctx
+                    .type_registry
+                    .const_generic_contains_params(generic)
+                {
                     return false;
                 }
                 generic == concrete
@@ -214,12 +218,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .into_iter()
                         .zip(concrete_args)
                         .all(|(generic, concrete)| {
-                            self.infer_generic_arg_direct(
-                                generic,
-                                concrete,
-                                type_map,
-                                const_map,
-                            )
+                            self.infer_generic_arg_direct(generic, concrete, type_map, const_map)
                         })
             }
             (
@@ -232,12 +231,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .into_iter()
                         .zip(concrete_args)
                         .all(|(generic, concrete)| {
-                            self.infer_generic_arg_direct(
-                                generic,
-                                concrete,
-                                type_map,
-                                const_map,
-                            )
+                            self.infer_generic_arg_direct(generic, concrete, type_map, const_map)
                         })
                     && generic_assoc.len() == concrete_assoc.len()
                     && generic_assoc.into_iter().all(|(assoc_def_id, generic_ty)| {
@@ -280,28 +274,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         type_map,
                         const_map,
                     )
-                    && generic_trait_args
-                        .into_iter()
-                        .zip(concrete_trait_args)
-                        .all(|(generic, concrete)| {
-                            self.infer_generic_arg_direct(
-                                generic,
-                                concrete,
-                                type_map,
-                                const_map,
-                            )
-                        })
-                    && generic_assoc_args
-                        .into_iter()
-                        .zip(concrete_assoc_args)
-                        .all(|(generic, concrete)| {
-                            self.infer_generic_arg_direct(
-                                generic,
-                                concrete,
-                                type_map,
-                                const_map,
-                            )
-                        })
+                    && generic_trait_args.into_iter().zip(concrete_trait_args).all(
+                        |(generic, concrete)| {
+                            self.infer_generic_arg_direct(generic, concrete, type_map, const_map)
+                        },
+                    )
+                    && generic_assoc_args.into_iter().zip(concrete_assoc_args).all(
+                        |(generic, concrete)| {
+                            self.infer_generic_arg_direct(generic, concrete, type_map, const_map)
+                        },
+                    )
             }
             (
                 TypeKind::Function {
@@ -322,10 +304,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .zip(concrete_params)
                         .all(|(generic, concrete)| {
                             self.infer_generic_args_from_types(
-                                generic,
-                                concrete,
-                                type_map,
-                                const_map,
+                                generic, concrete, type_map, const_map,
                             )
                         })
                     && self.infer_generic_args_from_types(
@@ -351,10 +330,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .zip(concrete_params)
                         .all(|(generic, concrete)| {
                             self.infer_generic_args_from_types(
-                                generic,
-                                concrete,
-                                type_map,
-                                const_map,
+                                generic, concrete, type_map, const_map,
                             )
                         })
                     && self.infer_generic_args_from_types(
@@ -368,11 +344,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn generic_target_identity(
-        &mut self,
-        target_norm: TypeId,
-        span: Span,
-    ) -> Option<DefId> {
+    fn generic_target_identity(&mut self, target_norm: TypeId, span: Span) -> Option<DefId> {
         match self.ctx.type_registry.get(target_norm) {
             TypeKind::FnDef(id, args)
             | TypeKind::Def(id, args)
@@ -547,12 +519,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             if explicit_args.len() == generics_count {
                 return (
-                    self.instantiate_call_signature(
-                        norm_callee,
-                        raw_sig,
-                        generics,
-                        explicit_args,
-                    ),
+                    self.instantiate_call_signature(norm_callee, raw_sig, generics, explicit_args),
                     None,
                     None,
                 );
@@ -967,11 +934,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             TypeKind::TraitObject(..) => {
                 self.ctx
                     .type_registry
-                    .intern(TypeKind::TraitObject(
-                        def_id,
-                        arg_values,
-                        Vec::new(),
-                    ))
+                    .intern(TypeKind::TraitObject(def_id, arg_values, Vec::new()))
             }
             _ => self
                 .ctx

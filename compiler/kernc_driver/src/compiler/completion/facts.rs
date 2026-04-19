@@ -614,7 +614,9 @@ fn collect_decl_body_regions(decl: &ast::Decl, regions: &mut Vec<kernc_utils::Sp
 }
 
 fn query_span_for_stmt(stmt: &ast::Stmt) -> kernc_utils::Span {
-    stmt_expr(stmt).map(query_span_for_expr).unwrap_or(stmt.span)
+    stmt_expr(stmt)
+        .map(query_span_for_expr)
+        .unwrap_or(stmt.span)
 }
 
 pub(super) fn stmt_expr(stmt: &ast::Stmt) -> Option<&ast::Expr> {

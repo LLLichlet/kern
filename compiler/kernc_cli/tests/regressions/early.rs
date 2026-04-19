@@ -411,7 +411,9 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("const generics are inferred only from direct structural matches such as `[N]T`"),
+        stderr.contains(
+            "const generics are inferred only from direct structural matches such as `[N]T`"
+        ),
         "unexpected stderr:\n{}",
         stderr
     );

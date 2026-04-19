@@ -870,7 +870,9 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
                     ast::GenericArg::ConstExpr(expr) => {
                         normalize_expr_for_body_only_comparison(expr);
                     }
-                    ast::GenericArg::AssocBinding { name_span, value, .. } => {
+                    ast::GenericArg::AssocBinding {
+                        name_span, value, ..
+                    } => {
                         *name_span = Span::default();
                         normalize_type_for_body_only_comparison(value);
                     }

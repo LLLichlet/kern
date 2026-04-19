@@ -960,6 +960,185 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_mutual_polymorphic_recursion_with_instantiation_chain() {
+    let output = compile_source(
+        r#"
+type Wrap[T] = struct {
+    inner: T,
+};
+
+fn f[T](x: T) i32 {
+    return g[Wrap[T]](Wrap[T].{ inner: x });
+}
+
+fn g[T](x: T) i32 {
+    return f[Wrap[T]](Wrap[T].{ inner: x });
+}
+
+fn main() i32 {
+    return f[i32](0);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("infinitely many specializations"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("instantiation chain: f[i32] -> g[Wrap[i32]] -> f[Wrap[Wrap[i32]]]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("stack overflow"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_const_generic_polymorphic_recursion_with_specialization_diagnostic() {
+    let output = compile_source(
+        r#"
+fn grow[N: usize]() i32 {
+    return grow[N + 1]();
+}
+
+fn main() i32 {
+    return grow[0]();
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("recursive specialization depth limit")
+            || stderr.contains("specialization work queue limit")
+            || stderr.contains("specialization limit"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("grow[0] -> grow[1]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("stack overflow"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_mutual_const_generic_polymorphic_recursion_with_specialization_diagnostic() {
+    let output = compile_source(
+        r#"
+fn f[N: usize]() i32 {
+    return g[N + 1]();
+}
+
+fn g[N: usize]() i32 {
+    return f[N + 1]();
+}
+
+fn main() i32 {
+    return f[0]();
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("recursive specialization depth limit")
+            || stderr.contains("specialization work queue limit")
+            || stderr.contains("specialization limit"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("f[0] -> g[1] -> f[2]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("stack overflow"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn runs_const_generic_params_in_ordinary_expressions() {
+    let output = build_and_run_source(
+        r#"
+type Mode = enum {
+    Off,
+    On,
+};
+
+fn leaf[N: usize]() i32 {
+    return N as i32;
+}
+
+fn forward[N: usize]() i32 {
+    return leaf[N]() + leaf[N + 1]();
+}
+
+fn choose[B: bool]() i32 {
+    if (B) {
+        return 11;
+    }
+
+    return 22;
+}
+
+fn select_mode[M: Mode]() i32 {
+    return match (M) {
+        .Off => 30,
+        .On => 40,
+    };
+}
+
+fn main() i32 {
+    return forward[7]() + choose[true]() + choose[false]() + select_mode[Mode.On]() - 88;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_uninstantiated_generic_function_items_in_value_position() {
     let output = compile_source(
         r#"
@@ -1273,6 +1452,68 @@ fn main() i32 {
     );
     assert!(
         stderr.contains("Carrier[T]: Forge[T]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_cyclic_trait_impl_proof_chains() {
+    let output = compile_source(
+        r#"
+type Pre[T] = trait {};
+
+type Forge[T] = trait {
+    make: fn() T,
+};
+
+type Carrier[T] = struct {};
+
+impl[T] Carrier[T] : Pre[T]
+    where Carrier[T]: Forge[T],
+{}
+
+impl[T] Carrier[T] : Forge[T]
+    where Carrier[T]: Pre[T],
+{
+    fn make() T {
+        return self.make();
+    }
+}
+
+fn conjure[T]() T {
+    return Carrier[T].{}.make();
+}
+
+fn main() i32 {
+    let _ = conjure[i32]();
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("impl requirement participates in a cyclic proof"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains(
+            "proof cycle: Carrier[T]: Forge[T] -> Carrier[T]: Pre[T] -> Carrier[T]: Forge[T]"
+        ),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("no field or method named `make` found"),
         "unexpected stderr:\n{}",
         stderr
     );

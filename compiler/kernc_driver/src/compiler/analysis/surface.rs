@@ -297,8 +297,9 @@ impl CompilerDriver {
                     AnalysisSemanticKind::Function
                 }
             }
-            kernc_sema::scope::SymbolKind::Const
-            | kernc_sema::scope::SymbolKind::ConstParam => AnalysisSemanticKind::Constant,
+            kernc_sema::scope::SymbolKind::Const | kernc_sema::scope::SymbolKind::ConstParam => {
+                AnalysisSemanticKind::Constant
+            }
             kernc_sema::scope::SymbolKind::Static => AnalysisSemanticKind::Static,
             kernc_sema::scope::SymbolKind::Var => AnalysisSemanticKind::Variable,
             kernc_sema::scope::SymbolKind::Struct | kernc_sema::scope::SymbolKind::Union => {

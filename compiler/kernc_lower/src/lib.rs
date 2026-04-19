@@ -35,6 +35,15 @@ struct ActiveFunctionInstantiation {
     request_span: Span,
 }
 
+#[derive(Debug, Clone)]
+struct PendingFunctionInstantiation {
+    def_id: DefId,
+    args: Vec<GenericArg>,
+    id: MonoId,
+    request_span: Span,
+    lineage: Vec<ActiveFunctionInstantiation>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LowerTiming {
     pub name: &'static str,
@@ -71,7 +80,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) mono_cache: HashMap<(DefId, Vec<GenericArg>), MonoId>,
     pub(crate) pure_enum_tag_map: HashMap<(DefId, Vec<GenericArg>), TypeId>,
     pub(crate) next_mono_id: u32,
-    pub(crate) pending_function_instantiations: Vec<(DefId, Vec<GenericArg>, MonoId, Span)>,
+    pub(crate) pending_function_instantiations: Vec<PendingFunctionInstantiation>,
     pub(crate) active_function_instantiations: Vec<ActiveFunctionInstantiation>,
     pub(crate) defer_stack: Vec<Vec<MastExpr>>,
     pub(crate) global_map: HashMap<DefId, MonoId>,
@@ -801,11 +810,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         def.variants.iter().all(|v| v.payload_type.is_none())
     }
 
-    pub(crate) fn record_pure_enum_tag_ty(
-        &mut self,
-        def_id: DefId,
-        args: &[GenericArg],
-    ) -> TypeId {
+    pub(crate) fn record_pure_enum_tag_ty(&mut self, def_id: DefId, args: &[GenericArg]) -> TypeId {
         let key = (def_id, args.to_vec());
         if let Some(&tag_ty) = self.pure_enum_tag_map.get(&key) {
             return tag_ty;

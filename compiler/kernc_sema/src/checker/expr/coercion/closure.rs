@@ -249,13 +249,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_variadic: false,
             } => self.unify_signature_shape(expected_params, expected_ret, params, *ret, map),
             TypeKind::FnDef(def_id, args) => {
-                let Some((params, ret)) =
-                    self.instantiate_fn_def_signature(
-                        *def_id,
-                        &crate::ty::erase_non_type_generic_args(args),
-                        Span::default(),
-                    )
-                else {
+                let Some((params, ret)) = self.instantiate_fn_def_signature(
+                    *def_id,
+                    &crate::ty::erase_non_type_generic_args(args),
+                    Span::default(),
+                ) else {
                     return false;
                 };
                 self.unify_signature_shape(expected_params, expected_ret, &params, ret, map)
@@ -290,13 +288,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.unify_signature_shape(expected_params, expected_ret, params, *ret, map)
             }
             TypeKind::FnDef(def_id, args) => {
-                let Some((params, ret)) =
-                    self.instantiate_fn_def_signature(
-                        *def_id,
-                        &crate::ty::erase_non_type_generic_args(args),
-                        Span::default(),
-                    )
-                else {
+                let Some((params, ret)) = self.instantiate_fn_def_signature(
+                    *def_id,
+                    &crate::ty::erase_non_type_generic_args(args),
+                    Span::default(),
+                ) else {
                     return false;
                 };
                 self.unify_signature_shape(expected_params, expected_ret, &params, ret, map)
@@ -410,31 +406,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if g_args.len() != c_args.len() {
                     return false;
                 }
-                g_args
-                    .iter()
-                    .zip(c_args.iter())
-                    .all(|(ga, ca)| {
-                        self.unify(
-                            ga.as_type().unwrap_or(TypeId::ERROR),
-                            ca.as_type().unwrap_or(TypeId::ERROR),
-                            map,
-                        )
-                    })
+                g_args.iter().zip(c_args.iter()).all(|(ga, ca)| {
+                    self.unify(
+                        ga.as_type().unwrap_or(TypeId::ERROR),
+                        ca.as_type().unwrap_or(TypeId::ERROR),
+                        map,
+                    )
+                })
             }
             (TypeKind::Enum(g_id, g_args), TypeKind::Enum(c_id, c_args)) if g_id == c_id => {
                 if g_args.len() != c_args.len() {
                     return false;
                 }
-                g_args
-                    .iter()
-                    .zip(c_args.iter())
-                    .all(|(ga, ca)| {
-                        self.unify(
-                            ga.as_type().unwrap_or(TypeId::ERROR),
-                            ca.as_type().unwrap_or(TypeId::ERROR),
-                            map,
-                        )
-                    })
+                g_args.iter().zip(c_args.iter()).all(|(ga, ca)| {
+                    self.unify(
+                        ga.as_type().unwrap_or(TypeId::ERROR),
+                        ca.as_type().unwrap_or(TypeId::ERROR),
+                        map,
+                    )
+                })
             }
             (
                 TypeKind::TraitObject(g_id, g_args, g_assoc_bindings),
@@ -443,17 +433,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if g_args.len() != c_args.len() {
                     return false;
                 }
-                if !g_args
-                    .iter()
-                    .zip(c_args.iter())
-                    .all(|(ga, ca)| {
-                        self.unify(
-                            ga.as_type().unwrap_or(TypeId::ERROR),
-                            ca.as_type().unwrap_or(TypeId::ERROR),
-                            map,
-                        )
-                    })
-                {
+                if !g_args.iter().zip(c_args.iter()).all(|(ga, ca)| {
+                    self.unify(
+                        ga.as_type().unwrap_or(TypeId::ERROR),
+                        ca.as_type().unwrap_or(TypeId::ERROR),
+                        map,
+                    )
+                }) {
                     return false;
                 }
 

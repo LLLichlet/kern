@@ -10,6 +10,15 @@ use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
+const MAX_ACTIVE_FUNCTION_INSTANTIATION_DEPTH: usize = 128;
+const MAX_PENDING_FUNCTION_SPECIALIZATIONS: usize = 1024;
+
+#[derive(Debug, Clone, Copy)]
+enum SpecializationLimit {
+    ActiveDepth,
+    PendingQueue,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn aligned_union_storage_size(size: u64, align: u64) -> usize {
         let size = size.max(1);
@@ -26,12 +35,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn drain_pending_function_instantiations(&mut self) {
         let mut next_pending = 0;
         while next_pending < self.pending_function_instantiations.len() {
-            let (def_id, args, id, request_span) =
-                self.pending_function_instantiations[next_pending].clone();
+            let pending = self.pending_function_instantiations[next_pending].clone();
             next_pending += 1;
+            let saved_active = std::mem::replace(
+                &mut self.active_function_instantiations,
+                pending.lineage.clone(),
+            );
             self.measure_phase("  lower_instantiate_function", |this| {
-                this.finish_function_instantiation(def_id, &args, id, request_span)
+                this.finish_function_instantiation(
+                    pending.def_id,
+                    &pending.args,
+                    pending.id,
+                    pending.request_span,
+                )
             });
+            self.active_function_instantiations = saved_active;
         }
     }
 
@@ -167,6 +185,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.cache_stats.mono_function_hits += 1;
             return id;
         }
+        if let Some(limit) = self.recursive_specialization_limit() {
+            self.cache_stats.mono_function_misses += 1;
+            let id = self.new_mono_id();
+            self.mono_cache.insert(key, id);
+            self.placeholder_function(id, self.ctx.get_export_name_for_generic_args(def_id, args));
+            self.emit_specialization_limit_diagnostic(limit, def_id, args, request_span);
+            return id;
+        }
         if let Some(ancestor_index) = self.detect_infinite_polymorphic_recursion(def_id, args) {
             self.cache_stats.mono_function_misses += 1;
             let id = self.new_mono_id();
@@ -184,8 +210,26 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let id = self.new_mono_id();
         self.mono_cache.insert(key, id);
         self.pending_function_instantiations
-            .push((def_id, args.to_vec(), id, request_span));
+            .push(crate::PendingFunctionInstantiation {
+                def_id,
+                args: args.to_vec(),
+                id,
+                request_span,
+                lineage: self.active_function_instantiations.clone(),
+            });
         id
+    }
+
+    fn recursive_specialization_limit(&self) -> Option<SpecializationLimit> {
+        if self.active_function_instantiations.len() >= MAX_ACTIVE_FUNCTION_INSTANTIATION_DEPTH {
+            return Some(SpecializationLimit::ActiveDepth);
+        }
+
+        if self.pending_function_instantiations.len() >= MAX_PENDING_FUNCTION_SPECIALIZATIONS {
+            return Some(SpecializationLimit::PendingQueue);
+        }
+
+        None
     }
 
     fn finish_function_instantiation(
@@ -590,6 +634,83 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         diag.emit();
+    }
+
+    fn emit_specialization_limit_diagnostic(
+        &mut self,
+        limit: SpecializationLimit,
+        def_id: DefId,
+        args: &[GenericArg],
+        request_span: Span,
+    ) {
+        let current_display = self.function_instantiation_display(def_id, args);
+        let function_name = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(function) => self.ctx.resolve(function.name).to_string(),
+            _ => current_display.clone(),
+        };
+        let chain = self
+            .active_function_instantiations
+            .iter()
+            .map(|frame| self.function_instantiation_display(frame.def_id, &frame.args))
+            .chain(std::iter::once(current_display.clone()))
+            .collect::<Vec<_>>();
+        let recursive_anchor_label =
+            self.active_function_instantiations
+                .first()
+                .and_then(|frame| {
+                    (frame.request_span != Span::default()).then(|| {
+                        (
+                            frame.request_span,
+                            self.function_instantiation_display(frame.def_id, &frame.args),
+                        )
+                    })
+                });
+
+        let mut diag = match limit {
+            SpecializationLimit::ActiveDepth => self
+                .ctx
+                .struct_error(
+                    request_span,
+                    format!(
+                        "generic function `{}` exceeded the recursive specialization depth limit",
+                        function_name
+                    ),
+                )
+                .with_hint(format!(
+                    "Kern aborted lowering after {} active recursive instantiations to avoid runaway monomorphization",
+                    MAX_ACTIVE_FUNCTION_INSTANTIATION_DEPTH
+                ))
+                .with_hint(format!("instantiation chain: {}", chain.join(" -> "))),
+            SpecializationLimit::PendingQueue => self
+                .ctx
+                .struct_error(
+                    request_span,
+                    format!(
+                        "generic function `{}` exceeded the specialization work queue limit",
+                        function_name
+                    ),
+                )
+                .with_hint(format!(
+                    "Kern aborted lowering after queuing {} pending generic function specializations to avoid runaway monomorphization",
+                    MAX_PENDING_FUNCTION_SPECIALIZATIONS
+                ))
+                .with_hint(format!("instantiation chain: {}", chain.join(" -> "))),
+        };
+
+        if let Some((ancestor_span, ancestor_display)) = recursive_anchor_label {
+            diag = diag.with_span_label(
+                ancestor_span,
+                format!(
+                    "instantiation of `{}` entered the runaway specialization chain here",
+                    ancestor_display
+                ),
+            );
+        }
+
+        diag.with_hint(
+            "rewrite the recursion so it reuses existing specializations, or move the growing compile-time state into data instead of the call graph",
+        )
+        .emit();
     }
 
     fn function_instantiation_display(&self, def_id: DefId, args: &[GenericArg]) -> String {

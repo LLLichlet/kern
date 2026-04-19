@@ -605,13 +605,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         &kernc_sema::ty::wrap_type_args(impl_args.iter().copied()),
                         f.name_span,
                     );
-                    let method_fn_ty = self
-                        .ctx
-                        .type_registry
-                        .intern(TypeKind::FnDef(
-                            m_id,
-                            kernc_sema::ty::wrap_type_args(impl_args.iter().copied()),
-                        ));
+                    let method_fn_ty = self.ctx.type_registry.intern(TypeKind::FnDef(
+                        m_id,
+                        kernc_sema::ty::wrap_type_args(impl_args.iter().copied()),
+                    ));
                     method_entry = self.get_or_create_vtable_method_adapter(
                         method_mono_id,
                         data_ptr_ty,

@@ -272,7 +272,11 @@ fn collect_stmt_closure_completion_facts(
     closure_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionClosureFacts>,
 ) {
     if let Some(expr) = stmt_expr(stmt) {
-        collect_expr_closure_completion_facts(expr, closure_binding_items_by_body_span, closure_facts_by_span);
+        collect_expr_closure_completion_facts(
+            expr,
+            closure_binding_items_by_body_span,
+            closure_facts_by_span,
+        );
     }
 }
 

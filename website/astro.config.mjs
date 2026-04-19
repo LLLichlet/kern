@@ -25,7 +25,10 @@ export default defineConfig({
   base: normalizeBase(process.env.SITE_BASE),
   markdown: {
     shikiConfig: {
-      theme: "github-light",
+      themes: {
+        light: "github-light",
+        dark: "github-dark-dimmed"
+      },
       langs: [
         {
           ...kernGrammar,

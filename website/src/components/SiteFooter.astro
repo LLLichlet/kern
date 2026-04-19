@@ -1,6 +1,6 @@
 ---
 import BrandMark from "@/components/BrandMark.astro";
-import { siteMeta } from "@/lib/site";
+import { internalHref, siteMeta } from "@/lib/site";
 ---
 
 <footer class="mt-16 border-t border-[color:var(--kern-line)] bg-[color:var(--kern-panel)]">
@@ -20,9 +20,9 @@ import { siteMeta } from "@/lib/site";
     </div>
     <div class="grid gap-2 md:justify-self-end">
       <div class="font-semibold text-[color:var(--kern-ink)]">Links</div>
-      <a class="transition hover:text-[color:var(--kern-steel)]" href="/install">Install</a>
-      <a class="transition hover:text-[color:var(--kern-steel)]" href="/guide">Guide</a>
-      <a class="transition hover:text-[color:var(--kern-steel)]" href="/reference">Reference</a>
+      <a class="transition hover:text-[color:var(--kern-steel)]" href={internalHref("/install")}>Install</a>
+      <a class="transition hover:text-[color:var(--kern-steel)]" href={internalHref("/guide")}>Guide</a>
+      <a class="transition hover:text-[color:var(--kern-steel)]" href={internalHref("/reference")}>Reference</a>
       <a class="transition hover:text-[color:var(--kern-steel)]" href={siteMeta.repoUrl} target="_blank" rel="noreferrer">
         GitHub Repository
       </a>

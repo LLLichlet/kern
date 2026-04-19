@@ -1,5 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
+import { internalHref } from "@/lib/site";
 import { getCollection } from "astro:content";
 
 const guideEntries = (await getCollection("guide")).sort((left, right) => left.data.order - right.data.order);
@@ -29,7 +30,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
         <div class="mt-5 space-y-4">
           {
             starterEntries.map((entry) => (
-              <a class="block rounded-md border border-[color:var(--kern-line)] px-4 py-4 transition hover:bg-[color:var(--kern-soft)]" href={`/guide/${entry.id}/`}>
+              <a class="block rounded-md border border-[color:var(--kern-line)] px-4 py-4 transition hover:bg-[color:var(--kern-soft)]" href={internalHref(`/guide/${entry.id}/`)}>
                 <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">
                   Chapter {entry.data.order}
                 </div>
@@ -50,10 +51,10 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
           <li>Use the reference when you need exact rules rather than tutorial pacing.</li>
         </ol>
         <div class="mt-6 flex flex-wrap gap-3">
-          <a class="button-primary" href="/guide/getting-started/">
+          <a class="button-primary" href={internalHref("/guide/getting-started/")}>
             Start with Getting Started
           </a>
-          <a class="button-secondary" href="/reference/language">
+          <a class="button-secondary" href={internalHref("/reference/language")}>
             Open language reference
           </a>
         </div>

@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { siteMeta } from "@/lib/site";
+import { internalHref, siteMeta } from "@/lib/site";
 ---
 
 <BaseLayout title="Language Reference" description="Current language-reference spine for Kern: values, storage, control flow, traits, modules, intrinsics, and ABI-facing syntax.">
@@ -51,19 +51,19 @@ import { siteMeta } from "@/lib/site";
     <section class="manual-section">
       <h2>Related guide chapters</h2>
       <div class="manual-links mt-6">
-        <a class="button-primary" href="/guide/language-tour/">
+        <a class="button-primary" href={internalHref("/guide/language-tour/")}>
           Language tour
         </a>
-        <a class="button-secondary" href="/guide/types-and-bindings/">
+        <a class="button-secondary" href={internalHref("/guide/types-and-bindings/")}>
           Types and bindings
         </a>
-        <a class="button-secondary" href="/guide/enums-and-patterns/">
+        <a class="button-secondary" href={internalHref("/guide/enums-and-patterns/")}>
           Enums and patterns
         </a>
-        <a class="button-secondary" href="/guide/traits-and-generics/">
+        <a class="button-secondary" href={internalHref("/guide/traits-and-generics/")}>
           Traits and generics
         </a>
-        <a class="button-secondary" href="/guide/inline-assembly/">
+        <a class="button-secondary" href={internalHref("/guide/inline-assembly/")}>
           Inline assembly
         </a>
       </div>
@@ -78,7 +78,7 @@ import { siteMeta } from "@/lib/site";
         <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/design.md`} target="_blank" rel="noreferrer">
           Open language design doc
         </a>
-        <a class="button-secondary" href="/reference">
+        <a class="button-secondary" href={internalHref("/reference")}>
           Back to reference tracks
         </a>
       </div>

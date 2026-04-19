@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { siteMeta } from "@/lib/site";
+import { internalHref, siteMeta } from "@/lib/site";
 ---
 
 <BaseLayout title="Runtime And Libraries Reference" description="Current runtime and library reference for Kern: the base/sys/rt/std split, startup ownership, and libc policy.">
@@ -51,13 +51,13 @@ import { siteMeta } from "@/lib/site";
     <section class="manual-section">
       <h2>Related guide chapters</h2>
       <div class="manual-links mt-6">
-        <a class="button-primary" href="/guide/libraries-and-runtime/">
+        <a class="button-primary" href={internalHref("/guide/libraries-and-runtime/")}>
           Libraries and runtime
         </a>
-        <a class="button-secondary" href="/guide/c-interop-and-libc/">
+        <a class="button-secondary" href={internalHref("/guide/c-interop-and-libc/")}>
           C interop and libc
         </a>
-        <a class="button-secondary" href="/guide/standard-library-tour/">
+        <a class="button-secondary" href={internalHref("/guide/standard-library-tour/")}>
           Standard library tour
         </a>
       </div>
@@ -69,7 +69,7 @@ import { siteMeta } from "@/lib/site";
         <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/runtime-architecture.md`} target="_blank" rel="noreferrer">
           Open runtime architecture doc
         </a>
-        <a class="button-secondary" href="/reference">
+        <a class="button-secondary" href={internalHref("/reference")}>
           Back to reference tracks
         </a>
       </div>

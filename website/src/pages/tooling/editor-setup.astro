@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { siteMeta } from "@/lib/site";
+import { internalHref, siteMeta } from "@/lib/site";
 ---
 
 <BaseLayout title="Editor Setup" description="Set up VS Code and kern-lsp for a practical Kern editing workflow.">
@@ -32,10 +32,10 @@ import { siteMeta } from "@/lib/site";
           <li>Open a `.rn` file and confirm the editor activates Kern language support.</li>
       </ol>
       <div class="manual-links mt-6">
-        <a class="button-primary" href="/install">
+        <a class="button-primary" href={internalHref("/install")}>
           Install
         </a>
-        <a class="button-secondary" href="/build-from-source">
+        <a class="button-secondary" href={internalHref("/build-from-source")}>
           Build from source
         </a>
         <a class="button-secondary" href={`${siteMeta.repoUrl}/tree/main/editors/vscode`} target="_blank" rel="noreferrer">
@@ -135,10 +135,10 @@ npm run package:vsix -- --target linux-x64`}</code></pre>
         This page covers the normal editor path. Packaging details and repository-specific release flow still live in the repository for now.
       </p>
       <div class="manual-links mt-6">
-        <a class="button-primary" href="/install">
+        <a class="button-primary" href={internalHref("/install")}>
           Install
         </a>
-        <a class="button-secondary" href="/build-from-source">
+        <a class="button-secondary" href={internalHref("/build-from-source")}>
           Build from source
         </a>
         <a class="button-secondary" href={`${siteMeta.repoUrl}/tree/main/editors/vscode`} target="_blank" rel="noreferrer">

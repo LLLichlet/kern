@@ -6,11 +6,29 @@ export const siteMeta = {
   repoUrl: "https://github.com/softfault/kern"
 };
 
+function normalizeBase(base: string) {
+  if (!base || base === "/") {
+    return "/";
+  }
+
+  const withLeading = base.startsWith("/") ? base : `/${base}`;
+  return withLeading.endsWith("/") ? withLeading : `${withLeading}/`;
+}
+
+export function internalHref(path: string) {
+  if (!path || path === "/") {
+    return normalizeBase(import.meta.env.BASE_URL);
+  }
+
+  const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+  return `${normalizeBase(import.meta.env.BASE_URL)}${normalizedPath}`;
+}
+
 export const navItems = [
-  { href: "/install", label: "Install" },
-  { href: "/guide", label: "Guide" },
-  { href: "/reference", label: "Reference" },
-  { href: "/docs", label: "Docs" }
+  { href: internalHref("/install"), label: "Install" },
+  { href: internalHref("/guide"), label: "Guide" },
+  { href: internalHref("/reference"), label: "Reference" },
+  { href: internalHref("/docs"), label: "Docs" }
 ];
 
 export const authoritativeDocs = [
@@ -46,28 +64,28 @@ export const referenceTracks = [
     title: "Language",
     description:
       "Types, control flow, traits, modules, intrinsics, inline assembly, and compile-time behavior.",
-    href: "/reference/language",
+    href: internalHref("/reference/language"),
     sourceHref: `${siteMeta.repoUrl}/blob/main/docs/design.md`
   },
   {
     title: "Runtime And Libraries",
     description:
       "The `base` / `sys` / `rt` / `std` model, freestanding versus hosted, and libc policy.",
-    href: "/reference/runtime",
+    href: internalHref("/reference/runtime"),
     sourceHref: `${siteMeta.repoUrl}/blob/main/docs/runtime-architecture.md`
   },
   {
     title: "Compiler Driver",
     description:
       "Driver modes, runtime/library flags, LLVM emission, linking, CGUs, and LTO behavior.",
-    href: "/reference/kernc",
+    href: internalHref("/reference/kernc"),
     sourceHref: `${siteMeta.repoUrl}/blob/main/docs/kernc.md`
   },
   {
     title: "Package Manager",
     description:
       "Workspaces, `Craft.lock`, dependency resolution, build plans, and execution.",
-    href: "/reference/craft",
+    href: internalHref("/reference/craft"),
     sourceHref: `${siteMeta.repoUrl}/blob/main/docs/craft.md`
   }
 ];
@@ -77,25 +95,25 @@ export const toolingProducts = [
     name: "kernc",
     summary:
       "The compiler and linker driver. It owns compilation of one explicit source entry or explicit link-only actions.",
-    href: "/reference/kernc"
+    href: internalHref("/reference/kernc")
   },
   {
     name: "craft",
     summary:
       "The package manager and build orchestrator. It owns workspaces, lockfiles, dependency resolution, and action graphs.",
-    href: "/reference/craft"
+    href: internalHref("/reference/craft")
   },
   {
     name: "kern-lsp",
     summary:
       "The language server. It reuses compiler analysis rather than implementing a separate frontend.",
-    href: "/tooling/editor-setup"
+    href: internalHref("/tooling/editor-setup")
   },
   {
     name: "VS Code Extension",
     summary:
       "The first-party editor integration that launches `kern-lsp` and packages the language assets.",
-    href: "/tooling/editor-setup"
+    href: internalHref("/tooling/editor-setup")
   }
 ];
 

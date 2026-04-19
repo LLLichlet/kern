@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - "website/**"
+      - "editors/vscode/syntaxes/kern.tmLanguage.json"
       - ".github/workflows/website.yml"
   push:
     branches:
       - main
     paths:
       - "website/**"
+      - "editors/vscode/syntaxes/kern.tmLanguage.json"
       - ".github/workflows/website.yml"
   workflow_dispatch:
 

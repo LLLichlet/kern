@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { siteMeta, toolingProducts } from "@/lib/site";
+import { internalHref, siteMeta, toolingProducts } from "@/lib/site";
 ---
 
 <BaseLayout title="Tooling" description="The current Kern tooling stack: compiler, package manager, LSP, and editor integration.">
@@ -58,7 +58,7 @@ import { siteMeta, toolingProducts } from "@/lib/site";
             Start from the official installer path unless you are deliberately working on the repository.
           </div>
           <div class="manual-directory-links">
-            <a href="/install">Open install page</a>
+            <a href={internalHref("/install")}>Open install page</a>
           </div>
         </div>
 
@@ -71,7 +71,7 @@ import { siteMeta, toolingProducts } from "@/lib/site";
             Set up VS Code, understand `kern-lsp` resolution, and use the basic editor commands when analysis changes.
           </div>
           <div class="manual-directory-links">
-            <a href="/tooling/editor-setup">Open editor setup</a>
+            <a href={internalHref("/tooling/editor-setup")}>Open editor setup</a>
           </div>
         </div>
 
@@ -84,7 +84,7 @@ import { siteMeta, toolingProducts } from "@/lib/site";
             Build local developer binaries, then distinguish them clearly from release-quality packaged SDK artifacts.
           </div>
           <div class="manual-directory-links">
-            <a href="/build-from-source">Open source build guide</a>
+            <a href={internalHref("/build-from-source")}>Open source build guide</a>
           </div>
         </div>
       </div>

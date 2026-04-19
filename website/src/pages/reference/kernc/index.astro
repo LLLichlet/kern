@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { siteMeta } from "@/lib/site";
+import { internalHref, siteMeta } from "@/lib/site";
 ---
 
 <BaseLayout title="kernc Reference" description="Current reference for the kernc compiler driver: scope, modes, runtime axes, output forms, and platform-facing packaging notes.">
@@ -52,13 +52,13 @@ import { siteMeta } from "@/lib/site";
     <section class="manual-section">
       <h2>Related guide chapters</h2>
       <div class="manual-links mt-6">
-        <a class="button-primary" href="/guide/tooling-model/">
+        <a class="button-primary" href={internalHref("/guide/tooling-model/")}>
           Tooling model
         </a>
-        <a class="button-secondary" href="/guide/build-pipeline/">
+        <a class="button-secondary" href={internalHref("/guide/build-pipeline/")}>
           Build pipeline
         </a>
-        <a class="button-secondary" href="/guide/libraries-and-runtime/">
+        <a class="button-secondary" href={internalHref("/guide/libraries-and-runtime/")}>
           Runtime and bundle model
         </a>
       </div>
@@ -70,7 +70,7 @@ import { siteMeta } from "@/lib/site";
         <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/kernc.md`} target="_blank" rel="noreferrer">
           Open kernc guide
         </a>
-        <a class="button-secondary" href="/reference">
+        <a class="button-secondary" href={internalHref("/reference")}>
           Back to reference tracks
         </a>
       </div>

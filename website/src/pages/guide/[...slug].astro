@@ -2,6 +2,7 @@
 import BaseLayout from "@/layouts/BaseLayout.astro";
 import GuidePager from "@/components/GuidePager.astro";
 import GuideSidebar from "@/components/GuideSidebar.astro";
+import { internalHref } from "@/lib/site";
 import { getCollection, render } from "astro:content";
 
 export async function getStaticPaths() {
@@ -45,7 +46,7 @@ const { Content } = await render(entry);
       </details>
 
       <div class="guide-main">
-      <a class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)] hover:text-[color:var(--kern-steel-strong)]" href="/guide">
+      <a class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)] hover:text-[color:var(--kern-steel-strong)]" href={internalHref("/guide")}>
         Back to guide
       </a>
       <h1 class="mt-6 text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">

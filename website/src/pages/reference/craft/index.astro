@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { siteMeta } from "@/lib/site";
+import { internalHref, siteMeta } from "@/lib/site";
 ---
 
 <BaseLayout title="craft Reference" description="Current reference for craft: manifests, workspaces, lockfiles, phase separation, scripts, and action-graph execution.">
@@ -70,16 +70,16 @@ import { siteMeta } from "@/lib/site";
     <section class="manual-section">
       <h2>Related guide chapters</h2>
       <div class="manual-links mt-6">
-        <a class="button-primary" href="/guide/getting-started/">
+        <a class="button-primary" href={internalHref("/guide/getting-started/")}>
           Getting started
         </a>
-        <a class="button-secondary" href="/guide/workspaces-and-targets/">
+        <a class="button-secondary" href={internalHref("/guide/workspaces-and-targets/")}>
           Workspaces and targets
         </a>
-        <a class="button-secondary" href="/guide/lockfiles-and-features/">
+        <a class="button-secondary" href={internalHref("/guide/lockfiles-and-features/")}>
           Lockfiles and features
         </a>
-        <a class="button-secondary" href="/guide/build-scripts-and-generated-sources/">
+        <a class="button-secondary" href={internalHref("/guide/build-scripts-and-generated-sources/")}>
           Build scripts and generated sources
         </a>
       </div>
@@ -91,7 +91,7 @@ import { siteMeta } from "@/lib/site";
         <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/craft.md`} target="_blank" rel="noreferrer">
           Open craft guide
         </a>
-        <a class="button-secondary" href="/reference">
+        <a class="button-secondary" href={internalHref("/reference")}>
           Back to reference tracks
         </a>
       </div>

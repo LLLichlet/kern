@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { siteMeta } from "@/lib/site";
+import { internalHref, siteMeta } from "@/lib/site";
 ---
 
 <BaseLayout title="SDK Layout" description="What the Kern SDK archive contains, how release artifacts are split, and why the packaged toolchain layout is explicit.">
@@ -168,10 +168,10 @@ import { siteMeta } from "@/lib/site";
         This page covers the public SDK shape. More detailed release engineering policy still lives in the repository docs for now.
       </p>
       <div class="manual-links mt-6">
-        <a class="button-primary" href="/install">
+        <a class="button-primary" href={internalHref("/install")}>
           Install
         </a>
-        <a class="button-secondary" href="/build-from-source">
+        <a class="button-secondary" href={internalHref("/build-from-source")}>
           Build from source
         </a>
         <a class="button-secondary" href={`${siteMeta.repoUrl}/blob/main/docs/sdk-rebuild-plan.md`} target="_blank" rel="noreferrer">

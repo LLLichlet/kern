@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { authoritativeDocs, siteMeta } from "@/lib/site";
+import { authoritativeDocs, internalHref, siteMeta } from "@/lib/site";
 import { getCollection } from "astro:content";
 
 const guideEntries = (await getCollection("guide")).sort((left, right) => left.data.order - right.data.order);
@@ -28,16 +28,16 @@ const starterGuides = guideEntries.filter((entry) =>
           repository `docs/` remain authoritative while the website grows.
         </p>
         <div class="mt-8 flex flex-wrap gap-3">
-          <a class="button-primary" href="/guide">
+          <a class="button-primary" href={internalHref("/guide")}>
             Start the guide
           </a>
-          <a class="button-secondary" href="/install">
+          <a class="button-secondary" href={internalHref("/install")}>
             Install Kern
           </a>
-          <a class="button-secondary" href="/reference">
+          <a class="button-secondary" href={internalHref("/reference")}>
             Open reference
           </a>
-          <a class="button-secondary" href="/guide/getting-started/">
+          <a class="button-secondary" href={internalHref("/guide/getting-started/")}>
             Read getting started
           </a>
         </div>
@@ -101,21 +101,21 @@ fn main() i32 {
     </div>
 
     <div class="grid gap-4 md:grid-cols-3">
-      <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href="/guide/getting-started/">
+      <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref("/guide/getting-started/")}>
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Guide</div>
         <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">Getting Started</h3>
         <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">
           Build and run a minimal package with the current toolchain and see the smallest valid project shape.
         </p>
       </a>
-      <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href="/guide/language-tour/">
+      <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref("/guide/language-tour/")}>
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Guide</div>
         <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">Language Tour</h3>
         <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">
           Read a first validated pass through real Kern source before dropping into the full design reference.
         </p>
       </a>
-      <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href="/reference/language">
+      <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref("/reference/language")}>
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Reference</div>
         <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">Language Reference</h3>
         <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">
@@ -131,7 +131,7 @@ fn main() i32 {
         <div class="eyebrow">Guide</div>
         <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Guide chapters</h2>
       </div>
-      <a class="hidden text-sm font-semibold text-[color:var(--kern-steel)] hover:text-[color:var(--kern-steel-strong)] md:inline-flex" href="/guide">
+      <a class="hidden text-sm font-semibold text-[color:var(--kern-steel)] hover:text-[color:var(--kern-steel-strong)] md:inline-flex" href={internalHref("/guide")}>
         Open guide index
       </a>
     </div>

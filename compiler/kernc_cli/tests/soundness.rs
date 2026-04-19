@@ -1,10 +1,13 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use kernc_cli::test_support::{
-    build_and_run, compile_source_with_args, executable_extension, run_kernc, unique_temp_path,
+    build_and_run, compile_source_with_args, executable_extension, repo_root, run_kernc,
+    unique_temp_path,
 };
 
 #[derive(Default)]
@@ -14,7 +17,13 @@ struct SoundnessCase {
     module_interface_paths: Vec<(String, String)>,
     stderr_substrings: Vec<String>,
     exit_code: Option<i32>,
+    timeout_ms: Option<u64>,
     source: String,
+}
+
+enum TimedCompileResult {
+    Output(Output),
+    TimedOut,
 }
 
 #[test]
@@ -40,6 +49,11 @@ fn known_bug_compile_cases() {
 #[test]
 fn known_bug_reject_cases() {
     run_known_bug_reject_cases(&cases_in("known-bug-reject"));
+}
+
+#[test]
+fn known_bug_timeout_cases() {
+    run_known_bug_timeout_cases(&cases_in("known-bug-timeout"));
 }
 
 #[test]
@@ -169,6 +183,36 @@ fn run_known_bug_reject_cases(paths: &[PathBuf]) {
     }
 }
 
+fn run_known_bug_timeout_cases(paths: &[PathBuf]) {
+    for path in paths {
+        let case = parse_case(path);
+        let compile_args = case
+            .compile_args
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let timeout = Duration::from_millis(case.timeout_ms.unwrap_or(2_000));
+        let result = compile_source_with_args_timeout(
+            "kernc_soundness_known_bug_timeout",
+            &case.source,
+            &compile_args,
+            timeout,
+        );
+
+        match result {
+            TimedCompileResult::TimedOut => {}
+            TimedCompileResult::Output(output) => {
+                panic!(
+                    "{} no longer reproduces its known timeout bug:\nstdout:\n{}\nstderr:\n{}",
+                    path.display(),
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
+    }
+}
+
 fn run_reject_tree_cases(paths: &[PathBuf]) {
     for path in paths {
         let output = compile_case_tree(path);
@@ -291,6 +335,69 @@ fn compile_case_tree(case_root: &Path) -> Output {
     output
 }
 
+fn compile_source_with_args_timeout(
+    prefix: &str,
+    source: &str,
+    extra_args: &[&str],
+    timeout: Duration,
+) -> TimedCompileResult {
+    let source_path = unique_temp_path(prefix, "rn");
+    let object_path = unique_temp_path(prefix, "o");
+    fs::write(&source_path, source).unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+
+    let mut args: Vec<String> = vec!["-c".to_string()];
+    args.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+    args.push(source_arg);
+    args.push("-o".to_string());
+    args.push(object_arg);
+
+    let result = run_kernc_with_timeout(&args, timeout);
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&object_path);
+    result
+}
+
+fn run_kernc_with_timeout(args: &[String], timeout: Duration) -> TimedCompileResult {
+    let mut child = Command::new(kernc_binary())
+        .current_dir(repo_root())
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            return TimedCompileResult::Output(child.wait_with_output().unwrap());
+        }
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return TimedCompileResult::TimedOut;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn kernc_binary() -> PathBuf {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_kernc").map(PathBuf::from) {
+        return path;
+    }
+
+    let mut path = std::env::current_exe().expect("missing current test executable path");
+    path.pop();
+    if path.ends_with("deps") {
+        path.pop();
+    }
+    path.push(if cfg!(windows) { "kernc.exe" } else { "kernc" });
+    path
+}
+
 fn compile_interface_package(source_root: &Path, metadata_root: &Path) {
     let entry = source_root.join("init.rn");
     assert!(
@@ -406,6 +513,15 @@ fn parse_case(path: &Path) -> SoundnessCase {
             case.exit_code = Some(value.trim().parse().unwrap_or_else(|err| {
                 panic!(
                     "invalid `exit` directive in {}: {} ({})",
+                    path.display(),
+                    value.trim(),
+                    err
+                )
+            }));
+        } else if let Some(value) = directive.strip_prefix("timeout-ms:") {
+            case.timeout_ms = Some(value.trim().parse().unwrap_or_else(|err| {
+                panic!(
+                    "invalid `timeout-ms` directive in {}: {} ({})",
                     path.display(),
                     value.trim(),
                     err

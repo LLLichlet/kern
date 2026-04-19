@@ -1,0 +1,31 @@
+// class: projection-cycle
+// source: mutually recursive associated projections should reject quickly; today normalization/proof search times out
+// timeout-ms: 2000
+
+type A = trait {
+    type Out;
+};
+
+type B = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: A {
+    type Out = X.B.Out;
+}
+
+impl X: B {
+    type Out = X.A.Out;
+}
+
+fn project(value: X) X.A.Out {
+    let _ = value;
+    return X.{};
+}
+
+fn main() i32 {
+    let _ = project(X.{});
+    return 0;
+}

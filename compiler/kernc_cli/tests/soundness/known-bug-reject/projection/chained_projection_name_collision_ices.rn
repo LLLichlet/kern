@@ -1,0 +1,33 @@
+// class: projection-normalization
+// source: if an intermediate concrete type shares a name with the associated type being projected, layout still sees an unresolved chained projection
+// stderr: Kern ICE (Layout)
+// stderr: Projection
+
+type Step = trait {
+    type Mid;
+};
+
+type Finish = trait {
+    type Out;
+};
+
+type Mid = struct {};
+type Bytes = []u8;
+
+impl Bytes: Step {
+    type Mid = Mid;
+}
+
+impl Mid: Finish {
+    type Out = i32;
+}
+
+fn project(value: Bytes) Bytes.Step.Mid.Finish.Out {
+    let _ = value;
+    return 7;
+}
+
+fn main() i32 {
+    let value = project("ok");
+    return if (value == 7) { 0 } else { 1 };
+}

@@ -1,0 +1,42 @@
+// class: projection-specialization
+// source: a chained concrete projection should keep selecting the more specific impl head at each proof step
+// exit: 0
+
+type Step = trait {
+    type Mid;
+};
+
+type Finish = trait {
+    type Out;
+};
+
+type GenericMid = struct {};
+type ByteMid = struct {};
+type Bytes = []u8;
+
+impl[T] []T: Step {
+    type Mid = GenericMid;
+}
+
+impl Bytes: Step {
+    type Mid = ByteMid;
+}
+
+impl GenericMid: Finish {
+    type Out = bool;
+}
+
+impl ByteMid: Finish {
+    type Out = i32;
+}
+
+fn project(value: Bytes) Bytes.Step.Mid.Finish.Out {
+    let _ = value;
+    return 7;
+}
+
+fn main() i32 {
+    let value = project("ok");
+    let size = @sizeOf[Bytes.Step.Mid.Finish.Out]();
+    return if (value == 7 and size == 4) { 0 } else { 1 };
+}

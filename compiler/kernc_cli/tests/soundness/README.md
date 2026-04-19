@@ -22,6 +22,7 @@ Each `.rn` file is a minimized regression seed. The harness lives in
 - `interface-reject/`: a case directory with `main.rn` plus helper interface packages.
 - `known-bug-compile/`: currently compiles, but should not. The test fails once the bug is fixed.
 - `known-bug-reject/`: currently rejects or ICEs, but should not. The test fails once the bug is fixed.
+- `known-bug-timeout/`: currently hangs or times out. The test fails once the compiler stops timing out.
 - `build-pass/`: program must compile successfully.
 - `run-pass/`: program must compile and run successfully.
 - `known-bug-run/`: currently runs with buggy output/exit status. The test fails once the behavior changes.
@@ -35,6 +36,7 @@ Leading comment directives:
 // stderr: overlapping trait impls are not allowed
 // stderr: global proofs
 // exit: 0
+// timeout-ms: 2000
 ```
 
 `tree-reject/` cases read directives from `main.rn`, copy the whole case directory

@@ -1,0 +1,35 @@
+// class: projection-proof-search
+// source: generic proof search does not currently discharge a second trait obligation through an intermediate associated projection
+// stderr: expected `T.Step.Mid.Finish.Out`
+
+type Step = trait {
+    type Mid;
+};
+
+type Finish = trait {
+    type Out;
+};
+
+type Shell = struct {};
+type X = struct {};
+
+impl X: Step {
+    type Mid = Shell;
+}
+
+impl Shell: Finish {
+    type Out = i32;
+}
+
+fn project[T](value: T) T.Step.Mid.Finish.Out
+    where T: Step,
+          T.Step.Mid: Finish,
+{
+    let _ = value;
+    return 7;
+}
+
+fn main() i32 {
+    let value = project(X.{});
+    return if (value == 7) { 0 } else { 1 };
+}

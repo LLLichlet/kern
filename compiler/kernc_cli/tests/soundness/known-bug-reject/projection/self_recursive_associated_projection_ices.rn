@@ -1,0 +1,24 @@
+// class: projection-cycle
+// source: self-recursive associated projections should be rejected cleanly, not reach layout as unresolved projections
+// stderr: Kern ICE (Layout)
+// stderr: Projection
+
+type Loop = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: Loop {
+    type Out = X.Loop.Out;
+}
+
+fn project(value: X) X.Loop.Out {
+    let _ = value;
+    return X.{};
+}
+
+fn main() i32 {
+    let _ = project(X.{});
+    return 0;
+}

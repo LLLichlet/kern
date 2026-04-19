@@ -1,4 +1,5 @@
 ---
+import { internalHref } from "@/lib/site";
 import type { CollectionEntry } from "astro:content";
 
 interface Props {
@@ -30,7 +31,7 @@ const { entries, currentId } = Astro.props;
                 ? "bg-[color:var(--kern-soft)] text-[color:var(--kern-steel)]"
                 : "text-[color:rgba(21,26,32,0.76)] hover:bg-[color:var(--kern-soft)] hover:text-[color:var(--kern-steel-strong)]"
             ]}
-            href={`/guide/${entry.id}/`}
+            href={internalHref(`/guide/${entry.id}/`)}
           >
             <div class="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
               Chapter {entry.data.order}

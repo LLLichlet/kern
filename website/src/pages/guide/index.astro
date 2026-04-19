@@ -68,7 +68,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
           {
             coreEntries.map((entry) => (
               <li>
-                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={`/guide/${entry.id}/`}>
+                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={internalHref(`/guide/${entry.id}/`)}>
                   Chapter {entry.data.order}: {entry.data.title}
                 </a>
               </li>
@@ -83,7 +83,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
           {
             runtimeEntries.slice(0, 6).map((entry) => (
               <li>
-                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={`/guide/${entry.id}/`}>
+                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={internalHref(`/guide/${entry.id}/`)}>
                   Chapter {entry.data.order}: {entry.data.title}
                 </a>
               </li>
@@ -100,7 +100,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
           {
             systemsEntries.slice(0, 10).map((entry) => (
               <li>
-                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={`/guide/${entry.id}/`}>
+                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={internalHref(`/guide/${entry.id}/`)}>
                   Chapter {entry.data.order}: {entry.data.title}
                 </a>
               </li>
@@ -117,7 +117,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
         <div class="mt-5 space-y-4">
           {
             guideEntries.map((entry) => (
-              <a class="block rounded-md border border-[color:var(--kern-line)] px-4 py-4 transition hover:bg-[color:var(--kern-soft)]" href={`/guide/${entry.id}/`}>
+              <a class="block rounded-md border border-[color:var(--kern-line)] px-4 py-4 transition hover:bg-[color:var(--kern-soft)]" href={internalHref(`/guide/${entry.id}/`)}>
                 <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">
                   Chapter {entry.data.order}
                 </div>

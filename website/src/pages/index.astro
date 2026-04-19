@@ -139,7 +139,7 @@ fn main() i32 {
     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       {
         starterGuides.map((entry) => (
-          <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={`/guide/${entry.id}/`}>
+          <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref(`/guide/${entry.id}/`)}>
             <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">
               Chapter {entry.data.order}
             </div>

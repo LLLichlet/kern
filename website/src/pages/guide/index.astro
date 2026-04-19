@@ -17,7 +17,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
       <h1 class="mt-6 text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
         Learn Kern in a few stages, not in one endless page.
       </h1>
-      <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
+      <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
         Start with the short path first. Then move deeper into language,
         runtime, and build topics as needed. The full chapter index is still
         available below, but it does not need to dominate the page.
@@ -35,7 +35,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
                   Chapter {entry.data.order}
                 </div>
                 <div class="mt-2 text-xl font-semibold text-[color:var(--kern-ink)]">{entry.data.title}</div>
-                <p class="mt-2 text-sm leading-7 text-[color:rgba(21,26,32,0.72)]">{entry.data.summary}</p>
+                <p class="mt-2 text-sm leading-7 text-[color:var(--kern-text-muted)]">{entry.data.summary}</p>
               </a>
             ))
           }
@@ -44,7 +44,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
 
       <section class="card-surface rounded-lg p-6">
         <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Start sequence</div>
-        <ol class="mt-5 list-decimal space-y-3 pl-5 text-base leading-8 text-[color:rgba(21,26,32,0.74)]">
+        <ol class="mt-5 list-decimal space-y-3 pl-5 text-base leading-8 text-[color:var(--kern-text-muted)]">
           <li>Read the overview and getting started chapters first.</li>
           <li>Read the language tour before diving into the full design reference.</li>
           <li>Move into runtime, pointers, ABI, and interop once the basic source model feels natural.</li>
@@ -64,7 +64,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
     <div class="mt-10 grid gap-4 md:grid-cols-2">
       <section class="card-surface rounded-lg p-6">
         <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Language Core</div>
-        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:rgba(21,26,32,0.74)]">
+        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:var(--kern-text-muted)]">
           {
             coreEntries.map((entry) => (
               <li>
@@ -79,7 +79,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
 
       <section class="card-surface rounded-lg p-6">
         <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Runtime And Libraries</div>
-        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:rgba(21,26,32,0.74)]">
+        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:var(--kern-text-muted)]">
           {
             runtimeEntries.slice(0, 6).map((entry) => (
               <li>
@@ -96,7 +96,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
     <div class="mt-4 grid gap-4 md:grid-cols-2">
       <section class="card-surface rounded-lg p-6">
         <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Systems Topics</div>
-        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:rgba(21,26,32,0.74)]">
+        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:var(--kern-text-muted)]">
           {
             systemsEntries.slice(0, 10).map((entry) => (
               <li>
@@ -112,7 +112,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
       <details class="card-surface rounded-lg p-6">
         <summary class="flex cursor-pointer items-center justify-between gap-4 text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">
           <span>Complete Chapter Index</span>
-          <span class="text-[11px] tracking-[0.12em] text-[color:rgba(17,21,26,0.56)]">{guideEntries.length} chapters</span>
+          <span class="text-[11px] tracking-[0.12em] text-[color:var(--kern-text-soft)]">{guideEntries.length} chapters</span>
         </summary>
         <div class="mt-5 space-y-4">
           {
@@ -122,7 +122,7 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
                   Chapter {entry.data.order}
                 </div>
                 <div class="mt-2 text-lg font-semibold text-[color:var(--kern-ink)]">{entry.data.title}</div>
-                <p class="mt-2 text-sm leading-7 text-[color:rgba(21,26,32,0.72)]">{entry.data.summary}</p>
+                <p class="mt-2 text-sm leading-7 text-[color:var(--kern-text-muted)]">{entry.data.summary}</p>
               </a>
             ))
           }

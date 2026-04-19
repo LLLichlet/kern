@@ -15,7 +15,7 @@ const { entries, currentId } = Astro.props;
     <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">
       Guide Map
     </div>
-    <div class="text-[11px] tracking-[0.12em] text-[color:rgba(17,21,26,0.56)]">
+    <div class="text-[11px] tracking-[0.12em] text-[color:var(--kern-text-soft)]">
       {entries.length} chapters
     </div>
   </div>
@@ -29,7 +29,7 @@ const { entries, currentId } = Astro.props;
               "rounded-md px-4 py-3 transition",
               isActive
                 ? "bg-[color:var(--kern-soft)] text-[color:var(--kern-steel)]"
-                : "text-[color:rgba(21,26,32,0.76)] hover:bg-[color:var(--kern-soft)] hover:text-[color:var(--kern-steel-strong)]"
+                : "text-[color:var(--kern-text-muted)] hover:bg-[color:var(--kern-soft)] hover:text-[color:var(--kern-steel-strong)]"
             ]}
             href={internalHref(`/guide/${entry.id}/`)}
           >

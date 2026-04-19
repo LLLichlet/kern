@@ -52,9 +52,9 @@ const { Content } = await render(entry);
       <h1 class="mt-6 text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
         {entry.data.title}
       </h1>
-      <p class="mt-5 text-lg leading-8 text-[color:rgba(21,26,32,0.72)]">{entry.data.summary}</p>
+      <p class="mt-5 text-lg leading-8 text-[color:var(--kern-text-muted)]">{entry.data.summary}</p>
 
-      <article class="guide-article prose-kern mt-10 rounded-lg p-7 text-[color:rgba(21,26,32,0.82)] md:p-10">
+      <article class="guide-article prose-kern mt-10 rounded-lg p-7 text-[color:var(--kern-text)] md:p-10">
         <Content />
       </article>
 

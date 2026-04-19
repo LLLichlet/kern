@@ -14,16 +14,87 @@ const { title, description = siteMeta.description } = Astro.props;
 const pageTitle = title ? `${title} | ${siteMeta.title}` : siteMeta.title;
 const faviconSvg = loadBrandSvg();
 const faviconHref = `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`;
+const themeBootstrap = `(function () {
+  var storageKey = "kern-theme";
+  var root = document.documentElement;
+  var meta = document.querySelector('meta[name="theme-color"]');
+  var darkThemeColor = "#0f1720";
+  var lightThemeColor = "#354a5e";
+
+  function resolveTheme() {
+    var stored = null;
+    try {
+      stored = localStorage.getItem(storageKey);
+    } catch (_) {}
+
+    if (stored === "light" || stored === "dark") {
+      return stored;
+    }
+
+    return "dark";
+  }
+
+  function applyTheme(theme) {
+    root.dataset.theme = theme;
+    root.style.colorScheme = theme;
+    if (meta) {
+      meta.setAttribute("content", theme === "dark" ? darkThemeColor : lightThemeColor);
+    }
+  }
+
+  applyTheme(resolveTheme());
+})();`;
+const themeController = `(function () {
+  var storageKey = "kern-theme";
+  var buttons = Array.prototype.slice.call(document.querySelectorAll("[data-theme-toggle]"));
+  if (!buttons.length) {
+    return;
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute("content", theme === "dark" ? "#0f1720" : "#354a5e");
+    }
+    buttons.forEach(function (button) {
+      var label = button.querySelector(".theme-toggle-label");
+      button.setAttribute("aria-pressed", String(theme === "dark"));
+      button.setAttribute("title", theme === "dark" ? "Switch to light mode" : "Switch to dark mode");
+      if (label) {
+        label.textContent = theme === "dark" ? "Light" : "Dark";
+      }
+    });
+  }
+
+  function currentTheme() {
+    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  }
+
+  applyTheme(currentTheme());
+
+  buttons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      var next = currentTheme() === "dark" ? "light" : "dark";
+      try {
+        localStorage.setItem(storageKey, next);
+      } catch (_) {}
+      applyTheme(next);
+    });
+  });
+})();`;
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#354a5e" />
+    <meta name="theme-color" content="#0f1720" />
+    <script is:inline set:html={themeBootstrap}></script>
     <link rel="icon" type="image/svg+xml" href={faviconHref} />
   </head>
   <body>
@@ -32,5 +103,6 @@ const faviconHref = `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`;
       <slot />
     </main>
     <SiteFooter />
+    <script is:inline set:html={themeController}></script>
   </body>
 </html>

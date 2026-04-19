@@ -1,0 +1,27 @@
+// class: proof-search-termination
+// source: recursive trait hierarchy should not create an infinite supertrait proof chain
+// stderr: trait supertrait hierarchy contains a cycle
+// stderr: cycle: A -> A
+// stderr: must form a DAG
+
+type Wrap[T] = struct {
+    inner: T,
+};
+
+type A[T]: A[Wrap[T]] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl *X: A[i32] {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let a = *A[i32].{ x.& };
+    return a.value();
+}

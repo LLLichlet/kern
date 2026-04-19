@@ -1,0 +1,36 @@
+// class: occurs-check
+// source: Kern issue; analogous to Rust projection / unconstrained binder bugs like rust-lang/rust#32330
+// stderr: type does not satisfy trait bounds
+// stderr: required bound: `T: Marker[T]`
+
+type Wrap[T] = struct {
+    inner: T,
+};
+
+type Marker[T] = trait {
+    value: fn() i32,
+};
+
+fn needs_self[T](value: T) i32
+    where T: Marker[T],
+{
+    return value.value();
+}
+
+fn bad[T](value: T) i32
+    where T: Marker[Wrap[T]],
+{
+    return needs_self[T](value);
+}
+
+type X = struct {};
+
+impl X: Marker[Wrap[X]] {
+    fn value() i32 {
+        return 42;
+    }
+}
+
+fn main() i32 {
+    return bad(X.{});
+}

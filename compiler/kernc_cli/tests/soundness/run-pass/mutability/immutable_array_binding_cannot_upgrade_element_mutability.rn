@@ -1,0 +1,14 @@
+// class: pointer-like-mutability
+// exit: 0
+
+fn main() i32 {
+    let data = [3]mut u8.{ b'a', b'b', b'c' };
+    let view = data..[0 .. 3];
+
+    view.[1] = b'Z';
+
+    if (data.[1] == b'Z') {
+        return 0;
+    }
+    return 1;
+}

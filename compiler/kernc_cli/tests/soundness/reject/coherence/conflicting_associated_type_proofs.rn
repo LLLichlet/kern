@@ -1,0 +1,41 @@
+// class: coherence
+// source: Kern issue inspired by Rust coherence / associated-type ambiguity bugs
+// stderr: overlapping trait impls are not allowed
+// stderr: globally coherent
+// stderr: associated type projection ambiguous
+
+type TypeIs[T] = trait {
+    type Is;
+};
+
+type Proof[L, R] = struct {};
+
+impl[L, R] Proof[L, R]: TypeIs[L] {
+    type Is = L;
+}
+
+impl[L, R] Proof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+impl[L, R] Proof[L, R]: TypeIs[R] {
+    type Is = R;
+}
+
+fn rewrite[RW, R](value: RW.TypeIs[R].Is) R
+    where RW: TypeIs[R, Is = R],
+{
+    return value;
+}
+
+fn cast[L, R](value: L) R
+    where Proof[L, R]: TypeIs[L, Is = L],
+          Proof[L, R]: TypeIs[R, Is = R],
+{
+    return rewrite[Proof[L, R], R](value);
+}
+
+fn main() i32 {
+    let _ = cast[bool, i32](true);
+    return 0;
+}

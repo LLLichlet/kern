@@ -57,12 +57,22 @@ The `asm` field is not a runtime string object passed to some helper function.
 
 It is compile-time configuration consumed by the compiler.
 
-The current language accepts:
+The current language accepts exactly one string literal.
 
-- a single string literal
-- or an array of string literals
+For multi-line templates, use Kern's multiline string syntax:
 
-for multi-line templates.
+```kern
+@asm(.{
+    asm:
+        \\out dx, al
+        \\in al, dx
+    ,
+    volatile: true,
+});
+```
+
+Historical string-array forms are rejected rather than preserved as legacy
+syntax.
 
 ## Register Bindings Stay Explicit
 
@@ -73,10 +83,10 @@ The current design direction is:
 
 ```kern
 @asm(.{
-    asm: .{
-        "out dx, al",
-        "in al, dx",
-    },
+    asm:
+        \\out dx, al
+        \\in al, dx
+    ,
     outputs: .{ al: status..& },
     inputs: .{ dx: port, al: data },
     clobbers: .{ "memory" },
@@ -109,7 +119,7 @@ blob and hope".
 Treat `@asm` as a validated specification object:
 
 - always pass a single `.{ ... }` configuration
-- keep the template explicit in `asm`
+- keep the template explicit in `asm` as one string literal
 - bind inputs and outputs by named registers
 - mark side-effectful assembly with `volatile: true`
 

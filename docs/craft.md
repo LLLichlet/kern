@@ -16,6 +16,94 @@ This document describes the current architecture and operating model of
 - auditability
 - low policy, high clarity
 
+## Start Here
+
+If you just want to use `craft` effectively, these are the commands that matter
+first:
+
+```bash
+craft check
+craft build
+craft run
+craft test
+```
+
+Common target-selection variants are:
+
+```bash
+craft build --project-path path/to/workspace
+craft build --profile release
+craft build --examples
+craft run --bin my-tool
+craft run --example smoke
+```
+
+The practical split is:
+
+- use `craft` when the question is "which package or target should be built?"
+- use `kernc` when the question is "what exact compile or link command should happen?"
+
+## Freestanding Kernel Package
+
+For a minimal freestanding package, keep startup ownership explicit in
+`Craft.toml`:
+
+```toml
+[package]
+name = "kernel"
+version = "0.1.0"
+kern = "0.7.0"
+
+[runtime]
+entry = "none"
+libc = false
+bundle = "base"
+
+[[bin]]
+name = "kernel"
+root = "src/main.rn"
+```
+
+The source file may export `_start` directly:
+
+```kern
+#[export_name("_start")]
+fn kmain() void {
+    for (;;) {
+        @asm(.{
+            asm: "hlt",
+            volatile: true,
+        });
+    }
+}
+```
+
+For a single-package project whose linker script sits next to `Craft.toml`,
+`build.rn` can attach it to the final link:
+
+```kern
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_arg("-T");
+    b.link_arg("kernel.ld");
+}
+```
+
+Then the ordinary workflow stays the same:
+
+```bash
+craft check
+craft build
+```
+
+This is the important model:
+
+- `entry = "none"` means the package owns startup itself
+- `libc = false` means libc is not linked implicitly
+- `bundle = "base"` keeps the library surface minimal and freestanding-oriented
+- custom linker behavior belongs in `build.rn`, not in hidden tool defaults
+
 ## Responsibilities
 
 `craft` is responsible for:

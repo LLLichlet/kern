@@ -82,7 +82,28 @@ import { internalHref, siteMeta } from "@/lib/site";
         <a class="button-secondary" href={internalHref("/guide/build-scripts-and-generated-sources/")}>
           Build scripts and generated sources
         </a>
+        <a class="button-secondary" href={internalHref("/guide/freestanding-and-linking/")}>
+          Freestanding and linking
+        </a>
       </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Command quickstart</h2>
+      <pre class="doc-code"><code>{`craft check
+craft build
+craft run
+craft test
+
+craft build --project-path path/to/workspace --profile release
+craft run --bin app
+craft run --example smoke`}</code></pre>
+      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:rgba(21,26,32,0.76)]">
+        For freestanding packages, keep `[runtime] entry = "none"` in
+        <code>Craft.toml</code>, export <code>_start</code> yourself, and put
+        linker-script wiring in <code>build.rn</code> through
+        <code>b.link_arg(...)</code>.
+      </p>
     </section>
 
     <section class="manual-section">

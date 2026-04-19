@@ -916,20 +916,23 @@ To maintain Kern's philosophy of "explicit over implicit", inline assembly does 
 
 ### 12.1 Syntax, Register Binding, and Compile-Time Validation
 
-The parameters passed to `@asm` (such as the `asm` string array, `clobbers`,
+The parameters passed to `@asm` (such as the `asm` template string, `clobbers`,
 and `volatile` flag) are **not runtime structures**. They are compiler-owned
 metadata resolved and validated at compile time, then consumed by later
 lowering/codegen stages rather than materialized as ordinary runtime values.
+
+The `asm` field itself must be exactly one string literal. For multi-line
+assembly, use Kern's multiline string syntax rather than an array of strings.
 
 ```kern
 pub fn outb_and_read(port: u16, data: u8) u8 {
     let mut status = u8.{undef};
 
     @asm(.{
-        asm: .{
-            "out dx, al",
-            "in al, dx"
-        },
+        asm:
+            \\out dx, al
+            \\in al, dx
+        ,
         outputs: .{ al: status..& },   // Binds register to mutable pointer
         inputs: .{ dx: port, al: data },
         clobbers: .{ "memory" },      // Compile-time known

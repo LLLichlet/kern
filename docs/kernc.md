@@ -47,6 +47,94 @@ The positional source input is required for compile modes and forbidden in link-
 
 These modes are mutually exclusive.
 
+## Common Workflows
+
+If you are not integrating `kernc` into another build system yet, start from
+one of these concrete patterns.
+
+### Hosted User Program
+
+Build and link one source file with the hosted `rt` startup path and the Kern
+standard library bundle:
+
+```bash
+kernc \
+  --runtime-entry rt \
+  --runtime-libc no \
+  --library-bundle std \
+  src/main.rn \
+  -o app
+```
+
+### Compile Only, Then Link Later
+
+This is the right split when another tool wants to inspect or stage the object
+file before the final link:
+
+```bash
+kernc -c \
+  --runtime-entry rt \
+  --runtime-libc no \
+  --library-bundle std \
+  src/main.rn \
+  -o app.o
+```
+
+```bash
+kernc --link-only \
+  --link-input app.o \
+  -o app
+```
+
+### Freestanding `_start` Binary
+
+For kernels, boot stages, or other freestanding binaries, disable the runtime
+entry contract and export your own entry symbol:
+
+```kern
+#[export_name("_start")]
+fn kmain() void {
+    for (;;) {
+        @asm(.{
+            asm: "hlt",
+            volatile: true,
+        });
+    }
+}
+```
+
+```bash
+kernc \
+  --runtime-entry none \
+  --runtime-libc no \
+  --library-bundle base \
+  --entry-symbol _start \
+  src/main.rn \
+  -o kernel.bin
+```
+
+With `--runtime-entry none`, `kernc` does not require a program `main`.
+
+### Custom Linker Script
+
+When the final artifact must be linked with your own script, pass the linker
+script through explicitly:
+
+```bash
+kernc \
+  --runtime-entry none \
+  --runtime-libc no \
+  --library-bundle base \
+  --entry-symbol _start \
+  --link-arg -T \
+  --link-arg kernel.ld \
+  src/main.rn \
+  -o kernel.bin
+```
+
+If the linker script path is not relative to your current working directory,
+pass an absolute path instead.
+
 ## Basic Examples
 
 Build a Kern program with the Kern standard library:

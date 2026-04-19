@@ -1,4 +1,5 @@
 use super::*;
+use kernc_utils::FastHashMap;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     /// Run the full type-resolution pass in two stages.
@@ -7,6 +8,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.resolve_module_pass(&module_ids, true);
         self.resolve_module_pass(&module_ids, false);
         self.validate_supertrait_graph();
+        self.validate_trait_impl_orphans();
+        self.validate_trait_impl_coherence();
     }
 
     fn collect_module_ids(&self) -> Vec<DefId> {
@@ -744,4 +747,444 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.set_current_scope(parent_scope);
         self.ctx.scopes.update_type(a.name, adt_ty);
     }
+
+    fn validate_trait_impl_coherence(&mut self) {
+        let trait_impl_ids = self.ctx.trait_impls.clone();
+        for (index, left_impl_id) in trait_impl_ids.iter().copied().enumerate() {
+            for right_impl_id in trait_impl_ids.iter().copied().skip(index + 1) {
+                let Some(overlap) = self.overlapping_trait_impl_pair(left_impl_id, right_impl_id)
+                else {
+                    continue;
+                };
+                let left_specializes_right =
+                    self.impl_specializes(left_impl_id, right_impl_id, &overlap);
+                let right_specializes_left =
+                    self.impl_specializes(right_impl_id, left_impl_id, &overlap);
+
+                // Coherence permits a unique more-specific specialization, but rejects
+                // equal-rank or incomparable overlaps that would make proof search ambiguous.
+                if left_specializes_right ^ right_specializes_left {
+                    continue;
+                }
+
+                let left_target = self.ctx.ty_to_string(overlap.left_target_ty);
+                let left_trait = self.ctx.ty_to_string(overlap.left_trait_ty);
+                let right_target = self.ctx.ty_to_string(overlap.right_target_ty);
+                let right_trait = self.ctx.ty_to_string(overlap.right_trait_ty);
+
+                self.ctx
+                    .struct_error(
+                        overlap.right_span,
+                        format!(
+                            "overlapping trait impls are not allowed for `{}` and `{}`",
+                            right_target, right_trait
+                        ),
+                    )
+                    .with_hint(
+                        "Kern requires trait impls to be globally coherent; overlapping heads would make proof search and associated type projection ambiguous",
+                    )
+                    .with_span_label(
+                        overlap.left_span,
+                        format!("first impl head: `{} : {}`", left_target, left_trait),
+                    )
+                    .with_span_label(
+                        overlap.right_span,
+                        format!("second impl head: `{} : {}`", right_target, right_trait),
+                    )
+                    .emit();
+            }
+        }
+    }
+
+    fn validate_trait_impl_orphans(&mut self) {
+        let trait_impl_ids = self.ctx.trait_impls.clone();
+        for impl_id in trait_impl_ids {
+            let Some(impl_def) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| {
+                if let Def::Impl(impl_def) = def {
+                    Some(impl_def.clone())
+                } else {
+                    None
+                }
+            }) else {
+                continue;
+            };
+
+            if impl_def.is_imported || impl_def.parent_module.is_none() {
+                continue;
+            }
+
+            let Some(trait_ty_node) = &impl_def.trait_type else {
+                continue;
+            };
+
+            let target_ty = self
+                .ctx
+                .node_types
+                .get(&impl_def.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let trait_ty = self
+                .ctx
+                .node_types
+                .get(&trait_ty_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+
+            if target_ty == TypeId::ERROR || trait_ty == TypeId::ERROR {
+                continue;
+            }
+
+            if self.trait_impl_is_orphan_legal(impl_id, target_ty, trait_ty) {
+                continue;
+            }
+
+            self.ctx
+                .struct_error(
+                    impl_def.span,
+                    format!(
+                        "orphan trait impls are not allowed for `{}` and `{}`",
+                        self.ctx.ty_to_string(target_ty),
+                        self.ctx.ty_to_string(trait_ty)
+                    ),
+                )
+                .with_hint(
+                    "when the trait comes from another package or module root, the impl target must be anchored by a local type (directly or through builtin pointer/slice/array wrappers)",
+                )
+                .with_hint(
+                    "this prevents downstream packages from creating competing global proofs for the same foreign trait and foreign type family",
+                )
+                .emit();
+        }
+    }
+
+    fn overlapping_trait_impl_pair(
+        &mut self,
+        left_impl_id: DefId,
+        right_impl_id: DefId,
+    ) -> Option<OverlappingTraitImplPair> {
+        let (left_impl, right_impl) = {
+            let Some(left_impl) = self.ctx.defs.get(left_impl_id.0 as usize).and_then(|def| {
+                if let Def::Impl(impl_def) = def {
+                    Some(impl_def.clone())
+                } else {
+                    None
+                }
+            }) else {
+                return None;
+            };
+            let Some(right_impl) = self.ctx.defs.get(right_impl_id.0 as usize).and_then(|def| {
+                if let Def::Impl(impl_def) = def {
+                    Some(impl_def.clone())
+                } else {
+                    None
+                }
+            }) else {
+                return None;
+            };
+            (left_impl, right_impl)
+        };
+
+        let Some(_) = left_impl.trait_type else {
+            return None;
+        };
+        let Some(_) = right_impl.trait_type else {
+            return None;
+        };
+        if left_impl.parent_module.is_none() || right_impl.parent_module.is_none() {
+            return None;
+        }
+
+        let left_target_ty = self
+            .ctx
+            .node_types
+            .get(&left_impl.target_type.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+        let left_trait_ty = left_impl
+            .trait_type
+            .as_ref()
+            .and_then(|trait_ty| self.ctx.node_types.get(&trait_ty.id).copied())
+            .unwrap_or(TypeId::ERROR);
+        let right_target_ty = self
+            .ctx
+            .node_types
+            .get(&right_impl.target_type.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+        let right_trait_ty = right_impl
+            .trait_type
+            .as_ref()
+            .and_then(|trait_ty| self.ctx.node_types.get(&trait_ty.id).copied())
+            .unwrap_or(TypeId::ERROR);
+
+        if matches!(
+            (
+                left_target_ty,
+                left_trait_ty,
+                right_target_ty,
+                right_trait_ty
+            ),
+            (TypeId::ERROR, _, _, _)
+                | (_, TypeId::ERROR, _, _)
+                | (_, _, TypeId::ERROR, _)
+                | (_, _, _, TypeId::ERROR)
+        ) {
+            return None;
+        }
+
+        let overlaps = {
+            let mut checker = ExprChecker::new(self.ctx, None);
+            let (left_fresh_target, left_fresh_trait) = Self::freshen_impl_head_types_for_overlap(
+                &mut checker,
+                &left_impl,
+                left_target_ty,
+                left_trait_ty,
+                ImplHeadFreshness::Flexible,
+            );
+            let (right_fresh_target, right_fresh_trait) = Self::freshen_impl_head_types_for_overlap(
+                &mut checker,
+                &right_impl,
+                right_target_ty,
+                right_trait_ty,
+                ImplHeadFreshness::Flexible,
+            );
+            let mut map = FastHashMap::default();
+            checker.unify(left_fresh_target, right_fresh_target, &mut map)
+                && checker.unify(left_fresh_trait, right_fresh_trait, &mut map)
+        };
+
+        if !overlaps {
+            return None;
+        }
+
+        Some(OverlappingTraitImplPair {
+            left_impl_id,
+            right_impl_id,
+            left_span: left_impl.span,
+            right_span: right_impl.span,
+            left_target_ty,
+            left_trait_ty,
+            right_target_ty,
+            right_trait_ty,
+        })
+    }
+
+    fn impl_specializes(
+        &mut self,
+        specialized_impl_id: DefId,
+        general_impl_id: DefId,
+        overlap: &OverlappingTraitImplPair,
+    ) -> bool {
+        let (
+            specialized_impl,
+            general_impl,
+            specialized_target_ty,
+            specialized_trait_ty,
+            general_target_ty,
+            general_trait_ty,
+        ) = match (
+            self.ctx.defs.get(specialized_impl_id.0 as usize),
+            self.ctx.defs.get(general_impl_id.0 as usize),
+        ) {
+            (Some(Def::Impl(specialized_impl)), Some(Def::Impl(general_impl))) => {
+                let (
+                    specialized_target_ty,
+                    specialized_trait_ty,
+                    general_target_ty,
+                    general_trait_ty,
+                ) = if specialized_impl_id == overlap.left_impl_id
+                    && general_impl_id == overlap.right_impl_id
+                {
+                    (
+                        overlap.left_target_ty,
+                        overlap.left_trait_ty,
+                        overlap.right_target_ty,
+                        overlap.right_trait_ty,
+                    )
+                } else {
+                    (
+                        overlap.right_target_ty,
+                        overlap.right_trait_ty,
+                        overlap.left_target_ty,
+                        overlap.left_trait_ty,
+                    )
+                };
+                (
+                    specialized_impl.clone(),
+                    general_impl.clone(),
+                    specialized_target_ty,
+                    specialized_trait_ty,
+                    general_target_ty,
+                    general_trait_ty,
+                )
+            }
+            _ => return false,
+        };
+
+        let mut checker = ExprChecker::new(self.ctx, None);
+        let (specialized_target, specialized_trait) = Self::freshen_impl_head_types_for_overlap(
+            &mut checker,
+            &specialized_impl,
+            specialized_target_ty,
+            specialized_trait_ty,
+            ImplHeadFreshness::Rigid,
+        );
+        let (general_target, general_trait) = Self::freshen_impl_head_types_for_overlap(
+            &mut checker,
+            &general_impl,
+            general_target_ty,
+            general_trait_ty,
+            ImplHeadFreshness::Flexible,
+        );
+
+        let mut map = FastHashMap::default();
+        checker.unify(general_target, specialized_target, &mut map)
+            && checker.unify(general_trait, specialized_trait, &mut map)
+    }
+
+    fn freshen_impl_head_types_for_overlap(
+        checker: &mut ExprChecker<'_, '_>,
+        impl_def: &ImplDef,
+        target_ty: TypeId,
+        trait_ty: TypeId,
+        freshness: ImplHeadFreshness,
+    ) -> (TypeId, TypeId) {
+        let mut subst_map = FastHashMap::default();
+
+        for (index, param) in impl_def.generics.iter().enumerate() {
+            let fresh_name = checker.ctx.intern(&format!(
+                "__coherence_impl{}_{}_{}",
+                impl_def.id.0,
+                index,
+                checker.ctx.resolve(param.name)
+            ));
+            let fresh_arg = match &param.kind {
+                ast::GenericParamKind::Type => match freshness {
+                    ImplHeadFreshness::Flexible => GenericArg::Type(checker.fresh_type_var()),
+                    ImplHeadFreshness::Rigid => GenericArg::Type(
+                        checker
+                            .ctx
+                            .type_registry
+                            .intern(TypeKind::Param(fresh_name)),
+                    ),
+                },
+                ast::GenericParamKind::Const { ty } => {
+                    let const_ty = checker
+                        .ctx
+                        .node_types
+                        .get(&ty.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+                    GenericArg::Const(ConstGeneric::Param(fresh_name, const_ty))
+                }
+            };
+            subst_map.insert(param.name, fresh_arg);
+        }
+
+        let mut subst = Substituter::new(&mut checker.ctx.type_registry, &subst_map);
+        (subst.substitute(target_ty), subst.substitute(trait_ty))
+    }
+
+    fn trait_impl_is_orphan_legal(
+        &mut self,
+        impl_id: DefId,
+        target_ty: TypeId,
+        trait_ty: TypeId,
+    ) -> bool {
+        let Some(impl_home) = self.definition_locality(impl_id) else {
+            return true;
+        };
+
+        let trait_norm = self.ctx.type_registry.normalize(trait_ty);
+        let TypeKind::TraitObject(trait_def_id, _, _) =
+            self.ctx.type_registry.get(trait_norm).clone()
+        else {
+            return false;
+        };
+
+        // Trait impls are always legal inside the trait's own package/root. Orphan checking only
+        // constrains downstream impls of foreign traits, where the target must contribute a local
+        // anchor to keep global proof search coherent.
+        if self
+            .definition_locality(trait_def_id)
+            .is_none_or(|trait_home| trait_home == impl_home)
+        {
+            return true;
+        }
+
+        self.type_has_local_impl_anchor(target_ty, impl_home)
+    }
+
+    fn definition_locality(&self, def_id: DefId) -> Option<ImplLocality> {
+        let owner_module = self.ctx.def_parent_module(def_id)?;
+        Some(self.module_locality(owner_module))
+    }
+
+    fn module_locality(&self, module_id: DefId) -> ImplLocality {
+        self.ctx.root_module_package_name(module_id).map_or_else(
+            || ImplLocality::Root(self.ctx.module_root(module_id)),
+            ImplLocality::Package,
+        )
+    }
+
+    fn type_has_local_impl_anchor(&mut self, ty: TypeId, impl_home: ImplLocality) -> bool {
+        let ty = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(ty).clone() {
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::Array { elem, .. }
+            | TypeKind::ArrayInfer { elem, .. } => self.type_has_local_impl_anchor(elem, impl_home),
+            TypeKind::Alias(_, target) => self.type_has_local_impl_anchor(target, impl_home),
+            TypeKind::Def(def_id, _)
+            | TypeKind::Enum(def_id, _)
+            | TypeKind::Associated(def_id, _)
+            | TypeKind::FnDef(def_id, _)
+            | TypeKind::TraitObject(def_id, _, _) => {
+                self.definition_is_local_anchor(def_id, impl_home)
+            }
+            TypeKind::AnonymousStruct(..)
+            | TypeKind::AnonymousUnion(..)
+            | TypeKind::AnonymousEnum(..)
+            | TypeKind::ClosureInterface { .. }
+            | TypeKind::AnonymousState { .. } => true,
+            TypeKind::Primitive(_)
+            | TypeKind::Simd { .. }
+            | TypeKind::Function { .. }
+            | TypeKind::Module(_)
+            | TypeKind::Error
+            | TypeKind::TypeVar(_)
+            | TypeKind::Param(_)
+            | TypeKind::Projection { .. }
+            | TypeKind::EnumPayload(..)
+            | TypeKind::AnonymousEnumPayload(..) => false,
+        }
+    }
+
+    fn definition_is_local_anchor(&self, def_id: DefId, impl_home: ImplLocality) -> bool {
+        self.definition_locality(def_id) == Some(impl_home)
+    }
+}
+
+struct OverlappingTraitImplPair {
+    left_impl_id: DefId,
+    right_impl_id: DefId,
+    left_span: Span,
+    right_span: Span,
+    left_target_ty: TypeId,
+    left_trait_ty: TypeId,
+    right_target_ty: TypeId,
+    right_trait_ty: TypeId,
+}
+
+#[derive(Clone, Copy)]
+enum ImplHeadFreshness {
+    Flexible,
+    Rigid,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ImplLocality {
+    Package(SymbolId),
+    Root(DefId),
 }

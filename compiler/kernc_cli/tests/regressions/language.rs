@@ -1241,6 +1241,106 @@ fn f[A](a: A) A where A.N.O : A { return a.a.a.a; }
 }
 
 #[test]
+fn accepts_unique_more_specific_overlapping_trait_impl() {
+    let output = compile_source(
+        r#"
+type Score = trait {
+    value: fn() i32,
+};
+
+impl[T] []T : Score {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+impl []u8 : Score {
+    fn value() i32 {
+        return 2;
+    }
+}
+
+fn score(bytes: []u8) i32 {
+    return bytes.value();
+}
+
+fn main() i32 {
+    return score("ok") - 1;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_overlapping_trait_impls_with_conflicting_associated_type_proofs() {
+    let output = compile_source(
+        r#"
+type TypeIs[T] = trait {
+    type Is;
+};
+
+type Proof[L, R] = struct {};
+
+impl[L, R] Proof[L, R]: TypeIs[L] {
+    type Is = L;
+}
+
+impl[L, R] Proof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+impl[L, R] Proof[L, R]: TypeIs[R] {
+    type Is = R;
+}
+
+fn rewrite[RW, R](value: RW.TypeIs[R].Is) R
+    where RW: TypeIs[R, Is = R],
+{
+    return value;
+}
+
+fn cast[L, R](value: L) R
+    where Proof[L, R]: TypeIs[L, Is = L],
+          Proof[L, R]: TypeIs[R, Is = R],
+{
+    return rewrite[Proof[L, R], R](value);
+}
+
+fn main() i32 {
+    let _ = cast[bool, i32](true);
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("overlapping trait impls are not allowed"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("associated type projection ambiguous") || stderr.contains("global proofs"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_trait_impls_when_their_where_clauses_are_unsatisfied() {
     let output = compile_source(
         r#"

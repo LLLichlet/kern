@@ -184,6 +184,251 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_orphan_impl_of_imported_trait_for_foreign_primitive() {
+    let root = unique_temp_path("kernc_orphan_foreign_primitive", "dir");
+    let lib_dir = root.join("lib");
+    let metadata_dir = root.join("kmeta");
+    let lib_entry = lib_dir.join("init.rn");
+    let lib_object = root.join("iface.o");
+    let main_source = root.join("main.rn");
+
+    fs::create_dir_all(&lib_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+
+    fs::write(
+        &lib_entry,
+        r#"
+pub type Foreign = trait {
+    ping: fn() i32,
+};
+"#,
+    )
+    .unwrap();
+
+    let lib_output = run_kernc([
+        "-c",
+        "--module-root-name",
+        "iface",
+        "--metadata-output",
+        metadata_dir.to_string_lossy().as_ref(),
+        lib_entry.to_string_lossy().as_ref(),
+        "-o",
+        lib_object.to_string_lossy().as_ref(),
+    ]);
+    assert_success(&lib_output, "kernc library compile");
+
+    fs::write(
+        &main_source,
+        r#"
+impl i32 : dep.Foreign {
+    fn ping() i32 {
+        return self;
+    }
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
+    let base_mapping = format!("base={}", repo_root().join("library/base").display());
+    let sys_mapping = format!("sys={}", repo_root().join("library/sys").display());
+    let app_output = run_kernc([
+        "--runtime-entry",
+        "crt",
+        "--runtime-libc",
+        "yes",
+        "--module-path",
+        base_mapping.as_str(),
+        "--module-path",
+        sys_mapping.as_str(),
+        "--module-interface-path",
+        dep_mapping.as_str(),
+        main_source.to_string_lossy().as_ref(),
+        "-o",
+        root.join("app.out").to_string_lossy().as_ref(),
+    ]);
+
+    assert!(
+        !app_output.status.success(),
+        "kernc unexpectedly accepted orphan impl:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&app_output.stdout),
+        String::from_utf8_lossy(&app_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&app_output.stderr);
+    assert!(
+        stderr.contains("orphan trait impls are not allowed"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn allows_impl_of_imported_trait_for_pointer_to_local_type() {
+    let root = unique_temp_path("kernc_orphan_local_pointer", "dir");
+    let lib_dir = root.join("lib");
+    let metadata_dir = root.join("kmeta");
+    let lib_entry = lib_dir.join("init.rn");
+    let lib_object = root.join("iface.o");
+    let main_source = root.join("main.rn");
+    let executable = root.join(if cfg!(windows) { "app.exe" } else { "app.out" });
+
+    fs::create_dir_all(&lib_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+
+    fs::write(
+        &lib_entry,
+        r#"
+pub type Foreign = trait {
+    ping: fn() i32,
+};
+"#,
+    )
+    .unwrap();
+
+    let lib_output = run_kernc([
+        "-c",
+        "--module-root-name",
+        "iface",
+        "--metadata-output",
+        metadata_dir.to_string_lossy().as_ref(),
+        lib_entry.to_string_lossy().as_ref(),
+        "-o",
+        lib_object.to_string_lossy().as_ref(),
+    ]);
+    assert_success(&lib_output, "kernc library compile");
+
+    fs::write(
+        &main_source,
+        r#"
+type Local = struct {
+    value: i32,
+};
+
+impl *Local : dep.Foreign {
+    fn ping() i32 {
+        return self.value;
+    }
+}
+
+fn main() i32 {
+    let local = Local.{ value: 7 };
+    let obj = *dep.Foreign.{ local.& };
+    return if (obj.ping() == 7) { 0 } else { 1 };
+}
+"#,
+    )
+    .unwrap();
+
+    let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
+    let base_mapping = format!("base={}", repo_root().join("library/base").display());
+    let sys_mapping = format!("sys={}", repo_root().join("library/sys").display());
+    let app_output = run_kernc([
+        "--runtime-entry",
+        "crt",
+        "--runtime-libc",
+        "yes",
+        "--module-path",
+        base_mapping.as_str(),
+        "--module-path",
+        sys_mapping.as_str(),
+        "--module-interface-path",
+        dep_mapping.as_str(),
+        main_source.to_string_lossy().as_ref(),
+        "-o",
+        executable.to_string_lossy().as_ref(),
+    ]);
+    assert_success(&app_output, "kernc app compile");
+
+    let run_output = Command::new(&executable).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "compiled program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn rejects_orphan_impl_of_source_tree_trait_for_foreign_primitive() {
+    let root = unique_temp_path("kernc_orphan_foreign_source_tree", "dir");
+    let dep_dir = root.join("dep");
+    let dep_entry = dep_dir.join("init.rn");
+    let main_source = root.join("main.rn");
+
+    fs::create_dir_all(&dep_dir).unwrap();
+
+    fs::write(
+        &dep_entry,
+        r#"
+pub type Foreign = trait {
+    ping: fn() i32,
+};
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        &main_source,
+        r#"
+impl i32 : dep.Foreign {
+    fn ping() i32 {
+        return self;
+    }
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let dep_mapping = format!("dep={}", dep_dir.to_string_lossy());
+    let base_mapping = format!("base={}", repo_root().join("library/base").display());
+    let sys_mapping = format!("sys={}", repo_root().join("library/sys").display());
+    let app_output = run_kernc([
+        "--runtime-entry",
+        "crt",
+        "--runtime-libc",
+        "yes",
+        "--module-path",
+        base_mapping.as_str(),
+        "--module-path",
+        sys_mapping.as_str(),
+        "--module-path",
+        dep_mapping.as_str(),
+        main_source.to_string_lossy().as_ref(),
+        "-o",
+        root.join("app.out").to_string_lossy().as_ref(),
+    ]);
+
+    assert!(
+        !app_output.status.success(),
+        "kernc unexpectedly accepted source-tree orphan impl:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&app_output.stdout),
+        String::from_utf8_lossy(&app_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&app_output.stderr);
+    assert!(
+        stderr.contains("orphan trait impls are not allowed"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn kmeta_snapshot_keeps_cfg_gated_submodule_sources() {
     let root = unique_temp_path("kernc_kmeta_cfg_submodule", "dir");
     let lib_dir = root.join("lib");

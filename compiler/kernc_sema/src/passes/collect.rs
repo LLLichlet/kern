@@ -100,6 +100,36 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx
     }
 
+    fn emit_impl_assoc_type_bounds_error(
+        &mut self,
+        assoc_name: SymbolId,
+        assoc_span: Span,
+        first_bound_span: Span,
+    ) {
+        let assoc_name = self.ctx.resolve(assoc_name).to_string();
+        self.ctx
+            .struct_error(
+                first_bound_span,
+                format!(
+                    "associated type `{}` in an impl cannot declare trait bounds",
+                    assoc_name
+                ),
+            )
+            .with_span_label(
+                assoc_span,
+                "this impl-associated type must choose a concrete target only",
+            )
+            .with_hint(format!(
+                "write `type {} = ConcreteType;` in the impl",
+                assoc_name
+            ))
+            .with_hint(format!(
+                "declare the contract on the trait instead, for example `type {}: Bound;`",
+                assoc_name
+            ))
+            .emit();
+    }
+
     /// Collect all top-level members from a module AST into semantic definitions.
     pub fn collect_ast(&mut self, mod_id: DefId, module: &ast::Module) {
         let (scope_id, submodules) =
@@ -1163,6 +1193,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     );
                     continue;
                 }
+                if let Some(first_bound) = bounds.first() {
+                    self.emit_impl_assoc_type_bounds_error(
+                        method_decl.name,
+                        method_decl.span,
+                        first_bound.span,
+                    );
+                }
                 let def_id = DefId(self.ctx.defs.len() as u32);
                 self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
                     id: def_id,
@@ -1171,7 +1208,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     parent_impl: Some(impl_id),
                     is_imported: self.current_module_imported,
                     generics: generics.clone(),
-                    bounds: bounds.clone(),
+                    bounds: Vec::new(),
                     where_clauses: where_clauses.clone(),
                     target: Some(target.clone()),
                     resolved_bounds: Vec::new(),
@@ -1280,6 +1317,9 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         );
                         continue;
                     }
+                    if let Some(first_bound) = bounds.first() {
+                        self.emit_impl_assoc_type_bounds_error(name, span, first_bound.span);
+                    }
                     let def_id = DefId(self.ctx.defs.len() as u32);
                     self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
                         id: def_id,
@@ -1288,7 +1328,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         parent_impl: Some(impl_id),
                         is_imported: self.current_module_imported,
                         generics,
-                        bounds,
+                        bounds: Vec::new(),
                         where_clauses,
                         target: Some(target),
                         resolved_bounds: Vec::new(),

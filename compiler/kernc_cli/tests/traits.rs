@@ -316,6 +316,56 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_impl_associated_types_that_repeat_trait_bounds() {
+    let output = compile_source(
+        r#"
+type Trivial = trait {
+    f: fn() i32,
+};
+
+type NeedsBound = trait {
+    type Out: Trivial;
+    make: fn() Out,
+};
+
+type Bad = struct {};
+
+impl Bad: NeedsBound {
+    type Out: Trivial = Bad;
+
+    fn make() Out {
+        return Bad.{};
+    }
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("associated type `Out` in an impl cannot declare trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("write `type Out = ConcreteType;` in the impl"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("declare the contract on the trait instead"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_trait_impls_missing_required_associated_types() {
     let output = compile_source(
         r#"
@@ -350,6 +400,104 @@ impl Vec2: Add[i32] {
         "unexpected stderr:\n{}",
         stderr
     );
+}
+
+#[test]
+fn rejects_impl_associated_type_targets_that_miss_trait_bounds() {
+    let output = compile_source(
+        r#"
+type Trivial = trait {
+    f: fn() i32,
+};
+
+type NeedsBound = trait {
+    type Out: Trivial;
+    make: fn() Out,
+};
+
+type Bad = struct {};
+
+impl Bad: NeedsBound {
+    type Out = i32;
+
+    fn make() Out {
+        return 1;
+    }
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("associated type `Out` does not satisfy the bounds declared by the trait"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("required bound: `i32: Trivial`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn compiles_impl_associated_type_targets_proved_by_impl_where_bounds() {
+    let output = build_and_run(
+        "kernc_trait_assoc_bound_from_impl_where",
+        r#"
+type Trivial = trait {
+    f: fn() i32,
+};
+
+type NeedsBound = trait {
+    type Out: Trivial;
+    make: fn() Out,
+};
+
+type Good = struct {};
+
+impl Good: Trivial {
+    fn f() i32 {
+        return 7;
+    }
+}
+
+type Holder[T] = struct {
+    value: T,
+};
+
+impl[T] Holder[T]: NeedsBound
+    where T: Trivial,
+{
+    type Out = T;
+
+    fn make() Out {
+        return self.value;
+    }
+}
+
+fn main() i32 {
+    let holder = Holder[Good].{ value: Good.{} };
+    return holder.make().f() - 7;
+}
+"#,
+        &[],
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
 }
 
 #[test]

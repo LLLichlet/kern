@@ -16,6 +16,10 @@ mod language;
 mod mutability;
 #[path = "regressions/packages.rs"]
 mod packages;
+#[path = "regressions/paterson.rs"]
+mod paterson;
+#[path = "regressions/supertraits.rs"]
+mod supertraits;
 
 fn compile_source(source: &str) -> std::process::Output {
     compile_source_with_args("kernc_regression_test", source, &[])

@@ -7,10 +7,12 @@ use kernc_utils::{
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
+use crate::checker::{ExprChecker, Substituter};
 use crate::def::{Def, DefId, ImplDef};
+use crate::passes::TypeResolver;
 use crate::scope::{ScopeId, SymbolTable};
 use crate::semantic::{SemanticDefinition, SemanticSymbolKind};
-use crate::ty::{GenericArg, TypeFormatter, TypeId, TypeRegistry};
+use crate::ty::{GenericArg, TypeFormatter, TypeId, TypeKind, TypeRegistry};
 use kernc_ast::Visibility;
 
 type NamedFieldQueryKey = (Option<DefId>, DefId, Vec<GenericArg>, SymbolId);
@@ -119,6 +121,9 @@ pub struct SemaContext<'a> {
         FastHashMap<(TypeId, SymbolId), Option<crate::query::MemberCandidate>>,
     pub(crate) bound_trait_match_cache: FastHashMap<TypeId, Vec<TypeId>>,
     pub(crate) impl_applicability_cache: FastHashMap<(TypeId, DefId), Option<Vec<TypeId>>>,
+    pub(crate) impl_requirement_cycle_cache: FastHashMap<DefId, Option<ImplRequirementCycle>>,
+    pub(crate) impl_paterson_boundedness_cache:
+        FastHashMap<DefId, Option<NonDecreasingImplRequirement>>,
     pub(crate) named_field_query_cache: FastHashMap<NamedFieldQueryKey, NamedFieldQueryValue>,
     pub(crate) member_resolution_query_cache:
         FastHashMap<MemberResolutionQueryKey, crate::query::MemberResolution>,
@@ -132,6 +137,57 @@ pub(crate) struct SelfReferentialImplRequirement {
     pub bound_span: Span,
     pub target_ty: TypeId,
     pub trait_ty: TypeId,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ImplRequirementCycle {
+    pub start_bound_span: Span,
+    pub target_ty: TypeId,
+    pub trait_ty: TypeId,
+    pub requirements: Vec<ImplRequirementEdge>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ImplRequirementEdge {
+    pub impl_id: DefId,
+    pub requirement_span: Span,
+    pub target_ty: TypeId,
+    pub trait_ty: TypeId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum PatersonParam {
+    Type(SymbolId),
+    Const(SymbolId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PatersonBoundednessIssue {
+    ConstructorCount {
+        head: usize,
+        requirement: usize,
+    },
+    VariableCount {
+        param: PatersonParam,
+        head: usize,
+        requirement: usize,
+    },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PatersonMeasure {
+    pub constructors: usize,
+    pub params: FastHashMap<PatersonParam, usize>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct NonDecreasingImplRequirement {
+    pub bound_span: Span,
+    pub head_target_ty: TypeId,
+    pub head_trait_ty: TypeId,
+    pub requirement_target_ty: TypeId,
+    pub requirement_trait_ty: TypeId,
+    pub issue: PatersonBoundednessIssue,
 }
 
 impl<'a> SemaContext<'a> {
@@ -164,6 +220,8 @@ impl<'a> SemaContext<'a> {
             impl_method_query_cache: FastHashMap::default(),
             bound_trait_match_cache: FastHashMap::default(),
             impl_applicability_cache: FastHashMap::default(),
+            impl_requirement_cycle_cache: FastHashMap::default(),
+            impl_paterson_boundedness_cache: FastHashMap::default(),
             named_field_query_cache: FastHashMap::default(),
             member_resolution_query_cache: FastHashMap::default(),
             reported_recursive_layout_types: FastHashSet::default(),
@@ -270,6 +328,8 @@ impl<'a> SemaContext<'a> {
         self.trait_method_query_cache.clear();
         self.impl_method_query_cache.clear();
         self.clear_active_bound_caches();
+        self.impl_requirement_cycle_cache.clear();
+        self.impl_paterson_boundedness_cache.clear();
         self.named_field_query_cache.clear();
         self.member_resolution_query_cache.clear();
         self.identifier_references.clear();
@@ -279,6 +339,7 @@ impl<'a> SemaContext<'a> {
     pub fn clear_active_bound_caches(&mut self) {
         self.bound_trait_match_cache.clear();
         self.impl_applicability_cache.clear();
+        self.impl_method_query_cache.clear();
         self.member_resolution_query_cache.clear();
     }
 
@@ -349,6 +410,625 @@ impl<'a> SemaContext<'a> {
                 crate::ty::TypeKind::TraitObject(impl_def_id, impl_args, _),
             ) => bound_def_id == impl_def_id && bound_args == impl_args,
             _ => bound_norm == impl_norm,
+        }
+    }
+
+    pub(crate) fn indirect_self_referential_impl_requirement(
+        &mut self,
+        impl_id: DefId,
+    ) -> Option<ImplRequirementCycle> {
+        if let Some(cached) = self.impl_requirement_cycle_cache.get(&impl_id).cloned() {
+            return cached;
+        }
+
+        let cycle = self.compute_indirect_impl_requirement_cycle(impl_id);
+        self.impl_requirement_cycle_cache
+            .insert(impl_id, cycle.clone());
+        cycle
+    }
+
+    fn compute_indirect_impl_requirement_cycle(
+        &mut self,
+        impl_id: DefId,
+    ) -> Option<ImplRequirementCycle> {
+        let Some(Def::Impl(impl_def)) = self.defs.get(impl_id.0 as usize).cloned() else {
+            return None;
+        };
+        if self
+            .direct_self_referential_impl_requirement(&impl_def)
+            .is_some()
+        {
+            return None;
+        }
+
+        let Some(trait_ty_node) = &impl_def.trait_type else {
+            return None;
+        };
+
+        let start_target_ty = self.type_registry.normalize(
+            self.node_types
+                .get(&impl_def.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR),
+        );
+        let start_trait_ty = self.type_registry.normalize(
+            self.node_types
+                .get(&trait_ty_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR),
+        );
+        if start_target_ty == TypeId::ERROR || start_trait_ty == TypeId::ERROR {
+            return None;
+        }
+
+        let initial_requirements =
+            self.instantiated_impl_requirements(&impl_def, &FastHashMap::default());
+        let mut obligation_stack = vec![(start_target_ty, start_trait_ty)];
+        for requirement in initial_requirements {
+            if self.obligation_matches_impl_head(
+                requirement.target_ty,
+                requirement.trait_ty,
+                start_target_ty,
+                start_trait_ty,
+            ) {
+                continue;
+            }
+
+            let mut path = vec![requirement];
+            if self.find_impl_requirement_cycle_path(
+                requirement.target_ty,
+                requirement.trait_ty,
+                start_target_ty,
+                start_trait_ty,
+                &mut obligation_stack,
+                &mut path,
+            ) {
+                return Some(ImplRequirementCycle {
+                    start_bound_span: requirement.requirement_span,
+                    target_ty: start_target_ty,
+                    trait_ty: start_trait_ty,
+                    requirements: path,
+                });
+            }
+        }
+
+        None
+    }
+
+    fn find_impl_requirement_cycle_path(
+        &mut self,
+        source_ty: TypeId,
+        target_trait_ty: TypeId,
+        start_target_ty: TypeId,
+        start_trait_ty: TypeId,
+        obligation_stack: &mut Vec<(TypeId, TypeId)>,
+        path: &mut Vec<ImplRequirementEdge>,
+    ) -> bool {
+        let source_ty = self.type_registry.normalize(source_ty);
+        let target_trait_ty = self.type_registry.normalize(target_trait_ty);
+        if source_ty == TypeId::ERROR || target_trait_ty == TypeId::ERROR {
+            return false;
+        }
+
+        let obligation = (source_ty, target_trait_ty);
+        if obligation_stack.contains(&obligation) {
+            return false;
+        }
+        obligation_stack.push(obligation);
+
+        let trait_impl_ids = self.trait_impls.clone();
+        for candidate_impl_id in trait_impl_ids {
+            {
+                let mut resolver = TypeResolver::new(self);
+                resolver.ensure_impl_signature_types_resolved(candidate_impl_id);
+            }
+
+            let Some(Def::Impl(candidate_impl)) =
+                self.defs.get(candidate_impl_id.0 as usize).cloned()
+            else {
+                continue;
+            };
+            let Some(candidate_trait_ast) = &candidate_impl.trait_type else {
+                continue;
+            };
+
+            let impl_target_ty = self
+                .node_types
+                .get(&candidate_impl.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let impl_trait_ty = self
+                .node_types
+                .get(&candidate_trait_ast.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
+                continue;
+            }
+
+            let mut head_map = FastHashMap::default();
+            let applicable = {
+                let mut checker = ExprChecker::new(self, None);
+                if !checker.unify(impl_target_ty, source_ty, &mut head_map) {
+                    false
+                } else {
+                    let instantiated_trait_ty = {
+                        let mut subst = Substituter::new(&mut checker.ctx.type_registry, &head_map);
+                        subst.substitute(impl_trait_ty)
+                    };
+                    let instantiated_trait_ty =
+                        checker.ctx.type_registry.normalize(instantiated_trait_ty);
+                    let mut trait_map = FastHashMap::default();
+                    let matches = instantiated_trait_ty == target_trait_ty
+                        || checker.unify(target_trait_ty, instantiated_trait_ty, &mut trait_map);
+                    if matches {
+                        for (name, ty) in trait_map {
+                            head_map.entry(name).or_insert(ty);
+                        }
+                    }
+                    matches
+                }
+            };
+            if !applicable {
+                continue;
+            }
+
+            let requirements = self.instantiated_impl_requirements(&candidate_impl, &head_map);
+            for requirement in requirements {
+                path.push(requirement);
+                if self.obligation_matches_impl_head(
+                    requirement.target_ty,
+                    requirement.trait_ty,
+                    start_target_ty,
+                    start_trait_ty,
+                ) {
+                    obligation_stack.pop();
+                    return true;
+                }
+
+                if self.find_impl_requirement_cycle_path(
+                    requirement.target_ty,
+                    requirement.trait_ty,
+                    start_target_ty,
+                    start_trait_ty,
+                    obligation_stack,
+                    path,
+                ) {
+                    obligation_stack.pop();
+                    return true;
+                }
+                path.pop();
+            }
+        }
+
+        let popped = obligation_stack.pop();
+        debug_assert_eq!(popped, Some(obligation));
+        false
+    }
+
+    fn instantiated_impl_requirements(
+        &mut self,
+        impl_def: &ImplDef,
+        map: &FastHashMap<SymbolId, TypeId>,
+    ) -> Vec<ImplRequirementEdge> {
+        let mut requirements = Vec::new();
+
+        for clause in &impl_def.where_clauses {
+            let target_ty = {
+                let original_target = self
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                let substituted_target = {
+                    let mut subst = Substituter::new(&mut self.type_registry, map);
+                    subst.substitute(original_target)
+                };
+                self.type_registry.normalize(substituted_target)
+            };
+
+            for bound in &clause.bounds {
+                let trait_ty = {
+                    let original_bound = self
+                        .node_types
+                        .get(&bound.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+                    let substituted_bound = {
+                        let mut subst = Substituter::new(&mut self.type_registry, map);
+                        subst.substitute(original_bound)
+                    };
+                    self.type_registry.normalize(substituted_bound)
+                };
+                if !matches!(self.type_registry.get(trait_ty), TypeKind::TraitObject(..)) {
+                    continue;
+                }
+                requirements.push(ImplRequirementEdge {
+                    impl_id: impl_def.id,
+                    requirement_span: bound.span,
+                    target_ty,
+                    trait_ty,
+                });
+            }
+        }
+
+        requirements
+    }
+
+    fn obligation_matches_impl_head(
+        &self,
+        target_ty: TypeId,
+        trait_ty: TypeId,
+        impl_target_ty: TypeId,
+        impl_trait_ty: TypeId,
+    ) -> bool {
+        self.type_registry.normalize(target_ty) == self.type_registry.normalize(impl_target_ty)
+            && self.matches_impl_trait_obligation_head(trait_ty, impl_trait_ty)
+    }
+
+    pub(crate) fn non_decreasing_impl_requirement(
+        &mut self,
+        impl_id: DefId,
+    ) -> Option<NonDecreasingImplRequirement> {
+        if let Some(cached) = self.impl_paterson_boundedness_cache.get(&impl_id).cloned() {
+            return cached;
+        }
+
+        let violation = self.compute_non_decreasing_impl_requirement(impl_id);
+        self.impl_paterson_boundedness_cache
+            .insert(impl_id, violation.clone());
+        violation
+    }
+
+    fn compute_non_decreasing_impl_requirement(
+        &mut self,
+        impl_id: DefId,
+    ) -> Option<NonDecreasingImplRequirement> {
+        let Some(Def::Impl(impl_def)) = self.defs.get(impl_id.0 as usize).cloned() else {
+            return None;
+        };
+        let Some(trait_ty_node) = &impl_def.trait_type else {
+            return None;
+        };
+
+        let head_target_ty = self.type_registry.normalize(
+            self.node_types
+                .get(&impl_def.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR),
+        );
+        let head_trait_ty = self.type_registry.normalize(
+            self.node_types
+                .get(&trait_ty_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR),
+        );
+        if head_target_ty == TypeId::ERROR || head_trait_ty == TypeId::ERROR {
+            return None;
+        }
+
+        for requirement in self.instantiated_impl_requirements(&impl_def, &FastHashMap::default()) {
+            let Some(issue) = self.compare_paterson_obligations(
+                Some(head_target_ty),
+                head_trait_ty,
+                Some(requirement.target_ty),
+                requirement.trait_ty,
+            ) else {
+                continue;
+            };
+
+            return Some(NonDecreasingImplRequirement {
+                bound_span: requirement.requirement_span,
+                head_target_ty,
+                head_trait_ty,
+                requirement_target_ty: requirement.target_ty,
+                requirement_trait_ty: requirement.trait_ty,
+                issue,
+            });
+        }
+
+        None
+    }
+
+    pub(crate) fn compare_paterson_obligations(
+        &self,
+        head_target_ty: Option<TypeId>,
+        head_trait_ty: TypeId,
+        requirement_target_ty: Option<TypeId>,
+        requirement_trait_ty: TypeId,
+    ) -> Option<PatersonBoundednessIssue> {
+        let head = self.paterson_obligation_measure(head_target_ty, head_trait_ty);
+        let requirement =
+            self.paterson_obligation_measure(requirement_target_ty, requirement_trait_ty);
+
+        for (&param, &requirement_count) in &requirement.params {
+            let head_count = head.params.get(&param).copied().unwrap_or(0);
+            if requirement_count > head_count {
+                return Some(PatersonBoundednessIssue::VariableCount {
+                    param,
+                    head: head_count,
+                    requirement: requirement_count,
+                });
+            }
+        }
+
+        if requirement.constructors > head.constructors {
+            return Some(PatersonBoundednessIssue::ConstructorCount {
+                head: head.constructors,
+                requirement: requirement.constructors,
+            });
+        }
+
+        None
+    }
+
+    pub(crate) fn compare_paterson_supertrait_against_generics(
+        &self,
+        head_generics: &[kernc_ast::GenericParam],
+        requirement_trait_ty: TypeId,
+    ) -> Option<PatersonBoundednessIssue> {
+        let head = self.paterson_generics_measure(head_generics);
+        let requirement = self.paterson_obligation_measure(None, requirement_trait_ty);
+
+        for (&param, &requirement_count) in &requirement.params {
+            let head_count = head.params.get(&param).copied().unwrap_or(0);
+            if requirement_count > head_count {
+                return Some(PatersonBoundednessIssue::VariableCount {
+                    param,
+                    head: head_count,
+                    requirement: requirement_count,
+                });
+            }
+        }
+
+        if requirement.constructors > head.constructors {
+            return Some(PatersonBoundednessIssue::ConstructorCount {
+                head: head.constructors,
+                requirement: requirement.constructors,
+            });
+        }
+
+        None
+    }
+
+    fn paterson_generics_measure(&self, generics: &[kernc_ast::GenericParam]) -> PatersonMeasure {
+        let mut measure = PatersonMeasure::default();
+        for generic in generics {
+            match generic.kind {
+                kernc_ast::GenericParamKind::Type => {
+                    *measure
+                        .params
+                        .entry(PatersonParam::Type(generic.name))
+                        .or_insert(0) += 1;
+                }
+                kernc_ast::GenericParamKind::Const { .. } => {
+                    *measure
+                        .params
+                        .entry(PatersonParam::Const(generic.name))
+                        .or_insert(0) += 1;
+                }
+            }
+        }
+        measure
+    }
+
+    fn paterson_obligation_measure(
+        &self,
+        target_ty: Option<TypeId>,
+        trait_ty: TypeId,
+    ) -> PatersonMeasure {
+        let mut measure = PatersonMeasure::default();
+        if let Some(target_ty) = target_ty {
+            self.measure_paterson_type(target_ty, &mut measure);
+        }
+        self.measure_paterson_trait_payload(trait_ty, &mut measure);
+        measure
+    }
+
+    fn measure_paterson_trait_payload(&self, trait_ty: TypeId, measure: &mut PatersonMeasure) {
+        let trait_norm = self.type_registry.normalize(trait_ty);
+        match self.type_registry.get(trait_norm) {
+            TypeKind::TraitObject(_, args, assoc_bindings) => {
+                for &arg in args {
+                    self.measure_paterson_generic_arg(arg, measure);
+                }
+                for &(_, assoc_ty) in assoc_bindings {
+                    self.measure_paterson_type(assoc_ty, measure);
+                }
+            }
+            _ => self.measure_paterson_type(trait_norm, measure),
+        }
+    }
+
+    fn measure_paterson_generic_arg(&self, arg: GenericArg, measure: &mut PatersonMeasure) {
+        match arg {
+            GenericArg::Type(ty) => self.measure_paterson_type(ty, measure),
+            GenericArg::Const(value) => self.measure_paterson_const_generic(value, measure),
+        }
+    }
+
+    fn measure_paterson_const_generic(
+        &self,
+        value: crate::ty::ConstGeneric,
+        measure: &mut PatersonMeasure,
+    ) {
+        match value {
+            crate::ty::ConstGeneric::Value(_) => {
+                measure.constructors += 1;
+            }
+            crate::ty::ConstGeneric::Param(name, _) => {
+                *measure
+                    .params
+                    .entry(PatersonParam::Const(name))
+                    .or_insert(0) += 1;
+            }
+            crate::ty::ConstGeneric::Expr(expr_id) => {
+                measure.constructors += 1;
+                match *self.type_registry.const_expr(expr_id) {
+                    crate::ty::ConstExprKind::Unary { expr, .. }
+                    | crate::ty::ConstExprKind::Cast { expr, .. } => {
+                        self.measure_paterson_const_generic(expr, measure);
+                    }
+                    crate::ty::ConstExprKind::Binary { lhs, rhs, .. } => {
+                        self.measure_paterson_const_generic(lhs, measure);
+                        self.measure_paterson_const_generic(rhs, measure);
+                    }
+                }
+            }
+            crate::ty::ConstGeneric::Error => {}
+        }
+    }
+
+    fn measure_paterson_type(&self, ty: TypeId, measure: &mut PatersonMeasure) {
+        let norm = self.type_registry.normalize(ty);
+        match self.type_registry.get(norm) {
+            TypeKind::Error => return,
+            TypeKind::Param(name) => {
+                *measure
+                    .params
+                    .entry(PatersonParam::Type(*name))
+                    .or_insert(0) += 1;
+                return;
+            }
+            TypeKind::Alias(..) => unreachable!("aliases are removed by normalize"),
+            _ => {
+                measure.constructors += 1;
+            }
+        }
+
+        match self.type_registry.get(norm) {
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::ArrayInfer { elem, .. }
+            | TypeKind::AnonymousEnumPayload(elem)
+            | TypeKind::Simd { elem, .. } => {
+                self.measure_paterson_type(*elem, measure);
+            }
+            TypeKind::Array { elem, len, .. } => {
+                self.measure_paterson_type(*elem, measure);
+                self.measure_paterson_const_generic(*len, measure);
+            }
+            TypeKind::Def(_, args)
+            | TypeKind::Enum(_, args)
+            | TypeKind::EnumPayload(_, args)
+            | TypeKind::FnDef(_, args)
+            | TypeKind::Associated(_, args) => {
+                for &arg in args {
+                    self.measure_paterson_generic_arg(arg, measure);
+                }
+            }
+            TypeKind::TraitObject(_, args, assoc_bindings) => {
+                for &arg in args {
+                    self.measure_paterson_generic_arg(arg, measure);
+                }
+                for &(_, assoc_ty) in assoc_bindings {
+                    self.measure_paterson_type(assoc_ty, measure);
+                }
+            }
+            TypeKind::Projection {
+                target,
+                trait_args,
+                assoc_args,
+                ..
+            } => {
+                self.measure_paterson_type(*target, measure);
+                for &arg in trait_args {
+                    self.measure_paterson_generic_arg(arg, measure);
+                }
+                for &arg in assoc_args {
+                    self.measure_paterson_generic_arg(arg, measure);
+                }
+            }
+            TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
+                for &param in params {
+                    self.measure_paterson_type(param, measure);
+                }
+                self.measure_paterson_type(*ret, measure);
+            }
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => {
+                for &capture in captures {
+                    self.measure_paterson_type(capture, measure);
+                }
+                for &param in params {
+                    self.measure_paterson_type(param, measure);
+                }
+                self.measure_paterson_type(*ret, measure);
+            }
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => {
+                for field in fields {
+                    self.measure_paterson_type(field.ty, measure);
+                }
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                if let Some(backing_ty) = enum_def.backing_ty {
+                    self.measure_paterson_type(backing_ty, measure);
+                }
+                for variant in &enum_def.variants {
+                    if let Some(payload_ty) = variant.payload_ty {
+                        self.measure_paterson_type(payload_ty, measure);
+                    }
+                }
+            }
+            TypeKind::Primitive(_)
+            | TypeKind::Module(_)
+            | TypeKind::TypeVar(_)
+            | TypeKind::Param(_)
+            | TypeKind::Error
+            | TypeKind::Alias(..) => {}
+        }
+    }
+
+    pub(crate) fn describe_paterson_issue(&self, issue: &PatersonBoundednessIssue) -> String {
+        match issue {
+            PatersonBoundednessIssue::ConstructorCount { head, requirement } => format!(
+                "structural constructor count grows from {} in the head to {} in the prerequisite",
+                head, requirement
+            ),
+            PatersonBoundednessIssue::VariableCount {
+                param,
+                head,
+                requirement,
+            } => format!(
+                "`{}` occurs {} time(s) in the head but {} time(s) in the prerequisite",
+                self.paterson_param_name(*param),
+                head,
+                requirement
+            ),
+        }
+    }
+
+    pub(crate) fn describe_paterson_issue_brief(
+        &self,
+        issue: &PatersonBoundednessIssue,
+    ) -> String {
+        match issue {
+            PatersonBoundednessIssue::ConstructorCount { .. } => {
+                "this prerequisite is structurally larger than the impl head".to_string()
+            }
+            PatersonBoundednessIssue::VariableCount {
+                param,
+                head,
+                requirement,
+            } => format!(
+                "`{}` is used {} time(s) here, but only {} time(s) in the impl head",
+                self.paterson_param_name(*param),
+                requirement,
+                head
+            ),
+        }
+    }
+
+    fn paterson_param_name(&self, param: PatersonParam) -> String {
+        match param {
+            PatersonParam::Type(name) | PatersonParam::Const(name) => {
+                self.resolve(name).to_string()
+            }
         }
     }
 
@@ -683,14 +1363,11 @@ impl<'a> SemaContext<'a> {
 
     pub fn builtin_trait_ty(&mut self, name: &str, args: Vec<TypeId>) -> Option<TypeId> {
         let def_id = self.builtin_def(name)?;
-        Some(
-            self.type_registry
-                .intern(crate::ty::TypeKind::TraitObject(
-                    def_id,
-                    crate::ty::wrap_type_args(args),
-                    Vec::new(),
-                )),
-        )
+        Some(self.type_registry.intern(crate::ty::TypeKind::TraitObject(
+            def_id,
+            crate::ty::wrap_type_args(args),
+            Vec::new(),
+        )))
     }
 
     pub fn builtin_trait_ty_with_assoc(
@@ -820,7 +1497,11 @@ impl<'a> SemaContext<'a> {
                 let payload = match value.kind {
                     crate::ty::ConstGenericValueKind::Int(value) => format!("i{}", value),
                     crate::ty::ConstGenericValueKind::Bool(value) => {
-                        if value { "b1".to_string() } else { "b0".to_string() }
+                        if value {
+                            "b1".to_string()
+                        } else {
+                            "b0".to_string()
+                        }
                     }
                 };
                 format!("C{}{}", self.mangle_type(value.ty), payload)

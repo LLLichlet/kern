@@ -63,9 +63,11 @@ where
 
     pub(crate) fn substitute_const_generic(&mut self, value: ConstGeneric) -> ConstGeneric {
         match value {
-            ConstGeneric::Param(name, ty) => self.map.get_const(&name).cloned().unwrap_or(
-                ConstGeneric::Param(name, ty),
-            ),
+            ConstGeneric::Param(name, ty) => self
+                .map
+                .get_const(&name)
+                .cloned()
+                .unwrap_or(ConstGeneric::Param(name, ty)),
             ConstGeneric::Expr(id) => {
                 let expr = *self.registry.const_expr(id);
                 let rebuilt = match expr {

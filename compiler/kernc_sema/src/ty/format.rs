@@ -1,5 +1,5 @@
-use crate::def::Def;
 use crate::SemaContext;
+use crate::def::Def;
 
 use super::{
     BuiltinAnonymousEnumKind, ConstExprBinaryOp, ConstExprUnaryOp, ConstGeneric, GenericArg,
@@ -232,7 +232,12 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
             }
             TypeKind::Array { is_mut, elem, len } => {
                 let m = if *is_mut { "mut " } else { "" };
-                format!("[{}]{}{}", self.format_const_generic(*len), m, self.format(*elem))
+                format!(
+                    "[{}]{}{}",
+                    self.format_const_generic(*len),
+                    m,
+                    self.format(*elem)
+                )
             }
             TypeKind::ArrayInfer { is_mut, elem } => {
                 let m = if *is_mut { "mut " } else { "" };

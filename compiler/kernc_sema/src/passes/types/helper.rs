@@ -2,6 +2,521 @@ use super::*;
 use crate::ty::{ConstGeneric, GenericArg, LayoutEngine};
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
+    pub(super) fn instantiate_trait_assoc_contract_ty(
+        &mut self,
+        ty: TypeId,
+        generic_args: &HashMap<SymbolId, GenericArg>,
+        assoc_targets: &HashMap<DefId, TypeId>,
+        trait_def_id: DefId,
+        trait_args: &[GenericArg],
+        self_ty: TypeId,
+    ) -> TypeId {
+        let ty = {
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, generic_args);
+            subst.substitute(ty)
+        };
+        let ty = crate::checker::substitute_associated_types(
+            &mut self.ctx.type_registry,
+            ty,
+            assoc_targets,
+        );
+        self.substitute_trait_assoc_contract_self(ty, trait_def_id, trait_args, self_ty)
+    }
+
+    fn substitute_trait_assoc_contract_self_arg(
+        &mut self,
+        arg: GenericArg,
+        trait_def_id: DefId,
+        trait_args: &[GenericArg],
+        self_ty: TypeId,
+    ) -> GenericArg {
+        match arg {
+            GenericArg::Type(ty) => GenericArg::Type(self.substitute_trait_assoc_contract_self(
+                ty,
+                trait_def_id,
+                trait_args,
+                self_ty,
+            )),
+            GenericArg::Const(value) => GenericArg::Const(value),
+        }
+    }
+
+    fn substitute_trait_assoc_contract_self(
+        &mut self,
+        ty: TypeId,
+        trait_def_id: DefId,
+        trait_args: &[GenericArg],
+        self_ty: TypeId,
+    ) -> TypeId {
+        let kind = self.ctx.type_registry.get(ty).clone();
+        match kind {
+            TypeKind::Primitive(_)
+            | TypeKind::Simd { .. }
+            | TypeKind::Error
+            | TypeKind::Module(_)
+            | TypeKind::TypeVar(_)
+            | TypeKind::Param(_) => ty,
+            TypeKind::Associated(def_id, args) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.substitute_trait_assoc_contract_self_arg(
+                            arg,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Associated(def_id, new_args))
+            }
+            TypeKind::Pointer { is_mut, elem } => {
+                let new_elem = self.substitute_trait_assoc_contract_self(
+                    elem,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut,
+                    elem: new_elem,
+                })
+            }
+            TypeKind::VolatilePtr { is_mut, elem } => {
+                let new_elem = self.substitute_trait_assoc_contract_self(
+                    elem,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                    is_mut,
+                    elem: new_elem,
+                })
+            }
+            TypeKind::Slice { is_mut, elem } => {
+                let new_elem = self.substitute_trait_assoc_contract_self(
+                    elem,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx.type_registry.intern(TypeKind::Slice {
+                    is_mut,
+                    elem: new_elem,
+                })
+            }
+            TypeKind::Array { is_mut, elem, len } => {
+                let new_elem = self.substitute_trait_assoc_contract_self(
+                    elem,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx.type_registry.intern(TypeKind::Array {
+                    is_mut,
+                    elem: new_elem,
+                    len,
+                })
+            }
+            TypeKind::ArrayInfer { is_mut, elem } => {
+                let new_elem = self.substitute_trait_assoc_contract_self(
+                    elem,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx.type_registry.intern(TypeKind::ArrayInfer {
+                    is_mut,
+                    elem: new_elem,
+                })
+            }
+            TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } => {
+                let new_params = params
+                    .into_iter()
+                    .map(|param| {
+                        self.substitute_trait_assoc_contract_self(
+                            param,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                let new_ret = self.substitute_trait_assoc_contract_self(
+                    ret,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx.type_registry.intern(TypeKind::Function {
+                    params: new_params,
+                    ret: new_ret,
+                    is_variadic,
+                })
+            }
+            TypeKind::Def(def_id, args) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.substitute_trait_assoc_contract_self_arg(
+                            arg,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Def(def_id, new_args))
+            }
+            TypeKind::Enum(def_id, args) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.substitute_trait_assoc_contract_self_arg(
+                            arg,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Enum(def_id, new_args))
+            }
+            TypeKind::EnumPayload(def_id, args) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.substitute_trait_assoc_contract_self_arg(
+                            arg,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::EnumPayload(def_id, new_args))
+            }
+            TypeKind::FnDef(def_id, args) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.substitute_trait_assoc_contract_self_arg(
+                            arg,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(def_id, new_args))
+            }
+            TypeKind::Alias(name, target) => {
+                let new_target = self.substitute_trait_assoc_contract_self(
+                    target,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Alias(name, new_target))
+            }
+            TypeKind::TraitObject(def_id, args, assoc_bindings) => {
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| {
+                        self.substitute_trait_assoc_contract_self_arg(
+                            arg,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let new_assoc_bindings = assoc_bindings
+                    .into_iter()
+                    .map(|(assoc_def_id, assoc_ty)| {
+                        (
+                            assoc_def_id,
+                            self.substitute_trait_assoc_contract_self(
+                                assoc_ty,
+                                trait_def_id,
+                                trait_args,
+                                self_ty,
+                            ),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                if def_id == trait_def_id
+                    && new_assoc_bindings.is_empty()
+                    && new_args.as_slice() == trait_args
+                {
+                    return self_ty;
+                }
+                self.ctx.type_registry.intern(TypeKind::TraitObject(
+                    def_id,
+                    new_args,
+                    new_assoc_bindings,
+                ))
+            }
+            TypeKind::Projection {
+                target,
+                trait_def_id: projection_trait_def_id,
+                trait_args: projection_trait_args,
+                assoc_def_id,
+                assoc_args,
+            } => {
+                let new_target = self.substitute_trait_assoc_contract_self(
+                    target,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                let new_trait_args = projection_trait_args
+                    .into_iter()
+                    .map(|arg| {
+                        self.substitute_trait_assoc_contract_self_arg(
+                            arg,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                let new_assoc_args = assoc_args
+                    .into_iter()
+                    .map(|arg| {
+                        self.substitute_trait_assoc_contract_self_arg(
+                            arg,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                self.ctx.type_registry.intern(TypeKind::Projection {
+                    target: new_target,
+                    trait_def_id: projection_trait_def_id,
+                    trait_args: new_trait_args,
+                    assoc_def_id,
+                    assoc_args: new_assoc_args,
+                })
+            }
+            TypeKind::ClosureInterface { params, ret } => {
+                let new_params = params
+                    .into_iter()
+                    .map(|param| {
+                        self.substitute_trait_assoc_contract_self(
+                            param,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                let new_ret = self.substitute_trait_assoc_contract_self(
+                    ret,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx.type_registry.intern(TypeKind::ClosureInterface {
+                    params: new_params,
+                    ret: new_ret,
+                })
+            }
+            TypeKind::AnonymousState {
+                closure_node_id,
+                captures,
+                params,
+                ret,
+            } => {
+                let new_captures = captures
+                    .into_iter()
+                    .map(|capture| {
+                        self.substitute_trait_assoc_contract_self(
+                            capture,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                let new_params = params
+                    .into_iter()
+                    .map(|param| {
+                        self.substitute_trait_assoc_contract_self(
+                            param,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        )
+                    })
+                    .collect();
+                let new_ret = self.substitute_trait_assoc_contract_self(
+                    ret,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx.type_registry.intern(TypeKind::AnonymousState {
+                    closure_node_id,
+                    captures: new_captures,
+                    params: new_params,
+                    ret: new_ret,
+                })
+            }
+            TypeKind::AnonymousStruct(is_extern, fields) => {
+                let new_fields = fields
+                    .into_iter()
+                    .map(|field| crate::ty::AnonymousField {
+                        name: field.name,
+                        ty: self.substitute_trait_assoc_contract_self(
+                            field.ty,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        ),
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousStruct(is_extern, new_fields))
+            }
+            TypeKind::AnonymousUnion(is_extern, fields) => {
+                let new_fields = fields
+                    .into_iter()
+                    .map(|field| crate::ty::AnonymousField {
+                        name: field.name,
+                        ty: self.substitute_trait_assoc_contract_self(
+                            field.ty,
+                            trait_def_id,
+                            trait_args,
+                            self_ty,
+                        ),
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousUnion(is_extern, new_fields))
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                let new_backing_ty = enum_def.backing_ty.map(|backing_ty| {
+                    self.substitute_trait_assoc_contract_self(
+                        backing_ty,
+                        trait_def_id,
+                        trait_args,
+                        self_ty,
+                    )
+                });
+                let new_variants = enum_def
+                    .variants
+                    .into_iter()
+                    .map(|variant| crate::ty::AnonymousVariant {
+                        name: variant.name,
+                        name_span: variant.name_span,
+                        payload_ty: variant.payload_ty.map(|payload_ty| {
+                            self.substitute_trait_assoc_contract_self(
+                                payload_ty,
+                                trait_def_id,
+                                trait_args,
+                                self_ty,
+                            )
+                        }),
+                        explicit_value: variant.explicit_value,
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnum(crate::ty::AnonymousEnum {
+                        backing_ty: new_backing_ty,
+                        builtin: enum_def.builtin,
+                        variants: new_variants,
+                    }))
+            }
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let substituted = self.substitute_trait_assoc_contract_self(
+                    enum_ty,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnumPayload(substituted))
+            }
+        }
+    }
+
+    pub(super) fn push_instantiated_where_bounds(
+        &mut self,
+        where_clauses: &[ast::WhereClause],
+        generic_args: &HashMap<SymbolId, GenericArg>,
+        assoc_targets: &HashMap<DefId, TypeId>,
+        trait_def_id: DefId,
+        trait_args: &[GenericArg],
+        self_ty: TypeId,
+    ) -> usize {
+        let prev_bounds_len = self.ctx.active_bounds.len();
+        for clause in where_clauses {
+            let target_ty = self
+                .ctx
+                .node_types
+                .get(&clause.target_ty.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let instantiated_target = self.instantiate_trait_assoc_contract_ty(
+                target_ty,
+                generic_args,
+                assoc_targets,
+                trait_def_id,
+                trait_args,
+                self_ty,
+            );
+            let mut bounds = Vec::new();
+            for bound in &clause.bounds {
+                let bound_ty = self
+                    .ctx
+                    .node_types
+                    .get(&bound.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                let instantiated_bound = self.instantiate_trait_assoc_contract_ty(
+                    bound_ty,
+                    generic_args,
+                    assoc_targets,
+                    trait_def_id,
+                    trait_args,
+                    self_ty,
+                );
+                bounds.push(self.ctx.type_registry.normalize(instantiated_bound));
+            }
+            self.ctx.active_bounds.push((
+                self.ctx.type_registry.normalize(instantiated_target),
+                bounds,
+            ));
+        }
+        if self.ctx.active_bounds.len() != prev_bounds_len {
+            self.ctx.clear_active_bound_caches();
+        }
+        prev_bounds_len
+    }
+
     pub(super) fn check_type_generic_bounds(
         &mut self,
         span: Span,
@@ -188,11 +703,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             let self_ty =
                 self.ctx
                     .type_registry
-                    .intern(TypeKind::TraitObject(
-                        def_id,
-                        self_args,
-                        Vec::new(),
-                    ));
+                    .intern(TypeKind::TraitObject(def_id, self_args, Vec::new()));
             self.bind_self_type(self_ty, item_scope, trait_span);
         }
 
@@ -262,16 +773,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             TypeKind::Array { elem, len, .. } => {
                 self.type_contains_params(elem) || self.const_generic_contains_params(len)
             }
-            TypeKind::ArrayInfer { elem, .. } => {
-                self.type_contains_params(elem)
-            }
+            TypeKind::ArrayInfer { elem, .. } => self.type_contains_params(elem),
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::Associated(_, args)
-            | TypeKind::FnDef(_, args) => {
-                args.into_iter()
-                    .any(|arg| self.generic_arg_contains_params(arg))
-            }
+            | TypeKind::FnDef(_, args) => args
+                .into_iter()
+                .any(|arg| self.generic_arg_contains_params(arg)),
             TypeKind::TraitObject(_, args, assoc_bindings) => {
                 args.into_iter()
                     .any(|arg| self.generic_arg_contains_params(arg))
@@ -420,9 +928,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         span: Span,
     ) -> TypeId {
         let ty = match &ty_node.kind {
-            ast::TypeKind::Path { anchor: None, segments }
-                if segments.len() == 1 && segments[0].args.is_empty() =>
-            {
+            ast::TypeKind::Path {
+                anchor: None,
+                segments,
+            } if segments.len() == 1 && segments[0].args.is_empty() => {
                 let name = self
                     .ctx
                     .sess
@@ -484,9 +993,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         scope: ScopeId,
     ) -> GenericArg {
         match &param.kind {
-            ast::GenericParamKind::Type => GenericArg::Type(
-                self.ctx.type_registry.intern(TypeKind::Param(param.name)),
-            ),
+            ast::GenericParamKind::Type => {
+                GenericArg::Type(self.ctx.type_registry.intern(TypeKind::Param(param.name)))
+            }
             ast::GenericParamKind::Const { ty } => GenericArg::Const(ConstGeneric::Param(
                 param.name,
                 self.resolve_const_generic_param_type(ty, scope, param.span),

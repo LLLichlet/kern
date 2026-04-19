@@ -6,6 +6,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let module_ids = self.collect_module_ids();
         self.resolve_module_pass(&module_ids, true);
         self.resolve_module_pass(&module_ids, false);
+        self.validate_supertrait_graph();
     }
 
     fn collect_module_ids(&self) -> Vec<DefId> {
@@ -198,11 +199,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let self_ty =
             self.ctx
                 .type_registry
-                .intern(TypeKind::TraitObject(
-                    item_id,
-                    self_args,
-                    Vec::new(),
-                ));
+                .intern(TypeKind::TraitObject(item_id, self_args, Vec::new()));
         self.bind_self_type(self_ty, trait_scope, t.span);
         self.resolve_where_clauses(&t.where_clauses, trait_scope);
         self.bind_trait_assoc_types(&t.assoc_types, trait_scope);
@@ -257,7 +254,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         let canonical_trait_ty =
-            self.bind_impl_assoc_types(&i.assoc_types, resolved_trait_ty, impl_scope, i.span);
+            self.bind_impl_assoc_types(i, &i.assoc_types, resolved_trait_ty, impl_scope, i.span);
         if let (Some(trait_ty), Some(canonical_trait_ty)) = (&i.trait_type, canonical_trait_ty) {
             self.ctx.node_types.insert(trait_ty.id, canonical_trait_ty);
         }
@@ -316,6 +313,135 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             .emit();
     }
 
+    fn check_impl_assoc_type_contracts(
+        &mut self,
+        impl_def: &ImplDef,
+        trait_def_id: DefId,
+        trait_generics: &[ast::GenericParam],
+        trait_args: &[GenericArg],
+        trait_assoc: &AssociatedTypeDef,
+        impl_assoc: &AssociatedTypeDef,
+        resolved_target: TypeId,
+        assoc_targets: &HashMap<DefId, TypeId>,
+    ) {
+        if resolved_target == TypeId::ERROR {
+            return;
+        }
+
+        let trait_generic_args = trait_generics
+            .iter()
+            .zip(trait_args.iter())
+            .map(|(param, arg)| (param.name, *arg))
+            .collect::<HashMap<_, _>>();
+
+        let prev_bounds_len = self.ctx.active_bounds.len();
+        for clause in &impl_def.where_clauses {
+            let target_ty = self.ctx.type_registry.normalize(
+                self.ctx
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
+            let bounds = clause
+                .bounds
+                .iter()
+                .map(|bound| {
+                    self.ctx.type_registry.normalize(
+                        self.ctx
+                            .node_types
+                            .get(&bound.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR),
+                    )
+                })
+                .collect::<Vec<_>>();
+            self.ctx.active_bounds.push((target_ty, bounds));
+        }
+        for clause in &impl_assoc.where_clauses {
+            let target_ty = self.ctx.type_registry.normalize(
+                self.ctx
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
+            let bounds = clause
+                .bounds
+                .iter()
+                .map(|bound| {
+                    self.ctx.type_registry.normalize(
+                        self.ctx
+                            .node_types
+                            .get(&bound.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR),
+                    )
+                })
+                .collect::<Vec<_>>();
+            self.ctx.active_bounds.push((target_ty, bounds));
+        }
+        self.push_instantiated_where_bounds(
+            &trait_assoc.where_clauses,
+            &trait_generic_args,
+            assoc_targets,
+            trait_def_id,
+            trait_args,
+            resolved_target,
+        );
+        if self.ctx.active_bounds.len() != prev_bounds_len {
+            self.ctx.clear_active_bound_caches();
+        }
+
+        let assoc_name = self.ctx.resolve(impl_assoc.name).to_string();
+        for &bound_ty in &trait_assoc.resolved_bounds {
+            let instantiated_bound = self.instantiate_trait_assoc_contract_ty(
+                bound_ty,
+                &trait_generic_args,
+                assoc_targets,
+                trait_def_id,
+                trait_args,
+                resolved_target,
+            );
+            let instantiated_bound = self.ctx.type_registry.normalize(instantiated_bound);
+            if instantiated_bound == TypeId::ERROR {
+                continue;
+            }
+
+            let bound_ok = {
+                let mut checker = ExprChecker::new(self.ctx, None);
+                checker.check_trait_impl(resolved_target, instantiated_bound)
+            };
+            if bound_ok {
+                continue;
+            }
+
+            let target_str = self.ctx.ty_to_string(resolved_target);
+            let bound_str = self.ctx.ty_to_string(instantiated_bound);
+            self.ctx
+                .struct_error(
+                    impl_assoc.span,
+                    format!(
+                        "associated type `{}` does not satisfy the bounds declared by the trait",
+                        assoc_name
+                    ),
+                )
+                .with_span_label(
+                    impl_assoc.span,
+                    "this impl-associated type target does not implement the required bound",
+                )
+                .with_span_label(
+                    trait_assoc.span,
+                    "the trait declares the associated-type contract here",
+                )
+                .with_hint(format!("required bound: `{}: {}`", target_str, bound_str))
+                .emit();
+        }
+
+        self.ctx.active_bounds.truncate(prev_bounds_len);
+        self.ctx.clear_active_bound_caches();
+    }
+
     fn bind_trait_assoc_types(&mut self, assoc_type_ids: &[DefId], scope: ScopeId) {
         for &assoc_id in assoc_type_ids {
             let Some(Def::AssociatedType(assoc_def)) =
@@ -367,6 +493,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
     fn bind_impl_assoc_types(
         &mut self,
+        impl_def: &ImplDef,
         assoc_type_ids: &[DefId],
         resolved_trait_ty: Option<TypeId>,
         scope: ScopeId,
@@ -424,12 +551,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return Some(trait_ty);
         };
 
-        let (trait_generics_len, trait_assoc_ids) = match self.ctx.defs.get(trait_def_id.0 as usize)
-        {
+        let (trait_generics, trait_assoc_ids) = match self.ctx.defs.get(trait_def_id.0 as usize) {
             Some(Def::Trait(trait_def)) => {
-                (trait_def.generics.len(), trait_def.assoc_types.clone())
+                (trait_def.generics.clone(), trait_def.assoc_types.clone())
             }
-            _ => (0, Vec::new()),
+            _ => (Vec::new(), Vec::new()),
         };
         let mut ordered_assoc_targets = vec![None; trait_assoc_ids.len()];
 
@@ -528,9 +654,19 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
         }
 
+        let resolved_trait_assoc_targets = resolved_impl_assoc_targets
+            .iter()
+            .filter_map(|(&assoc_name, &resolved_target)| {
+                trait_assoc_names
+                    .get(&assoc_name)
+                    .copied()
+                    .map(|assoc_id| (assoc_id, resolved_target))
+            })
+            .collect::<HashMap<_, _>>();
+
         let generic_args = trait_args
             .iter()
-            .take(trait_generics_len)
+            .take(trait_generics.len())
             .copied()
             .collect::<Vec<_>>();
         let trait_assoc_ids = match self.ctx.defs.get(trait_def_id.0 as usize) {
@@ -545,6 +681,21 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             };
             if let Some(&resolved_target) = resolved_impl_assoc_targets.get(&trait_assoc.name) {
                 ordered_assoc_targets[assoc_index] = Some(resolved_target);
+                if let Some(&impl_assoc_id) = impl_assoc_by_name.get(&trait_assoc.name)
+                    && let Some(Def::AssociatedType(impl_assoc)) =
+                        self.ctx.defs.get(impl_assoc_id.0 as usize).cloned()
+                {
+                    self.check_impl_assoc_type_contracts(
+                        impl_def,
+                        trait_def_id,
+                        &trait_generics,
+                        &trait_args,
+                        &trait_assoc,
+                        &impl_assoc,
+                        resolved_target,
+                        &resolved_trait_assoc_targets,
+                    );
+                }
             }
         }
 

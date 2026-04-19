@@ -136,7 +136,8 @@ impl TypeRegistry {
             ConstGeneric::Expr(id) => match *self.const_expr(id) {
                 ConstExprKind::Unary { op, expr, ty } => {
                     let expr = self.fold_const_generic(expr);
-                    if let Some(value) = self.eval_const_expr(ConstExprKind::Unary { op, expr, ty }) {
+                    if let Some(value) = self.eval_const_expr(ConstExprKind::Unary { op, expr, ty })
+                    {
                         ConstGeneric::Value(value)
                     } else {
                         ConstGeneric::Expr(self.intern_const_expr(ConstExprKind::Unary {
@@ -149,12 +150,9 @@ impl TypeRegistry {
                 ConstExprKind::Binary { op, lhs, rhs, ty } => {
                     let lhs = self.fold_const_generic(lhs);
                     let rhs = self.fold_const_generic(rhs);
-                    if let Some(value) = self.eval_const_expr(ConstExprKind::Binary {
-                        op,
-                        lhs,
-                        rhs,
-                        ty,
-                    }) {
+                    if let Some(value) =
+                        self.eval_const_expr(ConstExprKind::Binary { op, lhs, rhs, ty })
+                    {
                         ConstGeneric::Value(value)
                     } else {
                         ConstGeneric::Expr(self.intern_const_expr(ConstExprKind::Binary {
@@ -170,10 +168,7 @@ impl TypeRegistry {
                     if let Some(value) = self.eval_const_expr(ConstExprKind::Cast { expr, ty }) {
                         ConstGeneric::Value(value)
                     } else {
-                        ConstGeneric::Expr(self.intern_const_expr(ConstExprKind::Cast {
-                            expr,
-                            ty,
-                        }))
+                        ConstGeneric::Expr(self.intern_const_expr(ConstExprKind::Cast { expr, ty }))
                     }
                 }
             },
@@ -234,10 +229,9 @@ impl TypeRegistry {
     fn const_generic_scalar(&self, value: ConstGeneric) -> Option<i128> {
         match value {
             ConstGeneric::Value(value) => value.as_int(),
-            ConstGeneric::Expr(id) => {
-                self.eval_const_expr(*self.const_expr(id))
-                    .and_then(|value| value.as_int())
-            }
+            ConstGeneric::Expr(id) => self
+                .eval_const_expr(*self.const_expr(id))
+                .and_then(|value| value.as_int()),
             ConstGeneric::Param(_, _) | ConstGeneric::Error => None,
         }
     }
@@ -245,30 +239,12 @@ impl TypeRegistry {
     fn coerce_const_scalar(&self, value: i128, ty: TypeId) -> Option<ConstGenericValue> {
         let norm = self.normalize(ty);
         let bit_width = match self.get(norm) {
-            TypeKind::Primitive(
-                PrimitiveType::I8
-                | PrimitiveType::U8,
-            ) => 8,
-            TypeKind::Primitive(
-                PrimitiveType::I16
-                | PrimitiveType::U16,
-            ) => 16,
-            TypeKind::Primitive(
-                PrimitiveType::I32
-                | PrimitiveType::U32,
-            ) => 32,
-            TypeKind::Primitive(
-                PrimitiveType::I64
-                | PrimitiveType::U64,
-            ) => 64,
-            TypeKind::Primitive(
-                PrimitiveType::I128
-                | PrimitiveType::U128,
-            ) => 128,
-            TypeKind::Primitive(
-                PrimitiveType::ISize
-                | PrimitiveType::USize,
-            ) => 64,
+            TypeKind::Primitive(PrimitiveType::I8 | PrimitiveType::U8) => 8,
+            TypeKind::Primitive(PrimitiveType::I16 | PrimitiveType::U16) => 16,
+            TypeKind::Primitive(PrimitiveType::I32 | PrimitiveType::U32) => 32,
+            TypeKind::Primitive(PrimitiveType::I64 | PrimitiveType::U64) => 64,
+            TypeKind::Primitive(PrimitiveType::I128 | PrimitiveType::U128) => 128,
+            TypeKind::Primitive(PrimitiveType::ISize | PrimitiveType::USize) => 64,
             _ => return None,
         };
 

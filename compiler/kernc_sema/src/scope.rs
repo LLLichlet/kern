@@ -10,17 +10,17 @@ pub struct ScopeId(pub usize);
 /// Kinds of symbols stored in scopes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
-    Var,       // Local variable, including `let` bindings and parameters.
-    Const,     // Immutable constant item.
+    Var,        // Local variable, including `let` bindings and parameters.
+    Const,      // Immutable constant item.
     ConstParam, // Const generic parameter.
-    Static,    // Static storage item.
-    Function,  // Function item.
-    Struct,    // Struct definition.
-    Union,     // Union definition.
-    Enum,      // Enum or algebraic data type definition.
-    Trait,     // Trait definition.
-    Module,    // Module namespace.
-    TypeAlias, // Type alias.
+    Static,     // Static storage item.
+    Function,   // Function item.
+    Struct,     // Struct definition.
+    Union,      // Union definition.
+    Enum,       // Enum or algebraic data type definition.
+    Trait,      // Trait definition.
+    Module,     // Module namespace.
+    TypeAlias,  // Type alias.
     AssociatedType,
     TypeParam,
 }

@@ -14,6 +14,7 @@ use std::collections::HashMap;
 
 mod helper;
 mod items;
+mod supertraits;
 
 pub struct TypeResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
@@ -480,7 +481,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                                 entered_scope = true;
                             }
 
-                            let Some(current_module) = self.ctx.module_for_scope(block_scope) else {
+                            let Some(current_module) = self.ctx.module_for_scope(block_scope)
+                            else {
                                 self.ctx.emit_ice(
                                     stmt.span,
                                     "Kern ICE (Types): could not determine module for a local import",
@@ -599,8 +601,17 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 // Resolve generic arguments.
                 for arg in args {
                     match arg {
-                        ast::GenericArg::Type(ty)
-                        | ast::GenericArg::AssocBinding { value: ty, .. } => {
+                        ast::GenericArg::Type(ty) => {
+                            if let Some(expr) = self.reinterpret_type_arg_as_const_expr(ty)
+                                && (self.expr_references_const_param(&expr, scope)
+                                    || self.type_arg_is_payloadless_enum_value_ref(ty, scope))
+                            {
+                                self.resolve_expr(&expr, scope);
+                            } else {
+                                self.resolve_type(ty, scope);
+                            }
+                        }
+                        ast::GenericArg::AssocBinding { value: ty, .. } => {
                             self.resolve_type(ty, scope);
                         }
                         ast::GenericArg::ConstExpr(expr) => self.resolve_expr(expr, scope),
@@ -873,12 +884,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         env_scope: ScopeId,
         span: Span,
     ) -> TypeId {
-        let (resolved_generics, resolved_assoc_bindings) =
-            if let Some(def_id) = final_sym.def_id {
-                self.resolve_generic_args_for_def(def_id, &segment.args, env_scope, span)
-            } else {
-                self.resolve_type_args(&segment.args, env_scope)
-            };
+        let (resolved_generics, resolved_assoc_bindings) = if let Some(def_id) = final_sym.def_id {
+            self.resolve_generic_args_for_def(def_id, &segment.args, env_scope, span)
+        } else {
+            self.resolve_type_args(&segment.args, env_scope)
+        };
 
         match final_sym.kind {
             SymbolKind::Struct | SymbolKind::Union => {
@@ -1122,24 +1132,19 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     assoc_bindings.push((*name, self.resolve_type(value, env_scope)));
                 }
                 ast::GenericArg::ConstExpr(expr) => {
-                    positional.push(GenericArg::Const(
-                        self.resolve_const_generic_expr(
-                            expr,
-                            TypeId::USIZE,
-                            env_scope,
-                            "const generic argument",
-                        ),
-                    ));
+                    positional.push(GenericArg::Const(self.resolve_const_generic_expr(
+                        expr,
+                        TypeId::USIZE,
+                        env_scope,
+                        "const generic argument",
+                    )));
                 }
             }
         }
         (positional, assoc_bindings)
     }
 
-    fn reinterpret_type_arg_as_const_expr(
-        &mut self,
-        ty_node: &ast::TypeNode,
-    ) -> Option<ast::Expr> {
+    fn reinterpret_type_arg_as_const_expr(&mut self, ty_node: &ast::TypeNode) -> Option<ast::Expr> {
         let ast::TypeKind::Path { anchor, segments } = &ty_node.kind else {
             return None;
         };
@@ -1181,6 +1186,109 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         Some(expr)
     }
 
+    fn type_arg_is_payloadless_enum_value_ref(
+        &mut self,
+        ty_node: &ast::TypeNode,
+        env_scope: ScopeId,
+    ) -> bool {
+        let ast::TypeKind::Path { anchor, segments } = &ty_node.kind else {
+            return false;
+        };
+        if segments.len() < 2 || segments.iter().any(|segment| !segment.args.is_empty()) {
+            return false;
+        }
+
+        let last_segment = segments.last().unwrap();
+        let mut current_scope = match anchor {
+            Some(anchor) => {
+                let current_scope = self.ctx.scopes.current_scope_id().unwrap_or(env_scope);
+                let Some(current_module) = self.ctx.module_for_scope(current_scope) else {
+                    return false;
+                };
+                let target_module = match anchor {
+                    ast::PathAnchor::Parent => {
+                        let Some(parent) = self.ctx.module_parent(current_module) else {
+                            return false;
+                        };
+                        parent
+                    }
+                    ast::PathAnchor::Package => self.ctx.module_root(current_module),
+                };
+                let Some(module_scope) =
+                    self.module_scope_from_def(target_module, ty_node.span, last_segment.name)
+                else {
+                    return false;
+                };
+                module_scope
+            }
+            None => env_scope,
+        };
+
+        for (index, segment) in segments[..segments.len() - 1].iter().enumerate() {
+            let symbol = if index == 0 && anchor.is_none() {
+                self.ctx.scopes.resolve_from(current_scope, segment.name)
+            } else {
+                self.ctx.scopes.resolve_in(current_scope, segment.name)
+            };
+            let Some(symbol) = symbol.cloned() else {
+                return false;
+            };
+
+            match symbol.kind {
+                SymbolKind::Module => {
+                    let Some(def_id) = symbol.def_id else {
+                        return false;
+                    };
+                    let Some(module_scope) =
+                        self.module_scope_from_def(def_id, segment.name_span, segment.name)
+                    else {
+                        return false;
+                    };
+                    current_scope = module_scope;
+                }
+                SymbolKind::Enum if index == segments.len() - 2 => {
+                    let Some(def_id) = symbol.def_id else {
+                        return false;
+                    };
+                    let Some(Def::Enum(enum_def)) = self.ctx.defs.get(def_id.0 as usize) else {
+                        return false;
+                    };
+                    return enum_def.variants.iter().any(|variant| {
+                        variant.name == last_segment.name && variant.payload_type.is_none()
+                    });
+                }
+                SymbolKind::TypeAlias if index == segments.len() - 2 => {
+                    let alias_ty = self.ctx.type_registry.normalize(symbol.type_id);
+                    return match self.ctx.type_registry.get(alias_ty) {
+                        TypeKind::Enum(def_id, _) => self
+                            .ctx
+                            .defs
+                            .get(def_id.0 as usize)
+                            .and_then(|def| match def {
+                                Def::Enum(enum_def) => Some(enum_def),
+                                _ => None,
+                            })
+                            .is_some_and(|enum_def| {
+                                enum_def.variants.iter().any(|variant| {
+                                    variant.name == last_segment.name
+                                        && variant.payload_type.is_none()
+                                })
+                            }),
+                        TypeKind::AnonymousEnum(enum_def) => {
+                            enum_def.variants.iter().any(|variant| {
+                                variant.name == last_segment.name && variant.payload_ty.is_none()
+                            })
+                        }
+                        _ => false,
+                    };
+                }
+                _ => return false,
+            }
+        }
+
+        false
+    }
+
     pub(crate) fn resolve_generic_args_for_params(
         &mut self,
         params: &[ast::GenericParam],
@@ -1212,12 +1320,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                             if let Some(expr) = self.reinterpret_type_arg_as_const_expr(ty_node) {
                                 let expected_ty =
                                     self.resolve_const_generic_param_type(ty, env_scope, expr.span);
-                                positional.push(GenericArg::Const(self.resolve_const_generic_expr(
-                                    &expr,
-                                    expected_ty,
-                                    env_scope,
-                                    "const generic argument",
-                                )));
+                                positional.push(GenericArg::Const(
+                                    self.resolve_const_generic_expr(
+                                        &expr,
+                                        expected_ty,
+                                        env_scope,
+                                        "const generic argument",
+                                    ),
+                                ));
                             } else {
                                 self.ctx
                                     .struct_error(
@@ -1443,8 +1553,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return ConstGeneric::Error;
         }
 
-        let value =
-            self.build_const_generic_expr(expr, expected_ty, env_scope, context);
+        let value = self.build_const_generic_expr(expr, expected_ty, env_scope, context);
         self.ctx.type_registry.fold_const_generic(value)
     }
 
@@ -1508,13 +1617,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 if matches!(operand, ConstGeneric::Error) {
                     return ConstGeneric::Error;
                 }
-                ConstGeneric::Expr(self.ctx.type_registry.intern_const_expr(
-                    ConstExprKind::Unary {
-                        op,
-                        expr: operand,
-                        ty: expected_ty,
-                    },
-                ))
+                ConstGeneric::Expr(
+                    self.ctx
+                        .type_registry
+                        .intern_const_expr(ConstExprKind::Unary {
+                            op,
+                            expr: operand,
+                            ty: expected_ty,
+                        }),
+                )
             }
             ast::ExprKind::Binary { lhs, op, rhs } => {
                 let Some(op) = self.const_expr_binary_op(*op) else {
@@ -1542,12 +1653,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 if matches!(lhs, ConstGeneric::Error) {
                     return ConstGeneric::Error;
                 }
-                let cast_expr = ConstGeneric::Expr(
-                    self.ctx.type_registry.intern_const_expr(ConstExprKind::Cast {
+                let cast_expr = ConstGeneric::Expr(self.ctx.type_registry.intern_const_expr(
+                    ConstExprKind::Cast {
                         expr: lhs,
                         ty: target_ty,
-                    }),
-                );
+                    },
+                ));
                 if target_ty == expected_ty {
                     cast_expr
                 } else {
@@ -1594,10 +1705,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             )
             && let ConstValue::Int(tag) = value
         {
-            value = ConstValue::Enum {
-                tag,
-                payload: None,
-            };
+            value = ConstValue::Enum { tag, payload: None };
         }
         let Some(value) = self.coerce_const_generic_value(value, expected_ty, expr.span, context)
         else {
@@ -1671,12 +1779,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let norm_kind = self.ctx.type_registry.get(norm).clone();
 
         match self.coerce_payloadless_enum_const_generic_value(
-            &value,
-            norm,
-            &norm_kind,
-            span,
-            context,
-            &ty_name,
+            &value, norm, &norm_kind, span, context, &ty_name,
         ) {
             Ok(Some(tag)) => {
                 return Some(ConstGenericValue {
@@ -1703,10 +1806,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 ConstValue::Bool(value) => value,
                 _ => {
                     self.ctx
-                        .struct_error(
-                            span,
-                            format!("{} must evaluate to `bool`", context),
-                        )
+                        .struct_error(span, format!("{} must evaluate to `bool`", context))
                         .with_hint(format!("this const generic expects `{}`", ty_name))
                         .emit();
                     return None;
@@ -1822,7 +1922,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     let example = self.enum_const_generic_example(norm, norm_kind);
                     let mut diagnostic = self.ctx.struct_error(
                         span,
-                        format!("{} must evaluate to a value of enum type `{}`", context, ty_name),
+                        format!(
+                            "{} must evaluate to a value of enum type `{}`",
+                            context, ty_name
+                        ),
                     );
                     if let Some(example) = example {
                         diagnostic = diagnostic.with_hint(format!(
@@ -1846,7 +1949,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             TypeKind::Enum(def_id, _) => match &self.ctx.defs[def_id.0 as usize] {
                 Def::Enum(def) => {
                     let variants = def.variants.clone();
-                    if variants.iter().any(|variant| variant.payload_type.is_some()) {
+                    if variants
+                        .iter()
+                        .any(|variant| variant.payload_type.is_some())
+                    {
                         self.ctx
                             .struct_error(
                                 span,
@@ -1867,7 +1973,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     for variant in &variants {
                         if let Some(value_expr) = &variant.value {
                             let mut evaluator = ConstEvaluator::new(self.ctx);
-                            if let Ok(ConstValue::Int(value)) = evaluator.eval_const_value(value_expr) {
+                            if let Ok(ConstValue::Int(value)) =
+                                evaluator.eval_const_value(value_expr)
+                            {
                                 current_tag = value;
                             }
                         }
@@ -1882,7 +1990,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 _ => false,
             },
             TypeKind::AnonymousEnum(enum_def) => {
-                if enum_def.variants.iter().any(|variant| variant.payload_ty.is_some()) {
+                if enum_def
+                    .variants
+                    .iter()
+                    .any(|variant| variant.payload_ty.is_some())
+                {
                     self.ctx
                         .struct_error(
                             span,
@@ -2072,13 +2184,18 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::GenericInstantiation { target, args } => {
                 self.expr_references_const_param(target, env_scope)
                     || args.iter().any(|arg| match arg {
-                        ast::GenericArg::Type(_) | ast::GenericArg::AssocBinding { .. } => false,
+                        ast::GenericArg::Type(ty) => self
+                            .reinterpret_type_arg_as_const_expr(ty)
+                            .is_some_and(|expr| self.expr_references_const_param(&expr, env_scope)),
+                        ast::GenericArg::AssocBinding { .. } => false,
                         ast::GenericArg::ConstExpr(expr) => {
                             self.expr_references_const_param(expr, env_scope)
                         }
                     })
             }
-            ast::ExprKind::Closure { body, .. } => self.expr_references_const_param(body, env_scope),
+            ast::ExprKind::Closure { body, .. } => {
+                self.expr_references_const_param(body, env_scope)
+            }
             ast::ExprKind::AnchoredPath { .. }
             | ast::ExprKind::TypeNode(_)
             | ast::ExprKind::Integer(_)

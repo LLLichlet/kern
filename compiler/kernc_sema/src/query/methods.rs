@@ -181,13 +181,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let Def::Function(function) = &self.ctx.defs[method_id.0 as usize] else {
                     continue;
                 };
-                let type_id = self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::FnDef(
-                        *method_id,
-                        crate::ty::wrap_type_args(resolved_impl_args.clone()),
-                    ));
+                let type_id = self.ctx.type_registry.intern(TypeKind::FnDef(
+                    *method_id,
+                    crate::ty::wrap_type_args(resolved_impl_args.clone()),
+                ));
                 push_member_candidate(
                     candidates,
                     MemberCandidate {
@@ -245,13 +242,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             let candidate = MemberCandidate {
                 name: member_name,
                 kind: SymbolKind::Function,
-                type_id: self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::FnDef(
-                        method_id,
-                        crate::ty::wrap_type_args(resolved_impl_args),
-                    )),
+                type_id: self.ctx.type_registry.intern(TypeKind::FnDef(
+                    method_id,
+                    crate::ty::wrap_type_args(resolved_impl_args),
+                )),
                 def_id: Some(method_id),
                 definition_span: function_name_span,
                 is_mut: false,
@@ -310,6 +304,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .ctx
                 .direct_self_referential_impl_requirement(impl_def)
                 .is_none()
+                && self
+                    .ctx
+                    .indirect_self_referential_impl_requirement(impl_id)
+                    .is_none()
             {
                 continue;
             }
@@ -377,6 +375,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .ctx
                 .direct_self_referential_impl_requirement(impl_def)
                 .is_some()
+                || checker
+                    .ctx
+                    .indirect_self_referential_impl_requirement(impl_id)
+                    .is_some()
+                || checker
+                    .ctx
+                    .non_decreasing_impl_requirement(impl_id)
+                    .is_some()
             {
                 None
             } else if impl_def.generics.is_empty() && impl_def.where_clauses.is_empty() {

@@ -6,13 +6,11 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         trait_def_id: DefId,
         args: Vec<TypeId>,
     ) -> TypeId {
-        self.ctx
-            .type_registry
-            .intern(TypeKind::TraitObject(
-                trait_def_id,
-                crate::ty::wrap_type_args(args),
-                Vec::new(),
-            ))
+        self.ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def_id,
+            crate::ty::wrap_type_args(args),
+            Vec::new(),
+        ))
     }
 
     pub(super) fn inject_builtin_trait(&mut self, spec: BuiltinTraitSpec<'_>) -> DefId {

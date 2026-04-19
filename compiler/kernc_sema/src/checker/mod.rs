@@ -750,6 +750,40 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         // Inject impl-level generic parameters such as `T`.
         self.bind_generics_into_scope(&i.generics, impl_scope);
 
+        if let Some(violation) = self.ctx.non_decreasing_impl_requirement(i.id) {
+            let head_str = format!(
+                "{}: {}",
+                self.ctx.ty_to_string(violation.head_target_ty),
+                self.ctx.ty_to_string(violation.head_trait_ty)
+            );
+            let requirement_str = format!(
+                "{}: {}",
+                self.ctx.ty_to_string(violation.requirement_target_ty),
+                self.ctx.ty_to_string(violation.requirement_trait_ty)
+            );
+            let issue_hint = self.ctx.describe_paterson_issue(&violation.issue);
+            let issue_label = self.ctx.describe_paterson_issue_brief(&violation.issue);
+            self.ctx
+                .struct_error(
+                    violation.bound_span,
+                    "impl prerequisite is not structurally bounded by the impl head",
+                )
+                .with_hint(
+                    "termination check: a prerequisite may stay the same size, but it may not grow constructors or duplicate generic parameters",
+                )
+                .with_hint(format!("impl head: `{}`", head_str))
+                .with_hint(format!("prerequisite: `{}`", requirement_str))
+                .with_hint(issue_hint)
+                .with_hint(
+                    "use a prerequisite on smaller pieces of the input, or split the proof through an acyclic helper impl",
+                )
+                .with_span_label(violation.bound_span, issue_label)
+                .with_span_label(i.span, "while checking this impl")
+                .emit();
+            self.ctx.scopes.exit_scope();
+            return;
+        }
+
         if let Some(requirement) = self.ctx.direct_self_referential_impl_requirement(i) {
             let target_str = self.ctx.ty_to_string(requirement.target_ty);
             let trait_str = self.ctx.ty_to_string(requirement.trait_ty);
@@ -767,6 +801,81 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 )
                 .with_span_label(i.span, "while checking this impl")
                 .emit();
+            self.ctx.scopes.exit_scope();
+            return;
+        }
+        if let Some(cycle) = self.ctx.indirect_self_referential_impl_requirement(i.id) {
+            let start_obligation = format!(
+                "{}: {}",
+                self.ctx.ty_to_string(cycle.target_ty),
+                self.ctx.ty_to_string(cycle.trait_ty)
+            );
+            let mut chain = vec![start_obligation.clone()];
+            for requirement in &cycle.requirements {
+                chain.push(format!(
+                    "{}: {}",
+                    self.ctx.ty_to_string(requirement.target_ty),
+                    self.ctx.ty_to_string(requirement.trait_ty)
+                ));
+            }
+            let followup_labels = cycle
+                .requirements
+                .iter()
+                .skip(1)
+                .map(|requirement| {
+                    (
+                        requirement.requirement_span,
+                        format!(
+                            "the proof then requires `{}`",
+                            format!(
+                                "{}: {}",
+                                self.ctx.ty_to_string(requirement.target_ty),
+                                self.ctx.ty_to_string(requirement.trait_ty)
+                            )
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let followup_impl_labels = cycle
+                .requirements
+                .iter()
+                .skip(1)
+                .filter_map(|requirement| {
+                    let impl_span = match self.ctx.defs.get(requirement.impl_id.0 as usize) {
+                        Some(Def::Impl(impl_def)) => impl_def.span,
+                        _ => Span::default(),
+                    };
+                    if impl_span == Span::default() {
+                        None
+                    } else {
+                        Some((impl_span, "this impl contributes another edge in the cycle"))
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let mut diag = self
+                .ctx
+                .struct_error(
+                    cycle.start_bound_span,
+                    "impl requirement participates in a cyclic proof",
+                )
+                .with_hint(format!("proof cycle: {}", chain.join(" -> ")))
+                .with_hint(format!(
+                    "the prerequisite `{}` eventually depends on `{}` again",
+                    chain[1], start_obligation
+                ))
+                .with_hint(
+                    "remove one edge in the cycle or add an acyclic impl that discharges one prerequisite",
+                )
+                .with_span_label(cycle.start_bound_span, "this prerequisite starts the cycle")
+                .with_span_label(i.span, "while checking this impl");
+            for (span, label) in followup_labels {
+                diag = diag.with_span_label(span, label);
+            }
+            for (span, label) in followup_impl_labels {
+                diag = diag.with_span_label(span, label);
+            }
+            diag.emit();
             self.ctx.scopes.exit_scope();
             return;
         }

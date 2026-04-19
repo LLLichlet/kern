@@ -314,6 +314,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 resolver.ensure_impl_signature_types_resolved(impl_id);
             }
 
+            if self.ctx.non_decreasing_impl_requirement(impl_id).is_some() {
+                continue;
+            }
+
             // Safety: semantic definitions are stable during type queries; use a raw pointer
             // to avoid cloning each impl block on every trait-impl check.
             let impl_def = unsafe { &*impl_ptr };

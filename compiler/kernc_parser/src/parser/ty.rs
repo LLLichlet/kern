@@ -337,7 +337,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub(super) fn parse_generic_arg(&mut self, allow_assoc_bindings: bool) -> ParseResult<GenericArg> {
+    pub(super) fn parse_generic_arg(
+        &mut self,
+        allow_assoc_bindings: bool,
+    ) -> ParseResult<GenericArg> {
         if allow_assoc_bindings
             && self.check(TokenType::Identifier)
             && self.stream.peek_tag_nth(1) == TokenType::Assign

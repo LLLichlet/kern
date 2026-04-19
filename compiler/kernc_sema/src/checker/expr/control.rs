@@ -1,9 +1,263 @@
 use super::ExprChecker;
+use crate::checker::{ConstEvaluator, ConstValue, Substituter};
 use crate::def::{Def, ImportDef};
 use crate::passes::ImportResolver;
-use crate::ty::{TypeId, TypeKind};
+use crate::ty::{PrimitiveType, TypeId, TypeKind};
+use crate::LayoutEngine;
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
-use kernc_utils::{DiagnosticCode, Span, SymbolId};
+use kernc_utils::{DiagnosticCode, DiagnosticTag, Span, SymbolId};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CoveragePattern {
+    Wildcard,
+    Constructor(CoverageConstructorKind, Vec<CoveragePattern>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CoverageConstructorKind {
+    EnumVariant(SymbolId),
+    Struct(Vec<SymbolId>),
+}
+
+#[derive(Debug, Clone)]
+struct CoverageConstructor {
+    kind: CoverageConstructorKind,
+    arg_tys: Vec<TypeId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SignedInterval {
+    start: i128,
+    end: i128,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UnsignedInterval {
+    start: u128,
+    end: u128,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScalarPoint {
+    Signed(i128),
+    Unsigned(u128),
+}
+
+#[derive(Debug, Clone)]
+enum ScalarIntervals {
+    Signed(Vec<SignedInterval>),
+    Unsigned(Vec<UnsignedInterval>),
+}
+
+#[derive(Debug, Clone)]
+enum ScalarCoverageState {
+    Signed {
+        min: i128,
+        max: i128,
+        covered: Vec<SignedInterval>,
+    },
+    Unsigned {
+        min: u128,
+        max: u128,
+        covered: Vec<UnsignedInterval>,
+    },
+}
+
+#[derive(Debug, Clone)]
+enum CoverageWitness {
+    Wildcard,
+    EnumVariant {
+        name: SymbolId,
+        payload: Option<Box<CoverageWitness>>,
+    },
+    Struct(Vec<(SymbolId, CoverageWitness)>),
+}
+
+impl CoverageWitness {
+    fn format(&self, checker: &ExprChecker<'_, '_>) -> String {
+        match self {
+            Self::Wildcard => "_".to_string(),
+            Self::EnumVariant { name, payload } => {
+                let name = checker.ctx.resolve(*name).to_string();
+                match payload {
+                    Some(payload) => format!(".{{ {}: {} }}", name, payload.format(checker)),
+                    None => format!(".{}", name),
+                }
+            }
+            Self::Struct(fields) => {
+                let fields = fields
+                    .iter()
+                    .map(|(name, witness)| {
+                        format!("{}: {}", checker.ctx.resolve(*name), witness.format(checker))
+                    })
+                    .collect::<Vec<_>>();
+                format!(".{{ {} }}", fields.join(", "))
+            }
+        }
+    }
+}
+
+impl ScalarIntervals {
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Signed(intervals) => intervals.is_empty(),
+            Self::Unsigned(intervals) => intervals.is_empty(),
+        }
+    }
+}
+
+impl ScalarCoverageState {
+    fn new_signed(min: i128, max: i128) -> Self {
+        Self::Signed {
+            min,
+            max,
+            covered: Vec::new(),
+        }
+    }
+
+    fn new_unsigned(min: u128, max: u128) -> Self {
+        Self::Unsigned {
+            min,
+            max,
+            covered: Vec::new(),
+        }
+    }
+
+    fn is_full(&self) -> bool {
+        match self {
+            Self::Signed { min, max, covered } => {
+                covered.len() == 1 && covered[0].start == *min && covered[0].end == *max
+            }
+            Self::Unsigned { min, max, covered } => {
+                covered.len() == 1 && covered[0].start == *min && covered[0].end == *max
+            }
+        }
+    }
+
+    fn covers_all(&self, intervals: &ScalarIntervals) -> bool {
+        match (self, intervals) {
+            (Self::Signed { covered, .. }, ScalarIntervals::Signed(intervals)) => intervals
+                .iter()
+                .all(|interval| {
+                    covered.iter().any(|seen| {
+                        seen.start <= interval.start && interval.end <= seen.end
+                    })
+                }),
+            (Self::Unsigned { covered, .. }, ScalarIntervals::Unsigned(intervals)) => intervals
+                .iter()
+                .all(|interval| {
+                    covered.iter().any(|seen| {
+                        seen.start <= interval.start && interval.end <= seen.end
+                    })
+                }),
+            _ => false,
+        }
+    }
+
+    fn add_intervals(&mut self, intervals: &ScalarIntervals) {
+        match (self, intervals) {
+            (Self::Signed { covered, .. }, ScalarIntervals::Signed(intervals)) => {
+                for interval in intervals {
+                    insert_signed_interval(covered, *interval);
+                }
+            }
+            (Self::Unsigned { covered, .. }, ScalarIntervals::Unsigned(intervals)) => {
+                for interval in intervals {
+                    insert_unsigned_interval(covered, *interval);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn first_uncovered(&self) -> Option<ScalarPoint> {
+        match self {
+            Self::Signed { min, max, covered } => {
+                let mut cursor = *min;
+                for interval in covered {
+                    if cursor < interval.start {
+                        return Some(ScalarPoint::Signed(cursor));
+                    }
+                    let Some(next_cursor) = interval.end.checked_add(1) else {
+                        return None;
+                    };
+                    cursor = next_cursor;
+                    if cursor > *max {
+                        return None;
+                    }
+                }
+
+                (cursor <= *max).then_some(ScalarPoint::Signed(cursor))
+            }
+            Self::Unsigned { min, max, covered } => {
+                let mut cursor = *min;
+                for interval in covered {
+                    if cursor < interval.start {
+                        return Some(ScalarPoint::Unsigned(cursor));
+                    }
+                    let Some(next_cursor) = interval.end.checked_add(1) else {
+                        return None;
+                    };
+                    cursor = next_cursor;
+                    if cursor > *max {
+                        return None;
+                    }
+                }
+
+                (cursor <= *max).then_some(ScalarPoint::Unsigned(cursor))
+            }
+        }
+    }
+}
+
+fn insert_signed_interval(covered: &mut Vec<SignedInterval>, mut next: SignedInterval) {
+    if next.end < next.start {
+        return;
+    }
+
+    let mut index = 0;
+    while index < covered.len() {
+        let current = covered[index];
+        if next.end.saturating_add(1) < current.start {
+            break;
+        }
+        if current.end.saturating_add(1) < next.start {
+            index += 1;
+            continue;
+        }
+
+        next.start = next.start.min(current.start);
+        next.end = next.end.max(current.end);
+        covered.remove(index);
+    }
+
+    covered.insert(index, next);
+}
+
+fn insert_unsigned_interval(covered: &mut Vec<UnsignedInterval>, mut next: UnsignedInterval) {
+    if next.end < next.start {
+        return;
+    }
+
+    let mut index = 0;
+    while index < covered.len() {
+        let current = covered[index];
+        if next.end.saturating_add(1) < current.start {
+            break;
+        }
+        if current.end.saturating_add(1) < next.start {
+            index += 1;
+            continue;
+        }
+
+        next.start = next.start.min(current.start);
+        next.end = next.end.max(current.end);
+        covered.remove(index);
+    }
+
+    covered.insert(index, next);
+}
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn match_enum_def(
@@ -37,14 +291,613 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn top_level_pattern_variant_name(&self, pattern: &ast::Pattern) -> Option<SymbolId> {
+    fn coverage_generic_arg_map(
+        &self,
+        generics: &[kernc_ast::GenericParam],
+        generic_args: &[crate::ty::GenericArg],
+    ) -> HashMap<SymbolId, TypeId> {
+        let mut map = HashMap::with_capacity(generics.len());
+        for (index, generic) in generics.iter().enumerate() {
+            if let Some(arg) = generic_args.get(index).and_then(|arg| arg.as_type()) {
+                map.insert(generic.name, arg);
+            }
+        }
+        map
+    }
+
+    fn coverage_substitute_type(&mut self, ty: TypeId, map: &HashMap<SymbolId, TypeId>) -> TypeId {
+        if map.is_empty() {
+            return ty;
+        }
+
+        let mut substituter = Substituter::new(&mut self.ctx.type_registry, map);
+        substituter.substitute(ty)
+    }
+
+    fn coverage_struct_constructor(&mut self, target_ty: TypeId) -> Option<CoverageConstructor> {
+        let norm_target = self.ctx.type_registry.normalize(target_ty);
+        match self.ctx.type_registry.get(norm_target).clone() {
+            TypeKind::Def(def_id, generic_args) => {
+                let Def::Struct(def) = self.ctx.defs[def_id.0 as usize].clone() else {
+                    return None;
+                };
+                let generic_map = self.coverage_generic_arg_map(&def.generics, &generic_args);
+                let mut field_names = Vec::with_capacity(def.fields.len());
+                let mut field_tys = Vec::with_capacity(def.fields.len());
+                for field in &def.fields {
+                    let field_ty = self
+                        .ctx
+                        .node_types
+                        .get(&field.type_node.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+                    field_names.push(field.name);
+                    field_tys.push(self.coverage_substitute_type(field_ty, &generic_map));
+                }
+
+                Some(CoverageConstructor {
+                    kind: CoverageConstructorKind::Struct(field_names),
+                    arg_tys: field_tys,
+                })
+            }
+            TypeKind::AnonymousStruct(_, fields) => Some(CoverageConstructor {
+                kind: CoverageConstructorKind::Struct(
+                    fields.iter().map(|field| field.name).collect::<Vec<_>>(),
+                ),
+                arg_tys: fields.iter().map(|field| field.ty).collect::<Vec<_>>(),
+            }),
+            _ => None,
+        }
+    }
+
+    fn coverage_enum_constructors(&mut self, target_ty: TypeId) -> Option<Vec<CoverageConstructor>> {
+        let norm_target = self.ctx.type_registry.normalize(target_ty);
+        match self.ctx.type_registry.get(norm_target).clone() {
+            TypeKind::Enum(def_id, generic_args) => {
+                let adt_def =
+                    self.match_enum_def(def_id, Span::default(), "inspect enum coverage")?;
+                // Safety: semantic defs are immutable while type checking expressions.
+                let adt_def = unsafe { &*adt_def }.clone();
+                let generic_map = self.coverage_generic_arg_map(&adt_def.generics, &generic_args);
+                Some(
+                    adt_def
+                        .variants
+                        .iter()
+                        .map(|variant| {
+                            let arg_tys = variant
+                                .payload_type
+                                .as_ref()
+                                .map(|payload| {
+                                    let ty = self
+                                        .ctx
+                                        .node_types
+                                        .get(&payload.id)
+                                        .copied()
+                                        .unwrap_or(TypeId::ERROR);
+                                    vec![self.coverage_substitute_type(ty, &generic_map)]
+                                })
+                                .unwrap_or_default();
+                            CoverageConstructor {
+                                kind: CoverageConstructorKind::EnumVariant(variant.name),
+                                arg_tys,
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            }
+            TypeKind::AnonymousEnum(enum_def) => Some(
+                enum_def
+                    .variants
+                    .iter()
+                    .map(|variant| CoverageConstructor {
+                        kind: CoverageConstructorKind::EnumVariant(variant.name),
+                        arg_tys: variant.payload_ty.into_iter().collect::<Vec<_>>(),
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        }
+    }
+
+    fn coverage_constructors(&mut self, target_ty: TypeId) -> Option<Vec<CoverageConstructor>> {
+        if let Some(enum_ctors) = self.coverage_enum_constructors(target_ty) {
+            return Some(enum_ctors);
+        }
+
+        self.coverage_struct_constructor(target_ty).map(|ctor| vec![ctor])
+    }
+
+    fn coverage_lower_pattern(
+        &mut self,
+        pattern: &ast::Pattern,
+        target_ty: TypeId,
+    ) -> Option<CoveragePattern> {
+        let norm_target = self.resolve_tv(target_ty);
         match &pattern.kind {
-            ast::PatternKind::Variant(variant) => Some(variant.variant_name),
-            ast::PatternKind::Destructure(destructure) if destructure.fields.len() == 1 => {
-                Some(destructure.fields[0].name)
+            ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => Some(CoveragePattern::Wildcard),
+            ast::PatternKind::Variant(variant) => Some(CoveragePattern::Constructor(
+                CoverageConstructorKind::EnumVariant(variant.variant_name),
+                Vec::new(),
+            )),
+            ast::PatternKind::Destructure(destructure) => {
+                if let Some(enum_ctors) = self.coverage_enum_constructors(norm_target)
+                    && destructure.fields.len() == 1
+                {
+                    let field = &destructure.fields[0];
+                    let ctor = enum_ctors
+                        .into_iter()
+                        .find(|ctor| ctor.kind == CoverageConstructorKind::EnumVariant(field.name))?;
+                    let args = if let Some(&payload_ty) = ctor.arg_tys.first() {
+                        vec![self.coverage_lower_pattern(&field.pattern, payload_ty)?]
+                    } else {
+                        Vec::new()
+                    };
+                    return Some(CoveragePattern::Constructor(ctor.kind, args));
+                }
+
+                let ctor = self.coverage_struct_constructor(norm_target)?;
+                let CoverageConstructorKind::Struct(field_names) = ctor.kind.clone() else {
+                    unreachable!("struct constructor expected for struct coverage lowering");
+                };
+
+                let mut args = Vec::with_capacity(field_names.len());
+                for (index, field_name) in field_names.iter().enumerate() {
+                    let lowered = if let Some(field) =
+                        destructure.fields.iter().find(|field| field.name == *field_name)
+                    {
+                        self.coverage_lower_pattern(&field.pattern, ctor.arg_tys[index])?
+                    } else {
+                        CoveragePattern::Wildcard
+                    };
+                    args.push(lowered);
+                }
+
+                Some(CoveragePattern::Constructor(
+                    CoverageConstructorKind::Struct(field_names),
+                    args,
+                ))
+            }
+        }
+    }
+
+    fn coverage_lower_expr_pattern(
+        &mut self,
+        expr: &Expr,
+        target_ty: TypeId,
+    ) -> Option<CoveragePattern> {
+        let norm_target = self.resolve_tv(target_ty);
+        match &expr.kind {
+            ExprKind::EnumLiteral { variant, .. } => Some(CoveragePattern::Constructor(
+                CoverageConstructorKind::EnumVariant(*variant),
+                Vec::new(),
+            )),
+            ExprKind::DataInit {
+                literal: kernc_ast::DataLiteralKind::Struct(fields),
+                ..
+            } => {
+                let [field] = fields.as_slice() else {
+                    return None;
+                };
+                let ctor = self
+                    .coverage_enum_constructors(norm_target)?
+                    .into_iter()
+                    .find(|ctor| ctor.kind == CoverageConstructorKind::EnumVariant(field.name))?;
+                let args = if let Some(&payload_ty) = ctor.arg_tys.first() {
+                    vec![self.coverage_lower_expr_pattern(&field.value, payload_ty)?]
+                } else {
+                    Vec::new()
+                };
+                Some(CoveragePattern::Constructor(ctor.kind, args))
             }
             _ => None,
         }
+    }
+
+    fn coverage_lower_match_pattern(
+        &mut self,
+        pattern: &ast::MatchPattern,
+        target_ty: TypeId,
+    ) -> Option<CoveragePattern> {
+        match &pattern.kind {
+            ast::MatchPatternKind::Pattern(pattern) => self.coverage_lower_pattern(pattern, target_ty),
+            ast::MatchPatternKind::Value(expr) => self.coverage_lower_expr_pattern(expr, target_ty),
+            ast::MatchPatternKind::Range { .. } => None,
+        }
+    }
+
+    fn specialize_coverage_pattern(
+        &self,
+        pattern: &CoveragePattern,
+        ctor: &CoverageConstructor,
+    ) -> Option<Vec<CoveragePattern>> {
+        match pattern {
+            CoveragePattern::Wildcard => {
+                Some(vec![CoveragePattern::Wildcard; ctor.arg_tys.len()])
+            }
+            CoveragePattern::Constructor(kind, args) if *kind == ctor.kind => Some(args.clone()),
+            CoveragePattern::Constructor(_, _) => None,
+        }
+    }
+
+    fn coverage_default_matrix(
+        &self,
+        matrix: &[Vec<CoveragePattern>],
+    ) -> Vec<Vec<CoveragePattern>> {
+        matrix
+            .iter()
+            .filter_map(|row| match row.first() {
+                Some(CoveragePattern::Wildcard) => Some(row[1..].to_vec()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn coverage_specialize_matrix(
+        &self,
+        matrix: &[Vec<CoveragePattern>],
+        ctor: &CoverageConstructor,
+    ) -> Vec<Vec<CoveragePattern>> {
+        matrix
+            .iter()
+            .filter_map(|row| {
+                let head = row.first()?;
+                let mut specialized = self.specialize_coverage_pattern(head, ctor)?;
+                specialized.extend_from_slice(&row[1..]);
+                Some(specialized)
+            })
+            .collect()
+    }
+
+    fn coverage_rebuild_witness(
+        &self,
+        ctor: &CoverageConstructor,
+        parts: &mut Vec<CoverageWitness>,
+    ) -> CoverageWitness {
+        let mut ctor_parts = parts.drain(..ctor.arg_tys.len()).collect::<Vec<_>>();
+        match &ctor.kind {
+            CoverageConstructorKind::EnumVariant(name) => CoverageWitness::EnumVariant {
+                name: *name,
+                payload: ctor_parts.pop().map(Box::new),
+            },
+            CoverageConstructorKind::Struct(field_names) => CoverageWitness::Struct(
+                field_names
+                    .iter()
+                    .copied()
+                    .zip(ctor_parts)
+                    .collect::<Vec<_>>(),
+            ),
+        }
+    }
+
+    fn coverage_matrix_is_exhaustive(
+        &mut self,
+        target_ty: TypeId,
+        matrix: &[Vec<CoveragePattern>],
+    ) -> bool {
+        self.coverage_find_uncovered_vector(&[target_ty], matrix)
+            .is_none()
+    }
+
+    fn scalar_integer_kind(&mut self, target_ty: TypeId) -> Option<(bool, u64)> {
+        let norm_target = self.resolve_tv(target_ty);
+        let TypeKind::Primitive(primitive) = self.ctx.type_registry.get(norm_target) else {
+            return None;
+        };
+
+        let is_unsigned = matches!(
+            primitive,
+            PrimitiveType::U8
+                | PrimitiveType::U16
+                | PrimitiveType::U32
+                | PrimitiveType::U64
+                | PrimitiveType::U128
+                | PrimitiveType::USize
+        );
+        let is_signed = matches!(
+            primitive,
+            PrimitiveType::I8
+                | PrimitiveType::I16
+                | PrimitiveType::I32
+                | PrimitiveType::I64
+                | PrimitiveType::I128
+                | PrimitiveType::ISize
+        );
+        if !is_unsigned && !is_signed {
+            return None;
+        }
+
+        let bit_width = LayoutEngine::new(self.ctx).compute_type_size(norm_target) * 8;
+        Some((is_unsigned, bit_width))
+    }
+
+    fn scalar_domain(&mut self, target_ty: TypeId) -> Option<ScalarCoverageState> {
+        let norm_target = self.resolve_tv(target_ty);
+        if norm_target == TypeId::BOOL {
+            return Some(ScalarCoverageState::new_unsigned(0, 1));
+        }
+
+        let (is_unsigned, bit_width) = self.scalar_integer_kind(norm_target)?;
+        if is_unsigned {
+            let max = if bit_width >= 128 {
+                u128::MAX
+            } else {
+                (1u128 << bit_width) - 1
+            };
+            Some(ScalarCoverageState::new_unsigned(0, max))
+        } else {
+            let (min, max) = if bit_width >= 128 {
+                (i128::MIN, i128::MAX)
+            } else {
+                let max = ((1u128 << (bit_width - 1)) - 1) as i128;
+                let min = -(1i128 << (bit_width - 1));
+                (min, max)
+            };
+            Some(ScalarCoverageState::new_signed(min, max))
+        }
+    }
+
+    fn scalar_const_value(&mut self, expr: &Expr) -> Option<ConstValue> {
+        ConstEvaluator::new(self.ctx).eval_const_value(expr).ok()
+    }
+
+    fn scalar_value_point(&mut self, value: ConstValue, target_ty: TypeId) -> Option<ScalarPoint> {
+        let norm_target = self.resolve_tv(target_ty);
+        match value {
+            ConstValue::Bool(value) if norm_target == TypeId::BOOL => {
+                Some(ScalarPoint::Unsigned(if value { 1 } else { 0 }))
+            }
+            ConstValue::Int(value) if self.ctx.type_registry.is_integer(norm_target) => {
+                let (is_unsigned, _) = self.scalar_integer_kind(norm_target)?;
+                if is_unsigned {
+                    Some(ScalarPoint::Unsigned(value as u128))
+                } else {
+                    Some(ScalarPoint::Signed(value))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn scalar_pattern_intervals(
+        &mut self,
+        pattern: &ast::MatchPattern,
+        target_ty: TypeId,
+        coverage: &ScalarCoverageState,
+    ) -> Option<ScalarIntervals> {
+        match &pattern.kind {
+            ast::MatchPatternKind::Value(expr) => {
+                let value = self.scalar_const_value(expr)?;
+                let point = self.scalar_value_point(value, target_ty)?;
+                match (coverage, point) {
+                    (ScalarCoverageState::Signed { min, max, .. }, ScalarPoint::Signed(point)) => {
+                        if point < *min || point > *max {
+                            return Some(ScalarIntervals::Signed(Vec::new()));
+                        }
+                        Some(ScalarIntervals::Signed(vec![SignedInterval {
+                            start: point,
+                            end: point,
+                        }]))
+                    }
+                    (
+                        ScalarCoverageState::Unsigned { min, max, .. },
+                        ScalarPoint::Unsigned(point),
+                    ) => {
+                        if point < *min || point > *max {
+                            return Some(ScalarIntervals::Unsigned(Vec::new()));
+                        }
+                        Some(ScalarIntervals::Unsigned(vec![UnsignedInterval {
+                            start: point,
+                            end: point,
+                        }]))
+                    }
+                    _ => None,
+                }
+            }
+            ast::MatchPatternKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                let start_value = self.scalar_const_value(start)?;
+                let end_value = self.scalar_const_value(end)?;
+                let start = self.scalar_value_point(start_value, target_ty)?;
+                let end = self.scalar_value_point(end_value, target_ty)?;
+                match (coverage, start, end) {
+                    (
+                        ScalarCoverageState::Signed { min, max, .. },
+                        ScalarPoint::Signed(start),
+                        ScalarPoint::Signed(end),
+                    ) => {
+                        let end = if *inclusive {
+                            end
+                        } else if let Some(end) = end.checked_sub(1) {
+                            end
+                        } else {
+                            return Some(ScalarIntervals::Signed(Vec::new()));
+                        };
+                        if end < start {
+                            return Some(ScalarIntervals::Signed(Vec::new()));
+                        }
+                        let start = start.max(*min);
+                        let end = end.min(*max);
+                        if end < start {
+                            return Some(ScalarIntervals::Signed(Vec::new()));
+                        }
+                        Some(ScalarIntervals::Signed(vec![SignedInterval { start, end }]))
+                    }
+                    (
+                        ScalarCoverageState::Unsigned { min, max, .. },
+                        ScalarPoint::Unsigned(start),
+                        ScalarPoint::Unsigned(end),
+                    ) => {
+                        let end = if *inclusive {
+                            end
+                        } else if let Some(end) = end.checked_sub(1) {
+                            end
+                        } else {
+                            return Some(ScalarIntervals::Unsigned(Vec::new()));
+                        };
+                        if end < start {
+                            return Some(ScalarIntervals::Unsigned(Vec::new()));
+                        }
+                        let start = start.max(*min);
+                        let end = end.min(*max);
+                        if end < start {
+                            return Some(ScalarIntervals::Unsigned(Vec::new()));
+                        }
+                        Some(ScalarIntervals::Unsigned(vec![UnsignedInterval { start, end }]))
+                    }
+                    _ => None,
+                }
+            }
+            ast::MatchPatternKind::Pattern(_) => None,
+        }
+    }
+
+    fn scalar_witness_string(&self, target_ty: TypeId, value: ScalarPoint) -> String {
+        if self.ctx.type_registry.normalize(target_ty) == TypeId::BOOL {
+            return match value {
+                ScalarPoint::Unsigned(0) => "false".to_string(),
+                ScalarPoint::Unsigned(_) => "true".to_string(),
+                ScalarPoint::Signed(0) => "false".to_string(),
+                ScalarPoint::Signed(_) => "true".to_string(),
+            };
+        }
+
+        match value {
+            ScalarPoint::Signed(value) => value.to_string(),
+            ScalarPoint::Unsigned(value) => value.to_string(),
+        }
+    }
+
+    fn coverage_vector_is_useful(
+        &mut self,
+        tys: &[TypeId],
+        matrix: &[Vec<CoveragePattern>],
+        vector: &[CoveragePattern],
+    ) -> bool {
+        if tys.is_empty() {
+            return matrix.is_empty();
+        }
+
+        let head_ty = self.resolve_tv(tys[0]);
+        let Some(head_pattern) = vector.first() else {
+            return false;
+        };
+
+        if let Some(ctors) = self.coverage_constructors(head_ty) {
+            match head_pattern {
+                CoveragePattern::Wildcard => ctors.into_iter().any(|ctor| {
+                    let specialized = self.coverage_specialize_matrix(matrix, &ctor);
+                    let mut specialized_vector =
+                        vec![CoveragePattern::Wildcard; ctor.arg_tys.len()];
+                    specialized_vector.extend_from_slice(&vector[1..]);
+                    let mut specialized_tys = ctor.arg_tys.clone();
+                    specialized_tys.extend_from_slice(&tys[1..]);
+                    self.coverage_vector_is_useful(
+                        &specialized_tys,
+                        &specialized,
+                        &specialized_vector,
+                    )
+                }),
+                CoveragePattern::Constructor(kind, args) => {
+                    let Some(ctor) = ctors.into_iter().find(|ctor| ctor.kind == *kind) else {
+                        return false;
+                    };
+                    let specialized = self.coverage_specialize_matrix(matrix, &ctor);
+                    let mut specialized_vector = args.clone();
+                    specialized_vector.extend_from_slice(&vector[1..]);
+                    let mut specialized_tys = ctor.arg_tys.clone();
+                    specialized_tys.extend_from_slice(&tys[1..]);
+                    self.coverage_vector_is_useful(
+                        &specialized_tys,
+                        &specialized,
+                        &specialized_vector,
+                    )
+                }
+            }
+        } else {
+            match head_pattern {
+                CoveragePattern::Wildcard => {
+                    let default_matrix = self.coverage_default_matrix(matrix);
+                    self.coverage_vector_is_useful(&tys[1..], &default_matrix, &vector[1..])
+                }
+                CoveragePattern::Constructor(_, _) => false,
+            }
+        }
+    }
+
+    fn warn_unreachable_match_pattern(&mut self, span: Span) {
+        self.ctx
+            .struct_warning(span, "unreachable match pattern")
+            .with_code(DiagnosticCode::UnreachablePattern)
+            .with_tag(DiagnosticTag::Unnecessary)
+            .with_hint("previous patterns already cover every value matched by this pattern")
+            .emit();
+    }
+
+    fn coverage_find_uncovered_vector(
+        &mut self,
+        tys: &[TypeId],
+        matrix: &[Vec<CoveragePattern>],
+    ) -> Option<Vec<CoverageWitness>> {
+        if tys.is_empty() {
+            return matrix.is_empty().then(Vec::new);
+        }
+
+        let head_ty = self.resolve_tv(tys[0]);
+        if let Some(ctors) = self.coverage_constructors(head_ty) {
+            for ctor in ctors {
+                let specialized = self.coverage_specialize_matrix(matrix, &ctor);
+                let mut sub_tys = ctor.arg_tys.clone();
+                sub_tys.extend_from_slice(&tys[1..]);
+                if let Some(mut uncovered) =
+                    self.coverage_find_uncovered_vector(&sub_tys, &specialized)
+                {
+                    let witness = self.coverage_rebuild_witness(&ctor, &mut uncovered);
+                    uncovered.insert(0, witness);
+                    return Some(uncovered);
+                }
+            }
+            None
+        } else {
+            let default_matrix = self.coverage_default_matrix(matrix);
+            let mut uncovered = self.coverage_find_uncovered_vector(&tys[1..], &default_matrix)?;
+            uncovered.insert(0, CoverageWitness::Wildcard);
+            Some(uncovered)
+        }
+    }
+
+    pub(super) fn uncovered_pattern_witness(
+        &mut self,
+        target_ty: TypeId,
+        patterns: &[&ast::Pattern],
+    ) -> Option<String> {
+        let matrix = patterns
+            .iter()
+            .filter_map(|pattern| self.coverage_lower_pattern(pattern, target_ty))
+            .map(|pattern| vec![pattern])
+            .collect::<Vec<_>>();
+        let witness = self.coverage_find_uncovered_vector(&[target_ty], &matrix)?;
+        witness.first().map(|witness| witness.format(self))
+    }
+
+    fn uncovered_match_witness(
+        &mut self,
+        target_ty: TypeId,
+        arms: &[ast::MatchArm],
+    ) -> Option<String> {
+        let mut matrix = Vec::new();
+        for arm in arms {
+            for pattern in &arm.patterns {
+                if let Some(lowered) = self.coverage_lower_match_pattern(pattern, target_ty) {
+                    matrix.push(vec![lowered]);
+                }
+            }
+        }
+
+        let witness = self.coverage_find_uncovered_vector(&[target_ty], &matrix)?;
+        witness.first().map(|witness| witness.format(self))
     }
 
     /// Core match-checking logic, including environment extraction and exhaustiveness.
@@ -65,23 +918,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        // Detect whether the matched target is an ADT-backed enum.
-        let is_adt = matches!(
-            self.ctx.type_registry.get(norm_target),
-            TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
-        );
+        let has_constructor_coverage = self.coverage_constructors(norm_target).is_some();
 
         let mut common_ret_ty = expected_ty;
-        let mut handled_variants = std::collections::HashSet::new();
         let mut has_catch_all = false;
+        let mut seen_patterns = Vec::new();
+        let mut scalar_coverage = self.scalar_domain(norm_target);
+        let mut match_closed = false;
 
         for arm in arms {
             let body_ty = self.check_match_arm(
                 arm,
                 norm_target,
-                is_adt,
+                has_constructor_coverage,
                 common_ret_ty,
-                &mut handled_variants,
+                &mut seen_patterns,
+                scalar_coverage.as_mut(),
+                &mut match_closed,
                 &mut has_catch_all,
             );
 
@@ -101,34 +954,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // --- Exhaustiveness checking ---
         if !has_catch_all {
             let exhaustiveness_started = self.timing_start();
-            if is_adt {
-                let missing: Vec<_> = match self.ctx.type_registry.get(norm_target) {
-                    TypeKind::Enum(def_id, _) => self
-                        .match_enum_def(*def_id, span, "check match exhaustiveness")
-                        .map(|adt_def| unsafe {
-                            let adt_def = &*adt_def;
-                            adt_def
-                                .variants
-                                .iter()
-                                .filter(|v| !handled_variants.contains(&v.name))
-                                .map(|v| self.ctx.resolve(v.name).to_string())
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                    TypeKind::AnonymousEnum(enum_def) => enum_def
-                        .variants
-                        .iter()
-                        .filter(|v| !handled_variants.contains(&v.name))
-                        .map(|v| self.ctx.resolve(v.name).to_string())
-                        .collect(),
-                    _ => Vec::new(),
-                };
-
-                if !missing.is_empty() {
+            if has_constructor_coverage {
+                if let Some(witness) = self.uncovered_match_witness(norm_target, arms) {
                     self.ctx
                         .struct_error(span, "match expression is not exhaustive")
                         .with_code(DiagnosticCode::NonexhaustiveMatch)
-                        .with_hint(format!("missing variants: {}", missing.join(", ")))
+                        .with_hint(format!(
+                            "for example, this value is not covered: `{}`",
+                            witness
+                        ))
+                        .emit();
+                }
+            } else if let Some(scalar_coverage) = &scalar_coverage {
+                if let Some(value) = scalar_coverage.first_uncovered() {
+                    let witness = self.scalar_witness_string(norm_target, value);
+                    self.ctx
+                        .struct_error(span, "match expression is not exhaustive")
+                        .with_code(DiagnosticCode::NonexhaustiveMatch)
+                        .with_hint(format!(
+                            "for example, this value is not covered: `{}`",
+                            witness
+                        ))
                         .emit();
                 }
             } else {
@@ -152,12 +998,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         arm: &ast::MatchArm,
         norm_target: TypeId,
-        is_adt: bool,
+        has_constructor_coverage: bool,
         common_ret_ty: Option<TypeId>,
-        handled_variants: &mut std::collections::HashSet<SymbolId>,
+        seen_patterns: &mut Vec<Vec<CoveragePattern>>,
+        scalar_coverage: Option<&mut ScalarCoverageState>,
+        match_closed: &mut bool,
         has_catch_all: &mut bool,
     ) -> TypeId {
         self.ctx.scopes.enter_scope();
+        let mut scalar_coverage = scalar_coverage;
 
         let pattern_started = self.timing_start();
         for pat in &arm.patterns {
@@ -165,10 +1014,37 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 ast::MatchPatternKind::Value(v) => {
                     let v_ty = self.check_expr(v, Some(norm_target));
                     self.check_coercion(v, norm_target, v_ty);
-
-                    // Recover enum-literal information from value patterns for exhaustiveness checks.
-                    if is_adt && let ExprKind::EnumLiteral { variant, .. } = &v.kind {
-                        handled_variants.insert(*variant);
+                    if *match_closed {
+                        self.warn_unreachable_match_pattern(pat.span);
+                    } else if has_constructor_coverage
+                        && let Some(lowered) = self.coverage_lower_match_pattern(pat, norm_target)
+                    {
+                        if self.coverage_vector_is_useful(
+                            &[norm_target],
+                            seen_patterns,
+                            std::slice::from_ref(&lowered),
+                        ) {
+                            seen_patterns.push(vec![lowered]);
+                            if self.coverage_matrix_is_exhaustive(norm_target, seen_patterns) {
+                                *has_catch_all = true;
+                                *match_closed = true;
+                            }
+                        } else {
+                            self.warn_unreachable_match_pattern(pat.span);
+                        }
+                    } else if let Some(scalar_coverage) = scalar_coverage.as_deref_mut()
+                        && let Some(intervals) =
+                            self.scalar_pattern_intervals(pat, norm_target, scalar_coverage)
+                    {
+                        if intervals.is_empty() || scalar_coverage.covers_all(&intervals) {
+                            self.warn_unreachable_match_pattern(pat.span);
+                        } else {
+                            scalar_coverage.add_intervals(&intervals);
+                            if scalar_coverage.is_full() {
+                                *has_catch_all = true;
+                                *match_closed = true;
+                            }
+                        }
                     }
                 }
                 ast::MatchPatternKind::Range { start, end, .. } => {
@@ -176,18 +1052,59 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     let e_ty = self.check_expr(end, Some(norm_target));
                     self.check_coercion(start, norm_target, s_ty);
                     self.check_coercion(end, norm_target, e_ty);
+                    if *match_closed {
+                        self.warn_unreachable_match_pattern(pat.span);
+                    } else if let Some(scalar_coverage) = scalar_coverage.as_deref_mut()
+                        && let Some(intervals) =
+                            self.scalar_pattern_intervals(pat, norm_target, scalar_coverage)
+                    {
+                        if intervals.is_empty() || scalar_coverage.covers_all(&intervals) {
+                            self.warn_unreachable_match_pattern(pat.span);
+                        } else {
+                            scalar_coverage.add_intervals(&intervals);
+                            if scalar_coverage.is_full() {
+                                *has_catch_all = true;
+                                *match_closed = true;
+                            }
+                        }
+                    }
                 }
                 ast::MatchPatternKind::Pattern(pattern) => {
                     self.check_pattern(arm.body.id, pattern, norm_target);
 
-                    if is_adt
-                        && let Some(variant_name) = self.top_level_pattern_variant_name(pattern)
+                    let irrefutable = self.pattern_is_irrefutable(pattern, norm_target);
+                    if *match_closed {
+                        self.warn_unreachable_match_pattern(pat.span);
+                    } else if has_constructor_coverage
+                        && let Some(lowered) = self.coverage_lower_match_pattern(pat, norm_target)
                     {
-                        handled_variants.insert(variant_name);
-                    }
-
-                    if self.pattern_is_irrefutable(pattern, norm_target) {
+                        if self.coverage_vector_is_useful(
+                            &[norm_target],
+                            seen_patterns,
+                            std::slice::from_ref(&lowered),
+                        ) {
+                            seen_patterns.push(vec![lowered]);
+                            if irrefutable
+                                || self.coverage_matrix_is_exhaustive(norm_target, seen_patterns)
+                            {
+                                *has_catch_all = true;
+                                *match_closed = true;
+                            }
+                        } else {
+                            self.warn_unreachable_match_pattern(pat.span);
+                        }
+                    } else if let Some(scalar_coverage) = scalar_coverage.as_deref_mut() {
+                        if irrefutable {
+                            if scalar_coverage.is_full() {
+                                self.warn_unreachable_match_pattern(pat.span);
+                            } else {
+                                *has_catch_all = true;
+                                *match_closed = true;
+                            }
+                        }
+                    } else if irrefutable {
                         *has_catch_all = true;
+                        *match_closed = true;
                     }
                 }
             }

@@ -12,6 +12,8 @@ use kernc_cli::test_support::{
 mod early;
 #[path = "regressions/language.rs"]
 mod language;
+#[path = "regressions/match_exhaustiveness.rs"]
+mod match_exhaustiveness;
 #[path = "regressions/mutability.rs"]
 mod mutability;
 #[path = "regressions/packages.rs"]

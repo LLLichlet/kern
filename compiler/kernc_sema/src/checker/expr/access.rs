@@ -510,41 +510,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn let_else_top_level_pattern_variant_name(&self, pattern: &ast::Pattern) -> Option<SymbolId> {
-        match &pattern.kind {
-            ast::PatternKind::Variant(variant) => Some(variant.variant_name),
-            ast::PatternKind::Destructure(destructure) if destructure.fields.len() == 1 => {
-                Some(destructure.fields[0].name)
-            }
-            _ => None,
-        }
-    }
-
     fn let_else_anon_enum_patterns_cover_all_variants(
         &mut self,
         primary: &ast::Pattern,
         else_pattern: &ast::Pattern,
         target_ty: TypeId,
-        enum_def: &crate::ty::AnonymousEnum,
-    ) -> bool {
-        if self.pattern_is_irrefutable(primary, target_ty)
-            || self.pattern_is_irrefutable(else_pattern, target_ty)
-        {
-            return true;
-        }
-
-        let mut handled = FastHashSet::default();
-        if let Some(name) = self.let_else_top_level_pattern_variant_name(primary) {
-            handled.insert(name);
-        }
-        if let Some(name) = self.let_else_top_level_pattern_variant_name(else_pattern) {
-            handled.insert(name);
-        }
-
-        enum_def
-            .variants
-            .iter()
-            .all(|variant| handled.contains(&variant.name))
+        _enum_def: &crate::ty::AnonymousEnum,
+    ) -> Option<String> {
+        self.uncovered_pattern_witness(target_ty, &[primary, else_pattern])
     }
 
     fn let_else_enum_patterns_cover_all_variants(
@@ -554,32 +527,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         target_ty: TypeId,
         def_id: DefId,
         span: Span,
-    ) -> bool {
-        if self.pattern_is_irrefutable(primary, target_ty)
-            || self.pattern_is_irrefutable(else_pattern, target_ty)
-        {
-            return true;
-        }
-
+    ) -> Option<String> {
         let Some(def) =
             self.match_enum_def(def_id, span, "check `let ... else` enum pattern coverage")
         else {
-            return false;
+            return Some("_".to_string());
         };
         // Safety: semantic defs are immutable while type checking expressions.
-        let def = unsafe { &*def };
-
-        let mut handled = FastHashSet::default();
-        if let Some(name) = self.let_else_top_level_pattern_variant_name(primary) {
-            handled.insert(name);
-        }
-        if let Some(name) = self.let_else_top_level_pattern_variant_name(else_pattern) {
-            handled.insert(name);
-        }
-
-        def.variants
-            .iter()
-            .all(|variant| handled.contains(&variant.name))
+        let _def = unsafe { &*def };
+        self.uncovered_pattern_witness(target_ty, &[primary, else_pattern])
     }
 
     fn cached_current_module_id(&mut self) -> Option<DefId> {
@@ -681,7 +637,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         info.type_id
     }
 
-    fn anchored_start_scope(
+    pub(crate) fn anchored_start_scope(
         &mut self,
         anchor: ast::PathAnchor,
         span: Span,
@@ -839,7 +795,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let else_irrefutable = self.pattern_is_irrefutable(else_pattern, norm_init);
                 match self.ctx.type_registry.get(norm_init).clone() {
                     TypeKind::Enum(def_id, _) => {
-                        if !self.let_else_enum_patterns_cover_all_variants(
+                        if let Some(witness) = self.let_else_enum_patterns_cover_all_variants(
                             &pattern.pattern,
                             else_pattern,
                             norm_init,
@@ -854,11 +810,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 .with_hint(
                                     "make the `else` pattern irrefutable, or cover every variant not matched by the main `let` pattern",
                                 )
+                                .with_hint(format!(
+                                    "for example, this value is still uncovered: `{}`",
+                                    witness
+                                ))
                                 .emit();
                         }
                     }
                     TypeKind::AnonymousEnum(enum_def) => {
-                        if !self.let_else_anon_enum_patterns_cover_all_variants(
+                        if let Some(witness) = self.let_else_anon_enum_patterns_cover_all_variants(
                             &pattern.pattern,
                             else_pattern,
                             norm_init,
@@ -872,6 +832,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 .with_hint(
                                     "make the `else` pattern irrefutable, or cover every variant not matched by the main `let` pattern",
                                 )
+                                .with_hint(format!(
+                                    "for example, this value is still uncovered: `{}`",
+                                    witness
+                                ))
                                 .emit();
                         }
                     }

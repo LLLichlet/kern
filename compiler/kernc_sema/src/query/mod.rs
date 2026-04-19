@@ -28,7 +28,7 @@
 
 use crate::SemaContext;
 use crate::checker::{ExprChecker, Substituter};
-use crate::def::{Def, DefId};
+use crate::def::{Def, DefId, ImplDef};
 use crate::scope::SymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast as ast;
@@ -127,6 +127,13 @@ impl<'a> MemberQueryEnv<'a> {
 pub struct MemberResolution {
     pub candidate: MemberCandidate,
     pub owner_trait_ty: Option<TypeId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImplSpecificity {
+    LeftMoreSpecific,
+    RightMoreSpecific,
+    Ambiguous,
 }
 
 pub struct MemberQuery<'a, 'ctx> {
@@ -387,6 +394,154 @@ fn trait_method_span(trait_def: &crate::def::TraitDef, method_name: SymbolId) ->
         .find(|method| method.name == method_name)
         .map(|method| method.name_span)
         .unwrap_or_default()
+}
+
+pub fn compare_impl_specificity(
+    ctx: &mut SemaContext<'_>,
+    left_impl_id: DefId,
+    right_impl_id: DefId,
+) -> ImplSpecificity {
+    let left_specializes_right = impl_head_specializes(ctx, left_impl_id, right_impl_id);
+    let right_specializes_left = impl_head_specializes(ctx, right_impl_id, left_impl_id);
+
+    match (left_specializes_right, right_specializes_left) {
+        (true, false) => ImplSpecificity::LeftMoreSpecific,
+        (false, true) => ImplSpecificity::RightMoreSpecific,
+        _ => ImplSpecificity::Ambiguous,
+    }
+}
+
+pub fn impl_head_specializes(
+    ctx: &mut SemaContext<'_>,
+    specialized_impl_id: DefId,
+    general_impl_id: DefId,
+) -> bool {
+    if specialized_impl_id == general_impl_id {
+        return false;
+    }
+
+    let Some((specialized_impl, specialized_target_ty, specialized_trait_ty)) =
+        impl_head_signature(ctx, specialized_impl_id)
+    else {
+        return false;
+    };
+    let Some((general_impl, general_target_ty, general_trait_ty)) =
+        impl_head_signature(ctx, general_impl_id)
+    else {
+        return false;
+    };
+
+    if specialized_trait_ty.is_some() != general_trait_ty.is_some() {
+        return false;
+    }
+
+    let mut checker = ExprChecker::new(ctx, None);
+    let (specialized_target, specialized_trait) = freshen_impl_head_types(
+        &mut checker,
+        &specialized_impl,
+        specialized_target_ty,
+        specialized_trait_ty,
+        ImplHeadFreshness::Rigid,
+    );
+    let (general_target, general_trait) = freshen_impl_head_types(
+        &mut checker,
+        &general_impl,
+        general_target_ty,
+        general_trait_ty,
+        ImplHeadFreshness::Flexible,
+    );
+
+    let mut map = FastHashMap::default();
+    checker.unify(general_target, specialized_target, &mut map)
+        && match (general_trait, specialized_trait) {
+            (Some(general_trait), Some(specialized_trait)) => {
+                checker.unify(general_trait, specialized_trait, &mut map)
+            }
+            (None, None) => true,
+            _ => false,
+        }
+}
+
+fn impl_head_signature(
+    ctx: &mut SemaContext<'_>,
+    impl_id: DefId,
+) -> Option<(ImplDef, TypeId, Option<TypeId>)> {
+    let impl_def = ctx
+        .defs
+        .get(impl_id.0 as usize)
+        .and_then(|def| match def {
+            Def::Impl(impl_def) => Some(impl_def.clone()),
+            _ => None,
+        })?;
+    let target_ty = ctx
+        .node_types
+        .get(&impl_def.target_type.id)
+        .copied()
+        .unwrap_or(TypeId::ERROR);
+    let trait_ty = impl_def
+        .trait_type
+        .as_ref()
+        .and_then(|trait_ty| ctx.node_types.get(&trait_ty.id).copied());
+
+    if target_ty == TypeId::ERROR || matches!(trait_ty, Some(TypeId::ERROR)) {
+        return None;
+    }
+
+    Some((impl_def, target_ty, trait_ty))
+}
+
+fn freshen_impl_head_types(
+    checker: &mut ExprChecker<'_, '_>,
+    impl_def: &ImplDef,
+    target_ty: TypeId,
+    trait_ty: Option<TypeId>,
+    freshness: ImplHeadFreshness,
+) -> (TypeId, Option<TypeId>) {
+    let mut subst_map = FastHashMap::default();
+
+    for (index, param) in impl_def.generics.iter().enumerate() {
+        let fresh_name = checker.ctx.intern(&format!(
+            "__impl_specialization_{}_{}_{}",
+            impl_def.id.0,
+            index,
+            checker.ctx.resolve(param.name)
+        ));
+        let fresh_arg = match &param.kind {
+            ast::GenericParamKind::Type => match freshness {
+                ImplHeadFreshness::Flexible => crate::ty::GenericArg::Type(checker.fresh_type_var()),
+                ImplHeadFreshness::Rigid => crate::ty::GenericArg::Type(
+                    checker
+                        .ctx
+                        .type_registry
+                        .intern(TypeKind::Param(fresh_name)),
+                ),
+            },
+            ast::GenericParamKind::Const { ty } => {
+                let const_ty = checker
+                    .ctx
+                    .node_types
+                    .get(&ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                crate::ty::GenericArg::Const(crate::ty::ConstGeneric::Param(
+                    fresh_name, const_ty,
+                ))
+            }
+        };
+        subst_map.insert(param.name, fresh_arg);
+    }
+
+    let mut subst = Substituter::new(&mut checker.ctx.type_registry, &subst_map);
+    (
+        subst.substitute(target_ty),
+        trait_ty.map(|trait_ty| subst.substitute(trait_ty)),
+    )
+}
+
+#[derive(Clone, Copy)]
+enum ImplHeadFreshness {
+    Flexible,
+    Rigid,
 }
 
 pub(crate) fn impl_bounds_satisfied(

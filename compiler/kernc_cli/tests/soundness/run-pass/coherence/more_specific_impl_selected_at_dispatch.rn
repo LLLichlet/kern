@@ -1,6 +1,5 @@
 // class: specialization-dispatch
-// source: known bug discovered while adding the soundness corpus; coherence accepts the overlap, but method lookup still chooses the generic impl
-// exit: 1
+// exit: 0
 
 type Score = trait {
     value: fn() i32,

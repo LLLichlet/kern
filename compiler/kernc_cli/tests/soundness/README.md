@@ -21,6 +21,7 @@ Each `.rn` file is a minimized regression seed. The harness lives in
 - `tree-reject/`: a case directory with `main.rn` plus helper package trees.
 - `interface-reject/`: a case directory with `main.rn` plus helper interface packages.
 - `known-bug-compile/`: currently compiles, but should not. The test fails once the bug is fixed.
+- `known-bug-reject/`: currently rejects or ICEs, but should not. The test fails once the bug is fixed.
 - `build-pass/`: program must compile successfully.
 - `run-pass/`: program must compile and run successfully.
 - `known-bug-run/`: currently runs with buggy output/exit status. The test fails once the behavior changes.

@@ -286,6 +286,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             Vec::new(),
         ));
         let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impls.as_slice());
+        let mut selected: Option<(DefId, TypeId)> = None;
 
         for impl_id in unsafe { &*trait_impl_ids_ptr }.iter().copied() {
             let Some(impl_ptr) = self
@@ -355,11 +356,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .iter()
                 .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
             {
-                return Some(*assoc_ty);
+                let replace = match selected {
+                    None => true,
+                    Some((selected_impl_id, _)) => matches!(
+                        crate::query::compare_impl_specificity(self.ctx, impl_id, selected_impl_id),
+                        crate::query::ImplSpecificity::LeftMoreSpecific
+                    ),
+                };
+                if replace {
+                    selected = Some((impl_id, *assoc_ty));
+                }
             }
         }
 
-        None
+        selected.map(|(_, assoc_ty)| assoc_ty)
     }
 
     pub(super) fn bind_type_var(&mut self, vid: u32, ty: TypeId) {

@@ -38,6 +38,11 @@ fn known_bug_compile_cases() {
 }
 
 #[test]
+fn known_bug_reject_cases() {
+    run_known_bug_reject_cases(&cases_in("known-bug-reject"));
+}
+
+#[test]
 fn build_pass_cases() {
     run_build_pass_cases(&cases_in("build-pass"));
 }
@@ -126,6 +131,41 @@ fn run_known_bug_compile_cases(paths: &[PathBuf]) {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+}
+
+fn run_known_bug_reject_cases(paths: &[PathBuf]) {
+    for path in paths {
+        let case = parse_case(path);
+        let compile_args = case
+            .compile_args
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let output = compile_source_with_args(
+            "kernc_soundness_known_bug_reject",
+            &case.source,
+            &compile_args,
+        );
+
+        assert!(
+            !output.status.success(),
+            "{} no longer reproduces its known reject-time bug:\nstdout:\n{}\nstderr:\n{}",
+            path.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        for needle in &case.stderr_substrings {
+            assert!(
+                stderr.contains(needle),
+                "{} missing stderr fragment `{}`:\n{}",
+                path.display(),
+                needle,
+                stderr
+            );
+        }
     }
 }
 

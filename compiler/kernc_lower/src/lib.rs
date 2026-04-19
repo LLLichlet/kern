@@ -159,6 +159,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return Some(*assoc_ty);
         }
 
+        let mut selected: Option<(DefId, TypeId)> = None;
         for trait_impl_index in 0..self.ctx.trait_impls.len() {
             let impl_id = self.ctx.trait_impls[trait_impl_index];
             let Some(impl_ptr) = self
@@ -220,11 +221,24 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .iter()
                 .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
             {
-                return Some(*assoc_ty);
+                let replace = match selected {
+                    None => true,
+                    Some((selected_impl_id, _)) => matches!(
+                        kernc_sema::query::compare_impl_specificity(
+                            self.ctx,
+                            impl_id,
+                            selected_impl_id,
+                        ),
+                        kernc_sema::query::ImplSpecificity::LeftMoreSpecific
+                    ),
+                };
+                if replace {
+                    selected = Some((impl_id, *assoc_ty));
+                }
             }
         }
 
-        None
+        selected.map(|(_, assoc_ty)| assoc_ty)
     }
 
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {

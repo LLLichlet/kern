@@ -194,6 +194,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     // Safety: method-name indexes are immutable while lowering reads semantic defs.
                     let method_ids = unsafe { &*method_ids_ptr };
                     let receiver_search_tys = this.receiver_search_types(norm_base);
+                    let mut best_match: Option<(DefId, DefId, Option<TypeId>, Vec<TypeId>)> = None;
                     for &method_id in method_ids {
                         let Some(impl_id) =
                             this.ctx
@@ -267,13 +268,33 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             }
                         }
 
+                        let replace = match best_match.as_ref() {
+                            None => true,
+                            Some((selected_impl_id, ..)) => matches!(
+                                kernc_sema::query::compare_impl_specificity(
+                                    this.ctx,
+                                    impl_id,
+                                    *selected_impl_id,
+                                ),
+                                kernc_sema::query::ImplSpecificity::LeftMoreSpecific
+                            ),
+                        };
+                        if replace {
+                            best_match = Some((
+                                impl_id,
+                                method_id,
+                                matched_receiver_ty,
+                                candidate_impl_args,
+                            ));
+                        }
+                    }
+
+                    if let Some((_, method_id, matched_receiver_ty, candidate_impl_args)) =
+                        best_match
+                    {
                         resolved_impl_args = candidate_impl_args;
                         resolved_self_ty = matched_receiver_ty;
                         target_func_id = Some(method_id);
-
-                        if target_func_id.is_some() {
-                            break;
-                        }
                     }
                 });
             }

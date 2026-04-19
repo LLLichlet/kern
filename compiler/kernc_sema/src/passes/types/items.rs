@@ -756,14 +756,17 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 else {
                     continue;
                 };
-                let left_specializes_right =
-                    self.impl_specializes(left_impl_id, right_impl_id, &overlap);
-                let right_specializes_left =
-                    self.impl_specializes(right_impl_id, left_impl_id, &overlap);
-
                 // Coherence permits a unique more-specific specialization, but rejects
                 // equal-rank or incomparable overlaps that would make proof search ambiguous.
-                if left_specializes_right ^ right_specializes_left {
+                if matches!(
+                    crate::query::compare_impl_specificity(
+                        self.ctx,
+                        left_impl_id,
+                        right_impl_id
+                    ),
+                    crate::query::ImplSpecificity::LeftMoreSpecific
+                        | crate::query::ImplSpecificity::RightMoreSpecific
+                ) {
                     continue;
                 }
 
@@ -939,14 +942,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 &left_impl,
                 left_target_ty,
                 left_trait_ty,
-                ImplHeadFreshness::Flexible,
             );
             let (right_fresh_target, right_fresh_trait) = Self::freshen_impl_head_types_for_overlap(
                 &mut checker,
                 &right_impl,
                 right_target_ty,
                 right_trait_ty,
-                ImplHeadFreshness::Flexible,
             );
             let mut map = FastHashMap::default();
             checker.unify(left_fresh_target, right_fresh_target, &mut map)
@@ -958,8 +959,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         Some(OverlappingTraitImplPair {
-            left_impl_id,
-            right_impl_id,
             left_span: left_impl.span,
             right_span: right_impl.span,
             left_target_ty,
@@ -969,85 +968,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         })
     }
 
-    fn impl_specializes(
-        &mut self,
-        specialized_impl_id: DefId,
-        general_impl_id: DefId,
-        overlap: &OverlappingTraitImplPair,
-    ) -> bool {
-        let (
-            specialized_impl,
-            general_impl,
-            specialized_target_ty,
-            specialized_trait_ty,
-            general_target_ty,
-            general_trait_ty,
-        ) = match (
-            self.ctx.defs.get(specialized_impl_id.0 as usize),
-            self.ctx.defs.get(general_impl_id.0 as usize),
-        ) {
-            (Some(Def::Impl(specialized_impl)), Some(Def::Impl(general_impl))) => {
-                let (
-                    specialized_target_ty,
-                    specialized_trait_ty,
-                    general_target_ty,
-                    general_trait_ty,
-                ) = if specialized_impl_id == overlap.left_impl_id
-                    && general_impl_id == overlap.right_impl_id
-                {
-                    (
-                        overlap.left_target_ty,
-                        overlap.left_trait_ty,
-                        overlap.right_target_ty,
-                        overlap.right_trait_ty,
-                    )
-                } else {
-                    (
-                        overlap.right_target_ty,
-                        overlap.right_trait_ty,
-                        overlap.left_target_ty,
-                        overlap.left_trait_ty,
-                    )
-                };
-                (
-                    specialized_impl.clone(),
-                    general_impl.clone(),
-                    specialized_target_ty,
-                    specialized_trait_ty,
-                    general_target_ty,
-                    general_trait_ty,
-                )
-            }
-            _ => return false,
-        };
-
-        let mut checker = ExprChecker::new(self.ctx, None);
-        let (specialized_target, specialized_trait) = Self::freshen_impl_head_types_for_overlap(
-            &mut checker,
-            &specialized_impl,
-            specialized_target_ty,
-            specialized_trait_ty,
-            ImplHeadFreshness::Rigid,
-        );
-        let (general_target, general_trait) = Self::freshen_impl_head_types_for_overlap(
-            &mut checker,
-            &general_impl,
-            general_target_ty,
-            general_trait_ty,
-            ImplHeadFreshness::Flexible,
-        );
-
-        let mut map = FastHashMap::default();
-        checker.unify(general_target, specialized_target, &mut map)
-            && checker.unify(general_trait, specialized_trait, &mut map)
-    }
-
     fn freshen_impl_head_types_for_overlap(
         checker: &mut ExprChecker<'_, '_>,
         impl_def: &ImplDef,
         target_ty: TypeId,
         trait_ty: TypeId,
-        freshness: ImplHeadFreshness,
     ) -> (TypeId, TypeId) {
         let mut subst_map = FastHashMap::default();
 
@@ -1059,15 +984,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 checker.ctx.resolve(param.name)
             ));
             let fresh_arg = match &param.kind {
-                ast::GenericParamKind::Type => match freshness {
-                    ImplHeadFreshness::Flexible => GenericArg::Type(checker.fresh_type_var()),
-                    ImplHeadFreshness::Rigid => GenericArg::Type(
-                        checker
-                            .ctx
-                            .type_registry
-                            .intern(TypeKind::Param(fresh_name)),
-                    ),
-                },
+                ast::GenericParamKind::Type => GenericArg::Type(checker.fresh_type_var()),
                 ast::GenericParamKind::Const { ty } => {
                     let const_ty = checker
                         .ctx
@@ -1167,20 +1084,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 }
 
 struct OverlappingTraitImplPair {
-    left_impl_id: DefId,
-    right_impl_id: DefId,
     left_span: Span,
     right_span: Span,
     left_target_ty: TypeId,
     left_trait_ty: TypeId,
     right_target_ty: TypeId,
     right_trait_ty: TypeId,
-}
-
-#[derive(Clone, Copy)]
-enum ImplHeadFreshness {
-    Flexible,
-    Rigid,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

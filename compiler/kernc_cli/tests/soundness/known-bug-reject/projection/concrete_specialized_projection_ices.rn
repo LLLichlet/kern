@@ -1,0 +1,28 @@
+// class: projection-normalization
+// source: discovered while fixing specialization dispatch; concrete associated projection still reaches layout as an unresolved projection
+// stderr: Kern ICE (Layout)
+// stderr: Projection
+
+type Pick = trait {
+    type Out;
+};
+
+impl[T] []T : Pick {
+    type Out = bool;
+}
+
+impl []u8 : Pick {
+    type Out = i32;
+}
+
+type Bytes = []u8;
+
+fn project(value: Bytes) Bytes.Pick.Out {
+    let _ = value;
+    return 7;
+}
+
+fn main() i32 {
+    let value = project("ok");
+    return if (value == 7) { 0 } else { 1 };
+}

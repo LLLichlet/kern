@@ -219,6 +219,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
         // Safety: method-name indexes are immutable during member lookup.
         let method_ids = unsafe { &*method_ids_ptr };
+        let mut best_match: Option<(DefId, DefId, Span, Vec<TypeId>)> = None;
         for &method_id in method_ids {
             let Some((impl_id, function_name_span)) = self
                 .ctx
@@ -239,6 +240,19 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 continue;
             };
 
+            let replace = match best_match.as_ref() {
+                None => true,
+                Some((best_impl_id, ..)) => matches!(
+                    super::compare_impl_specificity(self.ctx, impl_id, *best_impl_id),
+                    super::ImplSpecificity::LeftMoreSpecific
+                ),
+            };
+            if replace {
+                best_match = Some((impl_id, method_id, function_name_span, resolved_impl_args));
+            }
+        }
+
+        if let Some((_, method_id, function_name_span, resolved_impl_args)) = best_match {
             let candidate = MemberCandidate {
                 name: member_name,
                 kind: SymbolKind::Function,

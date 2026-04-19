@@ -218,6 +218,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let search_types = self.vtable_impl_search_types(norm_receiver, norm_data_ptr);
 
         let global_impls = self.ctx.global_impls.clone();
+        let mut selected: Option<(ImplDef, Vec<TypeId>, kernc_sema::def::DefId)> = None;
         for impl_id in global_impls {
             let Some(impl_def) = self
                 .ctx
@@ -274,11 +275,24 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 };
 
                 if self.ctx.type_registry.normalize(instantiated_trait_ty) == target_trait_norm {
-                    return Some((impl_def.clone(), resolved_impl_args));
+                    let replace = match selected.as_ref() {
+                        None => true,
+                        Some((_, _, selected_impl_id)) => matches!(
+                            kernc_sema::query::compare_impl_specificity(
+                                self.ctx,
+                                impl_id,
+                                *selected_impl_id,
+                            ),
+                            kernc_sema::query::ImplSpecificity::LeftMoreSpecific
+                        ),
+                    };
+                    if replace {
+                        selected = Some((impl_def.clone(), resolved_impl_args, impl_id));
+                    }
                 }
             }
         }
-        None
+        selected.map(|(impl_def, resolved_impl_args, _)| (impl_def, resolved_impl_args))
     }
 
     fn vtable_impl_search_types(

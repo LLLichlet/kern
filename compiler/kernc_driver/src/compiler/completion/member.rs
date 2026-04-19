@@ -125,6 +125,7 @@ impl CompilerDriver {
             ast::ExprKind::Block { stmts, result } => {
                 for stmt in stmts {
                     match &stmt.kind {
+                        ast::StmtKind::Use(_) => {}
                         ast::StmtKind::ExprStmt(inner) | ast::StmtKind::ExprValue(inner) => {
                             self.collect_member_completion_items_in_expr(
                                 member_query,

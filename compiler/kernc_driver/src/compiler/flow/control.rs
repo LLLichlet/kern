@@ -112,6 +112,7 @@ fn collect_control_facts_expr(
             });
             for stmt in stmts {
                 match &stmt.kind {
+                    ast::StmtKind::Use(_) => {}
                     ast::StmtKind::ExprStmt(inner) | ast::StmtKind::ExprValue(inner) => {
                         collect_control_facts_expr(inner, regions, summary);
                     }

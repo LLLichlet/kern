@@ -6,7 +6,7 @@ use kernc_mast::*;
 use kernc_sema::checker::{ConstEvaluator, ConstValue};
 use kernc_sema::def::Def;
 use kernc_sema::scope::SymbolKind;
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -117,7 +117,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         lhs: &Expr,
         field: SymbolId,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         span: Span,
     ) -> MastExprKind {
         let expr_ty = self
@@ -313,7 +313,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         lhs: &Expr,
         index: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
         let l = self.lower_expr(lhs, subst_map, None);
         let idx = self.lower_expr(index, subst_map, Some(TypeId::USIZE));

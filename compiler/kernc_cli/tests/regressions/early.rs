@@ -145,6 +145,284 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_const_generic_types_and_function_instantiations() {
+    let source = r#"
+type Array[T, N: usize] = struct {
+    data: [N]T,
+};
+
+fn id_array[N: usize](arr: [N]i32) [N]i32 {
+    return arr;
+}
+
+fn main() i32 {
+    let wrapped = Array[i32, 4].{ data: [4]i32.{ 1, 2, 3, 4 } };
+    let _ = id_array[4](wrapped.data);
+    return 0;
+}
+"#;
+
+    let output = compile_source(source);
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn infers_direct_const_generic_function_arguments() {
+    let source = r#"
+fn id_array[N: usize](arr: [N]i32) [N]i32 {
+    return arr;
+}
+
+fn main() i32 {
+    let _ = id_array([4]i32.{ 1, 2, 3, 4 });
+    return 0;
+}
+"#;
+
+    let output = compile_source(source);
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn supports_computed_const_generic_array_lengths() {
+    let source = r#"
+type Buf[T, N: usize] = [N + 1]T;
+
+fn main() i32 {
+    let _ = Buf[i32, 3].{ 1, 2, 3, 4 };
+    return 0;
+}
+"#;
+
+    let output = compile_source(source);
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn supports_bool_const_generic_types_and_direct_inference() {
+    let source = r#"
+type Flag[B: bool] = struct {
+    value: bool,
+};
+
+fn id_flag[B: bool](flag: Flag[B]) Flag[B] {
+    return flag;
+}
+
+fn main() i32 {
+    let _ = Flag[true and false].{ value: false };
+    let _ = id_flag(Flag[true].{ value: true });
+    return 0;
+}
+"#;
+
+    let output = compile_source(source);
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn supports_payloadless_enum_const_generic_types_and_direct_inference() {
+    let source = r#"
+type Mode = enum {
+    Fast,
+    Safe,
+};
+
+type Setting[M: Mode] = struct {};
+
+fn id_setting[M: Mode](value: Setting[M]) Setting[M] {
+    return value;
+}
+
+fn main() i32 {
+    let _ = Setting[Mode.Fast].{};
+    let _ = id_setting(Setting[Mode.Safe].{});
+    return 0;
+}
+"#;
+
+    let output = compile_source(source);
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn rejects_payload_carrying_enum_const_generic_parameter_types() {
+    let source = r#"
+type Rich = enum {
+    A: i32,
+    B,
+};
+
+type Bad[M: Rich] = struct {};
+"#;
+
+    let output = compile_source(source);
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted payload-carrying enum const generic parameters:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("payload-less enum type"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_raw_integer_values_for_enum_const_generics() {
+    let source = r#"
+type Mode = enum {
+    Fast,
+    Safe,
+};
+
+type Setting[M: Mode] = struct {};
+
+fn main() i32 {
+    let _ = Setting[0].{};
+    return 0;
+}
+"#;
+
+    let output = compile_source(source);
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted a raw integer for an enum const generic:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("must evaluate to a value of enum type `Mode`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Mode.Fast"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn enum_const_generic_diagnostics_render_variant_names() {
+    let source = r#"
+type Mode = enum {
+    Fast,
+    Safe,
+};
+
+type Setting[M: Mode] = struct {};
+
+fn takes_fast(value: Setting[Mode.Fast]) void {
+    let _ = value;
+}
+
+fn main() i32 {
+    takes_fast(Setting[Mode.Safe].{});
+    return 0;
+}
+"#;
+
+    let output = compile_source(source);
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted mismatched enum const generics:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Setting[Mode.Fast]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Setting[Mode.Safe]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_symbolic_bool_const_generic_expressions() {
+    let source = r#"
+type Flag[B: bool] = struct {
+    value: bool,
+};
+
+type Negated[B: bool] = Flag[!B];
+"#;
+
+    let output = compile_source(source);
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted symbolic bool const generic expressions:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "const generic argument can only use symbolic computed expressions for integer const parameters"
+        ),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("non-integer const parameters such as `bool` may still be passed directly"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_reverse_solving_const_generic_function_arguments() {
+    let source = r#"
+fn bump[N: usize](arr: [N + 1]i32) [N + 1]i32 {
+    return arr;
+}
+
+fn main() i32 {
+    let _ = bump([4]i32.{ 1, 2, 3, 4 });
+    return 0;
+}
+"#;
+
+    let output = compile_source(source);
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly reverse-solved const generic arguments:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot infer generic argument(s) `N` for function `bump`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("const generics are inferred only from direct structural matches such as `[N]T`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("does not reverse-solve const expressions like `[N + 1]T`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn emits_inline_attributes_in_llvm_ir() {
     let source = r#"
 #[inline]
@@ -1099,6 +1377,107 @@ pub fn answer() i32 {
     );
 
     assert_success(&output, "kernc");
+}
+
+#[test]
+fn local_use_can_shadow_visible_names_inside_nested_blocks() {
+    let output = build_and_run_source(
+        r#"
+fn helper() i32 {
+    return 1;
+}
+
+fn other() i32 {
+    return 2;
+}
+
+fn main() i32 {
+    let before = helper();
+    {
+        use .other as helper;
+        let inside = helper();
+        if (inside != 2) {
+            return 10;
+        }
+    }
+    return before;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn local_use_enables_following_type_paths_inside_blocks() {
+    let output = compile_source(
+        r#"
+type Answer = struct {
+    value: i32,
+};
+
+fn make() i32 {
+    return 7;
+}
+
+fn main() i32 {
+    {
+        use .{Answer, make};
+        let size = @sizeOf[Answer]();
+        if (size == 0) {
+            return 10;
+        }
+        return make();
+    }
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn local_use_does_not_leak_outside_its_block() {
+    let output = compile_source(
+        r#"
+fn helper() i32 {
+    return 0;
+}
+
+fn main() i32 {
+    {
+        use .helper as local_helper;
+        let _ = local_helper;
+    }
+    return local_helper();
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("use of undeclared identifier `local_helper`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
 }
 
 #[test]

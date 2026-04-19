@@ -7,6 +7,39 @@ use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    pub(crate) fn const_generic_usize(
+        &mut self,
+        value: kernc_sema::ty::ConstGeneric,
+        span: Span,
+    ) -> Option<u64> {
+        match value {
+            kernc_sema::ty::ConstGeneric::Value(value) if value.ty == TypeId::USIZE => {
+                u64::try_from(value.as_int()?).ok()
+            }
+            kernc_sema::ty::ConstGeneric::Value(_) | kernc_sema::ty::ConstGeneric::Error => None,
+            kernc_sema::ty::ConstGeneric::Param(symbol, _) => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): unresolved const generic `{}` reached code generation.",
+                        symbol.0
+                    ),
+                );
+                None
+            }
+            kernc_sema::ty::ConstGeneric::Expr(expr_id) => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): unresolved const expression `{:?}` reached code generation.",
+                        self.type_registry.const_expr(expr_id)
+                    ),
+                );
+                None
+            }
+        }
+    }
+
     fn invalid_llvm_type(&mut self, span: Span, msg: impl Into<String>) -> BasicTypeEnum<'ctx> {
         self.sess.emit_ice(span, msg);
         self.context.struct_type(&[], false).into()
@@ -85,6 +118,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
             TypeKind::Array { elem, len, .. } => {
                 let elem_ty = self.get_llvm_type(elem);
+                let Some(len) = self.const_generic_usize(len, Span::default()) else {
+                    return self.invalid_llvm_type(
+                        Span::default(),
+                        "Kern ICE (Codegen): array length was not a concrete `usize` during LLVM type construction.",
+                    );
+                };
                 elem_ty.array_type(len as u32).into()
             }
 

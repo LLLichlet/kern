@@ -1015,6 +1015,21 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 if let Some(def_id) = info.def_id {
                     return self.eval_const_def(def_id, depth);
                 }
+            } else if info.kind == SymbolKind::ConstParam {
+                let name_str = self.ctx.resolve(name).to_string();
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!(
+                            "`{}` is a const generic parameter, not a standalone constant expression",
+                            name_str
+                        ),
+                    )
+                    .with_hint(
+                        "direct const-generic parameter references are only supported in dedicated const-generic positions for now",
+                    )
+                    .emit();
+                return Err(ConstEvalError);
             } else {
                 let name_str = self.ctx.resolve(name).to_string();
                 self.ctx
@@ -1047,6 +1062,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         for stmt in stmts {
             let stmt_expr = match &stmt.kind {
+                StmtKind::Use(_) => continue,
                 StmtKind::ExprStmt(expr) | StmtKind::ExprValue(expr) => expr,
             };
             let _ = self.eval_inner(stmt_expr, depth + 1)?;

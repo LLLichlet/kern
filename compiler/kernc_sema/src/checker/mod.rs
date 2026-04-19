@@ -170,6 +170,46 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         timings
     }
 
+    fn bind_generics_into_scope(&mut self, generics: &[ast::GenericParam], scope: ScopeId) {
+        self.ctx.scopes.set_current_scope(scope);
+        for param in generics {
+            let (kind, param_ty, semantic_kind) = match &param.kind {
+                ast::GenericParamKind::Type => (
+                    SymbolKind::TypeParam,
+                    self.ctx.type_registry.intern(TypeKind::Param(param.name)),
+                    SemanticSymbolKind::TypeParameter,
+                ),
+                ast::GenericParamKind::Const { ty } => {
+                    let mut resolver = crate::passes::TypeResolver::new(self.ctx);
+                    let const_ty = resolver.resolve_const_generic_param_type(ty, scope, param.span);
+                    (
+                        SymbolKind::ConstParam,
+                        const_ty,
+                        SemanticSymbolKind::Constant,
+                    )
+                }
+            };
+            let node_id = self.ctx.next_node_id();
+            let info = SymbolInfo {
+                kind,
+                node_id,
+                type_id: param_ty,
+                def_id: None,
+                span: param.span,
+                vis: Visibility::Private,
+                is_mut: false,
+            };
+            if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
+                self.ctx.record_symbol_definition(
+                    info.span,
+                    semantic_kind,
+                    info.is_mut,
+                    info.vis.is_public(),
+                );
+            }
+        }
+    }
+
     fn measure_body_timing<T, F, R>(&mut self, record: R, f: F) -> T
     where
         F: FnOnce(&mut Self) -> T,
@@ -515,29 +555,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         // 3. Rebuild the function-local scope.
         let setup_started = collect_timings.then(Instant::now);
         self.ctx.scopes.set_current_scope(parent_scope);
-        let _ = self.ctx.scopes.enter_scope();
-        // Inject generic parameters into the function scope.
-        for param in &f.generics {
-            let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
-            let node_id = self.ctx.next_node_id();
-            let info = SymbolInfo {
-                kind: SymbolKind::TypeParam,
-                node_id,
-                type_id: param_ty,
-                def_id: None,
-                span: f.span,
-                vis: Visibility::Private,
-                is_mut: false,
-            };
-            if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
-                self.ctx.record_symbol_definition(
-                    info.span,
-                    SemanticSymbolKind::TypeParameter,
-                    info.is_mut,
-                    info.vis.is_public(),
-                );
-            }
-        }
+        let function_scope = self.ctx.scopes.enter_scope();
+        self.bind_generics_into_scope(&f.generics, function_scope);
 
         // Push active bounds from the function's where-clauses into the current context.
         let prev_bounds_len = self.ctx.active_bounds.len();
@@ -640,29 +659,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     fn check_struct(&mut self, s: &crate::def::StructDef, parent_scope: ScopeId) {
         // 1. Rebuild the struct-local scope so default values can see generic parameters.
         self.ctx.scopes.set_current_scope(parent_scope);
-        let _ = self.ctx.scopes.enter_scope();
-
-        for param in &s.generics {
-            let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
-            let node_id = self.ctx.next_node_id();
-            let info = SymbolInfo {
-                kind: SymbolKind::TypeParam,
-                node_id,
-                type_id: param_ty,
-                def_id: None,
-                span: s.span,
-                vis: Visibility::Private,
-                is_mut: false,
-            };
-            if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
-                self.ctx.record_symbol_definition(
-                    info.span,
-                    SemanticSymbolKind::TypeParameter,
-                    info.is_mut,
-                    info.vis.is_public(),
-                );
-            }
-        }
+        let struct_scope = self.ctx.scopes.enter_scope();
+        self.bind_generics_into_scope(&s.generics, struct_scope);
 
         // 2. Check every field default expression.
         for field in &s.fields {
@@ -704,29 +702,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     fn check_union(&mut self, u: &crate::def::UnionDef, parent_scope: ScopeId) {
         // 1. Rebuild the union-local scope.
         self.ctx.scopes.set_current_scope(parent_scope);
-        let _ = self.ctx.scopes.enter_scope();
-
-        for param in &u.generics {
-            let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
-            let node_id = self.ctx.next_node_id();
-            let info = SymbolInfo {
-                kind: SymbolKind::TypeParam,
-                node_id,
-                type_id: param_ty,
-                def_id: None,
-                span: u.span,
-                vis: Visibility::Private,
-                is_mut: false,
-            };
-            if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
-                self.ctx.record_symbol_definition(
-                    info.span,
-                    SemanticSymbolKind::TypeParameter,
-                    info.is_mut,
-                    info.vis.is_public(),
-                );
-            }
-        }
+        let union_scope = self.ctx.scopes.enter_scope();
+        self.bind_generics_into_scope(&u.generics, union_scope);
 
         // 2. Check every field default expression.
         for field in &u.fields {
@@ -771,27 +748,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         let impl_scope = self.ctx.scopes.enter_scope();
 
         // Inject impl-level generic parameters such as `T`.
-        for param in &i.generics {
-            let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
-            let node_id = self.ctx.next_node_id();
-            let info = SymbolInfo {
-                kind: SymbolKind::TypeParam,
-                node_id,
-                type_id: param_ty,
-                def_id: None,
-                span: i.span,
-                vis: Visibility::Private,
-                is_mut: false,
-            };
-            if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
-                self.ctx.record_symbol_definition(
-                    info.span,
-                    SemanticSymbolKind::TypeParameter,
-                    info.is_mut,
-                    info.vis.is_public(),
-                );
-            }
-        }
+        self.bind_generics_into_scope(&i.generics, impl_scope);
 
         if let Some(requirement) = self.ctx.direct_self_referential_impl_requirement(i) {
             let target_str = self.ctx.ty_to_string(requirement.target_ty);

@@ -1,6 +1,7 @@
 use super::ExprChecker;
 use crate::checker::{ConstEvaluator, Substituter};
 use crate::def::{Def, DefId};
+use crate::passes::ImportResolver;
 use crate::passes::TypeResolver;
 use crate::query::{MemberQuery, MemberQueryEnv};
 use crate::scope::{SymbolInfo, SymbolKind};
@@ -62,7 +63,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn build_generic_arg_map(
         &self,
         generics: &[ast::GenericParam],
-        generic_args: &[TypeId],
+        generic_args: &[crate::ty::GenericArg],
     ) -> Option<std::collections::HashMap<SymbolId, TypeId>> {
         if generics.is_empty() || generic_args.is_empty() {
             return None;
@@ -70,7 +71,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let mut map = std::collections::HashMap::with_capacity(generics.len());
         for (index, param) in generics.iter().enumerate() {
-            if let Some(arg) = generic_args.get(index).copied() {
+            if let Some(arg) = generic_args.get(index).and_then(|arg| arg.as_type()) {
                 map.insert(param.name, arg);
             }
         }
@@ -125,6 +126,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         entered_scope: bool,
     ) -> bool {
         self.pattern_binds_name(pattern.name, entered_scope)
+    }
+
+    pub(crate) fn import_needs_scope_extension(
+        &self,
+        import: &crate::def::ImportDef,
+        entered_scope: bool,
+    ) -> bool {
+        ImportResolver::binding_names(import)
+            .into_iter()
+            .any(|name| !entered_scope || self.ctx.scopes.resolve(name).is_some())
     }
 
     fn define_pattern_binding(

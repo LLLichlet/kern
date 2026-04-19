@@ -1,13 +1,13 @@
 use crate::SemaContext;
 use crate::checker::Substituter;
 use crate::def::{Def, DefId};
-use crate::ty::{PrimitiveType, TypeId, TypeKind};
+use crate::ty::{ConstGeneric, GenericArg, PrimitiveType, TypeId, TypeKind};
 use kernc_ast as ast;
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
 type StructMapping = (Vec<usize>, Vec<usize>);
-type NamedStructMappingKey = (DefId, Vec<TypeId>);
+type NamedStructMappingKey = (DefId, Vec<GenericArg>);
 
 #[derive(Clone, Copy)]
 struct ActiveLayoutFrame {
@@ -39,7 +39,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     pub fn get_struct_mapping(
         &mut self,
         def_id: DefId,
-        generic_args: &[TypeId],
+        generic_args: &[GenericArg],
         _depth: usize,
     ) -> (Vec<usize>, Vec<usize>) {
         let cache_key = (def_id, generic_args.to_vec());
@@ -333,6 +333,9 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
 
             // Fixed-size arrays have known size; `ArrayInfer` still counts as unknown here.
             TypeKind::Array { elem, len, .. } => {
+                let Some(len) = self.resolve_array_len(len, request_span) else {
+                    return 0;
+                };
                 self.compute_type_size_inner(elem, request_span) * len
             }
             TypeKind::ArrayInfer { .. } => {
@@ -565,7 +568,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         }
     }
 
-    fn compute_def_align(&mut self, def_id: DefId, generic_args: &[TypeId]) -> u64 {
+    fn compute_def_align(&mut self, def_id: DefId, generic_args: &[GenericArg]) -> u64 {
         let def = self.ctx.defs[def_id.0 as usize].clone();
         match def {
             Def::Struct(s) => {
@@ -625,7 +628,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         }
     }
 
-    fn compute_def_size(&mut self, def_id: DefId, generic_args: &[TypeId]) -> u64 {
+    fn compute_def_size(&mut self, def_id: DefId, generic_args: &[GenericArg]) -> u64 {
         let def = self.ctx.defs[def_id.0 as usize].clone();
         match def {
             Def::Struct(s) => {
@@ -724,8 +727,8 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     fn prepare_generic_subst(
         &self,
         generics: &[ast::GenericParam],
-        args: &[TypeId],
-    ) -> HashMap<SymbolId, TypeId> {
+        args: &[GenericArg],
+    ) -> HashMap<SymbolId, GenericArg> {
         let mut map = HashMap::new();
         if !generics.is_empty() && !args.is_empty() {
             for (i, param) in generics.iter().enumerate() {
@@ -738,7 +741,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     fn resolve_field_type(
         &mut self,
         type_node: &ast::TypeNode,
-        map: &HashMap<SymbolId, TypeId>,
+        map: &HashMap<SymbolId, GenericArg>,
     ) -> TypeId {
         let mut f_ty = self
             .ctx
@@ -751,6 +754,52 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             f_ty = subst.substitute(f_ty);
         }
         f_ty
+    }
+
+    fn resolve_array_len(&mut self, len: ConstGeneric, request_span: Span) -> Option<u64> {
+        match len {
+            ConstGeneric::Value(value) => {
+                let len = u64::try_from(value.as_int()?).ok()?;
+                if len > u32::MAX as u64 {
+                    self.ctx
+                        .struct_error(
+                            request_span,
+                            format!(
+                                "array length {} exceeds the current compiler limit of {} elements",
+                                len,
+                                u32::MAX
+                            ),
+                        )
+                        .with_hint(
+                            "LLVM array types are emitted with a 32-bit element count; split the object or allocate dynamically instead",
+                        )
+                        .emit();
+                    return None;
+                }
+                Some(len)
+            }
+            ConstGeneric::Param(symbol, _) => {
+                self.ctx.emit_ice(
+                    request_span,
+                    format!(
+                        "Kern ICE (Layout): unresolved const generic `{}` reached layout computation.",
+                        self.ctx.resolve(symbol)
+                    ),
+                );
+                None
+            }
+            ConstGeneric::Expr(expr_id) => {
+                self.ctx.emit_ice(
+                    request_span,
+                    format!(
+                        "Kern ICE (Layout): unresolved const expression `{:?}` reached layout computation.",
+                        self.ctx.type_registry.const_expr(expr_id)
+                    ),
+                );
+                None
+            }
+            ConstGeneric::Error => None,
+        }
     }
 
     fn layout_request_span(&self, ty: TypeId) -> Span {

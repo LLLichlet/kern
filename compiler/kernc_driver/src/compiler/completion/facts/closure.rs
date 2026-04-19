@@ -271,11 +271,9 @@ fn collect_stmt_closure_completion_facts(
     closure_binding_items_by_body_span: &BTreeMap<kernc_utils::Span, Vec<AnalysisCompletionItem>>,
     closure_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionClosureFacts>,
 ) {
-    collect_expr_closure_completion_facts(
-        stmt_expr(stmt),
-        closure_binding_items_by_body_span,
-        closure_facts_by_span,
-    );
+    if let Some(expr) = stmt_expr(stmt) {
+        collect_expr_closure_completion_facts(expr, closure_binding_items_by_body_span, closure_facts_by_span);
+    }
 }
 
 fn collect_data_literal_closure_completion_facts(

@@ -24,6 +24,10 @@ impl<'a> Parser<'a> {
                 self.parse_defer_stmt(&mut stmts, attributes)?;
                 continue;
             }
+            if self.check(TokenType::Use) {
+                self.parse_use_stmt(&mut stmts, attributes)?;
+                continue;
+            }
 
             let expr = match self.parse_expression(Precedence::Lowest) {
                 Ok(e) => e,
@@ -63,6 +67,29 @@ impl<'a> Parser<'a> {
             span: start_span.to(rb.span),
             kind: ExprKind::Block { stmts, result },
         })
+    }
+
+    fn parse_use_stmt(
+        &mut self,
+        stmts: &mut Vec<Stmt>,
+        attributes: Vec<Attribute>,
+    ) -> ParseResult<()> {
+        let start = self.peek().span;
+        let (kind, path, target, binding_span) = self.parse_use_clause(start)?;
+        self.expect(TokenType::Semicolon)?;
+        let end = self.stream.prev_span();
+        stmts.push(Stmt {
+            id: self.new_id(),
+            span: start.to(end),
+            attributes,
+            kind: StmtKind::Use(UseStmt {
+                kind,
+                path,
+                target,
+                binding_span,
+            }),
+        });
+        Ok(())
     }
 
     fn parse_defer_stmt(

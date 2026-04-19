@@ -366,6 +366,7 @@ impl<'a> FlowCfgBuilder<'a> {
                 let mut current = incoming;
                 for stmt in stmts {
                     current = match &stmt.kind {
+                        ast::StmtKind::Use(_) => current,
                         ast::StmtKind::ExprStmt(inner) | ast::StmtKind::ExprValue(inner) => {
                             self.lower_expr(inner, current, loop_ctx)
                         }
@@ -700,6 +701,7 @@ fn collect_local_binding_uses_in_expr(
         ast::ExprKind::Block { stmts, result } => {
             for stmt in stmts {
                 match &stmt.kind {
+                    ast::StmtKind::Use(_) => {}
                     ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                         collect_local_binding_uses_in_expr(expr, reference_to_binding, uses);
                     }
@@ -917,6 +919,7 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
             effects.has_control_flow = true;
             for stmt in stmts {
                 match &stmt.kind {
+                    ast::StmtKind::Use(_) => {}
                     ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                         accumulate_expr_effects(expr, effects);
                     }

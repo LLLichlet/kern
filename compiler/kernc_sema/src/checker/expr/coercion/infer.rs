@@ -175,7 +175,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if let Some(bound_ty) = self.projection_assoc_from_env_bounds(
                 target_norm,
                 trait_def_id,
-                &trait_args,
+                &crate::ty::erase_non_type_generic_args(&trait_args),
                 assoc_def_id,
             ) {
                 return Some(self.resolve_tv(bound_ty));
@@ -184,7 +184,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if let Some(bound_ty) = self.projection_assoc_from_global_impls(
                 target_norm,
                 trait_def_id,
-                &trait_args,
+                &crate::ty::erase_non_type_generic_args(&trait_args),
                 assoc_def_id,
             ) {
                 return Some(self.resolve_tv(bound_ty));
@@ -211,7 +211,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let expected_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
             trait_def_id,
-            trait_args.to_vec(),
+            crate::ty::wrap_type_args(trait_args.iter().copied()),
             Vec::new(),
         ));
         let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
@@ -265,7 +265,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> Option<TypeId> {
         let expected_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
             trait_def_id,
-            trait_args.to_vec(),
+            crate::ty::wrap_type_args(trait_args.iter().copied()),
             Vec::new(),
         ));
         let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impls.as_slice());

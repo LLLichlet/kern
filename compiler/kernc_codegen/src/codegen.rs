@@ -163,8 +163,8 @@ pub struct CodeGenerator<'ctx, 'a> {
     )>,
     asm_dialect: InlineAsmDialect,
 
-    def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
-    pure_enum_tag_map: HashMap<(DefId, Vec<TypeId>), TypeId>,
+    def_mono_map: HashMap<(DefId, Vec<kernc_sema::ty::GenericArg>), MonoId>,
+    pure_enum_tag_map: HashMap<(DefId, Vec<kernc_sema::ty::GenericArg>), TypeId>,
     adt_union_map: HashMap<MonoId, MonoId>,
     anon_struct_map: HashMap<TypeId, MonoId>,
     anon_union_map: HashMap<TypeId, MonoId>,

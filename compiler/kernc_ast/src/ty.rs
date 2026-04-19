@@ -105,12 +105,13 @@ pub enum TypeKind {
 pub struct TypePathSegment {
     pub name: SymbolId,
     pub name_span: Span,
-    pub args: Vec<TypeArg>,
+    pub args: Vec<GenericArg>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TypeArg {
-    Positional(TypeNode),
+pub enum GenericArg {
+    Type(TypeNode),
+    ConstExpr(Expr),
     AssocBinding {
         name: SymbolId,
         name_span: Span,

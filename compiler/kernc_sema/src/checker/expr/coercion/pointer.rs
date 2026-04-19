@@ -163,7 +163,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .generics
             .iter()
             .zip(source_args.iter())
-            .map(|(param, arg)| (param.name, *arg))
+            .map(|(param, arg)| (param.name, arg.as_type().unwrap_or(TypeId::ERROR)))
             .collect();
 
         for &super_ty in &trait_def.resolved_supertraits {
@@ -249,7 +249,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return self.compare_named_fields_to_anonymous(
                         &act_s.generics,
                         &act_s.fields,
-                        act_args,
+                        &crate::ty::erase_non_type_generic_args(act_args),
                         &exp_fields,
                         true,
                     );
@@ -261,7 +261,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return self.compare_named_fields_to_anonymous(
                         &act_u.generics,
                         &act_u.fields,
-                        act_args,
+                        &crate::ty::erase_non_type_generic_args(act_args),
                         &exp_fields,
                         false,
                     );

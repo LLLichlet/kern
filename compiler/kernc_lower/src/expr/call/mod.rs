@@ -183,9 +183,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | TypeKind::Associated(_, args)
             | TypeKind::FnDef(_, args) => args
                 .into_iter()
+                .filter_map(|arg| arg.as_type())
                 .any(|arg| self.type_contains_generic_placeholders(arg)),
             TypeKind::TraitObject(_, args, assoc_bindings) => {
                 args.into_iter()
+                    .filter_map(|arg| arg.as_type())
                     .any(|arg| self.type_contains_generic_placeholders(arg))
                     || assoc_bindings
                         .into_iter()
@@ -200,9 +202,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.type_contains_generic_placeholders(target)
                     || trait_args
                         .into_iter()
+                        .filter_map(|arg| arg.as_type())
                         .any(|arg| self.type_contains_generic_placeholders(arg))
                     || assoc_args
                         .into_iter()
+                        .filter_map(|arg| arg.as_type())
                         .any(|arg| self.type_contains_generic_placeholders(arg))
             }
             TypeKind::Function { params, ret, .. } => {

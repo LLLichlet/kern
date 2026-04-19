@@ -5,7 +5,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         callee: &Expr,
         args: &[Expr],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> MastExprKind {
         if let Some(asm_call) = self.maybe_lower_asm_call(callee, args, subst_map, span) {
@@ -308,7 +308,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
 
                 arg_masts.insert(0, final_recv);
-                let mono_id = self.instantiate_function_at(func_id, &resolved_impl_args, call.span);
+                let mono_id = self.instantiate_function_at(
+                    func_id,
+                    &kernc_sema::ty::wrap_type_args(resolved_impl_args),
+                    call.span,
+                );
                 let func_ref =
                     MastExpr::new(call.norm_callee, MastExprKind::FuncRef(mono_id), call.span);
                 MastExprKind::Call {
@@ -336,7 +340,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         mut recv: MastExpr,
         mut arg_masts: Vec<MastExpr>,
         method_id: DefId,
-        generics: &[TypeId],
+        generics: &[kernc_sema::ty::GenericArg],
         call: MethodCallSite,
     ) -> MastExprKind {
         recv = self.measure_phase("                lower_call_static_recv", |_this| {
@@ -378,7 +382,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         args: &[Expr],
         mut arg_masts: Vec<MastExpr>,
         fn_id: DefId,
-        fn_args: Vec<TypeId>,
+        fn_args: Vec<kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> MastExprKind {
         if let Some(intrinsic) = self
@@ -429,7 +433,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn lower_plain_callee(
         &mut self,
         callee: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     ) -> MastExpr {
         self.measure_phase("              lower_call_plain_callee", |this| {
             this.lower_expr(callee, subst_map, None)
@@ -592,7 +596,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         callee: &Expr,
         args: &[Expr],
         arg_masts: Vec<MastExpr>,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     ) -> MastExprKind {
         let callee_mast = self.lower_plain_callee(callee, subst_map);
         let norm_callee = self.ctx.type_registry.normalize(callee_mast.ty);

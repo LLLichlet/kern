@@ -291,8 +291,9 @@ impl<'a> Parser<'a> {
                 .last()
                 .and_then(|segment| segment.args.last())
                 .map(|arg| match arg {
-                    TypeArg::Positional(ty) => ty.span,
-                    TypeArg::AssocBinding { value, .. } => value.span,
+                    GenericArg::Type(ty) => ty.span,
+                    GenericArg::ConstExpr(expr) => expr.span,
+                    GenericArg::AssocBinding { value, .. } => value.span,
                 })
         {
             span = span.to(last_arg_span);
@@ -303,8 +304,9 @@ impl<'a> Parser<'a> {
             let segment = self.parse_type_path_segment_after_name(id_token)?;
             span = span.to(segment.name_span);
             if let Some(last_arg_span) = segment.args.last().map(|arg| match arg {
-                TypeArg::Positional(ty) => ty.span,
-                TypeArg::AssocBinding { value, .. } => value.span,
+                GenericArg::Type(ty) => ty.span,
+                GenericArg::ConstExpr(expr) => expr.span,
+                GenericArg::AssocBinding { value, .. } => value.span,
             }) {
                 span = span.to(last_arg_span);
             }
@@ -335,26 +337,49 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_type_args(&mut self) -> ParseResult<Vec<TypeArg>> {
+    pub(super) fn parse_generic_arg(&mut self, allow_assoc_bindings: bool) -> ParseResult<GenericArg> {
+        if allow_assoc_bindings
+            && self.check(TokenType::Identifier)
+            && self.stream.peek_tag_nth(1) == TokenType::Assign
+        {
+            let name_token = self.advance();
+            let name = self.intern_token(name_token);
+            self.expect(TokenType::Assign)?;
+            let value = self.parse_type()?;
+            return Ok(GenericArg::AssocBinding {
+                name,
+                name_span: name_token.span,
+                value,
+            });
+        }
+
+        let saved_stream = self.stream.clone();
+        let saved_panic_mode = self.panic_mode;
+        let saved_next_node_id = self.session.next_node_id;
+        let saved_diagnostic_len = self.session.diagnostics.len();
+
+        if let Ok(ty) = self.parse_type()
+            && matches!(self.peek().tag, TokenType::Comma | TokenType::RBracket)
+        {
+            return Ok(GenericArg::Type(ty));
+        }
+
+        self.stream = saved_stream;
+        self.panic_mode = saved_panic_mode;
+        self.session.next_node_id = saved_next_node_id;
+        self.session.diagnostics.truncate(saved_diagnostic_len);
+
+        Ok(GenericArg::ConstExpr(
+            self.parse_expression(super::expr::Precedence::Lowest)?,
+        ))
+    }
+
+    fn parse_type_args(&mut self) -> ParseResult<Vec<GenericArg>> {
         self.expect(TokenType::LBracket)?;
         let mut args = Vec::new();
         if !self.check(TokenType::RBracket) {
             loop {
-                if self.check(TokenType::Identifier)
-                    && self.stream.peek_tag_nth(1) == TokenType::Assign
-                {
-                    let name_token = self.advance();
-                    let name = self.intern_token(name_token);
-                    self.expect(TokenType::Assign)?;
-                    let value = self.parse_type()?;
-                    args.push(TypeArg::AssocBinding {
-                        name,
-                        name_span: name_token.span,
-                        value,
-                    });
-                } else {
-                    args.push(TypeArg::Positional(self.parse_type()?));
-                }
+                args.push(self.parse_generic_arg(true)?);
                 if !self.continue_after_comma(&[TokenType::RBracket]) {
                     break;
                 }

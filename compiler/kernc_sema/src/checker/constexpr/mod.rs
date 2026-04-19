@@ -193,9 +193,15 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
     }
 
+    pub fn eval_const_value(&mut self, expr: &Expr) -> ConstEvalResult<ConstValue> {
+        self.eval_inner(expr, 0)
+    }
+
     fn kind_to_string(&self, kind: SymbolKind) -> &'static str {
         match kind {
             SymbolKind::Var => "variable (`let`)",
+            SymbolKind::Const => "constant",
+            SymbolKind::ConstParam => "const parameter",
             SymbolKind::Static => "static variable",
             SymbolKind::Function => "function",
             SymbolKind::Struct => "struct",

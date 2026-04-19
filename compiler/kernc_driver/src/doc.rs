@@ -891,7 +891,12 @@ fn generic_params_label(ctx: &SemaContext<'_>, generics: &[ast::GenericParam]) -
     }
     let names = generics
         .iter()
-        .map(|param| ctx.resolve(param.name).to_string())
+        .map(|param| match &param.kind {
+            ast::GenericParamKind::Type => ctx.resolve(param.name).to_string(),
+            ast::GenericParamKind::Const { ty } => {
+                format!("{}: {}", ctx.resolve(param.name), type_node_label(ctx, ty))
+            }
+        })
         .collect::<Vec<_>>();
     format!("[{}]", names.join(", "))
 }

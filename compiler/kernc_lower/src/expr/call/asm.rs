@@ -5,7 +5,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         callee: &Expr,
         args: &[Expr],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> Option<MastExprKind> {
         let ExprKind::Identifier(sym) = &callee.kind else {
@@ -22,7 +22,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(super) fn detect_method_call(
         &mut self,
         callee: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     ) -> Option<(NodeId, SymbolId, MastExpr)> {
         let ExprKind::FieldAccess { lhs, field, .. } = &callee.kind else {
             return None;
@@ -135,7 +135,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_asm_call(
         &mut self,
         args: &[Expr],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> MastExprKind {
         let Some(fields) = self.asm_config_fields(args, span) else {

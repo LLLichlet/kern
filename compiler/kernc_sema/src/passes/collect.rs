@@ -1374,10 +1374,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     fn inject_generic_params(&mut self, generics: &[ast::GenericParam]) {
         for param in generics {
             let generic_node_id = self.ctx.next_node_id();
+            let kind = match param.kind {
+                ast::GenericParamKind::Type => SymbolKind::TypeParam,
+                ast::GenericParamKind::Const { .. } => SymbolKind::ConstParam,
+            };
 
             self.define_symbol(SymbolDefSpec {
                 name: param.name,
-                kind: SymbolKind::TypeParam,
+                kind,
                 node_id: generic_node_id,
                 def_id: None,
                 span: param.span,

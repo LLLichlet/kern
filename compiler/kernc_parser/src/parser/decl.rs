@@ -2,9 +2,68 @@ use super::expr::Precedence;
 use super::{ParseError, ParseResult, Parser};
 use kernc_ast::*;
 use kernc_lexer::TokenType;
-use kernc_utils::Span;
+use kernc_utils::{Span, SymbolId};
 
 impl<'a> Parser<'a> {
+    pub(super) fn parse_use_clause(
+        &mut self,
+        start: Span,
+    ) -> ParseResult<(UsePathKind, Vec<SymbolId>, UseTarget, Span)> {
+        self.advance(); // Consume `use`.
+
+        // 1. Parse the import root marker, if any.
+        let mut kind = UsePathKind::External;
+
+        if self.match_token(&[TokenType::DotLBrace]) {
+            let target = UseTarget::Tree(self.parse_use_tree_items()?);
+            return Ok((UsePathKind::Current, Vec::new(), target, start));
+        } else if self.match_token(&[TokenType::Dot]) {
+            kind = UsePathKind::Current;
+        } else if self.match_token(&[TokenType::DotDot]) {
+            kind = UsePathKind::Parent;
+        } else if self.match_token(&[TokenType::Slash]) {
+            kind = UsePathKind::Package;
+        }
+
+        let mut path = Vec::new();
+        let target: UseTarget;
+        let mut binding_span = start;
+
+        // 2. Consume path segments until the target form is known.
+        loop {
+            if self.match_token(&[TokenType::LBrace]) {
+                target = UseTarget::Tree(self.parse_use_tree_items()?);
+                break;
+            }
+            if self.match_token(&[TokenType::DotLBrace]) {
+                target = UseTarget::Tree(self.parse_use_tree_items()?);
+                break;
+            }
+
+            let id = self.expect(TokenType::Identifier)?;
+            binding_span = id.span;
+            path.push(self.intern_token(id));
+
+            if self.match_token(&[TokenType::DotLBrace]) {
+                target = UseTarget::Tree(self.parse_use_tree_items()?);
+                break;
+            } else if self.match_token(&[TokenType::Dot]) {
+                continue;
+            } else {
+                let mut alias = None;
+                if self.match_token(&[TokenType::As]) {
+                    let a = self.expect(TokenType::Identifier)?;
+                    binding_span = a.span;
+                    alias = Some(self.intern_token(a));
+                }
+                target = UseTarget::Module(alias);
+                break;
+            }
+        }
+
+        Ok((kind, path, target, binding_span))
+    }
+
     fn parse_visibility(&mut self) -> (Visibility, Span) {
         if !self.match_token(&[TokenType::Pub]) {
             let span = self.peek().span;
@@ -35,11 +94,19 @@ impl<'a> Parser<'a> {
         while !self.check(TokenType::RBracket) && !self.check(TokenType::Eof) {
             let name = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name);
-            let span = name.span;
+            let mut span = name.span;
+            let kind = if self.match_token(&[TokenType::Colon]) {
+                let ty = self.parse_type()?;
+                span = span.to(ty.span);
+                GenericParamKind::Const { ty }
+            } else {
+                GenericParamKind::Type
+            };
 
             params.push(GenericParam {
                 name: name_id,
                 span,
+                kind,
             });
 
             if !self.continue_after_comma(&[TokenType::RBracket]) {
@@ -603,55 +670,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_use_decl(&mut self, start: Span, vis: Visibility) -> ParseResult<Decl> {
-        self.advance(); // Consume `use`.
-
-        // 1. Parse the import root marker, if any.
-        let mut kind = UsePathKind::External;
-
-        if self.match_token(&[TokenType::Dot]) {
-            kind = UsePathKind::Current;
-        } else if self.match_token(&[TokenType::DotDot]) {
-            kind = UsePathKind::Parent;
-        } else if self.match_token(&[TokenType::Slash]) {
-            kind = UsePathKind::Package;
-        }
-
-        let mut path = Vec::new();
-        let target: UseTarget;
-        let mut binding_span = start;
-
-        // 2. Consume path segments until the target form is known.
-        loop {
-            if self.match_token(&[TokenType::LBrace]) {
-                target = UseTarget::Tree(self.parse_use_tree_items()?);
-                break;
-            }
-            if self.match_token(&[TokenType::DotLBrace]) {
-                target = UseTarget::Tree(self.parse_use_tree_items()?);
-                break;
-            }
-
-            let id = self.expect(TokenType::Identifier)?;
-            binding_span = id.span;
-            path.push(self.intern_token(id));
-
-            if self.match_token(&[TokenType::DotLBrace]) {
-                target = UseTarget::Tree(self.parse_use_tree_items()?);
-                break;
-            } else if self.match_token(&[TokenType::Dot]) {
-                continue;
-            } else {
-                let mut alias = None;
-                if self.match_token(&[TokenType::As]) {
-                    let a = self.expect(TokenType::Identifier)?;
-                    binding_span = a.span;
-                    alias = Some(self.intern_token(a));
-                }
-                target = UseTarget::Module(alias);
-                break;
-            }
-        }
-
+        let (kind, path, target, binding_span) = self.parse_use_clause(start)?;
         self.expect(TokenType::Semicolon)?;
 
         let name = if let Some(&last) = path.last() {
@@ -795,7 +814,7 @@ impl<'a> Parser<'a> {
                     Err(ParseError)
                 }
             }
-            ExprKind::GenericInstantiation { target, types } => {
+            ExprKind::GenericInstantiation { target, args } => {
                 let mut base = self.expr_to_type(*target)?;
                 if let TypeKind::Path {
                     ref mut segments, ..
@@ -805,7 +824,7 @@ impl<'a> Parser<'a> {
                         self.add_error(expr.span, "Invalid generic type target".to_string());
                         return Err(ParseError);
                     };
-                    last.args = types.into_iter().map(TypeArg::Positional).collect();
+                    last.args = args;
                     base.span = base.span.to(expr.span);
                     Ok(base)
                 } else {

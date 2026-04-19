@@ -607,7 +607,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
         let norm_ty = self.type_registry.normalize(operand_ty);
         match self.type_registry.get(norm_ty) {
-            TypeKind::Array { len, .. } => self.context.i64_type().const_int(*len, false).into(),
+            TypeKind::Array { len, .. } => {
+                let Some(len) = self.const_generic_usize(*len, span) else {
+                    return self.zero_i8_value();
+                };
+                self.context.i64_type().const_int(len, false).into()
+            }
             TypeKind::Slice { .. } => self
                 .builder
                 .build_extract_value(op_val.into_struct_value(), 1, "mir_slice_len")
@@ -747,7 +752,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .type_registry
                     .get(self.type_registry.normalize(source_ty))
                 {
-                    TypeKind::Array { len, .. } => *len,
+                    TypeKind::Array { len, .. } => {
+                        let Some(len) = self.const_generic_usize(*len, Span::default()) else {
+                            return target_llvm_ty.const_zero();
+                        };
+                        len
+                    }
                     other => {
                         self.sess.emit_ice(
                             Span::default(),

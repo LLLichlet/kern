@@ -4,7 +4,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_block_as_body(
         &mut self,
         block_expr: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         expected_ty: TypeId,
     ) -> MastBlock {
         self.measure_phase("      lower_block_scope_push", |this| {
@@ -26,6 +26,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.measure_phase("      lower_block_stmts", |this| {
                 for stmt in ast_stmts {
                     match &stmt.kind {
+                        ast::StmtKind::Use(_) => {}
                         ast::StmtKind::ExprStmt(e) | ast::StmtKind::ExprValue(e) => {
                             this.lower_block_stmt(e, subst_map, &mut stmts);
                         }
@@ -73,7 +74,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         cond: &Expr,
         then_branch: &Expr,
         else_branch: Option<&Expr>,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         exp_ty: TypeId,
     ) -> MastExprKind {
         let c = self.measure_phase("            lower_if_cond", |this| {
@@ -100,7 +101,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         cond: Option<&Expr>,
         post: Option<&Expr>,
         body: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> MastExprKind {
         let has_init_scope = init.is_some();
@@ -231,7 +232,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_return(
         &mut self,
         val: Option<&Expr>,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> MastExprKind {
         let v = self.measure_phase("            lower_return_value", |this| {

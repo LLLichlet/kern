@@ -181,7 +181,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(super) fn lower_closure_captures(
         &mut self,
         captures: &[ast::CapturePattern],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     ) -> (Vec<MastField>, Vec<MastExpr>) {
         let mut env_struct_fields = Vec::new();
         let mut cap_exprs = Vec::new();

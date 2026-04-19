@@ -211,6 +211,7 @@ fn collect_call_sites_in_expr(
         ast::ExprKind::Block { stmts, result } => {
             for stmt in stmts {
                 match &stmt.kind {
+                    ast::StmtKind::Use(_) => {}
                     ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                         collect_call_sites_in_expr(ctx, file_id, expr, call_sites);
                     }
@@ -287,7 +288,11 @@ fn signatures_for_call(
     let callee_ty = ctx.node_types.get(&callee.id).copied()?;
     let normalized = ctx.type_registry.normalize(callee_ty);
     let signature = match ctx.type_registry.get(normalized).clone() {
-        TypeKind::FnDef(def_id, args) => function_signature_information(ctx, def_id, &args)?,
+        TypeKind::FnDef(def_id, args) => function_signature_information(
+            ctx,
+            def_id,
+            &kernc_sema::ty::erase_non_type_generic_args(&args),
+        )?,
         TypeKind::Function {
             params,
             ret,

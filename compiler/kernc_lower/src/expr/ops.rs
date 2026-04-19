@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use kernc_ast::{self as ast, Expr};
 use kernc_mast::*;
 use kernc_sema::def::Def;
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -362,7 +362,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         lhs: &Expr,
         op: ast::BinaryOperator,
         rhs: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         result_ty: TypeId,
         span: Span,
     ) -> MastExprKind {
@@ -467,7 +467,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         op: ast::UnaryOperator,
         operand: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         result_ty: TypeId,
         span: Span,
     ) -> MastExprKind {
@@ -494,7 +494,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                     // 2. Arrays have a compile-time-known length, so `#` folds to a constant.
                     TypeKind::Array { len, .. } => {
-                        return MastExprKind::Integer(len as u128);
+                        if let Some(len) = self.const_generic_usize(len, operand.span) {
+                            return MastExprKind::Integer(len as u128);
+                        }
+                        return MastExprKind::Trap;
                     }
                     TypeKind::ArrayInfer { .. } => {
                         // Reaching lowering with `ArrayInfer` still unresolved is an internal compiler bug.
@@ -546,7 +549,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         lhs: &Expr,
         op: ast::AssignmentOperator,
         rhs: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
         let l = self.lower_expr(lhs, subst_map, None);
         let r = self.lower_expr(rhs, subst_map, Some(l.ty));

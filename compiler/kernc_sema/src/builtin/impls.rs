@@ -245,7 +245,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             .collect();
         let canonical_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
             trait_def_id,
-            trait_args,
+            crate::ty::wrap_type_args(trait_args),
             canonical_assoc_bindings,
         ));
         self.ctx.node_types.insert(trait_id, canonical_trait_ty);

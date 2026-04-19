@@ -6,7 +6,7 @@ use kernc_mono::MonoId;
 use kernc_sema::LayoutEngine;
 use kernc_sema::checker::{ConstEvaluator, ConstValue};
 use kernc_sema::def::{Def, DefId, GlobalDef};
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
@@ -131,8 +131,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         owner_kind: &str,
         owner_name: &str,
         params: &[ast::GenericParam],
-        args: &[TypeId],
-    ) -> Option<HashMap<SymbolId, TypeId>> {
+        args: &[GenericArg],
+    ) -> Option<HashMap<SymbolId, GenericArg>> {
         if params.len() != args.len() {
             self.ctx.emit_ice(
                 Span::default(),
@@ -157,7 +157,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn instantiate_function_at(
         &mut self,
         def_id: DefId,
-        args: &[TypeId],
+        args: &[GenericArg],
         request_span: Span,
     ) -> MonoId {
         let key = self.measure_phase("  lower_mono_fn_key", |_this| (def_id, args.to_vec()));
@@ -171,7 +171,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.cache_stats.mono_function_misses += 1;
             let id = self.new_mono_id();
             self.mono_cache.insert(key, id);
-            self.placeholder_function(id, self.ctx.get_export_name(def_id, args));
+            self.placeholder_function(id, self.ctx.get_export_name_for_generic_args(def_id, args));
             self.emit_infinite_polymorphic_recursion_diagnostic(
                 ancestor_index,
                 def_id,
@@ -191,7 +191,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn finish_function_instantiation(
         &mut self,
         def_id: DefId,
-        args: &[TypeId],
+        args: &[GenericArg],
         id: MonoId,
         request_span: Span,
     ) -> MonoId {
@@ -211,7 +211,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.measure_phase("    lower_fn_signature", |this| {
                 let subst_map =
                     this.build_generic_subst_map("function", &fn_name, &def.generics, args)?;
-                let mangled_name = this.ctx.get_export_name(def_id, args);
+                let mangled_name = this.ctx.get_export_name_for_generic_args(def_id, args);
 
                 let raw_ret = def.resolved_sig.map_or(TypeId::VOID, |sig| {
                     if let TypeKind::Function { ret, .. } = this.ctx.type_registry.get(sig) {
@@ -253,7 +253,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 def_id,
                 args: args
                     .iter()
-                    .map(|arg| self.ctx.type_registry.normalize(*arg))
+                    .map(|arg| match *arg {
+                        GenericArg::Type(ty) => {
+                            GenericArg::Type(self.ctx.type_registry.normalize(ty))
+                        }
+                        GenericArg::Const(value) => GenericArg::Const(value),
+                    })
                     .collect(),
                 request_span,
             });
@@ -370,11 +375,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn detect_infinite_polymorphic_recursion(
         &self,
         def_id: DefId,
-        args: &[TypeId],
+        args: &[GenericArg],
     ) -> Option<usize> {
         let normalized_args: Vec<_> = args
             .iter()
-            .map(|arg| self.ctx.type_registry.normalize(*arg))
+            .map(|arg| match *arg {
+                GenericArg::Type(ty) => GenericArg::Type(self.ctx.type_registry.normalize(ty)),
+                GenericArg::Const(value) => GenericArg::Const(value),
+            })
             .collect();
 
         self.active_function_instantiations
@@ -389,12 +397,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     fn function_instantiation_strictly_grows(
         &self,
-        previous_args: &[TypeId],
-        next_args: &[TypeId],
+        previous_args: &[GenericArg],
+        next_args: &[GenericArg],
     ) -> bool {
         if previous_args == next_args {
             return false;
         }
+
+        let previous_args = kernc_sema::ty::erase_non_type_generic_args(previous_args);
+        let next_args = kernc_sema::ty::erase_non_type_generic_args(next_args);
 
         previous_args.iter().any(|previous_arg| {
             next_args.iter().any(|next_arg| {
@@ -439,11 +450,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | TypeKind::FnDef(_, args)
             | TypeKind::Associated(_, args) => args
                 .into_iter()
+                .filter_map(|arg| arg.as_type())
                 .map(|arg| contains_child(arg, self))
                 .find(|containment| *containment != TypeContainment::None)
                 .unwrap_or(TypeContainment::None),
             TypeKind::TraitObject(_, args, assoc_bindings) => args
                 .into_iter()
+                .filter_map(|arg| arg.as_type())
                 .map(|arg| contains_child(arg, self))
                 .chain(
                     assoc_bindings
@@ -458,8 +471,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 assoc_args,
                 ..
             } => std::iter::once(contains_child(target, self))
-                .chain(trait_args.into_iter().map(|arg| contains_child(arg, self)))
-                .chain(assoc_args.into_iter().map(|arg| contains_child(arg, self)))
+                .chain(
+                    trait_args
+                        .into_iter()
+                        .filter_map(|arg| arg.as_type())
+                        .map(|arg| contains_child(arg, self)),
+                )
+                .chain(
+                    assoc_args
+                        .into_iter()
+                        .filter_map(|arg| arg.as_type())
+                        .map(|arg| contains_child(arg, self)),
+                )
                 .find(|containment| *containment != TypeContainment::None)
                 .unwrap_or(TypeContainment::None),
             TypeKind::ClosureInterface { params, ret } | TypeKind::Function { params, ret, .. } => {
@@ -507,7 +530,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         ancestor_index: usize,
         def_id: DefId,
-        args: &[TypeId],
+        args: &[GenericArg],
         request_span: Span,
     ) {
         let current_display = self.function_instantiation_display(def_id, args);
@@ -569,7 +592,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         diag.emit();
     }
 
-    fn function_instantiation_display(&self, def_id: DefId, args: &[TypeId]) -> String {
+    fn function_instantiation_display(&self, def_id: DefId, args: &[GenericArg]) -> String {
         let name = match &self.ctx.defs[def_id.0 as usize] {
             Def::Function(function) => self.ctx.resolve(function.name).to_string(),
             other => other
@@ -584,13 +607,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let rendered_args = args
             .iter()
-            .map(|arg| self.ctx.ty_to_string(*arg))
+            .map(|arg| match *arg {
+                GenericArg::Type(ty) => self.ctx.ty_to_string(ty),
+                GenericArg::Const(value) => value.to_string(),
+            })
             .collect::<Vec<_>>()
             .join(", ");
         format!("{name}[{rendered_args}]")
     }
 
-    pub(crate) fn instantiate_struct(&mut self, def_id: DefId, args: &[TypeId]) -> MonoId {
+    pub(crate) fn instantiate_struct(&mut self, def_id: DefId, args: &[GenericArg]) -> MonoId {
         let key = self.measure_phase("  lower_mono_struct_key", |_this| (def_id, args.to_vec()));
         if let Some(id) = self.measure_phase("  lower_mono_struct_lookup", |this| {
             this.mono_cache.get(&key).copied()
@@ -618,7 +644,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 return id;
             };
 
-            let mangled_name = this.ctx.get_export_name(def_id, args);
+            let mangled_name = this.ctx.get_export_name_for_generic_args(def_id, args);
             let Some(subst_map) =
                 this.build_generic_subst_map("struct", &mangled_name, &def.generics, args)
             else {
@@ -881,7 +907,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn instantiate_union(
         &mut self,
         def_id: DefId,
-        args: &[TypeId],
+        args: &[GenericArg],
         id: MonoId,
     ) -> MonoId {
         let def = if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] {
@@ -895,7 +921,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return id;
         };
 
-        let mangled_name = self.ctx.get_export_name(def_id, args);
+        let mangled_name = self.ctx.get_export_name_for_generic_args(def_id, args);
         let Some(subst_map) =
             self.build_generic_subst_map("union", &mangled_name, &def.generics, args)
         else {
@@ -949,7 +975,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         id
     }
 
-    pub(crate) fn instantiate_data(&mut self, def_id: DefId, args: &[TypeId]) -> MonoId {
+    pub(crate) fn instantiate_data(&mut self, def_id: DefId, args: &[GenericArg]) -> MonoId {
         let key = self.measure_phase("  lower_mono_data_key", |_this| (def_id, args.to_vec()));
         if let Some(id) = self.measure_phase("  lower_mono_data_lookup", |this| {
             this.mono_cache.get(&key).copied()
@@ -982,7 +1008,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 return wrapper_id;
             };
 
-            let mangled_name = this.ctx.get_export_name(def_id, args);
+            let mangled_name = this.ctx.get_export_name_for_generic_args(def_id, args);
             let Some(subst_map) =
                 this.build_generic_subst_map("enum", &mangled_name, &def.generics, args)
             else {

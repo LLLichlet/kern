@@ -2,7 +2,10 @@ use super::ExprChecker;
 use crate::checker::{ConstEvaluator, Substituter};
 use crate::def::Def;
 use crate::passes::TypeResolver;
-use crate::ty::{PrimitiveType, TypeId, TypeKind};
+use crate::ty::{
+    ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, PrimitiveType, TypeId,
+    TypeKind,
+};
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
@@ -11,7 +14,7 @@ type StructLiteralDefInfo = (
     Vec<(kernc_utils::SymbolId, TypeId, bool, Option<Span>)>,
     String,
     Vec<ast::GenericParam>,
-    Vec<TypeId>,
+    Vec<GenericArg>,
     bool,
 );
 
@@ -522,7 +525,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             TypeKind::Array { elem, len, is_mut } => (*elem, Some(*len), *is_mut),
             TypeKind::ArrayInfer { elem, is_mut } => (*elem, None, *is_mut),
             TypeKind::Slice { elem, is_mut } => (*elem, None, *is_mut),
-            TypeKind::Simd { elem, lanes } => (*elem, Some(*lanes as u64), false),
+            TypeKind::Simd { elem, lanes } => (
+                *elem,
+                Some(ConstGeneric::Value(ConstGenericValue {
+                    ty: TypeId::USIZE,
+                    kind: ConstGenericValueKind::Int(*lanes as i128),
+                })),
+                false,
+            ),
             _ => {
                 let ty_str = self.ctx.ty_to_string(expected);
                 self.ctx
@@ -537,8 +547,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         // 2. Check the length when the target is a fixed-size array.
-        if let Some(len) = expected_len
-            && elems.len() as u64 != len
+        if let Some(ConstGeneric::Value(len)) = expected_len
+            && len.ty == TypeId::USIZE
+            && Some(elems.len() as i128) != len.as_int()
         {
             self.ctx
                 .struct_error(
@@ -546,7 +557,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     format!(
                         "array literal length ({}) does not match expected length ({})",
                         elems.len(),
-                        len
+                        len.as_int().unwrap_or_default()
                     ),
                 )
                 .emit();
@@ -580,7 +591,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx.type_registry.intern(TypeKind::Array {
                 is_mut: exp_is_mut,
                 elem: exp_elem_ty,
-                len: actual_len,
+                len: ConstGeneric::Value(ConstGenericValue {
+                    ty: TypeId::USIZE,
+                    kind: ConstGenericValueKind::Int(actual_len as i128),
+                }),
             })
         } else {
             // Already a concrete `[N]T`.
@@ -677,7 +691,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx.type_registry.intern(TypeKind::Array {
                 is_mut: exp_is_mut,
                 elem: exp_elem_ty,
-                len: actual_len,
+                len: ConstGeneric::Value(ConstGenericValue {
+                    ty: TypeId::USIZE,
+                    kind: ConstGenericValueKind::Int(actual_len as i128),
+                }),
             })
         } else {
             expected

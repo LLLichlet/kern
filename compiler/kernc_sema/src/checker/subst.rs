@@ -1,5 +1,5 @@
 use crate::def::DefId;
-use crate::ty::{TypeId, TypeKind, TypeRegistry};
+use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind, TypeRegistry};
 use kernc_utils::SymbolId;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
@@ -7,6 +7,9 @@ use std::hash::BuildHasher;
 pub trait TypeSubstMap {
     fn is_empty(&self) -> bool;
     fn get(&self, name: &SymbolId) -> Option<&TypeId>;
+    fn get_const(&self, _name: &SymbolId) -> Option<&ConstGeneric> {
+        None
+    }
 }
 
 impl<S> TypeSubstMap for HashMap<SymbolId, TypeId, S>
@@ -22,6 +25,29 @@ where
     }
 }
 
+impl<S> TypeSubstMap for HashMap<SymbolId, GenericArg, S>
+where
+    S: BuildHasher,
+{
+    fn is_empty(&self) -> bool {
+        HashMap::is_empty(self)
+    }
+
+    fn get(&self, name: &SymbolId) -> Option<&TypeId> {
+        match HashMap::get(self, name) {
+            Some(GenericArg::Type(ty)) => Some(ty),
+            _ => None,
+        }
+    }
+
+    fn get_const(&self, name: &SymbolId) -> Option<&ConstGeneric> {
+        match HashMap::get(self, name) {
+            Some(GenericArg::Const(value)) => Some(value),
+            _ => None,
+        }
+    }
+}
+
 pub struct Substituter<'a, M> {
     registry: &'a mut TypeRegistry,
     map: &'a M,
@@ -33,6 +59,49 @@ where
 {
     pub fn new(registry: &'a mut TypeRegistry, map: &'a M) -> Self {
         Self { registry, map }
+    }
+
+    pub(crate) fn substitute_const_generic(&mut self, value: ConstGeneric) -> ConstGeneric {
+        match value {
+            ConstGeneric::Param(name, ty) => self.map.get_const(&name).cloned().unwrap_or(
+                ConstGeneric::Param(name, ty),
+            ),
+            ConstGeneric::Expr(id) => {
+                let expr = *self.registry.const_expr(id);
+                let rebuilt = match expr {
+                    crate::ty::ConstExprKind::Unary { op, expr, ty } => {
+                        crate::ty::ConstExprKind::Unary {
+                            op,
+                            expr: self.substitute_const_generic(expr),
+                            ty,
+                        }
+                    }
+                    crate::ty::ConstExprKind::Binary { op, lhs, rhs, ty } => {
+                        crate::ty::ConstExprKind::Binary {
+                            op,
+                            lhs: self.substitute_const_generic(lhs),
+                            rhs: self.substitute_const_generic(rhs),
+                            ty,
+                        }
+                    }
+                    crate::ty::ConstExprKind::Cast { expr, ty } => crate::ty::ConstExprKind::Cast {
+                        expr: self.substitute_const_generic(expr),
+                        ty,
+                    },
+                };
+                let rebuilt_id = self.registry.intern_const_expr(rebuilt);
+                self.registry
+                    .fold_const_generic(ConstGeneric::Expr(rebuilt_id))
+            }
+            other => other,
+        }
+    }
+
+    fn substitute_generic_arg(&mut self, arg: GenericArg) -> GenericArg {
+        match arg {
+            GenericArg::Type(ty) => GenericArg::Type(self.substitute(ty)),
+            GenericArg::Const(value) => GenericArg::Const(self.substitute_const_generic(value)),
+        }
     }
 
     pub fn substitute(&mut self, ty: TypeId) -> TypeId {
@@ -58,7 +127,10 @@ where
                 }
             }
             TypeKind::Associated(def_id, args) => {
-                let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_generic_arg(arg))
+                    .collect();
                 self.registry.intern(TypeKind::Associated(def_id, new_args))
             }
 
@@ -85,10 +157,11 @@ where
             }
             TypeKind::Array { is_mut, elem, len } => {
                 let new_elem = self.substitute(elem);
+                let new_len = self.substitute_const_generic(len);
                 self.registry.intern(TypeKind::Array {
                     is_mut,
                     elem: new_elem,
-                    len,
+                    len: new_len,
                 })
             }
             TypeKind::ArrayInfer { is_mut, elem } => {
@@ -112,20 +185,32 @@ where
                 })
             }
             TypeKind::Def(def_id, args) => {
-                let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_generic_arg(arg))
+                    .collect();
                 self.registry.intern(TypeKind::Def(def_id, new_args))
             }
             TypeKind::Enum(def_id, args) => {
-                let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_generic_arg(arg))
+                    .collect();
                 self.registry.intern(TypeKind::Enum(def_id, new_args))
             }
             TypeKind::EnumPayload(def_id, args) => {
-                let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_generic_arg(arg))
+                    .collect();
                 self.registry
                     .intern(TypeKind::EnumPayload(def_id, new_args))
             }
             TypeKind::FnDef(def_id, args) => {
-                let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_generic_arg(arg))
+                    .collect();
                 self.registry.intern(TypeKind::FnDef(def_id, new_args))
             }
             TypeKind::Alias(name, target) => {
@@ -133,7 +218,10 @@ where
                 self.registry.intern(TypeKind::Alias(name, new_target))
             }
             TypeKind::TraitObject(def_id, args, assoc_bindings) => {
-                let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
+                let new_args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_generic_arg(arg))
+                    .collect();
                 let new_assoc_bindings = assoc_bindings
                     .into_iter()
                     .map(|(assoc_def_id, ty)| (assoc_def_id, self.substitute(ty)))
@@ -149,8 +237,14 @@ where
                 assoc_args,
             } => {
                 let new_target = self.substitute(target);
-                let new_trait_args = trait_args.into_iter().map(|a| self.substitute(a)).collect();
-                let new_assoc_args = assoc_args.into_iter().map(|a| self.substitute(a)).collect();
+                let new_trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_generic_arg(arg))
+                    .collect();
+                let new_assoc_args = assoc_args
+                    .into_iter()
+                    .map(|arg| self.substitute_generic_arg(arg))
+                    .collect();
                 self.registry.intern(TypeKind::Projection {
                     target: new_target,
                     trait_def_id,
@@ -262,7 +356,12 @@ where
         TypeKind::Associated(def_id, args) => {
             let new_args = args
                 .into_iter()
-                .map(|arg| substitute_associated_types(registry, arg, map))
+                .map(|arg| match arg {
+                    GenericArg::Type(ty) => {
+                        GenericArg::Type(substitute_associated_types(registry, ty, map))
+                    }
+                    GenericArg::Const(value) => GenericArg::Const(value),
+                })
                 .collect::<Vec<_>>();
             if new_args.is_empty()
                 && let Some(&bound_ty) = map.get(&def_id)
@@ -327,28 +426,48 @@ where
         TypeKind::Def(def_id, args) => {
             let new_args = args
                 .into_iter()
-                .map(|arg| substitute_associated_types(registry, arg, map))
+                .map(|arg| match arg {
+                    GenericArg::Type(ty) => {
+                        GenericArg::Type(substitute_associated_types(registry, ty, map))
+                    }
+                    GenericArg::Const(value) => GenericArg::Const(value),
+                })
                 .collect();
             registry.intern(TypeKind::Def(def_id, new_args))
         }
         TypeKind::Enum(def_id, args) => {
             let new_args = args
                 .into_iter()
-                .map(|arg| substitute_associated_types(registry, arg, map))
+                .map(|arg| match arg {
+                    GenericArg::Type(ty) => {
+                        GenericArg::Type(substitute_associated_types(registry, ty, map))
+                    }
+                    GenericArg::Const(value) => GenericArg::Const(value),
+                })
                 .collect();
             registry.intern(TypeKind::Enum(def_id, new_args))
         }
         TypeKind::EnumPayload(def_id, args) => {
             let new_args = args
                 .into_iter()
-                .map(|arg| substitute_associated_types(registry, arg, map))
+                .map(|arg| match arg {
+                    GenericArg::Type(ty) => {
+                        GenericArg::Type(substitute_associated_types(registry, ty, map))
+                    }
+                    GenericArg::Const(value) => GenericArg::Const(value),
+                })
                 .collect();
             registry.intern(TypeKind::EnumPayload(def_id, new_args))
         }
         TypeKind::FnDef(def_id, args) => {
             let new_args = args
                 .into_iter()
-                .map(|arg| substitute_associated_types(registry, arg, map))
+                .map(|arg| match arg {
+                    GenericArg::Type(ty) => {
+                        GenericArg::Type(substitute_associated_types(registry, ty, map))
+                    }
+                    GenericArg::Const(value) => GenericArg::Const(value),
+                })
                 .collect();
             registry.intern(TypeKind::FnDef(def_id, new_args))
         }
@@ -359,7 +478,12 @@ where
         TypeKind::TraitObject(def_id, args, assoc_bindings) => {
             let new_args = args
                 .into_iter()
-                .map(|arg| substitute_associated_types(registry, arg, map))
+                .map(|arg| match arg {
+                    GenericArg::Type(ty) => {
+                        GenericArg::Type(substitute_associated_types(registry, ty, map))
+                    }
+                    GenericArg::Const(value) => GenericArg::Const(value),
+                })
                 .collect();
             let new_assoc_bindings = assoc_bindings
                 .into_iter()
@@ -379,11 +503,21 @@ where
             let new_target = substitute_associated_types(registry, target, map);
             let new_trait_args = trait_args
                 .into_iter()
-                .map(|arg| substitute_associated_types(registry, arg, map))
+                .map(|arg| match arg {
+                    GenericArg::Type(ty) => {
+                        GenericArg::Type(substitute_associated_types(registry, ty, map))
+                    }
+                    GenericArg::Const(value) => GenericArg::Const(value),
+                })
                 .collect();
             let new_assoc_args = assoc_args
                 .into_iter()
-                .map(|arg| substitute_associated_types(registry, arg, map))
+                .map(|arg| match arg {
+                    GenericArg::Type(ty) => {
+                        GenericArg::Type(substitute_associated_types(registry, ty, map))
+                    }
+                    GenericArg::Const(value) => GenericArg::Const(value),
+                })
                 .collect();
             registry.intern(TypeKind::Projection {
                 target: new_target,

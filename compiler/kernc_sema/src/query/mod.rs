@@ -135,7 +135,7 @@ pub struct MemberQuery<'a, 'ctx> {
 
 #[derive(Debug, Clone, Copy)]
 struct TraitMethodLookup<'a> {
-    trait_args: &'a [TypeId],
+    trait_args: &'a [crate::ty::GenericArg],
     assoc_bindings: &'a [(DefId, TypeId)],
     member_name: SymbolId,
     receiver_ty: TypeId,

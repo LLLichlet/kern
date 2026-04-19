@@ -175,7 +175,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         arm_body: &Expr,
         bindings: Vec<PatternBindingPlan>,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         exp_ty: TypeId,
     ) -> MastBlock {
         self.local_types.push(HashMap::new());
@@ -214,7 +214,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         init: &Expr,
         else_pattern: Option<&ast::Pattern>,
         else_branch: Option<&Expr>,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     ) -> Vec<MastStmt> {
         if else_branch.is_none() {
             match &pattern.pattern.kind {
@@ -498,7 +498,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         target: &Expr,
         arms: &[ast::MatchArm],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         exp_ty: TypeId,
     ) -> MastExprKind {
         let lowered_target = self.measure_phase("            lower_match_target", |this| {

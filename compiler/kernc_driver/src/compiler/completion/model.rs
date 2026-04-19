@@ -401,6 +401,7 @@ impl CompletionModel {
         offset: usize,
     ) -> bool {
         match &stmt.kind {
+            ast::StmtKind::Use(_) => false,
             ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                 self.collect_in_expr(expr, visible, offset)
             }

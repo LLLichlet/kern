@@ -592,6 +592,9 @@ impl CachedAstRebinder<'_> {
     fn rebind_generic_param(&mut self, generic: &mut ast::GenericParam) {
         generic.name = self.rebind_symbol(generic.name);
         self.rebind_span(&mut generic.span);
+        if let ast::GenericParamKind::Const { ty } = &mut generic.kind {
+            self.rebind_type_node(ty);
+        }
     }
 
     fn rebind_func_param(&mut self, param: &mut ast::FuncParam) {
@@ -798,10 +801,22 @@ impl CachedAstRebinder<'_> {
                 self.rebind_type_node(target);
             }
             ast::ExprKind::Propagate { operand, .. } => self.rebind_expr(operand),
-            ast::ExprKind::GenericInstantiation { target, types } => {
+            ast::ExprKind::GenericInstantiation { target, args } => {
                 self.rebind_expr(target);
-                for ty in types {
-                    self.rebind_type_node(ty);
+                for arg in args {
+                    match arg {
+                        ast::GenericArg::Type(ty) => self.rebind_type_node(ty),
+                        ast::GenericArg::ConstExpr(expr) => self.rebind_expr(expr),
+                        ast::GenericArg::AssocBinding {
+                            name,
+                            name_span,
+                            value,
+                        } => {
+                            *name = self.rebind_symbol(*name);
+                            self.rebind_span(name_span);
+                            self.rebind_type_node(value);
+                        }
+                    }
                 }
             }
             ast::ExprKind::Closure {
@@ -871,6 +886,11 @@ impl CachedAstRebinder<'_> {
             self.rebind_attribute(attribute);
         }
         match &mut stmt.kind {
+            ast::StmtKind::Use(use_stmt) => {
+                self.rebind_symbols(&mut use_stmt.path);
+                self.rebind_use_target(&mut use_stmt.target);
+                self.rebind_span(&mut use_stmt.binding_span);
+            }
             ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                 self.rebind_expr(expr)
             }
@@ -888,8 +908,9 @@ impl CachedAstRebinder<'_> {
                     self.rebind_span(&mut segment.name_span);
                     for arg in &mut segment.args {
                         match arg {
-                            ast::TypeArg::Positional(generic) => self.rebind_type_node(generic),
-                            ast::TypeArg::AssocBinding {
+                            ast::GenericArg::Type(generic) => self.rebind_type_node(generic),
+                            ast::GenericArg::ConstExpr(expr) => self.rebind_expr(expr),
+                            ast::GenericArg::AssocBinding {
                                 name,
                                 name_span,
                                 value,
@@ -1216,6 +1237,47 @@ mod tests {
     }
 
     #[test]
+    fn cached_parse_rebinds_const_generic_parameter_types() {
+        let db = FrontendDatabase::new();
+        let mut first_session = Session::new();
+        let mut second_session = Session::new();
+        let path = std::env::temp_dir().join(format!(
+            "kern_frontend_db_{}_const_generic_rebind.rn",
+            std::process::id()
+        ));
+
+        db.set_source_override(
+            path.clone(),
+            "type Mode = enum { Fast, Safe };\ntype Setting[M: Mode] = struct {};\n".to_string(),
+        );
+
+        let _ = db
+            .load_parsed_module(&mut first_session, &path)
+            .unwrap()
+            .expect("module should parse");
+        let parse_count_after_first_load = db.uncached_parse_count();
+
+        let second = db
+            .load_parsed_module(&mut second_session, &path)
+            .unwrap()
+            .expect("module should parse");
+
+        assert_eq!(db.uncached_parse_count(), parse_count_after_first_load);
+
+        let ast::DeclKind::TypeAlias { generics, .. } = &second.ast.decls[1].kind else {
+            panic!("expected cached type alias");
+        };
+        let ast::GenericParamKind::Const { ty } = &generics[0].kind else {
+            panic!("expected const generic parameter");
+        };
+        let ast::TypeKind::Path { segments, .. } = &ty.kind else {
+            panic!("expected path type for const generic parameter");
+        };
+
+        assert_eq!(second_session.resolve(segments[0].name), "Mode");
+    }
+
+    #[test]
     fn conditional_prune_memo_skips_recompute_for_stable_define_profile() {
         let db = FrontendDatabase::new();
         let mut first_session = Session::new();
@@ -1357,6 +1419,13 @@ mod tests {
             ast::ExprKind::Block { stmts, result } => {
                 for stmt in stmts {
                     match &stmt.kind {
+                        ast::StmtKind::Use(use_stmt) => {
+                            collect_identifier_symbols_from_use_target(
+                                &use_stmt.path,
+                                &use_stmt.target,
+                                visit,
+                            );
+                        }
                         ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                             collect_identifier_symbols(expr, visit);
                         }
@@ -1438,10 +1507,13 @@ mod tests {
                     visit(segment.name);
                     for arg in &segment.args {
                         match arg {
-                            ast::TypeArg::Positional(generic) => {
+                            ast::GenericArg::Type(generic) => {
                                 collect_type_identifier_symbols(generic, visit);
                             }
-                            ast::TypeArg::AssocBinding { name, value, .. } => {
+                            ast::GenericArg::ConstExpr(expr) => {
+                                collect_identifier_symbols(expr, visit);
+                            }
+                            ast::GenericArg::AssocBinding { name, value, .. } => {
                                 visit(*name);
                                 collect_type_identifier_symbols(value, visit);
                             }
@@ -1512,6 +1584,59 @@ mod tests {
             | ast::TypeKind::SelfType
             | ast::TypeKind::Never
             | ast::TypeKind::Void => {}
+        }
+    }
+
+    fn collect_identifier_symbols_from_use_target(
+        path: &[kernc_utils::SymbolId],
+        target: &ast::UseTarget,
+        visit: &mut impl FnMut(kernc_utils::SymbolId),
+    ) {
+        for symbol in path {
+            visit(*symbol);
+        }
+        match target {
+            ast::UseTarget::Module(alias) => {
+                if let Some(alias) = alias {
+                    visit(*alias);
+                }
+            }
+            ast::UseTarget::Tree(items) => {
+                for item in items {
+                    collect_identifier_symbols_from_use_tree(item, visit);
+                }
+            }
+        }
+    }
+
+    fn collect_identifier_symbols_from_use_tree(
+        tree: &ast::UseTree,
+        visit: &mut impl FnMut(kernc_utils::SymbolId),
+    ) {
+        match tree {
+            ast::UseTree::SelfModule { alias, .. } => {
+                if let Some(alias) = alias {
+                    visit(*alias);
+                }
+            }
+            ast::UseTree::Path {
+                path,
+                alias,
+                nested,
+                ..
+            } => {
+                for symbol in path {
+                    visit(*symbol);
+                }
+                if let Some(alias) = alias {
+                    visit(*alias);
+                }
+                if let Some(nested) = nested {
+                    for item in nested {
+                        collect_identifier_symbols_from_use_tree(item, visit);
+                    }
+                }
+            }
         }
     }
 }

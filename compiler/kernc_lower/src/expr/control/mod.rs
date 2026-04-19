@@ -5,7 +5,7 @@ use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
 use kernc_mono::MonoId;
 use kernc_sema::def::Def;
-use kernc_sema::ty::{BuiltinAnonymousEnumKind, TypeId, TypeKind};
+use kernc_sema::ty::{BuiltinAnonymousEnumKind, GenericArg, TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 mod closure;
@@ -17,7 +17,7 @@ mod pattern;
 enum MatchAdtInfo {
     Named {
         mono_id: MonoId,
-        gen_args: Vec<TypeId>,
+        gen_args: Vec<GenericArg>,
         def: kernc_sema::def::EnumDef,
         is_pure: bool,
         tag_ty: TypeId,
@@ -36,7 +36,7 @@ pub(crate) struct ClosureLowerSpec<'a> {
     pub params: &'a [ast::FuncParam],
     pub body: &'a Expr,
     pub concrete_ty: TypeId,
-    pub subst_map: &'a HashMap<SymbolId, TypeId>,
+    pub subst_map: &'a HashMap<SymbolId, GenericArg>,
     pub exp_ty: TypeId,
 }
 
@@ -53,7 +53,7 @@ struct MatchLowerContext<'a> {
     arms: &'a [ast::MatchArm],
     target_var_expr: &'a MastExpr,
     target_ty: TypeId,
-    subst_map: &'a HashMap<SymbolId, TypeId>,
+    subst_map: &'a HashMap<SymbolId, GenericArg>,
     exp_ty: TypeId,
 }
 
@@ -61,7 +61,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn lower_block_stmt(
         &mut self,
         expr: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         lowered_stmts: &mut Vec<MastStmt>,
     ) {
         if let ExprKind::Defer { expr: def_expr } = &expr.kind {
@@ -97,7 +97,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn lower_optional_stmt_expr(
         &mut self,
         expr: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> Option<MastStmt> {
         if self.measure_phase("        lower_stmt_expr_elide", |this| {
             matches!(expr.kind, ExprKind::Assign { .. }) && this.is_pure_dead_assignment(expr.id)

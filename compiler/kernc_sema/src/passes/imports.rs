@@ -77,18 +77,37 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         }
     }
 
-    fn resolve_single_import(
+    pub fn binding_names(import: &ImportDef) -> Vec<SymbolId> {
+        match &import.target {
+            UseTarget::Module(alias) => import
+                .path
+                .last()
+                .copied()
+                .map(|last| vec![alias.unwrap_or(last)])
+                .unwrap_or_default(),
+            UseTarget::Tree(items) => Self::flatten_use_trees(&import.path, items)
+                .into_iter()
+                .filter_map(|flat| {
+                    flat.path
+                        .last()
+                        .copied()
+                        .map(|last| flat.alias.unwrap_or(last))
+                })
+                .collect(),
+        }
+    }
+
+    pub fn resolve_import_into_scope(
         &mut self,
         current_mod_id: DefId,
+        target_scope: ScopeId,
         import: &ImportDef,
         emit_errors: bool,
     ) -> bool {
-        let current_scope = self.get_module_scope(current_mod_id);
-
         match &import.target {
             UseTarget::Module(alias) => self.resolve_flat_import(
                 current_mod_id,
-                current_scope,
+                target_scope,
                 import.path_kind,
                 import.vis,
                 FlatImport {
@@ -105,7 +124,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                 for flat in flat_imports {
                     if !self.resolve_flat_import(
                         current_mod_id,
-                        current_scope,
+                        target_scope,
                         import.path_kind,
                         import.vis,
                         flat,
@@ -117,6 +136,16 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                 all_resolved
             }
         }
+    }
+
+    fn resolve_single_import(
+        &mut self,
+        current_mod_id: DefId,
+        import: &ImportDef,
+        emit_errors: bool,
+    ) -> bool {
+        let current_scope = self.get_module_scope(current_mod_id);
+        self.resolve_import_into_scope(current_mod_id, current_scope, import, emit_errors)
     }
 
     fn flatten_use_trees(base_path: &[SymbolId], items: &[UseTree]) -> Vec<FlatImport> {

@@ -5,7 +5,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         current_module_id: Option<DefId>,
         def_id: DefId,
-        generic_args: &[TypeId],
+        generic_args: &[crate::ty::GenericArg],
         candidates: &mut Vec<MemberCandidate>,
     ) {
         let Some(def_ptr) = self.ctx.defs.get(def_id.0 as usize).map(std::ptr::from_ref) else {
@@ -77,7 +77,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         current_module_id: Option<DefId>,
         def_id: DefId,
-        generic_args: &[TypeId],
+        generic_args: &[crate::ty::GenericArg],
         member_name: SymbolId,
         access_span: Span,
     ) -> Option<MemberCandidate> {

@@ -281,7 +281,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub(super) fn resolve_callable(&mut self, callee: &Expr) -> Option<(DefId, Vec<TypeId>)> {
         let callee_ty = self.node_type(callee.id);
         if let TypeKind::FnDef(def_id, args) = self.ctx.type_registry.get(callee_ty).clone() {
-            return Some((def_id, args));
+            return Some((def_id, crate::ty::erase_non_type_generic_args(&args)));
         }
 
         match &callee.kind {
@@ -293,18 +293,22 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     None
                 }
             }
-            ExprKind::GenericInstantiation { target, types } => {
+            ExprKind::GenericInstantiation { target, args } => {
                 let (def_id, _) = self.resolve_callable(target)?;
-                let generic_args = types
+                let generic_args = args
                     .iter()
-                    .map(|ty| {
-                        let ty = self
-                            .ctx
-                            .node_types
-                            .get(&ty.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR);
-                        self.resolved_type(ty)
+                    .map(|arg| match arg {
+                        ast::GenericArg::Type(ty)
+                        | ast::GenericArg::AssocBinding { value: ty, .. } => {
+                            let ty = self
+                                .ctx
+                                .node_types
+                                .get(&ty.id)
+                                .copied()
+                                .unwrap_or(TypeId::ERROR);
+                            self.resolved_type(ty)
+                        }
+                        ast::GenericArg::ConstExpr(_) => TypeId::ERROR,
                     })
                     .collect();
                 Some((def_id, generic_args))

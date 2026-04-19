@@ -1,4 +1,7 @@
-use super::{PrimitiveType, TypeId, TypeKind};
+use super::{
+    ConstExprBinaryOp, ConstExprId, ConstExprKind, ConstExprUnaryOp, ConstGeneric,
+    ConstGenericValue, ConstGenericValueKind, PrimitiveType, TypeId, TypeKind,
+};
 use kernc_utils::FastHashMap;
 
 /// Interning table for semantic types.
@@ -9,6 +12,12 @@ pub struct TypeRegistry {
 
     /// Deduplication map that guarantees identical types share one `TypeId`.
     interner: FastHashMap<TypeKind, TypeId>,
+
+    /// Dense storage for interned const-generic expression nodes.
+    const_exprs: Vec<ConstExprKind>,
+
+    /// Deduplication map for const-generic expression nodes.
+    const_expr_interner: FastHashMap<ConstExprKind, ConstExprId>,
 }
 
 impl Default for TypeRegistry {
@@ -22,6 +31,8 @@ impl TypeRegistry {
         let mut reg = Self {
             types: Vec::new(),
             interner: FastHashMap::default(),
+            const_exprs: Vec::new(),
+            const_expr_interner: FastHashMap::default(),
         };
         reg.init_primitives();
         reg
@@ -74,6 +85,246 @@ impl TypeRegistry {
     /// Borrow the type structure referenced by an ID.
     pub fn get(&self, id: TypeId) -> &TypeKind {
         &self.types[id.0 as usize]
+    }
+
+    pub fn intern_const_expr(&mut self, kind: ConstExprKind) -> ConstExprId {
+        if let Some(&id) = self.const_expr_interner.get(&kind) {
+            return id;
+        }
+
+        let id = ConstExprId(self.const_exprs.len() as u32);
+        self.const_exprs.push(kind);
+        self.const_expr_interner.insert(kind, id);
+        id
+    }
+
+    pub fn const_expr(&self, id: ConstExprId) -> &ConstExprKind {
+        &self.const_exprs[id.0 as usize]
+    }
+
+    pub fn const_generic_ty(&self, value: ConstGeneric) -> Option<TypeId> {
+        match value {
+            ConstGeneric::Value(value) => Some(value.ty),
+            ConstGeneric::Param(_, ty) => Some(ty),
+            ConstGeneric::Expr(id) => match self.const_expr(id) {
+                ConstExprKind::Unary { ty, .. }
+                | ConstExprKind::Binary { ty, .. }
+                | ConstExprKind::Cast { ty, .. } => Some(*ty),
+            },
+            ConstGeneric::Error => None,
+        }
+    }
+
+    pub fn const_generic_contains_params(&self, value: ConstGeneric) -> bool {
+        match value {
+            ConstGeneric::Value(_) => false,
+            ConstGeneric::Param(_, _) | ConstGeneric::Error => true,
+            ConstGeneric::Expr(id) => match *self.const_expr(id) {
+                ConstExprKind::Unary { expr, .. } | ConstExprKind::Cast { expr, .. } => {
+                    self.const_generic_contains_params(expr)
+                }
+                ConstExprKind::Binary { lhs, rhs, .. } => {
+                    self.const_generic_contains_params(lhs)
+                        || self.const_generic_contains_params(rhs)
+                }
+            },
+        }
+    }
+
+    pub fn fold_const_generic(&mut self, value: ConstGeneric) -> ConstGeneric {
+        match value {
+            ConstGeneric::Expr(id) => match *self.const_expr(id) {
+                ConstExprKind::Unary { op, expr, ty } => {
+                    let expr = self.fold_const_generic(expr);
+                    if let Some(value) = self.eval_const_expr(ConstExprKind::Unary { op, expr, ty }) {
+                        ConstGeneric::Value(value)
+                    } else {
+                        ConstGeneric::Expr(self.intern_const_expr(ConstExprKind::Unary {
+                            op,
+                            expr,
+                            ty,
+                        }))
+                    }
+                }
+                ConstExprKind::Binary { op, lhs, rhs, ty } => {
+                    let lhs = self.fold_const_generic(lhs);
+                    let rhs = self.fold_const_generic(rhs);
+                    if let Some(value) = self.eval_const_expr(ConstExprKind::Binary {
+                        op,
+                        lhs,
+                        rhs,
+                        ty,
+                    }) {
+                        ConstGeneric::Value(value)
+                    } else {
+                        ConstGeneric::Expr(self.intern_const_expr(ConstExprKind::Binary {
+                            op,
+                            lhs,
+                            rhs,
+                            ty,
+                        }))
+                    }
+                }
+                ConstExprKind::Cast { expr, ty } => {
+                    let expr = self.fold_const_generic(expr);
+                    if let Some(value) = self.eval_const_expr(ConstExprKind::Cast { expr, ty }) {
+                        ConstGeneric::Value(value)
+                    } else {
+                        ConstGeneric::Expr(self.intern_const_expr(ConstExprKind::Cast {
+                            expr,
+                            ty,
+                        }))
+                    }
+                }
+            },
+            other => other,
+        }
+    }
+
+    fn eval_const_expr(&self, expr: ConstExprKind) -> Option<ConstGenericValue> {
+        match expr {
+            ConstExprKind::Unary { op, expr, ty } => {
+                let value = self.const_generic_scalar(expr)?;
+                let result = match op {
+                    ConstExprUnaryOp::Negate => value.wrapping_neg(),
+                    ConstExprUnaryOp::BitwiseNot => !value,
+                };
+                self.coerce_const_scalar(result, ty)
+            }
+            ConstExprKind::Binary { op, lhs, rhs, ty } => {
+                let lhs = self.const_generic_scalar(lhs)?;
+                let rhs = self.const_generic_scalar(rhs)?;
+                let result = match op {
+                    ConstExprBinaryOp::Add => lhs.wrapping_add(rhs),
+                    ConstExprBinaryOp::Subtract => lhs.wrapping_sub(rhs),
+                    ConstExprBinaryOp::Multiply => lhs.wrapping_mul(rhs),
+                    ConstExprBinaryOp::Divide => {
+                        if rhs == 0 {
+                            return None;
+                        }
+                        lhs.wrapping_div(rhs)
+                    }
+                    ConstExprBinaryOp::Modulo => {
+                        if rhs == 0 {
+                            return None;
+                        }
+                        lhs.wrapping_rem(rhs)
+                    }
+                    ConstExprBinaryOp::BitwiseAnd => lhs & rhs,
+                    ConstExprBinaryOp::BitwiseOr => lhs | rhs,
+                    ConstExprBinaryOp::BitwiseXor => lhs ^ rhs,
+                    ConstExprBinaryOp::ShiftLeft => {
+                        let shift = u32::try_from(rhs).ok()?;
+                        lhs.checked_shl(shift).unwrap_or(0)
+                    }
+                    ConstExprBinaryOp::ShiftRight => {
+                        let shift = u32::try_from(rhs).ok()?;
+                        lhs.checked_shr(shift).unwrap_or(0)
+                    }
+                };
+                self.coerce_const_scalar(result, ty)
+            }
+            ConstExprKind::Cast { expr, ty } => {
+                let value = self.const_generic_scalar(expr)?;
+                self.coerce_const_scalar(value, ty)
+            }
+        }
+    }
+
+    fn const_generic_scalar(&self, value: ConstGeneric) -> Option<i128> {
+        match value {
+            ConstGeneric::Value(value) => value.as_int(),
+            ConstGeneric::Expr(id) => {
+                self.eval_const_expr(*self.const_expr(id))
+                    .and_then(|value| value.as_int())
+            }
+            ConstGeneric::Param(_, _) | ConstGeneric::Error => None,
+        }
+    }
+
+    fn coerce_const_scalar(&self, value: i128, ty: TypeId) -> Option<ConstGenericValue> {
+        let norm = self.normalize(ty);
+        let bit_width = match self.get(norm) {
+            TypeKind::Primitive(
+                PrimitiveType::I8
+                | PrimitiveType::U8,
+            ) => 8,
+            TypeKind::Primitive(
+                PrimitiveType::I16
+                | PrimitiveType::U16,
+            ) => 16,
+            TypeKind::Primitive(
+                PrimitiveType::I32
+                | PrimitiveType::U32,
+            ) => 32,
+            TypeKind::Primitive(
+                PrimitiveType::I64
+                | PrimitiveType::U64,
+            ) => 64,
+            TypeKind::Primitive(
+                PrimitiveType::I128
+                | PrimitiveType::U128,
+            ) => 128,
+            TypeKind::Primitive(
+                PrimitiveType::ISize
+                | PrimitiveType::USize,
+            ) => 64,
+            _ => return None,
+        };
+
+        let coerced = match self.get(norm) {
+            TypeKind::Primitive(
+                PrimitiveType::U8
+                | PrimitiveType::U16
+                | PrimitiveType::U32
+                | PrimitiveType::U64
+                | PrimitiveType::U128
+                | PrimitiveType::USize,
+            ) => {
+                if value < 0 {
+                    return None;
+                }
+                if bit_width >= 128 {
+                    value
+                } else {
+                    let max = (1u128 << bit_width) - 1;
+                    if (value as u128) > max {
+                        return None;
+                    }
+                    value
+                }
+            }
+            TypeKind::Primitive(
+                PrimitiveType::I8
+                | PrimitiveType::I16
+                | PrimitiveType::I32
+                | PrimitiveType::I64
+                | PrimitiveType::I128
+                | PrimitiveType::ISize,
+            ) => {
+                if bit_width >= 128 {
+                    value
+                } else {
+                    let max = (1i128 << (bit_width - 1)) - 1;
+                    let min = -(1i128 << (bit_width - 1));
+                    if value < min || value > max {
+                        return None;
+                    }
+                    value
+                }
+            }
+            _ => return None,
+        };
+
+        Some(ConstGenericValue {
+            ty: norm,
+            kind: ConstGenericValueKind::Int(coerced),
+        })
+    }
+
+    pub fn supports_const_generic_value_type(&self, id: TypeId) -> bool {
+        let norm = self.normalize(id);
+        self.is_integer(norm) || norm == TypeId::BOOL
     }
 
     /// Normalize a type by following aliases to their final target.

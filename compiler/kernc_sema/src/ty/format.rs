@@ -1,12 +1,199 @@
+use crate::def::Def;
 use crate::SemaContext;
 
-use super::{BuiltinAnonymousEnumKind, PrimitiveType, TypeId, TypeKind};
+use super::{
+    BuiltinAnonymousEnumKind, ConstExprBinaryOp, ConstExprUnaryOp, ConstGeneric, GenericArg,
+    PrimitiveType, TypeId, TypeKind,
+};
+use kernc_ast::{BinaryOperator, Expr, ExprKind, UnaryOperator};
 
 pub(crate) struct TypeFormatter<'a, 'ctx> {
     pub(crate) ctx: &'a SemaContext<'ctx>,
 }
 
 impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
+    fn format_const_generic_value(&self, value: super::ConstGenericValue) -> String {
+        match value.kind {
+            super::ConstGenericValueKind::Bool(value) => value.to_string(),
+            super::ConstGenericValueKind::Int(tag) => self
+                .format_enum_const_generic_value(value.ty, tag)
+                .unwrap_or_else(|| tag.to_string()),
+        }
+    }
+
+    fn format_enum_const_generic_value(&self, ty: TypeId, tag: i128) -> Option<String> {
+        let norm = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm) {
+            TypeKind::Enum(def_id, generics) => {
+                let variant = self.named_enum_variant_name_for_tag(*def_id, tag)?;
+                let enum_name = self.ctx.defs[def_id.0 as usize]
+                    .name()
+                    .map(|sym| self.ctx.resolve(sym))
+                    .unwrap_or("<anonymous>");
+                let mut out = enum_name.to_string();
+                if !generics.is_empty() {
+                    let args = generics
+                        .iter()
+                        .map(|arg| self.format_generic_arg(*arg))
+                        .collect::<Vec<_>>();
+                    out.push('[');
+                    out.push_str(&args.join(", "));
+                    out.push(']');
+                }
+                out.push('.');
+                out.push_str(self.ctx.resolve(variant));
+                Some(out)
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                let variant = self.anonymous_enum_variant_name_for_tag(enum_def, tag)?;
+                Some(format!(".{}", self.ctx.resolve(variant)))
+            }
+            _ => None,
+        }
+    }
+
+    fn named_enum_variant_name_for_tag(
+        &self,
+        def_id: crate::def::DefId,
+        tag: i128,
+    ) -> Option<kernc_utils::SymbolId> {
+        let Def::Enum(enum_def) = self.ctx.defs.get(def_id.0 as usize)? else {
+            return None;
+        };
+
+        let mut current_tag = 0i128;
+        for variant in &enum_def.variants {
+            if let Some(value_expr) = &variant.value {
+                current_tag = self.eval_const_discriminant(value_expr)?;
+            }
+            if variant.payload_type.is_none() && current_tag == tag {
+                return Some(variant.name);
+            }
+            current_tag += 1;
+        }
+
+        None
+    }
+
+    fn anonymous_enum_variant_name_for_tag(
+        &self,
+        enum_def: &super::AnonymousEnum,
+        tag: i128,
+    ) -> Option<kernc_utils::SymbolId> {
+        let mut current_tag = 0i128;
+        for variant in &enum_def.variants {
+            if let Some(value) = variant.explicit_value {
+                current_tag = value;
+            }
+            if variant.payload_ty.is_none() && current_tag == tag {
+                return Some(variant.name);
+            }
+            current_tag += 1;
+        }
+        None
+    }
+
+    fn eval_const_discriminant(&self, expr: &Expr) -> Option<i128> {
+        match &expr.kind {
+            ExprKind::Integer(value) => Some(*value as i128),
+            ExprKind::Unary {
+                op: UnaryOperator::Negate,
+                operand,
+            } => self.eval_const_discriminant(operand)?.checked_neg(),
+            ExprKind::Unary {
+                op: UnaryOperator::BitwiseNot,
+                operand,
+            } => Some(!self.eval_const_discriminant(operand)?),
+            ExprKind::Binary { lhs, op, rhs } => {
+                let lhs = self.eval_const_discriminant(lhs)?;
+                let rhs = self.eval_const_discriminant(rhs)?;
+                match op {
+                    BinaryOperator::Add => lhs.checked_add(rhs),
+                    BinaryOperator::Subtract => lhs.checked_sub(rhs),
+                    BinaryOperator::Multiply => lhs.checked_mul(rhs),
+                    BinaryOperator::Divide => lhs.checked_div(rhs),
+                    BinaryOperator::Modulo => lhs.checked_rem(rhs),
+                    BinaryOperator::BitwiseAnd => Some(lhs & rhs),
+                    BinaryOperator::BitwiseOr => Some(lhs | rhs),
+                    BinaryOperator::BitwiseXor => Some(lhs ^ rhs),
+                    BinaryOperator::ShiftLeft => {
+                        let shift = u32::try_from(rhs).ok()?;
+                        lhs.checked_shl(shift)
+                    }
+                    BinaryOperator::ShiftRight => {
+                        let shift = u32::try_from(rhs).ok()?;
+                        lhs.checked_shr(shift)
+                    }
+                    BinaryOperator::Equal
+                    | BinaryOperator::NotEqual
+                    | BinaryOperator::LessThan
+                    | BinaryOperator::GreaterThan
+                    | BinaryOperator::LessOrEqual
+                    | BinaryOperator::GreaterOrEqual
+                    | BinaryOperator::LogicalAnd
+                    | BinaryOperator::LogicalOr => None,
+                }
+            }
+            ExprKind::As { lhs, .. } => self.eval_const_discriminant(lhs),
+            ExprKind::DataInit {
+                literal: kernc_ast::DataLiteralKind::Scalar(inner),
+                ..
+            } => self.eval_const_discriminant(inner),
+            _ => None,
+        }
+    }
+
+    fn format_const_generic(&self, value: ConstGeneric) -> String {
+        match value {
+            ConstGeneric::Value(value) => self.format_const_generic_value(value),
+            ConstGeneric::Param(symbol, _) => self.ctx.resolve(symbol).to_string(),
+            ConstGeneric::Expr(id) => match self.ctx.type_registry.const_expr(id) {
+                super::ConstExprKind::Unary { op, expr, .. } => {
+                    let op_str = match op {
+                        ConstExprUnaryOp::Negate => "-",
+                        ConstExprUnaryOp::BitwiseNot => "~",
+                    };
+                    format!("({}{})", op_str, self.format_const_generic(*expr))
+                }
+                super::ConstExprKind::Binary { op, lhs, rhs, .. } => {
+                    let op_str = match op {
+                        ConstExprBinaryOp::Add => "+",
+                        ConstExprBinaryOp::Subtract => "-",
+                        ConstExprBinaryOp::Multiply => "*",
+                        ConstExprBinaryOp::Divide => "/",
+                        ConstExprBinaryOp::Modulo => "%",
+                        ConstExprBinaryOp::BitwiseAnd => "&",
+                        ConstExprBinaryOp::BitwiseOr => "|",
+                        ConstExprBinaryOp::BitwiseXor => "^",
+                        ConstExprBinaryOp::ShiftLeft => "<<",
+                        ConstExprBinaryOp::ShiftRight => ">>",
+                    };
+                    format!(
+                        "({} {} {})",
+                        self.format_const_generic(*lhs),
+                        op_str,
+                        self.format_const_generic(*rhs)
+                    )
+                }
+                super::ConstExprKind::Cast { expr, ty } => {
+                    format!(
+                        "({} as {})",
+                        self.format_const_generic(*expr),
+                        self.format(*ty)
+                    )
+                }
+            },
+            ConstGeneric::Error => "<const-error>".to_string(),
+        }
+    }
+
+    fn format_generic_arg(&self, arg: GenericArg) -> String {
+        match arg {
+            GenericArg::Type(ty) => self.format(ty),
+            GenericArg::Const(value) => self.format_const_generic(value),
+        }
+    }
+
     pub(crate) fn format(&self, ty: TypeId) -> String {
         let kind = self.ctx.type_registry.get(ty);
         match kind {
@@ -45,7 +232,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
             }
             TypeKind::Array { is_mut, elem, len } => {
                 let m = if *is_mut { "mut " } else { "" };
-                format!("[{}]{}{}", len, m, self.format(*elem))
+                format!("[{}]{}{}", self.format_const_generic(*len), m, self.format(*elem))
             }
             TypeKind::ArrayInfer { is_mut, elem } => {
                 let m = if *is_mut { "mut " } else { "" };
@@ -62,7 +249,10 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 if generics.is_empty() {
                     name.to_string()
                 } else {
-                    let gen_strs: Vec<String> = generics.iter().map(|g| self.format(*g)).collect();
+                    let gen_strs: Vec<String> = generics
+                        .iter()
+                        .map(|g| self.format_generic_arg(*g))
+                        .collect();
                     format!("{}[{}]", name, gen_strs.join(", "))
                 }
             }
@@ -75,7 +265,10 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 if generics.is_empty() && assoc_bindings.is_empty() {
                     name.to_string()
                 } else {
-                    let mut parts = generics.iter().map(|g| self.format(*g)).collect::<Vec<_>>();
+                    let mut parts = generics
+                        .iter()
+                        .map(|g| self.format_generic_arg(*g))
+                        .collect::<Vec<_>>();
                     for (assoc_def_id, ty) in assoc_bindings {
                         let assoc_name = self.ctx.defs[assoc_def_id.0 as usize]
                             .name()
@@ -96,7 +289,10 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 if generics.is_empty() {
                     format!("{}::Payload", name)
                 } else {
-                    let gen_strs: Vec<String> = generics.iter().map(|g| self.format(*g)).collect();
+                    let gen_strs: Vec<String> = generics
+                        .iter()
+                        .map(|g| self.format_generic_arg(*g))
+                        .collect();
                     format!("{}::Payload[{}]", name, gen_strs.join(", "))
                 }
             }
@@ -112,7 +308,10 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 if generics.is_empty() {
                     name.to_string()
                 } else {
-                    let gen_strs: Vec<String> = generics.iter().map(|g| self.format(*g)).collect();
+                    let gen_strs: Vec<String> = generics
+                        .iter()
+                        .map(|g| self.format_generic_arg(*g))
+                        .collect();
                     format!("{}[{}]", name, gen_strs.join(", "))
                 }
             }
@@ -137,7 +336,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 if !trait_args.is_empty() {
                     let args = trait_args
                         .iter()
-                        .map(|arg| self.format(*arg))
+                        .map(|arg| self.format_generic_arg(*arg))
                         .collect::<Vec<_>>();
                     out.push('[');
                     out.push_str(&args.join(", "));
@@ -148,7 +347,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 if !assoc_args.is_empty() {
                     let args = assoc_args
                         .iter()
-                        .map(|arg| self.format(*arg))
+                        .map(|arg| self.format_generic_arg(*arg))
                         .collect::<Vec<_>>();
                     out.push('[');
                     out.push_str(&args.join(", "));
@@ -178,7 +377,10 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 if generics.is_empty() {
                     format!("fn item `{}`", name)
                 } else {
-                    let gen_strs: Vec<String> = generics.iter().map(|g| self.format(*g)).collect();
+                    let gen_strs: Vec<String> = generics
+                        .iter()
+                        .map(|g| self.format_generic_arg(*g))
+                        .collect();
                     format!("fn item `{}[{}]`", name, gen_strs.join(", "))
                 }
             }

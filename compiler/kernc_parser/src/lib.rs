@@ -885,6 +885,74 @@ fn main() i32 {
     }
 
     #[test]
+    fn parses_local_use_statements_inside_blocks() {
+        let source = r#"
+fn helper() i32 { return 1; }
+
+fn main() i32 {
+    use .{helper as answer_fn};
+    return answer_fn();
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[1].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block {
+            stmts,
+            result: None,
+        } = &body.kind
+        else {
+            panic!("expected block body");
+        };
+        assert_eq!(stmts.len(), 2);
+
+        let ast::StmtKind::Use(use_stmt) = &stmts[0].kind else {
+            panic!("expected local use stmt");
+        };
+        assert_eq!(use_stmt.kind, ast::UsePathKind::Current);
+        assert!(use_stmt.path.is_empty());
+
+        let ast::UseTarget::Tree(items) = &use_stmt.target else {
+            panic!("expected local import tree");
+        };
+        let ast::UseTree::Path {
+            path,
+            alias: Some(alias),
+            ..
+        } = &items[0]
+        else {
+            panic!("expected aliased tree entry");
+        };
+        assert_eq!(path.len(), 1);
+        assert_eq!(session.resolve(*alias), "answer_fn");
+
+        let ast::StmtKind::ExprStmt(expr) = &stmts[1].kind else {
+            panic!("expected return stmt");
+        };
+        let ast::ExprKind::Return(Some(value)) = &expr.kind else {
+            panic!("expected return expression");
+        };
+        let ast::ExprKind::Call { callee, .. } = &value.kind else {
+            panic!("expected call");
+        };
+        let ast::ExprKind::Identifier(name) = &callee.kind else {
+            panic!("expected identifier callee");
+        };
+        assert_eq!(session.resolve(*name), "answer_fn");
+    }
+
+    #[test]
     fn rejects_current_module_anchored_type_paths() {
         let source = r#"
 type Bad = .util.Kind;

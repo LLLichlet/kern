@@ -431,14 +431,16 @@ fn collect_stmt_binding_completion_facts(
     >,
     let_else_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionLetElseFacts>,
 ) {
-    collect_expr_binding_completion_facts(
-        stmt_expr(stmt),
-        items_by_span,
-        expr_binding_items_by_span,
-        match_arm_binding_items_by_span,
-        closure_binding_items_by_body_span,
-        let_else_facts_by_span,
-    );
+    if let Some(expr) = stmt_expr(stmt) {
+        collect_expr_binding_completion_facts(
+            expr,
+            items_by_span,
+            expr_binding_items_by_span,
+            match_arm_binding_items_by_span,
+            closure_binding_items_by_body_span,
+            let_else_facts_by_span,
+        );
+    }
 }
 
 fn collect_data_literal_binding_completion_facts(
@@ -612,12 +614,13 @@ fn collect_decl_body_regions(decl: &ast::Decl, regions: &mut Vec<kernc_utils::Sp
 }
 
 fn query_span_for_stmt(stmt: &ast::Stmt) -> kernc_utils::Span {
-    query_span_for_expr(stmt_expr(stmt))
+    stmt_expr(stmt).map(query_span_for_expr).unwrap_or(stmt.span)
 }
 
-pub(super) fn stmt_expr(stmt: &ast::Stmt) -> &ast::Expr {
+pub(super) fn stmt_expr(stmt: &ast::Stmt) -> Option<&ast::Expr> {
     match &stmt.kind {
-        ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => expr,
+        ast::StmtKind::Use(_) => None,
+        ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => Some(expr),
     }
 }
 

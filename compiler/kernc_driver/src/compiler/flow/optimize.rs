@@ -394,6 +394,7 @@ fn collect_owner_exprs<'a>(
         ast::ExprKind::Block { stmts, result } => {
             for stmt in stmts {
                 match &stmt.kind {
+                    ast::StmtKind::Use(_) => {}
                     ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                         collect_owner_exprs(expr, exprs);
                     }
@@ -551,6 +552,7 @@ fn collect_simple_binding_let_expr_ids(
         ast::ExprKind::Block { stmts, result } => {
             for stmt in stmts {
                 match &stmt.kind {
+                    ast::StmtKind::Use(_) => {}
                     ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                         collect_simple_binding_let_expr_ids(expr, expr_ids);
                     }

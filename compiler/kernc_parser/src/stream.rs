@@ -1,6 +1,7 @@
 use kernc_lexer::{Token, TokenType, Tokenizer};
 use kernc_utils::Span;
 
+#[derive(Clone)]
 pub struct TokenStream<'a> {
     lexer: Tokenizer<'a>,
     /// The current token is cached separately so normal peek/bump traffic

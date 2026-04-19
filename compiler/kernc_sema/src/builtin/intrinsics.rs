@@ -6,10 +6,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let def_id = DefId(self.ctx.defs.len() as u32);
 
         // Generic parameter `T` with no additional bounds.
-        let param_t = GenericParam {
-            name: self.ctx.intern("T"),
-            span: Default::default(),
-        };
+        let param_t = self.new_builtin_param("T");
 
         // Build the semantic signature `fn[T]() -> usize`.
         let ret_type_id = self.ctx.next_node_id();
@@ -73,10 +70,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let name_id = self.ctx.intern("@alignOf");
         let def_id = DefId(self.ctx.defs.len() as u32);
 
-        let param_t = GenericParam {
-            name: self.ctx.intern("T"),
-            span: Default::default(),
-        };
+        let param_t = self.new_builtin_param("T");
 
         let ret_type_id = self.ctx.next_node_id();
         let sig_ty = {
@@ -204,10 +198,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let trait_ty = self.builtin_trait_ty_by_id(int_trait_id, vec![]);
         self.ctx.node_types.insert(trait_node.id, trait_ty);
 
-        let param_t = ast::GenericParam {
-            name: self.ctx.intern("T"),
-            span: Default::default(),
-        };
+        let param_t = self.new_builtin_param("T");
 
         let target_node = ast::TypeNode {
             id: self.ctx.next_node_id(),
@@ -484,10 +475,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_atomic_load(&mut self) {
-        let param_t = GenericParam {
-            name: self.ctx.intern("T"),
-            span: Default::default(),
-        };
+        let param_t = self.new_builtin_param("T");
         let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
         let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
@@ -502,10 +490,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_atomic_store(&mut self) {
-        let param_t = GenericParam {
-            name: self.ctx.intern("T"),
-            span: Default::default(),
-        };
+        let param_t = self.new_builtin_param("T");
         let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
         let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: true,
@@ -520,10 +505,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_atomic_cas(&mut self, name: &str) {
-        let param_t = GenericParam {
-            name: self.ctx.intern("T"),
-            span: Default::default(),
-        };
+        let param_t = self.new_builtin_param("T");
         let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
         let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: true,
@@ -560,10 +542,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_atomic_xchg(&mut self) {
-        let param_t = GenericParam {
-            name: self.ctx.intern("T"),
-            span: Default::default(),
-        };
+        let param_t = self.new_builtin_param("T");
         let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
         let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: true,
@@ -606,10 +585,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_atomic_rmw(&mut self, name: &str) {
-        let param_t = GenericParam {
-            name: self.ctx.intern("T"),
-            span: Default::default(),
-        };
+        let param_t = self.new_builtin_param("T");
         let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
         let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: true,
@@ -628,10 +604,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_any(&mut self) {
-        let param_mask = GenericParam {
-            name: self.ctx.intern("Mask"),
-            span: Default::default(),
-        };
+        let param_mask = self.new_builtin_param("Mask");
         let mask_ty = self
             .ctx
             .type_registry
@@ -645,10 +618,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_all(&mut self) {
-        let param_mask = GenericParam {
-            name: self.ctx.intern("Mask"),
-            span: Default::default(),
-        };
+        let param_mask = self.new_builtin_param("Mask");
         let mask_ty = self
             .ctx
             .type_registry
@@ -662,10 +632,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_bitmask(&mut self) {
-        let param_mask = GenericParam {
-            name: self.ctx.intern("Mask"),
-            span: Default::default(),
-        };
+        let param_mask = self.new_builtin_param("Mask");
         let mask_ty = self
             .ctx
             .type_registry
@@ -679,14 +646,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_select(&mut self) {
-        let param_mask = GenericParam {
-            name: self.ctx.intern("Mask"),
-            span: Default::default(),
-        };
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_mask = self.new_builtin_param("Mask");
+        let param_value = self.new_builtin_param("Value");
         let mask_ty = self
             .ctx
             .type_registry
@@ -708,10 +669,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_shuffle(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -733,10 +691,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_swizzle(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -754,10 +709,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_reduce(&mut self, name: &str) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -766,10 +718,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_extract_half(&mut self, name: &str) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -783,10 +732,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_insert_half(&mut self, name: &str) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -800,10 +746,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_permute_unary(&mut self, name: &str) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -812,10 +755,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_rotate(&mut self, name: &str) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -829,10 +769,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_abs(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -846,10 +783,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_float_unary(&mut self, name: &str) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -858,10 +792,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_pairwise(&mut self, name: &str) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -875,10 +806,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_clamp(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -892,10 +820,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_splat(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -909,10 +834,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_cast(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -926,10 +848,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_bitcast(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -943,10 +862,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_load(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -964,10 +880,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_store(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -989,10 +902,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_masked_load(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -1015,10 +925,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_masked_store(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -1041,10 +948,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_gather(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -1066,10 +970,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_scatter(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -1095,10 +996,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_masked_gather(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry
@@ -1125,10 +1023,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_simd_masked_scatter(&mut self) {
-        let param_value = GenericParam {
-            name: self.ctx.intern("Value"),
-            span: Default::default(),
-        };
+        let param_value = self.new_builtin_param("Value");
         let value_ty = self
             .ctx
             .type_registry

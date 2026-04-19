@@ -1,12 +1,27 @@
 use super::*;
 
 impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
+    fn project_unbound_trait_assoc_arg(
+        &mut self,
+        arg: crate::ty::GenericArg,
+        receiver_ty: TypeId,
+        trait_def_id: DefId,
+        trait_args: &[crate::ty::GenericArg],
+    ) -> crate::ty::GenericArg {
+        match arg {
+            crate::ty::GenericArg::Type(ty) => crate::ty::GenericArg::Type(
+                self.project_unbound_trait_assoc_types(ty, receiver_ty, trait_def_id, trait_args),
+            ),
+            crate::ty::GenericArg::Const(value) => crate::ty::GenericArg::Const(value),
+        }
+    }
+
     pub(super) fn materialize_trait_assoc_placeholders(
         &mut self,
         ty: TypeId,
         receiver_ty: TypeId,
         trait_def_id: DefId,
-        trait_args: &[TypeId],
+        trait_args: &[crate::ty::GenericArg],
         assoc_bindings: &[(DefId, TypeId)],
     ) -> TypeId {
         let assoc_binding_map = assoc_bindings
@@ -26,7 +41,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         ty: TypeId,
         receiver_ty: TypeId,
         trait_def_id: DefId,
-        trait_args: &[TypeId],
+        trait_args: &[crate::ty::GenericArg],
     ) -> TypeId {
         let kind = self.ctx.type_registry.get(ty).clone();
         match kind {
@@ -40,7 +55,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let new_assoc_args = assoc_args
                     .into_iter()
                     .map(|arg| {
-                        self.project_unbound_trait_assoc_types(
+                        self.project_unbound_trait_assoc_arg(
                             arg,
                             receiver_ty,
                             trait_def_id,
@@ -160,7 +175,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let new_args = args
                     .into_iter()
                     .map(|arg| {
-                        self.project_unbound_trait_assoc_types(
+                        self.project_unbound_trait_assoc_arg(
                             arg,
                             receiver_ty,
                             trait_def_id,
@@ -176,7 +191,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let new_args = args
                     .into_iter()
                     .map(|arg| {
-                        self.project_unbound_trait_assoc_types(
+                        self.project_unbound_trait_assoc_arg(
                             arg,
                             receiver_ty,
                             trait_def_id,
@@ -192,7 +207,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let new_args = args
                     .into_iter()
                     .map(|arg| {
-                        self.project_unbound_trait_assoc_types(
+                        self.project_unbound_trait_assoc_arg(
                             arg,
                             receiver_ty,
                             trait_def_id,
@@ -208,7 +223,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let new_args = args
                     .into_iter()
                     .map(|arg| {
-                        self.project_unbound_trait_assoc_types(
+                        self.project_unbound_trait_assoc_arg(
                             arg,
                             receiver_ty,
                             trait_def_id,
@@ -252,7 +267,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let new_trait_args = projection_trait_args
                     .into_iter()
                     .map(|arg| {
-                        self.project_unbound_trait_assoc_types(
+                        self.project_unbound_trait_assoc_arg(
                             arg,
                             receiver_ty,
                             trait_def_id,
@@ -263,7 +278,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let new_assoc_args = assoc_args
                     .into_iter()
                     .map(|arg| {
-                        self.project_unbound_trait_assoc_types(
+                        self.project_unbound_trait_assoc_arg(
                             arg,
                             receiver_ty,
                             trait_def_id,
@@ -358,7 +373,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let new_args = args
                     .into_iter()
                     .map(|arg| {
-                        self.project_unbound_trait_assoc_types(
+                        self.project_unbound_trait_assoc_arg(
                             arg,
                             receiver_ty,
                             trait_def_id,
@@ -455,7 +470,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     pub(super) fn apply_generics_to_field(
         &mut self,
         generics: &[ast::GenericParam],
-        args: &[TypeId],
+        args: &[crate::ty::GenericArg],
         node_id: kernc_utils::NodeId,
     ) -> TypeId {
         if generics.is_empty() || args.is_empty() {

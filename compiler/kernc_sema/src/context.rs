@@ -10,10 +10,10 @@ use std::time::Duration;
 use crate::def::{Def, DefId, ImplDef};
 use crate::scope::{ScopeId, SymbolTable};
 use crate::semantic::{SemanticDefinition, SemanticSymbolKind};
-use crate::ty::{TypeFormatter, TypeId, TypeRegistry};
+use crate::ty::{GenericArg, TypeFormatter, TypeId, TypeRegistry};
 use kernc_ast::Visibility;
 
-type NamedFieldQueryKey = (Option<DefId>, DefId, Vec<TypeId>, SymbolId);
+type NamedFieldQueryKey = (Option<DefId>, DefId, Vec<GenericArg>, SymbolId);
 type NamedFieldQueryValue = Option<crate::query::MemberCandidate>;
 type MemberResolutionQueryKey = (Option<DefId>, TypeId, SymbolId);
 
@@ -112,7 +112,7 @@ pub struct SemaContext<'a> {
     pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
     pub expr_timing_stats: ExprTimingStats,
     pub(crate) call_signature_instantiation_cache: FastHashMap<TypeId, TypeId>,
-    pub(crate) field_type_subst_cache: FastHashMap<(NodeId, Vec<TypeId>), TypeId>,
+    pub(crate) field_type_subst_cache: FastHashMap<(NodeId, Vec<GenericArg>), TypeId>,
     pub(crate) trait_method_query_cache:
         FastHashMap<(TypeId, SymbolId, TypeId), crate::query::MemberResolution>,
     pub(crate) impl_method_query_cache:
@@ -685,7 +685,11 @@ impl<'a> SemaContext<'a> {
         let def_id = self.builtin_def(name)?;
         Some(
             self.type_registry
-                .intern(crate::ty::TypeKind::TraitObject(def_id, args, Vec::new())),
+                .intern(crate::ty::TypeKind::TraitObject(
+                    def_id,
+                    crate::ty::wrap_type_args(args),
+                    Vec::new(),
+                )),
         )
     }
 
@@ -717,7 +721,7 @@ impl<'a> SemaContext<'a> {
         };
         Some(self.type_registry.intern(crate::ty::TypeKind::TraitObject(
             def_id,
-            generics,
+            crate::ty::wrap_type_args(generics),
             resolved_assoc_bindings,
         )))
     }
@@ -810,6 +814,73 @@ impl<'a> SemaContext<'a> {
         qualified
     }
 
+    fn mangle_const_generic(&self, value: crate::ty::ConstGeneric) -> String {
+        match value {
+            crate::ty::ConstGeneric::Value(value) => {
+                let payload = match value.kind {
+                    crate::ty::ConstGenericValueKind::Int(value) => format!("i{}", value),
+                    crate::ty::ConstGenericValueKind::Bool(value) => {
+                        if value { "b1".to_string() } else { "b0".to_string() }
+                    }
+                };
+                format!("C{}{}", self.mangle_type(value.ty), payload)
+            }
+            crate::ty::ConstGeneric::Param(symbol, ty) => {
+                format!("P{}{}", self.mangle_type(ty), symbol.0)
+            }
+            crate::ty::ConstGeneric::Expr(id) => match self.type_registry.const_expr(id) {
+                crate::ty::ConstExprKind::Unary { op, expr, ty } => {
+                    let op_code = match op {
+                        crate::ty::ConstExprUnaryOp::Negate => "neg",
+                        crate::ty::ConstExprUnaryOp::BitwiseNot => "not",
+                    };
+                    format!(
+                        "Eu{}{}{}",
+                        op_code,
+                        self.mangle_type(*ty),
+                        self.mangle_const_generic(*expr)
+                    )
+                }
+                crate::ty::ConstExprKind::Binary { op, lhs, rhs, ty } => {
+                    let op_code = match op {
+                        crate::ty::ConstExprBinaryOp::Add => "add",
+                        crate::ty::ConstExprBinaryOp::Subtract => "sub",
+                        crate::ty::ConstExprBinaryOp::Multiply => "mul",
+                        crate::ty::ConstExprBinaryOp::Divide => "div",
+                        crate::ty::ConstExprBinaryOp::Modulo => "mod",
+                        crate::ty::ConstExprBinaryOp::BitwiseAnd => "and",
+                        crate::ty::ConstExprBinaryOp::BitwiseOr => "or",
+                        crate::ty::ConstExprBinaryOp::BitwiseXor => "xor",
+                        crate::ty::ConstExprBinaryOp::ShiftLeft => "shl",
+                        crate::ty::ConstExprBinaryOp::ShiftRight => "shr",
+                    };
+                    format!(
+                        "Eb{}{}{}{}",
+                        op_code,
+                        self.mangle_type(*ty),
+                        self.mangle_const_generic(*lhs),
+                        self.mangle_const_generic(*rhs)
+                    )
+                }
+                crate::ty::ConstExprKind::Cast { expr, ty } => {
+                    format!(
+                        "Ec{}{}",
+                        self.mangle_type(*ty),
+                        self.mangle_const_generic(*expr)
+                    )
+                }
+            },
+            crate::ty::ConstGeneric::Error => "Cerror".to_string(),
+        }
+    }
+
+    fn mangle_generic_arg(&self, arg: crate::ty::GenericArg) -> String {
+        match arg {
+            crate::ty::GenericArg::Type(ty) => self.mangle_type(ty),
+            crate::ty::GenericArg::Const(value) => self.mangle_const_generic(value),
+        }
+    }
+
     /// Generate a deterministic mangling suffix for a semantic type.
     pub fn mangle_type(&self, ty: TypeId) -> String {
         let norm_ty = self.type_registry.normalize(ty);
@@ -880,7 +951,7 @@ impl<'a> SemaContext<'a> {
                 } else {
                     let mut s = format!("{}I", base_name);
                     for arg in gen_args {
-                        let arg_mangled = self.mangle_type(arg);
+                        let arg_mangled = self.mangle_generic_arg(arg);
                         s.push_str(&format!("{}{}", arg_mangled.len(), arg_mangled));
                     }
                     s.push('E');
@@ -906,7 +977,7 @@ impl<'a> SemaContext<'a> {
                 } else {
                     let mut s = format!("{}I", base_name);
                     for arg in gen_args {
-                        let arg_mangled = self.mangle_type(arg);
+                        let arg_mangled = self.mangle_generic_arg(arg);
                         s.push_str(&format!("{}{}", arg_mangled.len(), arg_mangled));
                     }
                     s.push('E');
@@ -981,7 +1052,11 @@ impl<'a> SemaContext<'a> {
     }
 
     /// Compute the final exported linker symbol for a definition instance.
-    pub fn get_export_name(&self, def_id: DefId, args: &[TypeId]) -> String {
+    pub fn get_export_name_for_generic_args(
+        &self,
+        def_id: DefId,
+        args: &[crate::ty::GenericArg],
+    ) -> String {
         let def = &self.defs[def_id.0 as usize];
         let name_str = self.def_source_name(def_id);
 
@@ -1029,13 +1104,20 @@ impl<'a> SemaContext<'a> {
         if !args.is_empty() {
             mangled.push('I');
             for &arg in args {
-                let arg_mangled = self.mangle_type(arg);
+                let arg_mangled = self.mangle_generic_arg(arg);
                 mangled.push_str(&format!("{}{}", arg_mangled.len(), arg_mangled));
             }
             mangled.push('E');
         }
 
         mangled
+    }
+
+    pub fn get_export_name(&self, def_id: DefId, args: &[TypeId]) -> String {
+        self.get_export_name_for_generic_args(
+            def_id,
+            &crate::ty::wrap_type_args(args.iter().copied()),
+        )
     }
 }
 

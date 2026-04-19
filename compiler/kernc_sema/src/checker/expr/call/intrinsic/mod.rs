@@ -89,7 +89,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | TypeKind::Slice { elem, .. }
             | TypeKind::Alias(_, elem)
             | TypeKind::AnonymousEnumPayload(elem) => self.type_contains_unresolved_params(elem),
-            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
+            TypeKind::Array { elem, len, .. } => {
+                self.type_contains_unresolved_params(elem)
+                    || self.ctx.type_registry.const_generic_contains_params(len)
+            }
+            TypeKind::ArrayInfer { elem, .. } => {
                 self.type_contains_unresolved_params(elem)
             }
             TypeKind::Def(_, args)
@@ -97,10 +101,26 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | TypeKind::Associated(_, args)
             | TypeKind::FnDef(_, args) => args
                 .into_iter()
-                .any(|arg| self.type_contains_unresolved_params(arg)),
+                .any(|arg| {
+                    match arg {
+                        crate::ty::GenericArg::Type(ty) => self.type_contains_unresolved_params(ty),
+                        crate::ty::GenericArg::Const(value) => {
+                            self.ctx.type_registry.const_generic_contains_params(value)
+                        }
+                    }
+                }),
             TypeKind::TraitObject(_, args, assoc_bindings) => {
                 args.into_iter()
-                    .any(|arg| self.type_contains_unresolved_params(arg))
+                    .any(|arg| {
+                        match arg {
+                            crate::ty::GenericArg::Type(ty) => {
+                                self.type_contains_unresolved_params(ty)
+                            }
+                            crate::ty::GenericArg::Const(value) => {
+                                self.ctx.type_registry.const_generic_contains_params(value)
+                            }
+                        }
+                    })
                     || assoc_bindings
                         .into_iter()
                         .any(|(_, ty)| self.type_contains_unresolved_params(ty))
@@ -114,10 +134,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.type_contains_unresolved_params(target)
                     || trait_args
                         .into_iter()
-                        .any(|arg| self.type_contains_unresolved_params(arg))
+                        .any(|arg| {
+                            match arg {
+                                crate::ty::GenericArg::Type(ty) => {
+                                    self.type_contains_unresolved_params(ty)
+                                }
+                                crate::ty::GenericArg::Const(value) => {
+                                    self.ctx.type_registry.const_generic_contains_params(value)
+                                }
+                            }
+                        })
                     || assoc_args
                         .into_iter()
-                        .any(|arg| self.type_contains_unresolved_params(arg))
+                        .any(|arg| {
+                            match arg {
+                                crate::ty::GenericArg::Type(ty) => {
+                                    self.type_contains_unresolved_params(ty)
+                                }
+                                crate::ty::GenericArg::Const(value) => {
+                                    self.ctx.type_registry.const_generic_contains_params(value)
+                                }
+                            }
+                        })
             }
             TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
                 params
@@ -188,7 +226,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .type_registry
             .get(self.ctx.type_registry.normalize(callee_ty))
         {
-            TypeKind::FnDef(_, args) => args.get(index).copied(),
+            TypeKind::FnDef(_, args) => args.get(index).and_then(|arg| arg.as_type()),
             _ => None,
         }
     }

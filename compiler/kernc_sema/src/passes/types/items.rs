@@ -120,8 +120,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let gen_args = f
             .generics
             .iter()
-            .map(|param| self.ctx.type_registry.intern(TypeKind::Param(param.name)))
-            .collect();
+            .map(|param| self.generic_param_placeholder_arg(param, func_scope))
+            .collect::<Vec<_>>();
         let fn_def_ty = self
             .ctx
             .type_registry
@@ -193,12 +193,16 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let self_args = t
             .generics
             .iter()
-            .map(|param| self.ctx.type_registry.intern(TypeKind::Param(param.name)))
-            .collect();
+            .map(|param| self.generic_param_placeholder_arg(param, trait_scope))
+            .collect::<Vec<_>>();
         let self_ty =
             self.ctx
                 .type_registry
-                .intern(TypeKind::TraitObject(item_id, self_args, Vec::new()));
+                .intern(TypeKind::TraitObject(
+                    item_id,
+                    self_args,
+                    Vec::new(),
+                ));
         self.bind_self_type(self_ty, trait_scope, t.span);
         self.resolve_where_clauses(&t.where_clauses, trait_scope);
         self.bind_trait_assoc_types(&t.assoc_types, trait_scope);

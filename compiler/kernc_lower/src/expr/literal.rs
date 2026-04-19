@@ -6,7 +6,7 @@ use kernc_mast::*;
 use kernc_mono::MonoId;
 use kernc_sema::checker::ConstEvaluator;
 use kernc_sema::def::{Def, DefId, StructDef, UnionDef};
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -167,7 +167,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let array_ty = self.ctx.type_registry.intern(TypeKind::Array {
             is_mut: false, // String constants are immutable.
             elem: TypeId::U8,
-            len,
+            len: self.usize_const_generic(len),
         });
 
         self.module.globals.push(MastGlobal {
@@ -209,7 +209,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         name: SymbolId,
         init: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         concrete_ty: TypeId,
         is_mut: bool,
     ) -> MastExprKind {
@@ -237,7 +237,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_data_init(
         &mut self,
         literal: &ast::DataLiteralKind,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         concrete_ty: TypeId,
         span: Span,
     ) -> MastExprKind {
@@ -354,7 +354,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_struct_union_data_init(
         &mut self,
         fields: &[ast::StructFieldInit],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         concrete_ty: TypeId,
     ) -> MastExprKind {
         let norm = self.ctx.type_registry.get(concrete_ty).clone();
@@ -419,8 +419,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         fields: &[ast::StructFieldInit],
         def_id: DefId,
-        gen_args: &[TypeId],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        gen_args: &[GenericArg],
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
         let mono_id = self.instantiate_data(def_id, gen_args);
         let Some(def) =
@@ -476,8 +476,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         fields: &[ast::StructFieldInit],
         def_id: DefId,
         s: &StructDef,
-        gen_args: &[TypeId],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        gen_args: &[GenericArg],
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
         let mono_id = self.instantiate_struct(def_id, gen_args);
 
@@ -529,8 +529,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         fields: &[ast::StructFieldInit],
         def_id: DefId,
         u: &UnionDef,
-        gen_args: &[TypeId],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        gen_args: &[GenericArg],
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
         let mono_id = self.instantiate_struct(def_id, gen_args);
 
@@ -574,7 +574,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         fields: &[ast::StructFieldInit],
         concrete_ty: TypeId,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
         let (is_extern, anon_fields) = if let TypeKind::AnonymousStruct(is_extern, fields) =
@@ -621,7 +621,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         fields: &[ast::StructFieldInit],
         concrete_ty: TypeId,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
         let anon_fields = if let TypeKind::AnonymousUnion(_, fields) =
@@ -664,7 +664,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         fields: &[ast::StructFieldInit],
         concrete_ty: TypeId,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
         let Some(enum_def) = self.require_anon_enum(
@@ -712,7 +712,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_array_init(
         &mut self,
         elems: &[Expr],
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         concrete_ty: TypeId,
     ) -> MastExprKind {
         let elem_ty = self.ctx.type_registry.get_elem_type(concrete_ty);
@@ -726,7 +726,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_repeat_init(
         &mut self,
         value: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         concrete_ty: TypeId,
     ) -> MastExprKind {
         let elem_ty = self.ctx.type_registry.get_elem_type(concrete_ty);
@@ -736,7 +736,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .type_registry
             .get(self.ctx.type_registry.normalize(concrete_ty))
         {
-            *len
+            self.const_generic_usize(*len, value.span).unwrap_or(0)
         } else {
             0
         };
@@ -746,7 +746,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_scalar_init(
         &mut self,
         inner: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         concrete_ty: TypeId,
         span: Span,
     ) -> MastExprKind {
@@ -781,7 +781,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         inner: &Expr,
         def_id: DefId,
-        gen_args: &[TypeId],
+        gen_args: &[GenericArg],
     ) -> MastExprKind {
         let Some(def) = self.require_enum_def(def_id, inner.span, "lower a scalar enum literal")
         else {
@@ -859,7 +859,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_trait_object_init(
         &mut self,
         inner: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         target_ptr_ty: TypeId,
         trait_norm: TypeId,
         span: Span,

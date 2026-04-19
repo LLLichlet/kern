@@ -495,7 +495,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         tmp
                     }
                 };
-                let len_val = self.context.i64_type().const_int(*len, false);
+                let Some(len) = self.const_generic_usize(*len, span) else {
+                    return None;
+                };
+                let len_val = self.context.i64_type().const_int(len, false);
                 Some((array_ptr, Some(len_val), *elem))
             }
             _ => None,

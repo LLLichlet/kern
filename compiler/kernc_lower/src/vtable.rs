@@ -4,7 +4,7 @@ use kernc_mono::MonoId;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, ImplDef, TraitDef};
 use kernc_sema::query::MemberQuery;
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 use std::collections::{HashMap, HashSet};
 
@@ -52,7 +52,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return;
         };
 
-        let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
+        let trait_arg_map: HashMap<SymbolId, GenericArg> = trait_def
             .generics
             .iter()
             .zip(trait_args.iter())
@@ -540,7 +540,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let vtable_array_ty = self.ctx.type_registry.intern(TypeKind::Array {
             is_mut: false,
             elem: void_ptr_ty,
-            len: 0,
+            len: self.usize_const_generic(0),
         });
 
         self.module.globals.push(MastGlobal {
@@ -600,11 +600,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
                     && f.name == method.name
                 {
-                    let method_mono_id = self.instantiate_function_at(m_id, impl_args, f.name_span);
+                    let method_mono_id = self.instantiate_function_at(
+                        m_id,
+                        &kernc_sema::ty::wrap_type_args(impl_args.iter().copied()),
+                        f.name_span,
+                    );
                     let method_fn_ty = self
                         .ctx
                         .type_registry
-                        .intern(TypeKind::FnDef(m_id, impl_args.to_vec()));
+                        .intern(TypeKind::FnDef(
+                            m_id,
+                            kernc_sema::ty::wrap_type_args(impl_args.iter().copied()),
+                        ));
                     method_entry = self.get_or_create_vtable_method_adapter(
                         method_mono_id,
                         data_ptr_ty,
@@ -646,7 +653,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let vtable_array_ty = self.ctx.type_registry.intern(TypeKind::Array {
             is_mut: false,
             elem: void_ptr_ty,
-            len: vtable_len,
+            len: self.usize_const_generic(vtable_len),
         });
 
         let vtable_init = MastExpr::new(

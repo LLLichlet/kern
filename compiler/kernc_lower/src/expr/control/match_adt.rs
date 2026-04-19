@@ -4,7 +4,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(super) fn resolve_named_match_adt(
         &mut self,
         def_id: kernc_sema::def::DefId,
-        args: Vec<TypeId>,
+        args: Vec<kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> Option<MatchAdtInfo> {
         let Def::Enum(def) = self.ctx.defs[def_id.0 as usize].clone() else {
@@ -228,7 +228,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         operand: &Expr,
         kind: ast::PropagateKind,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> MastExprKind {
         let lowered_operand = self.lower_expr(operand, subst_map, None);

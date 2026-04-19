@@ -618,7 +618,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     pub(super) fn intrinsic_generic_arg(&mut self, callee_ty: TypeId, index: usize) -> TypeId {
         match self.ctx.type_registry.get(callee_ty) {
-            TypeKind::FnDef(_, args) => args.get(index).copied().unwrap_or(TypeId::ERROR),
+            TypeKind::FnDef(_, args) => args
+                .get(index)
+                .copied()
+                .and_then(kernc_sema::ty::GenericArg::as_type)
+                .unwrap_or(TypeId::ERROR),
             _ => TypeId::ERROR,
         }
     }

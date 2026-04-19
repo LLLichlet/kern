@@ -382,14 +382,17 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 for segment in segments {
                     for arg in &segment.args {
                         match arg {
-                            ast::TypeArg::Positional(generic) => {
+                            ast::GenericArg::Type(generic) => {
                                 Self::collect_type_alias_references(
                                     generic,
                                     alias_names,
                                     referenced,
                                 );
                             }
-                            ast::TypeArg::AssocBinding { value, .. } => {
+                            ast::GenericArg::ConstExpr(expr) => {
+                                Self::collect_expr_alias_references(expr, alias_names, referenced);
+                            }
+                            ast::GenericArg::AssocBinding { value, .. } => {
                                 Self::collect_type_alias_references(value, alias_names, referenced);
                             }
                         }
@@ -400,14 +403,17 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 for segment in segments {
                     for arg in &segment.args {
                         match arg {
-                            ast::TypeArg::Positional(generic) => {
+                            ast::GenericArg::Type(generic) => {
                                 Self::collect_type_alias_references(
                                     generic,
                                     alias_names,
                                     referenced,
                                 );
                             }
-                            ast::TypeArg::AssocBinding { value, .. } => {
+                            ast::GenericArg::ConstExpr(expr) => {
+                                Self::collect_expr_alias_references(expr, alias_names, referenced);
+                            }
+                            ast::GenericArg::AssocBinding { value, .. } => {
                                 Self::collect_type_alias_references(value, alias_names, referenced);
                             }
                         }
@@ -598,6 +604,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                         );
                     }
                     match &stmt.kind {
+                        ast::StmtKind::Use(_) => {}
                         ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                             Self::collect_expr_alias_references(expr, alias_names, referenced);
                         }
@@ -650,10 +657,20 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             ast::ExprKind::Propagate { operand, .. } => {
                 Self::collect_expr_alias_references(operand, alias_names, referenced);
             }
-            ast::ExprKind::GenericInstantiation { target, types } => {
+            ast::ExprKind::GenericInstantiation { target, args } => {
                 Self::collect_expr_alias_references(target, alias_names, referenced);
-                for ty in types {
-                    Self::collect_type_alias_references(ty, alias_names, referenced);
+                for arg in args {
+                    match arg {
+                        ast::GenericArg::Type(ty) => {
+                            Self::collect_type_alias_references(ty, alias_names, referenced);
+                        }
+                        ast::GenericArg::ConstExpr(expr) => {
+                            Self::collect_expr_alias_references(expr, alias_names, referenced);
+                        }
+                        ast::GenericArg::AssocBinding { value, .. } => {
+                            Self::collect_type_alias_references(value, alias_names, referenced);
+                        }
+                    }
                 }
             }
             ast::ExprKind::Closure {

@@ -1,6 +1,6 @@
 use super::{
     AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, LetPattern, MatchPattern,
-    PathAnchor, Pattern, Stmt, TypeNode, UnaryOperator,
+    GenericArg, PathAnchor, Pattern, Stmt, TypeNode, UnaryOperator,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -167,7 +167,7 @@ pub enum ExprKind {
     /// Generic instantiation: `target[T, U]`
     GenericInstantiation {
         target: Box<Expr>,
-        types: Vec<TypeNode>,
+        args: Vec<GenericArg>,
     },
 
     /// The `self` value inside methods.

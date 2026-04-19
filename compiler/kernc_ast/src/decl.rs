@@ -148,4 +148,11 @@ pub struct FuncParam {
 pub struct GenericParam {
     pub name: SymbolId,
     pub span: Span,
+    pub kind: GenericParamKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GenericParamKind {
+    Type,
+    Const { ty: TypeNode },
 }

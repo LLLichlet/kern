@@ -224,10 +224,10 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_generic_instantiation_expr(&mut self, left: Expr) -> ParseResult<Expr> {
-        let mut types = Vec::new();
+        let mut args = Vec::new();
         if !self.check(TokenType::RBracket) {
             loop {
-                types.push(self.parse_type()?);
+                args.push(self.parse_generic_arg(false)?);
                 if !self.continue_after_comma(&[TokenType::RBracket]) {
                     break;
                 }
@@ -239,7 +239,7 @@ impl<'a> Parser<'a> {
             span: left.span.to(rb.span),
             kind: ExprKind::GenericInstantiation {
                 target: Box::new(left),
-                types,
+                args,
             },
         })
     }

@@ -147,7 +147,9 @@ fn collect_stmt_if_completion_facts(
     stmt: &ast::Stmt,
     if_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionIfFacts>,
 ) {
-    collect_expr_if_completion_facts(stmt_expr(stmt), if_facts_by_span);
+    if let Some(expr) = stmt_expr(stmt) {
+        collect_expr_if_completion_facts(expr, if_facts_by_span);
+    }
 }
 
 fn collect_data_literal_if_completion_facts(

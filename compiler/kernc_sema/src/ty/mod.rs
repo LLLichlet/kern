@@ -8,6 +8,7 @@ pub use registry::TypeRegistry;
 
 use crate::def::DefId;
 use kernc_utils::{NodeId, Span, SymbolId};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 /// Compact handle for an interned semantic type.
@@ -39,6 +40,133 @@ impl TypeId {
     pub const ERROR: Self = Self(18);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConstGenericValueKind {
+    Int(i128),
+    Bool(bool),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ConstGenericValue {
+    pub ty: TypeId,
+    pub kind: ConstGenericValueKind,
+}
+
+impl ConstGenericValue {
+    pub fn as_int(self) -> Option<i128> {
+        match self.kind {
+            ConstGenericValueKind::Int(value) => Some(value),
+            ConstGenericValueKind::Bool(_) => None,
+        }
+    }
+
+    pub fn as_bool(self) -> Option<bool> {
+        match self.kind {
+            ConstGenericValueKind::Bool(value) => Some(value),
+            ConstGenericValueKind::Int(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ConstExprId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConstExprUnaryOp {
+    Negate,
+    BitwiseNot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConstExprBinaryOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
+    ShiftLeft,
+    ShiftRight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConstExprKind {
+    Unary {
+        op: ConstExprUnaryOp,
+        expr: ConstGeneric,
+        ty: TypeId,
+    },
+    Binary {
+        op: ConstExprBinaryOp,
+        lhs: ConstGeneric,
+        rhs: ConstGeneric,
+        ty: TypeId,
+    },
+    Cast {
+        expr: ConstGeneric,
+        ty: TypeId,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConstGeneric {
+    Value(ConstGenericValue),
+    Param(SymbolId, TypeId),
+    Expr(ConstExprId),
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GenericArg {
+    Type(TypeId),
+    Const(ConstGeneric),
+}
+
+impl GenericArg {
+    pub fn as_type(self) -> Option<TypeId> {
+        match self {
+            Self::Type(ty) => Some(ty),
+            Self::Const(_) => None,
+        }
+    }
+}
+
+pub fn wrap_type_arg(ty: TypeId) -> GenericArg {
+    GenericArg::Type(ty)
+}
+
+pub fn wrap_type_args(args: impl IntoIterator<Item = TypeId>) -> Vec<GenericArg> {
+    args.into_iter().map(GenericArg::Type).collect()
+}
+
+pub fn erase_non_type_generic_args(args: &[GenericArg]) -> Vec<TypeId> {
+    args.iter()
+        .map(|arg| arg.as_type().unwrap_or(TypeId::ERROR))
+        .collect()
+}
+
+impl fmt::Display for ConstGeneric {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Value(value) => write!(f, "{}", value),
+            Self::Param(symbol, _) => write!(f, "{}", symbol.0),
+            Self::Expr(id) => write!(f, "<const-expr:{}>", id.0),
+            Self::Error => write!(f, "<const-error>"),
+        }
+    }
+}
+
+impl fmt::Display for ConstGenericValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            ConstGenericValueKind::Int(value) => write!(f, "{}", value),
+            ConstGenericValueKind::Bool(value) => write!(f, "{}", value),
+        }
+    }
+}
+
 /// Canonical semantic type representation.
 /// Rich field and variant data lives in the definition tables; this enum stores shape and identity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -68,7 +196,7 @@ pub enum TypeKind {
     Array {
         is_mut: bool,
         elem: TypeId,
-        len: u64,
+        len: ConstGeneric,
     },
 
     /// Array whose length is inferred later, `[_]T`.
@@ -85,24 +213,24 @@ pub enum TypeKind {
 
     /// Reference to a named struct or union definition.
     /// Only the `DefId` is stored here so recursive types remain representable.
-    Def(DefId, Vec<TypeId>),
+    Def(DefId, Vec<GenericArg>),
 
     /// Algebraic data type backed by an enum definition.
-    Enum(DefId, Vec<TypeId>),
+    Enum(DefId, Vec<GenericArg>),
 
     /// Physical payload union used by a lowered enum representation.
-    EnumPayload(DefId, Vec<TypeId>),
+    EnumPayload(DefId, Vec<GenericArg>),
 
     /// Trait object fat pointer `{ data_ptr, vtable }`.
-    TraitObject(DefId, Vec<TypeId>, Vec<(DefId, TypeId)>),
+    TraitObject(DefId, Vec<GenericArg>, Vec<(DefId, TypeId)>),
 
     /// Associated type projection such as `T.Add[U].Out`.
     Projection {
         target: TypeId,
         trait_def_id: DefId,
-        trait_args: Vec<TypeId>,
+        trait_args: Vec<GenericArg>,
         assoc_def_id: DefId,
-        assoc_args: Vec<TypeId>,
+        assoc_args: Vec<GenericArg>,
     },
 
     /// Closure call interface, `Fn(Args) Ret`.
@@ -126,7 +254,7 @@ pub enum TypeKind {
     Param(SymbolId),
 
     /// Associated type placeholder or instantiation such as `Out` or `Out[T]`.
-    Associated(DefId, Vec<TypeId>),
+    Associated(DefId, Vec<GenericArg>),
 
     Function {
         params: Vec<TypeId>,
@@ -135,7 +263,7 @@ pub enum TypeKind {
     },
 
     /// Function item paired with its bound generic arguments.
-    FnDef(DefId, Vec<TypeId>),
+    FnDef(DefId, Vec<GenericArg>),
 
     /// Unknown or invalid type.
     Error,

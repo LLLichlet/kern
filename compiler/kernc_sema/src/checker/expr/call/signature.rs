@@ -2,21 +2,385 @@ use super::{ExprChecker, SignatureDeductionInput};
 use crate::checker::Substituter;
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
-use crate::ty::{TypeId, TypeKind};
+use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
-use kernc_utils::{FastHashMap, Span};
+use kernc_utils::{FastHashMap, Span, SymbolId};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn substitute_known_const_generic(
+        &mut self,
+        value: ConstGeneric,
+        const_map: &FastHashMap<SymbolId, ConstGeneric>,
+    ) -> ConstGeneric {
+        if const_map.is_empty() {
+            return self.ctx.type_registry.fold_const_generic(value);
+        }
+
+        let subst_map = const_map
+            .iter()
+            .map(|(name, value)| (*name, GenericArg::Const(*value)))
+            .collect::<FastHashMap<_, _>>();
+        let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+        subst.substitute_const_generic(value)
+    }
+
+    fn infer_const_generic_direct(
+        &mut self,
+        generic: ConstGeneric,
+        concrete: ConstGeneric,
+        map: &mut FastHashMap<SymbolId, ConstGeneric>,
+    ) -> bool {
+        let generic = self.substitute_known_const_generic(generic, map);
+        let generic_ty = self.ctx.type_registry.const_generic_ty(generic);
+        let concrete_ty = self.ctx.type_registry.const_generic_ty(concrete);
+        if generic_ty != concrete_ty {
+            return false;
+        }
+
+        match generic {
+            ConstGeneric::Param(name, _) => {
+                if let Some(&existing) = map.get(&name) {
+                    existing == concrete
+                } else {
+                    map.insert(name, concrete);
+                    true
+                }
+            }
+            ConstGeneric::Expr(_) => {
+                if generic == concrete {
+                    return true;
+                }
+                if self.ctx.type_registry.const_generic_contains_params(generic) {
+                    return false;
+                }
+                generic == concrete
+            }
+            ConstGeneric::Value(_) | ConstGeneric::Error => generic == concrete,
+        }
+    }
+
+    fn infer_generic_arg_direct(
+        &mut self,
+        generic: GenericArg,
+        concrete: GenericArg,
+        type_map: &mut FastHashMap<SymbolId, TypeId>,
+        const_map: &mut FastHashMap<SymbolId, ConstGeneric>,
+    ) -> bool {
+        match (generic, concrete) {
+            (GenericArg::Type(generic_ty), GenericArg::Type(concrete_ty)) => {
+                self.infer_generic_args_from_types(generic_ty, concrete_ty, type_map, const_map)
+            }
+            (GenericArg::Const(generic), GenericArg::Const(concrete)) => {
+                self.infer_const_generic_direct(generic, concrete, const_map)
+            }
+            _ => false,
+        }
+    }
+
+    fn infer_generic_args_from_types(
+        &mut self,
+        generic_ty: TypeId,
+        concrete_ty: TypeId,
+        type_map: &mut FastHashMap<SymbolId, TypeId>,
+        const_map: &mut FastHashMap<SymbolId, ConstGeneric>,
+    ) -> bool {
+        let generic_ty = self.resolve_tv(generic_ty);
+        let concrete_ty = self.resolve_tv(concrete_ty);
+
+        let generic_kind = self.ctx.type_registry.get(generic_ty).clone();
+        let concrete_kind = self.ctx.type_registry.get(concrete_ty).clone();
+
+        match (generic_kind, concrete_kind) {
+            (TypeKind::Param(name), _) => {
+                if let Some(&existing) = type_map.get(&name) {
+                    existing == concrete_ty
+                } else {
+                    type_map.insert(name, concrete_ty);
+                    true
+                }
+            }
+            (
+                TypeKind::Pointer {
+                    is_mut: generic_mut,
+                    elem: generic_elem,
+                },
+                TypeKind::Pointer {
+                    is_mut: concrete_mut,
+                    elem: concrete_elem,
+                },
+            ) => {
+                generic_mut == concrete_mut
+                    && self.infer_generic_args_from_types(
+                        generic_elem,
+                        concrete_elem,
+                        type_map,
+                        const_map,
+                    )
+            }
+            (
+                TypeKind::VolatilePtr {
+                    is_mut: generic_mut,
+                    elem: generic_elem,
+                },
+                TypeKind::VolatilePtr {
+                    is_mut: concrete_mut,
+                    elem: concrete_elem,
+                },
+            ) => {
+                generic_mut == concrete_mut
+                    && self.infer_generic_args_from_types(
+                        generic_elem,
+                        concrete_elem,
+                        type_map,
+                        const_map,
+                    )
+            }
+            (
+                TypeKind::Slice {
+                    is_mut: generic_mut,
+                    elem: generic_elem,
+                },
+                TypeKind::Slice {
+                    is_mut: concrete_mut,
+                    elem: concrete_elem,
+                },
+            ) => {
+                generic_mut == concrete_mut
+                    && self.infer_generic_args_from_types(
+                        generic_elem,
+                        concrete_elem,
+                        type_map,
+                        const_map,
+                    )
+            }
+            (
+                TypeKind::Array {
+                    is_mut: generic_mut,
+                    elem: generic_elem,
+                    len: generic_len,
+                },
+                TypeKind::Array {
+                    is_mut: concrete_mut,
+                    elem: concrete_elem,
+                    len: concrete_len,
+                },
+            ) => {
+                generic_mut == concrete_mut
+                    && self.infer_const_generic_direct(generic_len, concrete_len, const_map)
+                    && self.infer_generic_args_from_types(
+                        generic_elem,
+                        concrete_elem,
+                        type_map,
+                        const_map,
+                    )
+            }
+            (
+                TypeKind::ArrayInfer {
+                    is_mut: generic_mut,
+                    elem: generic_elem,
+                },
+                TypeKind::ArrayInfer {
+                    is_mut: concrete_mut,
+                    elem: concrete_elem,
+                },
+            ) => {
+                generic_mut == concrete_mut
+                    && self.infer_generic_args_from_types(
+                        generic_elem,
+                        concrete_elem,
+                        type_map,
+                        const_map,
+                    )
+            }
+            (
+                TypeKind::Def(generic_def, generic_args),
+                TypeKind::Def(concrete_def, concrete_args),
+            )
+            | (
+                TypeKind::Enum(generic_def, generic_args),
+                TypeKind::Enum(concrete_def, concrete_args),
+            )
+            | (
+                TypeKind::Associated(generic_def, generic_args),
+                TypeKind::Associated(concrete_def, concrete_args),
+            )
+            | (
+                TypeKind::FnDef(generic_def, generic_args),
+                TypeKind::FnDef(concrete_def, concrete_args),
+            ) => {
+                generic_def == concrete_def
+                    && generic_args.len() == concrete_args.len()
+                    && generic_args
+                        .into_iter()
+                        .zip(concrete_args)
+                        .all(|(generic, concrete)| {
+                            self.infer_generic_arg_direct(
+                                generic,
+                                concrete,
+                                type_map,
+                                const_map,
+                            )
+                        })
+            }
+            (
+                TypeKind::TraitObject(generic_def, generic_args, generic_assoc),
+                TypeKind::TraitObject(concrete_def, concrete_args, concrete_assoc),
+            ) => {
+                generic_def == concrete_def
+                    && generic_args.len() == concrete_args.len()
+                    && generic_args
+                        .into_iter()
+                        .zip(concrete_args)
+                        .all(|(generic, concrete)| {
+                            self.infer_generic_arg_direct(
+                                generic,
+                                concrete,
+                                type_map,
+                                const_map,
+                            )
+                        })
+                    && generic_assoc.len() == concrete_assoc.len()
+                    && generic_assoc.into_iter().all(|(assoc_def_id, generic_ty)| {
+                        concrete_assoc
+                            .iter()
+                            .find(|(candidate_def_id, _)| *candidate_def_id == assoc_def_id)
+                            .is_some_and(|(_, concrete_ty)| {
+                                self.infer_generic_args_from_types(
+                                    generic_ty,
+                                    *concrete_ty,
+                                    type_map,
+                                    const_map,
+                                )
+                            })
+                    })
+            }
+            (
+                TypeKind::Projection {
+                    target: generic_target,
+                    trait_def_id: generic_trait,
+                    trait_args: generic_trait_args,
+                    assoc_def_id: generic_assoc,
+                    assoc_args: generic_assoc_args,
+                },
+                TypeKind::Projection {
+                    target: concrete_target,
+                    trait_def_id: concrete_trait,
+                    trait_args: concrete_trait_args,
+                    assoc_def_id: concrete_assoc,
+                    assoc_args: concrete_assoc_args,
+                },
+            ) => {
+                generic_trait == concrete_trait
+                    && generic_assoc == concrete_assoc
+                    && generic_trait_args.len() == concrete_trait_args.len()
+                    && generic_assoc_args.len() == concrete_assoc_args.len()
+                    && self.infer_generic_args_from_types(
+                        generic_target,
+                        concrete_target,
+                        type_map,
+                        const_map,
+                    )
+                    && generic_trait_args
+                        .into_iter()
+                        .zip(concrete_trait_args)
+                        .all(|(generic, concrete)| {
+                            self.infer_generic_arg_direct(
+                                generic,
+                                concrete,
+                                type_map,
+                                const_map,
+                            )
+                        })
+                    && generic_assoc_args
+                        .into_iter()
+                        .zip(concrete_assoc_args)
+                        .all(|(generic, concrete)| {
+                            self.infer_generic_arg_direct(
+                                generic,
+                                concrete,
+                                type_map,
+                                const_map,
+                            )
+                        })
+            }
+            (
+                TypeKind::Function {
+                    params: generic_params,
+                    ret: generic_ret,
+                    is_variadic: generic_variadic,
+                },
+                TypeKind::Function {
+                    params: concrete_params,
+                    ret: concrete_ret,
+                    is_variadic: concrete_variadic,
+                },
+            ) => {
+                generic_variadic == concrete_variadic
+                    && generic_params.len() == concrete_params.len()
+                    && generic_params
+                        .into_iter()
+                        .zip(concrete_params)
+                        .all(|(generic, concrete)| {
+                            self.infer_generic_args_from_types(
+                                generic,
+                                concrete,
+                                type_map,
+                                const_map,
+                            )
+                        })
+                    && self.infer_generic_args_from_types(
+                        generic_ret,
+                        concrete_ret,
+                        type_map,
+                        const_map,
+                    )
+            }
+            (
+                TypeKind::ClosureInterface {
+                    params: generic_params,
+                    ret: generic_ret,
+                },
+                TypeKind::ClosureInterface {
+                    params: concrete_params,
+                    ret: concrete_ret,
+                },
+            ) => {
+                generic_params.len() == concrete_params.len()
+                    && generic_params
+                        .into_iter()
+                        .zip(concrete_params)
+                        .all(|(generic, concrete)| {
+                            self.infer_generic_args_from_types(
+                                generic,
+                                concrete,
+                                type_map,
+                                const_map,
+                            )
+                        })
+                    && self.infer_generic_args_from_types(
+                        generic_ret,
+                        concrete_ret,
+                        type_map,
+                        const_map,
+                    )
+            }
+            _ => generic_ty == concrete_ty,
+        }
+    }
+
     fn generic_target_identity(
         &mut self,
         target_norm: TypeId,
         span: Span,
-    ) -> Option<(DefId, Vec<TypeId>)> {
+    ) -> Option<DefId> {
         match self.ctx.type_registry.get(target_norm) {
             TypeKind::FnDef(id, args)
             | TypeKind::Def(id, args)
             | TypeKind::Enum(id, args)
-            | TypeKind::TraitObject(id, args, _) => Some((*id, args.clone())),
+            | TypeKind::TraitObject(id, args, _) => {
+                let _ = args;
+                Some(*id)
+            }
             _ => {
                 self.ctx
                     .struct_error(
@@ -29,19 +393,44 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn resolve_generic_instantiation_types(
+    fn resolve_generic_instantiation_args(
         &mut self,
-        types: &[ast::TypeNode],
+        def_id: DefId,
+        args: &[ast::GenericArg],
         span: Span,
-    ) -> Option<Vec<TypeId>> {
+    ) -> Option<Vec<GenericArg>> {
         let scope = self.resolve_current_scope_for_types(span, "generic instantiation")?;
+        let generics = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(f) => f.generics.clone(),
+            Def::Struct(s) => s.generics.clone(),
+            Def::Union(u) => u.generics.clone(),
+            Def::TypeAlias(t) => t.generics.clone(),
+            Def::Enum(e) => e.generics.clone(),
+            Def::Trait(t) => t.generics.clone(),
+            other => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: generic instantiation resolved to unsupported def `{:?}`.",
+                        other
+                    ),
+                );
+                return None;
+            }
+        };
         let mut resolver = TypeResolver::new(self.ctx);
-
-        let mut arg_tys = Vec::with_capacity(types.len());
-        for ty_node in types {
-            arg_tys.push(resolver.resolve_type(ty_node, scope));
+        let (resolved_args, assoc_bindings) =
+            resolver.resolve_generic_args_for_params(&generics, args, scope, span);
+        if !assoc_bindings.is_empty() {
+            self.ctx
+                .struct_error(
+                    span,
+                    "generic expression instantiation does not accept associated type bindings",
+                )
+                .emit();
+            return None;
         }
-        Some(arg_tys)
+        Some(resolved_args)
     }
 
     fn instantiate_call_signature(
@@ -49,7 +438,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         callee_ty: TypeId,
         raw_sig: TypeId,
         generics: &[ast::GenericParam],
-        generic_args: &[TypeId],
+        generic_args: &[GenericArg],
     ) -> TypeId {
         if generics.is_empty() || generic_args.is_empty() {
             return raw_sig;
@@ -59,7 +448,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return cached_sig;
         }
 
-        let mut map = FastHashMap::default();
+        let mut map: FastHashMap<kernc_utils::SymbolId, GenericArg> = FastHashMap::default();
         for (param, generic_arg) in generics.iter().zip(generic_args.iter()) {
             map.insert(param.name, *generic_arg);
         }
@@ -158,7 +547,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             if explicit_args.len() == generics_count {
                 return (
-                    self.instantiate_call_signature(norm_callee, raw_sig, generics, explicit_args),
+                    self.instantiate_call_signature(
+                        norm_callee,
+                        raw_sig,
+                        generics,
+                        explicit_args,
+                    ),
                     None,
                     None,
                 );
@@ -172,9 +566,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (TypeId::ERROR, None, None);
             }
 
-            let mut map = FastHashMap::default();
+            let mut map: FastHashMap<kernc_utils::SymbolId, TypeId> = FastHashMap::default();
+            let mut const_map: FastHashMap<kernc_utils::SymbolId, ConstGeneric> =
+                FastHashMap::default();
             for (param, explicit_arg) in generics.iter().zip(explicit_args.iter()) {
-                map.insert(param.name, *explicit_arg);
+                match (&param.kind, explicit_arg) {
+                    (ast::GenericParamKind::Type, GenericArg::Type(ty)) => {
+                        map.insert(param.name, *ty);
+                    }
+                    (ast::GenericParamKind::Const { .. }, GenericArg::Const(value)) => {
+                        const_map.insert(param.name, *value);
+                    }
+                    _ => {}
+                }
             }
             let (raw_params_ptr, raw_ret) = match self.ctx.type_registry.get(raw_sig) {
                 TypeKind::Function { params, ret, .. } => {
@@ -234,6 +638,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 self.unify(expected_recv, stripped_recv, &mut map);
+                self.infer_generic_args_from_types(
+                    expected_recv,
+                    stripped_recv,
+                    &mut map,
+                    &mut const_map,
+                );
             }
 
             if let Some(expected_ty) = expected_ty
@@ -264,6 +674,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     let arg_norm = self.resolve_tv(arg_ty);
                     if arg_norm != TypeId::ERROR {
                         self.unify(expected_param, arg_norm, &mut map);
+                        self.infer_generic_args_from_types(
+                            expected_param,
+                            arg_norm,
+                            &mut map,
+                            &mut const_map,
+                        );
                     }
                 }
             }
@@ -271,10 +687,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let mut missing_generics = Vec::new();
             let mut resolved_args = Vec::new();
             for param in generics {
-                if let Some(&inferred_ty) = map.get(&param.name) {
-                    resolved_args.push(inferred_ty);
-                } else {
-                    missing_generics.push(self.ctx.resolve(param.name).to_string());
+                match &param.kind {
+                    ast::GenericParamKind::Type => {
+                        if let Some(&inferred_ty) = map.get(&param.name) {
+                            resolved_args.push(GenericArg::Type(inferred_ty));
+                        } else {
+                            missing_generics.push(self.ctx.resolve(param.name).to_string());
+                        }
+                    }
+                    ast::GenericParamKind::Const { .. } => {
+                        if let Some(&value) = const_map.get(&param.name) {
+                            resolved_args.push(GenericArg::Const(value));
+                        } else {
+                            missing_generics.push(self.ctx.resolve(param.name).to_string());
+                        }
+                    }
                 }
             }
 
@@ -284,12 +711,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .struct_error(
                         span,
                         format!(
-                            "cannot infer generic type(s) `{}` for function `{}`",
+                            "cannot infer generic argument(s) `{}` for function `{}`",
                             missing_generics.join(", "),
                             name_str
                         ),
                     )
-                    .with_hint("the compiler needs these generic types to be explicitly specified")
+                    .with_hint(
+                        "type generics are inferred from direct type matches; const generics are inferred only from direct structural matches such as `[N]T`",
+                    )
+                    .with_hint(
+                        "Kern does not reverse-solve const expressions like `[N + 1]T`; write those arguments explicitly",
+                    )
                     .emit();
                 return (TypeId::ERROR, None, Some(inferred_arg_tys));
             }
@@ -299,18 +731,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let inferred_callee_ty = self
                 .ctx
                 .type_registry
-                .intern(TypeKind::FnDef(def_id, resolved_args));
-            let inferred_args_ptr = match self.ctx.type_registry.get(inferred_callee_ty) {
-                TypeKind::FnDef(_, args) => std::ptr::from_ref(args.as_slice()),
-                _ => unreachable!("just interned FnDef must remain a FnDef"),
-            };
-            let inferred_args = unsafe { &*inferred_args_ptr };
+                .intern(TypeKind::FnDef(def_id, resolved_args.clone()));
             return (
                 self.instantiate_call_signature(
                     inferred_callee_ty,
                     raw_sig,
                     generics,
-                    inferred_args,
+                    &resolved_args,
                 ),
                 Some(inferred_callee_ty),
                 Some(inferred_arg_tys),
@@ -471,7 +898,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn check_generic_instantiation(
         &mut self,
         target: &Expr,
-        types: &[ast::TypeNode],
+        args: &[ast::GenericArg],
         span: Span,
     ) -> TypeId {
         let target_ty = self.with_uninstantiated_generic_function_items_allowed(|this| {
@@ -483,12 +910,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        let Some(resolved_arg_tys) = self.resolve_generic_instantiation_types(types, span) else {
+        let Some(def_id) = self.generic_target_identity(target_norm, span) else {
             return TypeId::ERROR;
         };
-        let arg_tys = resolved_arg_tys;
-
-        let Some((def_id, _)) = self.generic_target_identity(target_norm, span) else {
+        let Some(arg_values) = self.resolve_generic_instantiation_args(def_id, args, span) else {
             return TypeId::ERROR;
         };
 
@@ -514,40 +939,44 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         };
 
-        if generics.len() != arg_tys.len() {
+        if generics.len() != arg_values.len() {
             self.ctx
                 .struct_error(
                     span,
                     format!(
                         "expected {} generic arguments, but {} were provided",
                         generics.len(),
-                        arg_tys.len()
+                        arg_values.len()
                     ),
                 )
                 .emit();
             return TypeId::ERROR;
         }
 
-        self.check_generic_bounds(span, def_id, &generics, &arg_tys);
+        self.check_generic_bounds(span, def_id, &generics, &arg_values);
 
         match self.ctx.type_registry.get(target_norm) {
             TypeKind::FnDef(..) => self
                 .ctx
                 .type_registry
-                .intern(TypeKind::FnDef(def_id, arg_tys)),
+                .intern(TypeKind::FnDef(def_id, arg_values)),
             TypeKind::Enum(..) => self
                 .ctx
                 .type_registry
-                .intern(TypeKind::Enum(def_id, arg_tys)),
+                .intern(TypeKind::Enum(def_id, arg_values)),
             TypeKind::TraitObject(..) => {
                 self.ctx
                     .type_registry
-                    .intern(TypeKind::TraitObject(def_id, arg_tys, Vec::new()))
+                    .intern(TypeKind::TraitObject(
+                        def_id,
+                        arg_values,
+                        Vec::new(),
+                    ))
             }
             _ => self
                 .ctx
                 .type_registry
-                .intern(TypeKind::Def(def_id, arg_tys)),
+                .intern(TypeKind::Def(def_id, arg_values)),
         }
     }
 
@@ -556,7 +985,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
         def_id: DefId,
         generics: &[ast::GenericParam],
-        arg_tys: &[TypeId],
+        arg_values: &[GenericArg],
     ) {
         let has_where_clauses = match &self.ctx.defs[def_id.0 as usize] {
             Def::Function(f) => !f.where_clauses.is_empty(),
@@ -586,8 +1015,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let mut map = FastHashMap::default();
         for (i, param) in generics.iter().enumerate() {
-            if i < arg_tys.len() {
-                map.insert(param.name, arg_tys[i]);
+            if i < arg_values.len() {
+                map.insert(param.name, arg_values[i]);
             }
         }
 

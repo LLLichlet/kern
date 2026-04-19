@@ -12,6 +12,7 @@ pub struct ScopeId(pub usize);
 pub enum SymbolKind {
     Var,       // Local variable, including `let` bindings and parameters.
     Const,     // Immutable constant item.
+    ConstParam, // Const generic parameter.
     Static,    // Static storage item.
     Function,  // Function item.
     Struct,    // Struct definition.

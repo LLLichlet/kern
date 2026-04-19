@@ -1,7 +1,7 @@
 use super::Lowerer;
 use kernc_ast::{Expr, ExprKind};
 use kernc_mast::*;
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::SymbolId;
 use std::collections::HashMap;
 
@@ -16,7 +16,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_expr(
         &mut self,
         expr: &Expr,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         expected_ty: Option<TypeId>,
     ) -> MastExpr {
         let raw_ty = self.resolve_expr_type(expr);

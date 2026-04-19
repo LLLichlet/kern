@@ -264,12 +264,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 });
                 ty
             }
-            ExprKind::GenericInstantiation { target, types } => {
+            ExprKind::GenericInstantiation { target, args } => {
                 let started = self.timing_start();
-                for ty_node in types {
-                    self.evaluate_dynamic_typeof(ty_node);
+                for arg in args {
+                    match arg {
+                        ast::GenericArg::Type(ty_node)
+                        | ast::GenericArg::AssocBinding { value: ty_node, .. } => {
+                            self.evaluate_dynamic_typeof(ty_node);
+                        }
+                        ast::GenericArg::ConstExpr(expr) => {
+                            self.check_expr(expr, None);
+                        }
+                    }
                 }
-                let ty = self.check_generic_instantiation(target, types, expr.span);
+                let ty = self.check_generic_instantiation(target, args, expr.span);
                 self.record_expr_timing(started, |stats, elapsed| {
                     stats.call += elapsed;
                     stats.call_generic_instantiation += elapsed;
@@ -513,7 +521,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.ctx.type_registry.intern(TypeKind::Array {
                     is_mut: *is_mut,
                     elem: base,
-                    len: length,
+                    len: crate::ty::ConstGeneric::Value(crate::ty::ConstGenericValue {
+                        ty: TypeId::USIZE,
+                        kind: crate::ty::ConstGenericValueKind::Int(length as i128),
+                    }),
                 })
             }
             ast::TypeKind::ClosureInterface { params, ret } => {

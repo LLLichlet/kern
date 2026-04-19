@@ -1,12 +1,12 @@
 use super::*;
-use crate::ty::LayoutEngine;
+use crate::ty::{ConstGeneric, GenericArg, LayoutEngine};
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub(super) fn check_type_generic_bounds(
         &mut self,
         span: Span,
         def_id: DefId,
-        arg_tys: &[TypeId],
+        arg_values: &[GenericArg],
     ) -> bool {
         let Some((item_name, generics, where_clauses, kind_name)) =
             self.generic_def_bounds_info(def_id)
@@ -14,7 +14,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return true;
         };
 
-        if generics.len() != arg_tys.len() {
+        if generics.len() != arg_values.len() {
             self.ctx.emit_error(
                 span,
                 format!(
@@ -22,15 +22,16 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     kind_name,
                     item_name,
                     generics.len(),
-                    arg_tys.len()
+                    arg_values.len()
                 ),
             );
             return false;
         }
 
-        if arg_tys
+        if arg_values
             .iter()
-            .any(|&ty| ty == TypeId::ERROR || self.type_contains_params(ty))
+            .copied()
+            .any(|arg| self.generic_arg_contains_params(arg))
         {
             return true;
         }
@@ -42,8 +43,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ensure_where_clause_types_resolved(def_id, &generics, &where_clauses);
 
         let mut map = HashMap::new();
-        for (param, arg_ty) in generics.iter().zip(arg_tys.iter()) {
-            map.insert(param.name, *arg_ty);
+        for (param, arg_value) in generics.iter().zip(arg_values.iter()) {
+            map.insert(param.name, *arg_value);
         }
 
         let mut pairs_to_check = Vec::new();
@@ -175,16 +176,24 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.set_current_scope(owner_scope);
         let item_scope = self.ctx.scopes.enter_scope();
 
-        if let Def::Trait(trait_def) = &self.ctx.defs[def_id.0 as usize] {
+        let trait_span = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Trait(trait_def) => Some(trait_def.span),
+            _ => None,
+        };
+        if let Some(trait_span) = trait_span {
             let self_args = generics
                 .iter()
-                .map(|param| self.ctx.type_registry.intern(TypeKind::Param(param.name)))
-                .collect();
+                .map(|param| self.generic_param_placeholder_arg(param, item_scope))
+                .collect::<Vec<_>>();
             let self_ty =
                 self.ctx
                     .type_registry
-                    .intern(TypeKind::TraitObject(def_id, self_args, Vec::new()));
-            self.bind_self_type(self_ty, item_scope, trait_def.span);
+                    .intern(TypeKind::TraitObject(
+                        def_id,
+                        self_args,
+                        Vec::new(),
+                    ));
+            self.bind_self_type(self_ty, item_scope, trait_span);
         }
 
         self.bind_generics(generics, item_scope);
@@ -250,17 +259,22 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             | TypeKind::Slice { elem, .. }
             | TypeKind::Alias(_, elem)
             | TypeKind::AnonymousEnumPayload(elem) => self.type_contains_params(elem),
-            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
+            TypeKind::Array { elem, len, .. } => {
+                self.type_contains_params(elem) || self.const_generic_contains_params(len)
+            }
+            TypeKind::ArrayInfer { elem, .. } => {
                 self.type_contains_params(elem)
             }
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::Associated(_, args)
             | TypeKind::FnDef(_, args) => {
-                args.into_iter().any(|arg| self.type_contains_params(arg))
+                args.into_iter()
+                    .any(|arg| self.generic_arg_contains_params(arg))
             }
             TypeKind::TraitObject(_, args, assoc_bindings) => {
-                args.into_iter().any(|arg| self.type_contains_params(arg))
+                args.into_iter()
+                    .any(|arg| self.generic_arg_contains_params(arg))
                     || assoc_bindings
                         .into_iter()
                         .any(|(_, ty)| self.type_contains_params(ty))
@@ -274,10 +288,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 self.type_contains_params(target)
                     || trait_args
                         .into_iter()
-                        .any(|arg| self.type_contains_params(arg))
+                        .any(|arg| self.generic_arg_contains_params(arg))
                     || assoc_args
                         .into_iter()
-                        .any(|arg| self.type_contains_params(arg))
+                        .any(|arg| self.generic_arg_contains_params(arg))
             }
             TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
                 params
@@ -308,6 +322,17 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     .is_some_and(|payload_ty| self.type_contains_params(payload_ty))
             }),
             _ => false,
+        }
+    }
+
+    fn const_generic_contains_params(&mut self, value: ConstGeneric) -> bool {
+        self.ctx.type_registry.const_generic_contains_params(value)
+    }
+
+    fn generic_arg_contains_params(&mut self, arg: GenericArg) -> bool {
+        match arg {
+            GenericArg::Type(ty) => ty == TypeId::ERROR || self.type_contains_params(ty),
+            GenericArg::Const(value) => self.const_generic_contains_params(value),
         }
     }
 
@@ -365,9 +390,18 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.set_current_scope(scope);
 
         for param in generics {
-            let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
+            let (kind, param_ty) = match &param.kind {
+                ast::GenericParamKind::Type => (
+                    SymbolKind::TypeParam,
+                    self.ctx.type_registry.intern(TypeKind::Param(param.name)),
+                ),
+                ast::GenericParamKind::Const { ty } => (
+                    SymbolKind::ConstParam,
+                    self.resolve_const_generic_param_type(ty, scope, param.span),
+                ),
+            };
             let info = SymbolInfo {
-                kind: SymbolKind::TypeParam,
+                kind,
                 node_id: self.ctx.next_node_id(),
                 type_id: param_ty,
                 def_id: None,
@@ -376,6 +410,87 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 is_mut: false,
             };
             let _ = self.ctx.scopes.define(param.name, info);
+        }
+    }
+
+    pub(crate) fn resolve_const_generic_param_type(
+        &mut self,
+        ty_node: &ast::TypeNode,
+        scope: ScopeId,
+        span: Span,
+    ) -> TypeId {
+        let ty = match &ty_node.kind {
+            ast::TypeKind::Path { anchor: None, segments }
+                if segments.len() == 1 && segments[0].args.is_empty() =>
+            {
+                let name = self
+                    .ctx
+                    .sess
+                    .source_manager
+                    .slice_source(segments[0].name_span)
+                    .trim()
+                    .to_string();
+                self.resolve_builtin_primitive(&name).unwrap_or_else(|| {
+                    self.ctx.node_types.remove(&ty_node.id);
+                    self.resolve_type(ty_node, scope)
+                })
+            }
+            _ => {
+                self.ctx.node_types.remove(&ty_node.id);
+                self.resolve_type(ty_node, scope)
+            }
+        };
+        self.ctx.node_types.insert(ty_node.id, ty);
+        if ty != TypeId::ERROR && !self.supports_const_generic_param_type(ty) {
+            let found_ty = self.ctx.ty_to_string(ty);
+            self.ctx
+                .struct_error(
+                    span,
+                    "const generic parameters must currently use an integer, `bool`, or a payload-less enum type",
+                )
+                .with_hint(format!("found `{}`", found_ty))
+                .with_hint("for example: `N: usize`, `Bits: u32`, `Enabled: bool`, or `Mode: BuildMode`")
+                .emit();
+            return TypeId::ERROR;
+        }
+        ty
+    }
+
+    fn supports_const_generic_param_type(&mut self, ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(ty);
+        if self.ctx.type_registry.is_integer(norm) || norm == TypeId::BOOL {
+            return true;
+        }
+
+        match self.ctx.type_registry.get(norm) {
+            TypeKind::Enum(def_id, _) => match &self.ctx.defs[def_id.0 as usize] {
+                crate::def::Def::Enum(def) => def
+                    .variants
+                    .iter()
+                    .all(|variant| variant.payload_type.is_none()),
+                _ => false,
+            },
+            TypeKind::AnonymousEnum(enum_def) => enum_def
+                .variants
+                .iter()
+                .all(|variant| variant.payload_ty.is_none()),
+            _ => false,
+        }
+    }
+
+    pub(super) fn generic_param_placeholder_arg(
+        &mut self,
+        param: &ast::GenericParam,
+        scope: ScopeId,
+    ) -> GenericArg {
+        match &param.kind {
+            ast::GenericParamKind::Type => GenericArg::Type(
+                self.ctx.type_registry.intern(TypeKind::Param(param.name)),
+            ),
+            ast::GenericParamKind::Const { ty } => GenericArg::Const(ConstGeneric::Param(
+                param.name,
+                self.resolve_const_generic_param_type(ty, scope, param.span),
+            )),
         }
     }
 
@@ -424,6 +539,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         match kind {
             SymbolKind::Var => "variable",
             SymbolKind::Const => "constant",
+            SymbolKind::ConstParam => "const parameter",
             SymbolKind::Static => "static variable",
             SymbolKind::Function => "function",
             SymbolKind::Module => "module",

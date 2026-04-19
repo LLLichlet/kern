@@ -301,6 +301,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         GenericParam {
             name: self.ctx.intern(name),
             span: Span::default(),
+            kind: ast::GenericParamKind::Type,
         }
     }
 }

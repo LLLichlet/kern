@@ -1,6 +1,7 @@
 use super::token::{Token, TokenType};
 use kernc_utils::{FileId, Span};
 
+#[derive(Clone)]
 pub struct Tokenizer<'a> {
     source: &'a [u8],
     file_id: FileId,

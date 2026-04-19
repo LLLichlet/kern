@@ -281,11 +281,9 @@ fn collect_stmt_block_completion_facts(
     expr_binding_items_by_span: &BTreeMap<kernc_utils::Span, Vec<AnalysisCompletionItem>>,
     block_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionBlockFacts>,
 ) {
-    collect_expr_block_completion_facts(
-        stmt_expr(stmt),
-        expr_binding_items_by_span,
-        block_facts_by_span,
-    );
+    if let Some(expr) = stmt_expr(stmt) {
+        collect_expr_block_completion_facts(expr, expr_binding_items_by_span, block_facts_by_span);
+    }
 }
 
 fn collect_data_literal_block_completion_facts(

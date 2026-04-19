@@ -619,10 +619,13 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
                 segment.name_span = Span::default();
                 for arg in &mut segment.args {
                     match arg {
-                        ast::TypeArg::Positional(generic) => {
+                        ast::GenericArg::Type(generic) => {
                             normalize_type_for_body_only_comparison(generic);
                         }
-                        ast::TypeArg::AssocBinding {
+                        ast::GenericArg::ConstExpr(expr) => {
+                            normalize_expr_for_body_only_comparison(expr);
+                        }
+                        ast::GenericArg::AssocBinding {
                             name_span, value, ..
                         } => {
                             *name_span = Span::default();
@@ -805,6 +808,10 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
                 stmt.span = Span::default();
                 normalize_attributes_for_body_only_comparison(&mut stmt.attributes);
                 match &mut stmt.kind {
+                    ast::StmtKind::Use(use_stmt) => {
+                        use_stmt.binding_span = Span::default();
+                        normalize_use_target_for_body_only_comparison(&mut use_stmt.target);
+                    }
                     ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
                         normalize_expr_for_body_only_comparison(expr);
                     }
@@ -855,10 +862,19 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
         ast::ExprKind::Propagate { operand, .. } => {
             normalize_expr_for_body_only_comparison(operand);
         }
-        ast::ExprKind::GenericInstantiation { target, types } => {
+        ast::ExprKind::GenericInstantiation { target, args } => {
             normalize_expr_for_body_only_comparison(target);
-            for ty in types {
-                normalize_type_for_body_only_comparison(ty);
+            for arg in args {
+                match arg {
+                    ast::GenericArg::Type(ty) => normalize_type_for_body_only_comparison(ty),
+                    ast::GenericArg::ConstExpr(expr) => {
+                        normalize_expr_for_body_only_comparison(expr);
+                    }
+                    ast::GenericArg::AssocBinding { name_span, value, .. } => {
+                        *name_span = Span::default();
+                        normalize_type_for_body_only_comparison(value);
+                    }
+                }
             }
         }
         ast::ExprKind::Closure {

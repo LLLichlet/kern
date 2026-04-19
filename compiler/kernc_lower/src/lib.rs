@@ -12,7 +12,9 @@ use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId, EnumDef, FunctionDef, Visibility};
 use kernc_sema::query::MemberQuery;
 use kernc_sema::scope::ScopeId;
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{
+    ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, TypeId, TypeKind,
+};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 pub(crate) mod expr;
@@ -29,7 +31,7 @@ enum LowerRootAction {
 #[derive(Debug, Clone)]
 struct ActiveFunctionInstantiation {
     def_id: DefId,
-    args: Vec<TypeId>,
+    args: Vec<GenericArg>,
     request_span: Span,
 }
 
@@ -66,10 +68,10 @@ pub struct Lowerer<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
     module: MastModule,
 
-    pub(crate) mono_cache: HashMap<(DefId, Vec<TypeId>), MonoId>,
-    pub(crate) pure_enum_tag_map: HashMap<(DefId, Vec<TypeId>), TypeId>,
+    pub(crate) mono_cache: HashMap<(DefId, Vec<GenericArg>), MonoId>,
+    pub(crate) pure_enum_tag_map: HashMap<(DefId, Vec<GenericArg>), TypeId>,
     pub(crate) next_mono_id: u32,
-    pub(crate) pending_function_instantiations: Vec<(DefId, Vec<TypeId>, MonoId, Span)>,
+    pub(crate) pending_function_instantiations: Vec<(DefId, Vec<GenericArg>, MonoId, Span)>,
     pub(crate) active_function_instantiations: Vec<ActiveFunctionInstantiation>,
     pub(crate) defer_stack: Vec<Vec<MastExpr>>,
     pub(crate) global_map: HashMap<DefId, MonoId>,
@@ -103,7 +105,7 @@ pub struct Lowerer<'a, 'ctx> {
 }
 
 type StructLayoutMapping = (Vec<usize>, Vec<usize>);
-type NamedStructLayoutKey = (DefId, Vec<TypeId>);
+type NamedStructLayoutKey = (DefId, Vec<GenericArg>);
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn normalize_concrete_type(&mut self, ty: TypeId) -> TypeId {
@@ -305,7 +307,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn substitute_type_with_map(
         &mut self,
         ty: TypeId,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> TypeId {
         if ty == TypeId::ERROR {
             ty
@@ -317,6 +319,42 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 subst.substitute(ty)
             };
             self.normalize_concrete_type(substituted)
+        }
+    }
+
+    pub(crate) fn usize_const_generic(&self, value: u64) -> ConstGeneric {
+        ConstGeneric::Value(ConstGenericValue {
+            ty: TypeId::USIZE,
+            kind: ConstGenericValueKind::Int(value as i128),
+        })
+    }
+
+    pub(crate) fn const_generic_usize(&mut self, value: ConstGeneric, span: Span) -> Option<u64> {
+        match value {
+            ConstGeneric::Value(value) if value.ty == TypeId::USIZE => {
+                u64::try_from(value.as_int()?).ok()
+            }
+            ConstGeneric::Value(_) | ConstGeneric::Error => None,
+            ConstGeneric::Param(symbol, _) => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): unresolved const generic `{}` reached lowering.",
+                        self.ctx.resolve(symbol)
+                    ),
+                );
+                None
+            }
+            ConstGeneric::Expr(expr_id) => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): unresolved const expression `{:?}` reached lowering.",
+                        self.ctx.type_registry.const_expr(expr_id)
+                    ),
+                );
+                None
+            }
         }
     }
 
@@ -478,7 +516,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn cached_named_struct_mapping(
         &mut self,
         def_id: DefId,
-        gen_args: &[TypeId],
+        gen_args: &[GenericArg],
     ) -> (Vec<usize>, Vec<usize>) {
         let key = (def_id, gen_args.to_vec());
         if let Some(mapping) = self.named_struct_layout_cache.get(&key) {
@@ -763,7 +801,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         def.variants.iter().all(|v| v.payload_type.is_none())
     }
 
-    pub(crate) fn record_pure_enum_tag_ty(&mut self, def_id: DefId, args: &[TypeId]) -> TypeId {
+    pub(crate) fn record_pure_enum_tag_ty(
+        &mut self,
+        def_id: DefId,
+        args: &[GenericArg],
+    ) -> TypeId {
         let key = (def_id, args.to_vec());
         if let Some(&tag_ty) = self.pure_enum_tag_map.get(&key) {
             return tag_ty;

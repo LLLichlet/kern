@@ -280,11 +280,9 @@ fn collect_stmt_match_completion_facts(
     match_arm_binding_items_by_span: &BTreeMap<kernc_utils::Span, Vec<AnalysisCompletionItem>>,
     match_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionMatchFacts>,
 ) {
-    collect_expr_match_completion_facts(
-        stmt_expr(stmt),
-        match_arm_binding_items_by_span,
-        match_facts_by_span,
-    );
+    if let Some(expr) = stmt_expr(stmt) {
+        collect_expr_match_completion_facts(expr, match_arm_binding_items_by_span, match_facts_by_span);
+    }
 }
 
 fn collect_data_literal_match_completion_facts(

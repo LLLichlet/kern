@@ -297,7 +297,8 @@ impl CompilerDriver {
                     AnalysisSemanticKind::Function
                 }
             }
-            kernc_sema::scope::SymbolKind::Const => AnalysisSemanticKind::Constant,
+            kernc_sema::scope::SymbolKind::Const
+            | kernc_sema::scope::SymbolKind::ConstParam => AnalysisSemanticKind::Constant,
             kernc_sema::scope::SymbolKind::Static => AnalysisSemanticKind::Static,
             kernc_sema::scope::SymbolKind::Var => AnalysisSemanticKind::Variable,
             kernc_sema::scope::SymbolKind::Struct | kernc_sema::scope::SymbolKind::Union => {
@@ -464,6 +465,9 @@ impl CompilerDriver {
                 self.render_function_hover(ctx, function, name)?
             }
             kernc_sema::scope::SymbolKind::Const => {
+                format!("const {}: {}", name, ctx.ty_to_string(info.type_id))
+            }
+            kernc_sema::scope::SymbolKind::ConstParam => {
                 format!("const {}: {}", name, ctx.ty_to_string(info.type_id))
             }
             kernc_sema::scope::SymbolKind::Static => {

@@ -59,6 +59,7 @@ impl<'a> Pruner<'a> {
                         false
                     } else {
                         match &mut stmt.kind {
+                            StmtKind::Use(_) => {}
                             StmtKind::ExprStmt(e) | StmtKind::ExprValue(e) => {
                                 self.prune_expr(e);
                             }

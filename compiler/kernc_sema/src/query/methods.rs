@@ -184,7 +184,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let type_id = self
                     .ctx
                     .type_registry
-                    .intern(TypeKind::FnDef(*method_id, resolved_impl_args.clone()));
+                    .intern(TypeKind::FnDef(
+                        *method_id,
+                        crate::ty::wrap_type_args(resolved_impl_args.clone()),
+                    ));
                 push_member_candidate(
                     candidates,
                     MemberCandidate {
@@ -245,7 +248,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 type_id: self
                     .ctx
                     .type_registry
-                    .intern(TypeKind::FnDef(method_id, resolved_impl_args)),
+                    .intern(TypeKind::FnDef(
+                        method_id,
+                        crate::ty::wrap_type_args(resolved_impl_args),
+                    )),
                 def_id: Some(method_id),
                 definition_span: function_name_span,
                 is_mut: false,
@@ -406,7 +412,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     pub(super) fn collect_trait_object_method_candidates(
         &mut self,
         trait_def_id: DefId,
-        trait_args: &[TypeId],
+        trait_args: &[crate::ty::GenericArg],
         assoc_bindings: &[(DefId, TypeId)],
         receiver_ty: TypeId,
         candidates: &mut Vec<MemberCandidate>,
@@ -468,7 +474,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     pub(super) fn collect_trait_methods_in_hierarchy(
         &mut self,
         trait_def_id: DefId,
-        trait_args: &[TypeId],
+        trait_args: &[crate::ty::GenericArg],
         assoc_bindings: &[(DefId, TypeId)],
         receiver_ty: TypeId,
         visited: &mut FastHashSet<DefId>,

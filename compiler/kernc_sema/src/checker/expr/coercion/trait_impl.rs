@@ -110,7 +110,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let Some(eq_def_id) = self.ctx.builtin_def("Eq") else {
             return false;
         };
-        if trait_def_id == eq_def_id && trait_args.len() == 1 && trait_args[0] == source_norm {
+        if trait_def_id == eq_def_id
+            && trait_args.len() == 1
+            && trait_args[0] == crate::ty::GenericArg::Type(source_norm)
+        {
             return match self.ctx.type_registry.get(source_norm).clone() {
                 TypeKind::Enum(def_id, _) => {
                     let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {

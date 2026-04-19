@@ -1,5 +1,6 @@
 use super::ExprChecker;
-use crate::def::Def;
+use crate::def::{Def, ImportDef};
+use crate::passes::ImportResolver;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{DiagnosticCode, Span, SymbolId};
@@ -280,6 +281,46 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut saw_diverging_stmt = false;
         for stmt in stmts {
             match &stmt.kind {
+                StmtKind::Use(use_stmt) => {
+                    let import = ImportDef {
+                        path_kind: use_stmt.kind,
+                        path: use_stmt.path.clone(),
+                        target: use_stmt.target.clone(),
+                        vis: ast::Visibility::Private,
+                        span: stmt.span,
+                        binding_span: use_stmt.binding_span,
+                    };
+
+                    if self.import_needs_scope_extension(&import, entered_scope) {
+                        entered_scope = true;
+                        self.ctx.scopes.enter_scope();
+                    }
+
+                    let Some(current_scope) = self.ctx.scopes.current_scope_id() else {
+                        self.ctx.emit_ice(
+                            stmt.span,
+                            "Kern ICE (Typeck): missing active scope while resolving a local import",
+                        );
+                        continue;
+                    };
+                    let Some(current_module) = self.ctx.module_for_scope(current_scope) else {
+                        self.ctx.emit_ice(
+                            stmt.span,
+                            "Kern ICE (Typeck): could not determine module for a local import",
+                        );
+                        continue;
+                    };
+
+                    {
+                        let mut resolver = ImportResolver::new(self.ctx);
+                        let _ = resolver.resolve_import_into_scope(
+                            current_module,
+                            current_scope,
+                            &import,
+                            true,
+                        );
+                    }
+                }
                 StmtKind::ExprStmt(e) | StmtKind::ExprValue(e) => {
                     let needs_scope_extension = match &e.kind {
                         ExprKind::Let { pattern, .. } => {

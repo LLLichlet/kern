@@ -350,6 +350,10 @@ impl CompilerDriver {
                 }
                 (AnalysisCompletionKind::Constant, Some(detail))
             }
+            kernc_sema::scope::SymbolKind::ConstParam => (
+                AnalysisCompletionKind::Constant,
+                Some(format!("const {}", ctx.ty_to_string(info.type_id))),
+            ),
             kernc_sema::scope::SymbolKind::Static => {
                 let mut detail = String::from("static");
                 if info.is_mut {
@@ -442,6 +446,9 @@ impl CompilerDriver {
                     detail.push_str(&ctx.ty_to_string(candidate.type_id));
                 }
                 Some(detail)
+            }
+            kernc_sema::scope::SymbolKind::ConstParam => {
+                Some(format!("const {}", ctx.ty_to_string(candidate.type_id)))
             }
             kernc_sema::scope::SymbolKind::Module => {
                 Some(format!("module {}", ctx.resolve(candidate.name)))
@@ -540,6 +547,7 @@ fn completion_kind_from_symbol_kind(kind: kernc_sema::scope::SymbolKind) -> Anal
     match kind {
         kernc_sema::scope::SymbolKind::Var => AnalysisCompletionKind::Variable,
         kernc_sema::scope::SymbolKind::Const => AnalysisCompletionKind::Constant,
+        kernc_sema::scope::SymbolKind::ConstParam => AnalysisCompletionKind::Constant,
         kernc_sema::scope::SymbolKind::Static => AnalysisCompletionKind::Static,
         kernc_sema::scope::SymbolKind::Function => AnalysisCompletionKind::Function,
         kernc_sema::scope::SymbolKind::Struct => AnalysisCompletionKind::Struct,

@@ -7,12 +7,12 @@ use kernc_ast::{self as ast, Expr};
 use kernc_mast::*;
 use kernc_sema::LayoutEngine;
 use kernc_sema::def::Def;
-use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
+use kernc_sema::ty::{GenericArg, PrimitiveType, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 struct NamedStructAnonRewrite<'a> {
     def_id: kernc_sema::def::DefId,
-    gen_args: &'a [TypeId],
+    gen_args: &'a [GenericArg],
     anon_is_extern: bool,
     anon_fields: &'a [kernc_sema::ty::AnonymousField],
     fields: Vec<MastExpr>,
@@ -22,7 +22,7 @@ struct NamedStructAnonRewrite<'a> {
 
 struct NamedStructValueAnonRewrite<'a> {
     def_id: kernc_sema::def::DefId,
-    gen_args: &'a [TypeId],
+    gen_args: &'a [GenericArg],
     anon_is_extern: bool,
     anon_fields: &'a [kernc_sema::ty::AnonymousField],
     value_kind: MastExprKind,
@@ -56,7 +56,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         lhs: &Expr,
         target: &ast::TypeNode,
         concrete_ty: TypeId,
-        subst_map: &HashMap<SymbolId, TypeId>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
         span: Span,
     ) -> MastExpr {
         let raw_target_ty = self
@@ -597,7 +597,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .gen_args
                 .get(index)
                 .copied()
-                .unwrap_or(TypeId::ERROR);
+                .unwrap_or(kernc_sema::ty::GenericArg::Type(TypeId::ERROR));
             subst_map.insert(param.name, arg);
         }
 

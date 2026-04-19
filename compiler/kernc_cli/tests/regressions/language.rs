@@ -2104,15 +2104,15 @@ fn main() i32 {
 }
 
 #[test]
-fn compiles_assignment_through_struct_array_fields_only() {
+fn compiles_assignment_through_struct_mut_array_fields_only() {
     let output = compile_source(
         r#"
 type Buffer = struct {
-    items: [4]i32,
+    items: [4]mut i32,
 };
 
 fn main() i32 {
-    let mut buf = Buffer.{ items: [4]i32.{ 0; 4 } };
+    let mut buf = Buffer.{ items: [4]mut i32.{ 0; 4 } };
     buf.items.[0] = 5;
 
     let ptr = buf..&;

@@ -136,7 +136,7 @@ extern type Termios = struct {
     c_oflag: u64,
     c_cflag: u64,
     c_lflag: u64,
-    c_cc: [20]u8,
+    c_cc: [20]mut u8,
     c_ispeed: u64,
     c_ospeed: u64,
 };

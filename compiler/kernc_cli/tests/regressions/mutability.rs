@@ -301,6 +301,97 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_mutable_slice_from_let_mut_non_mut_array_elements() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let mut arr = [3]u8.{ b'a', b'b', b'c' };
+    let view = arr..[0 .. 3];
+    view.[0] = b'Z';
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot create a mutable slice of immutable array elements"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_assignment_through_non_mut_array_field_elements() {
+    let output = compile_source(
+        r#"
+type Holder = struct {
+    items: [3]u8,
+};
+
+fn main() i32 {
+    let mut holder = Holder.{ items: [3]u8.{ b'a', b'b', b'c' } };
+    holder.items.[0] = b'Z';
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot assign to an immutable variable or location"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_mutable_slice_from_non_mut_array_field_elements() {
+    let output = compile_source(
+        r#"
+type Holder = struct {
+    items: [3]u8,
+};
+
+fn main() i32 {
+    let mut holder = Holder.{ items: [3]u8.{ b'a', b'b', b'c' } };
+    let view = holder.items..[0 .. 3];
+    view.[0] = b'Z';
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot create a mutable slice of immutable array elements"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_rebinding_immutable_array_binding() {
     let output = compile_source(
         r#"

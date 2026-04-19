@@ -29,7 +29,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     _ => false,
                 }
             }
-            ExprKind::FieldAccess { lhs, .. } | ExprKind::IndexAccess { lhs, .. } => {
+            ExprKind::FieldAccess { lhs, .. } => {
+                let lhs_ty = self
+                    .ctx
+                    .node_types
+                    .get(&lhs.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                let norm_lhs = self.resolve_tv(lhs_ty);
+
+                match self.ctx.type_registry.get(norm_lhs).clone() {
+                    TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => {
+                        is_mut
+                    }
+                    _ => self.is_lvalue_mutable(lhs),
+                }
+            }
+            ExprKind::IndexAccess { lhs, .. } => {
                 let lhs_ty = self
                     .ctx
                     .node_types
@@ -44,9 +60,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                     TypeKind::Slice { is_mut, .. } => is_mut,
                     TypeKind::Array { is_mut, .. } | TypeKind::ArrayInfer { is_mut, .. } => {
+                        // Index writes inherit element mutability from the array/slice type itself.
+                        // `let mut` on the outer binding may rebind the whole value, but it must not
+                        // silently upgrade `[N]T` into element-wise mutable storage.
                         is_mut
-                            || matches!(lhs.kind, ExprKind::FieldAccess { .. })
-                                && self.is_lvalue_mutable(lhs)
                     }
                     _ => self.is_lvalue_mutable(lhs),
                 }

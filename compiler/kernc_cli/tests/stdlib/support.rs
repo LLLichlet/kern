@@ -314,7 +314,7 @@ fn main() i32 {
     let ordered = values.[0 .. 4];
 
     let mut scratch = [3]usize.{ 5, 4, 6 };
-    let window = scratch..[0 .. 3];
+    let window = scratch.[0 .. 3];
 
     io.println("{} {}", .{ ordered, window, });
     return 0;

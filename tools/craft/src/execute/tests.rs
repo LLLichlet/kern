@@ -93,6 +93,14 @@ fn archive_tool() -> String {
     .unwrap_or_else(|| if cfg!(windows) { "ar.exe" } else { "ar" }.to_string())
 }
 
+fn demo_archive_name() -> &'static str {
+    if cfg!(windows) {
+        "demo.lib"
+    } else {
+        "libdemo.a"
+    }
+}
+
 fn run_command_checked(command: &mut Command, label: &str) {
     let output = command.output().unwrap();
     assert!(
@@ -125,10 +133,10 @@ int ext_add(int lhs, int rhs) {
 
     let mut ar = Command::new(archive_tool());
     ar.arg("rcs")
-        .arg("libdemo.a")
+        .arg(demo_archive_name())
         .arg("demo.o")
         .current_dir(dir);
-    run_command_checked(&mut ar, "archive libdemo.a");
+    run_command_checked(&mut ar, &format!("archive {}", demo_archive_name()));
 }
 
 fn run_binary_with_retry(executable: &Path, expected_code: i32) -> Output {

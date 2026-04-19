@@ -18,6 +18,10 @@ use crate::source;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+fn normalized_path_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 pub fn derive(
     elaboration: &ElaborationPlan,
     command: crate::script::ScriptCommand,
@@ -142,44 +146,36 @@ pub fn derive_with_options(
                         artifact_name: unit.artifact_name.clone(),
                     },
                     paths: script::BuildScriptPaths {
-                        build_root: workspace_build_root(
+                        build_root: normalized_path_string(&workspace_build_root(
                             &elaboration.resolved_graph.workspace_root,
                             &unit.profile.name,
                             unit.domain,
-                        )
-                        .to_string_lossy()
-                        .to_string(),
-                        generated_root: generated_root_path(
+                        )),
+                        generated_root: normalized_path_string(&generated_root_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain,
                             &unit.package_id,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
-                        )
-                        .to_string_lossy()
-                        .to_string(),
-                        artifact_root: artifact_root_path(
+                        )),
+                        artifact_root: normalized_path_string(&artifact_root_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain,
                             &unit.package_id,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
-                        )
-                        .to_string_lossy()
-                        .to_string(),
-                        object_path: object_path(
+                        )),
+                        object_path: normalized_path_string(&object_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain,
                             &unit.package_id,
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
-                        )
-                        .to_string_lossy()
-                        .to_string(),
-                        artifact_path: artifact_path(
+                        )),
+                        artifact_path: normalized_path_string(&artifact_path(
                             &elaboration.resolved_graph.workspace_root,
                             unit.domain.select_target(&host_target, &target_target),
                             unit.domain,
@@ -187,18 +183,14 @@ pub fn derive_with_options(
                             &unit.profile.name,
                             unit.target_kind,
                             &unit.artifact_name,
-                        )
-                        .to_string_lossy()
-                        .to_string(),
+                        )),
                         metadata_path: (unit.target_kind == TargetKind::Lib).then(|| {
-                            metadata_path(
+                            normalized_path_string(&metadata_path(
                                 &elaboration.resolved_graph.workspace_root,
                                 unit.domain,
                                 &unit.package_id,
                                 &unit.profile.name,
-                            )
-                            .to_string_lossy()
-                            .to_string()
+                            ))
                         }),
                     },
                     tools: package_tools.clone(),

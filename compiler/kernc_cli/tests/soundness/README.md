@@ -18,6 +18,8 @@ Each `.rn` file is a minimized regression seed. The harness lives in
 [`soundness.rs`](../soundness.rs) and currently recognizes:
 
 - `reject/`: program must be rejected by the compiler.
+- `tree-reject/`: a case directory with `main.rn` plus helper package trees.
+- `interface-reject/`: a case directory with `main.rn` plus helper interface packages.
 - `build-pass/`: program must compile successfully.
 - `run-pass/`: program must compile and run successfully.
 
@@ -25,10 +27,19 @@ Leading comment directives:
 
 ```kern
 // compile-args: --library-bundle std
+// module-path: dep=dep
+// module-interface-path: dep=iface
 // stderr: overlapping trait impls are not allowed
 // stderr: global proofs
 // exit: 0
 ```
+
+`tree-reject/` cases read directives from `main.rn`, copy the whole case directory
+to a temporary workspace, and currently support relative `module-path` mappings
+such as `dep=dep`.
+
+`interface-reject/` cases do the same, but first compile helper packages into
+temporary `kmeta` outputs and then mount them through `module-interface-path`.
 
 Recommended maintenance workflow:
 

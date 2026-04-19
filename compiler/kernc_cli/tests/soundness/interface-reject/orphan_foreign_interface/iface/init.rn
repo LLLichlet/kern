@@ -1,0 +1,3 @@
+pub type Foreign = trait {
+    ping: fn() i32,
+};

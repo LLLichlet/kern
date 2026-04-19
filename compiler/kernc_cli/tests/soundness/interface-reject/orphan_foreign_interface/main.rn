@@ -1,0 +1,14 @@
+// class: orphan-rule
+// module-interface-path: dep=iface
+// stderr: orphan trait impls are not allowed
+// stderr: local type
+
+impl i32 : dep.Foreign {
+    fn ping() i32 {
+        return self;
+    }
+}
+
+fn main() i32 {
+    return 0;
+}

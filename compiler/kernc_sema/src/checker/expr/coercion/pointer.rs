@@ -26,6 +26,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 _ => false,
             };
 
+            // Fat pointers already encode whether the erased receiver/storage was borrowed as
+            // mutable or immutable. `let mut obj: *Trait` only makes the two-word handle
+            // rebindable; it must not silently upgrade the underlying borrow to `*mut Trait`.
             if !actual_fat_pointer_value
                 && self.check_pointer_to_pointer_coercion(*e_mut, e_norm, act, act_kind)
             {
@@ -33,14 +36,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
 
             if actual_fat_pointer_value
-                && let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } =
+                && let TypeKind::Pointer { is_mut, elem }
+                    | TypeKind::VolatilePtr { is_mut, elem } =
                     act_kind
             {
                 let actual_elem_norm = self.resolve_tv(*elem);
-                if matches!(
-                    self.ctx.type_registry.get(actual_elem_norm),
-                    TypeKind::TraitObject(..)
-                ) && self.is_trait_object_upcast(actual_elem_norm, e_norm)
+                if Self::pointer_mutability_allows(*e_mut, *is_mut)
+                    && matches!(
+                        self.ctx.type_registry.get(actual_elem_norm),
+                        TypeKind::TraitObject(..)
+                    )
+                    && self.is_trait_object_upcast(actual_elem_norm, e_norm)
                 {
                     return true;
                 }

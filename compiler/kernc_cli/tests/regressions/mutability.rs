@@ -419,6 +419,188 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_mutable_closure_borrow_from_immutable_closure_binding() {
+    let output = compile_source(
+        r#"
+fn takes_mut(cb: *mut Fn() i32) i32 {
+    let _ = cb;
+    return 0;
+}
+
+fn main() i32 {
+    let closure = .[base = i32.{7}]() i32 {
+        return base;
+    };
+    return takes_mut(closure);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_mutable_closure_object_from_immutable_pointer() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let closure = .[]() i32 {
+        return 7;
+    };
+    let ptr = closure.&;
+    let _ = *mut Fn() i32.{ ptr };
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot create a mutable closure object from an immutable pointer"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_mutable_trait_object_from_immutable_pointer() {
+    let output = compile_source(
+        r#"
+type Ops = trait {
+    run: fn() i32,
+};
+
+impl *i32 : Ops {
+    fn run() i32 {
+        return self.*;
+    }
+}
+
+fn main() i32 {
+    let value = i32.{7};
+    let ptr = value.&;
+    let _ = *mut Ops.{ ptr };
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot create a mutable trait object from an immutable pointer"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_coercing_let_mut_trait_object_handle_to_mutable_trait_object() {
+    let output = compile_source(
+        r#"
+type Ops = trait {
+    run: fn() i32,
+};
+
+impl *i32 : Ops {
+    fn run() i32 {
+        return self.*;
+    }
+}
+
+fn takes_mut(value: *mut Ops) void {
+    let _ = value;
+}
+
+fn main() i32 {
+    let number = i32.{7};
+    let mut ops = *Ops.{ number.& };
+    takes_mut(ops);
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expected `*mut Ops`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_coercing_let_mut_closure_handle_to_mutable_closure() {
+    let output = compile_source(
+        r#"
+fn takes_shared(cb: *Fn() i32) *Fn() i32 {
+    return cb;
+}
+
+fn takes_mut(cb: *mut Fn() i32) i32 {
+    let _ = cb;
+    return 0;
+}
+
+fn id() i32 {
+    return 7;
+}
+
+fn main() i32 {
+    let mut cb = takes_shared(id);
+    return takes_mut(cb);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expected `*mut Fn() i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_non_const_fn_in_const_context() {
     let output = compile_source(
         r#"

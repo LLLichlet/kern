@@ -21,19 +21,39 @@ impl MirFunctionBuilder {
             self.pop_scope();
             return Ok(None);
         };
-        let mut after_defers = Some(block_id);
-        for defer in &block.defers {
-            let Some(defer_block) = after_defers else {
+
+        let value_end = match block.result.as_deref() {
+            Some(result) if result.ty == TypeId::NEVER => {
+                let end = self.lower_never_block_tail(block_id, result, &block.defers, None)?;
                 self.pop_scope();
-                return Ok(None);
-            };
-            after_defers = self.lower_defer_expr(defer_block, defer)?;
-        }
-        let Some(block_id) = after_defers else {
+                return Ok(end);
+            }
+            Some(result) if result.ty == TypeId::VOID || result.ty == TypeId::ERROR => {
+                let Some(end_block) = self.lower_control_or_eval_stmt(block_id, result)? else {
+                    self.pop_scope();
+                    return Ok(None);
+                };
+                Some(end_block)
+            }
+            Some(result) => self.lower_expr_into_place(block_id, result, place.clone())?,
+            None => Some(block_id),
+        };
+
+        let Some(block_id) = value_end else {
             self.pop_scope();
             return Ok(None);
         };
-        let end = self.lower_value_tail(block_id, block.result.as_deref(), place)?;
+        // Value blocks must materialize their trailing result before running defers so
+        // `{ ...; defer cleanup(); value }` yields the pre-cleanup value.
+        let Some(block_id) = self.lower_block_defers(block_id, &block.defers)? else {
+            self.pop_scope();
+            return Ok(None);
+        };
+        let end = if block.result.is_some() {
+            Some(block_id)
+        } else {
+            self.lower_value_tail(block_id, None, place)?
+        };
         self.pop_scope();
         Ok(end)
     }

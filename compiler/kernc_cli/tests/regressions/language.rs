@@ -2330,6 +2330,90 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_defer_after_block_value_evaluation() {
+    let output = build_and_run_source(
+        r#"
+type Guard = struct {
+    ptr: *mut i32,
+};
+
+impl *mut Guard {
+    pub fn deinit() void {
+        self.ptr.* = 2;
+    }
+}
+
+fn read_block_before_defer() i32 {
+    return {
+        let mut state = i32.{1};
+        let mut guard = Guard.{ ptr: state..& };
+        defer guard..&.deinit();
+        state
+    };
+}
+
+fn main() i32 {
+    if (read_block_before_defer() != 1) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_block_defers_in_lifo_order_after_materializing_value() {
+    let output = build_and_run_source(
+        r#"
+type Push = struct {
+    ptr: *mut i32,
+    digit: i32,
+};
+
+impl *mut Push {
+    pub fn deinit() void {
+        self.ptr.* = self.ptr.* * 10 + self.digit;
+    }
+}
+
+fn main() i32 {
+    let mut state = i32.{0};
+    let value = {
+        let mut first = Push.{ ptr: state..&, digit: 1 };
+        let mut second = Push.{ ptr: state..&, digit: 2 };
+        defer first..&.deinit();
+        defer second..&.deinit();
+        7
+    };
+
+    if (value != 7) {
+        return 1;
+    }
+    if (state != 21) {
+        return 2;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_match_arm_block_with_statement_before_return() {
     let output = build_and_run_source(
         r#"

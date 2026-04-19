@@ -628,6 +628,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 // Exact match.
             } else if body_eval_ty == TypeId::VOID && checker.has_returned {
                 // Explicit `return` already handled the value flow.
+            } else if checker.reject_returned_capturing_closure(body_expr, ret_ty, body_eval_ty) {
+                // The function's trailing expression would return a dangling stack closure.
             } else {
                 // Force a coercion check to emit a proper type mismatch diagnostic.
                 if !checker.check_coercion(body_expr, ret_ty, body_eval_ty) {

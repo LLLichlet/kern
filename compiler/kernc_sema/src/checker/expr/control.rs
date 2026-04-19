@@ -260,6 +260,68 @@ fn insert_unsigned_interval(covered: &mut Vec<UnsignedInterval>, mut next: Unsig
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    pub(crate) fn reject_returned_capturing_closure(
+        &mut self,
+        expr: &Expr,
+        expected_ty: TypeId,
+        actual_ty: TypeId,
+    ) -> bool {
+        let expected_norm = self.resolve_tv(expected_ty);
+        let actual_norm = self.resolve_tv(actual_ty);
+
+        let TypeKind::Pointer { elem, .. } = self.ctx.type_registry.get(expected_norm).clone() else {
+            return false;
+        };
+        let expected_elem_norm = self.resolve_tv(elem);
+        if !matches!(
+            self.ctx.type_registry.get(expected_elem_norm),
+            TypeKind::ClosureInterface { .. }
+        ) {
+            return false;
+        }
+
+        let TypeKind::AnonymousState { captures, .. } =
+            self.ctx.type_registry.get(actual_norm).clone()
+        else {
+            return false;
+        };
+        if captures.is_empty() {
+            return false;
+        }
+
+        let capture_noun = if captures.len() == 1 {
+            "one captured value"
+        } else {
+            "captured values"
+        };
+        let expected_str = self.ctx.ty_to_string(expected_ty);
+        self.ctx
+            .struct_error(
+                expr.span,
+                format!(
+                    "cannot return a capturing closure as `{}`",
+                    expected_str
+                ),
+            )
+            .with_span_label(
+                expr.span,
+                "this closure environment would escape the current stack frame",
+            )
+            .with_hint(format!(
+                "the closure captures {}, so its environment is stored in the current function's stack frame",
+                capture_noun
+            ))
+            .with_hint(format!(
+                "returning `{}` here would leave the closure environment dangling after the function returns",
+                expected_str
+            ))
+            .with_hint(
+                "return a non-capturing closure, or move the captured state into an explicit object that outlives the callback",
+            )
+            .emit();
+        true
+    }
+
     pub(crate) fn match_enum_def(
         &mut self,
         def_id: crate::def::DefId,
@@ -1131,7 +1193,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let val_ty = self.check_expr(v, Some(expected_ret));
 
             if let Some(ret_ty) = self.current_return_type {
-                self.check_coercion(v, ret_ty, val_ty);
+                if !self.reject_returned_capturing_closure(v, ret_ty, val_ty) {
+                    self.check_coercion(v, ret_ty, val_ty);
+                }
             }
         } else if expected_ret != TypeId::VOID && expected_ret != TypeId::ERROR {
             let ret_str = self.ctx.ty_to_string(expected_ret);

@@ -235,8 +235,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> MastExprKind {
+        let expected_ret_ty = self.current_return_type(span);
         let v = self.measure_phase("            lower_return_value", |this| {
-            val.map(|e| this.lower_expr(e, subst_map, None))
+            val.map(|e| this.lower_expr(e, subst_map, expected_ret_ty))
         });
         self.lower_return_lowered_value(v, span)
     }

@@ -1804,6 +1804,113 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_returning_capturing_closure_as_fn_pointer() {
+    let output = compile_source(
+        r#"
+fn make() *Fn(i32) i32 {
+    let base = i32.{7};
+    return .[base](x: i32) i32 {
+        return x + base;
+    };
+}
+
+fn main() i32 {
+    let f = make();
+    return f(5);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot return a capturing closure as `*Fn(i32) i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("closure environment would escape the current stack frame"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("LLVM IR Verification Failed"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_trailing_capturing_closure_tail_as_fn_pointer() {
+    let output = compile_source(
+        r#"
+fn make() *Fn(i32) i32 {
+    let base = i32.{7};
+    .[base](x: i32) i32 {
+        return x + base;
+    }
+}
+
+fn main() i32 {
+    let f = make();
+    return f(5);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot return a capturing closure as `*Fn(i32) i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("LLVM IR Verification Failed"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn returns_noncapturing_closure_as_fn_pointer() {
+    let output = build_and_run_source(
+        r#"
+fn make() *Fn(i32) i32 {
+    return .[](x: i32) i32 {
+        return x + 7;
+    };
+}
+
+fn main() i32 {
+    let f = make();
+    return f(5) - 12;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "noncapturing closure return regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn prunes_mutually_exclusive_extern_blocks_before_name_collection() {
     let output = compile_source(
         r#"

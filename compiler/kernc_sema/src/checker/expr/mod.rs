@@ -2,9 +2,14 @@ use crate::context::SemaContext;
 use crate::def::DefId;
 use crate::passes::TypeResolver;
 use crate::scope::ScopeId;
-use crate::ty::{AnonymousEnum, AnonymousVariant, BuiltinAnonymousEnumKind, TypeId, TypeKind};
+use crate::ty::{
+    AnonymousEnum, AnonymousVariant, BuiltinAnonymousEnumKind, ConstExprKind, ConstGeneric,
+    GenericArg, TypeId, TypeKind,
+};
 use kernc_ast::{self as ast, Expr, ExprKind};
-use kernc_utils::Span;
+use kernc_utils::{Span, SymbolId};
+use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::time::{Duration, Instant};
 
 mod access;
@@ -105,6 +110,240 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) {
         if let Some(started) = started {
             record(&mut self.ctx.expr_timing_stats, started.elapsed());
+        }
+    }
+
+    pub(crate) fn generic_param_occurs_in_type_with_map<S: BuildHasher>(
+        &mut self,
+        needle: SymbolId,
+        ty: TypeId,
+        map: &HashMap<SymbolId, TypeId, S>,
+    ) -> bool {
+        self.generic_param_occurs_in_type_with_map_inner(needle, ty, map, &mut Vec::new())
+    }
+
+    fn generic_param_occurs_in_type_with_map_inner<S: BuildHasher>(
+        &mut self,
+        needle: SymbolId,
+        ty: TypeId,
+        map: &HashMap<SymbolId, TypeId, S>,
+        param_stack: &mut Vec<SymbolId>,
+    ) -> bool {
+        let norm = self.resolve_tv(ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Primitive(_)
+            | TypeKind::Error
+            | TypeKind::Module(_)
+            | TypeKind::TypeVar(_) => false,
+            TypeKind::Alias(..) => unreachable!("aliases are removed by resolve_tv"),
+            TypeKind::Param(name) => {
+                if name == needle {
+                    return true;
+                }
+                if param_stack.contains(&name) {
+                    return false;
+                }
+                let Some(&mapped_ty) = map.get(&name) else {
+                    return false;
+                };
+                param_stack.push(name);
+                let occurs =
+                    self.generic_param_occurs_in_type_with_map_inner(needle, mapped_ty, map, param_stack);
+                param_stack.pop();
+                occurs
+            }
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::ArrayInfer { elem, .. }
+            | TypeKind::AnonymousEnumPayload(elem)
+            | TypeKind::Simd { elem, .. } => {
+                self.generic_param_occurs_in_type_with_map_inner(needle, elem, map, param_stack)
+            }
+            TypeKind::Array { elem, len, .. } => {
+                self.generic_param_occurs_in_type_with_map_inner(needle, elem, map, param_stack)
+                    || self.generic_param_occurs_in_const_generic_with_map(
+                        needle,
+                        len,
+                        map,
+                        param_stack,
+                    )
+            }
+            TypeKind::Def(_, args)
+            | TypeKind::Enum(_, args)
+            | TypeKind::EnumPayload(_, args)
+            | TypeKind::FnDef(_, args)
+            | TypeKind::Associated(_, args) => args.into_iter().any(|arg| {
+                self.generic_param_occurs_in_generic_arg_with_map(needle, arg, map, param_stack)
+            }),
+            TypeKind::TraitObject(_, args, assoc_bindings) => {
+                args.into_iter().any(|arg| {
+                    self.generic_param_occurs_in_generic_arg_with_map(needle, arg, map, param_stack)
+                }) || assoc_bindings.into_iter().any(|(_, assoc_ty)| {
+                    self.generic_param_occurs_in_type_with_map_inner(
+                        needle,
+                        assoc_ty,
+                        map,
+                        param_stack,
+                    )
+                })
+            }
+            TypeKind::Projection {
+                target,
+                trait_args,
+                assoc_args,
+                ..
+            } => {
+                self.generic_param_occurs_in_type_with_map_inner(needle, target, map, param_stack)
+                    || trait_args.into_iter().any(|arg| {
+                        self.generic_param_occurs_in_generic_arg_with_map(
+                            needle,
+                            arg,
+                            map,
+                            param_stack,
+                        )
+                    })
+                    || assoc_args.into_iter().any(|arg| {
+                        self.generic_param_occurs_in_generic_arg_with_map(
+                            needle,
+                            arg,
+                            map,
+                            param_stack,
+                        )
+                    })
+            }
+            TypeKind::ClosureInterface { params, ret } | TypeKind::Function { params, ret, .. } => {
+                params.into_iter().any(|param_ty| {
+                    self.generic_param_occurs_in_type_with_map_inner(
+                        needle,
+                        param_ty,
+                        map,
+                        param_stack,
+                    )
+                }) || self.generic_param_occurs_in_type_with_map_inner(
+                    needle,
+                    ret,
+                    map,
+                    param_stack,
+                )
+            }
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => {
+                captures.into_iter().any(|capture_ty| {
+                    self.generic_param_occurs_in_type_with_map_inner(
+                        needle,
+                        capture_ty,
+                        map,
+                        param_stack,
+                    )
+                }) || params.into_iter().any(|param_ty| {
+                    self.generic_param_occurs_in_type_with_map_inner(
+                        needle,
+                        param_ty,
+                        map,
+                        param_stack,
+                    )
+                }) || self.generic_param_occurs_in_type_with_map_inner(
+                    needle,
+                    ret,
+                    map,
+                    param_stack,
+                )
+            }
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields
+                .into_iter()
+                .any(|field| {
+                    self.generic_param_occurs_in_type_with_map_inner(
+                        needle,
+                        field.ty,
+                        map,
+                        param_stack,
+                    )
+                }),
+            TypeKind::AnonymousEnum(enum_def) => {
+                enum_def.backing_ty.is_some_and(|backing_ty| {
+                    self.generic_param_occurs_in_type_with_map_inner(
+                        needle,
+                        backing_ty,
+                        map,
+                        param_stack,
+                    )
+                }) || enum_def.variants.iter().any(|variant| {
+                    variant.payload_ty.is_some_and(|payload_ty| {
+                        self.generic_param_occurs_in_type_with_map_inner(
+                            needle,
+                            payload_ty,
+                            map,
+                            param_stack,
+                        )
+                    })
+                })
+            }
+        }
+    }
+
+    fn generic_param_occurs_in_generic_arg_with_map<S: BuildHasher>(
+        &mut self,
+        needle: SymbolId,
+        arg: GenericArg,
+        map: &HashMap<SymbolId, TypeId, S>,
+        param_stack: &mut Vec<SymbolId>,
+    ) -> bool {
+        match arg {
+            GenericArg::Type(ty) => {
+                self.generic_param_occurs_in_type_with_map_inner(needle, ty, map, param_stack)
+            }
+            GenericArg::Const(value) => {
+                self.generic_param_occurs_in_const_generic_with_map(needle, value, map, param_stack)
+            }
+        }
+    }
+
+    fn generic_param_occurs_in_const_generic_with_map<S: BuildHasher>(
+        &mut self,
+        needle: SymbolId,
+        value: ConstGeneric,
+        map: &HashMap<SymbolId, TypeId, S>,
+        param_stack: &mut Vec<SymbolId>,
+    ) -> bool {
+        match value {
+            ConstGeneric::Value(value) => {
+                self.generic_param_occurs_in_type_with_map_inner(needle, value.ty, map, param_stack)
+            }
+            ConstGeneric::Param(_, ty) => {
+                self.generic_param_occurs_in_type_with_map_inner(needle, ty, map, param_stack)
+            }
+            ConstGeneric::Expr(expr_id) => match *self.ctx.type_registry.const_expr(expr_id) {
+                ConstExprKind::Unary { expr, ty, .. } | ConstExprKind::Cast { expr, ty } => {
+                    self.generic_param_occurs_in_const_generic_with_map(needle, expr, map, param_stack)
+                        || self.generic_param_occurs_in_type_with_map_inner(
+                            needle,
+                            ty,
+                            map,
+                            param_stack,
+                        )
+                }
+                ConstExprKind::Binary { lhs, rhs, ty, .. } => {
+                    self.generic_param_occurs_in_const_generic_with_map(needle, lhs, map, param_stack)
+                        || self.generic_param_occurs_in_const_generic_with_map(
+                            needle,
+                            rhs,
+                            map,
+                            param_stack,
+                        )
+                        || self.generic_param_occurs_in_type_with_map_inner(
+                            needle,
+                            ty,
+                            map,
+                            param_stack,
+                        )
+                }
+            },
+            ConstGeneric::Error => false,
         }
     }
 

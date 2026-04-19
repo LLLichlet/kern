@@ -1281,6 +1281,124 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_occurs_check_violation_when_matching_env_trait_bounds() {
+    let output = compile_source(
+        r#"
+type Wrap[T] = struct {
+    inner: T,
+};
+
+type Marker[T] = trait {
+    value: fn() i32,
+};
+
+fn needs_self[T](value: T) i32
+    where T: Marker[T],
+{
+    return value.value();
+}
+
+fn bad[T](value: T) i32
+    where T: Marker[Wrap[T]],
+{
+    return needs_self[T](value);
+}
+
+type X = struct {};
+
+impl X: Marker[Wrap[X]] {
+    fn value() i32 {
+        return 42;
+    }
+}
+
+fn main() i32 {
+    return bad(X.{});
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("required bound: `T: Marker[T]`")
+            || stderr.contains("required bound: `X: Marker[X]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_indirect_occurs_check_cycle_through_multiple_trait_args() {
+    let output = compile_source(
+        r#"
+type Wrap[T] = struct {
+    inner: T,
+};
+
+type Marker[A, B] = trait {
+    value: fn() i32,
+};
+
+fn needs_self[T, U](value: T) i32
+    where T: Marker[T, U],
+{
+    return value.value();
+}
+
+fn bad[T, U](value: T) i32
+    where T: Marker[U, Wrap[T]],
+{
+    return needs_self[T, U](value);
+}
+
+type X = struct {};
+
+impl X: Marker[Wrap[X], Wrap[X]] {
+    fn value() i32 {
+        return 42;
+    }
+}
+
+fn main() i32 {
+    return bad[X, Wrap[X]](X.{});
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("required bound: `T: Marker[T, U]`")
+            || stderr.contains("required bound: `X: Marker[X, Wrap[X]]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_self_recursive_trait_impl_where_clauses_without_overflowing() {
     let output = compile_source(
         r#"

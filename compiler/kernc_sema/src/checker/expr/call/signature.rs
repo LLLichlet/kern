@@ -98,6 +98,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             (TypeKind::Param(name), _) => {
                 if let Some(&existing) = type_map.get(&name) {
                     existing == concrete_ty
+                } else if matches!(self.ctx.type_registry.get(concrete_ty), TypeKind::Param(other) if *other == name)
+                {
+                    type_map.insert(name, concrete_ty);
+                    true
+                } else if self.generic_param_occurs_in_type_with_map(name, concrete_ty, type_map) {
+                    false
                 } else {
                     type_map.insert(name, concrete_ty);
                     true

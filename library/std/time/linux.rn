@@ -16,7 +16,7 @@ fn syscall2_raw(sys_num: usize, arg1: usize, arg2: usize) isize {
     let mut ret = isize.{undef};
 
     @asm(.{
-        asm: .{ "syscall", },
+        asm: "syscall",
         outputs: .{ rax: ret..& },
         inputs: .{
             rax: sys_num,

@@ -86,6 +86,21 @@ impl ScriptHost for BuildUnitHost<'_> {
                 self.unit.link.args.push(arg);
                 Ok(ConstValue::Void)
             }
+            "__craft_build_link_script" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let path = expect_string(args, 1, "linker script path")?;
+                let script_path =
+                    package_or_absolute_path(&self.script_context.package_root_path, &path, "linker script path")?;
+                if !script_path.is_file() {
+                    return Err(format!(
+                        "linker script `{}` does not exist",
+                        script_path.display()
+                    ));
+                }
+                self.unit.link.args.push("-T".to_string());
+                self.unit.link.args.push(normalized_path_string(&script_path));
+                Ok(ConstValue::Void)
+            }
             "__craft_build_cfg_bool" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let key = expect_string(args, 1, "cfg name")?;
@@ -468,6 +483,23 @@ fn package_input_path(root: &Path, relative_path: &str) -> std::result::Result<P
         relative_path,
         "package relative source path",
     )?))
+}
+
+fn package_or_absolute_path(
+    root: &Path,
+    path: &str,
+    label: &str,
+) -> std::result::Result<PathBuf, String> {
+    if path.trim().is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+
+    let candidate = Path::new(path);
+    if candidate.is_absolute() {
+        return Ok(candidate.to_path_buf());
+    }
+
+    Ok(root.join(normalize_relative_path(path, label)?))
 }
 
 fn normalize_relative_path(

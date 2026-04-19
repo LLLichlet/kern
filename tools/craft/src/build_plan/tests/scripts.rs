@@ -146,6 +146,70 @@ if (b.unit.kind == .test) {{
 }
 
 #[test]
+fn build_script_can_resolve_relative_linker_script_paths_from_package_root() {
+    let root = temp_dir("craft-build-plan-link-script");
+    fs::create_dir_all(root.join("link")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_script("link/kernel.ld");
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("link").join("kernel.ld"),
+        "ENTRY(_start)\nSECTIONS { .text : { *(.text .text.*) } }\n",
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let unit = build_plan.packages[0]
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+    let expected = root
+        .join("link")
+        .join("kernel.ld")
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    assert_eq!(unit.link.args.get(0).map(String::as_str), Some("-T"));
+    assert_eq!(unit.link.args.get(1).map(String::as_str), Some(expected.as_str()));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_can_generate_sources_and_mutate_unit_cfg_define() {
     let root = temp_dir("craft-build-plan-generated");
     fs::write(

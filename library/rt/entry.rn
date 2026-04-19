@@ -42,12 +42,12 @@ extern fn _start_linux() void {
     // Keep the target as an explicit input operand so ThinLTO never depends on
     // a raw symbol name embedded inside the asm template.
     @asm(.{
-        asm: .{
-            "mov rdi, [rsp]",
-            "lea rsi, [rsp + 8]",
-            "and rsp, -16",
-            "call rax",
-        },
+        asm:
+            \\mov rdi, [rsp]
+            \\lea rsi, [rsp + 8]
+            \\and rsp, -16
+            \\call rax
+        ,
         inputs: .{ rax: kern_entry_linux },
         clobbers: .{ "memory", "rdi", "rsi" },
         volatile: true
@@ -81,25 +81,25 @@ fn kern_entry_posix(argc: i32, argv: **u8) i32 {
 #[naked]
 extern fn _chkstk_windows() void {
     @asm(.{
-        asm: .{
-            "push rcx",
-            "push rax",
-            "cmp rax, 0x1000",
-            "lea rcx, [rsp + 24]",
-            "jb chkstk_tail",
-            "chkstk_loop:",
-            "sub rcx, 0x1000",
-            "test qword ptr [rcx], rcx",
-            "sub rax, 0x1000",
-            "cmp rax, 0x1000",
-            "ja chkstk_loop",
-            "chkstk_tail:",
-            "sub rcx, rax",
-            "test qword ptr [rcx], rcx",
-            "pop rax",
-            "pop rcx",
-            "ret",
-        },
+        asm:
+            \\push rcx
+            \\push rax
+            \\cmp rax, 0x1000
+            \\lea rcx, [rsp + 24]
+            \\jb chkstk_tail
+            \\chkstk_loop:
+            \\sub rcx, 0x1000
+            \\test qword ptr [rcx], rcx
+            \\sub rax, 0x1000
+            \\cmp rax, 0x1000
+            \\ja chkstk_loop
+            \\chkstk_tail:
+            \\sub rcx, rax
+            \\test qword ptr [rcx], rcx
+            \\pop rax
+            \\pop rcx
+            \\ret
+        ,
         clobbers: .{ "memory", "rax", "rcx" },
         volatile: true
     });

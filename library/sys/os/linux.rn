@@ -129,7 +129,7 @@ fn syscall1_raw(sys_num: usize, arg1: usize) isize {
     let mut ret = isize.{undef};
 
     @asm(.{
-        asm: .{ "syscall", },
+        asm: "syscall",
         outputs: .{ rax: ret..& },
         inputs: .{
             rax: sys_num,
@@ -186,7 +186,7 @@ fn syscall3_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize) isize {
     let mut ret = isize.{undef};
 
     @asm(.{
-        asm: .{ "syscall", },
+        asm: "syscall",
         outputs: .{ rax: ret..& },
         inputs: .{ 
             rax: sys_num, 
@@ -205,7 +205,7 @@ fn syscall4_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usi
     let mut ret = isize.{undef};
 
     @asm(.{
-        asm: .{ "syscall", },
+        asm: "syscall",
         outputs: .{ rax: ret..& },
         inputs: .{
             rax: sys_num,
@@ -444,7 +444,7 @@ pub fn syscall6(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usi
     let mut ret = usize.{undef};
 
     @asm(.{
-        asm: .{ "syscall", },
+        asm: "syscall",
         outputs: .{ rax: ret..& },
         inputs: .{ 
             rax: sys_num, 

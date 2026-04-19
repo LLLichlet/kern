@@ -69,12 +69,8 @@ The source file may export `_start` directly:
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    for (;;) {
-        @asm(.{
-            asm: "hlt",
-            volatile: true,
-        });
-    }
+    for (;;) {}
+    @unreachable();
 }
 ```
 
@@ -85,8 +81,7 @@ For a single-package project whose linker script sits next to `Craft.toml`,
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
-    b.link_arg("-T");
-    b.link_arg("kernel.ld");
+    b.link_script("kernel.ld");
 }
 ```
 
@@ -747,6 +742,7 @@ The current `Builder` API includes:
   - `link_system_lib(...)`
   - `link_framework(...)`
   - `link_search(...)`
+  - `link_script(...)`
   - `link_arg(...)`
 
 The important property is not API breadth by itself. The important property is that these effects are represented in the build plan rather than being hidden behavior.

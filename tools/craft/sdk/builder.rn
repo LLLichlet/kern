@@ -53,6 +53,7 @@ extern {
     fn __craft_build_link_framework(builder: *mut Builder, name: []u8) void;
     fn __craft_build_link_search(builder: *mut Builder, path: []u8) void;
     fn __craft_build_link_arg(builder: *mut Builder, arg: []u8) void;
+    fn __craft_build_link_script(builder: *mut Builder, path: []u8) void;
     fn __craft_build_cfg_bool(builder: *mut Builder, name: []u8, value: bool) void;
     fn __craft_build_cfg_string(builder: *mut Builder, name: []u8, value: []u8) void;
     fn __craft_build_define_bool(builder: *mut Builder, name: []u8, value: bool) void;
@@ -101,6 +102,10 @@ impl *mut Builder {
 
     pub fn link_arg(arg: []u8) void {
         __craft_build_link_arg(self, arg);
+    }
+
+    pub fn link_script(path: []u8) void {
+        __craft_build_link_script(self, path);
     }
 
     pub fn cfg_bool(name: []u8, value: bool) void {

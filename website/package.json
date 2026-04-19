@@ -9,9 +9,10 @@
   },
   "scripts": {
     "dev": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro dev",
-    "build": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro check && mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "build": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro check && mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro build && node ./scripts/verify-built-links.mjs",
     "preview": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro preview",
-    "check": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro check"
+    "check": "mkdir -p .astro node_modules/.astro && ASTRO_TELEMETRY_DISABLED=1 astro check",
+    "verify:built-links": "node ./scripts/verify-built-links.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "5.2.8",

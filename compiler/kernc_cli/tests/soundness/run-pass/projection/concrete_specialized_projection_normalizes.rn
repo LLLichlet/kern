@@ -1,0 +1,33 @@
+// class: projection-normalization
+// source: concrete associated projections should normalize before layout, ABI lowering, and constexpr layout queries
+// exit: 0
+
+type Pick = trait {
+    type Out;
+};
+
+impl[T] []T : Pick {
+    type Out = bool;
+}
+
+impl []u8 : Pick {
+    type Out = i32;
+}
+
+type Bytes = []u8;
+
+fn project(value: Bytes) Bytes.Pick.Out {
+    let _ = value;
+    return 7;
+}
+
+fn main() i32 {
+    let size = @sizeOf[Bytes.Pick.Out]();
+    let align = @alignOf[Bytes.Pick.Out]();
+    let value = project("ok");
+    return if (value == 7 and size == 4 and align == 4) {
+        0
+    } else {
+        1
+    };
+}

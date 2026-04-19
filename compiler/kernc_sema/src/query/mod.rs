@@ -482,12 +482,23 @@ fn impl_head_signature(
         .trait_type
         .as_ref()
         .and_then(|trait_ty| ctx.node_types.get(&trait_ty.id).copied());
+    let trait_ty = trait_ty.map(|trait_ty| erase_impl_head_assoc_bindings(ctx, trait_ty));
 
     if target_ty == TypeId::ERROR || matches!(trait_ty, Some(TypeId::ERROR)) {
         return None;
     }
 
     Some((impl_def, target_ty, trait_ty))
+}
+
+fn erase_impl_head_assoc_bindings(ctx: &mut SemaContext<'_>, ty: TypeId) -> TypeId {
+    match ctx.type_registry.get(ctx.type_registry.normalize(ty)).clone() {
+        TypeKind::TraitObject(def_id, args, _) => {
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(def_id, args, Vec::new()))
+        }
+        _ => ty,
+    }
 }
 
 fn freshen_impl_head_types(

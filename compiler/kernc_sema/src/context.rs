@@ -1032,6 +1032,146 @@ impl<'a> SemaContext<'a> {
         }
     }
 
+    /// Normalize aliases and any fully concrete associated-type projections that can be
+    /// discharged from a concrete receiver type and the currently known global impls.
+    ///
+    /// This is intentionally shared between sema-side layout queries and lowering so both
+    /// phases agree on what counts as a fully concrete type.
+    pub fn normalize_concrete_type(&mut self, ty: TypeId) -> TypeId {
+        let mut projection_stack = Vec::new();
+        self.normalize_concrete_type_inner(ty, &mut projection_stack)
+    }
+
+    fn normalize_concrete_type_inner(
+        &mut self,
+        ty: TypeId,
+        projection_stack: &mut Vec<TypeId>,
+    ) -> TypeId {
+        let mut curr = ty;
+        loop {
+            let norm = self.type_registry.normalize(curr);
+            let Some(next) = self.try_normalize_projection_type(norm, projection_stack) else {
+                return norm;
+            };
+            if next == norm {
+                return norm;
+            }
+            curr = next;
+        }
+    }
+
+    fn try_normalize_projection_type(
+        &mut self,
+        ty: TypeId,
+        projection_stack: &mut Vec<TypeId>,
+    ) -> Option<TypeId> {
+        let TypeKind::Projection {
+            target,
+            trait_def_id,
+            trait_args,
+            assoc_def_id,
+            assoc_args,
+        } = self.type_registry.get(ty).clone()
+        else {
+            return None;
+        };
+
+        if !assoc_args.is_empty() || projection_stack.contains(&ty) {
+            return None;
+        }
+        projection_stack.push(ty);
+
+        let result = (|| {
+            let target_norm = self.normalize_concrete_type_inner(target, projection_stack);
+            if let TypeKind::TraitObject(target_trait_def_id, target_trait_args, assoc_bindings) =
+                self.type_registry.get(target_norm).clone()
+                && target_trait_def_id == trait_def_id
+                && target_trait_args == trait_args
+                && let Some((_, assoc_ty)) = assoc_bindings
+                    .iter()
+                    .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+            {
+                return Some(*assoc_ty);
+            }
+
+            let trait_impls = self.trait_impls.clone();
+            let mut selected: Option<(DefId, TypeId)> = None;
+            for impl_id in trait_impls {
+                let Some(impl_ptr) =
+                    self.defs
+                        .get(impl_id.0 as usize)
+                        .and_then(|def| match def {
+                            Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                            _ => None,
+                        })
+                else {
+                    continue;
+                };
+
+                let Some(impl_args) = crate::query::MemberQuery::new(self)
+                    .resolve_impl_applicability_for_type(target_norm, impl_id)
+                else {
+                    continue;
+                };
+
+                let impl_def = unsafe { &*impl_ptr };
+                let Some(trait_ast) = &impl_def.trait_type else {
+                    continue;
+                };
+                let impl_trait_ty = self
+                    .node_types
+                    .get(&trait_ast.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                if impl_trait_ty == TypeId::ERROR {
+                    continue;
+                }
+
+                let mut subst_map = HashMap::new();
+                for (param, arg) in impl_def.generics.iter().zip(impl_args.iter().copied()) {
+                    subst_map.insert(param.name, arg);
+                }
+                let inst_trait_ty = if subst_map.is_empty() {
+                    impl_trait_ty
+                } else {
+                    let mut subst = Substituter::new(&mut self.type_registry, &subst_map);
+                    subst.substitute(impl_trait_ty)
+                };
+
+                let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) =
+                    self.type_registry.get(self.type_registry.normalize(inst_trait_ty)).clone()
+                else {
+                    continue;
+                };
+                if bound_trait_def_id != trait_def_id || bound_trait_args != trait_args {
+                    continue;
+                }
+
+                if let Some((_, assoc_ty)) = assoc_bindings
+                    .iter()
+                    .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+                {
+                    let replace = match selected {
+                        None => true,
+                        Some((selected_impl_id, _)) => matches!(
+                            crate::query::compare_impl_specificity(self, impl_id, selected_impl_id),
+                            crate::query::ImplSpecificity::LeftMoreSpecific
+                        ),
+                    };
+                    if replace {
+                        selected = Some((impl_id, *assoc_ty));
+                    }
+                }
+            }
+
+            selected.map(|(_, assoc_ty)| assoc_ty)
+        })();
+
+        let popped = projection_stack.pop();
+        debug_assert_eq!(popped, Some(ty));
+        result
+    }
+
     /// Inject CLI-provided module aliases such as `std` into the root scope.
     /// This lets code refer to `std.io` directly without an explicit `use std;`.
     pub fn inject_alias_roots(&mut self) {

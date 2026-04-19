@@ -123,7 +123,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     }
 
     fn compute_type_align_inner(&mut self, ty: TypeId, request_span: Span) -> u64 {
-        let norm = self.ctx.type_registry.normalize(ty);
+        let norm = self.ctx.normalize_concrete_type(ty);
         if let Some(&align) = self.align_cache.get(&norm) {
             return align;
         }
@@ -280,7 +280,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     }
 
     fn compute_type_size_inner(&mut self, ty: TypeId, request_span: Span) -> u64 {
-        let norm = self.ctx.type_registry.normalize(ty);
+        let norm = self.ctx.normalize_concrete_type(ty);
         if let Some(&size) = self.size_cache.get(&norm) {
             return size;
         }
@@ -806,6 +806,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         let norm = self.ctx.type_registry.normalize(ty);
         match self.ctx.type_registry.get(norm) {
             TypeKind::Def(def_id, _) | TypeKind::Enum(def_id, _) => self.def_span(*def_id),
+            TypeKind::Projection { assoc_def_id, .. } => self.def_span(*assoc_def_id),
             _ => Span::default(),
         }
     }

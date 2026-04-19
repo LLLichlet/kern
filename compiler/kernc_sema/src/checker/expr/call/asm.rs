@@ -42,29 +42,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         ExprKind::String(_) => {
                             self.check_expr(&field.value, None);
                         }
-                        ExprKind::DataInit {
-                            literal: ast::DataLiteralKind::Array(elems),
-                            ..
-                        } => {
-                            for e in elems {
-                                if !matches!(e.kind, ExprKind::String(_)) {
-                                    self.ctx
-                                        .struct_error(
-                                            e.span,
-                                            "all elements in asm array must be string literals",
-                                        )
-                                        .emit();
-                                }
-                                self.check_expr(e, None);
-                            }
-                        }
                         _ => {
-                            self.ctx
-                                .struct_error(
-                                    field.value.span,
-                                    "`asm` template must be a string literal or an array of strings",
-                                )
-                                .emit();
+                            let mut diag = self.ctx.struct_error(
+                                field.value.span,
+                                "`asm` template must be a string literal",
+                            );
+                            if matches!(
+                                field.value.kind,
+                                ExprKind::DataInit {
+                                    literal: ast::DataLiteralKind::Array(_),
+                                    ..
+                                }
+                            ) {
+                                diag = diag.with_hint(
+                                    "use one string literal instead; for multiple lines, use Kern multiline strings beginning with `\\\\`",
+                                );
+                            }
+                            diag.emit();
                         }
                     }
                 }
@@ -153,6 +147,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     span,
                     "`@asm` configuration is missing the required `asm` template string",
                 )
+                .with_hint("example: `@asm(.{ asm: \"nop\", volatile: true })`")
                 .emit();
         }
 

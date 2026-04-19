@@ -2558,3 +2558,123 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn accepts_multiline_string_inline_asm_templates() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    @asm(.{
+        asm:
+            \\nop
+            \\nop
+        ,
+        volatile: true,
+    });
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc multiline @asm");
+}
+
+#[test]
+fn rejects_legacy_inline_asm_string_arrays_with_migration_hint() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    @asm(.{
+        asm: .{
+            "nop",
+            "nop",
+        },
+        volatile: true,
+    });
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted legacy @asm array syntax:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("`asm` template must be a string literal"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("use one string literal instead"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn reports_targeted_error_for_unterminated_inline_asm_string() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    @asm(.{
+        asm: "nop
+        volatile: true,
+    });
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted malformed @asm string:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Unterminated string literal before end of line"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Expected expression"),
+        "unexpected cascading parser stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn reports_missing_comma_between_inline_asm_config_fields() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    @asm(.{
+        asm: "nop"
+        volatile: true,
+    });
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted malformed @asm fields:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expected `,` between fields in data initializer"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}

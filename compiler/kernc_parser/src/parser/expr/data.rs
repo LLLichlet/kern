@@ -5,6 +5,31 @@ use kernc_lexer::{Token, TokenType};
 use kernc_utils::Span;
 
 impl<'a> Parser<'a> {
+    fn placeholder_expr(&mut self, span: Span) -> Expr {
+        Expr {
+            id: self.new_id(),
+            span,
+            kind: ExprKind::Undef,
+        }
+    }
+
+    fn recover_data_init_until(&mut self, tags: &[TokenType]) {
+        while !self.check(TokenType::Eof) {
+            let current = self.peek().tag;
+            if tags.contains(&current) {
+                return;
+            }
+            self.advance();
+        }
+    }
+
+    fn emit_missing_data_init_separator(&mut self, span: Span, kind: &str) {
+        self.session
+            .struct_error(span, format!("expected `,` between {kind} in data initializer"))
+            .with_hint("insert `,` between adjacent initializer entries")
+            .emit();
+    }
+
     fn split_builtin_optional_none_constructor(
         &mut self,
         inner: TypeNode,
@@ -268,7 +293,13 @@ impl<'a> Parser<'a> {
             return self.parse_struct_data_init(type_node, start_span);
         }
 
-        let first = self.parse_expression(Precedence::Lowest)?;
+        let first = match self.parse_expression(Precedence::Lowest) {
+            Ok(expr) => expr,
+            Err(ParseError) => {
+                self.recover_data_init_until(&[TokenType::Comma, TokenType::RBrace]);
+                self.placeholder_expr(start_span)
+            }
+        };
         if self.match_token(&[TokenType::Semicolon]) {
             let count = self.parse_expression(Precedence::Lowest)?;
             let rb = self.expect(TokenType::RBrace)?;
@@ -286,10 +317,23 @@ impl<'a> Parser<'a> {
         } else if self.match_token(&[TokenType::Comma]) {
             let mut elems = vec![first];
             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-                elems.push(self.parse_expression(Precedence::Lowest)?);
-                if !self.continue_after_comma(&[TokenType::RBrace]) {
+                let elem = match self.parse_expression(Precedence::Lowest) {
+                    Ok(expr) => expr,
+                    Err(ParseError) => {
+                        let err_span = self.peek().span;
+                        self.recover_data_init_until(&[TokenType::Comma, TokenType::RBrace]);
+                        self.placeholder_expr(err_span)
+                    }
+                };
+                elems.push(elem);
+                if self.continue_after_comma(&[TokenType::RBrace]) {
+                    continue;
+                }
+                if self.check(TokenType::RBrace) {
                     break;
                 }
+                let separator_span = self.peek().span;
+                self.emit_missing_data_init_separator(separator_span, "elements");
             }
             let rb = self.expect(TokenType::RBrace)?;
             Ok(Expr {
@@ -337,7 +381,14 @@ impl<'a> Parser<'a> {
                 return Err(ParseError);
             }
 
-            let val = self.parse_expression(Precedence::Lowest)?;
+            let val = match self.parse_expression(Precedence::Lowest) {
+                Ok(expr) => expr,
+                Err(ParseError) => {
+                    let err_span = self.peek().span;
+                    self.recover_data_init_until(&[TokenType::Comma, TokenType::RBrace]);
+                    self.placeholder_expr(err_span)
+                }
+            };
             let field_span = name.span.to(val.span);
             fields.push(StructFieldInit {
                 name: name_id,
@@ -346,9 +397,14 @@ impl<'a> Parser<'a> {
                 span: field_span,
             });
 
-            if !self.continue_after_comma(&[TokenType::RBrace]) {
+            if self.continue_after_comma(&[TokenType::RBrace]) {
+                continue;
+            }
+            if self.check(TokenType::RBrace) {
                 break;
             }
+            let separator_span = self.peek().span;
+            self.emit_missing_data_init_separator(separator_span, "fields");
         }
 
         let rb = self.expect(TokenType::RBrace)?;

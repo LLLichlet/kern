@@ -284,6 +284,9 @@ impl<'a> Tokenizer<'a> {
 
             let char = self.peek();
             match char {
+                b'\n' | b'\r' => {
+                    return self.emit_lex_error("Unterminated string literal before end of line");
+                }
                 b'"' => {
                     self.advance(); // Consume the closing quote.
                     break;

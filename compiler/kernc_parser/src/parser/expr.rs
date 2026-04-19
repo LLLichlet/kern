@@ -250,6 +250,20 @@ impl<'a> Parser<'a> {
             | TokenType::Union
             | TokenType::Enum
             | TokenType::Extern => self.parse_type_namespace_expr(token),
+            TokenType::LexError(msg) => {
+                self.add_error(span, msg.to_string());
+                Err(ParseError)
+            }
+            TokenType::Illegal => {
+                let text = self.source_slice(span).to_string();
+                let message = if text.is_empty() {
+                    "invalid token".to_string()
+                } else {
+                    format!("invalid token `{text}`")
+                };
+                self.add_error(span, message);
+                Err(ParseError)
+            }
             TokenType::Underscore => Ok(Expr {
                 id: self.new_id(),
                 span,

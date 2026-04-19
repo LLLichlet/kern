@@ -87,24 +87,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(super) fn lower_asm_template(&mut self, value: &Expr) -> Option<String> {
         match &value.kind {
             ExprKind::String(s) => Some(s.clone()),
-            ExprKind::DataInit {
-                literal: ast::DataLiteralKind::Array(elems),
-                ..
-            } => {
-                let mut lines = Vec::new();
-                for e in elems {
-                    if let ExprKind::String(s) = &e.kind {
-                        lines.push(s.as_str());
-                    } else {
-                        self.ctx.emit_ice(
-                            e.span,
-                            "Kern ICE (Lowering): `@asm` template array must contain only strings.",
-                        );
-                        return None;
-                    }
-                }
-                Some(lines.join("\n"))
-            }
             _ => {
                 self.ctx.emit_ice(
                     value.span,

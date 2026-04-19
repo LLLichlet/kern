@@ -20,7 +20,7 @@ const quickJumps = [
     kicker: "Install",
     title: "Use the installer when you just want the toolchain",
     href: "/install",
-    summary: "Most users should install the release archive rather than rebuilding the repository."
+    summary: "Use the release archive when you want the installed toolchain rather than a repository build."
   },
   {
     kicker: "Editor",
@@ -66,7 +66,7 @@ python3 -m ops release package --version v0.7.0 --target aarch64-apple-darwin`;
   <section class="doc-shell section-divider">
     <QuickJumpPanel
       title="Pick the source-build scenario first"
-      summary="Most confusion here is really a confusion between local development builds and release packaging."
+      summary="These paths separate local development builds from release packaging, installation, and editor integration."
       items={quickJumps}
     />
   </section>

@@ -67,7 +67,7 @@ scripts    workspace craft no, package craft 0, build.rn 1
   generate buildrn-guide:buildrn-guide [bin,target] -> .../src/main.rn<=copy:templates/main.rn
 ```
 
-That is exactly the behavior a user-facing guide should teach:
+That is exactly the behavior this guide is meant to show:
 
 - `build.rn` produced a generated/staged source
 - that generated source replaced the unit's original source root

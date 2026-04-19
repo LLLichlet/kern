@@ -126,7 +126,7 @@ const linkerScriptBuild = `kernc \
   <section class="doc-shell section-divider">
     <QuickJumpPanel
       title="Choose the driver mode first"
-      summary="Most confusion around `kernc` comes from mixing package concerns with driver concerns. Start from the exact action you want."
+      summary="Start from the exact action: compile and link, emit LLVM IR, link only, or build a freestanding binary."
       items={quickJumps}
     />
   </section>
@@ -229,7 +229,7 @@ const linkerScriptBuild = `kernc \
       <div class="eyebrow">Maintainers</div>
       <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Lower-level driver notes</h2>
       <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
-        This site documents the user-facing driver surface. Repository internals and implementation notes still live separately.
+        This page covers the command surface. Lower-level implementation notes still live in the repository.
       </p>
     </div>
     <div class="dense-link-list mt-8">

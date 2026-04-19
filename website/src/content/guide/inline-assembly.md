@@ -24,7 +24,7 @@ fn main() i32 {
 }
 ```
 
-This is intentionally minimal, but it proves the current user-facing shape:
+This is intentionally minimal, but it proves the current surface:
 
 - `@asm` is accepted as an ordinary expression statement
 - the `asm` template can be a single string literal

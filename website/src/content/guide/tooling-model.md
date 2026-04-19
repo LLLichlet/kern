@@ -81,7 +81,7 @@ command still illustrates the driver boundary clearly:
 
 ## Where To Read What
 
-Use the website reference when you need user-facing `craft` or `kernc`
+Use the website reference when you need exact `craft` or `kernc`
 behavior:
 
 - `craft`: commands, target selection, lockfiles, `build.rn`, and package workflows

@@ -263,17 +263,25 @@ kbd {
 }
 
 :root[data-theme="light"] .prose-kern .astro-code,
-:root[data-theme="light"] .prose-kern .astro-code span,
-:root:not([data-theme]) .prose-kern .astro-code,
-:root:not([data-theme]) .prose-kern .astro-code span {
+:root:not([data-theme]) .prose-kern .astro-code {
   color: var(--shiki-light) !important;
   background-color: var(--shiki-light-bg) !important;
 }
 
-:root[data-theme="dark"] .prose-kern .astro-code,
-:root[data-theme="dark"] .prose-kern .astro-code span {
+:root[data-theme="light"] .prose-kern .astro-code span,
+:root:not([data-theme]) .prose-kern .astro-code span {
+  color: var(--shiki-light) !important;
+  background-color: transparent !important;
+}
+
+:root[data-theme="dark"] .prose-kern .astro-code {
   color: var(--shiki-dark) !important;
   background-color: var(--shiki-dark-bg) !important;
+}
+
+:root[data-theme="dark"] .prose-kern .astro-code span {
+  color: var(--shiki-dark) !important;
+  background-color: transparent !important;
 }
 
 .prose-kern pre {

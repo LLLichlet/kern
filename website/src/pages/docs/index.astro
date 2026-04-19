@@ -11,9 +11,8 @@ import { authoritativeDocs, maintainerDocs, siteMeta } from "@/lib/site";
         Repository docs
       </h1>
       <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
-        The website is the primary user-facing documentation for `craft` and `kernc`.
         This page collects repository-native design documents and maintainer notes
-        that still matter when you need implementation detail.
+        that complement the guide and reference sections on the site.
       </p>
     </div>
   </section>
@@ -57,9 +56,9 @@ import { authoritativeDocs, maintainerDocs, siteMeta } from "@/lib/site";
       <div class="eyebrow">Current Split</div>
       <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">What belongs here</h2>
       <ul class="mt-5 space-y-3 text-base leading-8 text-[color:var(--kern-text-muted)]">
-        <li>Use the website guide and reference pages for normal `craft` and `kernc` usage.</li>
+        <li>Use the guide and reference pages for tool commands, language rules, and day-to-day development.</li>
         <li>Use repository docs for language design, runtime architecture, and maintainer internals.</li>
-        <li>The goal is not to mirror every repo file, but to keep user docs and maintainer docs separate.</li>
+        <li>Use the repository directly when you need implementation notes that are not mirrored on the site.</li>
       </ul>
       <a class="mt-6 button-primary" href={siteMeta.repoUrl} target="_blank" rel="noreferrer">
         Open repository

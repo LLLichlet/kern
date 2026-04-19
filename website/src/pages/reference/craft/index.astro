@@ -107,7 +107,7 @@ pub fn build(b: *mut builder.Builder) void {
         this is the tool layer that answers it.
       </p>
       <div class="mt-8 max-w-3xl border-y border-[color:var(--kern-line)] py-5 text-sm leading-7 text-[color:var(--kern-text-muted)]">
-        The user-facing commands on this page were checked against the current toolchain while writing the docs.
+        The commands on this page were checked against the current toolchain while writing the docs.
         `craft doc` still requires at least one library target that emits package metadata, and freestanding linker
         scripts should use `b.link_script(...)` instead of raw `-T` path pairs.
       </div>
@@ -117,7 +117,7 @@ pub fn build(b: *mut builder.Builder) void {
   <section class="doc-shell section-divider">
     <QuickJumpPanel
       title="Start from the task, not from the whole command surface"
-      summary="Most users only need one of these four paths. Use the guide for a workflow, or jump straight into the exact tool boundary."
+      summary="These four paths cover package workflows, build scripts, freestanding packages, and the direct-driver boundary."
       items={quickJumps}
     />
   </section>

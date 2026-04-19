@@ -33,6 +33,11 @@ fn reject_interface_cases() {
 }
 
 #[test]
+fn known_bug_compile_cases() {
+    run_known_bug_compile_cases(&cases_in("known-bug-compile"));
+}
+
+#[test]
 fn build_pass_cases() {
     run_build_pass_cases(&cases_in("build-pass"));
 }
@@ -40,6 +45,11 @@ fn build_pass_cases() {
 #[test]
 fn run_pass_cases() {
     run_run_pass_cases(&cases_in("run-pass"));
+}
+
+#[test]
+fn known_bug_run_cases() {
+    run_run_pass_cases(&cases_in("known-bug-run"));
 }
 
 fn run_reject_cases(paths: &[PathBuf]) {
@@ -88,6 +98,30 @@ fn run_build_pass_cases(paths: &[PathBuf]) {
         assert!(
             output.status.success(),
             "{} failed to compile:\nstdout:\n{}\nstderr:\n{}",
+            path.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+fn run_known_bug_compile_cases(paths: &[PathBuf]) {
+    for path in paths {
+        let case = parse_case(path);
+        let compile_args = case
+            .compile_args
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let output = compile_source_with_args(
+            "kernc_soundness_known_bug_compile",
+            &case.source,
+            &compile_args,
+        );
+
+        assert!(
+            output.status.success(),
+            "{} no longer reproduces its known compile-time bug:\nstdout:\n{}\nstderr:\n{}",
             path.display(),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)

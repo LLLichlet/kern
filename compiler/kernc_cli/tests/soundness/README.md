@@ -20,8 +20,10 @@ Each `.rn` file is a minimized regression seed. The harness lives in
 - `reject/`: program must be rejected by the compiler.
 - `tree-reject/`: a case directory with `main.rn` plus helper package trees.
 - `interface-reject/`: a case directory with `main.rn` plus helper interface packages.
+- `known-bug-compile/`: currently compiles, but should not. The test fails once the bug is fixed.
 - `build-pass/`: program must compile successfully.
 - `run-pass/`: program must compile and run successfully.
+- `known-bug-run/`: currently runs with buggy output/exit status. The test fails once the behavior changes.
 
 Leading comment directives:
 
@@ -40,6 +42,15 @@ such as `dep=dep`.
 
 `interface-reject/` cases do the same, but first compile helper packages into
 temporary `kmeta` outputs and then mount them through `module-interface-path`.
+
+Known-bug buckets are intentionally inverted:
+
+- they pass while the bug still reproduces
+- they fail once the compiler stops reproducing it
+
+That makes them useful as a quarantine lane while a bug is still open. When one
+starts failing, move it into `reject/`, `build-pass/`, or `run-pass/` with the
+new expected behavior.
 
 Recommended maintenance workflow:
 

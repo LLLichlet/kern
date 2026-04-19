@@ -1,0 +1,24 @@
+// class: specialization-dispatch
+// source: known bug discovered while adding the soundness corpus; coherence accepts the overlap, but method lookup still chooses the generic impl
+// exit: 1
+
+type Score = trait {
+    value: fn() i32,
+};
+
+impl[T] []T : Score {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+impl []u8 : Score {
+    fn value() i32 {
+        return 2;
+    }
+}
+
+fn main() i32 {
+    let score = "ok".value();
+    return if (score == 2) { 0 } else { 1 };
+}

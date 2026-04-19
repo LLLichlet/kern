@@ -18,27 +18,41 @@ const { title, summary, items } = Astro.props;
 ---
 
 <section class="quick-jump-panel">
-  <div class="eyebrow">Quick Jumps</div>
-  <div class="quick-jump-head">
-    <h2 class="text-3xl text-[color:var(--kern-ink)]">{title}</h2>
-    <p class="max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">{summary}</p>
-  </div>
-  <div class="quick-jump-grid">
-    {
-      items.map((item) => (
-        <a
-          class="quick-jump-item"
-          href={internalHref(item.href)}
-        >
-          {item.kicker && (
-            <div class="quick-jump-kicker text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">
-              {item.kicker}
+  <details class="quick-jump-shell" open>
+    <summary class="quick-jump-summary-bar">
+      <div class="quick-jump-summary-copy">
+        <div class="eyebrow">Quick Jumps</div>
+        <div class="quick-jump-head">
+          <h2 class="text-3xl text-[color:var(--kern-ink)]">{title}</h2>
+          <p class="max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">{summary}</p>
+        </div>
+      </div>
+      <div class="quick-jump-toggle" aria-hidden="true">
+        <span class="quick-jump-toggle-label quick-jump-toggle-open">Hide</span>
+        <span class="quick-jump-toggle-label quick-jump-toggle-closed">Show</span>
+        <span class="quick-jump-toggle-icon"></span>
+      </div>
+    </summary>
+    <div class="quick-jump-grid">
+      {
+        items.map((item) => (
+          <a
+            class="quick-jump-item"
+            href={internalHref(item.href)}
+          >
+            <div class="quick-jump-item-top">
+              {item.kicker && (
+                <div class="quick-jump-kicker text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">
+                  {item.kicker}
+                </div>
+              )}
+              <div class="quick-jump-arrow">Open</div>
             </div>
-          )}
-          <div class="quick-jump-title mt-2 text-lg font-semibold text-[color:var(--kern-ink)]">{item.title}</div>
-          <p class="quick-jump-summary mt-2 text-sm leading-7 text-[color:var(--kern-text-muted)]">{item.summary}</p>
-        </a>
-      ))
-    }
-  </div>
+            <div class="quick-jump-title text-lg font-semibold text-[color:var(--kern-ink)]">{item.title}</div>
+            <p class="quick-jump-summary text-sm leading-7 text-[color:var(--kern-text-muted)]">{item.summary}</p>
+          </a>
+        ))
+      }
+    </div>
+  </details>
 </section>

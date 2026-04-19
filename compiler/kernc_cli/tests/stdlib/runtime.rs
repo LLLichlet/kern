@@ -301,6 +301,43 @@ fn links_windows_rt_program_with_std_bundle() {
 }
 
 #[test]
+fn links_unix_freestanding_program_without_program_main() {
+    if cfg!(windows) || cfg!(target_os = "macos") {
+        return;
+    }
+
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_unix_freestanding_none",
+        r#"
+#[export_name("_start")]
+fn kmain() void {
+    for (;;) {}
+    @unreachable();
+}
+"#,
+        &[
+            "--library-bundle",
+            "base",
+            "--runtime-entry",
+            "none",
+            "--runtime-libc",
+            "no",
+            "--entry-symbol",
+            "_start",
+        ],
+    );
+
+    assert!(
+        executable_path.exists(),
+        "expected freestanding executable at {}",
+        executable_path.display()
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn runs_hosted_program_with_indexed_command_line_arguments() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_hosted_args",

@@ -50,6 +50,8 @@ extern fn bar() i32 {
         output_file: executable.to_string_lossy().to_string(),
         driver_mode: DriverMode::LinkOnly,
         linker_inputs: vec![object.to_string_lossy().to_string()],
+        runtime_entry: RuntimeEntry::Crt,
+        runtime_libc: true,
         report_progress: false,
         ..CompileOptions::default()
     });
@@ -112,6 +114,8 @@ extern fn bar() i32 {
         output_file: executable.to_string_lossy().to_string(),
         driver_mode: DriverMode::LinkOnly,
         linker_inputs: vec![object.to_string_lossy().to_string()],
+        runtime_entry: RuntimeEntry::Crt,
+        runtime_libc: true,
         report_progress: false,
         ..CompileOptions::default()
     });
@@ -523,6 +527,8 @@ fn bar() i32 {
         output_file: executable.to_string_lossy().to_string(),
         driver_mode: DriverMode::LinkOnly,
         linker_inputs: vec![object.to_string_lossy().to_string()],
+        runtime_entry: RuntimeEntry::Crt,
+        runtime_libc: true,
         report_progress: false,
         ..CompileOptions::default()
     });

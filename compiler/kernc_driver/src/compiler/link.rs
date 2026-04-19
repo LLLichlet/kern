@@ -357,9 +357,34 @@ impl CompilerDriver {
 
         match self.options.runtime_entry {
             RuntimeEntry::None => {
+                // `runtime_entry = none` means the host linker must not inject a
+                // startup contract on our behalf. Keep libc linkage orthogonal:
+                // `runtime_libc = yes` drops only startup files, while
+                // `runtime_libc = no` drops the default runtime libraries too.
+                if is_windows {
+                    cmd.arg("-Wl,/subsystem:console");
+                    if runtime_links_libc(&self.options) {
+                        cmd.arg("-nostartfiles");
+                    } else {
+                        cmd.arg("-Wno-override-module");
+                        cmd.arg("-nostdlib");
+                    }
+                } else if is_darwin {
+                    if runtime_links_libc(&self.options) {
+                        cmd.arg("-nostartfiles");
+                    } else {
+                        cmd.arg("-nostdlib");
+                    }
+                } else {
+                    cmd.arg("-no-pie");
+                    if runtime_links_libc(&self.options) {
+                        cmd.arg("-nostartfiles");
+                    } else {
+                        cmd.arg("-nostdlib");
+                    }
+                }
                 if let Some(entry_symbol) = &self.options.entry_symbol {
                     if is_windows {
-                        cmd.arg("-Wl,/subsystem:console");
                         cmd.arg(format!("-Wl,/entry:{}", entry_symbol));
                     } else {
                         cmd.arg(format!("-Wl,-e,{}", entry_symbol));

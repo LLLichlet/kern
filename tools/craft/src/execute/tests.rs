@@ -256,6 +256,73 @@ lto = "thin"
 }
 
 #[test]
+fn build_succeeds_for_linux_freestanding_bin_without_program_main() {
+    if cfg!(windows) || cfg!(target_os = "macos") {
+        return;
+    }
+
+    let root = temp_dir("craft-build-freestanding-none");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "kernel"
+version = "0.1.0"
+kern = "0.7.0"
+
+[runtime]
+entry = "none"
+libc = false
+bundle = "base"
+
+[[bin]]
+name = "kernel"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+#[export_name("_start")]
+fn kmain() void {
+    for (;;) {}
+    @unreachable();
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let binary = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "kernel")
+        .unwrap()
+        .artifact_path
+        .clone();
+
+    let summary = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(summary.link_actions, 1);
+    assert!(binary.exists(), "expected freestanding binary at {}", binary.display());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_can_link_native_static_library_from_root_package_path() {
     let root = temp_dir("craft-build-native-link");
     fs::create_dir_all(root.join("src")).unwrap();

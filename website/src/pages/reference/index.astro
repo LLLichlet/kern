@@ -9,17 +9,18 @@ import { referenceTracks } from "@/lib/site";
     <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
       Reference
     </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
-      This page maps the current reference surface on the website. Some parts are
-      already website-native; others still point at authoritative repository documents.
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
+      This page maps the current reference surface on the website. The `craft`
+      and `kernc` tracks are now website-native. Language and runtime still
+      link back to the repository design docs for full detail.
     </p>
 
     <div class="manual-callout mt-10">
       <div class="manual-kicker">Reference Summary</div>
       <ul class="mt-4 space-y-2 text-base">
         <li>Language, runtime, compiler driver, and package manager each have separate reference tracks.</li>
-        <li>Website-native pages should only replace repository docs when they are equally authoritative.</li>
-        <li>Until then, this index should point to the real source of truth instead of hiding the transition.</li>
+        <li>`craft` and `kernc` are documented here as the primary user-facing references.</li>
+        <li>Language and runtime still keep their deepest detail in repository design documents.</li>
       </ul>
     </div>
 
@@ -36,7 +37,9 @@ import { referenceTracks } from "@/lib/site";
               <div class="manual-directory-body">{track.description}</div>
               <div class="manual-directory-links">
                 <a href={track.href}>Open website reference</a>
-                <a href={track.sourceHref} target="_blank" rel="noreferrer">Open repository source</a>
+                {track.sourceHref && (
+                  <a href={track.sourceHref} target="_blank" rel="noreferrer">Open repository source</a>
+                )}
               </div>
             </div>
           ))
@@ -45,11 +48,11 @@ import { referenceTracks } from "@/lib/site";
     </section>
 
     <section class="manual-section">
-      <h2>Migration rule</h2>
+      <h2>Reference split</h2>
       <p class="mt-4 max-w-3xl text-base">
-        Website-native reference pages should replace repository docs only when
-        they become equally authoritative and are maintained with the same discipline.
-        Until then, this index should continue to point at the current source of truth.
+        Use the website for `craft` and `kernc` workflows, commands, and normal
+        day-to-day usage. Use the repository docs when you need maintainer-level
+        design detail for the language core or runtime architecture.
       </p>
     </section>
   </section>

@@ -46,12 +46,8 @@ Export the symbol you actually want:
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    for (;;) {
-        @asm(.{
-            asm: "hlt",
-            volatile: true,
-        });
-    }
+    for (;;) {}
+    @unreachable();
 }
 ```
 
@@ -69,13 +65,13 @@ If the linker needs a custom script, keep that in `build.rn`:
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
-    b.link_arg("-T");
-    b.link_arg("kernel.ld");
+    b.link_script("kernel.ld");
 }
 ```
 
-For a single-package project, placing `kernel.ld` next to `Craft.toml` keeps
-the setup straightforward.
+`link_script(...)` resolves relative paths from the package root, verifies that
+the file exists, and pushes the correct `-T <absolute-path>` pair into the link
+step.
 
 The actual commands stay simple:
 

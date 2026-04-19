@@ -3,90 +3,180 @@ import BaseLayout from "@/layouts/BaseLayout.astro";
 import { internalHref, siteMeta } from "@/lib/site";
 ---
 
-<BaseLayout title="kernc Reference" description="Current reference for the kernc compiler driver: scope, modes, runtime axes, output forms, and platform-facing packaging notes.">
+<BaseLayout title="kernc Reference" description="User-facing reference for kernc: driver modes, runtime flags, LLVM emission, direct linking, and freestanding build commands.">
   <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
     <div class="eyebrow">Compiler Driver</div>
     <h1 class="mt-6 max-w-4xl text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
       `kernc`
     </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
-      `kernc` is the compiler and linker driver. It parses, analyzes, lowers,
-      emits LLVM or native linker inputs, and can invoke the final system linker.
-      Dependency resolution, lockfiles, and workspace planning remain outside it.
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
+      `kernc` is the compiler and linker driver. It parses, checks, lowers,
+      emits LLVM or native linker inputs, and can invoke the final system
+      linker. It does not resolve packages or own lockfiles.
     </p>
 
     <div class="manual-callout mt-10">
-      <div class="manual-kicker">Reference Summary</div>
+      <div class="manual-kicker">Validated Surface</div>
       <ul class="mt-4 space-y-2 text-base">
-        <li>Default mode compiles the source input and links the final binary.</li>
-        <li>`-c` emits a linker input artifact and stops before the final system link step.</li>
-        <li>`--emit-llvm` exposes raw, verified, or optimized LLVM IR.</li>
-        <li>`--link-only` skips frontend and code generation stages and invokes the linker with explicit inputs.</li>
+        <li>The direct commands on this page were exercised while writing the site docs.</li>
+        <li>Hosted compile-and-link, compile-only plus `--link-only`, and `--emit-llvm` all work as documented.</li>
+        <li>Freestanding direct linking works with `--runtime-entry none`, `--entry-symbol _start`, and explicit linker args.</li>
       </ul>
     </div>
 
     <section class="manual-section">
-      <div class="manual-grid manual-grid-2">
-        <section>
-          <h2 class="text-3xl text-[color:var(--kern-ink)]">What `kernc` covers</h2>
-          <ul class="mt-5 space-y-3 text-base">
-          <li>One explicit source entry point or one explicit link-only action.</li>
-          <li>Runtime/library axes such as `--runtime-entry`, `--runtime-libc`, and `--library-bundle`.</li>
-          <li>LLVM emission, codegen units, and LTO behavior.</li>
-          <li>Target triples, output files, and linker-input emission.</li>
-          </ul>
-        </section>
-
-        <section>
-          <div class="manual-kicker">Boundaries</div>
-          <ul class="mt-5 space-y-3 text-base">
-          <li>Package graphs and dependency resolution.</li>
-          <li>Workspace selection and lockfile management.</li>
-          <li>Artifact caching across packages and targets.</li>
-          <li>The user-facing install contract or editor packaging.</li>
-          </ul>
-        </section>
-      </div>
+      <h2>Driver modes</h2>
+      <pre class="doc-code"><code>{`kernc src/main.rn -o app
+kernc -c src/main.rn -o app.o
+kernc --emit-llvm src/main.rn
+kernc --link-only --link-input app.o -o app`}</code></pre>
+      <ul class="mt-5 space-y-3 text-base">
+        <li>Default mode compiles the source input and links the final binary.</li>
+        <li>`-c` emits a linker input artifact and stops before the final system link.</li>
+        <li>`--emit-llvm[=raw|verified|optimized]` prints LLVM IR to stdout instead of linking.</li>
+        <li>`--link-only` skips the frontend and code generation and invokes the linker with explicit inputs.</li>
+      </ul>
     </section>
 
     <section class="manual-section">
-      <h2>Related guide chapters</h2>
-      <div class="manual-links mt-6">
-        <a class="button-primary" href={internalHref("/guide/tooling-model/")}>
-          Tooling model
-        </a>
-        <a class="button-secondary" href={internalHref("/guide/build-pipeline/")}>
-          Build pipeline
-        </a>
-        <a class="button-secondary" href={internalHref("/guide/libraries-and-runtime/")}>
-          Runtime and bundle model
-        </a>
-        <a class="button-secondary" href={internalHref("/guide/freestanding-and-linking/")}>
-          Freestanding and linking
-        </a>
-      </div>
+      <h2>Core flags</h2>
+      <pre class="doc-code"><code>{`--runtime-entry none|rt|crt
+--runtime-libc yes|no
+--library-bundle none|base|std
+--entry-symbol _start
+--module-path std=./library/std
+--metadata-output out/meta
+--target x86_64-unknown-linux-gnu
+--link-input file.o
+--link-search native
+--link-lib demo
+--link-arg ARG
+--print-link-command
+--timings`}</code></pre>
+      <ul class="mt-5 space-y-3 text-base">
+        <li>`--runtime-entry` controls startup ownership.</li>
+        <li>`--runtime-libc` controls whether libc is linked.</li>
+        <li>`--library-bundle` wires the official library roots such as `base` or `std`.</li>
+        <li>`--entry-symbol` overrides the symbol used as the final linker entry.</li>
+        <li>`--module-path` and `--module-interface-path` are the explicit module-root hooks for direct-driver use.</li>
+      </ul>
     </section>
 
     <section class="manual-section">
-      <h2>Command quickstart</h2>
-      <pre class="doc-code"><code>{`kernc --runtime-entry rt --runtime-libc no --library-bundle std src/main.rn -o app
-kernc -c --runtime-entry rt --runtime-libc no --library-bundle std src/main.rn -o app.o
-kernc --link-only --link-input app.o -o app
-
-kernc --runtime-entry none --runtime-libc no --library-bundle base --entry-symbol _start src/main.rn -o kernel.bin
-kernc --runtime-entry none --runtime-libc no --library-bundle base --entry-symbol _start --link-arg -T --link-arg kernel.ld src/main.rn -o kernel.bin`}</code></pre>
-      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:rgba(21,26,32,0.76)]">
-        Use <code>kernc</code> directly when you want one explicit compile or
-        link action. Use <code>craft</code> instead when package discovery,
-        target selection, and build-plan orchestration are part of the problem.
+      <h2>Hosted user program</h2>
+      <pre class="doc-code"><code>{`kernc \
+  --runtime-entry rt \
+  --runtime-libc no \
+  --library-bundle std \
+  src/main.rn \
+  -o app`}</code></pre>
+      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:var(--kern-text-muted)]">
+        This is the normal direct-driver shape for one source file that wants
+        the hosted `rt` startup path and the `std` library bundle.
       </p>
     </section>
 
     <section class="manual-section">
-      <h2>Current authoritative source</h2>
+      <h2>Split compile and link</h2>
+      <pre class="doc-code"><code>{`kernc -c \
+  --runtime-entry rt \
+  --runtime-libc no \
+  --library-bundle std \
+  src/main.rn \
+  -o app.o
+
+kernc --link-only \
+  --runtime-entry rt \
+  --runtime-libc no \
+  --library-bundle std \
+  --link-input app.o \
+  -o app`}</code></pre>
+      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:var(--kern-text-muted)]">
+        Use this when another tool needs to stage, inspect, cache, or post-process
+        the linker input before the final link step.
+      </p>
+    </section>
+
+    <section class="manual-section">
+      <h2>Inspect LLVM IR</h2>
+      <pre class="doc-code"><code>{`kernc --emit-llvm \
+  --runtime-entry rt \
+  --runtime-libc no \
+  --library-bundle std \
+  src/main.rn > app.ll`}</code></pre>
+      <ul class="mt-5 space-y-3 text-base">
+        <li>Use `raw`, `verified`, or `optimized` when you need a specific pipeline stage.</li>
+        <li>The emitted IR still reflects the explicit runtime and library flags you selected.</li>
+      </ul>
+    </section>
+
+    <section class="manual-section">
+      <h2>Freestanding direct build</h2>
+      <pre class="doc-code"><code>{`#[export_name("_start")]
+fn kmain() void {
+    for (;;) {}
+    @unreachable();
+}`}</code></pre>
+      <pre class="doc-code mt-6"><code>{`kernc \
+  --runtime-entry none \
+  --runtime-libc no \
+  --library-bundle base \
+  --entry-symbol _start \
+  src/main.rn \
+  -o kernel.bin`}</code></pre>
+      <ul class="mt-5 space-y-3 text-base">
+        <li>`--runtime-entry none` means `kernc` does not require a program `main`.</li>
+        <li>`--library-bundle base` keeps the library surface freestanding-oriented.</li>
+        <li>`--entry-symbol _start` tells the final link which symbol should be treated as the entry.</li>
+      </ul>
+    </section>
+
+    <section class="manual-section">
+      <h2>Freestanding with a linker script</h2>
+      <pre class="doc-code"><code>{`kernc \
+  --runtime-entry none \
+  --runtime-libc no \
+  --library-bundle base \
+  --entry-symbol _start \
+  --link-arg -T \
+  --link-arg /absolute/path/to/kernel.ld \
+  src/main.rn \
+  -o kernel.bin`}</code></pre>
+      <p class="mt-5 max-w-3xl text-base leading-7 text-[color:var(--kern-text-muted)]">
+        `kernc` passes raw linker arguments through exactly as requested. When
+        you are inside a package project, prefer `craft` plus
+        `b.link_script("kernel.ld")` so the package root path is resolved
+        correctly for you.
+      </p>
+      <div class="manual-links mt-6">
+        <a class="button-primary" href={internalHref("/guide/freestanding-and-linking/")}>
+          Freestanding guide
+        </a>
+        <a class="button-secondary" href={internalHref("/reference/craft")}>
+          `craft` reference
+        </a>
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>When to use `kernc` directly</h2>
+      <ul class="mt-5 space-y-3 text-base">
+        <li>One explicit compile or link command in another build system.</li>
+        <li>IR inspection with `--emit-llvm`.</li>
+        <li>Freestanding bring-up before a package layout exists.</li>
+        <li>Explicit linker experimentation where you want full control over each argument.</li>
+      </ul>
+    </section>
+
+    <section class="manual-section">
+      <h2>Maintainer deep dive</h2>
+      <p class="mt-4 max-w-3xl text-base">
+        If you are changing the compiler driver itself, the repository keeps
+        lower-level `kernc` integration details and implementation notes.
+      </p>
       <div class="manual-links mt-6">
         <a class="button-primary" href={`${siteMeta.repoUrl}/blob/main/docs/kernc.md`} target="_blank" rel="noreferrer">
-          Open kernc guide
+          Open maintainer doc
         </a>
         <a class="button-secondary" href={internalHref("/reference")}>
           Back to reference tracks

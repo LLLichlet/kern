@@ -6,15 +6,11 @@ order: 1
 
 This guide is the current website learning path for Kern.
 
-Today, the repository `docs/` directory still contains the authoritative
-technical reference for the current implementation. The website guide is being
-built on top of those documents instead of replacing them all at once.
+The current split is now sharper:
 
-That means the current split is:
-
-- `docs/` remains the current source of truth for language and tool behavior
-- the website guide becomes the learning path for Kern end to end
-- reference-heavy details can move over gradually as the website matures
+- the website guide is the onboarding path
+- the website reference covers normal `craft` and `kernc` usage directly
+- repository docs keep the deep design and maintainer-facing material
 
 The intended long-term split is:
 

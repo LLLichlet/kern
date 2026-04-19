@@ -43,19 +43,22 @@ export const authoritativeDocs = [
     href: `${siteMeta.repoUrl}/blob/main/docs/runtime-architecture.md`
   },
   {
-    title: "kernc Guide",
-    description: "Compiler driver modes, runtime/library flags, linking, and build integration.",
-    href: `${siteMeta.repoUrl}/blob/main/docs/kernc.md`
-  },
-  {
-    title: "craft Guide",
-    description: "Package resolution, lockfiles, build planning, and execution model.",
-    href: `${siteMeta.repoUrl}/blob/main/docs/craft.md`
-  },
-  {
     title: "Documentation Map",
     description: "Which repository documents are public references versus implementation notes.",
     href: `${siteMeta.repoUrl}/blob/main/docs/documentation-map.md`
+  }
+];
+
+export const maintainerDocs = [
+  {
+    title: "kernc Internals",
+    description: "Compiler-driver implementation notes, modes, and lower-level integration details for maintainers.",
+    href: `${siteMeta.repoUrl}/blob/main/docs/kernc.md`
+  },
+  {
+    title: "craft Internals",
+    description: "Package manager and build-orchestration internals for maintainers and toolchain contributors.",
+    href: `${siteMeta.repoUrl}/blob/main/docs/craft.md`
   }
 ];
 
@@ -78,15 +81,13 @@ export const referenceTracks = [
     title: "Compiler Driver",
     description:
       "Driver modes, runtime/library flags, LLVM emission, linking, CGUs, and LTO behavior.",
-    href: internalHref("/reference/kernc"),
-    sourceHref: `${siteMeta.repoUrl}/blob/main/docs/kernc.md`
+    href: internalHref("/reference/kernc")
   },
   {
     title: "Package Manager",
     description:
       "Workspaces, `Craft.lock`, dependency resolution, build plans, and execution.",
-    href: internalHref("/reference/craft"),
-    sourceHref: `${siteMeta.repoUrl}/blob/main/docs/craft.md`
+    href: internalHref("/reference/craft")
   }
 ];
 

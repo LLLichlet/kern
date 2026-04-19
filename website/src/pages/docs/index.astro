@@ -1,21 +1,22 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
-import { authoritativeDocs, siteMeta } from "@/lib/site";
+import { authoritativeDocs, maintainerDocs, siteMeta } from "@/lib/site";
 ---
 
-<BaseLayout title="Docs" description="Current authoritative repository documents for Kern.">
+<BaseLayout title="Docs" description="Repository-native design and maintainer documents for Kern.">
   <section class="manual-page mx-auto px-5 pb-20 pt-14 md:px-8 md:pt-18">
-    <div class="eyebrow">Current reference</div>
+    <div class="eyebrow">Repository Docs</div>
     <h1 class="mt-6 text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
       Repository docs
     </h1>
-    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.76)]">
-      The repository `docs/` remain authoritative until the corresponding guide
-      and reference material has been migrated here.
+    <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
+      The website is now the primary user-facing documentation for `craft` and
+      `kernc`. This page collects the repository-native design documents and
+      maintainer notes that still matter when you need implementation detail.
     </p>
 
     <section class="manual-section">
-      <h2>Authoritative documents</h2>
+      <h2>Core design docs</h2>
       <div class="manual-directory mt-6">
       {
         authoritativeDocs.map((doc) => (
@@ -37,11 +38,33 @@ import { authoritativeDocs, siteMeta } from "@/lib/site";
     </section>
 
     <section class="manual-section">
-      <h2>Current migration rule</h2>
+      <h2>Maintainer docs</h2>
+      <div class="manual-directory mt-6">
+      {
+        maintainerDocs.map((doc) => (
+          <a
+            class="manual-directory-item"
+            href={doc.href}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <div class="manual-directory-heading">
+              <div class="manual-directory-title">{doc.title}</div>
+              <div class="manual-directory-meta">Repository</div>
+            </div>
+            <div class="manual-directory-body">{doc.description}</div>
+          </a>
+        ))
+      }
+      </div>
+    </section>
+
+    <section class="manual-section">
+      <h2>Current split</h2>
       <ul class="mt-5 space-y-3 text-base">
-        <li>The compiler and tooling docs already describe the current implementation accurately.</li>
-        <li>The website should not become a rushed mirror of every repository file.</li>
-        <li>Reference-heavy pages can migrate into the website once their information architecture is settled.</li>
+        <li>Use the website guide and reference pages for normal `craft` and `kernc` usage.</li>
+        <li>Use repository docs for language design, runtime architecture, and maintainer internals.</li>
+        <li>The goal is not to mirror every repo file, but to keep user docs and maintainer docs separate.</li>
       </ul>
       <a class="mt-6 button-primary" href={siteMeta.repoUrl} target="_blank" rel="noreferrer">
         Open repository

@@ -17,15 +17,16 @@ const starterGuides = guideEntries.filter((entry) =>
       <h1 class="mt-6 max-w-4xl text-5xl text-[color:var(--kern-ink)] md:text-7xl">
         Kern is a systems programming language for kernels, firmware, and low-level software.
       </h1>
-        <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:rgba(21,26,32,0.78)] md:text-xl">
+        <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)] md:text-xl">
           {siteMeta.description} Kern keeps imports, entry points, runtime
           policy, and library boundaries explicit instead of hiding them behind
           defaults.
         </p>
-        <p class="mt-4 max-w-3xl text-base leading-7 text-[color:rgba(21,26,32,0.68)]">
+        <p class="mt-4 max-w-3xl text-base leading-7 text-[color:var(--kern-text-soft)]">
           Start with the guide if you want the shortest learning path. Use the
-          reference when you need exact language and runtime rules. The
-          repository `docs/` remain authoritative while the website grows.
+          reference when you need exact language, `craft`, or `kernc` behavior.
+          The repository `docs/` remain the deep design layer for language and
+          runtime internals.
         </p>
         <div class="mt-8 flex flex-wrap gap-3">
           <a class="button-primary" href={internalHref("/guide")}>
@@ -57,7 +58,7 @@ fn main() i32 {
     0
 }`}</code></pre>
         </div>
-        <ul class="mt-5 space-y-3 text-sm leading-7 text-[color:rgba(21,26,32,0.74)]">
+        <ul class="mt-5 space-y-3 text-sm leading-7 text-[color:var(--kern-text-muted)]">
           <li>Imports are explicit.</li>
           <li>`main` keeps an explicit low-level signature.</li>
           <li>`std.io` is a normal module, not a hidden prelude.</li>
@@ -75,19 +76,19 @@ fn main() i32 {
     <div class="grid gap-4 md:grid-cols-3">
       <article class="card-surface rounded-lg p-6">
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Explicit source</div>
-        <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">
+        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
           Imports, entry signatures, and data layout stay visible in source instead of being implied by hidden runtime rules.
         </p>
       </article>
       <article class="card-surface rounded-lg p-6">
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Freestanding first</div>
-        <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">
+        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
           `sys` and the Kern runtime model come first. libc is available when you want it, not as the mandatory base layer.
         </p>
       </article>
       <article class="card-surface rounded-lg p-6">
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Low-level interop</div>
-        <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">
+        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
           ABI control, pointers, inline assembly, and C interop are part of the language surface rather than side channels around it.
         </p>
       </article>
@@ -104,21 +105,21 @@ fn main() i32 {
       <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref("/guide/getting-started/")}>
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Guide</div>
         <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">Getting Started</h3>
-        <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">
+        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
           Build and run a minimal package with the current toolchain and see the smallest valid project shape.
         </p>
       </a>
       <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref("/guide/language-tour/")}>
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Guide</div>
         <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">Language Tour</h3>
-        <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">
+        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
           Read a first validated pass through real Kern source before dropping into the full design reference.
         </p>
       </a>
       <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref("/reference/language")}>
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Reference</div>
         <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">Language Reference</h3>
-        <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">
+        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
           Go straight to the current language rules, syntax, intrinsics, traits, and compile-time behavior.
         </p>
       </a>
@@ -144,7 +145,7 @@ fn main() i32 {
               Chapter {entry.data.order}
             </div>
             <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">{entry.data.title}</h3>
-            <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">{entry.data.summary}</p>
+            <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">{entry.data.summary}</p>
           </a>
         ))
       }
@@ -153,8 +154,8 @@ fn main() i32 {
 
   <section class="mx-auto max-w-6xl px-5 pb-20 md:px-8 md:pb-28">
     <div class="mb-8">
-      <div class="eyebrow">Current authority</div>
-      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Current authoritative documents</h2>
+      <div class="eyebrow">Design Docs</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Core repository documents</h2>
     </div>
 
     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -167,7 +168,7 @@ fn main() i32 {
             rel="noreferrer"
           >
             <h3 class="text-2xl text-[color:var(--kern-ink)]">{doc.title}</h3>
-            <p class="mt-4 text-base leading-8 text-[color:rgba(21,26,32,0.72)]">{doc.description}</p>
+            <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">{doc.description}</p>
           </a>
         ))
       }

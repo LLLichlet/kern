@@ -1,6 +1,6 @@
 ---
 title: "Tooling Model"
-summary: "Understand the boundary between `craft`, `kernc`, `kern-lsp`, and the repository docs."
+summary: "Understand the boundary between `craft`, `kernc`, `kern-lsp`, and the repository design docs."
 order: 3
 ---
 
@@ -79,14 +79,16 @@ command still illustrates the driver boundary clearly:
 - library bundle choice stays explicit
 - LLVM IR emission is a driver mode
 
-## Where The Current Truth Lives
+## Where To Read What
 
-Right now the website is still being built out, so the repository docs remain
-the authoritative references:
+Use the website reference when you need user-facing `craft` or `kernc`
+behavior:
+
+- `craft`: commands, target selection, lockfiles, `build.rn`, and package workflows
+- `kernc`: direct compiler-driver modes, runtime flags, LLVM emission, and explicit linking
+
+Use repository docs when you need deeper design material:
 
 - language semantics: `docs/design.md`
-- runtime/library model: `docs/runtime-architecture.md`
-- compiler-driver behavior: `docs/kernc.md`
-- package/build behavior: `docs/craft.md`
-
-The guide should stay aligned with those documents.
+- runtime/library architecture: `docs/runtime-architecture.md`
+- maintainer internals: `docs/craft.md` and `docs/kernc.md`

@@ -2,6 +2,7 @@
 import BaseLayout from "@/layouts/BaseLayout.astro";
 import GuidePager from "@/components/GuidePager.astro";
 import GuideSidebar from "@/components/GuideSidebar.astro";
+import QuickJumpPanel from "@/components/QuickJumpPanel.astro";
 import { internalHref } from "@/lib/site";
 import { getCollection, render } from "astro:content";
 
@@ -19,6 +20,200 @@ const currentIndex = guideEntries.findIndex((candidate) => candidate.id === entr
 const previousEntry = currentIndex > 0 ? guideEntries[currentIndex - 1] : undefined;
 const nextEntry = currentIndex >= 0 && currentIndex < guideEntries.length - 1 ? guideEntries[currentIndex + 1] : undefined;
 const { Content } = await render(entry);
+type JumpItem = {
+  title: string;
+  href: string;
+  kicker?: string;
+  summary: string;
+};
+type JumpSection = {
+  title: string;
+  summary: string;
+  items: JumpItem[];
+};
+const guideToolJumps: Record<string, JumpSection> = {
+  "getting-started": {
+    title: "Need The Exact Commands?",
+    summary: "Start on the guide path, then jump straight to the full tool reference once you need flags, target selection, or direct driver behavior.",
+    items: [
+      {
+        title: "`craft` Reference",
+        href: "/reference/craft",
+        kicker: "Package Manager",
+        summary: "Full command surface for `check`, `build`, `run`, `test`, `install`, `doc`, and feature selection."
+      },
+      {
+        title: "`kernc` Reference",
+        href: "/reference/kernc",
+        kicker: "Compiler Driver",
+        summary: "Direct compile, link-only, LLVM emission, and explicit runtime/library flags."
+      },
+      {
+        title: "Tooling Model",
+        href: "/guide/tooling-model/",
+        kicker: "Guide Chapter",
+        summary: "The shortest explanation of where `craft` ends and `kernc` begins."
+      },
+      {
+        title: "Freestanding Guide",
+        href: "/guide/freestanding-and-linking/",
+        kicker: "Guide Chapter",
+        summary: "Jump straight to kernels, `_start`, and linker scripts when hosted `main` is not your target."
+      }
+    ]
+  },
+  "tooling-model": {
+    title: "Open The Right Tool Layer",
+    summary: "This chapter explains the boundary. These pages are the quickest way to drop into the exact layer you need next.",
+    items: [
+      {
+        title: "`craft` Reference",
+        href: "/reference/craft",
+        kicker: "Package Manager",
+        summary: "Package graphs, lockfiles, `build.rn`, workspaces, and command selection."
+      },
+      {
+        title: "`kernc` Reference",
+        href: "/reference/kernc",
+        kicker: "Compiler Driver",
+        summary: "One explicit compile or link action, plus driver flags and linker integration."
+      },
+      {
+        title: "Build Scripts Guide",
+        href: "/guide/build-scripts-and-generated-sources/",
+        kicker: "Guide Chapter",
+        summary: "Where execution-time generation and native link wiring fit after resolution."
+      },
+      {
+        title: "Workspaces Guide",
+        href: "/guide/workspaces-and-targets/",
+        kicker: "Guide Chapter",
+        summary: "How `craft` selects packages and targets once a project stops being one binary."
+      }
+    ]
+  },
+  "workspaces-and-targets": {
+    title: "Workspace Details Without Extra Digging",
+    summary: "If you came here from the guide path and need concrete command or flag detail, these are the shortest exits.",
+    items: [
+      {
+        title: "`craft` Reference",
+        href: "/reference/craft",
+        kicker: "Package Manager",
+        summary: "`--project-path`, `--bin`, `--example`, `--examples`, profiles, and command reference."
+      },
+      {
+        title: "`build.rn` Guide",
+        href: "/guide/build-scripts-and-generated-sources/",
+        kicker: "Guide Chapter",
+        summary: "Package-relative path behavior, generated sources, and post-lock build orchestration."
+      },
+      {
+        title: "Getting Started",
+        href: "/guide/getting-started/",
+        kicker: "Guide Chapter",
+        summary: "Return to the smallest valid package shape when you want to simplify before scaling back up."
+      },
+      {
+        title: "Reference Index",
+        href: "/reference/",
+        kicker: "Reference",
+        summary: "All language, runtime, compiler, and package tracks from one page."
+      }
+    ]
+  },
+  "build-scripts-and-generated-sources": {
+    title: "Follow The Build Path",
+    summary: "This is the chapter where users often need exact API or linker behavior. These jumps keep that nearby.",
+    items: [
+      {
+        title: "`craft` Reference",
+        href: "/reference/craft",
+        kicker: "Package Manager",
+        summary: "The current `build.rn` surface, command behavior, and package-phase boundary."
+      },
+      {
+        title: "Freestanding Guide",
+        href: "/guide/freestanding-and-linking/",
+        kicker: "Guide Chapter",
+        summary: "Use `b.link_script(...)` for linker scripts and keep `_start` ownership explicit."
+      },
+      {
+        title: "Workspaces Guide",
+        href: "/guide/workspaces-and-targets/",
+        kicker: "Guide Chapter",
+        summary: "How package-local `build.rn` paths interact with a workspace root."
+      },
+      {
+        title: "`kernc` Reference",
+        href: "/reference/kernc",
+        kicker: "Compiler Driver",
+        summary: "Drop to direct-driver linking when you do not want package orchestration."
+      }
+    ]
+  },
+  "freestanding-and-linking": {
+    title: "Freestanding Paths",
+    summary: "This topic naturally crosses both tool layers. These jumps keep the package and direct-driver routes one click away.",
+    items: [
+      {
+        title: "`craft` Reference",
+        href: "/reference/craft",
+        kicker: "Package Manager",
+        summary: "Freestanding package manifests, `build.rn`, and `link_script(...)` behavior."
+      },
+      {
+        title: "`kernc` Reference",
+        href: "/reference/kernc",
+        kicker: "Compiler Driver",
+        summary: "Direct `_start` builds, `--entry-symbol`, `--link-arg`, and compile/link-only flows."
+      },
+      {
+        title: "Inline Assembly Guide",
+        href: "/guide/inline-assembly/",
+        kicker: "Guide Chapter",
+        summary: "Structured `@asm(.{ ... })` rules once your freestanding code needs instruction-level control."
+      },
+      {
+        title: "Build Scripts Guide",
+        href: "/guide/build-scripts-and-generated-sources/",
+        kicker: "Guide Chapter",
+        summary: "The package phase that owns generated files, native link inputs, and staged artifacts."
+      }
+    ]
+  }
+};
+const defaultGuideJumps: JumpSection = {
+  title: "Need Exact Tooling Rules?",
+  summary: "Stay on the tutorial path when you are learning the shape of the system. Jump here when you need exact commands, flags, or reference-level behavior.",
+  items: [
+    {
+      title: "`craft` Reference",
+      href: "/reference/craft",
+      kicker: "Package Manager",
+      summary: "Package workflows, workspaces, features, `build.rn`, and day-to-day command usage."
+    },
+    {
+      title: "`kernc` Reference",
+      href: "/reference/kernc",
+      kicker: "Compiler Driver",
+      summary: "Direct compiler-driver modes, LLVM output, linking, and runtime flags."
+    },
+    {
+      title: "Language Reference",
+      href: "/reference/language",
+      kicker: "Reference",
+      summary: "Precise syntax and semantic rules once a chapter summary is no longer enough."
+    },
+    {
+      title: "Runtime Reference",
+      href: "/reference/runtime",
+      kicker: "Reference",
+      summary: "The `base` / `sys` / `rt` / `std` split and startup/libc policy."
+    }
+  ]
+};
+const quickJumps = guideToolJumps[entry.id] ?? defaultGuideJumps;
 ---
 
 <BaseLayout title={entry.data.title} description={entry.data.summary}>
@@ -53,6 +248,10 @@ const { Content } = await render(entry);
         {entry.data.title}
       </h1>
       <p class="mt-5 text-lg leading-8 text-[color:var(--kern-text-muted)]">{entry.data.summary}</p>
+
+      <div class="mt-8">
+        <QuickJumpPanel title={quickJumps.title} summary={quickJumps.summary} items={quickJumps.items} />
+      </div>
 
       <article class="guide-article prose-kern mt-10 rounded-lg p-7 text-[color:var(--kern-text)] md:p-10">
         <Content />

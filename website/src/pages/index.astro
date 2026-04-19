@@ -1,174 +1,207 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
 import { authoritativeDocs, internalHref, siteMeta } from "@/lib/site";
-import { getCollection } from "astro:content";
 
-const guideEntries = (await getCollection("guide")).sort((left, right) => left.data.order - right.data.order);
-const starterGuides = guideEntries.filter((entry) =>
-  ["overview", "getting-started", "language-tour", "libraries-and-runtime"].includes(entry.id)
-);
----
+const entryPaths = [
+  {
+    kicker: "Guide",
+    title: "Start with a package and `craft`",
+    href: "/guide/getting-started/",
+    summary: "The shortest path to a real working project, then outward into the rest of the toolchain."
+  },
+  {
+    kicker: "Reference",
+    title: "Read `craft` when you need exact package behavior",
+    href: "/reference/craft",
+    summary: "Commands, workspaces, `build.rn`, features, `doc`, and freestanding package workflows."
+  },
+  {
+    kicker: "Reference",
+    title: "Read `kernc` when you need exact driver behavior",
+    href: "/reference/kernc",
+    summary: "Direct compilation, LLVM emission, link-only mode, freestanding builds, and linker flags."
+  },
+  {
+    kicker: "Guide",
+    title: "Jump straight to freestanding and `_start`",
+    href: "/guide/freestanding-and-linking/",
+    summary: "For kernels, boot stages, and any setup that does not want hosted `main`."
+  }
+];
 
-<BaseLayout title="Home">
-  <section class="mx-auto max-w-6xl px-5 pb-16 pt-14 md:px-8 md:pb-24 md:pt-18">
-    <div class="grid gap-10 lg:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)] lg:items-start">
-      <div class="rise-in">
-      <div class="eyebrow">Systems Programming Language</div>
-      <h1 class="mt-6 max-w-4xl text-5xl text-[color:var(--kern-ink)] md:text-7xl">
-        Kern is a systems programming language for kernels, firmware, and low-level software.
-      </h1>
-        <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)] md:text-xl">
-          {siteMeta.description} Kern keeps imports, entry points, runtime
-          policy, and library boundaries explicit instead of hiding them behind
-          defaults.
-        </p>
-        <p class="mt-4 max-w-3xl text-base leading-7 text-[color:var(--kern-text-soft)]">
-          Start with the guide if you want the shortest learning path. Use the
-          reference when you need exact language, `craft`, or `kernc` behavior.
-          The repository `docs/` remain the deep design layer for language and
-          runtime internals.
-        </p>
-        <div class="mt-8 flex flex-wrap gap-3">
-          <a class="button-primary" href={internalHref("/guide")}>
-            Start the guide
-          </a>
-          <a class="button-secondary" href={internalHref("/install")}>
-            Install Kern
-          </a>
-          <a class="button-secondary" href={internalHref("/reference")}>
-            Open reference
-          </a>
-          <a class="button-secondary" href={internalHref("/guide/getting-started/")}>
-            Read getting started
-          </a>
-        </div>
-      </div>
+const languagePillars = [
+  "Imports, entry signatures, runtime policy, and library boundaries stay visible in source.",
+  "Hosted and freestanding are explicit toolchain choices, not hidden assumptions.",
+  "ABI control, pointers, inline assembly, and C interop are part of the language surface."
+];
 
-      <aside class="card-surface rise-in rounded-lg p-6 [animation-delay:120ms] md:p-7">
-        <div class="border-b border-[color:var(--kern-line)] pb-3">
-          <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[color:var(--kern-steel)]">
-            Validated Example
-          </div>
-        </div>
-        <div class="mt-5 rounded-md border border-[color:rgba(255,255,255,0.08)] bg-[#10161d] p-4 text-[13px] leading-7 text-[#f4f7fb]">
-          <pre class="overflow-x-auto whitespace-pre-wrap"><code>{`use std.io;
+const toolDocs = [
+  {
+    name: "`craft`",
+    href: "/reference/craft",
+    summary: "Package manager and build orchestrator for manifests, workspaces, lockfiles, and target execution."
+  },
+  {
+    name: "`kernc`",
+    href: "/reference/kernc",
+    summary: "Compiler and linker driver for one explicit compile or link action."
+  }
+];
+
+const commandFlow = `craft check
+craft build
+craft run`;
+
+const helloExample = `use std.io;
 
 fn main() i32 {
     io.println("hello from kern", .{});
     0
-}`}</code></pre>
-        </div>
-        <ul class="mt-5 space-y-3 text-sm leading-7 text-[color:var(--kern-text-muted)]">
-          <li>Imports are explicit.</li>
-          <li>`main` keeps an explicit low-level signature.</li>
-          <li>`std.io` is a normal module, not a hidden prelude.</li>
-        </ul>
-      </aside>
-    </div>
-  </section>
+}`;
+---
 
-  <section class="mx-auto max-w-6xl px-5 pb-14 md:px-8 md:pb-20">
-    <div class="mb-8">
-      <div class="eyebrow">Language</div>
-      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Language overview</h2>
-    </div>
-
-    <div class="grid gap-4 md:grid-cols-3">
-      <article class="card-surface rounded-lg p-6">
-        <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Explicit source</div>
-        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
-          Imports, entry signatures, and data layout stay visible in source instead of being implied by hidden runtime rules.
-        </p>
-      </article>
-      <article class="card-surface rounded-lg p-6">
-        <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Freestanding first</div>
-        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
-          `sys` and the Kern runtime model come first. libc is available when you want it, not as the mandatory base layer.
-        </p>
-      </article>
-      <article class="card-surface rounded-lg p-6">
-        <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Low-level interop</div>
-        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
-          ABI control, pointers, inline assembly, and C interop are part of the language surface rather than side channels around it.
-        </p>
-      </article>
-    </div>
-  </section>
-
-  <section class="mx-auto max-w-6xl px-5 pb-14 md:px-8 md:pb-20">
-    <div class="mb-8">
-      <div class="eyebrow">Start Here</div>
-      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Start here</h2>
-    </div>
-
-    <div class="grid gap-4 md:grid-cols-3">
-      <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref("/guide/getting-started/")}>
-        <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Guide</div>
-        <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">Getting Started</h3>
-        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
-          Build and run a minimal package with the current toolchain and see the smallest valid project shape.
-        </p>
-      </a>
-      <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref("/guide/language-tour/")}>
-        <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Guide</div>
-        <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">Language Tour</h3>
-        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
-          Read a first validated pass through real Kern source before dropping into the full design reference.
-        </p>
-      </a>
-      <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref("/reference/language")}>
-        <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Reference</div>
-        <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">Language Reference</h3>
-        <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">
-          Go straight to the current language rules, syntax, intrinsics, traits, and compile-time behavior.
-        </p>
-      </a>
-    </div>
-  </section>
-
-  <section class="mx-auto max-w-6xl px-5 pb-14 md:px-8 md:pb-20">
-    <div class="mb-8 flex items-end justify-between gap-6">
-      <div>
-        <div class="eyebrow">Guide</div>
-        <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Guide chapters</h2>
+<BaseLayout title="Home">
+  <section class="doc-shell doc-hero-shell">
+    <div class="doc-hero-main rise-in">
+      <div class="eyebrow">Systems Programming Language</div>
+      <h1 class="mt-6 max-w-5xl text-5xl text-[color:var(--kern-ink)] md:text-7xl">
+        Kern is a systems programming language for kernels, firmware, and low-level software.
+      </h1>
+      <p class="mt-6 max-w-3xl text-xl leading-9 text-[color:var(--kern-text-muted)]">
+        {siteMeta.description} Kern keeps imports, entry points, runtime policy,
+        and library boundaries explicit instead of hiding them behind defaults.
+      </p>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-soft)]">
+        This site should work like a documentation front door, not a marketing grid.
+        Start with the guide when you want a path. Jump straight to `craft` or `kernc`
+        when you already know which tool layer you need.
+      </p>
+      <div class="mt-8 flex flex-wrap gap-3">
+        <a class="button-primary" href={internalHref("/guide/getting-started/")}>
+          Start with Getting Started
+        </a>
+        <a class="button-secondary" href={internalHref("/reference/craft")}>
+          Open `craft`
+        </a>
+        <a class="button-secondary" href={internalHref("/reference/kernc")}>
+          Open `kernc`
+        </a>
       </div>
-      <a class="hidden text-sm font-semibold text-[color:var(--kern-steel)] hover:text-[color:var(--kern-steel-strong)] md:inline-flex" href={internalHref("/guide")}>
-        Open guide index
-      </a>
     </div>
 
-    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <aside class="doc-hero-rail rise-in [animation-delay:120ms]">
+      <div class="doc-rail-section">
+        <div class="doc-rail-kicker">Three ways in</div>
+        <ol class="doc-entry-list">
+          {
+            entryPaths.slice(0, 3).map((item) => (
+              <li class="doc-entry-item">
+                <a class="doc-entry-link" href={internalHref(item.href)}>
+                  <div class="doc-entry-kicker">{item.kicker}</div>
+                  <div class="doc-entry-title">{item.title}</div>
+                </a>
+              </li>
+            ))
+          }
+        </ol>
+      </div>
+
+      <div class="doc-rail-section">
+        <div class="doc-rail-kicker">First commands</div>
+        <pre class="doc-code mt-4"><code>{commandFlow}</code></pre>
+      </div>
+    </aside>
+  </section>
+
+  <section class="doc-shell">
+    <div class="section-lead">
+      <div class="eyebrow">Language</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">What Kern emphasizes</h2>
+    </div>
+    <ul class="doc-bullet-columns mt-8">
       {
-        starterGuides.map((entry) => (
-          <a class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]" href={internalHref(`/guide/${entry.id}/`)}>
-            <div class="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">
-              Chapter {entry.data.order}
-            </div>
-            <h3 class="mt-4 text-2xl text-[color:var(--kern-ink)]">{entry.data.title}</h3>
-            <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">{entry.data.summary}</p>
+        languagePillars.map((item) => (
+          <li>{item}</li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Start Here</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Read in this order</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        Most users do not want the whole site at once. Start from one short path,
+        then drop into the deeper tool or language reference exactly when needed.
+      </p>
+    </div>
+    <ol class="doc-entry-list mt-8">
+      {
+        entryPaths.map((item) => (
+          <li class="doc-entry-item">
+            <a class="doc-entry-link" href={internalHref(item.href)}>
+              <div class="doc-entry-grid">
+                <div>
+                  <div class="doc-entry-kicker">{item.kicker}</div>
+                  <div class="doc-entry-title">{item.title}</div>
+                </div>
+                <p class="doc-entry-summary">{item.summary}</p>
+              </div>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Example</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">A minimal hosted program</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        Imports are explicit. `main` keeps an explicit signature. `std.io` is a normal
+        module, not a hidden prelude.
+      </p>
+    </div>
+    <pre class="doc-code mt-8"><code>{helloExample}</code></pre>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Tools</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Tool references</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        These pages are meant to be direct destinations, not hidden behind several layers of guide navigation.
+      </p>
+    </div>
+    <div class="tool-strip mt-8">
+      {
+        toolDocs.map((tool) => (
+          <a class="tool-strip-item" href={internalHref(tool.href)}>
+            <div class="tool-strip-name">{tool.name}</div>
+            <p class="tool-strip-summary">{tool.summary}</p>
           </a>
         ))
       }
+      <a class="tool-strip-item" href={internalHref("/reference")}>
+        <div class="tool-strip-name">Reference Index</div>
+        <p class="tool-strip-summary">One page for language, runtime, compiler, and package tracks.</p>
+      </a>
     </div>
   </section>
 
-  <section class="mx-auto max-w-6xl px-5 pb-20 md:px-8 md:pb-28">
-    <div class="mb-8">
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
       <div class="eyebrow">Design Docs</div>
       <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Core repository documents</h2>
     </div>
-
-    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div class="dense-link-list mt-8">
       {
         authoritativeDocs.slice(0, 3).map((doc) => (
-          <a
-            class="card-surface rounded-lg p-6 transition hover:border-[color:var(--kern-line-strong)]"
-            href={doc.href}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <h3 class="text-2xl text-[color:var(--kern-ink)]">{doc.title}</h3>
-            <p class="mt-4 text-base leading-8 text-[color:var(--kern-text-muted)]">{doc.description}</p>
+          <a class="dense-link-item" href={doc.href} target="_blank" rel="noreferrer">
+            <div class="dense-link-title">{doc.title}</div>
+            <p class="dense-link-summary">{doc.description}</p>
           </a>
         ))
       }

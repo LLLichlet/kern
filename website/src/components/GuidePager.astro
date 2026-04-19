@@ -10,23 +10,23 @@ interface Props {
 const { previous, next } = Astro.props;
 ---
 
-<div class="mt-10 grid gap-4 md:grid-cols-2">
+<nav class="guide-pager" aria-label="Guide chapter navigation">
   {
     previous ? (
-      <a class="card-surface rounded-md p-5 transition " href={internalHref(`/guide/${previous.id}/`)}>
+      <a class="guide-pager-link" href={internalHref(`/guide/${previous.id}/`)}>
         <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">Previous</div>
         <div class="mt-2 text-2xl text-[color:var(--kern-ink)]">{previous.data.title}</div>
       </a>
     ) : (
-      <div />
+      <div></div>
     )
   }
   {
     next ? (
-      <a class="card-surface rounded-md p-5 text-right transition " href={internalHref(`/guide/${next.id}/`)}>
+      <a class="guide-pager-link text-right" href={internalHref(`/guide/${next.id}/`)}>
         <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">Next</div>
         <div class="mt-2 text-2xl text-[color:var(--kern-ink)]">{next.data.title}</div>
       </a>
     ) : null
   }
-</div>
+</nav>

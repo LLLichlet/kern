@@ -1,5 +1,6 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
+import QuickJumpPanel from "@/components/QuickJumpPanel.astro";
 import { internalHref } from "@/lib/site";
 import { getCollection } from "astro:content";
 
@@ -8,67 +9,107 @@ const starterEntries = guideEntries.filter((entry) => entry.data.order <= 4);
 const coreEntries = guideEntries.filter((entry) => entry.data.order >= 5 && entry.data.order <= 8);
 const runtimeEntries = guideEntries.filter((entry) => entry.data.order >= 9 && entry.data.order <= 15);
 const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
+const toolJumpItems = [
+  {
+    title: "`craft` Reference",
+    href: "/reference/craft",
+    kicker: "Package Manager",
+    summary: "Commands, workspaces, `build.rn`, features, `doc`, and freestanding package workflows."
+  },
+  {
+    title: "`kernc` Reference",
+    href: "/reference/kernc",
+    kicker: "Compiler Driver",
+    summary: "Direct compile, link-only, LLVM IR emission, and explicit linker/runtime flags."
+  },
+  {
+    title: "Getting Started",
+    href: "/guide/getting-started/",
+    kicker: "Guide Chapter",
+    summary: "Start from the smallest working package before diving into the deeper material."
+  },
+  {
+    title: "Freestanding Guide",
+    href: "/guide/freestanding-and-linking/",
+    kicker: "Guide Chapter",
+    summary: "Jump straight to `_start`, linker scripts, and non-hosted builds."
+  }
+];
 ---
 
 <BaseLayout title="Guide" description="The structured learning path for Kern.">
-  <section class="mx-auto max-w-6xl px-5 pb-20 pt-14 md:px-8 md:pt-18">
-    <div class="max-w-4xl">
+  <section class="doc-shell">
+    <div class="section-lead max-w-4xl">
       <div class="eyebrow">Guide</div>
       <h1 class="mt-6 text-5xl leading-[0.95] text-[color:var(--kern-ink)] md:text-6xl">
         Learn Kern in a few stages, not in one endless page.
       </h1>
       <p class="mt-6 max-w-3xl text-lg leading-8 text-[color:var(--kern-text-muted)]">
-        Start with the short path first. Then move deeper into language,
-        runtime, and build topics as needed. The full chapter index is still
-        available below, but it does not need to dominate the page.
+        Treat this page as a route map. Start with the shortest path, then move
+        into language, runtime, and build topics as the project demands.
+      </p>
+      <div class="mt-8 flex flex-wrap gap-3">
+        <a class="button-primary" href={internalHref("/guide/getting-started/")}>
+          Start with Getting Started
+        </a>
+        <a class="button-secondary" href={internalHref("/reference/craft")}>
+          Open `craft`
+        </a>
+        <a class="button-secondary" href={internalHref("/reference/kernc")}>
+          Open `kernc`
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="doc-shell section-divider">
+    <QuickJumpPanel
+      title="Tool References Without Backtracking"
+      summary="Use the guide for pacing. Use these direct entries when you already know you need exact `craft` or `kernc` behavior."
+      items={toolJumpItems}
+    />
+  </section>
+
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Short Path</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Read these chapters first</h2>
+      <p class="mt-4 max-w-3xl text-base leading-8 text-[color:var(--kern-text-muted)]">
+        This is the route for most users who want to get productive without reading the entire site in one pass.
       </p>
     </div>
-
-    <div class="mt-10 grid gap-4 md:grid-cols-2">
-      <section class="card-surface rounded-lg p-6">
-        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Recommended first</div>
-        <div class="mt-5 space-y-4">
-          {
-            starterEntries.map((entry) => (
-              <a class="block rounded-md border border-[color:var(--kern-line)] px-4 py-4 transition hover:bg-[color:var(--kern-soft)]" href={internalHref(`/guide/${entry.id}/`)}>
-                <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">
-                  Chapter {entry.data.order}
+    <ol class="doc-entry-list mt-8">
+      {
+        starterEntries.map((entry) => (
+          <li class="doc-entry-item">
+            <a class="doc-entry-link" href={internalHref(`/guide/${entry.id}/`)}>
+              <div class="doc-entry-grid">
+                <div>
+                  <div class="doc-entry-kicker">Chapter {entry.data.order}</div>
+                  <div class="doc-entry-title">{entry.data.title}</div>
                 </div>
-                <div class="mt-2 text-xl font-semibold text-[color:var(--kern-ink)]">{entry.data.title}</div>
-                <p class="mt-2 text-sm leading-7 text-[color:var(--kern-text-muted)]">{entry.data.summary}</p>
-              </a>
-            ))
-          }
-        </div>
-      </section>
+                <p class="doc-entry-summary">{entry.data.summary}</p>
+              </div>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
 
-      <section class="card-surface rounded-lg p-6">
-        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Start sequence</div>
-        <ol class="mt-5 list-decimal space-y-3 pl-5 text-base leading-8 text-[color:var(--kern-text-muted)]">
-          <li>Read the overview and getting started chapters first.</li>
-          <li>Read the language tour before diving into the full design reference.</li>
-          <li>Move into runtime, pointers, ABI, and interop once the basic source model feels natural.</li>
-          <li>Use the reference when you need exact rules rather than tutorial pacing.</li>
-        </ol>
-        <div class="mt-6 flex flex-wrap gap-3">
-          <a class="button-primary" href={internalHref("/guide/getting-started/")}>
-            Start with Getting Started
-          </a>
-          <a class="button-secondary" href={internalHref("/reference/language")}>
-            Open language reference
-          </a>
-        </div>
-      </section>
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">By Topic</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">Browse the guide by area</h2>
     </div>
-
-    <div class="mt-10 grid gap-4 md:grid-cols-2">
-      <section class="card-surface rounded-lg p-6">
-        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Language Core</div>
-        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:var(--kern-text-muted)]">
+    <div class="doc-topic-grid mt-8">
+      <section>
+        <div class="doc-topic-title">Language Core</div>
+        <ul class="doc-topic-list">
           {
             coreEntries.map((entry) => (
               <li>
-                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={internalHref(`/guide/${entry.id}/`)}>
+                <a href={internalHref(`/guide/${entry.id}/`)}>
                   Chapter {entry.data.order}: {entry.data.title}
                 </a>
               </li>
@@ -77,13 +118,28 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
         </ul>
       </section>
 
-      <section class="card-surface rounded-lg p-6">
-        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Runtime And Libraries</div>
-        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:var(--kern-text-muted)]">
+      <section>
+        <div class="doc-topic-title">Runtime And Libraries</div>
+        <ul class="doc-topic-list">
           {
-            runtimeEntries.slice(0, 6).map((entry) => (
+            runtimeEntries.map((entry) => (
               <li>
-                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={internalHref(`/guide/${entry.id}/`)}>
+                <a href={internalHref(`/guide/${entry.id}/`)}>
+                  Chapter {entry.data.order}: {entry.data.title}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+
+      <section>
+        <div class="doc-topic-title">Systems Topics</div>
+        <ul class="doc-topic-list">
+          {
+            systemsEntries.map((entry) => (
+              <li>
+                <a href={internalHref(`/guide/${entry.id}/`)}>
                   Chapter {entry.data.order}: {entry.data.title}
                 </a>
               </li>
@@ -92,42 +148,22 @@ const systemsEntries = guideEntries.filter((entry) => entry.data.order >= 16);
         </ul>
       </section>
     </div>
+  </section>
 
-    <div class="mt-4 grid gap-4 md:grid-cols-2">
-      <section class="card-surface rounded-lg p-6">
-        <div class="text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">Systems Topics</div>
-        <ul class="mt-5 space-y-3 text-base leading-8 text-[color:var(--kern-text-muted)]">
-          {
-            systemsEntries.slice(0, 10).map((entry) => (
-              <li>
-                <a class="transition hover:text-[color:var(--kern-steel-strong)]" href={internalHref(`/guide/${entry.id}/`)}>
-                  Chapter {entry.data.order}: {entry.data.title}
-                </a>
-              </li>
-            ))
-          }
-        </ul>
-      </section>
-
-      <details class="card-surface rounded-lg p-6">
-        <summary class="flex cursor-pointer items-center justify-between gap-4 text-sm font-semibold uppercase tracking-[0.16em] text-[color:var(--kern-steel)]">
-          <span>Complete Chapter Index</span>
-          <span class="text-[11px] tracking-[0.12em] text-[color:var(--kern-text-soft)]">{guideEntries.length} chapters</span>
-        </summary>
-        <div class="mt-5 space-y-4">
-          {
-            guideEntries.map((entry) => (
-              <a class="block rounded-md border border-[color:var(--kern-line)] px-4 py-4 transition hover:bg-[color:var(--kern-soft)]" href={internalHref(`/guide/${entry.id}/`)}>
-                <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--kern-steel)]">
-                  Chapter {entry.data.order}
-                </div>
-                <div class="mt-2 text-lg font-semibold text-[color:var(--kern-ink)]">{entry.data.title}</div>
-                <p class="mt-2 text-sm leading-7 text-[color:var(--kern-text-muted)]">{entry.data.summary}</p>
-              </a>
-            ))
-          }
-        </div>
-      </details>
+  <section class="doc-shell section-divider">
+    <div class="section-lead">
+      <div class="eyebrow">Full Index</div>
+      <h2 class="mt-4 text-4xl text-[color:var(--kern-ink)]">All chapters</h2>
+    </div>
+    <div class="dense-link-list dense-link-list-columns mt-8">
+      {
+        guideEntries.map((entry) => (
+          <a class="dense-link-item" href={internalHref(`/guide/${entry.id}/`)}>
+            <div class="dense-link-title">Chapter {entry.data.order}: {entry.data.title}</div>
+            <p class="dense-link-summary">{entry.data.summary}</p>
+          </a>
+        ))
+      }
     </div>
   </section>
 </BaseLayout>

@@ -2,6 +2,7 @@ use crate::error::Result;
 use crate::graph::{self, DependencyTarget, PackageGraph, PackageId, SourceId};
 use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
+use crate::sdk;
 use crate::workspace::WorkspaceMember;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -102,12 +103,8 @@ pub(super) fn assemble_packages(
     packages
 }
 
-fn sdk_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("sdk")
-}
-
 fn craft_sdk_aliases() -> BTreeMap<String, PathBuf> {
-    BTreeMap::from([(String::from("craft"), sdk_root())])
+    BTreeMap::from([(String::from("craft"), sdk::sdk_root())])
 }
 
 fn script_roots_for_package_root(package_root: &Path) -> Vec<AnalysisScriptRoot> {

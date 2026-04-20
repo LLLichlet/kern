@@ -185,6 +185,7 @@ def validate_sdk_root(sdk_root: Path, expected_target: str) -> None:
     ensure(manifest.get("host_target") == expected_target, f"SDK host target mismatch in `{manifest_path}`")
     for binary in HOST_TOOL_BINARIES:
         ensure((sdk_root / "bin" / binary).exists() or (sdk_root / "bin" / f"{binary}.exe").exists(), f"SDK binary `{binary}` is missing from `{sdk_root}`")
+    ensure((sdk_root / "lib" / "kern" / "craft" / "init.rn").is_file(), "SDK craft script modules are missing")
     ensure((sdk_root / "toolchain" / "host" / "bin").is_dir(), "SDK toolchain layout is incomplete")
     _validate_manifest_toolchain(sdk_root, manifest)
 

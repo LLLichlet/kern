@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::sdk;
 use kernc_driver::CompilerDriver;
 use kernc_sema::def::{Def, DefId, Visibility};
 use kernc_sema::ty::{TypeId, TypeKind};
@@ -65,10 +66,6 @@ pub(super) fn prepare_script<'a>(
     })
 }
 
-fn sdk_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("sdk")
-}
-
 fn canonical_script_path(path: &Path) -> Result<PathBuf> {
     path.canonicalize().map_err(|err| Error::from_io(path, err))
 }
@@ -85,7 +82,7 @@ fn analyze_script<'a>(
     };
     options.module_aliases.insert(
         "craft".to_string(),
-        sdk_root().to_string_lossy().to_string(),
+        sdk::sdk_root().to_string_lossy().to_string(),
     );
     let driver = CompilerDriver::new(options);
     driver

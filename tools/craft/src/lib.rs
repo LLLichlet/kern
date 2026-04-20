@@ -18,5 +18,6 @@ mod lockfile;
 mod operation_lock;
 mod resolver;
 mod script;
+mod sdk;
 mod source;
 mod target_defaults;

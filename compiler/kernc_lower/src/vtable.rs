@@ -21,13 +21,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let mut merged = assoc_bindings.into_iter().collect::<HashMap<_, _>>();
-        if let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize) {
-            for assoc_id in &trait_def.assoc_types {
-                if let Some(&assoc_ty) = assoc_binding_map.get(assoc_id) {
-                    merged.insert(*assoc_id, assoc_ty);
-                }
-            }
-        }
+        merged.extend(assoc_binding_map.iter().map(|(assoc_id, assoc_ty)| (*assoc_id, *assoc_ty)));
 
         let mut merged = merged.into_iter().collect::<Vec<_>>();
         merged.sort_by_key(|(assoc_id, _)| assoc_id.0);

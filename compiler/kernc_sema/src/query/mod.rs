@@ -574,13 +574,11 @@ pub(crate) fn augment_trait_object_assoc_bindings_from_map(
     };
 
     let mut merged = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
-    if let Some(Def::Trait(trait_def)) = ctx.defs.get(trait_def_id.0 as usize) {
-        for assoc_id in &trait_def.assoc_types {
-            if let Some(&assoc_ty) = assoc_binding_map.get(assoc_id) {
-                merged.insert(*assoc_id, assoc_ty);
-            }
-        }
-    }
+    // Internal supertrait traversal must keep inherited bindings alive even on
+    // intermediate traits that declare no assoc types of their own. Otherwise
+    // multi-hop chains like `Leaf -> Mid -> Base` lose `Base::Assoc` before the
+    // next recursive step can see it.
+    merged.extend(assoc_binding_map.iter().map(|(assoc_id, assoc_ty)| (*assoc_id, *assoc_ty)));
 
     let mut merged = merged.into_iter().collect::<Vec<_>>();
     merged.sort_by_key(|(assoc_id, _)| assoc_id.0);

@@ -1,0 +1,37 @@
+// stderr: does not implement the target trait
+
+type Base[N: usize] = trait {
+    type Out;
+    make: fn() Out,
+};
+
+type Mid[N: usize]: Base[N] = trait {};
+type Leaf[N: usize]: Mid[N] = trait {};
+
+type X = struct {};
+
+impl[N: usize] *X: Leaf[N] {}
+impl[N: usize] *X: Mid[N] {}
+
+impl[N: usize] *X: Base[N] {
+    type Out = i32;
+
+    fn make() Out {
+        return 1;
+    }
+}
+
+impl *X: Base[4] {
+    type Out = i64;
+
+    fn make() Out {
+        return 9;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let leaf = *Leaf[4].{ x.& };
+    let _ = *Base[4, Out = i32].{ leaf };
+    return 0;
+}

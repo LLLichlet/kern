@@ -248,45 +248,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        let expected_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
-            trait_def_id,
-            trait_args.to_vec(),
-            Vec::new(),
-        ));
         let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
-        let mut type_map = FastHashMap::default();
-        let mut const_map = FastHashMap::default();
 
         for (env_target, env_bounds) in unsafe { &*active_bounds_ptr } {
-            type_map.clear();
-            const_map.clear();
-            let matched = *env_target == target_ty
-                || self.unify_with_const_map(*env_target, target_ty, &mut type_map, &mut const_map);
-            if !matched {
+            if *env_target != target_ty {
                 continue;
             }
 
             for bound in env_bounds.iter().copied() {
-                let inst_bound =
-                    self.substitute_type_with_unification_maps(bound, &type_map, &const_map);
-                let inst_bound_norm = self.resolve_tv(inst_bound);
-                let TypeKind::TraitObject(bound_trait_def_id, _, assoc_bindings) =
+                let inst_bound_norm = self.resolve_tv(bound);
+                let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) =
                     self.ctx.type_registry.get(inst_bound_norm).clone()
                 else {
                     continue;
                 };
-                if bound_trait_def_id != trait_def_id {
-                    continue;
-                }
-
-                let mut trait_type_map = FastHashMap::default();
-                let mut trait_const_map = FastHashMap::default();
-                if !self.unify_with_const_map(
-                    expected_trait_ty,
-                    inst_bound_norm,
-                    &mut trait_type_map,
-                    &mut trait_const_map,
-                ) {
+                if bound_trait_def_id != trait_def_id || bound_trait_args != trait_args {
                     continue;
                 }
 

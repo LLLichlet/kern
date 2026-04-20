@@ -1292,6 +1292,62 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_reverse_solving_const_env_bound_for_projection() {
+    let output = compile_source(
+        r#"
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: HasOut[1] {
+    type Out = i32;
+}
+
+fn bad[T, N: usize]() T.HasOut[N].Out
+    where T: HasOut[1, Out = i32],
+{
+    return 0;
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("expected `T.HasOut[N].Out`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("found `usize`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_nested_typed_struct_pattern_with_mismatched_const_generic_argument() {
     let output = compile_source(
         r#"

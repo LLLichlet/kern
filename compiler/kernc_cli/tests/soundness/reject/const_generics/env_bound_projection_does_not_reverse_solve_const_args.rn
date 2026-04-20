@@ -1,0 +1,23 @@
+// class: projection-bound-match
+// stderr: mismatched types
+// stderr: expected `T.HasOut[N].Out`
+
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: HasOut[1] {
+    type Out = i32;
+}
+
+fn bad[T, N: usize]() T.HasOut[N].Out
+    where T: HasOut[1, Out = i32],
+{
+    return 0;
+}
+
+fn main() i32 {
+    return 0;
+}

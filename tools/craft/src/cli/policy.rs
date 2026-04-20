@@ -112,25 +112,22 @@ pub(super) fn summarize_source_security(manifest: &Manifest) -> SourceSecuritySu
     let mut warnings = Vec::new();
     let mut suppressed = Vec::new();
 
-    for (name, dep) in release_policy_dependencies(manifest) {
-        let Some(git) = dep.git.as_deref() else {
-            continue;
-        };
-
+    for source in release_policy_dependencies(manifest) {
+        let git = source.git;
         if is_insecure_git_source(git) {
             insecure_transport_sources += 1;
-            let label = format!("{name}(insecure-transport)");
-            if allow_insecure_source.contains(name.as_str()) {
+            let label = format_release_source_label(&source.name, "insecure-transport");
+            if allowlist_contains(&allow_insecure_source, &source.name) {
                 suppressed.push(label);
             } else {
                 warnings.push(label);
             }
         }
 
-        if dep.rev.is_none() && dep.tag.is_none() {
+        if source.rev.is_none() && source.tag.is_none() {
             floating_git_sources += 1;
-            let label = format!("{name}(floating-git)");
-            if allow_floating_git.contains(name.as_str()) {
+            let label = format_release_source_label(&source.name, "floating-git");
+            if allowlist_contains(&allow_floating_git, &source.name) {
                 suppressed.push(label);
             } else {
                 warnings.push(label);
@@ -155,9 +152,14 @@ pub(super) fn summarize_source_security(manifest: &Manifest) -> SourceSecuritySu
     }
 }
 
-fn release_policy_dependencies(
-    manifest: &Manifest,
-) -> BTreeMap<String, &crate::manifest::DetailedDependency> {
+struct ReleasePolicySource<'a> {
+    name: String,
+    git: &'a str,
+    rev: Option<&'a str>,
+    tag: Option<&'a str>,
+}
+
+fn release_policy_dependencies(manifest: &Manifest) -> Vec<ReleasePolicySource<'_>> {
     let mut dependencies = BTreeMap::new();
 
     if let Some(workspace) = &manifest.workspace {
@@ -166,22 +168,48 @@ fn release_policy_dependencies(
     collect_release_policy_dependencies(&mut dependencies, &manifest.dependencies);
     collect_release_policy_dependencies(&mut dependencies, &manifest.dev_dependencies);
     collect_release_policy_dependencies(&mut dependencies, &manifest.build_dependencies);
+    for (name, resource) in &manifest.resources {
+        if let Some(git) = resource.git.as_deref() {
+            dependencies.insert(
+                format!("resource:{name}"),
+                ReleasePolicySource {
+                    name: format!("resource:{name}"),
+                    git,
+                    rev: resource.rev.as_deref(),
+                    tag: resource.tag.as_deref(),
+                },
+            );
+        }
+    }
 
-    dependencies
+    dependencies.into_values().collect()
 }
 
 fn collect_release_policy_dependencies<'a>(
-    out: &mut BTreeMap<String, &'a crate::manifest::DetailedDependency>,
+    out: &mut BTreeMap<String, ReleasePolicySource<'a>>,
     section: &'a BTreeMap<String, crate::manifest::DependencySpec>,
 ) {
     for (name, spec) in section {
         let crate::manifest::DependencySpec::Detailed(dep) = spec else {
             continue;
         };
-        if dep.git.is_some() {
-            out.entry(name.clone()).or_insert(dep);
+        if let Some(git) = dep.git.as_deref() {
+            out.entry(name.clone()).or_insert(ReleasePolicySource {
+                name: name.clone(),
+                git,
+                rev: dep.rev.as_deref(),
+                tag: dep.tag.as_deref(),
+            });
         }
     }
+}
+
+fn allowlist_contains(allowlist: &BTreeSet<&str>, name: &str) -> bool {
+    allowlist.contains(name) || name.starts_with("resource:") && allowlist.contains(&name[9..])
+}
+
+fn format_release_source_label(name: &str, suffix: &str) -> String {
+    format!("{name}({suffix})")
 }
 
 fn is_insecure_git_source(locator: &str) -> bool {

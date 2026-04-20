@@ -79,6 +79,55 @@ shared = { workspace = true, features = ["simd"] }
 }
 
 #[test]
+fn parses_package_resources() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[resources]
+limine = { git = "https://example.com/limine.git", branch = "main" }
+assets = { path = "vendor/assets" }
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let limine = manifest.resources.get("limine").unwrap();
+    assert_eq!(
+        limine.git.as_deref(),
+        Some("https://example.com/limine.git")
+    );
+    assert_eq!(limine.branch.as_deref(), Some("main"));
+    let assets = manifest.resources.get("assets").unwrap();
+    assert_eq!(assets.path.as_deref(), Some("vendor/assets"));
+}
+
+#[test]
+fn rejects_invalid_resource_source_combinations() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[resources]
+limine = { path = "vendor/limine", git = "https://example.com/limine.git" }
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let err = manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap_err();
+    assert!(err.to_string().contains("cannot combine `path` and `git`"));
+}
+
+#[test]
 fn rejects_plain_version_dependencies() {
     let manifest = Manifest::parse(
         r#"

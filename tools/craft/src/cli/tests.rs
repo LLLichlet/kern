@@ -743,6 +743,10 @@ members = []
 default = { git = "https://example.com/default.git", branch = "main" }
 insecure = { git = "http://example.com/insecure.git", branch = "main" }
 blocked = { git = "https://example.com/blocked.git", branch = "main" }
+
+[resources]
+limine = { git = "https://example.com/limine.git", branch = "main" }
+mirror = { git = "http://example.com/mirror.git", branch = "main" }
 "#,
         std::path::Path::new("Craft.toml"),
     )
@@ -750,13 +754,16 @@ blocked = { git = "https://example.com/blocked.git", branch = "main" }
 
     let summary = summarize_source_security(&manifest);
     assert_eq!(summary.policy_mode, ReleaseSourcePolicy::Warn);
-    assert_eq!(summary.floating_git_sources, 3);
-    assert_eq!(summary.insecure_transport_sources, 1);
+    assert_eq!(summary.floating_git_sources, 5);
+    assert_eq!(summary.insecure_transport_sources, 2);
     assert_eq!(
         summary.warnings,
         vec![
             "blocked(floating-git)".to_string(),
             "insecure(floating-git)".to_string(),
+            "resource:limine(floating-git)".to_string(),
+            "resource:mirror(insecure-transport)".to_string(),
+            "resource:mirror(floating-git)".to_string(),
         ]
     );
     assert_eq!(

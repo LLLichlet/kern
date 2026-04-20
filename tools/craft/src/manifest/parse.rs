@@ -1,6 +1,7 @@
 use super::{
     CraftConfig, DependencySpec, DetailedDependency, LibTarget, Manifest, NamedTarget, Package,
-    Profile, Profiles, ReleaseSourcePolicy, RuntimeConfig, Section, Workspace, WorkspacePackage,
+    Profile, Profiles, ReleaseSourcePolicy, ResourceSpec, RuntimeConfig, Section, Workspace,
+    WorkspacePackage,
 };
 use crate::error::{Error, Result};
 use kernc_utils::config::{LibraryBundle, LtoMode, RuntimeEntry};
@@ -88,6 +89,7 @@ fn enter_table_section(
         "[dependencies]" => Ok(Section::Dependencies),
         "[dev-dependencies]" => Ok(Section::DevDependencies),
         "[build-dependencies]" => Ok(Section::BuildDependencies),
+        "[resources]" => Ok(Section::Resources),
         "[features]" => Ok(Section::Features),
         "[profile.dev]" => {
             let profiles = manifest.profile.get_or_insert_with(Profiles::default);
@@ -203,6 +205,12 @@ fn assign_key_value(
             manifest
                 .build_dependencies
                 .insert(key.to_string(), parse_dependency(raw_value)?);
+            Ok(())
+        }
+        Section::Resources => {
+            manifest
+                .resources
+                .insert(key.to_string(), parse_resource(raw_value)?);
             Ok(())
         }
         Section::Features => {
@@ -589,6 +597,25 @@ fn parse_dependency(raw: &str) -> std::result::Result<DependencySpec, String> {
     }
 
     Ok(DependencySpec::Detailed(dep))
+}
+
+fn parse_resource(raw: &str) -> std::result::Result<ResourceSpec, String> {
+    let inner = strip_wrapping(raw.trim(), '{', '}')?;
+    let mut resource = ResourceSpec::default();
+
+    for item in split_top_level(inner, ',') {
+        let (key, value) = split_key_value(item)?;
+        match key {
+            "path" => resource.path = Some(parse_string(value)?),
+            "git" => resource.git = Some(parse_string(value)?),
+            "rev" => resource.rev = Some(parse_string(value)?),
+            "branch" => resource.branch = Some(parse_string(value)?),
+            "tag" => resource.tag = Some(parse_string(value)?),
+            _ => return Err(format!("unsupported resource key `{key}`")),
+        }
+    }
+
+    Ok(resource)
 }
 
 fn strip_wrapping(raw: &str, open: char, close: char) -> std::result::Result<&str, String> {

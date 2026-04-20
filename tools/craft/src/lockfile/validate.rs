@@ -137,6 +137,50 @@ impl Lockfile {
             }
         }
 
+        let mut package_resource_keys = BTreeSet::new();
+        for resource in &self.package_resources {
+            validate_non_empty(path, "[[package-resource]].package", &resource.package_id)?;
+            if !package_ids.contains(resource.package_id.as_str()) {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "[[package-resource]] references unknown package id `{}`",
+                        resource.package_id
+                    ),
+                });
+            }
+            validate_non_empty(path, "[[package-resource]].name", &resource.name)?;
+            validate_source_kind(path, "[[package-resource]].source", &resource.source_kind)?;
+            if resource.source_value.is_none() {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "[[package-resource]] `{}`:`{}` requires `source-value`",
+                        resource.package_id, resource.name
+                    ),
+                });
+            }
+            if let Some(value) = &resource.source_value {
+                validate_non_empty(path, "[[package-resource]].source-value", value)?;
+            }
+            if let Some(locator) = &resource.source_locator {
+                validate_non_empty(path, "[[package-resource]].source-locator", locator)?;
+            }
+            if let Some(selector) = &resource.source_selector {
+                validate_non_empty(path, "[[package-resource]].source-selector", selector)?;
+            }
+            if !package_resource_keys.insert((resource.package_id.as_str(), resource.name.as_str()))
+            {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "duplicate package resource `{}:{}`",
+                        resource.package_id, resource.name
+                    ),
+                });
+            }
+        }
+
         for dependency in &self.dependencies {
             validate_non_empty(path, "[[dependency]].from", &dependency.from)?;
             if !package_ids.contains(dependency.from.as_str()) {

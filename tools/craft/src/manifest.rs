@@ -22,6 +22,7 @@ pub struct Manifest {
     pub dependencies: BTreeMap<String, DependencySpec>,
     pub dev_dependencies: BTreeMap<String, DependencySpec>,
     pub build_dependencies: BTreeMap<String, DependencySpec>,
+    pub resources: BTreeMap<String, ResourceSpec>,
     pub features: BTreeMap<String, Vec<String>>,
     pub profile: Option<Profiles>,
     pub workspace: Option<Workspace>,
@@ -105,6 +106,15 @@ pub struct DetailedDependency {
     pub features: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResourceSpec {
+    pub path: Option<String>,
+    pub git: Option<String>,
+    pub rev: Option<String>,
+    pub branch: Option<String>,
+    pub tag: Option<String>,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Profiles {
     pub dev: Option<Profile>,
@@ -153,6 +163,7 @@ pub(super) enum Section {
     Dependencies,
     DevDependencies,
     BuildDependencies,
+    Resources,
     Features,
     ProfileDev,
     ProfileRelease,

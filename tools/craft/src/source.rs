@@ -1,7 +1,8 @@
+use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
-use crate::graph::SourceId;
+use crate::graph::{PackageId, SourceId};
 use crate::local_state;
-use crate::manifest::Manifest;
+use crate::manifest::{Manifest, ResourceSpec};
 use crate::resolver::{ExternalPackageId, ResolvedGraph};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,21 @@ pub struct FetchSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchedPackage {
     pub id: ExternalPackageId,
+    pub source_path: PathBuf,
+    pub cache_path: PathBuf,
+    pub status: FetchStatus,
+    pub source: FetchedSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ResourceId {
+    pub package_id: PackageId,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchedResource {
+    pub id: ResourceId,
     pub source_path: PathBuf,
     pub cache_path: PathBuf,
     pub status: FetchStatus,
@@ -94,6 +110,50 @@ pub fn fetch_external_packages(resolved: &ResolvedGraph) -> Result<Vec<FetchedPa
     Ok(packages)
 }
 
+pub fn fetch_package_resources(elaboration: &ElaborationPlan) -> Result<Vec<FetchedResource>> {
+    let cache_root = elaboration
+        .resolved_graph
+        .workspace_root
+        .join(".craft")
+        .join("resources");
+    let mut fetched = Vec::new();
+
+    for package in &elaboration.packages {
+        if package.plan.resources.is_empty() {
+            continue;
+        }
+
+        let package_root = package
+            .plan
+            .manifest_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."));
+        for (name, spec) in &package.plan.resources {
+            let resolved_source = source_path_for_resource(
+                package_root,
+                &elaboration.resolved_graph.workspace_root,
+                &package.package_id,
+                name,
+                spec,
+            )?;
+            let cache_path = cache_path_for_resource(&cache_root, &package.package_id, name);
+            let status = materialize_tree(&resolved_source.source_path, &cache_path)?;
+            fetched.push(FetchedResource {
+                id: ResourceId {
+                    package_id: package.package_id.clone(),
+                    name: name.clone(),
+                },
+                source_path: resolved_source.source_path,
+                cache_path,
+                status,
+                source: resolved_source.identity,
+            });
+        }
+    }
+
+    Ok(fetched)
+}
+
 pub fn summarize_fetch(packages: &[FetchedPackage]) -> FetchSummary {
     let mut summary = FetchSummary {
         created: 0,
@@ -102,6 +162,22 @@ pub fn summarize_fetch(packages: &[FetchedPackage]) -> FetchSummary {
     };
     for package in packages {
         match package.status {
+            FetchStatus::Created => summary.created += 1,
+            FetchStatus::Updated => summary.updated += 1,
+            FetchStatus::Unchanged => summary.unchanged += 1,
+        }
+    }
+    summary
+}
+
+pub fn summarize_fetch_resources(resources: &[FetchedResource]) -> FetchSummary {
+    let mut summary = FetchSummary {
+        created: 0,
+        updated: 0,
+        unchanged: 0,
+    };
+    for resource in resources {
+        match resource.status {
             FetchStatus::Created => summary.created += 1,
             FetchStatus::Updated => summary.updated += 1,
             FetchStatus::Unchanged => summary.unchanged += 1,
@@ -179,6 +255,51 @@ fn source_path_for_external(
             ),
         }),
     }
+}
+
+fn source_path_for_resource(
+    package_root: &Path,
+    workspace_root: &Path,
+    package_id: &PackageId,
+    name: &str,
+    spec: &ResourceSpec,
+) -> Result<ResolvedSourcePath> {
+    if let Some(path) = &spec.path {
+        let absolute = package_root.join(path);
+        let source_path = absolute
+            .canonicalize()
+            .map_err(|err| Error::from_io(&absolute, err))?;
+        return Ok(ResolvedSourcePath {
+            identity: FetchedSource {
+                backend: FetchedSourceBackend::PathDependency,
+                locator: source_path.display().to_string(),
+                selector: None,
+                resolved_revision: None,
+            },
+            source_path,
+        });
+    }
+
+    let Some(git) = spec.git.as_deref() else {
+        return Err(Error::Validation {
+            path: package_root.join("Craft.toml"),
+            message: format!("resource `{name}` must declare `path` or `git`"),
+        });
+    };
+
+    let prepared = prepare_git_dependency_root(
+        package_root,
+        workspace_root,
+        &format!("{}-{}", package_id.name, name),
+        git,
+        spec.rev.as_deref(),
+        spec.branch.as_deref(),
+        spec.tag.as_deref(),
+    )?;
+    Ok(ResolvedSourcePath {
+        source_path: prepared.root,
+        identity: prepared.identity,
+    })
 }
 
 fn prepare_git_dependency_root(
@@ -488,6 +609,12 @@ fn cache_path_for_external(cache_root: &Path, package: &ExternalPackageId) -> Re
     }
 }
 
+fn cache_path_for_resource(cache_root: &Path, package_id: &PackageId, name: &str) -> PathBuf {
+    cache_root
+        .join(package_cache_segment(package_id))
+        .join(sanitize_segment(name))
+}
+
 fn materialize_tree(source: &Path, dest: &Path) -> Result<FetchStatus> {
     let source_digest = digest_tree(source)?;
     if dest.is_dir() && digest_tree(dest)? == source_digest {
@@ -562,6 +689,43 @@ fn validate_fetched_manifest(root: &Path) -> Result<()> {
 
     let manifest = Manifest::load(&manifest_path)?;
     manifest.validate(&manifest_path)
+}
+
+fn package_cache_segment(package_id: &PackageId) -> String {
+    let mut identity = format!("{}:{}:", package_id.name, package_id.version);
+    match &package_id.source {
+        SourceId::Root => identity.push_str("root"),
+        SourceId::WorkspaceMember { path } => {
+            identity.push_str("workspace:");
+            identity.push_str(path);
+        }
+        SourceId::PathDependency { path } => {
+            identity.push_str("path:");
+            identity.push_str(path);
+        }
+        SourceId::GitDependency {
+            git,
+            rev,
+            branch,
+            tag,
+        } => {
+            identity.push_str("git:");
+            identity.push_str(git);
+            identity.push('#');
+            identity.push_str(&git_selector_cache_key(
+                rev.as_deref(),
+                branch.as_deref(),
+                tag.as_deref(),
+            ));
+        }
+    }
+
+    format!(
+        "{}-{}-{:016x}",
+        sanitize_segment(package_id.name.as_str()),
+        sanitize_segment(package_id.version.as_str()),
+        fnv1a64_update(0xcbf29ce484222325, identity.as_bytes())
+    )
 }
 
 fn digest_tree(root: &Path) -> Result<u64> {
@@ -649,7 +813,7 @@ fn git_selector_cache_key(rev: Option<&str>, branch: Option<&str>, tag: Option<&
 mod tests {
     use super::{
         FetchStatus, FetchedGitSelector, FetchedSourceBackend, fetch_external_packages,
-        summarize_fetch,
+        fetch_package_resources, summarize_fetch, summarize_fetch_resources,
     };
     use crate::elaborate::{FeatureSelection, plan};
     use crate::manifest::Manifest;
@@ -728,6 +892,58 @@ root = "src/lib.rn"
         assert_eq!(fetched[0].source.resolved_revision, None);
         assert!(fetched[0].cache_path.join("Craft.toml").is_file());
         assert_eq!(summarize_fetch(&fetched).created, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fetches_package_resources() {
+        let root = temp_dir("craft-fetch-resource");
+        let resource_root = root.join("vendor").join("limine");
+        fs::create_dir_all(resource_root.join("cfg")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "kernel"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "kernel"
+root = "src/main.rn"
+
+[resources]
+limine = { path = "vendor/limine" }
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(resource_root.join("cfg").join("limine.conf"), "TIMEOUT=0\n").unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Fetch,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let fetched = fetch_package_resources(&elaboration).unwrap();
+        assert_eq!(fetched.len(), 1);
+        assert_eq!(fetched[0].id.name, "limine");
+        assert_eq!(fetched[0].status, FetchStatus::Created);
+        assert_eq!(
+            fetched[0].source.backend,
+            FetchedSourceBackend::PathDependency
+        );
+        assert!(fetched[0].cache_path.join("cfg/limine.conf").is_file());
+        assert_eq!(summarize_fetch_resources(&fetched).created, 1);
 
         let _ = fs::remove_dir_all(root);
     }

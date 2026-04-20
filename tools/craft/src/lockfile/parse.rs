@@ -1,5 +1,6 @@
 use super::{
-    LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageTarget, Lockfile,
+    LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageResource,
+    LockedPackageTarget, Lockfile,
 };
 use crate::error::{Error, Result};
 use std::path::Path;
@@ -9,6 +10,7 @@ enum Section {
     Root,
     Package(usize),
     PackageTarget(usize),
+    PackageResource(usize),
     ExternalPackage(usize),
     Dependency(usize),
 }
@@ -23,6 +25,7 @@ impl Lockfile {
             workspace_script_digest: None,
             packages: Vec::new(),
             package_targets: Vec::new(),
+            package_resources: Vec::new(),
             external_packages: Vec::new(),
             dependencies: Vec::new(),
         };
@@ -98,6 +101,19 @@ fn start_section(lockfile: &mut Lockfile, line: &str) -> std::result::Result<Sec
             });
             Ok(Section::PackageTarget(lockfile.package_targets.len() - 1))
         }
+        "[[package-resource]]" => {
+            lockfile.package_resources.push(LockedPackageResource {
+                package_id: String::new(),
+                name: String::new(),
+                source_kind: String::new(),
+                source_value: None,
+                source_locator: None,
+                source_selector: None,
+            });
+            Ok(Section::PackageResource(
+                lockfile.package_resources.len() - 1,
+            ))
+        }
         "[[dependency]]" => {
             lockfile.dependencies.push(LockedDependency {
                 from: String::new(),
@@ -168,6 +184,18 @@ fn assign_key_value(
                 "name" => target.name = Some(parse_string(raw_value)?),
                 "root" => target.root = parse_string(raw_value)?,
                 _ => return Err(format!("unsupported [[package-target]] key `{key}`")),
+            }
+        }
+        Section::PackageResource(index) => {
+            let resource = &mut lockfile.package_resources[index];
+            match key {
+                "package" => resource.package_id = parse_string(raw_value)?,
+                "name" => resource.name = parse_string(raw_value)?,
+                "source" => resource.source_kind = parse_string(raw_value)?,
+                "source-value" => resource.source_value = Some(parse_string(raw_value)?),
+                "source-locator" => resource.source_locator = Some(parse_string(raw_value)?),
+                "source-selector" => resource.source_selector = Some(parse_string(raw_value)?),
+                _ => return Err(format!("unsupported [[package-resource]] key `{key}`")),
             }
         }
         Section::Dependency(index) => {

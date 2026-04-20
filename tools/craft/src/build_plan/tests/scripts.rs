@@ -296,6 +296,84 @@ b.define_string("entry", "generated");
 }
 
 #[test]
+fn build_script_can_resolve_and_stage_declared_resources() {
+    let root = temp_dir("craft-build-plan-resource");
+    fs::create_dir_all(root.join("vendor/limine/cfg")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "kernel"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "kernel"
+root = "src/main.rn"
+
+[resources]
+limine = { path = "vendor/limine" }
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    let resource_root = b.resource_root("limine");
+    let cfg = b.resource_path("limine", "cfg/limine.conf");
+    b.define_string("LIMINE_ROOT", resource_root);
+    b.link_arg_path("-T", cfg);
+    let _ = b.copy_resource_file_to_artifact("limine", "cfg/limine.conf", "boot/limine.conf");
+}
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("vendor/limine/cfg/limine.conf"), "TIMEOUT=0\n").unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let unit = build_plan.packages[0]
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+
+    let resource_root = match unit.define.get("LIMINE_ROOT") {
+        Some(crate::plan::PlanValue::String(value)) => value.as_str(),
+        other => panic!("expected LIMINE_ROOT define, got {other:?}"),
+    };
+    assert!(resource_root.contains("/.craft/resources/"));
+    assert!(resource_root.ends_with("/limine"));
+    assert_eq!(unit.link.args.first().map(String::as_str), Some("-T"));
+    assert!(unit.link.args[1].ends_with("/cfg/limine.conf"));
+
+    let unit_nodes = build_plan.artifact_output_nodes_for_unit(unit);
+    assert_eq!(unit_nodes.len(), 1);
+    assert!(unit_nodes[0].output.ends_with("boot/limine.conf"));
+    assert!(matches!(
+        &unit_nodes[0].kind,
+        StagedActionKind::CopyFile { source } if source.ends_with("/cfg/limine.conf")
+    ));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_can_copy_package_files_into_generated_root() {
     let root = temp_dir("craft-build-plan-copy");
     fs::create_dir_all(root.join("templates")).unwrap();

@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId};
-use crate::manifest::{DependencySpec, DetailedDependency, Manifest};
+use crate::manifest::{DependencySpec, DetailedDependency, Manifest, ResourceSpec};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +14,7 @@ pub struct PackagePlan {
     pub dependencies: BTreeMap<String, DependencySpec>,
     pub dev_dependencies: BTreeMap<String, DependencySpec>,
     pub build_dependencies: BTreeMap<String, DependencySpec>,
+    pub resources: BTreeMap<String, ResourceSpec>,
     pub cfg: BTreeMap<String, PlanValue>,
     pub define: BTreeMap<String, PlanValue>,
 }
@@ -91,6 +92,7 @@ impl PackagePlan {
             dependencies: manifest.dependencies.clone(),
             dev_dependencies: manifest.dev_dependencies.clone(),
             build_dependencies: manifest.build_dependencies.clone(),
+            resources: manifest.resources.clone(),
             cfg: BTreeMap::new(),
             define: BTreeMap::new(),
         })
@@ -399,6 +401,9 @@ roots = ["tests/smoke.rn"]
 
 [example]
 roots = ["examples/hello.rn"]
+
+[resources]
+limine = { path = "vendor/limine" }
 "#,
             Path::new("Craft.toml"),
         )
@@ -410,6 +415,12 @@ roots = ["examples/hello.rn"]
         assert_eq!(plan.kern, "0.7.0");
         assert_eq!(plan.manifest_path, Path::new("Craft.toml"));
         assert_eq!(plan.publish, Some(false));
+        assert_eq!(
+            plan.resources
+                .get("limine")
+                .and_then(|resource| resource.path.as_deref()),
+            Some("vendor/limine")
+        );
         assert_eq!(plan.targets.len(), 4);
         assert!(
             plan.targets

@@ -116,6 +116,7 @@ pub fn derive_with_options(
         &elaboration.manifest,
         elaboration.profile_selection,
     )?;
+    let resource_index = build_resource_index(elaboration)?;
     for package in &mut packages {
         let package_root = package
             .manifest_path
@@ -123,6 +124,10 @@ pub fn derive_with_options(
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
         let package_tools = build_tools_for_package(package, &tool_index, &external_tool_index);
+        let package_resources = resource_index
+            .get(&package.package_id)
+            .cloned()
+            .unwrap_or_default();
         if let Some(build_script) = &package.build_script {
             let source = sources
                 .get(&package.package_id)
@@ -194,6 +199,7 @@ pub fn derive_with_options(
                         }),
                     },
                     tools: package_tools.clone(),
+                    resources: package_resources.clone(),
                     package_root_path: package_root.clone(),
                     workspace_root_path: elaboration.resolved_graph.workspace_root.clone(),
                 };
@@ -608,6 +614,24 @@ fn build_tools_for_package(
         }
     }
     tools
+}
+
+fn build_resource_index(
+    elaboration: &ElaborationPlan,
+) -> Result<BTreeMap<PackageId, BTreeMap<String, script::BuildScriptResource>>> {
+    let mut index = BTreeMap::new();
+    for fetched in source::fetch_package_resources(elaboration)? {
+        index
+            .entry(fetched.id.package_id)
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                fetched.id.name,
+                script::BuildScriptResource {
+                    root_path: normalized_path_string(&fetched.cache_path),
+                },
+            );
+    }
+    Ok(index)
 }
 
 fn discover_build_script(

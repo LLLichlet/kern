@@ -49,6 +49,8 @@ pub extern type Builder = struct {
 
 extern {
     fn __craft_build_feature_enabled(builder: *Builder, name: []u8) bool;
+    fn __craft_build_resource_root(builder: *Builder, name: []u8) []u8;
+    fn __craft_build_resource_path(builder: *Builder, name: []u8, relative_path: []u8) []u8;
     fn __craft_build_link_system_lib(builder: *mut Builder, name: []u8) void;
     fn __craft_build_link_framework(builder: *mut Builder, name: []u8) void;
     fn __craft_build_link_search(builder: *mut Builder, path: []u8) void;
@@ -70,6 +72,8 @@ extern {
     fn __craft_build_stage_artifact_file_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, artifact_relative: []u8, args: [][]u8) Output;
     fn __craft_build_stage_copy_package_file_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) Output;
     fn __craft_build_stage_copy_package_dir_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) Output;
+    fn __craft_build_stage_copy_resource_file_to_artifact(builder: *mut Builder, resource_name: []u8, source_relative: []u8, artifact_relative: []u8) Output;
+    fn __craft_build_stage_copy_resource_dir_to_artifact(builder: *mut Builder, resource_name: []u8, source_relative: []u8, artifact_relative: []u8) Output;
     fn __craft_build_depend(builder: *mut Builder, output: Output, dependency: Output) void;
 }
 
@@ -80,6 +84,14 @@ impl *Builder {
 
     pub fn tool_path(dependency_name: []u8, tool_name: []u8) []u8 {
         return __craft_build_tool_path(self, dependency_name, tool_name);
+    }
+
+    pub fn resource_root(name: []u8) []u8 {
+        return __craft_build_resource_root(self, name);
+    }
+
+    pub fn resource_path(name: []u8, relative_path: []u8) []u8 {
+        return __craft_build_resource_path(self, name, relative_path);
     }
 
     pub fn output_path(output: Output) []u8 {
@@ -194,6 +206,22 @@ impl *mut Builder {
 
     pub fn copy_package_dir_to_artifact(source_relative: []u8, artifact_relative: []u8) []u8 {
         return self.output_path(self.stage_copy_package_dir_to_artifact(source_relative, artifact_relative));
+    }
+
+    pub fn stage_copy_resource_file_to_artifact(resource_name: []u8, source_relative: []u8, artifact_relative: []u8) Output {
+        return __craft_build_stage_copy_resource_file_to_artifact(self, resource_name, source_relative, artifact_relative);
+    }
+
+    pub fn copy_resource_file_to_artifact(resource_name: []u8, source_relative: []u8, artifact_relative: []u8) []u8 {
+        return self.output_path(self.stage_copy_resource_file_to_artifact(resource_name, source_relative, artifact_relative));
+    }
+
+    pub fn stage_copy_resource_dir_to_artifact(resource_name: []u8, source_relative: []u8, artifact_relative: []u8) Output {
+        return __craft_build_stage_copy_resource_dir_to_artifact(self, resource_name, source_relative, artifact_relative);
+    }
+
+    pub fn copy_resource_dir_to_artifact(resource_name: []u8, source_relative: []u8, artifact_relative: []u8) []u8 {
+        return self.output_path(self.stage_copy_resource_dir_to_artifact(resource_name, source_relative, artifact_relative));
     }
 
     pub fn depend(output: Output, dependency: Output) void {

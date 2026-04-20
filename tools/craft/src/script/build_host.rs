@@ -57,6 +57,27 @@ impl ScriptHost for BuildUnitHost<'_> {
                 let tool = resolve_build_tool(self.script_context, &dependency_name, &tool_name)?;
                 Ok(ConstValue::String(tool.executable_path.clone()))
             }
+            "__craft_build_resource_root" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let resource_name = expect_string(args, 1, "resource name")?;
+                let resource = resolve_build_resource(self.script_context, &resource_name)?;
+                Ok(ConstValue::String(resource.root_path.clone()))
+            }
+            "__craft_build_resource_path" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let resource_name = expect_string(args, 1, "resource name")?;
+                let relative_path = expect_string(args, 2, "resource relative path")?;
+                let resource = resolve_build_resource(self.script_context, &resource_name)?;
+                let resolved_path =
+                    resource_input_path(Path::new(&resource.root_path), &relative_path)?;
+                if !resolved_path.exists() {
+                    return Err(format!(
+                        "resource path `{}` does not exist",
+                        resolved_path.display()
+                    ));
+                }
+                Ok(ConstValue::String(normalized_path_string(&resolved_path)))
+            }
             "__craft_build_output_path" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let output = expect_output(args, 1, "output")?;
@@ -375,6 +396,66 @@ impl ScriptHost for BuildUnitHost<'_> {
                 );
                 Ok(output_value(&output))
             }
+            "__craft_build_stage_copy_resource_file_to_artifact" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let resource_name = expect_string(args, 1, "resource name")?;
+                let source_relative = expect_string(args, 2, "resource relative source path")?;
+                let artifact_relative = expect_string(args, 3, "artifact relative path")?;
+                let resource = resolve_build_resource(self.script_context, &resource_name)?;
+                let source_path =
+                    resource_input_path(Path::new(&resource.root_path), &source_relative)?;
+                if !source_path.is_file() {
+                    return Err(format!(
+                        "resource source file `{}` does not exist",
+                        source_path.display()
+                    ));
+                }
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.artifact_root),
+                    &artifact_relative,
+                )?;
+                let source =
+                    relative_display(&self.script_context.workspace_root_path, &source_path);
+                let output = record_staged_action(
+                    self.build_nodes,
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PostLink,
+                    StagedActionKind::CopyFile { source },
+                );
+                Ok(output_value(&output))
+            }
+            "__craft_build_stage_copy_resource_dir_to_artifact" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let resource_name = expect_string(args, 1, "resource name")?;
+                let source_relative = expect_string(args, 2, "resource relative source dir")?;
+                let artifact_relative = expect_string(args, 3, "artifact relative dir")?;
+                let resource = resolve_build_resource(self.script_context, &resource_name)?;
+                let source_path =
+                    resource_input_path(Path::new(&resource.root_path), &source_relative)?;
+                if !source_path.is_dir() {
+                    return Err(format!(
+                        "resource source directory `{}` does not exist",
+                        source_path.display()
+                    ));
+                }
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.artifact_root),
+                    &artifact_relative,
+                )?;
+                let source =
+                    relative_display(&self.script_context.workspace_root_path, &source_path);
+                let output = record_staged_action(
+                    self.build_nodes,
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PostLink,
+                    StagedActionKind::CopyDirectory { source },
+                );
+                Ok(output_value(&output))
+            }
             "__craft_build_depend" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let output = expect_output(args, 1, "output")?;
@@ -492,6 +573,13 @@ fn package_input_path(root: &Path, relative_path: &str) -> std::result::Result<P
     Ok(root.join(normalize_relative_path(
         relative_path,
         "package relative source path",
+    )?))
+}
+
+fn resource_input_path(root: &Path, relative_path: &str) -> std::result::Result<PathBuf, String> {
+    Ok(root.join(normalize_relative_path(
+        relative_path,
+        "resource relative source path",
     )?))
 }
 
@@ -708,6 +796,15 @@ fn resolve_build_tool<'a>(
                     .join(", ")
             )
         })
+}
+
+fn resolve_build_resource<'a>(
+    script_context: &'a BuildScriptContext,
+    resource_name: &str,
+) -> std::result::Result<&'a crate::script::BuildScriptResource, String> {
+    script_context.resources.get(resource_name).ok_or_else(|| {
+        format!("resource `{resource_name}` is not declared in `[resources]` for this package")
+    })
 }
 
 fn expect_string_list(

@@ -1,9 +1,11 @@
 use super::{
-    LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageTarget, Lockfile,
+    LockedDependency, LockedExternalPackage, LockedPackage, LockedPackageResource,
+    LockedPackageTarget, Lockfile,
 };
 use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId, SourceId};
+use crate::manifest::ResourceSpec;
 use crate::plan::TargetKind;
 use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget};
 use std::fs;
@@ -17,6 +19,7 @@ impl Lockfile {
         let manifest_digest = digest_file(manifest_path)?;
         let mut packages = Vec::new();
         let mut package_targets = Vec::new();
+        let mut package_resources = Vec::new();
         let mut external_packages = Vec::new();
         let mut dependencies = Vec::new();
 
@@ -50,6 +53,16 @@ impl Lockfile {
                     kind: target_kind(target.kind).to_string(),
                     name: target.name.clone(),
                     root: target.root.clone(),
+                });
+            }
+            for (name, spec) in &package_plan.resources {
+                package_resources.push(LockedPackageResource {
+                    package_id: package_id.clone(),
+                    name: name.clone(),
+                    source_kind: resource_source_kind(spec).to_string(),
+                    source_value: resource_source_value(spec),
+                    source_locator: resource_source_locator(spec),
+                    source_selector: resource_source_selector(spec),
                 });
             }
             for dep in &package.dependencies {
@@ -99,6 +112,7 @@ impl Lockfile {
                 .map(|script| script.digest.clone()),
             packages,
             package_targets,
+            package_resources,
             external_packages,
             dependencies,
         })
@@ -200,6 +214,38 @@ fn source_selector(source: &SourceId) -> Option<String> {
         return Some(git_selector(source));
     }
     None
+}
+
+fn resource_source_kind(spec: &ResourceSpec) -> &'static str {
+    if spec.path.is_some() {
+        "path"
+    } else if spec.git.is_some() {
+        "git"
+    } else {
+        unreachable!("validated resources must declare a source")
+    }
+}
+
+fn resource_source_value(spec: &ResourceSpec) -> Option<String> {
+    spec.path.clone().or_else(|| spec.git.clone())
+}
+
+fn resource_source_locator(spec: &ResourceSpec) -> Option<String> {
+    spec.git.clone()
+}
+
+fn resource_source_selector(spec: &ResourceSpec) -> Option<String> {
+    spec.git.as_ref().map(|_| {
+        if let Some(rev) = &spec.rev {
+            format!("rev:{rev}")
+        } else if let Some(branch) = &spec.branch {
+            format!("branch:{branch}")
+        } else if let Some(tag) = &spec.tag {
+            format!("tag:{tag}")
+        } else {
+            "default".to_string()
+        }
+    })
 }
 
 fn git_selector(source: &SourceId) -> String {

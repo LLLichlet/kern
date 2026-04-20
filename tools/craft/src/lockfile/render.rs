@@ -47,6 +47,23 @@ impl Lockfile {
             push_string_line(&mut out, "root", &target.root);
         }
 
+        for resource in &self.package_resources {
+            out.push('\n');
+            out.push_str("[[package-resource]]\n");
+            push_string_line(&mut out, "package", &resource.package_id);
+            push_string_line(&mut out, "name", &resource.name);
+            push_string_line(&mut out, "source", &resource.source_kind);
+            if let Some(value) = &resource.source_value {
+                push_string_line(&mut out, "source-value", value);
+            }
+            if let Some(locator) = &resource.source_locator {
+                push_string_line(&mut out, "source-locator", locator);
+            }
+            if let Some(selector) = &resource.source_selector {
+                push_string_line(&mut out, "source-selector", selector);
+            }
+        }
+
         for package in &self.external_packages {
             out.push('\n');
             out.push_str("[[external-package]]\n");

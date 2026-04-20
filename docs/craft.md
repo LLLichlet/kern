@@ -560,6 +560,44 @@ Build-domain rule:
 
 Every resolved dependency must have a stable source identity that can be recorded in the lockfile.
 
+## Package Resources
+
+Some build inputs are not `craft` packages.
+
+Typical examples:
+
+- bootloader trees such as `limine`
+- linker scripts or vendor configuration bundles
+- prebuilt headers, templates, or runtime data copied into final artifacts
+
+Those inputs belong in package-local `[resources]`, not in `build.rn` shell commands.
+
+Example:
+
+```toml
+[resources]
+limine = { git = "https://github.com/limine-bootloader/limine.git", branch = "0.9.x-binary" }
+assets = { path = "vendor/assets" }
+```
+
+Current resource rules:
+
+- resources are declared per package
+- a resource must declare exactly one source backend: `path` or `git`
+- git resources may use at most one selector: `rev`, `branch`, or `tag`
+- resources are fetched and materialized by `craft`, not by arbitrary script code
+- resource declarations participate in source-policy checks
+- resource declarations are recorded in `Craft.lock`
+
+Fetch/materialization rules:
+
+- `path` resources resolve relative to the owning package root
+- `git` resources use the same cached clone/materialization model as external package sources
+- fetched resource trees are materialized under `.craft/resources/`
+- repeated `craft fetch` / `craft build` reuses unchanged resource trees instead of recloning or recopying them
+
+This keeps remote source acquisition auditable, cacheable, and reproducible without turning `build.rn` into a general shell escape hatch.
+
 ## `build.rn`
 
 `build.rn` is an optional post-lock build script.
@@ -584,6 +622,8 @@ It is not allowed to affect:
 - package identity
 - lockfile contents
 - workspace topology
+- network fetch behavior
+- arbitrary host-side process orchestration
 
 Example:
 
@@ -648,11 +688,14 @@ Relative path rules:
 - `link_search("native")` records a relative search path in the plan, then resolves it from the current package root during execution
 - `link_search("/abs/path")` keeps the absolute search path as given
 - `link_arg_path("-T", "link/kernel.ld")` resolves the path from the current package root, validates that it exists, and records the normalized final path
+- `resource_root("limine")` returns the absolute fetched root for the declared resource
+- `resource_path("limine", "cfg/limine.conf")` resolves a path inside that fetched resource root and returns an absolute normalized path
 
 Package-relative staging rules:
 
 - `copy_package_file(...)` and `stage_copy_package_file(...)` read from the package root
 - `copy_package_file_to_artifact(...)` and `copy_package_dir_to_artifact(...)` also read from the package root
+- `copy_resource_file_to_artifact(...)` and `copy_resource_dir_to_artifact(...)` read from fetched resource roots
 - generated destination paths are relative to `b.paths.generated_root`
 - artifact destination paths are relative to `b.paths.artifact_root`
 
@@ -729,12 +772,15 @@ The current `Builder` API includes:
   - `stage_copy_package_file(...)` and `copy_package_file(...)`
   - `stage_copy_output(...)` and `copy_output(...)`
   - `tool_path(dependency, tool)`
+  - `resource_root(name)` and `resource_path(name, relative_path)`
   - `stage_generated_from_tool(dependency, tool, ...)` and `emit_generated_from_tool(dependency, tool, ...)`
 - post-link artifact staging:
   - `stage_artifact_file(...)` and `emit_artifact_file(...)`
   - `stage_artifact_file_from_tool(dependency, tool, ...)` and `emit_artifact_file_from_tool(dependency, tool, ...)`
   - `stage_copy_package_file_to_artifact(...)` and `copy_package_file_to_artifact(...)`
   - `stage_copy_package_dir_to_artifact(...)` and `copy_package_dir_to_artifact(...)`
+  - `stage_copy_resource_file_to_artifact(name, ...)` and `copy_resource_file_to_artifact(name, ...)`
+  - `stage_copy_resource_dir_to_artifact(name, ...)` and `copy_resource_dir_to_artifact(name, ...)`
 - graph composition:
   - `output_path(output)`
   - `set_source_root_from(output)`
@@ -817,8 +863,9 @@ Current behavior:
 
 - `check` loads the package graph, evaluates scripts, derives the build plan, materializes staged inputs, and runs semantic analysis for every selected compile unit without codegen or final linking
 - `lock` writes a deterministic canonical `Craft.lock`
-- `fetch` materializes external package sources into the local cache
-  - source backends are explicit package paths or git repositories
+- `fetch` materializes both external package sources and declared package resources into the local cache
+  - package source backends are explicit package paths or git repositories
+  - resource source backends are explicit package-relative paths or git repositories
 - `build` executes the selected build plan
 - `install` builds selected package `bin` targets and copies them into the active install root's `bin/` directory
 - `uninstall` removes installed package `bin` targets from that same install root
@@ -853,6 +900,7 @@ The system follows these rules:
 - no hidden pre-lock side effects
 - no profile- or command-dependent lockfile variance
 - no `build.rn` influence on resolution
+- no network or shell side effects hidden inside `build.rn`
 - no silent mutation of dependency topology after locking
 - explicit build edges over ad hoc script behavior
 - readable lockfiles over opaque hashes alone

@@ -188,6 +188,10 @@ fn format_fetched_source_backend(package: &source::FetchedPackage) -> &'static s
     package.source.backend.as_str()
 }
 
+fn format_fetched_resource_backend(resource: &source::FetchedResource) -> &'static str {
+    resource.source.backend.as_str()
+}
+
 fn format_action_label(
     package_id: &crate::graph::PackageId,
     domain: crate::graph::BuildDomain,
@@ -320,6 +324,20 @@ pub(super) fn print_fetched_package(render: &Renderer, package: &source::Fetched
             package.source.locator,
             format_fetched_source_backend(package),
             package.cache_path.display()
+        ),
+    );
+}
+
+pub(super) fn print_fetched_resource(render: &Renderer, resource: &source::FetchedResource) {
+    render.action(
+        Tone::Fetch,
+        "fetch",
+        format!("{}::{}", resource.id.package_id.name, resource.id.name),
+        format!(
+            "from {} [{}] -> {}",
+            resource.source.locator,
+            format_fetched_resource_backend(resource),
+            resource.cache_path.display()
         ),
     );
 }

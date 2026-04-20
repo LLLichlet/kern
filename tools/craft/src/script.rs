@@ -87,6 +87,7 @@ pub struct BuildScriptContext {
     pub unit: BuildScriptUnit,
     pub paths: BuildScriptPaths,
     pub tools: BTreeMap<String, Vec<BuildScriptTool>>,
+    pub resources: BTreeMap<String, BuildScriptResource>,
     pub package_root_path: PathBuf,
     pub workspace_root_path: PathBuf,
 }
@@ -107,6 +108,11 @@ pub struct BuildScriptTool {
     pub target_name: String,
     pub executable_path: String,
     pub origin: BuildScriptToolOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildScriptResource {
+    pub root_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

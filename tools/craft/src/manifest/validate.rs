@@ -1,4 +1,7 @@
-use super::{CURRENT_KERN_VERSION, DependencySpec, Manifest, Package, Profile, WorkspacePackage};
+use super::{
+    CURRENT_KERN_VERSION, DependencySpec, Manifest, Package, Profile, ResourceSpec,
+    WorkspacePackage,
+};
 use crate::error::{Error, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -51,6 +54,7 @@ impl Manifest {
         validate_dependencies(path, "[dependencies]", &self.dependencies)?;
         validate_dependencies(path, "[dev-dependencies]", &self.dev_dependencies)?;
         validate_dependencies(path, "[build-dependencies]", &self.build_dependencies)?;
+        validate_resources(path, "[resources]", &self.resources)?;
 
         for (feature, members) in &self.features {
             validate_non_empty(path, "feature name", feature)?;
@@ -252,6 +256,70 @@ fn validate_profile(path: &Path, section: &str, profile: &Profile) -> Result<()>
         });
     }
     let _ = profile.debug;
+    Ok(())
+}
+
+fn validate_resources(
+    path: &Path,
+    section: &str,
+    resources: &BTreeMap<String, ResourceSpec>,
+) -> Result<()> {
+    for (name, spec) in resources {
+        validate_non_empty(path, &format!("{section} key"), name)?;
+
+        let has_locator = spec.path.is_some() || spec.git.is_some();
+        if !has_locator {
+            return Err(Error::Validation {
+                path: path.to_path_buf(),
+                message: format!("{section}.{name} must declare `path` or `git`"),
+            });
+        }
+
+        if spec.path.is_some() && spec.git.is_some() {
+            return Err(Error::Validation {
+                path: path.to_path_buf(),
+                message: format!("{section}.{name} cannot combine `path` and `git`"),
+            });
+        }
+
+        let selector_count = usize::from(spec.rev.is_some())
+            + usize::from(spec.branch.is_some())
+            + usize::from(spec.tag.is_some());
+        if selector_count > 1 {
+            return Err(Error::Validation {
+                path: path.to_path_buf(),
+                message: format!(
+                    "{section}.{name} may set at most one of `rev`, `branch`, or `tag`"
+                ),
+            });
+        }
+
+        if spec.git.is_none() && selector_count > 0 {
+            return Err(Error::Validation {
+                path: path.to_path_buf(),
+                message: format!(
+                    "{section}.{name} can only use `rev`, `branch`, or `tag` with `git` resources"
+                ),
+            });
+        }
+
+        if let Some(path_value) = &spec.path {
+            validate_non_empty(path, &format!("{section}.{name}.path"), path_value)?;
+        }
+        if let Some(git) = &spec.git {
+            validate_non_empty(path, &format!("{section}.{name}.git"), git)?;
+        }
+        if let Some(rev) = &spec.rev {
+            validate_non_empty(path, &format!("{section}.{name}.rev"), rev)?;
+        }
+        if let Some(branch) = &spec.branch {
+            validate_non_empty(path, &format!("{section}.{name}.branch"), branch)?;
+        }
+        if let Some(tag) = &spec.tag {
+            validate_non_empty(path, &format!("{section}.{name}.tag"), tag)?;
+        }
+    }
+
     Ok(())
 }
 

@@ -18,6 +18,7 @@ pub struct Lockfile {
     pub workspace_script_digest: Option<String>,
     pub packages: Vec<LockedPackage>,
     pub package_targets: Vec<LockedPackageTarget>,
+    pub package_resources: Vec<LockedPackageResource>,
     pub external_packages: Vec<LockedExternalPackage>,
     pub dependencies: Vec<LockedDependency>,
 }
@@ -52,6 +53,16 @@ pub struct LockedExternalPackage {
     pub source_kind: String,
     pub source_value: Option<String>,
     pub version: Option<String>,
+    pub source_locator: Option<String>,
+    pub source_selector: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockedPackageResource {
+    pub package_id: String,
+    pub name: String,
+    pub source_kind: String,
+    pub source_value: Option<String>,
     pub source_locator: Option<String>,
     pub source_selector: Option<String>,
 }
@@ -184,6 +195,9 @@ root = "src/main.rn"
 [dependencies]
 util = { path = "../util" }
 shared = { workspace = true, features = ["simd"] }
+
+[resources]
+limine = { git = "https://example.com/limine.git", branch = "main" }
 "#,
         )
         .unwrap();
@@ -227,6 +241,7 @@ kern = "0.7.0"
         assert!(rendered.contains("version = 1"));
         assert!(rendered.contains("[[package]]"));
         assert!(rendered.contains("[[package-target]]"));
+        assert!(rendered.contains("[[package-resource]]"));
         assert!(rendered.contains("[[external-package]]"));
         assert!(rendered.contains("id = \"app 0.1.0 workspace-member:app\""));
         assert!(
@@ -235,6 +250,9 @@ kern = "0.7.0"
         );
         assert!(rendered.contains("workspace-script = \"craft.rn\""));
         assert!(rendered.contains("craft-script = \"app/craft.rn\""));
+        assert!(rendered.contains("name = \"limine\""));
+        assert!(rendered.contains("source-locator = \"https://example.com/limine.git\""));
+        assert!(rendered.contains("source-selector = \"branch:main\""));
         assert!(rendered.contains("target-id = \"util 0.1.0 workspace-member:util\""));
         assert!(rendered.contains("name = \"shared\""));
         assert!(rendered.contains("target = \"external\""));

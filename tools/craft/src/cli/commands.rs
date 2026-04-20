@@ -22,9 +22,9 @@ use super::policy::{
 };
 use super::render::{
     Renderer, Tone, format_unit_label, format_yes_no, print_compile_actions,
-    print_compile_actions_for_unit, print_fetched_package, print_generated_files,
-    print_generated_files_for_unit, print_link_actions, print_link_actions_for_unit,
-    render_execution_timings,
+    print_compile_actions_for_unit, print_fetched_package, print_fetched_resource,
+    print_generated_files, print_generated_files_for_unit, print_link_actions,
+    print_link_actions_for_unit, render_execution_timings,
 };
 use super::{Command, InstallSelection, RunSelection};
 
@@ -338,7 +338,9 @@ fn run_fetch(
         "fetch",
     )?;
     let fetched = source::fetch_external_packages(&loaded.elaboration.resolved_graph)?;
+    let fetched_resources = source::fetch_package_resources(&loaded.elaboration)?;
     let summary = source::summarize_fetch(&fetched);
+    let resource_summary = source::summarize_fetch_resources(&fetched_resources);
 
     render.header_with_path(
         "fetch",
@@ -349,18 +351,25 @@ fn run_fetch(
     render.summary(
         "packages",
         format!(
-            "{} external package(s): created {}, updated {}, unchanged {}",
+            "{} external package(s): created {}, updated {}, unchanged {}; {} resource(s): created {}, updated {}, unchanged {}",
             fetched.len(),
             summary.created,
             summary.updated,
-            summary.unchanged
+            summary.unchanged,
+            fetched_resources.len(),
+            resource_summary.created,
+            resource_summary.updated,
+            resource_summary.unchanged
         ),
     );
-    if render.is_verbose() && !fetched.is_empty() {
+    if render.is_verbose() && (!fetched.is_empty() || !fetched_resources.is_empty()) {
         render.section("actions");
     }
     for package in &fetched {
         print_fetched_package(&render, package);
+    }
+    for resource in &fetched_resources {
+        print_fetched_resource(&render, resource);
     }
     render.ok("fetch completed");
 

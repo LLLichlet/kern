@@ -4,7 +4,7 @@ use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
 use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
-use kernc_utils::{FastHashMap, Span, SymbolId};
+use kernc_utils::{FastHashMap, FastHashSet, Span, SymbolId};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn substitute_known_const_generic(
@@ -216,49 +216,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             (
                 TypeKind::TraitObject(generic_def, generic_args, generic_assoc),
-                TypeKind::TraitObject(concrete_def, concrete_args, concrete_assoc),
+                TypeKind::TraitObject(_, _, _),
             ) => {
-                let concrete_view = if generic_def == concrete_def {
-                    Some(self.ctx.type_registry.intern(TypeKind::TraitObject(
-                        concrete_def,
-                        concrete_args.clone(),
-                        concrete_assoc.clone(),
-                    )))
-                } else {
-                    crate::query::trait_object_view_from_hierarchy(
-                        self.ctx,
-                        concrete_ty,
-                        generic_def,
-                        &generic_args,
-                    )
-                };
-
-                let Some(concrete_view) = concrete_view else {
-                    return false;
-                };
-                let TypeKind::TraitObject(_, concrete_args, concrete_assoc) =
-                    self.ctx.type_registry.get(concrete_view).clone()
-                else {
-                    return false;
-                };
-
-                generic_args.len() == concrete_args.len()
-                    && generic_args.into_iter().zip(concrete_args).all(|(generic, concrete)| {
-                        self.infer_generic_arg_direct(generic, concrete, type_map, const_map)
-                    })
-                    && generic_assoc.into_iter().all(|(assoc_def_id, generic_ty)| {
-                        concrete_assoc
-                            .iter()
-                            .find(|(candidate_def_id, _)| *candidate_def_id == assoc_def_id)
-                            .is_some_and(|(_, concrete_ty)| {
-                                self.infer_generic_args_from_types(
-                                    generic_ty,
-                                    *concrete_ty,
-                                    type_map,
-                                    const_map,
-                                )
-                            })
-                    })
+                self.infer_generic_args_from_trait_object_candidates(
+                    generic_def,
+                    &generic_args,
+                    &generic_assoc,
+                    concrete_ty,
+                    type_map,
+                    const_map,
+                )
             }
             (
                 TypeKind::Projection {
@@ -353,6 +320,125 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     )
             }
             _ => generic_ty == concrete_ty,
+        }
+    }
+
+    fn infer_generic_args_from_trait_object_candidates(
+        &mut self,
+        generic_def: DefId,
+        generic_args: &[GenericArg],
+        generic_assoc: &[(DefId, TypeId)],
+        concrete_ty: TypeId,
+        type_map: &mut FastHashMap<SymbolId, TypeId>,
+        const_map: &mut FastHashMap<SymbolId, ConstGeneric>,
+    ) -> bool {
+        let mut candidates = Vec::new();
+        let mut visited = FastHashSet::default();
+        self.collect_trait_object_hierarchy_candidates(concrete_ty, generic_def, &mut visited, &mut candidates);
+
+        for concrete_view in candidates {
+            let TypeKind::TraitObject(_, concrete_args, concrete_assoc) =
+                self.ctx.type_registry.get(concrete_view).clone()
+            else {
+                continue;
+            };
+            if generic_args.len() != concrete_args.len() {
+                continue;
+            }
+
+            let mut local_type_map = type_map.clone();
+            let mut local_const_map = const_map.clone();
+            let args_match = generic_args
+                .iter()
+                .copied()
+                .zip(concrete_args.iter().copied())
+                .all(|(generic, concrete)| {
+                    self.infer_generic_arg_direct(
+                        generic,
+                        concrete,
+                        &mut local_type_map,
+                        &mut local_const_map,
+                    )
+                });
+            if !args_match {
+                continue;
+            }
+
+            let assoc_match = generic_assoc.iter().all(|(assoc_def_id, generic_assoc_ty)| {
+                concrete_assoc
+                    .iter()
+                    .find(|(candidate_def_id, _)| *candidate_def_id == *assoc_def_id)
+                    .is_some_and(|(_, concrete_assoc_ty)| {
+                        self.infer_generic_args_from_types(
+                            *generic_assoc_ty,
+                            *concrete_assoc_ty,
+                            &mut local_type_map,
+                            &mut local_const_map,
+                        )
+                    })
+            });
+            if !assoc_match {
+                continue;
+            }
+
+            *type_map = local_type_map;
+            *const_map = local_const_map;
+            return true;
+        }
+
+        false
+    }
+
+    fn collect_trait_object_hierarchy_candidates(
+        &mut self,
+        trait_ty: TypeId,
+        target_trait_def_id: DefId,
+        visited: &mut FastHashSet<TypeId>,
+        out: &mut Vec<TypeId>,
+    ) {
+        let trait_ty = self.resolve_tv(trait_ty);
+        let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
+            self.ctx.type_registry.get(trait_ty).clone()
+        else {
+            return;
+        };
+        if !visited.insert(trait_ty) {
+            return;
+        }
+
+        if trait_def_id == target_trait_def_id {
+            out.push(trait_ty);
+        }
+
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned() else {
+            return;
+        };
+        let trait_arg_map = trait_def
+            .generics
+            .iter()
+            .zip(trait_args.iter())
+            .map(|(param, arg)| (param.name, *arg))
+            .collect::<FastHashMap<_, _>>();
+        let assoc_binding_map = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
+
+        for super_ty in trait_def.resolved_supertraits {
+            let substituted = if trait_arg_map.is_empty() {
+                super_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+                subst.substitute(super_ty)
+            };
+            let substituted = crate::checker::substitute_associated_types(
+                &mut self.ctx.type_registry,
+                substituted,
+                &assoc_binding_map,
+            );
+            let enriched = crate::query::augment_trait_object_assoc_bindings_from_map(
+                self.ctx,
+                substituted,
+                &assoc_binding_map,
+            );
+            self.collect_trait_object_hierarchy_candidates(enriched, target_trait_def_id, visited, out);
         }
     }
 

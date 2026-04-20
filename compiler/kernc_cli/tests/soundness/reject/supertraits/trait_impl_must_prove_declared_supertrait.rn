@@ -1,0 +1,20 @@
+// source: implementing a derived trait without proving its declared supertrait must be rejected before lowering
+// stderr: impl of trait `Derived` is missing a required supertrait proof
+// stderr: required bound: `*X: Base`
+
+type Base = trait {
+    foo: fn() i32,
+};
+
+type Derived: Base = trait {};
+
+type X = struct {};
+
+impl *X: Derived {}
+
+fn main() i32 {
+    let x = X.{};
+    let d = *Derived.{ x.& };
+    let b = *Base.{ d };
+    return b.foo();
+}

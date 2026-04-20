@@ -1,0 +1,24 @@
+// source: global trait proof matching must accept same-named const parameters on both the obligation and impl head
+// exit: 0
+
+type Base[N: usize] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl[N: usize] *X: Base[N] {
+    fn value() i32 {
+        return N as i32;
+    }
+}
+
+fn use_it[N: usize](x: *X) i32 {
+    let view = *Base[N].{ x };
+    return view.value();
+}
+
+fn main() i32 {
+    let x = X.{};
+    return use_it[4](x.&) - 4;
+}

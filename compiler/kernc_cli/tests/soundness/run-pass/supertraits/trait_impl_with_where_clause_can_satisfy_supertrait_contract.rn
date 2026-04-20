@@ -1,0 +1,35 @@
+// exit: 0
+
+type Marker = trait {};
+
+type Base = trait {
+    value: fn() i32,
+};
+
+type Derived: Base = trait {};
+
+type Ready = struct {};
+
+impl Ready: Marker {}
+
+type Boxed[T] = struct {
+    inner: T,
+};
+
+impl[T] *Boxed[T]: Base
+    where T: Marker,
+{
+    fn value() i32 {
+        return 7;
+    }
+}
+
+impl[T] *Boxed[T]: Derived
+    where T: Marker,
+{}
+
+fn main() i32 {
+    let boxed = Boxed[Ready].{ inner: Ready.{}, };
+    let derived = *Derived.{ boxed.& };
+    return derived.value() - 7;
+}

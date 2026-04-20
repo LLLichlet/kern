@@ -1,0 +1,18 @@
+// source: callback coercion must accept same-named const parameters when both sides describe the same generic shape
+// exit: 0
+
+fn takes[N: usize](cb: *Fn([N]i32) i32, arr: [N]i32) i32 {
+    return cb(arr);
+}
+
+fn last[N: usize](arr: [N]i32) i32 {
+    return arr.[N - 1];
+}
+
+fn pass[N: usize](arr: [N]i32) i32 {
+    return takes[N](last[N], arr);
+}
+
+fn main() i32 {
+    return pass([4]i32.{ 1, 2, 3, 4 }) - 4;
+}

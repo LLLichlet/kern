@@ -234,6 +234,97 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_ambiguous_inherited_trait_methods_from_same_parent_trait_with_different_args() {
+    let output = compile_source(
+        r#"
+type Base[T] = trait { get: fn() T, };
+type Left: Base[i32] = trait {};
+type Right: Base[bool] = trait {};
+type Both: Left + Right = trait {};
+
+impl *i32 : Base[i32] { fn get() i32 { return self.*; } }
+impl *i32 : Base[bool] { fn get() bool { return true; } }
+impl *i32 : Left {}
+impl *i32 : Right {}
+impl *i32 : Both {}
+
+fn main() i32 {
+    let v = i32.{3};
+    let both = *Both.{ v.& };
+    return both.get();
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("ambiguous inherited trait method `get`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Base[i32]") && stderr.contains("Base[bool]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_ambiguous_inherited_trait_methods_from_same_parent_trait_in_generic_bound_lookup() {
+    let output = compile_source(
+        r#"
+type Base[T] = trait { get: fn() T, };
+type Left: Base[i32] = trait {};
+type Right: Base[bool] = trait {};
+type Both: Left + Right = trait {};
+
+impl *i32 : Base[i32] { fn get() i32 { return self.*; } }
+impl *i32 : Base[bool] { fn get() bool { return true; } }
+impl *i32 : Left {}
+impl *i32 : Right {}
+impl *i32 : Both {}
+
+fn use_it[T](x: *T) i32
+    where *T: Both,
+{
+    return x.get();
+}
+
+fn main() i32 {
+    let v = i32.{3};
+    return use_it(v.&);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("ambiguous inherited trait method `get`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Base[i32]") && stderr.contains("Base[bool]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn compiles_std_cmp_ord_bound_for_builtin_scalars() {
     let output = build_and_run(
         "kernc_trait_ord_value_bound",

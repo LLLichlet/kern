@@ -1,0 +1,46 @@
+// source: a bare supertrait bound on a generic type does not pin inherited associated types via downstream impl selection
+// stderr: required bound: `T: Base[4, Out = i64]`
+
+type Base[N: usize] = trait {
+    type Out;
+    value: fn() i32,
+};
+
+type Derived[N: usize]: Base[N] = trait {};
+
+type X = struct {};
+
+impl[N: usize] *X: Derived[N] {}
+
+impl[N: usize] *X: Base[N] {
+    type Out = i32;
+
+    fn value() i32 {
+        return 1;
+    }
+}
+
+impl *X: Base[4] {
+    type Out = i64;
+
+    fn value() i32 {
+        return 9;
+    }
+}
+
+fn need_base[T](value: T) i32
+    where T: Base[4, Out = i64],
+{
+    return value.value();
+}
+
+fn need_derived[T](value: T) i32
+    where T: Derived[4],
+{
+    return need_base(value);
+}
+
+fn main() i32 {
+    let x = X.{};
+    return need_derived(x.&) - 9;
+}

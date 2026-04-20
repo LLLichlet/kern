@@ -1,0 +1,34 @@
+// source: inherited method lookup must distinguish the same parent trait instantiated with different generic arguments
+// stderr: ambiguous inherited trait method `get`
+// stderr: Base[i32]
+// stderr: Base[bool]
+
+type Base[T] = trait {
+    get: fn() T,
+};
+
+type Left: Base[i32] = trait {};
+type Right: Base[bool] = trait {};
+type Both: Left + Right = trait {};
+
+impl *i32 : Base[i32] {
+    fn get() i32 {
+        return self.*;
+    }
+}
+
+impl *i32 : Base[bool] {
+    fn get() bool {
+        return true;
+    }
+}
+
+impl *i32 : Left {}
+impl *i32 : Right {}
+impl *i32 : Both {}
+
+fn main() i32 {
+    let value = i32.{3};
+    let both = *Both.{ value.& };
+    return both.get();
+}

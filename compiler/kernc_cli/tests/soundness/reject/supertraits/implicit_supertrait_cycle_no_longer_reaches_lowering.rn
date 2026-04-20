@@ -1,0 +1,23 @@
+// source: a where-clause impl cannot satisfy a trait's declared supertrait through a proof cycle
+// stderr: impl of trait `A` is missing a required supertrait proof
+// stderr: required bound: `*X: B`
+
+type B = trait {};
+
+type A: B = trait {};
+
+type X = struct {};
+
+impl *X: B
+    where *X: A,
+{}
+
+impl *X: A {}
+
+fn main() i32 {
+    let x = X.{};
+    let a = *A.{ x.& };
+    let b = *B.{ a };
+    let _ = b;
+    return 0;
+}

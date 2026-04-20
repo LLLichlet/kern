@@ -1,0 +1,32 @@
+// source: callback coercions must not synthesize a thunk that upcasts a trait-object return value
+// stderr: expected `*Fn(*X) *Base[4]`
+
+type Base[N: usize] = trait {
+    tag: fn() i32,
+};
+
+type Derived[N: usize]: Base[N] = trait {};
+
+type X = struct {};
+
+impl *X: Derived[4] {}
+
+impl *X: Base[4] {
+    fn tag() i32 {
+        return 7;
+    }
+}
+
+fn make(ptr: *X) *Derived[4] {
+    return *Derived[4].{ ptr };
+}
+
+fn take(cb: *Fn(*X) *Base[4]) i32 {
+    let x = X.{};
+    let base = cb(x.&);
+    return base.tag();
+}
+
+fn main() i32 {
+    return take(make) - 7;
+}

@@ -9,11 +9,11 @@ use ..stdout;
 /// keep formatting small, predictable, and allocation-free.
 pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
     let fmt_len = #fmt;
-    let mut arg_idx = 0;
-    let mut last_pos = 0;
-    for (let mut i = 0; i < fmt_len; ) {
+    let mut arg_idx = usize.{0};
+    let mut last_pos = usize.{0};
+    for (let mut i = usize.{0}; i < fmt_len; ) {
         if (fmt.[i] == b'{') {
-            if (i + 1 < fmt_len) {
+            if (i + usize.{1} < fmt_len) {
                 // Handles the escaped left brace `{{`.
                 if (fmt.[i + 1] == b'{') {
                     if (i > last_pos) {
@@ -33,11 +33,11 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     }
                     if (arg_idx < #args) {
                         args.[arg_idx].fmt(writer);
-                        arg_idx += 1;
+                        arg_idx += usize.{1};
                     } else {
                         let _ = writer.write("<missing>");
                     }
-                    i += 2;
+                    i += usize.{2};
                     last_pos = i;
                     continue; 
                 }
@@ -45,21 +45,21 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
         } 
         // Handles the escaped right brace `}}`.
         else if (fmt.[i] == b'}') {
-            if (i + 1 < fmt_len) {
+            if (i + usize.{1} < fmt_len) {
                 if (fmt.[i + 1] == b'}') {
                     if (i > last_pos) {
                         let text_slice = fmt.[last_pos .. i];
                         let _ = writer.write(text_slice);
                     }
                     let _ = writer.write("}");
-                    i += 2;
+                    i += usize.{2};
                     last_pos = i;
                     continue;
                 }
             }
         }
         
-        i += 1;
+        i += usize.{1};
     }
 
     // Writes the remaining tail of the format string.

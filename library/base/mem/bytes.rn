@@ -11,7 +11,7 @@ pub/ fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
             d.* = s.*;
         }
     } else {
-        for (let mut i = 0; i < len; i += 1) {
+        for (let mut i = usize.{0}; i < len; i += 1) {
             let d = dest + i;
             let s = src + i;
             d.* = s.*;

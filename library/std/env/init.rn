@@ -25,7 +25,7 @@ fn split_var(entry: []u8) ?Var {
         return .None;
     }
 
-    let mut start = 0;
+    let mut start = usize.{0};
     if (entry.[0] == b'=' and #entry > 1) {
         start = 1;
     }
@@ -104,10 +104,10 @@ fn has_windows(alloc: *mut Allocator, name: []u8) bool {
 
 #[if(os == "linux" or os == "darwin")]
 fn visit_posix(visitor: *Fn(Var) bool) usize {
-    let .{ Some: envp_start } = os.environment_entries() else return 0;
+    let .{ Some: envp_start } = os.environment_entries() else return usize.{0};
     let mut envp = envp_start;
 
-    let mut total = 0;
+    let mut total = usize.{0};
     for (;;) {
         let entry_ptr = envp.*;
         if ((entry_ptr as usize) == 0) {
@@ -116,7 +116,7 @@ fn visit_posix(visitor: *Fn(Var) bool) usize {
 
         let entry = entry_ptr.[0 .. abi.cstr.len(entry_ptr)];
         let .{ Some: var } = split_var(entry) else {
-            envp = envp + 1;
+            envp = envp + usize.{1};
             continue;
         };
 
@@ -125,7 +125,7 @@ fn visit_posix(visitor: *Fn(Var) bool) usize {
             return total;
         }
 
-        envp = envp + 1;
+        envp = envp + usize.{1};
     }
 }
 
@@ -133,14 +133,14 @@ fn visit_posix(visitor: *Fn(Var) bool) usize {
 fn visit_windows(visitor: *Fn(Var) bool) usize {
     let block = os.get_environment_strings();
     if ((block as usize) == 0) {
-        return 0;
+        return usize.{0};
     }
     defer {
         os.free_environment_strings(block);
     };
 
     let mut cursor = block;
-    let mut total = 0;
+    let mut total = usize.{0};
     for (;;) {
         let len = abi.cstr.len(cursor);
         if (len == 0) {

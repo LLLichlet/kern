@@ -105,11 +105,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn check_integer(&mut self, _expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
-        // Default integer fallback is `usize`.
+        // Default integer fallback is `i32`.
         let mut res_ty = self
             .ctx
             .type_registry
-            .intern(TypeKind::Primitive(PrimitiveType::USize));
+            .intern(TypeKind::Primitive(PrimitiveType::I32));
 
         if let Some(exp) = expected_ty {
             let norm = self.resolve_tv(exp);

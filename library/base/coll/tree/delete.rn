@@ -35,7 +35,7 @@ impl[K, V] *mut Tree[K, V]
 
     /// Returns the first slot whose key is greater than or equal to `key`.
     fn delete_search_slot(node: *mut Node[K, V], key: K) usize {
-        let mut index = 0;
+        let mut index = usize.{0};
         for (; index < node.len; index += 1) {
             if (key_at[K, V](node, index).cmp(key) >= 0) {
                 break;
@@ -106,14 +106,14 @@ impl[K, V] *mut Tree[K, V]
         set_key[K, V](parent, index, key_at[K, V](sibling, 0));
         set_value[K, V](parent, index, value_at[K, V](sibling, 0));
 
-        let mut i = 1;
+        let mut i = usize.{1};
         for (; i < sibling.len; i += 1) {
             set_key[K, V](sibling, i - 1, key_at[K, V](sibling, i));
             set_value[K, V](sibling, i - 1, value_at[K, V](sibling, i));
         }
 
         if (!sibling.is_leaf) {
-            let mut c = 1;
+            let mut c = usize.{1};
             for (; c <= sibling.len; c += 1) {
                 set_child[K, V](sibling, c - 1, child_at[K, V](sibling, c));
             }
@@ -134,14 +134,14 @@ impl[K, V] *mut Tree[K, V]
         set_key[K, V](left, left.len, key_at[K, V](parent, index));
         set_value[K, V](left, left.len, value_at[K, V](parent, index));
 
-        let mut i = 0;
+        let mut i = usize.{0};
         for (; i < right.len; i += 1) {
             set_key[K, V](left, left.len + 1 + i, key_at[K, V](right, i));
             set_value[K, V](left, left.len + 1 + i, value_at[K, V](right, i));
         }
 
         if (!left.is_leaf) {
-            let mut c = 0;
+            let mut c = usize.{0};
             for (; c <= right.len; c += 1) {
                 set_child[K, V](left, left.len + 1 + c, child_at[K, V](right, c));
             }

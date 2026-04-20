@@ -5,7 +5,7 @@ const USIZE_BYTES = @sizeOf[usize]();
 
 #[inline]
 fn eq_byte_range(lhs: *u8, rhs: *u8, len: usize) bool {
-    for (let mut i = 0; i < len; i += 1) {
+    for (let mut i = usize.{0}; i < len; i += 1) {
         if ((lhs + i).* != (rhs + i).*) {
             return false;
         }
@@ -15,7 +15,7 @@ fn eq_byte_range(lhs: *u8, rhs: *u8, len: usize) bool {
 
 #[inline]
 fn eq_usize_range(lhs: *usize, rhs: *usize, len: usize) bool {
-    for (let mut i = 0; i < len; i += 1) {
+    for (let mut i = usize.{0}; i < len; i += 1) {
         if ((lhs + i).* != (rhs + i).*) {
             return false;
         }
@@ -42,7 +42,7 @@ pub/ fn bytes_eq(lhs: []u8, rhs: []u8) bool {
     if (len == 1) {
         return true;
     }
-    if ((lhs_ptr + len - 1).* != (rhs_ptr + len - 1).*) {
+    if ((lhs_ptr + (len - usize.{1})).* != (rhs_ptr + (len - usize.{1})).*) {
         return false;
     }
     if (len == 2) {
@@ -50,7 +50,7 @@ pub/ fn bytes_eq(lhs: []u8, rhs: []u8) bool {
     }
 
     if (len < USIZE_BYTES) {
-        return eq_byte_range(lhs_ptr + 1, rhs_ptr + 1, len - 2);
+        return eq_byte_range(lhs_ptr + usize.{1}, rhs_ptr + usize.{1}, len - usize.{2});
     }
 
     let mask = USIZE_BYTES - 1;
@@ -59,7 +59,7 @@ pub/ fn bytes_eq(lhs: []u8, rhs: []u8) bool {
     }
 
     let lhs_align = (lhs_ptr as usize) & mask;
-    let prefix = if (lhs_align == 0) 0 else USIZE_BYTES - lhs_align;
+    let prefix = if (lhs_align == 0) usize.{0} else USIZE_BYTES - lhs_align;
     if (prefix != 0 and !eq_byte_range(lhs_ptr, rhs_ptr, prefix)) {
         return false;
     }
@@ -84,7 +84,7 @@ impl []u8 : Eq[[]u8] {
 impl []u8 {
     /// Returns the first index of `byte`.
     pub fn find_byte(byte: u8) ?usize {
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             if (self.[i] == byte) {
                 return .{ Some: i };
             }
@@ -110,7 +110,7 @@ impl []u8 {
 
     /// Trims ASCII whitespace from the start of the slice.
     pub fn trim_ascii_start() []u8 {
-        for (let mut start = 0; start < #self; start += 1) {
+        for (let mut start = usize.{0}; start < #self; start += 1) {
             let b = self.[start];
             if (
                 b != b' ' and

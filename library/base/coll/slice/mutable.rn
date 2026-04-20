@@ -27,7 +27,7 @@ impl[T] []mut T {
             return false;
         }
 
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             let tmp = self.[i];
             self.[i] = other.[i];
             other.[i] = tmp;
@@ -37,14 +37,14 @@ impl[T] []mut T {
 
     /// Overwrites every element with `value`.
     pub fn fill(value: T) void {
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             self.[i] = value;
         }
     }
 
     /// Visits every element mutably.
     pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             visitor(self.[i]..&);
         }
     }
@@ -70,7 +70,7 @@ impl[T] []mut T {
 
     /// Reverses the slice in place.
     pub fn reverse() void {
-        let mut left = 0;
+        let mut left = usize.{0};
         let mut right = #self;
         for (; left < right; ) {
             right -= 1;

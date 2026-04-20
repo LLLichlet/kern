@@ -241,7 +241,7 @@ impl *mut File {
     pub fn read(buf: []mut u8) usize!Error {
         let len = #buf;
         if (len == 0) {
-            return .{ Ok: 0 };
+            return .{ Ok: usize.{0} };
         }
 
         return os.read_file(self.handle, buf.[0]..&, len)
@@ -252,7 +252,7 @@ impl *mut File {
     pub fn write(buf: []u8) usize!Error {
         let len = #buf;
         if (len == 0) {
-            return .{ Ok: 0 };
+            return .{ Ok: usize.{0} };
         }
 
         return os.write_file(self.handle, buf.[0].&, len)
@@ -261,7 +261,7 @@ impl *mut File {
 
     /// Repeatedly writes until the full buffer has been flushed.
     pub fn write_all(buf: []u8) usize!Error {
-        let mut total = 0;
+        let mut total = usize.{0};
         for (; total < #buf; ) {
             let written = self.write(buf.[total .. #buf]).!;
             if (written == 0) {
@@ -275,7 +275,7 @@ impl *mut File {
     /// Copies all remaining bytes from this file into another file.
     pub fn copy_to(other: *mut File) usize!Error {
         let chunk = [1024]mut u8.{undef};
-        let mut total = 0;
+        let mut total = usize.{0};
 
         for (;;) {
             let read = self.read(chunk..[0 .. 1024]).!;

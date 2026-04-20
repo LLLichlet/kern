@@ -22,8 +22,8 @@ pub type RawMode = struct {
 };
 
 fn normalized_size(size: Size) Size {
-    let rows = if (size.rows == 0) 24 else size.rows;
-    let cols = if (size.cols == 0) 80 else size.cols;
+    let rows = if (size.rows == 0) usize.{24} else size.rows;
+    let cols = if (size.cols == 0) usize.{80} else size.cols;
     return .{ rows: rows, cols: cols };
 }
 

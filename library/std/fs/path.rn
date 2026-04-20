@@ -30,7 +30,7 @@ pub/ fn path_separator_byte() u8 {
 fn preferred_separator_byte(path: []u8) u8 {
     #[if(os == "windows")]
     {
-        for (let mut i = 0; i < #path; i += 1) {
+        for (let mut i = usize.{0}; i < #path; i += 1) {
             if (path.[i] == b'\\') {
                 return b'\\';
             }
@@ -52,7 +52,7 @@ fn preferred_separator_byte(path: []u8) u8 {
 pub/ fn root_prefix_len(path: []u8) usize {
     let len = #path;
     if (len == 0) {
-        return 0;
+        return usize.{0};
     }
 
     #[if(os == "windows")]
@@ -89,7 +89,7 @@ pub/ fn root_prefix_len(path: []u8) usize {
     if (is_path_separator(path.[0])) {
         return 1;
     }
-    return 0;
+    return usize.{0};
 }
 
 /// Removes trailing separators while preserving the root prefix.
@@ -321,7 +321,7 @@ pub/ fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
         return .{ Ok: out };
     }
 
-    for (let mut seg_index = 0; seg_index < segments.len; seg_index += 1) {
+    for (let mut seg_index = usize.{0}; seg_index < segments.len; seg_index += 1) {
         let .{ Some: segment } = segments.get(seg_index) else continue;
         if (!append_path_segment(out..&, alloc, prefix_len, sep, segment)) {
             out..&.deinit(alloc);

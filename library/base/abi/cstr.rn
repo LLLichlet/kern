@@ -11,7 +11,7 @@ use base.mem.alloc.Allocator;
 /// Safety:
 /// `str` must point to a valid zero-terminated byte sequence.
 pub fn len(str: *u8) usize {
-    let mut len = 0;
+    let mut len = usize.{0};
     for (;;) {
         let current_ptr = str + len; 
         if (current_ptr.* == 0) {

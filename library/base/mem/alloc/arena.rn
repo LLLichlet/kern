@@ -55,7 +55,7 @@ fn arena_grow_hint(size: usize) usize {
 impl *mut Arena : Allocator {
     #[inline]
     fn chunk_can_fit(chunk: *mut Chunk, layout: Layout) bool {
-        let payload = if (layout.size == 0) 1 else layout.size;
+        let payload = if (layout.size == 0) usize.{1} else layout.size;
         let start = chunk as usize;
         let used_start = start + chunk.used;
         let alloc_start = if (layout.align <= 1) {
@@ -71,7 +71,7 @@ impl *mut Arena : Allocator {
 
     #[inline]
     fn alloc_from_chunk(chunk: *mut Chunk, layout: Layout) ?*mut u8 {
-        let payload = if (layout.size == 0) 1 else layout.size;
+        let payload = if (layout.size == 0) usize.{1} else layout.size;
         let start = chunk as usize;
         let used_start = start + chunk.used;
         let alloc_start = if (layout.align <= 1) {
@@ -105,9 +105,9 @@ impl *mut Arena : Allocator {
     }
 
     fn grow(layout: Layout) bool {
-        let payload = if (layout.size == 0) 1 else layout.size;
-        let align = if (layout.align == 0) 1 else layout.align;
-        let min_size = ARENA_CHUNK_HEADER_SIZE + payload + align - 1;
+        let payload = if (layout.size == 0) usize.{1} else layout.size;
+        let align = if (layout.align == 0) usize.{1} else layout.align;
+        let min_size = ARENA_CHUNK_HEADER_SIZE + payload + align - usize.{1};
         let base_size = arena_default_chunk_size(self.next_chunk_size);
         let raw_size = arena_max_usize(base_size, min_size);
         let raw_layout = Layout.{ size: raw_size, align: ARENA_CHUNK_ALIGN };

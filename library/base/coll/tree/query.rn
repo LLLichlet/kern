@@ -22,7 +22,7 @@ impl[K, V] *Tree[K, V]
     fn for_each_node(node: ?*mut Node[K, V], visitor: *Fn(K, V) void) void {
         let .{ Some: node } = node else return;
 
-        let mut i = 0;
+        let mut i = usize.{0};
         for (; i < node.len; i += 1) {
             if (!node.is_leaf) {
                 self.for_each_node(some_node[K, V](child_at[K, V](node, i)), visitor);
@@ -39,7 +39,7 @@ impl[K, V] *Tree[K, V]
         let .{ Some: node } = node else return init;
 
         let mut accum = init;
-        let mut i = 0;
+        let mut i = usize.{0};
         for (; i < node.len; i += 1) {
             if (!node.is_leaf) {
                 accum = self.fold_node(some_node[K, V](child_at[K, V](node, i)), accum, step);
@@ -128,7 +128,7 @@ impl[K, V] *Tree[K, V]
         let mut node = root;
 
         for (;;) {
-            let mut index = 0;
+            let mut index = usize.{0};
             for (; index < node.len; index += 1) {
                 let cmp = self.compare(key_at[K, V](node, index), key);
                 if (cmp == 0) {

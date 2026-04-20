@@ -31,7 +31,7 @@ impl[T] []T {
 
     /// Returns the first index accepted by `pred`.
     pub fn position(pred: *Fn(T) bool) ?usize {
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             if (pred(self.[i])) {
                 return .{ Some: i };
             }
@@ -57,7 +57,7 @@ impl[T] []T {
 
     /// Returns `true` when every element satisfies `pred`.
     pub fn all(pred: *Fn(T) bool) bool {
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             if (!pred(self.[i])) {
                 return false;
             }
@@ -67,8 +67,8 @@ impl[T] []T {
 
     /// Counts how many elements satisfy `pred`.
     pub fn count(pred: *Fn(T) bool) usize {
-        let mut total = 0;
-        for (let mut i = 0; i < #self; i += 1) {
+        let mut total = usize.{0};
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             if (pred(self.[i])) {
                 total += 1;
             }
@@ -78,7 +78,7 @@ impl[T] []T {
 
     /// Visits each element in order.
     pub fn for_each(visitor: *Fn(T) void) void {
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             visitor(self.[i]);
         }
     }
@@ -86,7 +86,7 @@ impl[T] []T {
     /// Folds the slice from left to right.
     pub fn fold[U](init: U, step: *Fn(U, T) U) U {
         let mut accum = init;
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             accum = step(accum, self.[i]);
         }
         return accum;
@@ -94,7 +94,7 @@ impl[T] []T {
 
     /// Returns the first mapped value produced by `call_back`.
     pub fn find_map[U](call_back: *Fn(T) ?U) ?U {
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             match (call_back(self.[i])) {
                 .{ Some: value } => return .{ Some: value },
                 .None => {}
@@ -105,7 +105,7 @@ impl[T] []T {
 
     /// Returns the partition point for a slice already partitioned by `pred`.
     pub fn partition_point(pred: *Fn(T) bool) usize {
-        let mut left = 0;
+        let mut left = usize.{0};
         let mut right = #self;
 
         for (; left < right; ) {
@@ -128,7 +128,7 @@ impl[T] []T
     #[inline]
     pub fn eq(other: []T) bool {
         if (#self != #other) return false;
-        for (let mut i = 0; i < #self; i += 1) {
+        for (let mut i = usize.{0}; i < #self; i += 1) {
             if (self.[i] != other.[i]) {
                 return false;
             }
@@ -140,7 +140,7 @@ impl[T] []T
     #[inline]
     pub fn starts_with(prefix: []T) bool {
         if (#prefix > #self) return false;
-        for (let mut i = 0; i < #prefix; i += 1) {
+        for (let mut i = usize.{0}; i < #prefix; i += 1) {
             if (self.[i] != prefix.[i]) {
                 return false;
             }
@@ -153,7 +153,7 @@ impl[T] []T
     pub fn ends_with(suffix: []T) bool {
         if (#suffix > #self) return false;
         let start = #self - #suffix;
-        for (let mut i = 0; i < #suffix; i += 1) {
+        for (let mut i = usize.{0}; i < #suffix; i += 1) {
             if (self.[start + i] != suffix.[i]) {
                 return false;
             }
@@ -166,7 +166,7 @@ impl[T] []T
     pub fn find(needle: []T) ?usize {
         let needle_len = #needle;
         if (needle_len == 0) {
-            return .{ Some: 0 };
+            return .{ Some: usize.{0} };
         }
         if (needle_len > #self) {
             return .None;
@@ -174,13 +174,13 @@ impl[T] []T
 
         let last_start = #self - needle_len;
         let first = needle.[0];
-        for (let mut i = 0; i <= last_start; i += 1) {
+        for (let mut i = usize.{0}; i <= last_start; i += 1) {
             if (self.[i] != first) {
                 continue;
             }
 
             let mut matched = true;
-            for (let mut j = 1; j < needle_len; j += 1) {
+            for (let mut j = usize.{1}; j < needle_len; j += 1) {
                 if (self.[i + j] != needle.[j]) {
                     matched = false;
                     break;
@@ -223,7 +223,7 @@ impl[T] []T
     /// Performs lexicographic comparison against `other`.
     pub fn lex_cmp(other: []T) Ordering {
         let shared = if (#self < #other) #self else #other;
-        for (let mut i = 0; i < shared; i += 1) {
+        for (let mut i = usize.{0}; i < shared; i += 1) {
             let ord = self.[i].cmp(other.[i]);
             if (ord != EQUAL) {
                 return ord;
@@ -237,7 +237,7 @@ impl[T] []T
 
     /// Performs binary search on a sorted slice.
     pub fn binary_search(target: T) ?usize {
-        let mut left = 0;
+        let mut left = usize.{0};
         let mut right = #self;
 
         for (; left < right; ) {

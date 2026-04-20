@@ -17,11 +17,11 @@ fn write_printable_slice[T](items: []T, writer: *mut Writer) void
     let _ = writer.write("[");
 
     let len = #items;
-    for (let mut i = 0; i < len; i += 1) {
+    for (let mut i = usize.{0}; i < len; i += 1) {
         let item = items.[i];
         item.&.fmt(writer);
 
-        if (i + 1 < len) {
+        if (i + usize.{1} < len) {
             let _ = writer.write(", ");
         }
     }
@@ -170,11 +170,11 @@ impl[T] *List[T] : Printable
         let _ = writer.write(", items: [");
 
         let items = self.as_slice();
-        for (let mut i = 0; i < self.len; i += 1) {
+        for (let mut i = usize.{0}; i < self.len; i += 1) {
             let item = items.[i];
             item.&.fmt(writer);
 
-            if (i < self.len - 1) {
+            if (i + usize.{1} < self.len) {
                 let _ = writer.write(", ");
             }
         }

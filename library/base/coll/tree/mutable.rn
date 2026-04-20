@@ -41,7 +41,7 @@ impl[K, V] *mut Tree[K, V]
         node.is_leaf = is_leaf;
         node.len = 0;
 
-        let mut i = 0;
+        let mut i = usize.{0};
         for (; i < MAX_CHILDREN; i += 1) {
             set_child[K, V](node, i, dangling_child[K, V]());
         }
@@ -57,7 +57,7 @@ impl[K, V] *mut Tree[K, V]
 
     /// Returns the first slot whose key is greater than or equal to `key`.
     fn search_slot(node: *mut Node[K, V], key: K) usize {
-        let mut index = 0;
+        let mut index = usize.{0};
         for (; index < node.len; index += 1) {
             if (self.compare(key_at[K, V](node, index), key) >= 0) {
                 break;
@@ -74,7 +74,7 @@ impl[K, V] *mut Tree[K, V]
         right.len = MIN_DEGREE - 1;
 
         // The upper half moves into the newly allocated right sibling.
-        let mut j = 0;
+        let mut j = usize.{0};
         for (; j < MIN_DEGREE - 1; j += 1) {
             set_key[K, V](right, j, key_at[K, V](child, j + MIN_DEGREE));
             set_value[K, V](right, j, child.values.[j + MIN_DEGREE]);
@@ -82,7 +82,7 @@ impl[K, V] *mut Tree[K, V]
 
         if (!child.is_leaf) {
             // Internal node splits carry the trailing child range with them.
-            let mut c = 0;
+            let mut c = usize.{0};
             for (; c < MIN_DEGREE; c += 1) {
                 set_child[K, V](right, c, child_at[K, V](child, c + MIN_DEGREE));
             }
@@ -157,7 +157,7 @@ impl[K, V] *mut Tree[K, V]
         let .{ Some: node } = node else return;
 
         if (!node.is_leaf) {
-            let mut i = 0;
+            let mut i = usize.{0};
             for (; i <= node.len; i += 1) {
                 self.deinit_node(alloc, some_node[K, V](child_at[K, V](node, i)));
             }
@@ -170,7 +170,7 @@ impl[K, V] *mut Tree[K, V]
     fn for_each_mut_node(node: ?*mut Node[K, V], visitor: *Fn(K, *mut V) void) void {
         let .{ Some: node } = node else return;
 
-        let mut i = 0;
+        let mut i = usize.{0};
         for (; i < node.len; i += 1) {
             if (!node.is_leaf) {
                 self.for_each_mut_node(some_node[K, V](child_at[K, V](node, i)), visitor);
@@ -237,7 +237,7 @@ impl[K, V] *mut Tree[K, V]
         let mut node = root;
 
         for (;;) {
-            let mut index = 0;
+            let mut index = usize.{0};
             for (; index < node.len; index += 1) {
                 let cmp = self.compare(key_at[K, V](node, index), key);
                 if (cmp == 0) {

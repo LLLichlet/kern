@@ -73,7 +73,7 @@ impl[T] *mut List[T] {
             return false;
         }
 
-        let mut new_cap = if (self.cap == 0) 8 else self.cap;
+        let mut new_cap = if (self.cap == 0) usize.{8} else self.cap;
         for (; new_cap < required_cap; ) {
             if (new_cap > max_alloc_items / 2) {
                 new_cap = required_cap;
@@ -153,7 +153,7 @@ impl[T] *mut List[T] {
             return false;
         }
 
-        let mut new_cap = if (self.cap == 0) 8 else self.cap;
+        let mut new_cap = if (self.cap == 0) usize.{8} else self.cap;
         for (; new_cap < required_cap; ) {
             if (new_cap > max_alloc_items / 2) {
                 new_cap = required_cap;
@@ -291,7 +291,7 @@ impl[T] *mut List[T] {
         let moved = self.len - index;
         if (moved > 0) {
             let bytes = moved * self.elem_size();
-            let _ = memmove((self.ptr + index + 1) as *mut u8, (self.ptr + index) as *u8, bytes);
+            let _ = memmove((self.ptr + (index + usize.{1})) as *mut u8, (self.ptr + index) as *u8, bytes);
         }
 
         (self.ptr + index).* = item;
@@ -367,7 +367,7 @@ impl[T] *mut List[T] {
             let moved = self.len - index - 1;
             if (moved > 0) {
                 let bytes = moved * self.elem_size();
-                let _ = memmove((self.ptr + index) as *mut u8, (self.ptr + index + 1) as *u8, bytes);
+                let _ = memmove((self.ptr + index) as *mut u8, (self.ptr + (index + usize.{1})) as *u8, bytes);
             }
         }
 
@@ -419,7 +419,7 @@ impl[T] *mut List[T] {
         let removed_val = (self.ptr + index).*;
 
         if (!self.is_zst() and index != self.len - 1) {
-            let last_val = (self.ptr + self.len - 1).*;
+            let last_val = (self.ptr + (self.len - usize.{1})).*;
             (self.ptr + index).* = last_val;
         }
 
@@ -608,7 +608,7 @@ impl[T] *mut List[T] {
         }
 
         let start = self.len;
-        for (let mut i = 0; i < count; i += 1) {
+        for (let mut i = usize.{0}; i < count; i += 1) {
             (self.ptr + start + i).* = item;
         }
         self.len = start + count;
@@ -690,8 +690,8 @@ impl[T] *mut List[T] {
         }
 
         if (self.is_zst()) {
-            let mut kept = 0;
-            for (let mut i = 0; i < self.len; i += 1) {
+            let mut kept = usize.{0};
+            for (let mut i = usize.{0}; i < self.len; i += 1) {
                 if (pred(self.zst_ptr().*)) {
                     kept += 1;
                 }
@@ -700,8 +700,8 @@ impl[T] *mut List[T] {
             return;
         }
 
-        let mut write = 0;
-        for (let mut read = 0; read < self.len; read += 1) {
+        let mut write = usize.{0};
+        for (let mut read = usize.{0}; read < self.len; read += 1) {
             let item = (self.ptr + read).*;
             if (!pred(item)) {
                 continue;
@@ -722,8 +722,8 @@ impl[T] *mut List[T] {
         }
 
         if (self.is_zst()) {
-            let mut kept = 0;
-            for (let mut i = 0; i < self.len; i += 1) {
+            let mut kept = usize.{0};
+            for (let mut i = usize.{0}; i < self.len; i += 1) {
                 if (pred(self.zst_ptr())) {
                     kept += 1;
                 }
@@ -732,8 +732,8 @@ impl[T] *mut List[T] {
             return;
         }
 
-        let mut write = 0;
-        for (let mut read = 0; read < self.len; read += 1) {
+        let mut write = usize.{0};
+        for (let mut read = usize.{0}; read < self.len; read += 1) {
             let item_ptr = self.ptr + read;
             if (!pred(item_ptr)) {
                 continue;
@@ -784,6 +784,6 @@ impl[T] *List[T] {
     #[inline]
     pub fn last() ?T {
         if (self.len == 0) return .None;
-        return .{ Some: (self.ptr + self.len - 1).* };
+        return .{ Some: (self.ptr + (self.len - usize.{1})).* };
     }
 }

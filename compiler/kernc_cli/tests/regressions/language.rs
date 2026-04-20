@@ -445,7 +445,7 @@ fn main() i32 {
     let null_cast = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = 0 as *mut i32;
+    let ptr = usize.{0} as *mut i32;
     return if ((ptr as usize) == 0) 0 else 1;
 }
 "#,
@@ -462,7 +462,7 @@ fn main() i32 {
     let direct_non_zero = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = 1 as *mut i32;
+    let ptr = usize.{1} as *mut i32;
     return if ((ptr as usize) == 1) 0 else 1;
 }
 "#,
@@ -542,7 +542,7 @@ fn accepts_optional_volatile_pointer_types() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = ?^mut i32.{ Some: 1 as ^mut i32 };
+    let ptr = ?^mut i32.{ Some: usize.{1} as ^mut i32 };
     return match (ptr) {
         .None => 1,
         .{ Some: raw } => if ((raw as usize) == 1) 0 else 2,
@@ -566,7 +566,7 @@ fn keeps_optional_pointer_values_as_plain_builtin_enums() {
         r#"
 fn main() i32 {
     let none = (?*mut i32).None;
-    let some = (?*mut i32).{ Some: 1 as *mut i32 };
+    let some = (?*mut i32).{ Some: usize.{1} as *mut i32 };
 
     let none_score = match (none) {
         .None => i32.{0},
@@ -596,8 +596,8 @@ fn rejects_unsupported_object_pointer_addition_forms_in_builtin_pointer_arithmet
     let output = compile_source(
         r#"
 fn main() i32 {
-    let lhs = 1 as *mut i32;
-    let rhs = 2 as *mut i32;
+    let lhs = usize.{1} as *mut i32;
+    let rhs = usize.{2} as *mut i32;
     let _ = lhs + rhs;
     return 0;
 }
@@ -622,7 +622,7 @@ fn keeps_object_pointer_offset_arithmetic_available_as_a_builtin_primitive() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = 100 as *mut i32;
+    let ptr = usize.{100} as *mut i32;
     let next = ptr + usize.{7};
     let prev = next - usize.{3};
     return (prev as usize) as i32;
@@ -644,7 +644,7 @@ fn keeps_zero_sized_object_pointer_offsets_stable_as_a_builtin_primitive() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = 77 as *mut void;
+    let ptr = usize.{77} as *mut void;
     let next = ptr + usize.{9};
     let prev = next - usize.{4};
     return if ((prev as usize) == 77) 0 else 1;
@@ -666,7 +666,7 @@ fn keeps_builtin_address_pointer_arithmetic_for_volatile_pointers() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = 9 as ^mut i32;
+    let ptr = usize.{9} as ^mut i32;
     let next = ptr + usize.{5};
     let prev = next - usize.{2};
     return (prev as usize) as i32;
@@ -688,7 +688,7 @@ fn permits_direct_volatile_to_object_pointer_casts() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let raw = 1 as ^mut i32;
+    let raw = usize.{1} as ^mut i32;
     let ptr = raw as *mut i32;
     return if ((ptr as usize) == 1) 0 else 1;
 }
@@ -1511,7 +1511,7 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("found `usize`"),
+        stderr.contains("found `i32`"),
         "unexpected stderr:\n{}",
         stderr
     );

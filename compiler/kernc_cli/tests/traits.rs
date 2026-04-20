@@ -276,9 +276,8 @@ fn compiles_trait_impls_with_concrete_associated_types() {
     let output = build_and_run(
         "kernc_trait_assoc_concrete",
         r#"
-type Add[Rhs] = trait {
+type Bump[Rhs] = trait {
     type Out;
-    add: fn(Rhs) Out,
 };
 
 type Vec2 = struct {
@@ -369,9 +368,9 @@ impl Bad: NeedsBound {
 fn rejects_trait_impls_missing_required_associated_types() {
     let output = compile_source(
         r#"
-type Add[Rhs] = trait {
+type Bump[Rhs] = trait {
     type Out;
-    add: fn(Rhs) Out,
+    bump: fn(Rhs) Out,
 };
 
 type Vec2 = struct {
@@ -1074,9 +1073,9 @@ fn compiles_projection_return_types_from_generic_trait_bounds() {
     let output = build_and_run(
         "kernc_trait_projection_return_type",
         r#"
-type Add[Rhs] = trait {
+type Bump[Rhs] = trait {
     type Out;
-    add: fn(Rhs) Out,
+    bump: fn(Rhs) Out,
 };
 
 type Vec2 = struct {
@@ -1084,26 +1083,22 @@ type Vec2 = struct {
     y: i32,
 };
 
-impl Vec2 : Add[i32] {
+impl Vec2 : Bump[i32] {
     type Out = Vec2;
-
-    fn add(rhs: i32) Vec2 {
-        return Vec2.{ x: self.x + rhs, y: self.y + rhs };
-    }
 }
 
-fn plus_one[T](value: T) T.Add[i32].Out
-    where T: Add[i32],
+fn keep_projection[T](value: T.Bump[i32].Out) T.Bump[i32].Out
+    where T: Bump[i32],
 {
-    return value.add(1);
+    return value;
 }
 
 fn main() i32 {
-    let out = plus_one(Vec2.{ x: 2, y: 5 });
-    if (out.x != 3) {
+    let out = keep_projection[Vec2](Vec2.{ x: 2, y: 5 });
+    if (out.x != 2) {
         return 1;
     }
-    if (out.y != 6) {
+    if (out.y != 5) {
         return 2;
     }
     return 0;

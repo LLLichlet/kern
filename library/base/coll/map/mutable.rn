@@ -126,7 +126,7 @@ impl[K, V] *mut Map[K, V]
     ) bool {
         let mask = capacity - 1;
         let mut index = (hash as usize) & mask;
-        let mut probes = 0;
+        let mut probes = usize.{0};
 
         for (; probes < capacity; probes += 1) {
             if (ctrl_at(ctrl, index) != FULL) {
@@ -148,7 +148,7 @@ impl[K, V] *mut Map[K, V]
         let new_capacity = if (requested_capacity < MIN_CAPACITY) MIN_CAPACITY else requested_capacity;
         let .{ Some: table } = self.alloc_table(alloc, new_capacity) else return false;
 
-        for (let mut i = 0; i < self.capacity; i += 1) {
+        for (let mut i = usize.{0}; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) continue;
 
             let entry = entry_ptr[K, V](self.entries, i);
@@ -199,7 +199,7 @@ impl[K, V] *mut Map[K, V]
         let mask = self.capacity - 1;
         let mut index = (hash as usize) & mask;
         let mut first_deleted = self.capacity;
-        let mut probes = 0;
+        let mut probes = usize.{0};
 
         for (; probes < self.capacity; probes += 1) {
             let state = ctrl_at(self.ctrl, index);
@@ -354,7 +354,7 @@ impl[K, V] *mut Map[K, V]
 
     /// Retains only the entries accepted by `pred`.
     pub fn retain_mut(pred: *Fn(K, *mut V) bool) void {
-        for (let mut i = 0; i < self.capacity; i += 1) {
+        for (let mut i = usize.{0}; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) {
                 continue;
             }
@@ -385,7 +385,7 @@ impl[K, V] *mut Map[K, V]
 
     /// Removes and returns the first value whose key-value pair satisfies `pred`.
     pub fn remove_where(pred: *Fn(K, V) bool) ?V {
-        for (let mut i = 0; i < self.capacity; i += 1) {
+        for (let mut i = usize.{0}; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) {
                 continue;
             }
@@ -404,7 +404,7 @@ impl[K, V] *mut Map[K, V]
 
     /// Retains only the entries accepted by `pred`.
     pub fn retain(pred: *Fn(K, V) bool) void {
-        for (let mut i = 0; i < self.capacity; i += 1) {
+        for (let mut i = usize.{0}; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) {
                 continue;
             }

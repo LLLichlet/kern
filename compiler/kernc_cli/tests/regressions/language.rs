@@ -1041,6 +1041,11 @@ fn main() i32 {
         stderr
     );
     assert!(
+        stderr.contains("const generic arguments do not stabilize across recursive calls"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
         !stderr.contains("stack overflow"),
         "unexpected stderr:\n{}",
         stderr
@@ -1082,6 +1087,11 @@ fn main() i32 {
     );
     assert!(
         stderr.contains("f[0] -> g[1] -> f[2]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("const generic arguments do not stabilize across recursive calls"),
         "unexpected stderr:\n{}",
         stderr
     );

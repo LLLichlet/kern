@@ -665,6 +665,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         )
                     })
                 });
+        let const_instability_hint = self.const_specialization_instability_hint(def_id, args);
 
         let mut diag = match limit {
             SpecializationLimit::ActiveDepth => self
@@ -707,10 +708,76 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             );
         }
 
+        if let Some(hint) = const_instability_hint {
+            diag = diag.with_hint(hint);
+        }
+
         diag.with_hint(
             "rewrite the recursion so it reuses existing specializations, or move the growing compile-time state into data instead of the call graph",
         )
         .emit();
+    }
+
+    fn const_specialization_instability_hint(
+        &self,
+        def_id: DefId,
+        args: &[GenericArg],
+    ) -> Option<String> {
+        let function_name = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(function) => self.ctx.resolve(function.name).to_string(),
+            _ => self.function_instantiation_display(def_id, args),
+        };
+        let current_display = self.function_instantiation_display(def_id, args);
+        self.active_function_instantiations
+            .iter()
+            .rev()
+            .find(|frame| {
+                frame.def_id == def_id
+                    && self.function_instantiation_has_stable_type_args_but_shifted_consts(
+                        &frame.args, args,
+                    )
+            })
+            .map(|frame| {
+                let previous_display =
+                    self.function_instantiation_display(frame.def_id, &frame.args);
+                format!(
+                    "const generic arguments do not stabilize across recursive calls; `{}` keeps forcing new specializations such as `{}` -> `{}`",
+                    function_name,
+                    previous_display,
+                    current_display,
+                )
+            })
+    }
+
+    fn function_instantiation_has_stable_type_args_but_shifted_consts(
+        &self,
+        previous_args: &[GenericArg],
+        next_args: &[GenericArg],
+    ) -> bool {
+        if previous_args.len() != next_args.len() {
+            return false;
+        }
+
+        let mut changed_const = false;
+        for (previous, next) in previous_args.iter().zip(next_args.iter()) {
+            match (*previous, *next) {
+                (GenericArg::Type(previous_ty), GenericArg::Type(next_ty)) => {
+                    if self.ctx.type_registry.normalize(previous_ty)
+                        != self.ctx.type_registry.normalize(next_ty)
+                    {
+                        return false;
+                    }
+                }
+                (GenericArg::Const(previous_const), GenericArg::Const(next_const)) => {
+                    if previous_const != next_const {
+                        changed_const = true;
+                    }
+                }
+                _ => return false,
+            }
+        }
+
+        changed_const
     }
 
     fn function_instantiation_display(&self, def_id: DefId, args: &[GenericArg]) -> String {

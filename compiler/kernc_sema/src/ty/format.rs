@@ -230,19 +230,14 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 let m = if *is_mut { "mut " } else { "" };
                 format!("[]{}{}", m, self.format(*elem))
             }
-            TypeKind::Array { is_mut, elem, len } => {
-                let m = if *is_mut { "mut " } else { "" };
+            TypeKind::Array { elem, len } => {
                 format!(
-                    "[{}]{}{}",
+                    "[{}]{}",
                     self.format_const_generic(*len),
-                    m,
                     self.format(*elem)
                 )
             }
-            TypeKind::ArrayInfer { is_mut, elem } => {
-                let m = if *is_mut { "mut " } else { "" };
-                format!("[_]{}{}", m, self.format(*elem))
-            }
+            TypeKind::ArrayInfer { elem } => format!("[_]{}", self.format(*elem)),
             TypeKind::TypeVar(vid) => format!("?T{}", vid),
 
             TypeKind::Def(def_id, generics) | TypeKind::Enum(def_id, generics) => {

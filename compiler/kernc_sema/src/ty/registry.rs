@@ -364,9 +364,7 @@ impl TypeRegistry {
         match self.get(self.normalize(id)) {
             TypeKind::Pointer { is_mut, .. }
             | TypeKind::VolatilePtr { is_mut, .. }
-            | TypeKind::Slice { is_mut, .. }
-            | TypeKind::Array { is_mut, .. }
-            | TypeKind::ArrayInfer { is_mut, .. } => *is_mut,
+            | TypeKind::Slice { is_mut, .. } => *is_mut,
             _ => false,
         }
     }

@@ -9,7 +9,7 @@ pub fn push_usize(out: *mut String, alloc: *mut Allocator, value: usize) bool {
         return out.push_char(alloc, b'0');
     }
 
-    let digits = [32]mut u8.{undef};
+    let digits = [32]u8.{undef};
     let mut len = 0;
     let mut current = value;
     for (; current > 0; ) {

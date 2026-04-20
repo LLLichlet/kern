@@ -1351,27 +1351,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let lhs_kind = self.ctx.type_registry.get(norm_lhs).clone();
         let base_allows_mut_slice = match lhs_kind {
             TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => is_mut,
-            TypeKind::Slice { is_mut, .. }
-            | TypeKind::Array { is_mut, .. }
-            | TypeKind::ArrayInfer { is_mut, .. } => is_mut,
+            TypeKind::Slice { is_mut, .. } => is_mut,
             _ => self.is_lvalue_mutable(lhs),
         };
 
         if is_mut && lhs_ty != TypeId::ERROR {
             match lhs_kind {
-                TypeKind::Slice { is_mut: false, .. }
-                | TypeKind::Array { is_mut: false, .. }
-                | TypeKind::ArrayInfer { is_mut: false, .. } => {
+                TypeKind::Slice { is_mut: false, .. } => {
                     self.ctx
                         .struct_error(
                             span,
-                            "cannot create a mutable slice of immutable array elements",
+                            "cannot create a mutable slice from an immutable slice view",
                         )
                         .with_hint(
-                            "`let mut` only makes the binding reassignable; it does not make array or slice elements mutable",
-                        )
-                        .with_hint(
-                            "declare the source as `[N]mut T` or `[]mut T` if element writes should be allowed",
+                            "`let mut` on the slice binding only makes the slice handle reassignable; it does not change `[]T` into `[]mut T`",
                         )
                         .emit();
                 }
@@ -1382,7 +1375,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             "cannot create a mutable slice from an immutable location",
                         )
                         .with_hint(
-                            "ensure the source is a mutable pointer (`*mut T` / `^mut T`) or already stores mutable elements",
+                            "ensure the source is a mutable binding, a mutable field path, or a mutable pointer (`*mut T` / `^mut T`)",
                         )
                         .emit();
                 }

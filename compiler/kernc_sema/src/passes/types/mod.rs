@@ -170,7 +170,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     elem: base,
                 })
             }
-            ast::TypeKind::Array { is_mut, elem, len } => {
+            ast::TypeKind::Array { elem, len } => {
                 let base = self.resolve_type(elem, env_scope);
                 let resolved_len =
                     self.resolve_const_generic_expr(len, TypeId::USIZE, env_scope, "array length");
@@ -197,17 +197,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     return TypeId::ERROR;
                 }
                 self.ctx.type_registry.intern(TypeKind::Array {
-                    is_mut: *is_mut,
                     elem: base,
                     len: resolved_len,
                 })
             }
-            ast::TypeKind::ArrayInfer { is_mut, elem } => {
+            ast::TypeKind::ArrayInfer { elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::ArrayInfer {
-                    is_mut: *is_mut,
-                    elem: base,
-                })
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::ArrayInfer { elem: base })
             }
             ast::TypeKind::Function {
                 params,

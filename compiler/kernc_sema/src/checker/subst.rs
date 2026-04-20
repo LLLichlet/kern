@@ -157,21 +157,18 @@ where
                     elem: new_elem,
                 })
             }
-            TypeKind::Array { is_mut, elem, len } => {
+            TypeKind::Array { elem, len } => {
                 let new_elem = self.substitute(elem);
                 let new_len = self.substitute_const_generic(len);
                 self.registry.intern(TypeKind::Array {
-                    is_mut,
                     elem: new_elem,
                     len: new_len,
                 })
             }
-            TypeKind::ArrayInfer { is_mut, elem } => {
+            TypeKind::ArrayInfer { elem } => {
                 let new_elem = self.substitute(elem);
-                self.registry.intern(TypeKind::ArrayInfer {
-                    is_mut,
-                    elem: new_elem,
-                })
+                self.registry
+                    .intern(TypeKind::ArrayInfer { elem: new_elem })
             }
             TypeKind::Function {
                 params,
@@ -394,20 +391,16 @@ where
                 elem: new_elem,
             })
         }
-        TypeKind::Array { is_mut, elem, len } => {
+        TypeKind::Array { elem, len } => {
             let new_elem = substitute_associated_types(registry, elem, map);
             registry.intern(TypeKind::Array {
-                is_mut,
                 elem: new_elem,
                 len,
             })
         }
-        TypeKind::ArrayInfer { is_mut, elem } => {
+        TypeKind::ArrayInfer { elem } => {
             let new_elem = substitute_associated_types(registry, elem, map);
-            registry.intern(TypeKind::ArrayInfer {
-                is_mut,
-                elem: new_elem,
-            })
+            registry.intern(TypeKind::ArrayInfer { elem: new_elem })
         }
         TypeKind::Function {
             params,

@@ -228,13 +228,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let actual_norm = self.resolve_tv(actual_ty);
-        if let TypeKind::Array { elem, is_mut, .. } =
-            self.ctx.type_registry.get(actual_norm).clone()
-        {
-            let slice_ty = self
-                .ctx
-                .type_registry
-                .intern(TypeKind::Slice { elem, is_mut });
+        if let TypeKind::Array { elem, .. } = self.ctx.type_registry.get(actual_norm).clone() {
+            let slice_ty = self.ctx.type_registry.intern(TypeKind::Slice {
+                elem,
+                is_mut: false,
+            });
             if self.check_trait_impl(slice_ty, expected_elem) {
                 return true;
             }
@@ -476,7 +474,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             {
                 return true;
             }
-            match self.check_array_decay(*e_mut, *exp_elem, act_kind, expr.span) {
+            match self.check_array_decay(expr, *e_mut, *exp_elem, act_kind, expr.span) {
                 Ok(true) => return true,
                 Err(()) => return false,
                 Ok(false) => {}
@@ -488,26 +486,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     /// Decay an array into a slice when the element types are compatible.
     fn check_array_decay(
         &mut self,
+        expr: &Expr,
         exp_is_mut: bool,
         exp_elem: TypeId,
         act_kind: &TypeKind,
         span: Span,
     ) -> Result<bool, ()> {
-        if let TypeKind::Array {
-            is_mut: act_mut,
-            elem: act_elem,
-            ..
-        } = act_kind
-        {
+        if let TypeKind::Array { elem: act_elem, .. } = act_kind {
             let exp_base = self.resolve_tv(exp_elem);
             let act_base = self.resolve_tv(*act_elem);
 
             if exp_base == act_base {
-                if exp_is_mut && !*act_mut {
+                if exp_is_mut && !self.can_take_mut_address_of(expr) {
                     self.ctx
                         .struct_error(
                             span,
-                            "cannot implicitly convert an immutable array to a mutable slice `[]mut T`",
+                            "cannot implicitly convert an immutable array location to a mutable slice `[]mut T`",
+                        )
+                        .with_hint(
+                            "mutable slice decay requires a mutable array binding, mutable field path, or mutable pointer dereference",
                         )
                         .emit();
                     return Err(());

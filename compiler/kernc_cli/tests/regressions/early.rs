@@ -930,8 +930,8 @@ fn main() i32 {
 #[test]
 fn folds_const_fn_array_initializers_into_global_data() {
     let source = r#"
-const fn build() [4]mut u8 {
-    let mut table = [4]mut u8.{ 0; 4 };
+const fn build() [4]u8 {
+    let mut table = [4]u8.{ 0; 4 };
     table.[2] = 7;
     return table;
 }
@@ -948,7 +948,7 @@ fn main() i32 {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("@_K4root5TABLE = internal global [4 x i8] c\"\\00\\00\\07\\00\""),
+        stdout.contains("@_K4root5TABLE = internal constant [4 x i8] c\"\\00\\00\\07\\00\""),
         "expected folded global array initializer in LLVM IR, got:\n{}",
         stdout
     );
@@ -963,7 +963,7 @@ fn main() i32 {
 fn emits_llvm_memmove_for_memmove_intrinsic() {
     let source = r#"
 fn main() i32 {
-    let buf = [4]mut u8.{ 1, 2, 3, 4 };
+    let mut buf = [4]u8.{ 1, 2, 3, 4 };
     @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
     return 0;
 }
@@ -985,7 +985,7 @@ fn runs_memmove_intrinsic_with_overlapping_ranges() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let buf = [4]mut u8.{ 1, 2, 3, 4 };
+    let mut buf = [4]u8.{ 1, 2, 3, 4 };
     @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
 
     if (buf.[0] != 1) return 1;

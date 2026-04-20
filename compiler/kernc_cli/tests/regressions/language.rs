@@ -124,7 +124,7 @@ fn runs_direct_array_printing_through_slice_trait_coercion() {
 use std.io;
 
 fn main() i32 {
-    let array = [3]mut i32.{ 1, 2, 3 };
+    let array = [3]i32.{ 1, 2, 3 };
     io.println("{}", .{ array, });
     return 0;
 }
@@ -144,7 +144,7 @@ fn main() i32 {
 fn rejects_passing_explicit_slice_literal_to_fixed_array_parameter() {
     let output = compile_source(
         r#"
-fn take(items: [3]mut i32) i32 {
+fn take(items: [3]i32) i32 {
     return items.[1];
 }
 
@@ -156,14 +156,14 @@ fn main() i32 {
 
     assert!(
         !output.status.success(),
-        "kernc unexpectedly accepted an explicit slice literal as `[3]mut i32`:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly accepted an explicit slice literal as `[3]i32`:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("expected `[3]mut i32`"),
+        stderr.contains("expected `[3]i32`"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -203,7 +203,7 @@ fn bump(ptr: *mut i32) void {
 }
 
 fn main() i32 {
-    let array = [3]mut i32.{ 10, 20, 30 };
+    let mut array = [3]i32.{ 10, 20, 30 };
     let view = array..[0 .. 3];
     let i = i32.{0};
     bump(view.[i + 1]..&);
@@ -255,7 +255,7 @@ fn quick_sort(arr: []mut i32, low: i32, high: i32) void {
 }
 
 fn main() i32 {
-    let array = [8]mut i32.{ 1, 23, 3, 7, 8, 29, 28, 57 };
+    let mut array = [8]i32.{ 1, 23, 3, 7, 8, 29, 28, 57 };
     let view = array..[0 .. 8];
     quick_sort(view, 0, 7);
 
@@ -1421,6 +1421,130 @@ fn main() i32 {
 }
 
 #[test]
+fn normalizes_const_specific_assoc_projection_over_generic_impl() {
+    let output = compile_source(
+        r#"
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl[N: usize] X: HasOut[N] {
+    type Out = i32;
+}
+
+impl X: HasOut[4] {
+    type Out = i64;
+}
+
+fn take(value: X.HasOut[4].Out) i32 {
+    let _ = value;
+    return 0;
+}
+
+fn main() i32 {
+    return take(i64.{7});
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn dispatches_const_specific_trait_object_method_with_assoc_binding() {
+    let output = build_and_run_source(
+        r#"
+type Factory[N: usize] = trait {
+    type Out;
+    make: fn() Out,
+};
+
+type X = struct {};
+
+impl[N: usize] *X: Factory[N] {
+    type Out = i32;
+
+    fn make() Out {
+        return 1;
+    }
+}
+
+impl *X: Factory[4] {
+    type Out = i64;
+
+    fn make() Out {
+        return 9;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let factory = *Factory[4, Out = i64].{ x.& };
+    let value = factory.make();
+    if (value != i64.{9}) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_ambiguous_const_target_specialization_overlap() {
+    let output = compile_source(
+        r#"
+type HasOut = trait {
+    type Out;
+};
+
+type Pair[A: usize, B: usize] = struct {};
+
+impl[N: usize] Pair[0, N]: HasOut {
+    type Out = i32;
+}
+
+impl[N: usize] Pair[N, 0]: HasOut {
+    type Out = i64;
+}
+
+fn main() i32 {
+    let _ = Pair[0, 0].{};
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("overlapping trait impls are not allowed"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_non_contractive_const_trait_projection_cycle_without_ice() {
     let output = compile_source(
         r#"
@@ -2100,6 +2224,212 @@ fn main() i32 {
         stderr.contains("required bound: `T: Cap[1]`")
             || stderr.contains("required bound: `X: Cap[1]`"),
         "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_reverse_solving_const_env_bound_for_direct_trait_proof() {
+    let output = compile_source(
+        r#"
+type Cap[N: usize] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl X: Cap[1] {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+fn needs[T, N: usize](x: T) i32
+    where T: Cap[N],
+{
+    return x.value();
+}
+
+fn bad[T, N: usize](x: T) i32
+    where T: Cap[1],
+{
+    return needs[T, N](x);
+}
+
+fn main() i32 {
+    return bad[X, 2](X.{});
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("required bound: `T: Cap[N]`")
+            || stderr.contains("required bound: `X: Cap[2]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_reverse_solving_const_global_impl_for_direct_trait_proof() {
+    let output = compile_source(
+        r#"
+type Cap[N: usize] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl X: Cap[1] {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+fn needs[N: usize](x: X) i32
+    where X: Cap[N],
+{
+    return x.value();
+}
+
+fn bad[N: usize]() i32 {
+    return needs[N](X.{});
+}
+
+fn main() i32 {
+    return bad[2]();
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("required bound: `X: Cap[N]`")
+            || stderr.contains("required bound: `X: Cap[2]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_reverse_solving_const_global_impl_for_projection() {
+    let output = compile_source(
+        r#"
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: HasOut[1] {
+    type Out = i32;
+}
+
+fn need[N: usize](value: X.HasOut[N].Out) i32 {
+    return value;
+}
+
+fn main() i32 {
+    return need[2](7);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types")
+            || stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_reverse_solving_const_receiver_for_inherent_impl_method() {
+    let output = compile_source(
+        r#"
+type Box[N: usize] = struct {};
+
+impl Box[1] {
+    fn tag() i32 {
+        return 1;
+    }
+}
+
+fn bad[N: usize](value: Box[N]) i32 {
+    return value.tag();
+}
+
+fn main() i32 {
+    return bad[2](Box[2].{});
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no field or method named `tag` found on type `Box[N]`")
+            || stderr.contains("no field or method named `tag` found on type `Box[2]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
         stderr
     );
 }
@@ -2965,11 +3295,11 @@ fn compiles_assignment_through_struct_mut_array_fields_only() {
     let output = compile_source(
         r#"
 type Buffer = struct {
-    items: [4]mut i32,
+    items: [4]i32,
 };
 
 fn main() i32 {
-    let mut buf = Buffer.{ items: [4]mut i32.{ 0; 4 } };
+    let mut buf = Buffer.{ items: [4]i32.{ 0; 4 } };
     buf.items.[0] = 5;
 
     let ptr = buf..&;
@@ -2993,7 +3323,7 @@ fn runs_array_and_slice_mutability_semantics() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let arr = [5]mut u8.{ b'a', b'b', b'c', b'd', b'e' };
+    let mut arr = [5]u8.{ b'a', b'b', b'c', b'd', b'e' };
     arr.[1] = b'x';
     if (arr.[1] != b'x') {
         return 1;
@@ -3121,7 +3451,7 @@ fn hints_about_trailing_comma_for_type_qualified_single_element_array_literal() 
     let output = compile_source(
         r#"
 fn main() i32 {
-    let out = [1]mut u8.{ 7 };
+    let out = [1]u8.{ 7 };
     let _ = out;
     return 0;
 }

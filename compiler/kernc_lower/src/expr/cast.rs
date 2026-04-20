@@ -115,14 +115,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 TypeKind::TraitObject(..)
             )
             && let TypeKind::Array {
-                elem: array_elem,
-                is_mut,
-                ..
+                elem: array_elem, ..
             } = conc_kind
         {
             let slice_ty = self.ctx.type_registry.intern(TypeKind::Slice {
                 elem: array_elem,
-                is_mut,
+                is_mut: false,
             });
             let slice_expr = self.apply_implicit_cast(mast_kind, concrete_ty, slice_ty, span);
             return self.apply_implicit_cast(slice_expr.kind, slice_ty, exp_ty, span);

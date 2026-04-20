@@ -436,7 +436,7 @@ fn builds_and_runs_simd_shuffle_reduce_and_load_store() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let data = [8]mut f32.{ 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0 };
+    let mut data = [8]f32.{ 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0 };
     let first = @simdLoad[f32x4](data.[0]..&, 4);
     let second = @simdLoad[f32x4](data.[4]..&, 4);
     let mixed = @simdShuffle(first, second, [4]u32.{ 0, 5, 2, 7 });
@@ -464,7 +464,7 @@ fn builds_and_runs_simd_gather_and_scatter() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let data = [8]mut i32.{ 10, 20, 30, 40, 50, 60, 70, 80 };
+    let mut data = [8]i32.{ 10, 20, 30, 40, 50, 60, 70, 80 };
     let idx = [4]usize.{ 7, 0, 5, 0 };
     let lanes = @simdGather[i32x4](data.[0]..&, idx.[0].&);
     let bumped = lanes + i32x4.{ 1, 2, 3, 4 };

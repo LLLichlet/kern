@@ -85,10 +85,11 @@ In Kern, **mutability is a property of storage, not an intrinsic part of the bas
   * **Variable Bindings**: Controlled by the `mut` keyword in the binding pattern.
       * `let x = i32.{10};` (Immutable binding)
       * `let mut y = i32.{20};` (Mutable binding)
-  * **No Automatic Inheritance**: `let mut` does **not** automatically make the internals of every value mutable. It means the binding itself may be assigned a new value of the same type. Element or pointee mutability still comes from the type and access path.
-      * `let mut arr = [4]u8.{ 1, 2, 3, 4 };` allows `arr = [4]u8.{ 5, 6, 7, 8 };`, but `arr.[0] = 9;` is rejected because the array element type is not mutable.
-      * `let arr = [4]mut u8.{ 1, 2, 3, 4 };` does **not** allow rebinding `arr`, but `arr.[0] = 9;` is valid because the array's storage elements are mutable.
-      * This is the same style of split that Kern uses for pointers: `*mut T` grants write access through the pointer, while `let mut p` only controls whether the pointer variable itself may be rebound.
+  * **No Automatic Upgrade Across Handles**: `let mut` does **not** silently upgrade every derived handle into a writable one. Rebinding a value, mutating an aggregate in place, mutating through a pointer, and producing a mutable slice are distinct questions.
+      * `let mut arr = [4]u8.{ 1, 2, 3, 4 };` allows both `arr = [4]u8.{ 5, 6, 7, 8 };` and `arr.[0] = 9;` because the binding owns mutable storage for the whole array aggregate.
+      * `let arr = [4]u8.{ 1, 2, 3, 4 };` rejects `arr.[0] = 9;` because the access path reaches immutable storage.
+      * `let mut p = *u8.{ ... };` may rebind the pointer value itself, but `p.* = 9;` is still rejected. Write access through a pointer comes from `*mut T`, not from `let mut p`.
+      * `let mut view = []u8.{ ... };` may rebind the slice value itself, but it does not become `[]mut u8`. Mutable slice permissions remain part of the slice type because a slice is a view, not a physical aggregate.
   * **Top-Down Bidirectional Flow**: Kern uses contextual typing. Literals like `10` are "type-neutral" and absorb the **Expected Type** flowing down from declarations or function signatures.
 
 ### 2.3 Pointers, Optionals, and Volatility
@@ -147,10 +148,26 @@ Pointer arithmetic stays explicit:
 
   * **Arrays**: `[N]T` - Fixed-size value type.
   * **Slices**: `[]T` or `[]mut T` - A fat pointer containing a pointer and a `usize` length.
-  * **Explicit Slice Permissions**: Slicing follows the same permission split as address-of.
+  * **Arrays Are Physical Aggregates**: Arrays behave like inline structs, not like hidden reference handles.
+      * `[N]T` is the only fixed-size array family. Kern does **not** define `[N]T`.
+      * Array element writes are controlled by the mutability of the storage path that reaches the array.
+      * `let mut arr = [4]u8.{ 1, 2, 3, 4 }; arr.[0] = 9;` is valid.
+      * `let arr = [4]u8.{ 1, 2, 3, 4 }; arr.[0] = 9;` is rejected.
+      * `type Buffer = struct { data: [4]u8 }; let mut buf = Buffer.{ data: [4]u8.{ 0; 4 } }; buf.data.[0] = 1;` is valid because the access path reaches mutable aggregate storage.
+      * `fn fill(buf: *mut [4]u8) void { buf.*.[0] = 1; }` is valid because the mutable pointer reaches mutable array storage.
+      * `fn fill(buf: *[4]u8) void { buf.*.[0] = 1; }` is rejected because the pointer path itself is read-only.
+  * **Explicit Slice Permissions**: Slices remain views and therefore keep an explicit read/write split in the type.
       * `arr.[a .. b]` produces `[]T` (read-only slice view).
-      * `arr..[a .. b]` produces `[]mut T` (mutable slice view), and requires the base storage to have mutable element/write permission.
-      * The distinction is intentional: Kern does not silently upgrade a read-only view into a mutable one.
+      * `arr..[a .. b]` produces `[]mut T` (mutable slice view), and requires the base storage path to be mutable.
+      * The distinction is intentional: Kern does not silently upgrade a read-only view into a mutable one, even if the slice binding itself is declared with `let mut`.
+  * **Semantic Checklist**:
+      * `let mut arr = [N]T.{ ... };` makes the array storage mutable and permits `arr.[i] = ...`.
+      * `let arr = [N]T.{ ... };` keeps the array storage immutable and rejects `arr.[i] = ...`.
+      * `arr.[i]..&` yields `*mut T` only when the access path to `arr.[i]` is mutable; otherwise it yields `*T` or is rejected in a mutable context.
+      * `arr.[a .. b]` is always `[]T`.
+      * `arr..[a .. b]` is `[]mut T` only when the access path to `arr` is mutable.
+      * Field access composes normally: mutability flows through `obj.field.[i]` from the full storage path, not from a special array-element type qualifier.
+      * Passing `[N]T` across a boundary may decay to `[]T` freely, but decay to `[]mut T` still requires a mutable source location.
   * **String Literals**: `"Hello"` evaluates to `[]u8` (an immutable slice).
   * **Fat-Pointer State Extractor (`#`)**: The unary `#` operator is a universal primitive used to extract the implicit runtime metadata (or state) from a fat pointer or a container.
       * For Arrays and Slices, `#` evaluates to the length (`usize`).
@@ -314,7 +331,7 @@ let p3 = Point.{x: x, y: y};
 type Payload = union {
     as_int: i32,
     as_float: f32,
-    raw: [4]mut u8,
+    raw: [4]u8,
 };
 ```
 
@@ -1222,7 +1239,7 @@ if (@simdAny(mask)) {
     let last = mixed.[3];
 }
 
-let data = [8]mut f32.{ 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0 };
+let data = [8]f32.{ 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0 };
 let picks = [4]usize.{ 7, 0, 5, 2 };
 let left = @simdLoad[f32x4](data.[0]..&, 4);
 let right = @simdLoad[f32x4](data.[4]..&, 4);

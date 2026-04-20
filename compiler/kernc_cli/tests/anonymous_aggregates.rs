@@ -217,7 +217,7 @@ fn runs_union_field_reinterpretation_and_nested_lvalue_updates() {
 type FloatBits = union {
     f: f32,
     i: u32,
-    bytes: [4]mut u8,
+    bytes: [4]u8,
 };
 
 fn main() i32 {

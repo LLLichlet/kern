@@ -108,7 +108,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     elem: new_elem,
                 })
             }
-            TypeKind::Array { is_mut, elem, len } => {
+            TypeKind::Array { elem, len } => {
                 let new_elem = self.substitute_trait_assoc_contract_self(
                     elem,
                     trait_def_id,
@@ -116,22 +116,20 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     self_ty,
                 );
                 self.ctx.type_registry.intern(TypeKind::Array {
-                    is_mut,
                     elem: new_elem,
                     len,
                 })
             }
-            TypeKind::ArrayInfer { is_mut, elem } => {
+            TypeKind::ArrayInfer { elem } => {
                 let new_elem = self.substitute_trait_assoc_contract_self(
                     elem,
                     trait_def_id,
                     trait_args,
                     self_ty,
                 );
-                self.ctx.type_registry.intern(TypeKind::ArrayInfer {
-                    is_mut,
-                    elem: new_elem,
-                })
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::ArrayInfer { elem: new_elem })
             }
             TypeKind::Function {
                 params,

@@ -982,14 +982,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     elem: base,
                 })
             }
-            ast::TypeKind::ArrayInfer { is_mut, elem } => {
+            ast::TypeKind::ArrayInfer { elem } => {
                 let base = self.evaluate_dynamic_typeof(elem);
-                self.ctx.type_registry.intern(TypeKind::ArrayInfer {
-                    is_mut: *is_mut,
-                    elem: base,
-                })
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::ArrayInfer { elem: base })
             }
-            ast::TypeKind::Array { is_mut, elem, len } => {
+            ast::TypeKind::Array { elem, len } => {
                 let base = self.evaluate_dynamic_typeof(elem);
                 let references_const_param = {
                     let mut resolver = TypeResolver::new(self.ctx);
@@ -1039,7 +1038,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::ERROR;
                 }
                 self.ctx.type_registry.intern(TypeKind::Array {
-                    is_mut: *is_mut,
                     elem: base,
                     len: resolved_len,
                 })

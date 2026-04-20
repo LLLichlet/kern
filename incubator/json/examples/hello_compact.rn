@@ -9,7 +9,7 @@ fn main() i32 {
         return 1;
     };
 
-    let out = [128]mut u8.{undef};
+    let out = [128]u8.{undef};
     let .{ Ok: written } = render_compact(value, out..[0 .. 128]) else .{ Err: _ } => {
         io.println("render failed", .{});
         return 2;

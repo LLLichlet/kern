@@ -59,11 +59,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         is_mut
                     }
                     TypeKind::Slice { is_mut, .. } => is_mut,
-                    TypeKind::Array { is_mut, .. } | TypeKind::ArrayInfer { is_mut, .. } => {
-                        // Index writes inherit element mutability from the array/slice type itself.
-                        // `let mut` on the outer binding may rebind the whole value, but it must not
-                        // silently upgrade `[N]T` into element-wise mutable storage.
-                        is_mut
+                    TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } => {
+                        // Arrays are inline aggregates. Element writes follow the mutability of the
+                        // storage path that reaches the array value, not a separate element-level
+                        // mutability flag on the array type itself.
+                        self.is_lvalue_mutable(lhs)
                     }
                     _ => self.is_lvalue_mutable(lhs),
                 }
@@ -335,15 +335,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             let mut type_map = FastHashMap::default();
             let mut const_map = FastHashMap::default();
-            if !self.unify_with_const_map(impl_target_ty, target_ty, &mut type_map, &mut const_map)
-            {
+            if !self.match_available_type_against_requirement(
+                impl_target_ty,
+                target_ty,
+                &mut type_map,
+                &mut const_map,
+            ) {
                 continue;
             }
 
             let inst_trait_ty =
                 self.substitute_type_with_unification_maps(impl_trait_ty, &type_map, &const_map);
             let inst_trait_norm = self.resolve_tv(inst_trait_ty);
-            let TypeKind::TraitObject(bound_trait_def_id, _, assoc_bindings) =
+            let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) =
                 self.ctx.type_registry.get(inst_trait_norm).clone()
             else {
                 continue;
@@ -354,9 +358,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             let mut trait_type_map = FastHashMap::default();
             let mut trait_const_map = FastHashMap::default();
-            if !self.unify_with_const_map(
+            let inst_trait_head_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+                bound_trait_def_id,
+                bound_trait_args,
+                Vec::new(),
+            ));
+            if !self.match_available_type_against_requirement(
+                inst_trait_head_ty,
                 expected_trait_ty,
-                inst_trait_norm,
                 &mut trait_type_map,
                 &mut trait_const_map,
             ) {

@@ -5,7 +5,7 @@ fn builds_and_runs_simd_masked_memory_ops() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let data = [4]mut i32.{ 10, 20, 30, 40 };
+    let mut data = [4]i32.{ 10, 20, 30, 40 };
     let mask = boolx4.{ true, false, true, false };
     let fallback = i32x4.{ 1, 2, 3, 4 };
     let loaded = @simdMaskedLoad[i32x4](data.[0]..&, mask, fallback, 4);
@@ -164,7 +164,7 @@ fn remix(ptr: *mut f32) f32 {
 }
 
 fn main() i32 {
-    let data = [8]mut f32.{ 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0 };
+    let mut data = [8]f32.{ 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0 };
     return remix(data.[0]..&) as i32;
 }
 "#,
@@ -211,7 +211,7 @@ fn emits_ir_for_simd_masked_memory_ops() {
     let output = emit_llvm_ir(
         r#"
 fn main() i32 {
-    let data = [4]mut f32.{ 1.0, 2.0, 3.0, 4.0 };
+    let mut data = [4]f32.{ 1.0, 2.0, 3.0, 4.0 };
     let mask = boolx4.{ true, false, true, false };
     let idx = [4]usize.{ 3, 9, 0, 9 };
     let partial = @simdMaskedLoad[f32x4](data.[0]..&, mask, f32x4.{ 0.0, 0.0, 0.0, 0.0 }, 4);
@@ -258,7 +258,7 @@ fn emits_ir_for_simd_gather_and_scatter() {
     let output = emit_llvm_ir(
         r#"
 fn main() i32 {
-    let data = [8]mut f32.{ 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0 };
+    let mut data = [8]f32.{ 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0 };
     let idx = [4]usize.{ 7, 0, 5, 2 };
     let gathered = @simdGather[f32x4](data.[0]..&, idx.[0].&);
     @simdScatter(data.[0]..&, idx.[0].&, gathered);

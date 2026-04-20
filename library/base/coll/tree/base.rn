@@ -21,11 +21,11 @@ pub.. type Node[K, V] = struct {
     /// Sorted keys stored in this node.
     /// B-tree updates rewrite these slots in place, so the element storage must
     /// be declared mutable explicitly.
-    pub keys: [15]mut K,
+    pub keys: [15]K,
     /// Values parallel to `keys`.
-    pub values: [15]mut V,
+    pub values: [15]V,
     /// Child pointers between key ranges.
-    pub children: [16]mut *mut Node[K, V],
+    pub children: [16]*mut Node[K, V],
 };
 
 /// The location of a matched or neighboring key inside the tree.

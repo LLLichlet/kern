@@ -118,7 +118,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     elem: new_elem,
                 })
             }
-            TypeKind::Array { is_mut, elem, len } => {
+            TypeKind::Array { elem, len } => {
                 let new_elem = self.project_unbound_trait_assoc_types(
                     elem,
                     receiver_ty,
@@ -126,22 +126,20 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     trait_args,
                 );
                 self.ctx.type_registry.intern(TypeKind::Array {
-                    is_mut,
                     elem: new_elem,
                     len,
                 })
             }
-            TypeKind::ArrayInfer { is_mut, elem } => {
+            TypeKind::ArrayInfer { elem } => {
                 let new_elem = self.project_unbound_trait_assoc_types(
                     elem,
                     receiver_ty,
                     trait_def_id,
                     trait_args,
                 );
-                self.ctx.type_registry.intern(TypeKind::ArrayInfer {
-                    is_mut,
-                    elem: new_elem,
-                })
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::ArrayInfer { elem: new_elem })
             }
             TypeKind::Function {
                 params,

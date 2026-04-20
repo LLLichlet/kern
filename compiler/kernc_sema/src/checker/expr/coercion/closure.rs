@@ -392,30 +392,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ) => g_m == c_m && self.unify_with_const_map(g_e, c_e, type_map, const_map),
             (
                 TypeKind::Array {
-                    is_mut: g_m,
                     elem: g_e,
                     len: g_l,
                 },
                 TypeKind::Array {
-                    is_mut: c_m,
                     elem: c_e,
                     len: c_l,
                 },
             ) => {
-                g_m == c_m
-                    && self.unify_const_generic_with_map(g_l, c_l, const_map)
+                self.unify_const_generic_with_map(g_l, c_l, const_map)
                     && self.unify_with_const_map(g_e, c_e, type_map, const_map)
             }
-            (
-                TypeKind::ArrayInfer {
-                    is_mut: g_m,
-                    elem: g_e,
-                },
-                TypeKind::ArrayInfer {
-                    is_mut: c_m,
-                    elem: c_e,
-                },
-            ) => g_m == c_m && self.unify_with_const_map(g_e, c_e, type_map, const_map),
+            (TypeKind::ArrayInfer { elem: g_e }, TypeKind::ArrayInfer { elem: c_e }) => {
+                self.unify_with_const_map(g_e, c_e, type_map, const_map)
+            }
             (
                 TypeKind::Function {
                     params,

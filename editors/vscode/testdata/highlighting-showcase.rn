@@ -43,7 +43,7 @@ pub type Option[T] = enum {
 
 type SerialPort = struct {
     port: u16 = 0x3F8,
-    buffer: [16]mut u8 = [16]mut u8.{ undef },
+    buffer: [16]u8 = [16]u8.{ undef },
 };
 
 type Printable = trait {

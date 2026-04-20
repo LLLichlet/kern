@@ -961,13 +961,16 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             .as_ref()
             .and_then(|trait_ty| self.ctx.node_types.get(&trait_ty.id).copied())
             .unwrap_or(TypeId::ERROR);
+        let left_trait_head_ty = crate::query::erase_trait_assoc_bindings(self.ctx, left_trait_ty);
+        let right_trait_head_ty =
+            crate::query::erase_trait_assoc_bindings(self.ctx, right_trait_ty);
 
         if matches!(
             (
                 left_target_ty,
-                left_trait_ty,
+                left_trait_head_ty,
                 right_target_ty,
-                right_trait_ty
+                right_trait_head_ty
             ),
             (TypeId::ERROR, _, _, _)
                 | (_, TypeId::ERROR, _, _)
@@ -983,13 +986,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 &mut checker,
                 &left_impl,
                 left_target_ty,
-                left_trait_ty,
+                left_trait_head_ty,
             );
             let (right_fresh_target, right_fresh_trait) = Self::freshen_impl_head_types_for_overlap(
                 &mut checker,
                 &right_impl,
                 right_target_ty,
-                right_trait_ty,
+                right_trait_head_ty,
             );
             let mut type_map = FastHashMap::default();
             let mut const_map = FastHashMap::default();

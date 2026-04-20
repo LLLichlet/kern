@@ -468,7 +468,7 @@ fn main() i32 {
         return 2;
     }
 
-    let bytes = [4]mut i32.{0, 0, 0, 0};
+    let mut bytes = [4]i32.{0, 0, 0, 0};
     let writable = bytes..[0 .. 4];
     writable.fill(3);
     if (!bytes.[0 .. 4].eq([4]i32.{3, 3, 3, 3})) {

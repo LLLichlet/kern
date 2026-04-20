@@ -28,7 +28,7 @@ pub type Key = enum {
 };
 
 fn read_optional_byte(stdin: *mut fs.File) ?u8!fs.Error {
-    let buf = [1]mut u8.{undef};
+    let buf = [1]u8.{undef};
     let read = stdin.read(buf..[0 .. 1]).!;
     if (read == 0) {
         return .{ Ok: .None };

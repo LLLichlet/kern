@@ -31,7 +31,7 @@ fn sum3(values: []u8) i32 {
 }
 
 fn main() i32 {
-    let bytes = [5]mut u8.{ 1, 2, 3, 4, 5 };
+    let bytes = [5]u8.{ 1, 2, 3, 4, 5 };
     let view = bytes..[1 .. 4];
     view.[0] = 9;
 
@@ -107,7 +107,7 @@ That is why these spellings are distinct:
 
 - `let mut counter = ...` means the binding may be rebound
 - `*mut Counter` means the pointer grants write access
-- `[5]mut u8` means the array elements themselves are writable
+- `[5]u8` means the array elements themselves are writable
 - `[]mut u8` means the slice view grants writes through the view
 
 This is the same general rule the rest of Kern follows: keep storage and access

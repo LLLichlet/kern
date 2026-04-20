@@ -165,18 +165,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             (
                 TypeKind::Array {
-                    is_mut: generic_mut,
                     elem: generic_elem,
                     len: generic_len,
                 },
                 TypeKind::Array {
-                    is_mut: concrete_mut,
                     elem: concrete_elem,
                     len: concrete_len,
                 },
             ) => {
-                generic_mut == concrete_mut
-                    && self.infer_const_generic_direct(generic_len, concrete_len, const_map)
+                self.infer_const_generic_direct(generic_len, concrete_len, const_map)
                     && self.infer_generic_args_from_types(
                         generic_elem,
                         concrete_elem,
@@ -185,22 +182,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     )
             }
             (
+                TypeKind::ArrayInfer { elem: generic_elem },
                 TypeKind::ArrayInfer {
-                    is_mut: generic_mut,
-                    elem: generic_elem,
-                },
-                TypeKind::ArrayInfer {
-                    is_mut: concrete_mut,
                     elem: concrete_elem,
                 },
             ) => {
-                generic_mut == concrete_mut
-                    && self.infer_generic_args_from_types(
-                        generic_elem,
-                        concrete_elem,
-                        type_map,
-                        const_map,
-                    )
+                self.infer_generic_args_from_types(generic_elem, concrete_elem, type_map, const_map)
             }
             (
                 TypeKind::Def(generic_def, generic_args),

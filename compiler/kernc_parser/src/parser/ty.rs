@@ -191,13 +191,21 @@ impl<'a> Parser<'a> {
         // Form B: length-inferred arrays, `[_]T`.
         else if self.match_token(&[TokenType::Underscore]) {
             self.expect(TokenType::RBracket)?;
-            let is_mut = self.match_token(&[TokenType::Mut]);
+            if self.match_token(&[TokenType::Mut]) {
+                self.session
+                    .struct_error(
+                        self.stream.prev_span(),
+                        "array types no longer accept `mut` after the length",
+                    )
+                    .with_hint("write `[_]T` for an array value type and use `let mut`, `*mut`, or `..[` when you need a mutable storage path")
+                    .emit();
+                return Err(ParseError);
+            }
             let elem = self.parse_prefixed_type()?;
             Ok(TypeNode {
                 id: self.new_id(),
                 span: start_span.to(elem.span),
                 kind: TypeKind::ArrayInfer {
-                    is_mut,
                     elem: Box::new(elem),
                 },
             })
@@ -206,14 +214,22 @@ impl<'a> Parser<'a> {
         else {
             let len_expr = self.parse_expression(Precedence::Lowest)?;
             self.expect(TokenType::RBracket)?;
-            let is_mut = self.match_token(&[TokenType::Mut]);
+            if self.match_token(&[TokenType::Mut]) {
+                self.session
+                    .struct_error(
+                        self.stream.prev_span(),
+                        "array types no longer accept `mut` after the length",
+                    )
+                    .with_hint("write `[N]T` for an array value type and use `let mut`, `*mut`, or `..[` when you need a mutable storage path")
+                    .emit();
+                return Err(ParseError);
+            }
             let elem = self.parse_prefixed_type()?;
 
             Ok(TypeNode {
                 id: self.new_id(),
                 span: start_span.to(elem.span),
                 kind: TypeKind::Array {
-                    is_mut,
                     elem: Box::new(elem),
                     len: Box::new(len_expr),
                 },

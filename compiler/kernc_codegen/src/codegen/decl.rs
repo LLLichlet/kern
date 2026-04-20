@@ -529,8 +529,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn requires_mutable_memory(&self, ty: TypeId) -> bool {
         let norm_ty = self.type_registry.normalize(ty);
         match self.type_registry.get(norm_ty).clone() {
-            // Mutable arrays require writable storage.
-            TypeKind::Array { is_mut, .. } => is_mut,
+            // Arrays are value aggregates. Writable storage depends on the access path, not the
+            // array type itself, so global allocation requirements do not come from `[N]T`.
+            TypeKind::Array { .. } => false,
             // Mutable slices and pointers also require writable storage when materialized globally.
             TypeKind::Slice { is_mut, .. } => is_mut,
             TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => is_mut,

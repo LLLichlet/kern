@@ -50,7 +50,7 @@ const fn build_total() i32 {
     pair.left += 4;
     pair.right = pair.left + pair.right;
 
-    let mut items = [3]mut i32.{ 5, 6, 7 };
+    let mut items = [3]i32.{ 5, 6, 7 };
     items.[1] = pair.right;
     items.[2] += items.[0];
 
@@ -129,7 +129,7 @@ fn main() i32 {
 fn compiles_pointer_to_mut_array_element_assignment() {
     let output = compile_source(
         r#"
-fn write(buf: *[4]mut u8, index: usize, value: u8) void {
+fn write(buf: *mut [4]u8, index: usize, value: u8) void {
     buf.*.[index] = value;
 }
 
@@ -148,10 +148,10 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_element_assignment_through_mut_pointer_to_non_mut_array() {
+fn rejects_element_assignment_through_shared_pointer_to_array() {
     let output = compile_source(
         r#"
-fn write(buf: *mut [4]u8, index: usize, value: u8) void {
+fn write(buf: *[4]u8, index: usize, value: u8) void {
     buf.*.[index] = value;
 }
 
@@ -274,7 +274,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_assignment_through_non_mut_array_elements() {
+fn allows_assignment_through_mut_array_binding() {
     let output = compile_source(
         r#"
 fn main() i32 {
@@ -286,22 +286,15 @@ fn main() i32 {
     );
 
     assert!(
-        !output.status.success(),
-        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("cannot assign to an immutable variable or location"),
-        "unexpected stderr:\n{}",
-        stderr
     );
 }
 
 #[test]
-fn rejects_mutable_slice_from_let_mut_non_mut_array_elements() {
+fn allows_mutable_slice_from_mut_array_binding() {
     let output = compile_source(
         r#"
 fn main() i32 {
@@ -314,22 +307,15 @@ fn main() i32 {
     );
 
     assert!(
-        !output.status.success(),
-        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("cannot create a mutable slice of immutable array elements"),
-        "unexpected stderr:\n{}",
-        stderr
     );
 }
 
 #[test]
-fn rejects_assignment_through_non_mut_array_field_elements() {
+fn allows_assignment_through_mut_array_field_path() {
     let output = compile_source(
         r#"
 type Holder = struct {
@@ -345,22 +331,15 @@ fn main() i32 {
     );
 
     assert!(
-        !output.status.success(),
-        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("cannot assign to an immutable variable or location"),
-        "unexpected stderr:\n{}",
-        stderr
     );
 }
 
 #[test]
-fn rejects_mutable_slice_from_non_mut_array_field_elements() {
+fn allows_mutable_slice_from_mut_array_field_path() {
     let output = compile_source(
         r#"
 type Holder = struct {
@@ -377,17 +356,10 @@ fn main() i32 {
     );
 
     assert!(
-        !output.status.success(),
-        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("cannot create a mutable slice of immutable array elements"),
-        "unexpected stderr:\n{}",
-        stderr
     );
 }
 

@@ -271,7 +271,7 @@ fn rejects_non_power_of_two_simd_alignment() {
     let output = compile_source(
         r#"
 fn main() i32 {
-    let data = [4]mut f32.{ 1.0, 2.0, 3.0, 4.0 };
+    let mut data = [4]f32.{ 1.0, 2.0, 3.0, 4.0 };
     let _ = @simdLoad[f32x4](data.[0]..&, 3);
     return 0;
 }
@@ -298,7 +298,7 @@ fn rejects_masked_load_with_mismatched_mask_lanes() {
     let output = compile_source(
         r#"
 fn main() i32 {
-    let data = [4]mut f32.{ 1.0, 2.0, 3.0, 4.0 };
+    let mut data = [4]f32.{ 1.0, 2.0, 3.0, 4.0 };
     let _ = @simdMaskedLoad[f32x4](
         data.[0]..&,
         boolx2.{ true, false },
@@ -330,7 +330,7 @@ fn rejects_non_usize_gather_indices_pointer() {
     let output = compile_source(
         r#"
 fn main() i32 {
-    let data = [4]mut f32.{ 1.0, 2.0, 3.0, 4.0 };
+    let mut data = [4]f32.{ 1.0, 2.0, 3.0, 4.0 };
     let idx = [4]u32.{ 0, 1, 2, 3 };
     let _ = @simdGather[f32x4](data.[0]..&, idx.[0].&);
     return 0;

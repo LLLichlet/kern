@@ -34,14 +34,13 @@ pub enum TypeKind {
 
     /// Array type: `[N]T`.
     Array {
-        is_mut: bool,
         elem: Box<TypeNode>,
         /// Must evaluate successfully in a constant context.
         len: Box<Expr>,
     },
 
     /// Array with inferred length, `[_]T`.
-    ArrayInfer { is_mut: bool, elem: Box<TypeNode> },
+    ArrayInfer { elem: Box<TypeNode> },
 
     /// Slice type: `[]T`.
     Slice { is_mut: bool, elem: Box<TypeNode> },

@@ -26,7 +26,7 @@ while writing this guide:
 use std.io;
 
 fn main() i32 {
-    let data = [8]mut i32.{ 1, 2, 3, 4, 10, 20, 30, 40 };
+    let data = [8]i32.{ 1, 2, 3, 4, 10, 20, 30, 40 };
     let left = @simdLoad[i32x4](data.[0].&, 4);
     let right = @simdLoad[i32x4](data.[4].&, 4);
     let mixed = @simdShuffle(left, right, [4]u32.{ 0, 5, 2, 7 });
@@ -75,7 +75,7 @@ total=49 mask=10 first=1 last=25
 This declaration:
 
 ```kern
-let data = [8]mut i32.{ 1, 2, 3, 4, 10, 20, 30, 40 };
+let data = [8]i32.{ 1, 2, 3, 4, 10, 20, 30, 40 };
 ```
 
 is ordinary scalar storage.

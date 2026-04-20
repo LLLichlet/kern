@@ -192,16 +192,14 @@ pub enum TypeKind {
         elem: TypeId,
     },
 
-    /// Fixed-size array, `[N]T` or `[N]mut T`.
+    /// Fixed-size array, `[N]T`.
     Array {
-        is_mut: bool,
         elem: TypeId,
         len: ConstGeneric,
     },
 
     /// Array whose length is inferred later, `[_]T`.
     ArrayInfer {
-        is_mut: bool,
         elem: TypeId,
     },
 

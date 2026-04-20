@@ -543,7 +543,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             elem: TypeId::VOID,
         });
         let vtable_array_ty = self.ctx.type_registry.intern(TypeKind::Array {
-            is_mut: false,
             elem: void_ptr_ty,
             len: self.usize_const_generic(0),
         });
@@ -649,7 +648,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let vtable_len = vtable_entries.len() as u64;
         let vtable_array_ty = self.ctx.type_registry.intern(TypeKind::Array {
-            is_mut: false,
             elem: void_ptr_ty,
             len: self.usize_const_generic(vtable_len),
         });

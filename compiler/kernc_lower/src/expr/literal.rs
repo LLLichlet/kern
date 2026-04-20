@@ -165,7 +165,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let global_id = self.new_mono_id();
         let len = s.len() as u64;
         let array_ty = self.ctx.type_registry.intern(TypeKind::Array {
-            is_mut: false, // String constants are immutable.
             elem: TypeId::U8,
             len: self.usize_const_generic(len),
         });
@@ -785,8 +784,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return None;
         };
 
+        let _ = is_mut;
         Some(self.ctx.type_registry.intern(TypeKind::Array {
-            is_mut,
             elem,
             len: self.usize_const_generic(len as u64),
         }))

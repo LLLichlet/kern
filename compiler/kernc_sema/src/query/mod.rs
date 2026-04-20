@@ -436,14 +436,14 @@ pub fn impl_head_specializes(
     }
 
     let mut checker = ExprChecker::new(ctx, None);
-    let (specialized_target, specialized_trait, specialized_rigid_consts) = freshen_impl_head_types(
+    let (specialized_target, specialized_trait) = freshen_impl_head_types(
         &mut checker,
         &specialized_impl,
         specialized_target_ty,
         specialized_trait_ty,
         ImplHeadFreshness::Rigid,
     );
-    let (general_target, general_trait, _) = freshen_impl_head_types(
+    let (general_target, general_trait) = freshen_impl_head_types(
         &mut checker,
         &general_impl,
         general_target_ty,
@@ -453,26 +453,22 @@ pub fn impl_head_specializes(
 
     let mut type_map = FastHashMap::default();
     let mut const_map = FastHashMap::default();
-    let specializes = checker.unify_with_const_map(
+    checker.match_available_type_against_requirement(
         general_target,
         specialized_target,
         &mut type_map,
         &mut const_map,
     ) && match (general_trait, specialized_trait) {
-        (Some(general_trait), Some(specialized_trait)) => checker.unify_with_const_map(
-            general_trait,
-            specialized_trait,
-            &mut type_map,
-            &mut const_map,
-        ),
+        (Some(general_trait), Some(specialized_trait)) => checker
+            .match_available_type_against_requirement(
+                general_trait,
+                specialized_trait,
+                &mut type_map,
+                &mut const_map,
+            ),
         (None, None) => true,
         _ => false,
-    };
-
-    specializes
-        && specialized_rigid_consts
-            .iter()
-            .all(|name| !const_map.contains_key(name))
+    }
 }
 
 pub fn resolve_trait_impl_obligation(
@@ -568,14 +564,17 @@ fn resolve_trait_impl_obligation_inner(
     // verify only the bindings explicitly requested by the obligation.
     let impl_trait_head_ty = erase_trait_assoc_bindings(checker.ctx, impl_trait_ty);
     let target_trait_head_ty = erase_trait_assoc_bindings(checker.ctx, target_trait_norm);
-    if !checker.unify_with_const_map(impl_target_ty, receiver_norm, &mut type_map, &mut const_map)
-        || !checker.unify_with_const_map(
-            impl_trait_head_ty,
-            target_trait_head_ty,
-            &mut type_map,
-            &mut const_map,
-        )
-        || !impl_bounds_satisfied(&mut checker, &impl_def.where_clauses, &type_map, &const_map)
+    if !checker.match_available_type_against_requirement(
+        impl_target_ty,
+        receiver_norm,
+        &mut type_map,
+        &mut const_map,
+    ) || !checker.match_available_type_against_requirement(
+        impl_trait_head_ty,
+        target_trait_head_ty,
+        &mut type_map,
+        &mut const_map,
+    ) || !impl_bounds_satisfied(&mut checker, &impl_def.where_clauses, &type_map, &const_map)
     {
         return None;
     }
@@ -640,9 +639,9 @@ fn resolve_trait_impl_obligation_inner(
             let Some(&impl_assoc_ty) = impl_assoc_bindings.get(&assoc_def_id) else {
                 return None;
             };
-            if !checker.unify_with_const_map(
-                target_assoc_ty,
+            if !checker.match_available_type_against_requirement(
                 impl_assoc_ty,
+                target_assoc_ty,
                 &mut type_map,
                 &mut const_map,
             ) {
@@ -680,7 +679,7 @@ fn impl_head_signature(
     Some((impl_def, target_ty, trait_ty))
 }
 
-fn erase_trait_assoc_bindings(ctx: &mut SemaContext<'_>, ty: TypeId) -> TypeId {
+pub(crate) fn erase_trait_assoc_bindings(ctx: &mut SemaContext<'_>, ty: TypeId) -> TypeId {
     match ctx
         .type_registry
         .get(ctx.type_registry.normalize(ty))
@@ -700,9 +699,8 @@ fn freshen_impl_head_types(
     target_ty: TypeId,
     trait_ty: Option<TypeId>,
     freshness: ImplHeadFreshness,
-) -> (TypeId, Option<TypeId>, Vec<SymbolId>) {
+) -> (TypeId, Option<TypeId>) {
     let mut subst_map = FastHashMap::default();
-    let mut rigid_const_params = Vec::new();
 
     for (index, param) in impl_def.generics.iter().enumerate() {
         let fresh_name = checker.ctx.intern(&format!(
@@ -730,9 +728,6 @@ fn freshen_impl_head_types(
                     .get(&ty.id)
                     .copied()
                     .unwrap_or(TypeId::ERROR);
-                if matches!(freshness, ImplHeadFreshness::Rigid) {
-                    rigid_const_params.push(fresh_name);
-                }
                 crate::ty::GenericArg::Const(crate::ty::ConstGeneric::Param(fresh_name, const_ty))
             }
         };
@@ -743,7 +738,6 @@ fn freshen_impl_head_types(
     (
         subst.substitute(target_ty),
         trait_ty.map(|trait_ty| subst.substitute(trait_ty)),
-        rigid_const_params,
     )
 }
 

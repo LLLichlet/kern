@@ -568,7 +568,7 @@ impl<'a> SemaContext<'a> {
             let mut head_const_map = FastHashMap::default();
             let applicable = {
                 let mut checker = ExprChecker::new(self, None);
-                if !checker.unify_with_const_map(
+                if !checker.match_available_type_against_requirement(
                     impl_target_ty,
                     source_ty,
                     &mut head_type_map,
@@ -586,9 +586,9 @@ impl<'a> SemaContext<'a> {
                     let mut trait_type_map = FastHashMap::default();
                     let mut trait_const_map = FastHashMap::default();
                     let matches = instantiated_trait_ty == target_trait_ty
-                        || checker.unify_with_const_map(
-                            target_trait_ty,
+                        || checker.match_available_type_against_requirement(
                             instantiated_trait_ty,
+                            target_trait_ty,
                             &mut trait_type_map,
                             &mut trait_const_map,
                         );
@@ -1984,13 +1984,9 @@ impl<'a> SemaContext<'a> {
                     format!("S{}", inner)
                 }
             }
-            crate::ty::TypeKind::Array { is_mut, elem, len } => {
+            crate::ty::TypeKind::Array { elem, len } => {
                 let inner = self.mangle_type(elem);
-                if is_mut {
-                    format!("A{}mut{}", len, inner)
-                } else {
-                    format!("A{}{}", len, inner)
-                }
+                format!("A{}{}", len, inner)
             }
             crate::ty::TypeKind::Def(def_id, gen_args)
             | crate::ty::TypeKind::Enum(def_id, gen_args)

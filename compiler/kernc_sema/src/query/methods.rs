@@ -301,8 +301,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .copied()
                 .unwrap_or(TypeId::ERROR);
             let mut checker = ExprChecker::new(self.ctx, None);
-            let mut map = FastHashMap::default();
-            if !checker.unify(impl_target_ty, receiver_norm, &mut map) {
+            let mut type_map = FastHashMap::default();
+            let mut const_map = FastHashMap::default();
+            if !checker.match_available_type_against_requirement(
+                impl_target_ty,
+                receiver_norm,
+                &mut type_map,
+                &mut const_map,
+            ) {
                 continue;
             }
 
@@ -376,7 +382,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             } else {
                 let mut type_map = FastHashMap::default();
                 let mut const_map = FastHashMap::default();
-                if !checker.unify_with_const_map(
+                if !checker.match_available_type_against_requirement(
                     impl_target_ty,
                     receiver_norm,
                     &mut type_map,

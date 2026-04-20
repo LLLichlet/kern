@@ -68,6 +68,14 @@ fn add_llvm_include_dir(build: &mut cc::Build, llvm_includedir: &str) {
         return;
     }
 
+    // Avoid re-injecting the host compiler's default C include root. On distros
+    // where LLVM is installed under `/usr`, forcing `-isystem /usr/include`
+    // breaks GCC's `#include_next` chain for libstdc++ headers such as
+    // `<cstdlib>`, which then fails to find the real libc `stdlib.h`.
+    if llvm_includedir == "/usr/include" {
+        return;
+    }
+
     build.flag("-isystem");
     build.flag(llvm_includedir);
 }

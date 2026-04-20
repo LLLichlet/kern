@@ -136,11 +136,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> Option<(Vec<TypeId>, TypeId)> {
         match act_kind {
-            TypeKind::FnDef(def_id, args) => self.instantiate_fn_def_signature(
-                *def_id,
-                &crate::ty::erase_non_type_generic_args(args),
-                span,
-            ),
+            TypeKind::FnDef(def_id, args) => self.instantiate_fn_def_signature(*def_id, args, span),
             TypeKind::Function {
                 params,
                 ret,
@@ -156,7 +152,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn instantiate_fn_def_signature(
         &mut self,
         def_id: DefId,
-        args: &[TypeId],
+        args: &[GenericArg],
         span: Span,
     ) -> Option<(Vec<TypeId>, TypeId)> {
         let def = self.ctx.defs[def_id.0 as usize].clone();
@@ -204,9 +200,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return Some((params, ret));
         }
 
+        // Function item signatures may depend on const generics as well as type generics.
+        // Preserve the full argument list so callback coercions do not erase array lengths or
+        // other const-indexed pieces of the signature.
         let mut map = FastHashMap::default();
         for (i, param) in fn_def.generics.iter().enumerate() {
-            if let Some(&arg) = args.get(i) {
+            if let Some(arg) = args.get(i).copied() {
                 map.insert(param.name, arg);
             }
         }
@@ -251,11 +250,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_variadic: false,
             } => self.unify_signature_shape(expected_params, expected_ret, params, *ret, map),
             TypeKind::FnDef(def_id, args) => {
-                let Some((params, ret)) = self.instantiate_fn_def_signature(
-                    *def_id,
-                    &crate::ty::erase_non_type_generic_args(args),
-                    Span::default(),
-                ) else {
+                let Some((params, ret)) =
+                    self.instantiate_fn_def_signature(*def_id, args, Span::default())
+                else {
                     return false;
                 };
                 self.unify_signature_shape(expected_params, expected_ret, &params, ret, map)
@@ -290,11 +287,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.unify_signature_shape(expected_params, expected_ret, params, *ret, map)
             }
             TypeKind::FnDef(def_id, args) => {
-                let Some((params, ret)) = self.instantiate_fn_def_signature(
-                    *def_id,
-                    &crate::ty::erase_non_type_generic_args(args),
-                    Span::default(),
-                ) else {
+                let Some((params, ret)) =
+                    self.instantiate_fn_def_signature(*def_id, args, Span::default())
+                else {
                     return false;
                 };
                 self.unify_signature_shape(expected_params, expected_ret, &params, ret, map)

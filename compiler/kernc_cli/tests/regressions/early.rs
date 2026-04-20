@@ -615,6 +615,66 @@ fn main() i32 {
 }
 
 #[test]
+fn function_items_preserve_const_generic_signatures_when_used_as_callbacks() {
+    let output = build_and_run_source(
+        r#"
+fn takes(cb: *Fn([4]i32) i32) i32 {
+    return cb([4]i32.{ 1, 2, 3, 4 });
+}
+
+fn last[N: usize](arr: [N]i32) i32 {
+    return arr.[N - 1];
+}
+
+fn main() i32 {
+    return takes(last[4]) - 4;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "const-generic function-item callback regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_const_generic_function_item_callback_signature_mismatch() {
+    let output = compile_source(
+        r#"
+fn takes(cb: *Fn([4]i32) i32) i32 {
+    return cb([4]i32.{ 1, 2, 3, 4 });
+}
+
+fn last[N: usize](arr: [N]i32) i32 {
+    return arr.[N - 1];
+}
+
+fn main() i32 {
+    return takes(last[3]);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expected `*Fn([4]i32) i32`")
+            || stderr.contains("expected `[4]i32`, found `[3]i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn defaults_emit_llvm_to_raw_stage() {
     let source = r#"
 fn main() i32 {

@@ -600,11 +600,8 @@ fn resolve_trait_impl_obligation_inner(
         return Some(resolved_args);
     }
 
-    let TypeKind::TraitObject(_, _, target_assoc_bindings) = checker
-        .ctx
-        .type_registry
-        .get(target_trait_norm)
-        .clone()
+    let TypeKind::TraitObject(_, _, target_assoc_bindings) =
+        checker.ctx.type_registry.get(target_trait_norm).clone()
     else {
         return None;
     };
@@ -625,12 +622,19 @@ fn resolve_trait_impl_obligation_inner(
         let TypeKind::TraitObject(_, _, impl_assoc_bindings) = checker
             .ctx
             .type_registry
-            .get(checker.ctx.type_registry.normalize(instantiated_impl_trait_ty))
+            .get(
+                checker
+                    .ctx
+                    .type_registry
+                    .normalize(instantiated_impl_trait_ty),
+            )
             .clone()
         else {
             return None;
         };
-        let impl_assoc_bindings = impl_assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
+        let impl_assoc_bindings = impl_assoc_bindings
+            .into_iter()
+            .collect::<FastHashMap<_, _>>();
 
         for (assoc_def_id, target_assoc_ty) in target_assoc_bindings {
             let Some(&impl_assoc_ty) = impl_assoc_bindings.get(&assoc_def_id) else {

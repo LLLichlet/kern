@@ -1,0 +1,35 @@
+// stderr: does not implement the target trait
+
+type Base[N: usize] = trait {
+    type Out;
+    make: fn() Out,
+};
+
+type Derived[N: usize]: Base[N] = trait {};
+
+type X = struct {};
+
+impl[N: usize] *X: Derived[N] {}
+
+impl[N: usize] *X: Base[N] {
+    type Out = i32;
+
+    fn make() Out {
+        return 1;
+    }
+}
+
+impl *X: Base[4] {
+    type Out = i64;
+
+    fn make() Out {
+        return 9;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let derived = *Derived[4].{ x.& };
+    let _ = *Base[4, Out = i32].{ derived };
+    return 0;
+}

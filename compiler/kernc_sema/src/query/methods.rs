@@ -590,7 +590,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     &assoc_binding_map,
                 )
             };
-            let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
+            let inst_super_norm = crate::query::augment_trait_object_assoc_bindings_from_map(
+                self.ctx,
+                inst_super_ty,
+                &assoc_binding_map,
+            );
 
             let super_trait = match self.ctx.type_registry.get(inst_super_norm) {
                 TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => Some((
@@ -729,7 +733,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     &assoc_binding_map,
                 )
             };
-            let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
+            let inst_super_norm = crate::query::augment_trait_object_assoc_bindings_from_map(
+                self.ctx,
+                inst_super_ty,
+                &assoc_binding_map,
+            );
 
             let super_trait = match self.ctx.type_registry.get(inst_super_norm) {
                 TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => Some((

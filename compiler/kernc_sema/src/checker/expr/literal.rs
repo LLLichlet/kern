@@ -1004,6 +1004,51 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             TypeKind::TraitObject(..)
         ) && self.is_trait_object_upcast(inner_elem_norm, trait_norm)
         {
+            let expected_ptr_ty = match self.ctx.type_registry.get(expected_ptr_ty).clone() {
+                TypeKind::Pointer { is_mut, elem } => {
+                    let elem = match self.ctx.type_registry.get(inner_elem_norm).clone() {
+                        TypeKind::TraitObject(_, _, assoc_bindings) => {
+                            let assoc_binding_map =
+                                assoc_bindings.into_iter().collect::<kernc_utils::FastHashMap<_, _>>();
+                            crate::query::augment_trait_object_assoc_bindings_from_map(
+                                self.ctx,
+                                elem,
+                                &assoc_binding_map,
+                            )
+                        }
+                        _ => crate::query::enrich_trait_object_assoc_bindings(
+                            self.ctx,
+                            inner_ty_id,
+                            elem,
+                        ),
+                    };
+                    self.ctx
+                        .type_registry
+                        .intern(TypeKind::Pointer { is_mut, elem })
+                }
+                TypeKind::VolatilePtr { is_mut, elem } => {
+                    let elem = match self.ctx.type_registry.get(inner_elem_norm).clone() {
+                        TypeKind::TraitObject(_, _, assoc_bindings) => {
+                            let assoc_binding_map =
+                                assoc_bindings.into_iter().collect::<kernc_utils::FastHashMap<_, _>>();
+                            crate::query::augment_trait_object_assoc_bindings_from_map(
+                                self.ctx,
+                                elem,
+                                &assoc_binding_map,
+                            )
+                        }
+                        _ => crate::query::enrich_trait_object_assoc_bindings(
+                            self.ctx,
+                            inner_ty_id,
+                            elem,
+                        ),
+                    };
+                    self.ctx
+                        .type_registry
+                        .intern(TypeKind::VolatilePtr { is_mut, elem })
+                }
+                _ => expected_ptr_ty,
+            };
             return expected_ptr_ty;
         }
 
@@ -1019,7 +1064,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 5. Return the constructed fat-pointer type.
-        expected_ptr_ty
+        match self.ctx.type_registry.get(expected_ptr_ty).clone() {
+            TypeKind::Pointer { is_mut, elem } => {
+                let elem =
+                    crate::query::enrich_trait_object_assoc_bindings(self.ctx, inner_ty_id, elem);
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Pointer { is_mut, elem })
+            }
+            TypeKind::VolatilePtr { is_mut, elem } => {
+                let elem =
+                    crate::query::enrich_trait_object_assoc_bindings(self.ctx, inner_ty_id, elem);
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::VolatilePtr { is_mut, elem })
+            }
+            _ => expected_ptr_ty,
+        }
     }
 
     pub(crate) fn check_closure_object_init(

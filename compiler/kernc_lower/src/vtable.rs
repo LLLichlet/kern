@@ -1,13 +1,41 @@
 use super::Lowerer;
 use kernc_mast::*;
 use kernc_mono::MonoId;
-use kernc_sema::checker::Substituter;
+use kernc_sema::checker::{Substituter, substitute_associated_types};
 use kernc_sema::def::{Def, ImplDef, TraitDef};
 use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 use std::collections::{HashMap, HashSet};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn augment_trait_object_assoc_bindings_from_map(
+        &mut self,
+        trait_ty: TypeId,
+        assoc_binding_map: &HashMap<kernc_sema::def::DefId, TypeId>,
+    ) -> TypeId {
+        let trait_ty = self.ctx.type_registry.normalize(trait_ty);
+        let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
+            self.ctx.type_registry.get(trait_ty).clone()
+        else {
+            return trait_ty;
+        };
+
+        let mut merged = assoc_bindings.into_iter().collect::<HashMap<_, _>>();
+        if let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize) {
+            for assoc_id in &trait_def.assoc_types {
+                if let Some(&assoc_ty) = assoc_binding_map.get(assoc_id) {
+                    merged.insert(*assoc_id, assoc_ty);
+                }
+            }
+        }
+
+        let mut merged = merged.into_iter().collect::<Vec<_>>();
+        merged.sort_by_key(|(assoc_id, _)| assoc_id.0);
+        self.ctx
+            .type_registry
+            .intern(TypeKind::TraitObject(trait_def_id, trait_args, merged))
+    }
+
     pub(crate) fn collect_transitive_supertraits(&mut self, trait_ty: TypeId) -> Vec<TypeId> {
         let mut supertraits = Vec::new();
         let mut visited = HashSet::new();
@@ -26,7 +54,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         supertraits: &mut Vec<TypeId>,
     ) {
         let trait_norm = self.ctx.type_registry.normalize(trait_ty);
-        let TypeKind::TraitObject(trait_def_id, trait_args, _) =
+        let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
             self.ctx.type_registry.get(trait_norm).clone()
         else {
             self.ctx.emit_ice(
@@ -57,6 +85,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .zip(trait_args.iter())
             .map(|(param, arg)| (param.name, *arg))
             .collect();
+        let assoc_binding_map = assoc_bindings.into_iter().collect::<HashMap<_, _>>();
 
         for &super_ty in &trait_def.resolved_supertraits {
             let inst_super_ty = if trait_arg_map.is_empty() {
@@ -65,6 +94,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
                 subst.substitute(super_ty)
             };
+            let inst_super_ty = substitute_associated_types(
+                &mut self.ctx.type_registry,
+                inst_super_ty,
+                &assoc_binding_map,
+            );
+            let inst_super_ty =
+                self.augment_trait_object_assoc_bindings_from_map(inst_super_ty, &assoc_binding_map);
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
             if visited.insert(inst_super_norm) {
                 supertraits.push(inst_super_norm);

@@ -1,0 +1,38 @@
+// exit: 0
+
+type Base[N: usize] = trait {
+    type Out;
+    make: fn() Out,
+};
+
+type Derived[N: usize]: Base[N] = trait {};
+
+type X = struct {};
+
+impl[N: usize] *X: Derived[N] {}
+
+impl[N: usize] *X: Base[N] {
+    type Out = i32;
+
+    fn make() Out {
+        return 1;
+    }
+}
+
+impl *X: Base[4] {
+    type Out = i64;
+
+    fn make() Out {
+        return 9;
+    }
+}
+
+fn expect_i64(value: i64) i32 {
+    return (value as i32) - 9;
+}
+
+fn main() i32 {
+    let x = X.{};
+    let derived = *Derived[4].{ x.& };
+    return expect_i64(derived.make());
+}

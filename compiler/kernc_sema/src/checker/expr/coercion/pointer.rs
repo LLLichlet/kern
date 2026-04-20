@@ -155,7 +155,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        let TypeKind::TraitObject(source_def_id, source_args, _) =
+        let TypeKind::TraitObject(source_def_id, source_args, source_assoc_bindings) =
             self.ctx.type_registry.get(source_norm).clone()
         else {
             return None;
@@ -171,6 +171,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .zip(source_args.iter())
             .map(|(param, arg)| (param.name, *arg))
             .collect();
+        let assoc_binding_map = source_assoc_bindings
+            .into_iter()
+            .collect::<FastHashMap<_, _>>();
 
         for &super_ty in &trait_def.resolved_supertraits {
             let inst_super_ty = if trait_arg_map.is_empty() {
@@ -179,7 +182,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
                 subst.substitute(super_ty)
             };
-            let inst_super_norm = self.resolve_tv(inst_super_ty);
+            let inst_super_ty = crate::checker::substitute_associated_types(
+                &mut self.ctx.type_registry,
+                inst_super_ty,
+                &assoc_binding_map,
+            );
+            let inst_super_ty = self.resolve_tv(inst_super_ty);
+            let inst_super_norm = crate::query::augment_trait_object_assoc_bindings_from_map(
+                self.ctx,
+                inst_super_ty,
+                &assoc_binding_map,
+            );
 
             if inst_super_norm == target_norm {
                 return Some(inst_super_norm);

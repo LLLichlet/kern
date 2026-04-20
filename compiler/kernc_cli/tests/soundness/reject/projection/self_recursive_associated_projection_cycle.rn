@@ -1,7 +1,6 @@
 // class: projection-cycle
-// source: self-recursive associated projections should be rejected cleanly, not reach layout as unresolved projections
-// stderr: Kern ICE (Layout)
-// stderr: Projection
+// stderr: recursive associated type projection cycle detected
+// stderr: projection cycle: X.Loop.Out -> X.Loop.Out
 
 type Loop = trait {
     type Out;

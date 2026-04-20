@@ -1,6 +1,6 @@
 // class: projection-cycle
-// source: mutually recursive associated projections should reject quickly; today normalization/proof search times out
-// timeout-ms: 2000
+// stderr: recursive associated type projection cycle detected
+// stderr: projection cycle: X.A.Out -> X.B.Out -> X.A.Out
 
 type A = trait {
     type Out;

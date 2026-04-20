@@ -131,8 +131,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     /// Follow inference variables until reaching their final concrete binding.
     pub(crate) fn resolve_tv(&mut self, ty: TypeId) -> TypeId {
         let mut curr = ty;
+        let mut projection_chain = Vec::new();
         loop {
             let norm = self.ctx.type_registry.normalize(curr);
+            let is_projection = matches!(self.ctx.type_registry.get(norm), TypeKind::Projection { .. });
+            if is_projection {
+                if let Some(ancestor_index) = projection_chain.iter().position(|seen| *seen == norm) {
+                    let cycle = projection_chain[ancestor_index..]
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(norm))
+                        .collect::<Vec<_>>();
+                    self.ctx.emit_projection_cycle_diagnostic(&cycle);
+                    return TypeId::ERROR;
+                }
+                projection_chain.push(norm);
+            }
             match self.ctx.type_registry.get(norm) {
                 TypeKind::TypeVar(vid) => {
                     let Some(slot) = self.type_vars.get(*vid as usize) else {
@@ -146,6 +160,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
                 TypeKind::Projection { .. } => {
                     if let Some(projected) = self.try_normalize_projection(norm) {
+                        if projected == norm {
+                            self.ctx.emit_projection_cycle_diagnostic(&[norm, norm]);
+                            return TypeId::ERROR;
+                        }
                         curr = projected;
                     } else {
                         return norm;

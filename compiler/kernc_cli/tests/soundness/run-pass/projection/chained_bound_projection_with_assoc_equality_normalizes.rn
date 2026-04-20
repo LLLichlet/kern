@@ -1,6 +1,6 @@
-// class: projection-proof-search
-// source: generic proof search does not currently discharge a second trait obligation through an intermediate associated projection
-// stderr: expected `T.Step.Mid.Finish.Out`
+// class: projection-normalization
+// source: a chained generic projection should normalize when the intermediate trait bound fixes the final associated result
+// exit: 0
 
 type Step = trait {
     type Mid;
@@ -21,9 +21,9 @@ impl Shell: Finish {
     type Out = i32;
 }
 
-fn project[T](value: T) T.Step.Mid.Finish.Out
+fn project[T](value: T) T.Step.Mid.Finish[Out = i32].Out
     where T: Step,
-          T.Step.Mid: Finish,
+          T.Step.Mid: Finish[Out = i32],
 {
     let _ = value;
     return 7;

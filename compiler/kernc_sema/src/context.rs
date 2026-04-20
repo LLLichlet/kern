@@ -40,6 +40,7 @@ pub struct SemaStructureSnapshot {
     pub defs_without_parent_module: FastHashSet<DefId>,
     pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
     pub reported_recursive_layout_types: FastHashSet<TypeId>,
+    pub reported_recursive_projection_types: FastHashSet<TypeId>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -128,6 +129,7 @@ pub struct SemaContext<'a> {
     pub(crate) member_resolution_query_cache:
         FastHashMap<MemberResolutionQueryKey, crate::query::MemberResolution>,
     pub(crate) reported_recursive_layout_types: FastHashSet<TypeId>,
+    pub(crate) reported_recursive_projection_types: FastHashSet<TypeId>,
     identifier_references: Vec<(Span, Span)>,
     semantic_definitions: BTreeMap<Span, SemanticDefinition>,
 }
@@ -225,6 +227,7 @@ impl<'a> SemaContext<'a> {
             named_field_query_cache: FastHashMap::default(),
             member_resolution_query_cache: FastHashMap::default(),
             reported_recursive_layout_types: FastHashSet::default(),
+            reported_recursive_projection_types: FastHashSet::default(),
             global_impls: Vec::new(),
             trait_impls: Vec::new(),
             impl_methods_by_name: FastHashMap::default(),
@@ -273,6 +276,7 @@ impl<'a> SemaContext<'a> {
             defs_without_parent_module: self.defs_without_parent_module.clone(),
             owner_scopes_by_def: self.owner_scopes_by_def.clone(),
             reported_recursive_layout_types: self.reported_recursive_layout_types.clone(),
+            reported_recursive_projection_types: self.reported_recursive_projection_types.clone(),
         }
     }
 
@@ -297,6 +301,7 @@ impl<'a> SemaContext<'a> {
             defs_without_parent_module: self.defs_without_parent_module,
             owner_scopes_by_def: self.owner_scopes_by_def,
             reported_recursive_layout_types: self.reported_recursive_layout_types,
+            reported_recursive_projection_types: self.reported_recursive_projection_types,
         }
     }
 
@@ -322,6 +327,7 @@ impl<'a> SemaContext<'a> {
         self.defs_without_parent_module = snapshot.defs_without_parent_module;
         self.owner_scopes_by_def = snapshot.owner_scopes_by_def;
         self.reported_recursive_layout_types = snapshot.reported_recursive_layout_types;
+        self.reported_recursive_projection_types = snapshot.reported_recursive_projection_types;
         self.expr_timing_stats = ExprTimingStats::default();
         self.call_signature_instantiation_cache.clear();
         self.field_type_subst_cache.clear();
@@ -1039,21 +1045,42 @@ impl<'a> SemaContext<'a> {
     /// phases agree on what counts as a fully concrete type.
     pub fn normalize_concrete_type(&mut self, ty: TypeId) -> TypeId {
         let mut projection_stack = Vec::new();
-        self.normalize_concrete_type_inner(ty, &mut projection_stack)
+        let mut projection_chain = Vec::new();
+        self.normalize_concrete_type_inner(ty, &mut projection_stack, &mut projection_chain)
     }
 
     fn normalize_concrete_type_inner(
         &mut self,
         ty: TypeId,
         projection_stack: &mut Vec<TypeId>,
+        projection_chain: &mut Vec<TypeId>,
     ) -> TypeId {
         let mut curr = ty;
         loop {
             let norm = self.type_registry.normalize(curr);
-            let Some(next) = self.try_normalize_projection_type(norm, projection_stack) else {
+            let is_projection = matches!(self.type_registry.get(norm), TypeKind::Projection { .. });
+            if is_projection {
+                if let Some(ancestor_index) = projection_chain.iter().position(|seen| *seen == norm) {
+                    let cycle = projection_chain[ancestor_index..]
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(norm))
+                        .collect::<Vec<_>>();
+                    self.emit_projection_cycle_diagnostic(&cycle);
+                    return TypeId::ERROR;
+                }
+                projection_chain.push(norm);
+            }
+            let Some(next) =
+                self.try_normalize_projection_type(norm, projection_stack, projection_chain)
+            else {
                 return norm;
             };
             if next == norm {
+                if is_projection {
+                    self.emit_projection_cycle_diagnostic(&[norm, norm]);
+                    return TypeId::ERROR;
+                }
                 return norm;
             }
             curr = next;
@@ -1064,6 +1091,7 @@ impl<'a> SemaContext<'a> {
         &mut self,
         ty: TypeId,
         projection_stack: &mut Vec<TypeId>,
+        projection_chain: &mut Vec<TypeId>,
     ) -> Option<TypeId> {
         let TypeKind::Projection {
             target,
@@ -1082,7 +1110,8 @@ impl<'a> SemaContext<'a> {
         projection_stack.push(ty);
 
         let result = (|| {
-            let target_norm = self.normalize_concrete_type_inner(target, projection_stack);
+            let target_norm =
+                self.normalize_concrete_type_inner(target, projection_stack, projection_chain);
             if let TypeKind::TraitObject(target_trait_def_id, target_trait_args, assoc_bindings) =
                 self.type_registry.get(target_norm).clone()
                 && target_trait_def_id == trait_def_id
@@ -1170,6 +1199,47 @@ impl<'a> SemaContext<'a> {
         let popped = projection_stack.pop();
         debug_assert_eq!(popped, Some(ty));
         result
+    }
+
+    pub(crate) fn emit_projection_cycle_diagnostic(&mut self, cycle: &[TypeId]) {
+        if cycle
+            .iter()
+            .any(|cycle_ty| self.reported_recursive_projection_types.contains(cycle_ty))
+        {
+            return;
+        }
+        for cycle_ty in cycle {
+            self.reported_recursive_projection_types.insert(*cycle_ty);
+        }
+
+        let head = cycle.first().copied().unwrap_or(TypeId::ERROR);
+        let span = match self.type_registry.get(self.type_registry.normalize(head)) {
+            TypeKind::Projection { assoc_def_id, .. } => self
+                .defs
+                .get(assoc_def_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::AssociatedType(def) => Some(def.span),
+                    _ => None,
+                })
+                .unwrap_or_default(),
+            _ => Span::default(),
+        };
+        let chain = cycle
+            .iter()
+            .map(|ty| self.ty_to_string(*ty))
+            .collect::<Vec<_>>()
+            .join(" -> ");
+
+        self.struct_error(
+            span,
+            format!(
+                "recursive associated type projection cycle detected while normalizing `{}`",
+                self.ty_to_string(head)
+            ),
+        )
+        .with_hint(format!("projection cycle: {}", chain))
+        .with_hint("break the cycle by giving one associated type a concrete non-projecting result")
+        .emit();
     }
 
     /// Inject CLI-provided module aliases such as `std` into the root scope.

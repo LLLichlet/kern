@@ -7,6 +7,9 @@ order: 3
 This chapter introduces the current boundary between `craft`, `kernc`,
 `kern-lsp`, and the repository docs.
 
+If you do not have the host tools installed yet and need to build them from the
+repository itself, read `Building Kern From Source` first.
+
 ## The Three Main Tools
 
 ### `craft`

@@ -25,7 +25,9 @@ become productive without hiding the real toolchain model:
 
 1. create and run a minimal package with `craft`
 2. understand the boundary between `craft`, `kernc`, and `kern-lsp`
-3. get a first look at Kern source forms that actually compile today
+3. build the host tools from source when an installed toolchain is not the
+   right fit
+4. get a first look at Kern source forms that actually compile today
 
 ## Validation Policy
 

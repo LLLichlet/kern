@@ -239,6 +239,10 @@ use the bundled logo.
 
 ## Building from Source
 
+For the public step-by-step walkthrough, see
+[`website/src/content/guide/building-kern-from-source.md`](website/src/content/guide/building-kern-from-source.md).
+The short notes below remain as the repository-level summary.
+
 If you prefer to build the compiler from source, ensure you have the latest stable Rust toolchain and LLVM development libraries installed.
 
 ```bash

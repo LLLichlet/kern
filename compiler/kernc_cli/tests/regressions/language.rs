@@ -1139,6 +1139,35 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_const_fn_with_const_generic_arguments_during_consteval() {
+    let output = build_and_run_source(
+        r#"
+const fn bump[N: usize]() usize {
+    return N + 1;
+}
+
+const fn width[N: usize](value: [N]u8) usize {
+    return (value.[0] as usize) + bump[N]();
+}
+
+const TOTAL = width[3]([3]u8.{ 1, 2, 3 });
+
+fn main() i32 {
+    return TOTAL as i32;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(5),
+        "const generic consteval regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_uninstantiated_generic_function_items_in_value_position() {
     let output = compile_source(
         r#"

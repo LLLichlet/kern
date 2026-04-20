@@ -4,7 +4,7 @@ use crate::checker::Substituter;
 use crate::def::{Def, DefId};
 use crate::scope::ScopeId;
 use crate::scope::SymbolKind;
-use crate::ty::{PrimitiveType, TypeId, TypeKind};
+use crate::ty::{GenericArg, PrimitiveType, TypeId, TypeKind};
 use kernc_ast::{
     self as ast, AssignmentOperator, BinaryOperator, Expr, ExprKind, StmtKind, UnaryOperator,
 };
@@ -95,7 +95,7 @@ pub struct ConstEvaluator<'a, 'ctx> {
     local_scopes: Vec<HashMap<SymbolId, ConstValue>>,
     local_type_scopes: Vec<HashMap<SymbolId, TypeId>>,
     local_mut_scopes: Vec<HashMap<SymbolId, bool>>,
-    type_substs: Vec<HashMap<SymbolId, TypeId>>,
+    type_substs: Vec<HashMap<SymbolId, GenericArg>>,
     return_value: Option<ConstValue>,
     function_depth: usize,
     loop_depth: usize,

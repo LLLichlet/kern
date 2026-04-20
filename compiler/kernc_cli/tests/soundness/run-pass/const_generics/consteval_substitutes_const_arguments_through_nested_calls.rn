@@ -1,0 +1,17 @@
+// class: const-generic-consteval
+// source: const evaluation must substitute instantiated const arguments through nested const fn calls and type-level uses
+// exit: 0
+
+const fn bump[N: usize]() usize {
+    return N + 1;
+}
+
+const fn width[N: usize](value: [N]u8) usize {
+    return (value.[0] as usize) + bump[N]();
+}
+
+const TOTAL = width[3]([3]u8.{ 1, 2, 3 });
+
+fn main() i32 {
+    return (TOTAL as i32) - 5;
+}

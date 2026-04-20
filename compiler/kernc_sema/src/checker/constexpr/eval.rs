@@ -1,4 +1,5 @@
 use super::*;
+use crate::ty::{ConstGeneric, GenericArg};
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     fn integer_literal_magnitude(expr: &Expr) -> Option<(bool, u128)> {
@@ -1004,6 +1005,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Ok(value);
         }
 
+        if let Some(value) = self.const_param_value(name) {
+            return Ok(value);
+        }
+
         let sym_info = if let Some(&scope_id) = self.const_scopes.last() {
             self.ctx.scopes.resolve_from(scope_id, name).cloned()
         } else {
@@ -1016,6 +1021,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return self.eval_const_def(def_id, depth);
                 }
             } else if info.kind == SymbolKind::ConstParam {
+                if let Some(value) = self.const_param_value(name) {
+                    return Ok(value);
+                }
+
                 let name_str = self.ctx.resolve(name).to_string();
                 self.ctx
                     .struct_error(
@@ -1050,6 +1059,26 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             .struct_error(span, "use of undeclared identifier in constant expression")
             .emit();
         Err(ConstEvalError)
+    }
+
+    fn const_param_value(&mut self, name: SymbolId) -> Option<ConstValue> {
+        for idx in (0..self.type_substs.len()).rev() {
+            let Some(GenericArg::Const(value)) = self.type_substs[idx].get(&name).copied() else {
+                continue;
+            };
+
+            let value = self.resolved_const_generic(value);
+            let ConstGeneric::Value(value) = value else {
+                continue;
+            };
+
+            return match value.kind {
+                crate::ty::ConstGenericValueKind::Int(value) => Some(ConstValue::Int(value)),
+                crate::ty::ConstGenericValueKind::Bool(value) => Some(ConstValue::Bool(value)),
+            };
+        }
+
+        None
     }
 
     fn eval_block(

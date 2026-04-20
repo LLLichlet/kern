@@ -1,5 +1,6 @@
 use super::*;
 use crate::passes::TypeResolver;
+use crate::ty::{ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg};
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     fn symbol_is_type_namespace(kind: SymbolKind) -> bool {
@@ -25,6 +26,15 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             resolved = subst.substitute(resolved);
         }
         self.ctx.type_registry.normalize(resolved)
+    }
+
+    pub(super) fn resolved_const_generic(&mut self, value: ConstGeneric) -> ConstGeneric {
+        let mut resolved = value;
+        for subst_map in &self.type_substs {
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
+            resolved = subst.substitute_const_generic(resolved);
+        }
+        resolved
     }
 
     pub(super) fn node_type(&mut self, node_id: NodeId) -> TypeId {
@@ -89,7 +99,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub(super) fn callable_return_type(
         &mut self,
         def_id: DefId,
-        generic_args: &[TypeId],
+        generic_args: &[GenericArg],
     ) -> Option<TypeId> {
         let Def::Function(func) = self.ctx.defs.get(def_id.0 as usize)?.clone() else {
             return None;
@@ -278,10 +288,15 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
     }
 
-    pub(super) fn resolve_callable(&mut self, callee: &Expr) -> Option<(DefId, Vec<TypeId>)> {
+    pub(super) fn resolve_callable(&mut self, callee: &Expr) -> Option<(DefId, Vec<GenericArg>)> {
         let callee_ty = self.node_type(callee.id);
         if let TypeKind::FnDef(def_id, args) = self.ctx.type_registry.get(callee_ty).clone() {
-            return Some((def_id, crate::ty::erase_non_type_generic_args(&args)));
+            return Some((def_id, args));
+        }
+
+        let callee_norm = self.ctx.type_registry.normalize(callee_ty);
+        if let TypeKind::FnDef(def_id, args) = self.ctx.type_registry.get(callee_norm).clone() {
+            return Some((def_id, args));
         }
 
         match &callee.kind {
@@ -306,9 +321,27 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                 .get(&ty.id)
                                 .copied()
                                 .unwrap_or(TypeId::ERROR);
-                            self.resolved_type(ty)
+                            GenericArg::Type(self.resolved_type(ty))
                         }
-                        ast::GenericArg::ConstExpr(_) => TypeId::ERROR,
+                        ast::GenericArg::ConstExpr(expr) => {
+                            let ty = self.expr_type(expr);
+                            let value = match self.eval_inner(expr, self.function_depth + 1) {
+                                Ok(ConstValue::Int(value)) => {
+                                    ConstGeneric::Value(ConstGenericValue {
+                                        ty,
+                                        kind: ConstGenericValueKind::Int(value),
+                                    })
+                                }
+                                Ok(ConstValue::Bool(value)) => {
+                                    ConstGeneric::Value(ConstGenericValue {
+                                        ty,
+                                        kind: ConstGenericValueKind::Bool(value),
+                                    })
+                                }
+                                _ => ConstGeneric::Error,
+                            };
+                            GenericArg::Const(self.resolved_const_generic(value))
+                        }
                     })
                     .collect();
                 Some((def_id, generic_args))

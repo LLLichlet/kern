@@ -1,4 +1,5 @@
-﻿use super::*;
+use super::*;
+use crate::ty::GenericArg;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     fn check_bit_intrinsic_target_type(
@@ -78,7 +79,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub fn eval_function(
         &mut self,
         def_id: DefId,
-        generic_args: &[TypeId],
+        generic_args: &[GenericArg],
         arg_values: Vec<ConstValue>,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
@@ -88,7 +89,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub(super) fn invoke_function(
         &mut self,
         def_id: DefId,
-        generic_args: &[TypeId],
+        generic_args: &[GenericArg],
         arg_values: Vec<ConstValue>,
         depth: usize,
         span: Span,
@@ -358,7 +359,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub(super) fn callable_return_and_params(
         &mut self,
         def_id: DefId,
-        generic_args: &[TypeId],
+        generic_args: &[GenericArg],
     ) -> Option<(Vec<TypeId>, TypeId)> {
         let Def::Function(func) = self.ctx.defs.get(def_id.0 as usize)?.clone() else {
             return None;
@@ -440,15 +441,16 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         // --- Core intrinsic dispatch ---
+        let intrinsic_type_args = crate::ty::erase_non_type_generic_args(&generic_args);
         match name_str.as_str() {
             "@loc" => self.eval_loc(span),
-            "@sizeOf" => self.eval_size_of(&generic_args, span),
-            "@alignOf" => self.eval_align_of(&generic_args, span),
+            "@sizeOf" => self.eval_size_of(&intrinsic_type_args, span),
+            "@alignOf" => self.eval_align_of(&intrinsic_type_args, span),
             "@popCount" | "@clz" | "@ctz" => {
-                self.eval_bit_counting(name_str.as_str(), &generic_args, args, depth, span)
+                self.eval_bit_counting(name_str.as_str(), &intrinsic_type_args, args, depth, span)
             }
-            "@intCast" => self.eval_int_cast(&generic_args, args, depth, span),
-            "@bswap" => self.eval_bswap(&generic_args, args, depth, span),
+            "@intCast" => self.eval_int_cast(&intrinsic_type_args, args, depth, span),
+            "@bswap" => self.eval_bswap(&intrinsic_type_args, args, depth, span),
             "@memcpy" | "@memmove" | "@memset" => {
                 self.ctx
                     .struct_error(

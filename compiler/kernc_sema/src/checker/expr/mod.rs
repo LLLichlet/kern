@@ -725,7 +725,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             self.evaluate_dynamic_typeof(ty_node);
                         }
                         ast::GenericArg::ConstExpr(expr) => {
-                            self.check_expr(expr, None);
+                            let _ = expr;
+                            // Const generic arguments are resolved by the dedicated type resolver
+                            // below. Running ordinary expression checking here misclassifies
+                            // const params like `N` as missing runtime identifiers.
                         }
                     }
                 }

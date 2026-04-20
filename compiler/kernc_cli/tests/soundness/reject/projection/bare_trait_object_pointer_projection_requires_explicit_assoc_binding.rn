@@ -1,0 +1,15 @@
+// stderr: cannot resolve associated type projection `*Base[4].Base[4].Out`
+
+type Base[N: usize] = trait {
+    type Out;
+};
+
+type Handle = *Base[4];
+
+fn lift(value: Handle.Base[4].Out) Handle.Base[4].Out {
+    return value;
+}
+
+fn main() i32 {
+    return 0;
+}

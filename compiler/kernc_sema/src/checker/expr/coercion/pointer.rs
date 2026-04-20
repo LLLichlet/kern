@@ -165,11 +165,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         };
 
-        let trait_arg_map: FastHashMap<SymbolId, TypeId> = trait_def
+        let trait_arg_map: FastHashMap<SymbolId, GenericArg> = trait_def
             .generics
             .iter()
             .zip(source_args.iter())
-            .map(|(param, arg)| (param.name, arg.as_type().unwrap_or(TypeId::ERROR)))
+            .map(|(param, arg)| (param.name, *arg))
             .collect();
 
         for &super_ty in &trait_def.resolved_supertraits {

@@ -636,6 +636,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             };
             self.ctx.scopes.set_current_scope(scope);
             let assoc_scope = self.ctx.scopes.enter_scope();
+            let prev_suppress_unqualified_impl_assoc_types =
+                self.suppress_unqualified_impl_assoc_types;
+            self.suppress_unqualified_impl_assoc_types = true;
             self.bind_generics(&assoc_def.generics, assoc_scope);
             self.resolve_where_clauses(&assoc_def.where_clauses, assoc_scope);
             let mut resolved_bounds = Vec::with_capacity(assoc_def.bounds.len());
@@ -646,6 +649,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 .target
                 .as_ref()
                 .map(|target| self.resolve_type(target, assoc_scope));
+            self.suppress_unqualified_impl_assoc_types =
+                prev_suppress_unqualified_impl_assoc_types;
             self.ctx.scopes.exit_scope();
             if let Some(resolved_target) = resolved_target {
                 self.ctx.scopes.set_current_scope(scope);

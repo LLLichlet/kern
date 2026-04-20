@@ -1,0 +1,18 @@
+// class: projection-normalization
+// source: impl-associated type targets cannot treat the impl's own associated type placeholder as a concrete type
+// stderr: impl-associated type targets must resolve to a concrete type
+// stderr: bare associated type names are not available as concrete aliases
+
+type Value = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: Value {
+    type Out = Out;
+}
+
+fn main() i32 {
+    return 0;
+}

@@ -18,6 +18,7 @@ mod supertraits;
 
 pub struct TypeResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
+    suppress_unqualified_impl_assoc_types: bool,
 }
 
 struct PendingTraitProjection {
@@ -28,7 +29,10 @@ struct PendingTraitProjection {
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
-        Self { ctx }
+        Self {
+            ctx,
+            suppress_unqualified_impl_assoc_types: false,
+        }
     }
 
     pub fn context(&mut self) -> &mut SemaContext<'ctx> {
@@ -752,7 +756,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
 
             if current_ty.is_none() {
-                let target_symbol = if index == 0 {
+                let (target_symbol, skipped_hidden_assoc) = if index == 0 {
                     if segments.len() == 1 {
                         let name_str = self.ctx.resolve(segment.name).to_string();
                         if let Some(prim_id) = self.resolve_builtin_primitive(&name_str) {
@@ -766,24 +770,39 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         }
                     }
                     if anchor.is_some() {
-                        self.ctx
-                            .scopes
-                            .resolve_in(curr_scope, segment.name)
-                            .cloned()
+                        (
+                            self.ctx.scopes.resolve_in(curr_scope, segment.name).cloned(),
+                            false,
+                        )
                     } else {
-                        self.ctx.scopes.set_current_scope(curr_scope);
-                        self.ctx.scopes.resolve(segment.name).cloned()
+                        self.resolve_head_type_symbol(curr_scope, segment.name)
                     }
                 } else {
-                    self.ctx
-                        .scopes
-                        .resolve_in(curr_scope, segment.name)
-                        .cloned()
+                    (
+                        self.ctx.scopes.resolve_in(curr_scope, segment.name).cloned(),
+                        false,
+                    )
                 };
 
                 let Some(sym) = target_symbol else {
                     let name = self.ctx.resolve(segment.name).to_string();
-                    if index == 0 {
+                    if index == 0 && skipped_hidden_assoc {
+                        self.ctx
+                            .struct_error(
+                                segment.name_span,
+                                format!(
+                                    "impl-associated type targets must resolve to a concrete type, but `{}` resolves to the impl's associated type placeholder here",
+                                    name
+                                ),
+                            )
+                            .with_hint(
+                                "inside `type Name = ...;`, bare associated type names are not available as concrete aliases",
+                            )
+                            .with_hint(
+                                "use a distinct concrete type name, a generic parameter, or an explicit projected type outside the impl-associated type definition",
+                            )
+                            .emit();
+                    } else if index == 0 {
                         self.ctx
                             .emit_error(span, format!("Cannot find type `{}` in this scope", name));
                     } else {
@@ -875,6 +894,30 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         current_ty.unwrap_or(TypeId::ERROR)
+    }
+
+    fn resolve_head_type_symbol(
+        &mut self,
+        scope_id: ScopeId,
+        name: SymbolId,
+    ) -> (Option<crate::scope::SymbolInfo>, bool) {
+        let mut curr = Some(scope_id);
+        let mut skipped_hidden_assoc = false;
+
+        while let Some(scope_id) = curr {
+            if let Some(info) = self.ctx.scopes.resolve_in(scope_id, name).cloned() {
+                if self.suppress_unqualified_impl_assoc_types
+                    && info.kind == SymbolKind::AssociatedType
+                {
+                    skipped_hidden_assoc = true;
+                } else {
+                    return (Some(info), skipped_hidden_assoc);
+                }
+            }
+            curr = self.ctx.scopes.parent_scope(scope_id);
+        }
+
+        (None, skipped_hidden_assoc)
     }
 
     fn resolve_named_type_symbol(

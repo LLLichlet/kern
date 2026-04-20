@@ -1,7 +1,6 @@
 // class: projection-normalization
-// source: if an intermediate concrete type shares a name with the associated type being projected, layout still sees an unresolved chained projection
-// stderr: Kern ICE (Layout)
-// stderr: Projection
+// source: an impl-associated type target may use a concrete type with the same name without getting shadowed by the impl placeholder
+// exit: 0
 
 type Step = trait {
     type Mid;

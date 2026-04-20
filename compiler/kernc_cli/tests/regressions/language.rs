@@ -1147,7 +1147,7 @@ const fn bump[N: usize]() usize {
 }
 
 const fn width[N: usize](value: [N]u8) usize {
-    return (value.[0] as usize) + bump[N]();
+    return (value.[0] as usize) + bump[N]() + @sizeOf[[N]u8]();
 }
 
 const TOTAL = width[3]([3]u8.{ 1, 2, 3 });
@@ -1160,7 +1160,7 @@ fn main() i32 {
 
     assert_eq!(
         output.status.code(),
-        Some(5),
+        Some(8),
         "const generic consteval regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)

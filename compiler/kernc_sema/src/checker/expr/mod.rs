@@ -953,11 +953,38 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             ast::TypeKind::Array { is_mut, elem, len } => {
                 let base = self.evaluate_dynamic_typeof(elem);
-                let Ok(length) = crate::checker::ConstEvaluator::new(self.ctx).eval_usize(len)
-                else {
-                    return TypeId::ERROR;
+                let references_const_param = {
+                    let mut resolver = TypeResolver::new(self.ctx);
+                    let Some(scope) = resolver.current_scope_id() else {
+                        return TypeId::ERROR;
+                    };
+                    resolver.expr_references_const_param(len, scope)
                 };
-                if length > u32::MAX as u64 {
+
+                let resolved_len = if references_const_param {
+                    let mut resolver = TypeResolver::new(self.ctx);
+                    let Some(scope) = resolver.current_scope_id() else {
+                        return TypeId::ERROR;
+                    };
+                    resolver.resolve_const_generic_expr(len, TypeId::USIZE, scope, "array length")
+                } else {
+                    let Ok(length) = crate::checker::ConstEvaluator::new(self.ctx).eval_usize(len)
+                    else {
+                        return TypeId::ERROR;
+                    };
+                    crate::ty::ConstGeneric::Value(crate::ty::ConstGenericValue {
+                        ty: TypeId::USIZE,
+                        kind: crate::ty::ConstGenericValueKind::Int(length as i128),
+                    })
+                };
+
+                if matches!(resolved_len, crate::ty::ConstGeneric::Error) {
+                    return TypeId::ERROR;
+                }
+                if let crate::ty::ConstGeneric::Value(value) = resolved_len
+                    && let Some(length) = value.as_int()
+                    && length > u32::MAX as i128
+                {
                     self.ctx
                         .struct_error(
                             len.span,
@@ -976,10 +1003,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.ctx.type_registry.intern(TypeKind::Array {
                     is_mut: *is_mut,
                     elem: base,
-                    len: crate::ty::ConstGeneric::Value(crate::ty::ConstGenericValue {
-                        ty: TypeId::USIZE,
-                        kind: crate::ty::ConstGenericValueKind::Int(length as i128),
-                    }),
+                    len: resolved_len,
                 })
             }
             ast::TypeKind::ClosureInterface { params, ret } => {

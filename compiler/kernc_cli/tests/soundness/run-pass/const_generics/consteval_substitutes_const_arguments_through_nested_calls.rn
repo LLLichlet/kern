@@ -7,11 +7,11 @@ const fn bump[N: usize]() usize {
 }
 
 const fn width[N: usize](value: [N]u8) usize {
-    return (value.[0] as usize) + bump[N]();
+    return (value.[0] as usize) + bump[N]() + @sizeOf[[N]u8]();
 }
 
 const TOTAL = width[3]([3]u8.{ 1, 2, 3 });
 
 fn main() i32 {
-    return (TOTAL as i32) - 5;
+    return (TOTAL as i32) - 8;
 }

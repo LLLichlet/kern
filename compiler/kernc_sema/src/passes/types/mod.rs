@@ -1585,7 +1585,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         })
     }
 
-    fn resolve_const_generic_expr(
+    pub(crate) fn resolve_const_generic_expr(
         &mut self,
         expr: &ast::Expr,
         expected_ty: TypeId,
@@ -2112,7 +2112,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
-    fn expr_references_const_param(&mut self, expr: &ast::Expr, env_scope: ScopeId) -> bool {
+    pub(crate) fn expr_references_const_param(
+        &mut self,
+        expr: &ast::Expr,
+        env_scope: ScopeId,
+    ) -> bool {
         self.ctx.scopes.set_current_scope(env_scope);
         match &expr.kind {
             ast::ExprKind::Identifier(name) => self

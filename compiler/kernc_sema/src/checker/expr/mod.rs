@@ -113,6 +113,33 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
+    // Pattern/type checking needs fully instantiated field and payload types; dropping const
+    // arguments here would let explicit nested pattern types silently drift from the real type.
+    pub(crate) fn positional_generic_subst_map(
+        &self,
+        generics: &[ast::GenericParam],
+        generic_args: &[GenericArg],
+    ) -> FastHashMap<SymbolId, GenericArg> {
+        generics
+            .iter()
+            .zip(generic_args.iter().copied())
+            .map(|(param, arg)| (param.name, arg))
+            .collect()
+    }
+
+    pub(crate) fn substitute_type_with_generic_arg_map<S: BuildHasher>(
+        &mut self,
+        ty: TypeId,
+        map: &HashMap<SymbolId, GenericArg, S>,
+    ) -> TypeId {
+        if map.is_empty() {
+            return ty;
+        }
+
+        let mut subst = crate::checker::Substituter::new(&mut self.ctx.type_registry, map);
+        subst.substitute(ty)
+    }
+
     pub(crate) fn generic_param_occurs_in_type_with_map<S: BuildHasher>(
         &mut self,
         needle: SymbolId,

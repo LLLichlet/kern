@@ -1,12 +1,11 @@
 use super::ExprChecker;
 use crate::LayoutEngine;
-use crate::checker::{ConstEvaluator, ConstValue, Substituter};
+use crate::checker::{ConstEvaluator, ConstValue};
 use crate::def::{Def, ImportDef};
 use crate::passes::ImportResolver;
 use crate::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{DiagnosticCode, DiagnosticTag, Span, SymbolId};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CoveragePattern {
@@ -358,29 +357,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn coverage_generic_arg_map(
-        &self,
-        generics: &[kernc_ast::GenericParam],
-        generic_args: &[crate::ty::GenericArg],
-    ) -> HashMap<SymbolId, TypeId> {
-        let mut map = HashMap::with_capacity(generics.len());
-        for (index, generic) in generics.iter().enumerate() {
-            if let Some(arg) = generic_args.get(index).and_then(|arg| arg.as_type()) {
-                map.insert(generic.name, arg);
-            }
-        }
-        map
-    }
-
-    fn coverage_substitute_type(&mut self, ty: TypeId, map: &HashMap<SymbolId, TypeId>) -> TypeId {
-        if map.is_empty() {
-            return ty;
-        }
-
-        let mut substituter = Substituter::new(&mut self.ctx.type_registry, map);
-        substituter.substitute(ty)
-    }
-
     fn coverage_struct_constructor(&mut self, target_ty: TypeId) -> Option<CoverageConstructor> {
         let norm_target = self.ctx.type_registry.normalize(target_ty);
         match self.ctx.type_registry.get(norm_target).clone() {
@@ -388,7 +364,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let Def::Struct(def) = self.ctx.defs[def_id.0 as usize].clone() else {
                     return None;
                 };
-                let generic_map = self.coverage_generic_arg_map(&def.generics, &generic_args);
+                let generic_map = self.positional_generic_subst_map(&def.generics, &generic_args);
                 let mut field_names = Vec::with_capacity(def.fields.len());
                 let mut field_tys = Vec::with_capacity(def.fields.len());
                 for field in &def.fields {
@@ -399,7 +375,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .copied()
                         .unwrap_or(TypeId::ERROR);
                     field_names.push(field.name);
-                    field_tys.push(self.coverage_substitute_type(field_ty, &generic_map));
+                    field_tys
+                        .push(self.substitute_type_with_generic_arg_map(field_ty, &generic_map));
                 }
 
                 Some(CoverageConstructor {
@@ -428,7 +405,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.match_enum_def(def_id, Span::default(), "inspect enum coverage")?;
                 // Safety: semantic defs are immutable while type checking expressions.
                 let adt_def = unsafe { &*adt_def }.clone();
-                let generic_map = self.coverage_generic_arg_map(&adt_def.generics, &generic_args);
+                let generic_map =
+                    self.positional_generic_subst_map(&adt_def.generics, &generic_args);
                 Some(
                     adt_def
                         .variants
@@ -444,7 +422,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                         .get(&payload.id)
                                         .copied()
                                         .unwrap_or(TypeId::ERROR);
-                                    vec![self.coverage_substitute_type(ty, &generic_map)]
+                                    vec![
+                                        self.substitute_type_with_generic_arg_map(ty, &generic_map),
+                                    ]
                                 })
                                 .unwrap_or_default();
                             CoverageConstructor {

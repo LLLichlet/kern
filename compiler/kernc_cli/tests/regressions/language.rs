@@ -1246,6 +1246,139 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_nested_typed_struct_pattern_with_mismatched_const_generic_argument() {
+    let output = compile_source(
+        r#"
+type Inner[N: usize] = struct {
+    data: [N]u8,
+};
+
+type Outer[N: usize] = struct {
+    inner: Inner[N],
+};
+
+fn main() i32 {
+    let value = Outer[3].{ inner: Inner[3].{ data: [3]u8.{ 1, 2, 3 } } };
+    let Outer[3].{ inner: Inner[4].{ data } } = value;
+    return data.[0] as i32;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("expected `Inner[3]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("found `Inner[4]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_nested_typed_enum_pattern_with_mismatched_const_generic_argument() {
+    let output = compile_source(
+        r#"
+type Inner[N: usize] = enum {
+    A: [N]u8,
+    B,
+};
+
+type Outer[N: usize] = enum {
+    Wrap: Inner[N],
+    Done,
+};
+
+fn main() i32 {
+    let value = Outer[3].{ Wrap: Inner[3].{ A: [3]u8.{ 1, 2, 3 } } };
+    return match (value) {
+        .{ Wrap: Inner[4].{ A: _ } } => 0,
+        .{ Wrap: .B } => 1,
+        .Done => 2,
+    };
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("expected `Inner[3]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("found `Inner[4]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn runs_nested_typed_const_generic_patterns() {
+    let output = build_and_run_source(
+        r#"
+type Inner[N: usize] = enum {
+    A: [N]u8,
+    B,
+};
+
+type Outer[N: usize] = struct {
+    inner: Inner[N],
+};
+
+fn classify(value: Outer[3]) i32 {
+    return match (value) {
+        Outer[3].{ inner: Inner[3].{ A: _ } } => 4,
+        Outer[3].{ inner: .B } => 5,
+    };
+}
+
+fn main() i32 {
+    let value = Outer[3].{ inner: Inner[3].{ A: [3]u8.{ 4, 5, 6 } } };
+    let Outer[3].{ inner: Inner[3].{ A: payload } } =
+        Outer[3].{ inner: Inner[3].{ A: [3]u8.{ 4, 5, 6 } } } else return 1;
+    return classify(value) + (payload.[2] as i32) - 10;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "nested const-generic pattern regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_uninstantiated_generic_function_items_in_value_position() {
     let output = compile_source(
         r#"

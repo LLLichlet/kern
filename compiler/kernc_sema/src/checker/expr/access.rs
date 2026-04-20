@@ -1,5 +1,5 @@
 use super::ExprChecker;
-use crate::checker::{ConstEvaluator, Substituter};
+use crate::checker::ConstEvaluator;
 use crate::def::{Def, DefId};
 use crate::passes::ImportResolver;
 use crate::passes::TypeResolver;
@@ -58,25 +58,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             info.is_mut,
             info.vis.is_public(),
         );
-    }
-
-    fn build_generic_arg_map(
-        &self,
-        generics: &[ast::GenericParam],
-        generic_args: &[crate::ty::GenericArg],
-    ) -> Option<std::collections::HashMap<SymbolId, TypeId>> {
-        if generics.is_empty() || generic_args.is_empty() {
-            return None;
-        }
-
-        let mut map = std::collections::HashMap::with_capacity(generics.len());
-        for (index, param) in generics.iter().enumerate() {
-            if let Some(arg) = generic_args.get(index).and_then(|arg| arg.as_type()) {
-                map.insert(param.name, arg);
-            }
-        }
-
-        Some(map)
     }
 
     fn symbol_is_type_namespace(kind: SymbolKind) -> bool {
@@ -199,25 +180,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let adt_def = self.match_enum_def(def_id, span, "inspect a pattern variant")?;
                 // Safety: semantic defs are immutable while type checking expressions.
                 let adt_def = unsafe { &*adt_def };
-                let generic_map = self.build_generic_arg_map(&adt_def.generics, &generic_args);
+                let generic_map =
+                    self.positional_generic_subst_map(&adt_def.generics, &generic_args);
                 let variant = adt_def.variants.iter().find(|v| v.name == variant_name)?;
                 let definition_span = variant.name_span;
                 self.ctx.record_identifier_reference(span, definition_span);
 
                 let payload_ty = variant.payload_type.as_ref().map(|payload_ast| {
-                    let mut payload_ty = self
+                    let payload_ty = self
                         .ctx
                         .node_types
                         .get(&payload_ast.id)
                         .copied()
                         .unwrap_or(TypeId::ERROR);
-
-                    if let Some(map) = &generic_map {
-                        let mut subst = Substituter::new(&mut self.ctx.type_registry, map);
-                        payload_ty = subst.substitute(payload_ty);
-                    }
-
-                    payload_ty
+                    self.substitute_type_with_generic_arg_map(payload_ty, &generic_map)
                 });
                 Some(payload_ty)
             }
@@ -237,22 +213,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> Option<(Vec<ResolvedPatternField>, String)> {
         match self.ctx.type_registry.get(norm_target).clone() {
-            TypeKind::Def(def_id, generic_args) => match &self.ctx.defs[def_id.0 as usize] {
+            TypeKind::Def(def_id, generic_args) => match self.ctx.defs[def_id.0 as usize].clone() {
                 Def::Struct(def) => {
-                    let generic_map = self.build_generic_arg_map(&def.generics, &generic_args);
+                    let generic_map =
+                        self.positional_generic_subst_map(&def.generics, &generic_args);
                     let mut fields = Vec::with_capacity(def.fields.len());
                     for field in &def.fields {
-                        let mut field_ty = self
+                        let field_ty = self
                             .ctx
                             .node_types
                             .get(&field.type_node.id)
                             .copied()
                             .unwrap_or(TypeId::ERROR);
-
-                        if let Some(map) = &generic_map {
-                            let mut subst = Substituter::new(&mut self.ctx.type_registry, map);
-                            field_ty = subst.substitute(field_ty);
-                        }
+                        let field_ty =
+                            self.substitute_type_with_generic_arg_map(field_ty, &generic_map);
 
                         fields.push(ResolvedPatternField {
                             name: field.name,

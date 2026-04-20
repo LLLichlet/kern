@@ -247,3 +247,64 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn accepts_const_generic_named_struct_pointer_decay_to_anonymous_struct() {
+    let output = compile_source(
+        r#"
+type Buf[N: usize] = struct {
+    data: [N]u8,
+};
+
+fn first(ptr: *struct { data: [4]u8 }) i32 {
+    return ptr.data.[0] as i32;
+}
+
+fn main() i32 {
+    let buf = Buf[4].{ data: [4]u8.{ 7, 2, 3, 4 } };
+    return first(buf.&) - 7;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_const_generic_named_struct_pointer_decay_to_mismatched_anonymous_struct() {
+    let output = compile_source(
+        r#"
+type Buf[N: usize] = struct {
+    data: [N]u8,
+};
+
+fn first(ptr: *struct { data: [4]u8 }) i32 {
+    return ptr.data.[0] as i32;
+}
+
+fn main() i32 {
+    let buf = Buf[3].{ data: [3]u8.{ 7, 2, 3 } };
+    return first(buf.&);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expected `*struct { data: [4]u8 }`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}

@@ -1,4 +1,5 @@
 use super::*;
+use crate::ty::GenericArg;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(super) fn check_pointer_coercions(
@@ -254,7 +255,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return self.compare_named_fields_to_anonymous(
                         &act_s.generics,
                         &act_s.fields,
-                        &crate::ty::erase_non_type_generic_args(act_args),
+                        act_args,
                         &exp_fields,
                         true,
                     );
@@ -266,7 +267,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return self.compare_named_fields_to_anonymous(
                         &act_u.generics,
                         &act_u.fields,
-                        &crate::ty::erase_non_type_generic_args(act_args),
+                        act_args,
                         &exp_fields,
                         false,
                     );
@@ -351,7 +352,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         generics: &[kernc_ast::GenericParam],
         named_fields: &[kernc_ast::StructFieldDef],
-        args: &[TypeId],
+        args: &[GenericArg],
         anon_fields: &[crate::ty::AnonymousField],
         _sort_named: bool,
     ) -> bool {
@@ -371,7 +372,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let inst_ty = if !generics.is_empty() && !args.is_empty() {
                 let mut map = FastHashMap::default();
                 for (i, param) in generics.iter().enumerate() {
-                    map.insert(param.name, args[i]);
+                    if let Some(arg) = args.get(i).copied() {
+                        map.insert(param.name, arg);
+                    }
                 }
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                 subst.substitute(raw_ty)

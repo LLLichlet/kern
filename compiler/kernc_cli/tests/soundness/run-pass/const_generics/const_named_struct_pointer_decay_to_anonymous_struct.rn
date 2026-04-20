@@ -1,0 +1,16 @@
+// class: const-generic-anonymous-aggregate
+// source: named struct pointers should decay to equivalent anonymous struct pointers after const substitution
+// exit: 0
+
+type Buf[N: usize] = struct {
+    data: [N]u8,
+};
+
+fn first(ptr: *struct { data: [4]u8 }) i32 {
+    return ptr.data.[0] as i32;
+}
+
+fn main() i32 {
+    let buf = Buf[4].{ data: [4]u8.{ 7, 2, 3, 4 } };
+    return first(buf.&) - 7;
+}

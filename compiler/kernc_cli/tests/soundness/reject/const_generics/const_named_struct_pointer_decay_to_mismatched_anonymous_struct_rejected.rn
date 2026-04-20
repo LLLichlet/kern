@@ -1,0 +1,16 @@
+// class: const-generic-anonymous-aggregate
+// source: named struct pointers must not decay to anonymous struct pointers with different const-instantiated field shapes
+// stderr: expected `*struct { data: [4]u8 }`
+
+type Buf[N: usize] = struct {
+    data: [N]u8,
+};
+
+fn first(ptr: *struct { data: [4]u8 }) i32 {
+    return ptr.data.[0] as i32;
+}
+
+fn main() i32 {
+    let buf = Buf[3].{ data: [3]u8.{ 7, 2, 3 } };
+    return first(buf.&);
+}

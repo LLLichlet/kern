@@ -437,6 +437,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 TypeKind::TraitObject(g_id, g_args, g_assoc_bindings),
                 TypeKind::TraitObject(c_id, c_args, c_assoc_bindings),
             ) if g_id == c_id => {
+                // Function-item/closure-to-`*Fn` coercions are exact ABI matches.
+                // They may instantiate generics, but they do not synthesize adapter thunks
+                // for trait-object upcasts or other signature reshaping. Keep this branch
+                // structurally exact so `take(fn returning *Derived)` does not silently
+                // masquerade as `*Fn() *Base`.
                 if g_args.len() != c_args.len() {
                     return false;
                 }
@@ -602,6 +607,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             (ConstGeneric::Param(name, _), other) => {
                 if let Some(&existing) = const_map.get(&name) {
                     existing == other
+                } else if matches!(other, ConstGeneric::Param(other_name, _) if other_name == name)
+                {
+                    const_map.insert(name, other);
+                    true
                 } else if self.const_param_occurs_in_const_generic_with_map(name, other, const_map)
                 {
                     false
@@ -613,6 +622,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             (other, ConstGeneric::Param(name, _)) => {
                 if let Some(&existing) = const_map.get(&name) {
                     existing == other
+                } else if matches!(other, ConstGeneric::Param(other_name, _) if other_name == name)
+                {
+                    const_map.insert(name, other);
+                    true
                 } else if self.const_param_occurs_in_const_generic_with_map(name, other, const_map)
                 {
                     false

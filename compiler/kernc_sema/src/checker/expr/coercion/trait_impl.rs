@@ -552,6 +552,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             (crate::ty::ConstGeneric::Param(name, _), other) => {
                 if let Some(&existing) = const_map.get(&name) {
                     existing == other
+                } else if matches!(other, crate::ty::ConstGeneric::Param(other_name, _) if other_name == name)
+                {
+                    const_map.insert(name, other);
+                    true
                 } else if self.const_param_occurs_in_const_generic_with_map(name, other, const_map)
                 {
                     false

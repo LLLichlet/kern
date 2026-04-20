@@ -172,79 +172,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let source_norm = self.resolve_tv(source_trait_ty);
         let target_norm = self.resolve_tv(target_trait_ty);
 
-        if self.trait_object_satisfies_required(source_norm, target_norm) {
-            return true;
-        }
-
-        let mut visited = FastHashSet::default();
-        self.find_supertrait_in_hierarchy(source_norm, target_norm, &mut visited)
-            .is_some()
-    }
-
-    pub(super) fn find_supertrait_in_hierarchy(
-        &mut self,
-        source_trait_ty: TypeId,
-        target_trait_ty: TypeId,
-        visited: &mut FastHashSet<TypeId>,
-    ) -> Option<TypeId> {
-        let source_norm = self.resolve_tv(source_trait_ty);
-        let target_norm = self.resolve_tv(target_trait_ty);
-
-        if !visited.insert(source_norm) {
-            return None;
-        }
-
-        let TypeKind::TraitObject(source_def_id, source_args, source_assoc_bindings) =
-            self.ctx.type_registry.get(source_norm).clone()
+        let TypeKind::TraitObject(target_def_id, target_args, _) =
+            self.ctx.type_registry.get(target_norm).clone()
         else {
-            return None;
+            return false;
         };
 
-        let Def::Trait(trait_def) = self.ctx.defs[source_def_id.0 as usize].clone() else {
-            return None;
-        };
-
-        let trait_arg_map: FastHashMap<SymbolId, GenericArg> = trait_def
-            .generics
-            .iter()
-            .zip(source_args.iter())
-            .map(|(param, arg)| (param.name, *arg))
-            .collect();
-        let assoc_binding_map = source_assoc_bindings
-            .into_iter()
-            .collect::<FastHashMap<_, _>>();
-
-        for &super_ty in &trait_def.resolved_supertraits {
-            let inst_super_ty = if trait_arg_map.is_empty() {
-                super_ty
-            } else {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
-                subst.substitute(super_ty)
-            };
-            let inst_super_ty = crate::checker::substitute_associated_types(
-                &mut self.ctx.type_registry,
-                inst_super_ty,
-                &assoc_binding_map,
-            );
-            let inst_super_ty = self.resolve_tv(inst_super_ty);
-            let inst_super_norm = crate::query::augment_trait_object_assoc_bindings_from_map(
-                self.ctx,
-                inst_super_ty,
-                &assoc_binding_map,
-            );
-
-            if self.trait_object_satisfies_required(inst_super_norm, target_norm) {
-                return Some(inst_super_norm);
-            }
-
-            if let Some(found) =
-                self.find_supertrait_in_hierarchy(inst_super_norm, target_norm, visited)
-            {
-                return Some(found);
-            }
-        }
-
-        None
+        crate::query::trait_object_view_from_hierarchy(
+            self.ctx,
+            source_norm,
+            target_def_id,
+            &target_args,
+        )
+        .is_some_and(|candidate_view| self.trait_object_satisfies_required(candidate_view, target_norm))
     }
 
     fn check_value_to_trait_object_pointer(

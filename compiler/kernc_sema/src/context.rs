@@ -477,7 +477,7 @@ impl<'a> SemaContext<'a> {
             return None;
         }
 
-        let initial_requirements = self.instantiated_impl_requirements(
+        let initial_requirements = self.instantiated_impl_requirements_with_supertraits(
             &impl_def,
             &FastHashMap::<SymbolId, crate::ty::GenericArg>::default(),
         );
@@ -617,7 +617,8 @@ impl<'a> SemaContext<'a> {
                 }
                 head_map
             };
-            let requirements = self.instantiated_impl_requirements(&candidate_impl, &head_map);
+            let requirements =
+                self.instantiated_impl_requirements_with_supertraits(&candidate_impl, &head_map);
             for requirement in requirements {
                 path.push(requirement);
                 if self.obligation_matches_impl_head(
@@ -655,7 +656,36 @@ impl<'a> SemaContext<'a> {
         impl_def: &ImplDef,
         map: &FastHashMap<SymbolId, crate::ty::GenericArg>,
     ) -> Vec<ImplRequirementEdge> {
+        self.instantiated_impl_requirements_inner(impl_def, map, false)
+    }
+
+    fn instantiated_impl_requirements_with_supertraits(
+        &mut self,
+        impl_def: &ImplDef,
+        map: &FastHashMap<SymbolId, crate::ty::GenericArg>,
+    ) -> Vec<ImplRequirementEdge> {
+        self.instantiated_impl_requirements_inner(impl_def, map, true)
+    }
+
+    fn instantiated_impl_requirements_inner(
+        &mut self,
+        impl_def: &ImplDef,
+        map: &FastHashMap<SymbolId, crate::ty::GenericArg>,
+        include_supertraits: bool,
+    ) -> Vec<ImplRequirementEdge> {
         let mut requirements = Vec::new();
+        let instantiated_impl_target = {
+            let original_target = self
+                .node_types
+                .get(&impl_def.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let substituted_target = {
+                let mut subst = Substituter::new(&mut self.type_registry, map);
+                subst.substitute(original_target)
+            };
+            self.type_registry.normalize(substituted_target)
+        };
 
         for clause in &impl_def.where_clauses {
             let target_ty = {
@@ -694,6 +724,77 @@ impl<'a> SemaContext<'a> {
                     trait_ty,
                 });
             }
+        }
+
+        if !include_supertraits {
+            return requirements;
+        }
+
+        let Some(trait_ty_node) = &impl_def.trait_type else {
+            return requirements;
+        };
+        let instantiated_trait_ty = {
+            let original_trait_ty = self
+                .node_types
+                .get(&trait_ty_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let substituted_trait_ty = {
+                let mut subst = Substituter::new(&mut self.type_registry, map);
+                subst.substitute(original_trait_ty)
+            };
+            self.type_registry.normalize(substituted_trait_ty)
+        };
+        let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
+            self.type_registry.get(instantiated_trait_ty).clone()
+        else {
+            return requirements;
+        };
+        let Some(Def::Trait(trait_def)) = self.defs.get(trait_def_id.0 as usize).cloned() else {
+            return requirements;
+        };
+
+        let trait_arg_map = trait_def
+            .generics
+            .iter()
+            .zip(trait_args.iter())
+            .map(|(param, arg)| (param.name, *arg))
+            .collect::<FastHashMap<_, _>>();
+        let assoc_binding_map = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
+
+        for (supertrait_index, &supertrait_ty) in trait_def.resolved_supertraits.iter().enumerate() {
+            let substituted_supertrait = if trait_arg_map.is_empty() {
+                supertrait_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.type_registry, &trait_arg_map);
+                subst.substitute(supertrait_ty)
+            };
+            let substituted_supertrait = crate::checker::substitute_associated_types(
+                &mut self.type_registry,
+                substituted_supertrait,
+                &assoc_binding_map,
+            );
+            let substituted_supertrait = crate::query::augment_trait_object_assoc_bindings_from_map(
+                self,
+                substituted_supertrait,
+                &assoc_binding_map,
+            );
+            let substituted_supertrait = self.type_registry.normalize(substituted_supertrait);
+            if !matches!(self.type_registry.get(substituted_supertrait), TypeKind::TraitObject(..))
+            {
+                continue;
+            }
+
+            requirements.push(ImplRequirementEdge {
+                impl_id: impl_def.id,
+                requirement_span: trait_def
+                    .supertraits
+                    .get(supertrait_index)
+                    .map(|supertrait| supertrait.span)
+                    .unwrap_or(impl_def.span),
+                target_ty: instantiated_impl_target,
+                trait_ty: substituted_supertrait,
+            });
         }
 
         requirements
@@ -751,6 +852,9 @@ impl<'a> SemaContext<'a> {
             return None;
         }
 
+        // Paterson boundedness only applies to prerequisites written on the impl itself.
+        // Implicit supertrait obligations participate in cycle detection, but they must not be
+        // reinterpreted as if they were user-authored `where` clauses for structural checks.
         for requirement in self.instantiated_impl_requirements(
             &impl_def,
             &FastHashMap::<SymbolId, crate::ty::GenericArg>::default(),

@@ -10,6 +10,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.validate_supertrait_graph();
         self.validate_trait_impl_orphans();
         self.validate_trait_impl_coherence();
+        self.validate_trait_impl_supertrait_contracts();
         self.validate_impl_associated_type_targets();
     }
 
@@ -338,30 +339,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             .map(|(param, arg)| (param.name, *arg))
             .collect::<HashMap<_, _>>();
 
-        let prev_bounds_len = self.ctx.active_bounds.len();
-        for clause in &impl_def.where_clauses {
-            let target_ty = self.ctx.type_registry.normalize(
-                self.ctx
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
-            let bounds = clause
-                .bounds
-                .iter()
-                .map(|bound| {
-                    self.ctx.type_registry.normalize(
-                        self.ctx
-                            .node_types
-                            .get(&bound.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR),
-                    )
-                })
-                .collect::<Vec<_>>();
-            self.ctx.active_bounds.push((target_ty, bounds));
-        }
+        let prev_bounds_len = self.push_impl_context_where_bounds(impl_def);
         for clause in &impl_assoc.where_clauses {
             let target_ty = self.ctx.type_registry.normalize(
                 self.ctx
@@ -444,6 +422,158 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         self.ctx.active_bounds.truncate(prev_bounds_len);
         self.ctx.clear_active_bound_caches();
+    }
+
+    fn push_impl_context_where_bounds(&mut self, impl_def: &ImplDef) -> usize {
+        let prev_bounds_len = self.ctx.active_bounds.len();
+        for clause in &impl_def.where_clauses {
+            let target_ty = self.ctx.type_registry.normalize(
+                self.ctx
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
+            let bounds = clause
+                .bounds
+                .iter()
+                .map(|bound| {
+                    self.ctx.type_registry.normalize(
+                        self.ctx
+                            .node_types
+                            .get(&bound.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR),
+                    )
+                })
+                .collect::<Vec<_>>();
+            self.ctx.active_bounds.push((target_ty, bounds));
+        }
+        if self.ctx.active_bounds.len() != prev_bounds_len {
+            self.ctx.clear_active_bound_caches();
+        }
+        prev_bounds_len
+    }
+
+    fn validate_trait_impl_supertrait_contracts(&mut self) {
+        let trait_impl_ids = self.ctx.trait_impls.clone();
+        for impl_id in trait_impl_ids {
+            let Some(impl_def) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| {
+                if let Def::Impl(impl_def) = def {
+                    Some(impl_def.clone())
+                } else {
+                    None
+                }
+            }) else {
+                continue;
+            };
+
+            let Some(trait_ty_node) = &impl_def.trait_type else {
+                continue;
+            };
+
+            let resolved_target = self
+                .ctx
+                .type_registry
+                .normalize(
+                    self.ctx
+                        .node_types
+                        .get(&impl_def.target_type.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR),
+                );
+            let resolved_trait = self
+                .ctx
+                .type_registry
+                .normalize(
+                    self.ctx
+                        .node_types
+                        .get(&trait_ty_node.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR),
+                );
+            if resolved_target == TypeId::ERROR || resolved_trait == TypeId::ERROR {
+                continue;
+            }
+
+            let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
+                self.ctx.type_registry.get(resolved_trait).clone()
+            else {
+                continue;
+            };
+            let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned()
+            else {
+                continue;
+            };
+            if trait_def.resolved_supertraits.is_empty() {
+                continue;
+            }
+
+            let trait_name = self.ctx.resolve(trait_def.name).to_string();
+            let trait_arg_map = trait_def
+                .generics
+                .iter()
+                .zip(trait_args.iter())
+                .map(|(param, arg)| (param.name, *arg))
+                .collect::<FastHashMap<_, _>>();
+            let assoc_binding_map = assoc_bindings
+                .into_iter()
+                .collect::<FastHashMap<_, _>>();
+
+            let prev_bounds_len = self.push_impl_context_where_bounds(&impl_def);
+            for super_ty in trait_def.resolved_supertraits {
+                let instantiated_super = if trait_arg_map.is_empty() {
+                    super_ty
+                } else {
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+                    subst.substitute(super_ty)
+                };
+                let instantiated_super = crate::checker::substitute_associated_types(
+                    &mut self.ctx.type_registry,
+                    instantiated_super,
+                    &assoc_binding_map,
+                );
+                let instantiated_super = crate::query::augment_trait_object_assoc_bindings_from_map(
+                    self.ctx,
+                    instantiated_super,
+                    &assoc_binding_map,
+                );
+                let instantiated_super = self.ctx.type_registry.normalize(instantiated_super);
+                if instantiated_super == TypeId::ERROR {
+                    continue;
+                }
+
+                let super_ok = {
+                    let mut checker = ExprChecker::new(self.ctx, None);
+                    checker.check_trait_impl(resolved_target, instantiated_super)
+                };
+                if super_ok {
+                    continue;
+                }
+
+                let target_str = self.ctx.ty_to_string(resolved_target);
+                let super_str = self.ctx.ty_to_string(instantiated_super);
+                self.ctx
+                    .struct_error(
+                        impl_def.span,
+                        format!(
+                            "impl of trait `{}` is missing a required supertrait proof",
+                            trait_name
+                        ),
+                    )
+                    .with_span_label(
+                        impl_def.span,
+                        "this impl does not prove the declared supertrait contract",
+                    )
+                    .with_hint(format!("required bound: `{}: {}`", target_str, super_str))
+                    .with_hint(
+                        "every trait impl must also establish each declared supertrait for the same target",
+                    )
+                    .emit();
+            }
+            self.ctx.active_bounds.truncate(prev_bounds_len);
+            self.ctx.clear_active_bound_caches();
+        }
     }
 
     fn bind_trait_assoc_types(&mut self, assoc_type_ids: &[DefId], scope: ScopeId) {

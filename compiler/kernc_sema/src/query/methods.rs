@@ -490,10 +490,16 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         trait_args: &[crate::ty::GenericArg],
         assoc_bindings: &[(DefId, TypeId)],
         receiver_ty: TypeId,
-        visited: &mut FastHashSet<DefId>,
+        visited: &mut FastHashSet<TypeId>,
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        if !visited.insert(trait_def_id) {
+        let trait_view = self.ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def_id,
+            trait_args.to_vec(),
+            assoc_bindings.to_vec(),
+        ));
+        let trait_view = self.ctx.type_registry.normalize(trait_view);
+        if !visited.insert(trait_view) {
             return;
         }
 
@@ -621,7 +627,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         trait_def_id: DefId,
         lookup: TraitMethodLookup<'_>,
-        visited: &mut FastHashSet<DefId>,
+        visited: &mut FastHashSet<TypeId>,
     ) -> Option<MemberResolution> {
         let TraitMethodLookup {
             trait_args,
@@ -630,7 +636,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             receiver_ty,
             diagnostic_span,
         } = lookup;
-        if !visited.insert(trait_def_id) {
+        let trait_view = self.ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def_id,
+            trait_args.to_vec(),
+            assoc_bindings.to_vec(),
+        ));
+        let trait_view = self.ctx.type_registry.normalize(trait_view);
+        if !visited.insert(trait_view) {
             return None;
         }
 

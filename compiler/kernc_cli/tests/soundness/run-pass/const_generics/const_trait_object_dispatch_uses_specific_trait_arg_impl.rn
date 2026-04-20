@@ -1,0 +1,27 @@
+// class: const-generic-trait-object-dispatch
+// source: trait-object dynamic dispatch should choose the more specific trait-argument impl after const specialization
+// exit: 0
+
+type Score[N: usize] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl[N: usize] *X: Score[N] {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+impl *X: Score[4] {
+    fn value() i32 {
+        return 2;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let score = *Score[4].{ x.& };
+    return score.value() - 2;
+}

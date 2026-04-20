@@ -2341,6 +2341,82 @@ fn main() i32 {
 }
 
 #[test]
+fn dispatches_trait_objects_through_const_specific_target_impls() {
+    let output = build_and_run_source(
+        r#"
+type Score = trait {
+    value: fn() i32,
+};
+
+type Buf[N: usize] = struct {};
+
+impl[N: usize] *Buf[N]: Score {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+impl *Buf[4]: Score {
+    fn value() i32 {
+        return 2;
+    }
+}
+
+fn main() i32 {
+    let buf = Buf[4].{};
+    let score = *Score.{ buf.& };
+    return score.value() - 2;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn dispatches_trait_objects_through_const_specific_trait_args() {
+    let output = build_and_run_source(
+        r#"
+type Score[N: usize] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl[N: usize] *X: Score[N] {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+impl *X: Score[4] {
+    fn value() i32 {
+        return 2;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let score = *Score[4].{ x.& };
+    return score.value() - 2;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_assignment_through_struct_mut_array_fields_only() {
     let output = compile_source(
         r#"

@@ -30,7 +30,7 @@ use std::ptr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use kernc_mir::{MirFunction, MirLocalId, MirModule};
+use kernc_mir::{MirFunction, MirLocalId, MirModule, MirStruct};
 use kernc_mono::MonoId;
 use kernc_sema::def::DefId;
 use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind, TypeRegistry};
@@ -143,8 +143,10 @@ pub struct EmitObjectReport {
 struct DebugInfoState<'ctx> {
     builder: DebugInfoBuilder<'ctx>,
     compile_unit: Option<DICompileUnit<'ctx>>,
+    primary_file: Option<DIFile<'ctx>>,
     files: HashMap<FileId, DIFile<'ctx>>,
     subprograms: HashMap<MonoId, DISubprogram<'ctx>>,
+    types: HashMap<TypeId, DIType<'ctx>>,
     finalized: bool,
 }
 
@@ -157,6 +159,7 @@ pub struct CodeGenerator<'ctx, 'a> {
     type_registry: &'a TypeRegistry,
 
     structs: HashMap<MonoId, StructType<'ctx>>,
+    mir_structs: HashMap<MonoId, MirStruct>,
     struct_fields: HashMap<MonoId, Vec<SymbolId>>,
     union_ids: std::collections::HashSet<MonoId>,
     globals: HashMap<MonoId, GlobalValue<'ctx>>,
@@ -187,6 +190,12 @@ pub struct CodeGenerator<'ctx, 'a> {
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn prepare_from_mir(&mut self, module: &MirModule) {
+        self.mir_structs = module
+            .structs
+            .iter()
+            .cloned()
+            .map(|mir_struct| (mir_struct.id, mir_struct))
+            .collect();
         self.def_mono_map = module.mono.def_mono_map.clone();
         self.pure_enum_tag_map = module.mono.pure_enum_tag_map.clone();
         self.adt_union_map = module.mono.adt_union_map.clone();
@@ -349,6 +358,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             sess,
             type_registry,
             structs: HashMap::new(),
+            mir_structs: HashMap::new(),
             struct_fields: HashMap::new(),
             union_ids: std::collections::HashSet::new(),
             globals: HashMap::new(),
@@ -544,8 +554,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             self.debug_info = Some(DebugInfoState {
                 builder: self.module.create_debug_info_builder(),
                 compile_unit: None,
+                primary_file: None,
                 files: HashMap::new(),
                 subprograms: HashMap::new(),
+                types: HashMap::new(),
                 finalized: false,
             });
         }
@@ -593,6 +605,304 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         ))
     }
 
+    fn debug_pointer_bytes(&self) -> u64 {
+        self.sess.target.pointer_size
+    }
+
+    fn debug_pointer_bits(&self) -> u64 {
+        self.debug_pointer_bytes() * 8
+    }
+
+    fn debug_align_to(offset: u64, align: u64) -> u64 {
+        if align <= 1 {
+            offset
+        } else {
+            (offset + align - 1) & !(align - 1)
+        }
+    }
+
+    fn debug_primitive_align_bytes(&self, primitive: PrimitiveType) -> u64 {
+        match primitive {
+            PrimitiveType::Void | PrimitiveType::Never => 1,
+            PrimitiveType::Bool | PrimitiveType::I8 | PrimitiveType::U8 => 1,
+            PrimitiveType::I16 | PrimitiveType::U16 => 2,
+            PrimitiveType::I32 | PrimitiveType::U32 | PrimitiveType::F32 => 4,
+            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::F64 => 8,
+            PrimitiveType::ISize | PrimitiveType::USize | PrimitiveType::Str => {
+                self.debug_pointer_bytes()
+            }
+            PrimitiveType::I128 | PrimitiveType::U128 => 16,
+        }
+    }
+
+    fn debug_primitive_size_bytes(&self, primitive: PrimitiveType) -> u64 {
+        match primitive {
+            PrimitiveType::Void | PrimitiveType::Never => 0,
+            PrimitiveType::Bool | PrimitiveType::I8 | PrimitiveType::U8 => 1,
+            PrimitiveType::I16 | PrimitiveType::U16 => 2,
+            PrimitiveType::I32 | PrimitiveType::U32 | PrimitiveType::F32 => 4,
+            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::F64 => 8,
+            PrimitiveType::ISize | PrimitiveType::USize | PrimitiveType::Str => {
+                self.debug_pointer_bytes()
+            }
+            PrimitiveType::I128 | PrimitiveType::U128 => 16,
+        }
+    }
+
+    fn debug_has_packed_attr(&self, attrs: &[kernc_ast::MetaItem]) -> bool {
+        attrs.iter().any(|attr| {
+            matches!(attr, kernc_ast::MetaItem::Marker(id) if self.resolve_symbol(*id) == "packed")
+        })
+    }
+
+    fn debug_mir_struct_id_for_type(&self, ty: TypeId) -> Option<MonoId> {
+        let norm = self.type_registry.normalize(ty);
+        match self.type_registry.get(norm).clone() {
+            TypeKind::Def(def_id, args) | TypeKind::Enum(def_id, args) => {
+                self.def_mono_map.get(&(def_id, args)).copied()
+            }
+            TypeKind::EnumPayload(def_id, args) => self
+                .def_mono_map
+                .get(&(def_id, args))
+                .and_then(|wrapper_id| self.adt_union_map.get(wrapper_id))
+                .copied(),
+            TypeKind::AnonymousStruct(..) => self.anon_struct_map.get(&norm).copied(),
+            TypeKind::AnonymousUnion(..) => self.anon_union_map.get(&norm).copied(),
+            TypeKind::AnonymousEnum(..) => self.anon_enum_map.get(&norm).copied(),
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let enum_ty = self.type_registry.normalize(enum_ty);
+                self.anon_enum_map
+                    .get(&enum_ty)
+                    .and_then(|wrapper_id| self.adt_union_map.get(wrapper_id))
+                    .copied()
+            }
+            _ => None,
+        }
+    }
+
+    fn debug_mir_struct_for_type(&self, ty: TypeId) -> Option<&MirStruct> {
+        let struct_id = self.debug_mir_struct_id_for_type(ty)?;
+        self.mir_structs.get(&struct_id)
+    }
+
+    fn debug_cached_type(&self, ty: TypeId) -> Option<DIType<'ctx>> {
+        self.debug_info
+            .as_ref()
+            .and_then(|state| state.types.get(&ty).copied())
+    }
+
+    fn debug_cache_type(&mut self, ty: TypeId, di_ty: DIType<'ctx>) {
+        if let Some(state) = self.ensure_debug_info_state() {
+            state.types.insert(ty, di_ty);
+        }
+    }
+
+    fn debug_type_scope(&mut self) -> Option<(DICompileUnit<'ctx>, DIFile<'ctx>)> {
+        let is_optimized = self.debug_info_is_optimized;
+        let producer = format!("kernc {}", env!("CARGO_PKG_VERSION"));
+        let state = self.ensure_debug_info_state()?;
+        let file = if let Some(file) = state.primary_file {
+            file
+        } else if let Some(file) = state.files.values().next().copied() {
+            state.primary_file = Some(file);
+            file
+        } else {
+            let file = state.builder.create_file("unknown.rn", ".");
+            state.primary_file = Some(file);
+            file
+        };
+        let unit = if let Some(unit) = state.compile_unit {
+            unit
+        } else {
+            let unit = state
+                .builder
+                .create_compile_unit(file, &producer, is_optimized);
+            state.compile_unit = Some(unit);
+            unit
+        };
+        Some((unit, file))
+    }
+
+    fn debug_mir_struct_layout(
+        &mut self,
+        mir_struct: &MirStruct,
+    ) -> (u64, u64, Vec<(String, TypeId, u64, u64, u32)>) {
+        let packed = self.debug_has_packed_attr(&mir_struct.attributes);
+        if mir_struct.is_union {
+            let align_bytes = if packed {
+                1
+            } else {
+                mir_struct.union_align.max(1) as u64
+            };
+            let size_bytes = if packed {
+                mir_struct.union_size as u64
+            } else {
+                Self::debug_align_to(mir_struct.union_size as u64, align_bytes)
+            };
+            let mut members = Vec::with_capacity(mir_struct.fields.len());
+            for field in &mir_struct.fields {
+                let field_size_bits = self.debug_type_size_bytes(field.ty) * 8;
+                let field_align_bits = (if packed {
+                    1
+                } else {
+                    self.debug_type_align_bytes(field.ty).max(1)
+                } * 8) as u32;
+                members.push((
+                    self.resolve_symbol(field.name).to_string(),
+                    field.ty,
+                    0,
+                    field_size_bits,
+                    field_align_bits,
+                ));
+            }
+            return (size_bytes.max(1), align_bytes.max(1), members);
+        }
+
+        let mut offset_bytes = 0;
+        let mut struct_align_bytes = if packed { 1 } else { 1 };
+        let mut members = Vec::with_capacity(mir_struct.fields.len());
+        for field in &mir_struct.fields {
+            let field_align_bytes = if packed {
+                1
+            } else {
+                self.debug_type_align_bytes(field.ty).max(1)
+            };
+            let field_size_bytes = self.debug_type_size_bytes(field.ty);
+            if !packed {
+                struct_align_bytes = struct_align_bytes.max(field_align_bytes);
+                offset_bytes = Self::debug_align_to(offset_bytes, field_align_bytes);
+            }
+            members.push((
+                self.resolve_symbol(field.name).to_string(),
+                field.ty,
+                offset_bytes * 8,
+                field_size_bytes * 8,
+                (field_align_bytes * 8) as u32,
+            ));
+            offset_bytes += field_size_bytes;
+        }
+
+        let size_bytes = Self::debug_align_to(offset_bytes, struct_align_bytes.max(1));
+        (size_bytes, struct_align_bytes.max(1), members)
+    }
+
+    fn debug_type_align_bytes(&mut self, ty: TypeId) -> u64 {
+        let norm = self.type_registry.normalize(ty);
+        match self.type_registry.get(norm).clone() {
+            TypeKind::Primitive(primitive) => self.debug_primitive_align_bytes(primitive),
+            TypeKind::Pointer { .. }
+            | TypeKind::VolatilePtr { .. }
+            | TypeKind::Function { .. }
+            | TypeKind::FnDef(..)
+            | TypeKind::Slice { .. }
+            | TypeKind::TraitObject(..) => self.debug_pointer_bytes(),
+            TypeKind::Simd { elem, lanes } => {
+                if elem == TypeId::BOOL {
+                    1
+                } else {
+                    let elem_align = self.debug_type_align_bytes(elem);
+                    let elem_size = self.debug_type_size_bytes(elem);
+                    elem_align.max(elem_size.saturating_mul(lanes as u64))
+                }
+            }
+            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
+                self.debug_type_align_bytes(elem).max(1)
+            }
+            TypeKind::ClosureInterface { .. } => 1,
+            TypeKind::AnonymousState { captures, .. } => {
+                let mut offset_bytes = 0;
+                let mut struct_align_bytes = 1;
+                for capture in captures {
+                    let capture_align = self.debug_type_align_bytes(capture).max(1);
+                    struct_align_bytes = struct_align_bytes.max(capture_align);
+                    offset_bytes = Self::debug_align_to(offset_bytes, capture_align);
+                    offset_bytes += self.debug_type_size_bytes(capture);
+                }
+                struct_align_bytes.max(1)
+            }
+            TypeKind::Def(..)
+            | TypeKind::Enum(..)
+            | TypeKind::EnumPayload(..)
+            | TypeKind::AnonymousStruct(..)
+            | TypeKind::AnonymousUnion(..)
+            | TypeKind::AnonymousEnum(..)
+            | TypeKind::AnonymousEnumPayload(_) => self
+                .debug_mir_struct_for_type(norm)
+                .cloned()
+                .map(|mir_struct| self.debug_mir_struct_layout(&mir_struct).1)
+                .unwrap_or(1),
+            TypeKind::Projection { .. }
+            | TypeKind::Alias(..)
+            | TypeKind::Param(_)
+            | TypeKind::Associated(..)
+            | TypeKind::Module(_)
+            | TypeKind::TypeVar(_)
+            | TypeKind::Error => 1,
+        }
+    }
+
+    fn debug_type_size_bytes(&mut self, ty: TypeId) -> u64 {
+        let norm = self.type_registry.normalize(ty);
+        match self.type_registry.get(norm).clone() {
+            TypeKind::Primitive(primitive) => self.debug_primitive_size_bytes(primitive),
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let elem = self.type_registry.normalize(elem);
+                if matches!(
+                    self.type_registry.get(elem),
+                    TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
+                ) {
+                    self.debug_pointer_bytes() * 2
+                } else {
+                    self.debug_pointer_bytes()
+                }
+            }
+            TypeKind::Function { .. } | TypeKind::FnDef(..) => self.debug_pointer_bytes(),
+            TypeKind::Slice { .. } | TypeKind::TraitObject(..) => self.debug_pointer_bytes() * 2,
+            TypeKind::Simd { elem, lanes } => {
+                if elem == TypeId::BOOL {
+                    (lanes as u64).div_ceil(8)
+                } else {
+                    self.debug_type_size_bytes(elem)
+                        .saturating_mul(lanes as u64)
+                }
+            }
+            TypeKind::Array { elem, len, .. } => self
+                .const_generic_usize(len, Span::default())
+                .map(|len| self.debug_type_size_bytes(elem).saturating_mul(len))
+                .unwrap_or(0),
+            TypeKind::ArrayInfer { .. } | TypeKind::ClosureInterface { .. } => 0,
+            TypeKind::AnonymousState { captures, .. } => {
+                let mut offset_bytes = 0;
+                let mut struct_align_bytes = 1;
+                for capture in captures {
+                    let capture_align = self.debug_type_align_bytes(capture).max(1);
+                    struct_align_bytes = struct_align_bytes.max(capture_align);
+                    offset_bytes = Self::debug_align_to(offset_bytes, capture_align);
+                    offset_bytes += self.debug_type_size_bytes(capture);
+                }
+                Self::debug_align_to(offset_bytes, struct_align_bytes.max(1))
+            }
+            TypeKind::Def(..)
+            | TypeKind::Enum(..)
+            | TypeKind::EnumPayload(..)
+            | TypeKind::AnonymousStruct(..)
+            | TypeKind::AnonymousUnion(..)
+            | TypeKind::AnonymousEnum(..)
+            | TypeKind::AnonymousEnumPayload(_) => self
+                .debug_mir_struct_for_type(norm)
+                .cloned()
+                .map(|mir_struct| self.debug_mir_struct_layout(&mir_struct).0)
+                .unwrap_or(0),
+            TypeKind::Projection { .. }
+            | TypeKind::Alias(..)
+            | TypeKind::Param(_)
+            | TypeKind::Associated(..)
+            | TypeKind::Module(_)
+            | TypeKind::TypeVar(_)
+            | TypeKind::Error => 0,
+        }
+    }
+
     fn debug_type_name(&self, ty: TypeId) -> String {
         let norm = self.type_registry.normalize(ty);
         match self.type_registry.get(norm).clone() {
@@ -630,7 +940,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     self.debug_type_name(elem)
                 )
             }
-            TypeKind::Array { elem, .. } => format!("[_]{}", self.debug_type_name(elem)),
+            TypeKind::Array { elem, len } => format!("[{}]{}", len, self.debug_type_name(elem)),
             TypeKind::Slice { is_mut, elem } => {
                 format!(
                     "[]{}{}",
@@ -640,24 +950,27 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             TypeKind::Function { .. } => "fn".to_string(),
             TypeKind::ClosureInterface { .. } => "Fn".to_string(),
+            TypeKind::TraitObject(..) => "trait-object".to_string(),
+            TypeKind::Simd { elem, lanes } => format!("{}x{}", self.debug_type_name(elem), lanes),
+            TypeKind::AnonymousState { .. } => "<closure-state>".to_string(),
             TypeKind::Def(..)
             | TypeKind::Enum(..)
             | TypeKind::EnumPayload(..)
-            | TypeKind::TraitObject(..)
-            | TypeKind::Projection { .. }
             | TypeKind::AnonymousStruct(..)
             | TypeKind::AnonymousUnion(..)
             | TypeKind::AnonymousEnum(..)
-            | TypeKind::AnonymousEnumPayload(_)
+            | TypeKind::AnonymousEnumPayload(_) => self
+                .debug_mir_struct_for_type(norm)
+                .map(|mir_struct| mir_struct.name.clone())
+                .unwrap_or_else(|| "<unnamed>".to_string()),
+            TypeKind::Projection { .. }
             | TypeKind::Alias(..)
             | TypeKind::Param(_)
             | TypeKind::Associated(..)
             | TypeKind::FnDef(..)
             | TypeKind::Module(_)
             | TypeKind::TypeVar(_)
-            | TypeKind::Simd { .. }
             | TypeKind::ArrayInfer { .. }
-            | TypeKind::AnonymousState { .. }
             | TypeKind::Error => "<unnamed>".to_string(),
         }
     }
@@ -692,39 +1005,289 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
+    fn debug_build_named_composite_type(
+        &mut self,
+        norm: TypeId,
+        mir_struct: MirStruct,
+    ) -> Option<DIType<'ctx>> {
+        const DW_TAG_STRUCTURE_TYPE: u32 = 0x13;
+        const DW_TAG_UNION_TYPE: u32 = 0x17;
+
+        let (scope, file) = self.debug_type_scope()?;
+        let name = mir_struct.name.clone();
+        let unique_id = format!("kern.debug.{name}.{:?}", norm);
+        let (size_bytes, align_bytes, members) = self.debug_mir_struct_layout(&mir_struct);
+        let placeholder = {
+            let state = self.ensure_debug_info_state()?;
+            state.builder.create_replaceable_composite_type(
+                if mir_struct.is_union {
+                    DW_TAG_UNION_TYPE
+                } else {
+                    DW_TAG_STRUCTURE_TYPE
+                },
+                scope,
+                &name,
+                file,
+                size_bytes * 8,
+                (align_bytes * 8) as u32,
+                &unique_id,
+            )
+        };
+        self.debug_cache_type(norm, placeholder);
+
+        let mut member_types = Vec::with_capacity(members.len());
+        for (member_name, member_ty, offset_bits, size_bits, align_bits) in members {
+            let field_di_ty = self.debug_type(member_ty)?;
+            let member_di = {
+                let state = self.ensure_debug_info_state()?;
+                state.builder.create_member_type(
+                    scope,
+                    &member_name,
+                    file,
+                    size_bits,
+                    align_bits,
+                    offset_bits,
+                    field_di_ty,
+                )
+            };
+            member_types.push(member_di);
+        }
+
+        let composite_ty = {
+            let state = self.ensure_debug_info_state()?;
+            if mir_struct.is_union {
+                state.builder.create_union_type(
+                    scope,
+                    &name,
+                    file,
+                    size_bytes * 8,
+                    (align_bytes * 8) as u32,
+                    &member_types,
+                    &unique_id,
+                )
+            } else {
+                state.builder.create_struct_type(
+                    scope,
+                    &name,
+                    file,
+                    size_bytes * 8,
+                    (align_bytes * 8) as u32,
+                    &member_types,
+                    &unique_id,
+                )
+            }
+        };
+        let state = self.ensure_debug_info_state()?;
+        state
+            .builder
+            .replace_all_uses_with(placeholder, composite_ty);
+        state.types.insert(norm, composite_ty);
+        Some(composite_ty)
+    }
+
+    fn debug_build_fat_pointer_type(
+        &mut self,
+        norm: TypeId,
+        data_pointee: DIType<'ctx>,
+        meta_name: &str,
+    ) -> Option<DIType<'ctx>> {
+        let (scope, file) = self.debug_type_scope()?;
+        let name = self.debug_type_name(norm);
+        let pointer_bits = self.debug_pointer_bits();
+        let data_ptr_ty = {
+            let state = self.ensure_debug_info_state()?;
+            state.builder.create_pointer_type(
+                data_pointee,
+                pointer_bits,
+                pointer_bits as u32,
+                "data_ptr",
+            )
+        };
+        let meta_ty = self.debug_type(TypeId::USIZE)?;
+        let members = {
+            let state = self.ensure_debug_info_state()?;
+            vec![
+                state.builder.create_member_type(
+                    scope,
+                    "data_ptr",
+                    file,
+                    pointer_bits,
+                    pointer_bits as u32,
+                    0,
+                    data_ptr_ty,
+                ),
+                state.builder.create_member_type(
+                    scope,
+                    meta_name,
+                    file,
+                    pointer_bits,
+                    pointer_bits as u32,
+                    pointer_bits,
+                    meta_ty,
+                ),
+            ]
+        };
+        let composite_ty = {
+            let state = self.ensure_debug_info_state()?;
+            state.builder.create_struct_type(
+                scope,
+                &name,
+                file,
+                pointer_bits * 2,
+                pointer_bits as u32,
+                &members,
+                &format!("kern.debug.{name}.{:?}", norm),
+            )
+        };
+        self.debug_cache_type(norm, composite_ty);
+        Some(composite_ty)
+    }
+
+    fn debug_build_anonymous_state_type(
+        &mut self,
+        norm: TypeId,
+        captures: Vec<TypeId>,
+    ) -> Option<DIType<'ctx>> {
+        let (scope, file) = self.debug_type_scope()?;
+        let name = self.debug_type_name(norm);
+        let mut offset_bits = 0;
+        let mut members = Vec::with_capacity(captures.len());
+        for (index, capture_ty) in captures.into_iter().enumerate() {
+            let capture_align_bits = (self.debug_type_align_bytes(capture_ty).max(1) * 8) as u32;
+            offset_bits = Self::debug_align_to(offset_bits, capture_align_bits as u64);
+            let capture_size_bits = self.debug_type_size_bytes(capture_ty) * 8;
+            let capture_di_ty = self.debug_type(capture_ty)?;
+            let member = {
+                let state = self.ensure_debug_info_state()?;
+                state.builder.create_member_type(
+                    scope,
+                    &format!("capture{index}"),
+                    file,
+                    capture_size_bits,
+                    capture_align_bits,
+                    offset_bits,
+                    capture_di_ty,
+                )
+            };
+            members.push(member);
+            offset_bits += capture_size_bits;
+        }
+        let size_bits = self.debug_type_size_bytes(norm) * 8;
+        let align_bits = (self.debug_type_align_bytes(norm) * 8) as u32;
+        let composite_ty = {
+            let state = self.ensure_debug_info_state()?;
+            state.builder.create_struct_type(
+                scope,
+                &name,
+                file,
+                size_bits,
+                align_bits,
+                &members,
+                &format!("kern.debug.{name}.{:?}", norm),
+            )
+        };
+        self.debug_cache_type(norm, composite_ty);
+        Some(composite_ty)
+    }
+
     fn debug_type(&mut self, ty: TypeId) -> Option<DIType<'ctx>> {
         if !self.debug_info_enabled {
             return None;
         }
         let norm = self.type_registry.normalize(ty);
-        match self.type_registry.get(norm).clone() {
+        if let Some(di_ty) = self.debug_cached_type(norm) {
+            return Some(di_ty);
+        }
+
+        let di_ty = match self.type_registry.get(norm).clone() {
             TypeKind::Primitive(primitive) => {
                 let name = self.debug_type_name(norm);
-                let pointer_bits = (self.sess.target.pointer_size * 8) as u64;
                 let type_info = Self::debug_basic_type_encoding(primitive);
-                let builder = &self.ensure_debug_info_state()?.builder;
+                let pointer_bits = self.debug_pointer_bits();
+                let state = self.ensure_debug_info_state()?;
                 if let Some((mut bits, encoding)) = type_info {
                     if bits == 0 {
                         bits = pointer_bits;
                     }
-                    Some(builder.create_basic_type(&name, bits, encoding))
+                    state.builder.create_basic_type(&name, bits, encoding)
                 } else {
-                    Some(builder.create_unspecified_type(&name))
+                    state.builder.create_unspecified_type(&name)
                 }
             }
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let elem = self.type_registry.normalize(elem);
+                if matches!(self.type_registry.get(elem), TypeKind::TraitObject(..)) {
+                    let data_pointee = self.debug_type(TypeId::VOID)?;
+                    return self.debug_build_fat_pointer_type(norm, data_pointee, "vtable");
+                }
+                if matches!(
+                    self.type_registry.get(elem),
+                    TypeKind::ClosureInterface { .. }
+                ) {
+                    let data_pointee = self.debug_type(TypeId::VOID)?;
+                    return self.debug_build_fat_pointer_type(norm, data_pointee, "code_ptr");
+                }
+
                 let pointee = self.debug_type(elem)?;
-                let bits = (self.sess.target.pointer_size * 8) as u64;
                 let name = self.debug_type_name(norm);
-                let builder = &self.ensure_debug_info_state()?.builder;
-                Some(builder.create_pointer_type(pointee, bits, bits as u32, &name))
+                let pointer_bits = self.debug_pointer_bits();
+                let state = self.ensure_debug_info_state()?;
+                state
+                    .builder
+                    .create_pointer_type(pointee, pointer_bits, pointer_bits as u32, &name)
+            }
+            TypeKind::Slice { elem, .. } => {
+                let data_pointee = self.debug_type(elem)?;
+                return self.debug_build_fat_pointer_type(norm, data_pointee, "len");
+            }
+            TypeKind::TraitObject(..) => {
+                let data_pointee = self.debug_type(TypeId::VOID)?;
+                return self.debug_build_fat_pointer_type(norm, data_pointee, "vtable");
+            }
+            TypeKind::Array { elem, len, .. } => {
+                let elem_di_ty = self.debug_type(elem)?;
+                let len = self.const_generic_usize(len, Span::default())?;
+                let size_bits = self.debug_type_size_bytes(norm) * 8;
+                let align_bits = (self.debug_type_align_bytes(norm) * 8) as u32;
+                let state = self.ensure_debug_info_state()?;
+                state
+                    .builder
+                    .create_array_type(elem_di_ty, size_bits, align_bits, len as i64)
+            }
+            TypeKind::Simd { elem, lanes } => {
+                let elem_di_ty = self.debug_type(elem)?;
+                let size_bits = self.debug_type_size_bytes(norm) * 8;
+                let align_bits = (self.debug_type_align_bytes(norm) * 8) as u32;
+                let state = self.ensure_debug_info_state()?;
+                state
+                    .builder
+                    .create_array_type(elem_di_ty, size_bits, align_bits, lanes as i64)
+            }
+            TypeKind::AnonymousState { captures, .. } => {
+                return self.debug_build_anonymous_state_type(norm, captures);
+            }
+            TypeKind::Def(..)
+            | TypeKind::Enum(..)
+            | TypeKind::EnumPayload(..)
+            | TypeKind::AnonymousStruct(..)
+            | TypeKind::AnonymousUnion(..)
+            | TypeKind::AnonymousEnum(..)
+            | TypeKind::AnonymousEnumPayload(_) => {
+                if let Some(mir_struct) = self.debug_mir_struct_for_type(norm).cloned() {
+                    return self.debug_build_named_composite_type(norm, mir_struct);
+                }
+                let name = self.debug_type_name(norm);
+                let state = self.ensure_debug_info_state()?;
+                state.builder.create_unspecified_type(&name)
             }
             _ => {
                 let name = self.debug_type_name(norm);
-                let builder = &self.ensure_debug_info_state()?.builder;
-                Some(builder.create_unspecified_type(&name))
+                let state = self.ensure_debug_info_state()?;
+                state.builder.create_unspecified_type(&name)
             }
-        }
+        };
+        self.debug_cache_type(norm, di_ty);
+        Some(di_ty)
     }
 
     fn declare_debug_local(
@@ -786,6 +1349,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let is_optimized = self.debug_info_is_optimized;
         let producer = format!("kernc {}", env!("CARGO_PKG_VERSION"));
         let state = self.ensure_debug_info_state()?;
+        if state.primary_file.is_none() {
+            state.primary_file = Some(file);
+        }
         if let Some(unit) = state.compile_unit {
             return Some(unit);
         }

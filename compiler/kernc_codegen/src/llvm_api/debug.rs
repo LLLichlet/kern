@@ -1,14 +1,16 @@
 use llvm_sys::LLVMModuleFlagBehavior;
 use llvm_sys::core::{LLVMAddModuleFlag, LLVMValueAsMetadata};
 use llvm_sys::debuginfo::{
-    LLVMCreateDIBuilder, LLVMDIBuilderCreateAutoVariable, LLVMDIBuilderCreateBasicType,
-    LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateDebugLocation,
+    LLVMCreateDIBuilder, LLVMDIBuilderCreateArrayType, LLVMDIBuilderCreateAutoVariable,
+    LLVMDIBuilderCreateBasicType, LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateDebugLocation,
     LLVMDIBuilderCreateExpression, LLVMDIBuilderCreateFile, LLVMDIBuilderCreateFunction,
-    LLVMDIBuilderCreateParameterVariable, LLVMDIBuilderCreatePointerType,
-    LLVMDIBuilderCreateSubroutineType, LLVMDIBuilderCreateUnspecifiedType, LLVMDIBuilderFinalize,
-    LLVMDIBuilderInsertDeclareRecordAtEnd as LLVMDIBuilderInsertDeclareAtEnd,
+    LLVMDIBuilderCreateMemberType, LLVMDIBuilderCreateParameterVariable,
+    LLVMDIBuilderCreatePointerType, LLVMDIBuilderCreateReplaceableCompositeType,
+    LLVMDIBuilderCreateStructType, LLVMDIBuilderCreateSubroutineType, LLVMDIBuilderCreateUnionType,
+    LLVMDIBuilderCreateUnspecifiedType, LLVMDIBuilderFinalize, LLVMDIBuilderGetOrCreateSubrange,
+    LLVMDIBuilderInsertDeclareRecordAtEnd as LLVMDIBuilderInsertDeclareAtEnd, LLVMDIFlagZero,
     LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage, LLVMDWARFTypeEncoding,
-    LLVMDebugMetadataVersion, LLVMDisposeDIBuilder,
+    LLVMDebugMetadataVersion, LLVMDisposeDIBuilder, LLVMMetadataReplaceAllUsesWith,
 };
 use llvm_sys::prelude::{LLVMDIBuilderRef, LLVMMetadataRef};
 use std::marker::PhantomData;
@@ -261,6 +263,155 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
             )
         };
         DIType::new(raw)
+    }
+
+    pub fn create_member_type(
+        &self,
+        scope: DICompileUnit<'ctx>,
+        name: &str,
+        file: DIFile<'ctx>,
+        size_in_bits: u64,
+        align_in_bits: u32,
+        offset_in_bits: u64,
+        ty: DIType<'ctx>,
+    ) -> DIType<'ctx> {
+        let raw = unsafe {
+            LLVMDIBuilderCreateMemberType(
+                self.raw,
+                scope.raw,
+                name.as_ptr() as *const _,
+                name.len(),
+                file.raw,
+                0,
+                size_in_bits,
+                align_in_bits,
+                offset_in_bits,
+                LLVMDIFlagZero,
+                ty.raw,
+            )
+        };
+        DIType::new(raw)
+    }
+
+    pub fn create_struct_type(
+        &self,
+        scope: DICompileUnit<'ctx>,
+        name: &str,
+        file: DIFile<'ctx>,
+        size_in_bits: u64,
+        align_in_bits: u32,
+        elements: &[DIType<'ctx>],
+        unique_id: &str,
+    ) -> DIType<'ctx> {
+        let mut elements = elements.iter().map(|elem| elem.raw).collect::<Vec<_>>();
+        let raw = unsafe {
+            LLVMDIBuilderCreateStructType(
+                self.raw,
+                scope.raw,
+                name.as_ptr() as *const _,
+                name.len(),
+                file.raw,
+                0,
+                size_in_bits,
+                align_in_bits,
+                LLVMDIFlagZero,
+                std::ptr::null_mut(),
+                elements.as_mut_ptr(),
+                elements.len() as u32,
+                0,
+                std::ptr::null_mut(),
+                unique_id.as_ptr() as *const _,
+                unique_id.len(),
+            )
+        };
+        DIType::new(raw)
+    }
+
+    pub fn create_union_type(
+        &self,
+        scope: DICompileUnit<'ctx>,
+        name: &str,
+        file: DIFile<'ctx>,
+        size_in_bits: u64,
+        align_in_bits: u32,
+        elements: &[DIType<'ctx>],
+        unique_id: &str,
+    ) -> DIType<'ctx> {
+        let mut elements = elements.iter().map(|elem| elem.raw).collect::<Vec<_>>();
+        let raw = unsafe {
+            LLVMDIBuilderCreateUnionType(
+                self.raw,
+                scope.raw,
+                name.as_ptr() as *const _,
+                name.len(),
+                file.raw,
+                0,
+                size_in_bits,
+                align_in_bits,
+                LLVMDIFlagZero,
+                elements.as_mut_ptr(),
+                elements.len() as u32,
+                0,
+                unique_id.as_ptr() as *const _,
+                unique_id.len(),
+            )
+        };
+        DIType::new(raw)
+    }
+
+    pub fn create_array_type(
+        &self,
+        elem: DIType<'ctx>,
+        size_in_bits: u64,
+        align_in_bits: u32,
+        len: i64,
+    ) -> DIType<'ctx> {
+        let mut subscripts = [unsafe { LLVMDIBuilderGetOrCreateSubrange(self.raw, 0, len) }];
+        let raw = unsafe {
+            LLVMDIBuilderCreateArrayType(
+                self.raw,
+                size_in_bits,
+                align_in_bits,
+                elem.raw,
+                subscripts.as_mut_ptr(),
+                subscripts.len() as u32,
+            )
+        };
+        DIType::new(raw)
+    }
+
+    pub fn create_replaceable_composite_type(
+        &self,
+        tag: u32,
+        scope: DICompileUnit<'ctx>,
+        name: &str,
+        file: DIFile<'ctx>,
+        size_in_bits: u64,
+        align_in_bits: u32,
+        unique_id: &str,
+    ) -> DIType<'ctx> {
+        let raw = unsafe {
+            LLVMDIBuilderCreateReplaceableCompositeType(
+                self.raw,
+                tag,
+                name.as_ptr() as *const _,
+                name.len(),
+                scope.raw,
+                file.raw,
+                0,
+                0,
+                size_in_bits,
+                align_in_bits,
+                LLVMDIFlagZero,
+                unique_id.as_ptr() as *const _,
+                unique_id.len(),
+            )
+        };
+        DIType::new(raw)
+    }
+
+    pub fn replace_all_uses_with(&self, from: DIType<'ctx>, to: DIType<'ctx>) {
+        unsafe { LLVMMetadataReplaceAllUsesWith(from.raw, to.raw) };
     }
 
     pub fn create_subroutine_type(&self, file: DIFile<'ctx>) -> DISubroutineType<'ctx> {

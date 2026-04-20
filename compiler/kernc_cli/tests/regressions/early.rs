@@ -825,6 +825,66 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_composite_debug_types_for_aggregates_and_slices() {
+    let source = r#"
+type Pair = struct {
+    left: i32,
+    right: [4]i32,
+};
+
+type Bits = union {
+    raw: i32,
+    bytes: [4]u8,
+};
+
+fn main() i32 {
+    let arr = [4]i32.{ 1, 2, 3, 4 };
+    let pair = Pair.{ left: 7, right: arr };
+    let bits = Bits.{ raw: pair.left };
+    let view = arr.[..];
+    return bits.raw + view.[0] - 8;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_emit_llvm_debug_composites", source, &["-g"]);
+    assert_success(&output, "kernc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("DW_TAG_structure_type"),
+        "debug-enabled LLVM IR should contain structure DI metadata, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains(r#"name: "left""#) && stdout.contains(r#"name: "right""#),
+        "debug-enabled LLVM IR should describe struct members, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("DW_TAG_union_type"),
+        "debug-enabled LLVM IR should contain union DI metadata, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains(r#"name: "raw""#) && stdout.contains(r#"name: "bytes""#),
+        "debug-enabled LLVM IR should describe union members, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("DW_TAG_array_type"),
+        "debug-enabled LLVM IR should contain array DI metadata, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains(r#"name: "[]i32""#)
+            && stdout.contains(r#"name: "data_ptr""#)
+            && stdout.contains(r#"name: "len""#),
+        "debug-enabled LLVM IR should describe fat slice layout, got:\n{}",
+        stdout
+    );
+}
+
+#[test]
 fn emits_optimized_llvm_ir_stage_after_running_pass_pipeline() {
     let source = r#"
 extern fn main() i32 {

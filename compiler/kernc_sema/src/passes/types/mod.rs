@@ -771,7 +771,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     }
                     if anchor.is_some() {
                         (
-                            self.ctx.scopes.resolve_in(curr_scope, segment.name).cloned(),
+                            self.ctx
+                                .scopes
+                                .resolve_in(curr_scope, segment.name)
+                                .cloned(),
                             false,
                         )
                     } else {
@@ -779,7 +782,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     }
                 } else {
                     (
-                        self.ctx.scopes.resolve_in(curr_scope, segment.name).cloned(),
+                        self.ctx
+                            .scopes
+                            .resolve_in(curr_scope, segment.name)
+                            .cloned(),
                         false,
                     )
                 };

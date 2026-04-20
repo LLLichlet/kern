@@ -365,7 +365,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if let TypeKind::ClosureInterface { params, ret } =
                     self.ctx.type_registry.get(g_inner).clone()
                 {
-                    self.unify_closure_interface_with_concrete(&params, ret, &concrete_kind, type_map)
+                    self.unify_closure_interface_with_concrete(
+                        &params,
+                        ret,
+                        &concrete_kind,
+                        type_map,
+                    )
                 } else {
                     false
                 }
@@ -429,17 +434,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if g_args.len() != c_args.len() {
                     return false;
                 }
-                g_args.iter().zip(c_args.iter()).all(|(ga, ca)| {
-                    self.unify_generic_arg_with_map(*ga, *ca, type_map, const_map)
-                })
+                g_args
+                    .iter()
+                    .zip(c_args.iter())
+                    .all(|(ga, ca)| self.unify_generic_arg_with_map(*ga, *ca, type_map, const_map))
             }
             (TypeKind::Enum(g_id, g_args), TypeKind::Enum(c_id, c_args)) if g_id == c_id => {
                 if g_args.len() != c_args.len() {
                     return false;
                 }
-                g_args.iter().zip(c_args.iter()).all(|(ga, ca)| {
-                    self.unify_generic_arg_with_map(*ga, *ca, type_map, const_map)
-                })
+                g_args
+                    .iter()
+                    .zip(c_args.iter())
+                    .all(|(ga, ca)| self.unify_generic_arg_with_map(*ga, *ca, type_map, const_map))
             }
             (
                 TypeKind::TraitObject(g_id, g_args, g_assoc_bindings),
@@ -448,9 +455,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if g_args.len() != c_args.len() {
                     return false;
                 }
-                if !g_args.iter().zip(c_args.iter()).all(|(ga, ca)| {
-                    self.unify_generic_arg_with_map(*ga, *ca, type_map, const_map)
-                }) {
+                if !g_args
+                    .iter()
+                    .zip(c_args.iter())
+                    .all(|(ga, ca)| self.unify_generic_arg_with_map(*ga, *ca, type_map, const_map))
+                {
                     return false;
                 }
 
@@ -608,7 +617,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             (ConstGeneric::Param(name, _), other) => {
                 if let Some(&existing) = const_map.get(&name) {
                     existing == other
-                } else if self.const_param_occurs_in_const_generic_with_map(name, other, const_map) {
+                } else if self.const_param_occurs_in_const_generic_with_map(name, other, const_map)
+                {
                     false
                 } else {
                     const_map.insert(name, other);
@@ -618,7 +628,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             (other, ConstGeneric::Param(name, _)) => {
                 if let Some(&existing) = const_map.get(&name) {
                     existing == other
-                } else if self.const_param_occurs_in_const_generic_with_map(name, other, const_map) {
+                } else if self.const_param_occurs_in_const_generic_with_map(name, other, const_map)
+                {
                     false
                 } else {
                     const_map.insert(name, other);

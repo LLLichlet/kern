@@ -649,8 +649,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 .target
                 .as_ref()
                 .map(|target| self.resolve_type(target, assoc_scope));
-            self.suppress_unqualified_impl_assoc_types =
-                prev_suppress_unqualified_impl_assoc_types;
+            self.suppress_unqualified_impl_assoc_types = prev_suppress_unqualified_impl_assoc_types;
             self.ctx.scopes.exit_scope();
             if let Some(resolved_target) = resolved_target {
                 self.ctx.scopes.set_current_scope(scope);
@@ -764,11 +763,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 // Coherence permits a unique more-specific specialization, but rejects
                 // equal-rank or incomparable overlaps that would make proof search ambiguous.
                 if matches!(
-                    crate::query::compare_impl_specificity(
-                        self.ctx,
-                        left_impl_id,
-                        right_impl_id
-                    ),
+                    crate::query::compare_impl_specificity(self.ctx, left_impl_id, right_impl_id),
                     crate::query::ImplSpecificity::LeftMoreSpecific
                         | crate::query::ImplSpecificity::RightMoreSpecific
                 ) {

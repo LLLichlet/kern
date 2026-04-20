@@ -178,15 +178,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.type_contains_generic_placeholders(elem)
                     || self.ctx.type_registry.const_generic_contains_params(len)
             }
-            TypeKind::ArrayInfer { elem, .. } => {
-                self.type_contains_generic_placeholders(elem)
-            }
+            TypeKind::ArrayInfer { elem, .. } => self.type_contains_generic_placeholders(elem),
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::EnumPayload(_, args)
             | TypeKind::Associated(_, args)
             | TypeKind::FnDef(_, args) => args.into_iter().any(|arg| match arg {
-                kernc_sema::ty::GenericArg::Type(arg) => self.type_contains_generic_placeholders(arg),
+                kernc_sema::ty::GenericArg::Type(arg) => {
+                    self.type_contains_generic_placeholders(arg)
+                }
                 kernc_sema::ty::GenericArg::Const(value) => {
                     self.ctx.type_registry.const_generic_contains_params(value)
                 }
@@ -199,10 +199,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     kernc_sema::ty::GenericArg::Const(value) => {
                         self.ctx.type_registry.const_generic_contains_params(value)
                     }
-                })
-                    || assoc_bindings
-                        .into_iter()
-                        .any(|(_, ty)| self.type_contains_generic_placeholders(ty))
+                }) || assoc_bindings
+                    .into_iter()
+                    .any(|(_, ty)| self.type_contains_generic_placeholders(ty))
             }
             TypeKind::Projection {
                 target,

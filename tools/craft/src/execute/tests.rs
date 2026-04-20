@@ -325,7 +325,11 @@ fn kmain() void {
 
     let summary = build(&build_plan, &action_plan).unwrap();
     assert_eq!(summary.link_actions, 1);
-    assert!(binary.exists(), "expected freestanding binary at {}", binary.display());
+    assert!(
+        binary.exists(),
+        "expected freestanding binary at {}",
+        binary.display()
+    );
 
     let _ = fs::remove_dir_all(root);
 }
@@ -418,7 +422,11 @@ fn kmain() void {
 
     let summary = build(&build_plan, &action_plan).unwrap();
     assert_eq!(summary.link_actions, 1);
-    assert!(binary.exists(), "expected freestanding binary at {}", binary.display());
+    assert!(
+        binary.exists(),
+        "expected freestanding binary at {}",
+        binary.display()
+    );
 
     let _ = fs::remove_dir_all(root);
 }

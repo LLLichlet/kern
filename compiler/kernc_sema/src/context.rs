@@ -1041,10 +1041,7 @@ impl<'a> SemaContext<'a> {
         }
     }
 
-    pub(crate) fn describe_paterson_issue_brief(
-        &self,
-        issue: &PatersonBoundednessIssue,
-    ) -> String {
+    pub(crate) fn describe_paterson_issue_brief(&self, issue: &PatersonBoundednessIssue) -> String {
         match issue {
             PatersonBoundednessIssue::ConstructorCount { .. } => {
                 "this prerequisite is structurally larger than the impl head".to_string()
@@ -1092,7 +1089,8 @@ impl<'a> SemaContext<'a> {
             let norm = self.type_registry.normalize(curr);
             let is_projection = matches!(self.type_registry.get(norm), TypeKind::Projection { .. });
             if is_projection {
-                if let Some(ancestor_index) = projection_chain.iter().position(|seen| *seen == norm) {
+                if let Some(ancestor_index) = projection_chain.iter().position(|seen| *seen == norm)
+                {
                     let cycle = projection_chain[ancestor_index..]
                         .iter()
                         .copied()
@@ -1158,14 +1156,10 @@ impl<'a> SemaContext<'a> {
             let trait_impls = self.trait_impls.clone();
             let mut selected: Option<(DefId, TypeId)> = None;
             for impl_id in trait_impls {
-                let Some(impl_ptr) =
-                    self.defs
-                        .get(impl_id.0 as usize)
-                        .and_then(|def| match def {
-                            Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                            _ => None,
-                        })
-                else {
+                let Some(impl_ptr) = self.defs.get(impl_id.0 as usize).and_then(|def| match def {
+                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                    _ => None,
+                }) else {
                     continue;
                 };
 
@@ -1200,7 +1194,9 @@ impl<'a> SemaContext<'a> {
                 };
 
                 let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) =
-                    self.type_registry.get(self.type_registry.normalize(inst_trait_ty)).clone()
+                    self.type_registry
+                        .get(self.type_registry.normalize(inst_trait_ty))
+                        .clone()
                 else {
                     continue;
                 };

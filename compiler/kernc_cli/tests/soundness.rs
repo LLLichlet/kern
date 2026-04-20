@@ -444,8 +444,8 @@ fn copy_case_tree(src: &Path, dst: &Path) {
     fs::create_dir_all(dst)
         .unwrap_or_else(|err| panic!("failed to create {}: {}", dst.display(), err));
 
-    let entries = fs::read_dir(src)
-        .unwrap_or_else(|err| panic!("failed to read {}: {}", src.display(), err));
+    let entries =
+        fs::read_dir(src).unwrap_or_else(|err| panic!("failed to read {}: {}", src.display(), err));
     for entry in entries.flatten() {
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());

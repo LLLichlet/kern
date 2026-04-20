@@ -147,8 +147,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return false;
                 };
                 param_stack.push(name);
-                let occurs =
-                    self.generic_param_occurs_in_type_with_map_inner(needle, mapped_ty, map, param_stack);
+                let occurs = self.generic_param_occurs_in_type_with_map_inner(
+                    needle,
+                    mapped_ty,
+                    map,
+                    param_stack,
+                );
                 param_stack.pop();
                 occurs
             }
@@ -254,16 +258,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     param_stack,
                 )
             }
-            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields
-                .into_iter()
-                .any(|field| {
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => {
+                fields.into_iter().any(|field| {
                     self.generic_param_occurs_in_type_with_map_inner(
                         needle,
                         field.ty,
                         map,
                         param_stack,
                     )
-                }),
+                })
+            }
             TypeKind::AnonymousEnum(enum_def) => {
                 enum_def.backing_ty.is_some_and(|backing_ty| {
                     self.generic_param_occurs_in_type_with_map_inner(
@@ -319,28 +323,35 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             ConstGeneric::Expr(expr_id) => match *self.ctx.type_registry.const_expr(expr_id) {
                 ConstExprKind::Unary { expr, ty, .. } | ConstExprKind::Cast { expr, ty } => {
-                    self.generic_param_occurs_in_const_generic_with_map(needle, expr, map, param_stack)
-                        || self.generic_param_occurs_in_type_with_map_inner(
-                            needle,
-                            ty,
-                            map,
-                            param_stack,
-                        )
+                    self.generic_param_occurs_in_const_generic_with_map(
+                        needle,
+                        expr,
+                        map,
+                        param_stack,
+                    ) || self.generic_param_occurs_in_type_with_map_inner(
+                        needle,
+                        ty,
+                        map,
+                        param_stack,
+                    )
                 }
                 ConstExprKind::Binary { lhs, rhs, ty, .. } => {
-                    self.generic_param_occurs_in_const_generic_with_map(needle, lhs, map, param_stack)
-                        || self.generic_param_occurs_in_const_generic_with_map(
-                            needle,
-                            rhs,
-                            map,
-                            param_stack,
-                        )
-                        || self.generic_param_occurs_in_type_with_map_inner(
-                            needle,
-                            ty,
-                            map,
-                            param_stack,
-                        )
+                    self.generic_param_occurs_in_const_generic_with_map(
+                        needle,
+                        lhs,
+                        map,
+                        param_stack,
+                    ) || self.generic_param_occurs_in_const_generic_with_map(
+                        needle,
+                        rhs,
+                        map,
+                        param_stack,
+                    ) || self.generic_param_occurs_in_type_with_map_inner(
+                        needle,
+                        ty,
+                        map,
+                        param_stack,
+                    )
                 }
             },
             ConstGeneric::Error => false,

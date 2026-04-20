@@ -458,32 +458,26 @@ pub fn impl_head_specializes(
         specialized_target,
         &mut type_map,
         &mut const_map,
-    )
-        && match (general_trait, specialized_trait) {
-            (Some(general_trait), Some(specialized_trait)) => {
-                checker.unify_with_const_map(
-                    general_trait,
-                    specialized_trait,
-                    &mut type_map,
-                    &mut const_map,
-                )
-            }
-            (None, None) => true,
-            _ => false,
-        }
+    ) && match (general_trait, specialized_trait) {
+        (Some(general_trait), Some(specialized_trait)) => checker.unify_with_const_map(
+            general_trait,
+            specialized_trait,
+            &mut type_map,
+            &mut const_map,
+        ),
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 fn impl_head_signature(
     ctx: &mut SemaContext<'_>,
     impl_id: DefId,
 ) -> Option<(ImplDef, TypeId, Option<TypeId>)> {
-    let impl_def = ctx
-        .defs
-        .get(impl_id.0 as usize)
-        .and_then(|def| match def {
-            Def::Impl(impl_def) => Some(impl_def.clone()),
-            _ => None,
-        })?;
+    let impl_def = ctx.defs.get(impl_id.0 as usize).and_then(|def| match def {
+        Def::Impl(impl_def) => Some(impl_def.clone()),
+        _ => None,
+    })?;
     let target_ty = ctx
         .node_types
         .get(&impl_def.target_type.id)
@@ -503,7 +497,11 @@ fn impl_head_signature(
 }
 
 fn erase_impl_head_assoc_bindings(ctx: &mut SemaContext<'_>, ty: TypeId) -> TypeId {
-    match ctx.type_registry.get(ctx.type_registry.normalize(ty)).clone() {
+    match ctx
+        .type_registry
+        .get(ctx.type_registry.normalize(ty))
+        .clone()
+    {
         TypeKind::TraitObject(def_id, args, _) => {
             ctx.type_registry
                 .intern(TypeKind::TraitObject(def_id, args, Vec::new()))
@@ -530,7 +528,9 @@ fn freshen_impl_head_types(
         ));
         let fresh_arg = match &param.kind {
             ast::GenericParamKind::Type => match freshness {
-                ImplHeadFreshness::Flexible => crate::ty::GenericArg::Type(checker.fresh_type_var()),
+                ImplHeadFreshness::Flexible => {
+                    crate::ty::GenericArg::Type(checker.fresh_type_var())
+                }
                 ImplHeadFreshness::Rigid => crate::ty::GenericArg::Type(
                     checker
                         .ctx
@@ -545,9 +545,7 @@ fn freshen_impl_head_types(
                     .get(&ty.id)
                     .copied()
                     .unwrap_or(TypeId::ERROR);
-                crate::ty::GenericArg::Const(crate::ty::ConstGeneric::Param(
-                    fresh_name, const_ty,
-                ))
+                crate::ty::GenericArg::Const(crate::ty::ConstGeneric::Param(fresh_name, const_ty))
             }
         };
         subst_map.insert(param.name, fresh_arg);

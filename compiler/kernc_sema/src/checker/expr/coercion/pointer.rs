@@ -36,8 +36,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
 
             if actual_fat_pointer_value
-                && let TypeKind::Pointer { is_mut, elem }
-                    | TypeKind::VolatilePtr { is_mut, elem } =
+                && let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } =
                     act_kind
             {
                 let actual_elem_norm = self.resolve_tv(*elem);

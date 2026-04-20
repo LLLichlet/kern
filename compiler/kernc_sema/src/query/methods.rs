@@ -182,10 +182,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let Def::Function(function) = &self.ctx.defs[method_id.0 as usize] else {
                     continue;
                 };
-                let type_id = self.ctx.type_registry.intern(TypeKind::FnDef(
-                    *method_id,
-                    resolved_impl_args.clone(),
-                ));
+                let type_id = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(*method_id, resolved_impl_args.clone()));
                 push_member_candidate(
                     candidates,
                     MemberCandidate {
@@ -257,10 +257,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             let candidate = MemberCandidate {
                 name: member_name,
                 kind: SymbolKind::Function,
-                type_id: self.ctx.type_registry.intern(TypeKind::FnDef(
-                    method_id,
-                    resolved_impl_args,
-                )),
+                type_id: self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(method_id, resolved_impl_args)),
                 def_id: Some(method_id),
                 definition_span: function_name_span,
                 is_mut: false,
@@ -419,8 +419,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     &impl_def.where_clauses,
                     &type_map,
                     &const_map,
-                )
-                {
+                ) {
                     None
                 } else {
                     Some(

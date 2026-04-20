@@ -1,9 +1,9 @@
 use super::ExprChecker;
+use crate::LayoutEngine;
 use crate::checker::{ConstEvaluator, ConstValue, Substituter};
 use crate::def::{Def, ImportDef};
 use crate::passes::ImportResolver;
 use crate::ty::{PrimitiveType, TypeId, TypeKind};
-use crate::LayoutEngine;
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{DiagnosticCode, DiagnosticTag, Span, SymbolId};
 use std::collections::HashMap;
@@ -89,7 +89,11 @@ impl CoverageWitness {
                 let fields = fields
                     .iter()
                     .map(|(name, witness)| {
-                        format!("{}: {}", checker.ctx.resolve(*name), witness.format(checker))
+                        format!(
+                            "{}: {}",
+                            checker.ctx.resolve(*name),
+                            witness.format(checker)
+                        )
                     })
                     .collect::<Vec<_>>();
                 format!(".{{ {} }}", fields.join(", "))
@@ -137,20 +141,20 @@ impl ScalarCoverageState {
 
     fn covers_all(&self, intervals: &ScalarIntervals) -> bool {
         match (self, intervals) {
-            (Self::Signed { covered, .. }, ScalarIntervals::Signed(intervals)) => intervals
-                .iter()
-                .all(|interval| {
-                    covered.iter().any(|seen| {
-                        seen.start <= interval.start && interval.end <= seen.end
-                    })
-                }),
-            (Self::Unsigned { covered, .. }, ScalarIntervals::Unsigned(intervals)) => intervals
-                .iter()
-                .all(|interval| {
-                    covered.iter().any(|seen| {
-                        seen.start <= interval.start && interval.end <= seen.end
-                    })
-                }),
+            (Self::Signed { covered, .. }, ScalarIntervals::Signed(intervals)) => {
+                intervals.iter().all(|interval| {
+                    covered
+                        .iter()
+                        .any(|seen| seen.start <= interval.start && interval.end <= seen.end)
+                })
+            }
+            (Self::Unsigned { covered, .. }, ScalarIntervals::Unsigned(intervals)) => {
+                intervals.iter().all(|interval| {
+                    covered
+                        .iter()
+                        .any(|seen| seen.start <= interval.start && interval.end <= seen.end)
+                })
+            }
             _ => false,
         }
     }
@@ -269,7 +273,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let expected_norm = self.resolve_tv(expected_ty);
         let actual_norm = self.resolve_tv(actual_ty);
 
-        let TypeKind::Pointer { elem, .. } = self.ctx.type_registry.get(expected_norm).clone() else {
+        let TypeKind::Pointer { elem, .. } = self.ctx.type_registry.get(expected_norm).clone()
+        else {
             return false;
         };
         let expected_elem_norm = self.resolve_tv(elem);
@@ -412,7 +417,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn coverage_enum_constructors(&mut self, target_ty: TypeId) -> Option<Vec<CoverageConstructor>> {
+    fn coverage_enum_constructors(
+        &mut self,
+        target_ty: TypeId,
+    ) -> Option<Vec<CoverageConstructor>> {
         let norm_target = self.ctx.type_registry.normalize(target_ty);
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Enum(def_id, generic_args) => {
@@ -466,7 +474,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return Some(enum_ctors);
         }
 
-        self.coverage_struct_constructor(target_ty).map(|ctor| vec![ctor])
+        self.coverage_struct_constructor(target_ty)
+            .map(|ctor| vec![ctor])
     }
 
     fn coverage_lower_pattern(
@@ -476,7 +485,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> Option<CoveragePattern> {
         let norm_target = self.resolve_tv(target_ty);
         match &pattern.kind {
-            ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => Some(CoveragePattern::Wildcard),
+            ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => {
+                Some(CoveragePattern::Wildcard)
+            }
             ast::PatternKind::Variant(variant) => Some(CoveragePattern::Constructor(
                 CoverageConstructorKind::EnumVariant(variant.variant_name),
                 Vec::new(),
@@ -486,9 +497,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     && destructure.fields.len() == 1
                 {
                     let field = &destructure.fields[0];
-                    let ctor = enum_ctors
-                        .into_iter()
-                        .find(|ctor| ctor.kind == CoverageConstructorKind::EnumVariant(field.name))?;
+                    let ctor = enum_ctors.into_iter().find(|ctor| {
+                        ctor.kind == CoverageConstructorKind::EnumVariant(field.name)
+                    })?;
                     let args = if let Some(&payload_ty) = ctor.arg_tys.first() {
                         vec![self.coverage_lower_pattern(&field.pattern, payload_ty)?]
                     } else {
@@ -504,8 +515,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                 let mut args = Vec::with_capacity(field_names.len());
                 for (index, field_name) in field_names.iter().enumerate() {
-                    let lowered = if let Some(field) =
-                        destructure.fields.iter().find(|field| field.name == *field_name)
+                    let lowered = if let Some(field) = destructure
+                        .fields
+                        .iter()
+                        .find(|field| field.name == *field_name)
                     {
                         self.coverage_lower_pattern(&field.pattern, ctor.arg_tys[index])?
                     } else {
@@ -561,7 +574,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         target_ty: TypeId,
     ) -> Option<CoveragePattern> {
         match &pattern.kind {
-            ast::MatchPatternKind::Pattern(pattern) => self.coverage_lower_pattern(pattern, target_ty),
+            ast::MatchPatternKind::Pattern(pattern) => {
+                self.coverage_lower_pattern(pattern, target_ty)
+            }
             ast::MatchPatternKind::Value(expr) => self.coverage_lower_expr_pattern(expr, target_ty),
             ast::MatchPatternKind::Range { .. } => None,
         }
@@ -573,9 +588,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         ctor: &CoverageConstructor,
     ) -> Option<Vec<CoveragePattern>> {
         match pattern {
-            CoveragePattern::Wildcard => {
-                Some(vec![CoveragePattern::Wildcard; ctor.arg_tys.len()])
-            }
+            CoveragePattern::Wildcard => Some(vec![CoveragePattern::Wildcard; ctor.arg_tys.len()]),
             CoveragePattern::Constructor(kind, args) if *kind == ctor.kind => Some(args.clone()),
             CoveragePattern::Constructor(_, _) => None,
         }
@@ -807,7 +820,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         if end < start {
                             return Some(ScalarIntervals::Unsigned(Vec::new()));
                         }
-                        Some(ScalarIntervals::Unsigned(vec![UnsignedInterval { start, end }]))
+                        Some(ScalarIntervals::Unsigned(vec![UnsignedInterval {
+                            start,
+                            end,
+                        }]))
                     }
                     _ => None,
                 }

@@ -264,11 +264,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 for bound in env_bounds.iter().copied() {
-                    let inst_env_bound = self.substitute_type_with_unification_maps(
-                        bound,
-                        &type_map,
-                        &const_map,
-                    );
+                    let inst_env_bound =
+                        self.substitute_type_with_unification_maps(bound, &type_map, &const_map);
                     let inst_norm = self.resolve_tv(inst_env_bound);
                     let mut trait_type_map = FastHashMap::default();
                     let mut trait_const_map = FastHashMap::default();
@@ -360,12 +357,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let mut type_map = FastHashMap::default();
             let mut const_map = FastHashMap::default();
 
-            if self.unify_with_const_map(
-                impl_target_ty,
-                source_ty,
-                &mut type_map,
-                &mut const_map,
-            ) {
+            if self.unify_with_const_map(impl_target_ty, source_ty, &mut type_map, &mut const_map) {
                 let instantiated_trait_ty = self.substitute_type_with_unification_maps(
                     impl_trait_ty,
                     &type_map,

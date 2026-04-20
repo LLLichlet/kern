@@ -89,8 +89,11 @@ impl ScriptHost for BuildUnitHost<'_> {
             "__craft_build_link_script" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let path = expect_string(args, 1, "linker script path")?;
-                let script_path =
-                    package_or_absolute_path(&self.script_context.package_root_path, &path, "linker script path")?;
+                let script_path = package_or_absolute_path(
+                    &self.script_context.package_root_path,
+                    &path,
+                    "linker script path",
+                )?;
                 if !script_path.is_file() {
                     return Err(format!(
                         "linker script `{}` does not exist",
@@ -98,7 +101,10 @@ impl ScriptHost for BuildUnitHost<'_> {
                     ));
                 }
                 self.unit.link.args.push("-T".to_string());
-                self.unit.link.args.push(normalized_path_string(&script_path));
+                self.unit
+                    .link
+                    .args
+                    .push(normalized_path_string(&script_path));
                 Ok(ConstValue::Void)
             }
             "__craft_build_cfg_bool" => {

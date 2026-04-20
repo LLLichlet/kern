@@ -25,7 +25,10 @@ impl<'a> Parser<'a> {
 
     fn emit_missing_data_init_separator(&mut self, span: Span, kind: &str) {
         self.session
-            .struct_error(span, format!("expected `,` between {kind} in data initializer"))
+            .struct_error(
+                span,
+                format!("expected `,` between {kind} in data initializer"),
+            )
             .with_hint("insert `,` between adjacent initializer entries")
             .emit();
     }

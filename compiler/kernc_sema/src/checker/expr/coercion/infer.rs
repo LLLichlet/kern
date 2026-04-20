@@ -134,9 +134,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut projection_chain = Vec::new();
         loop {
             let norm = self.ctx.type_registry.normalize(curr);
-            let is_projection = matches!(self.ctx.type_registry.get(norm), TypeKind::Projection { .. });
+            let is_projection = matches!(
+                self.ctx.type_registry.get(norm),
+                TypeKind::Projection { .. }
+            );
             if is_projection {
-                if let Some(ancestor_index) = projection_chain.iter().position(|seen| *seen == norm) {
+                if let Some(ancestor_index) = projection_chain.iter().position(|seen| *seen == norm)
+                {
                     let cycle = projection_chain[ancestor_index..]
                         .iter()
                         .copied()
@@ -257,22 +261,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             type_map.clear();
             const_map.clear();
             let matched = *env_target == target_ty
-                || self.unify_with_const_map(
-                    *env_target,
-                    target_ty,
-                    &mut type_map,
-                    &mut const_map,
-                );
+                || self.unify_with_const_map(*env_target, target_ty, &mut type_map, &mut const_map);
             if !matched {
                 continue;
             }
 
             for bound in env_bounds.iter().copied() {
-                let inst_bound = self.substitute_type_with_unification_maps(
-                    bound,
-                    &type_map,
-                    &const_map,
-                );
+                let inst_bound =
+                    self.substitute_type_with_unification_maps(bound, &type_map, &const_map);
                 let inst_bound_norm = self.resolve_tv(inst_bound);
                 let TypeKind::TraitObject(bound_trait_def_id, _, assoc_bindings) =
                     self.ctx.type_registry.get(inst_bound_norm).clone()
@@ -363,20 +359,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             let mut type_map = FastHashMap::default();
             let mut const_map = FastHashMap::default();
-            if !self.unify_with_const_map(
-                impl_target_ty,
-                target_ty,
-                &mut type_map,
-                &mut const_map,
-            ) {
+            if !self.unify_with_const_map(impl_target_ty, target_ty, &mut type_map, &mut const_map)
+            {
                 continue;
             }
 
-            let inst_trait_ty = self.substitute_type_with_unification_maps(
-                impl_trait_ty,
-                &type_map,
-                &const_map,
-            );
+            let inst_trait_ty =
+                self.substitute_type_with_unification_maps(impl_trait_ty, &type_map, &const_map);
             let inst_trait_norm = self.resolve_tv(inst_trait_ty);
             let TypeKind::TraitObject(bound_trait_def_id, _, assoc_bindings) =
                 self.ctx.type_registry.get(inst_trait_norm).clone()

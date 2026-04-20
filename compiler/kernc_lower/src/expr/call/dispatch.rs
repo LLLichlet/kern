@@ -334,11 +334,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
 
                 arg_masts.insert(0, final_recv);
-                let mono_id = self.instantiate_function_at(
-                    func_id,
-                    &resolved_impl_args,
-                    call.span,
-                );
+                let mono_id = self.instantiate_function_at(func_id, &resolved_impl_args, call.span);
                 let func_ref =
                     MastExpr::new(call.norm_callee, MastExprKind::FuncRef(mono_id), call.span);
                 MastExprKind::Call {

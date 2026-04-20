@@ -206,11 +206,7 @@ fn main() i32 {
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("warning"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert!(stderr.contains("warning"), "unexpected stderr:\n{}", stderr);
     assert!(
         stderr.contains("unreachable match pattern"),
         "unexpected stderr:\n{}",
@@ -249,11 +245,7 @@ fn main() i32 {
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("warning"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert!(stderr.contains("warning"), "unexpected stderr:\n{}", stderr);
     assert!(
         stderr.contains("unreachable match pattern"),
         "unexpected stderr:\n{}",
@@ -315,11 +307,7 @@ fn main() i32 {
         "unexpected stderr:\n{}",
         stderr
     );
-    assert!(
-        stderr.contains("false"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert!(stderr.contains("false"), "unexpected stderr:\n{}", stderr);
 }
 
 #[test]
@@ -376,11 +364,7 @@ fn main() i32 {
         "unexpected stderr:\n{}",
         stderr
     );
-    assert!(
-        stderr.contains("0"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert!(stderr.contains("0"), "unexpected stderr:\n{}", stderr);
 }
 
 #[test]
@@ -472,11 +456,7 @@ fn main() i32 {
         "unexpected stderr:\n{}",
         stderr
     );
-    assert!(
-        stderr.contains("`0`"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert!(stderr.contains("`0`"), "unexpected stderr:\n{}", stderr);
 }
 
 #[test]

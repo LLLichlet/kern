@@ -445,7 +445,9 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`"),
+        stderr.contains(
+            "cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`"
+        ),
         "unexpected stderr:\n{}",
         stderr
     );

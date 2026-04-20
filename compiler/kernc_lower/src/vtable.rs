@@ -218,8 +218,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let search_types = self.vtable_impl_search_types(norm_receiver, norm_data_ptr);
 
         let global_impls = self.ctx.global_impls.clone();
-        let mut selected: Option<(ImplDef, Vec<kernc_sema::ty::GenericArg>, kernc_sema::def::DefId)> =
-            None;
+        let mut selected: Option<(
+            ImplDef,
+            Vec<kernc_sema::ty::GenericArg>,
+            kernc_sema::def::DefId,
+        )> = None;
         for impl_id in global_impls {
             let Some(impl_def) = self
                 .ctx
@@ -615,10 +618,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
                     && f.name == method.name
                 {
-                    let method_mono_id =
-                        self.instantiate_function_at(m_id, impl_args, f.name_span);
-                    let method_fn_ty =
-                        self.ctx.type_registry.intern(TypeKind::FnDef(m_id, impl_args.to_vec()));
+                    let method_mono_id = self.instantiate_function_at(m_id, impl_args, f.name_span);
+                    let method_fn_ty = self
+                        .ctx
+                        .type_registry
+                        .intern(TypeKind::FnDef(m_id, impl_args.to_vec()));
                     method_entry = self.get_or_create_vtable_method_adapter(
                         method_mono_id,
                         data_ptr_ty,

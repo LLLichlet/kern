@@ -204,7 +204,10 @@ pub fn build(b: *mut builder.Builder) void {
         .replace('\\', "/");
 
     assert_eq!(unit.link.args.get(0).map(String::as_str), Some("-T"));
-    assert_eq!(unit.link.args.get(1).map(String::as_str), Some(expected.as_str()));
+    assert_eq!(
+        unit.link.args.get(1).map(String::as_str),
+        Some(expected.as_str())
+    );
 
     let _ = fs::remove_dir_all(root);
 }

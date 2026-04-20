@@ -1,0 +1,25 @@
+// Inspired by projection/proof selection bugs: a global impl must not supply
+// an associated type result when its own where-clause is unsatisfied.
+// stderr: cannot resolve associated type projection
+
+type Need = trait {};
+
+type HasOut = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl[T] T: HasOut
+    where T: Need,
+{
+    type Out = i32;
+}
+
+fn take(value: X.HasOut.Out) i32 {
+    return value;
+}
+
+fn main() i32 {
+    return take(7);
+}

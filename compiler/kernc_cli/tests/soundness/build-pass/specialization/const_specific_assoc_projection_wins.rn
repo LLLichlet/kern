@@ -1,0 +1,25 @@
+// The language intentionally permits a more-specific const impl to refine an
+// associated type over a generic impl head.
+
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl[N: usize] X: HasOut[N] {
+    type Out = i32;
+}
+
+impl X: HasOut[4] {
+    type Out = i64;
+}
+
+fn take(value: X.HasOut[4].Out) i32 {
+    let _ = value;
+    return 0;
+}
+
+fn main() i32 {
+    return take(i64.{7});
+}

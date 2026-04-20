@@ -1,0 +1,29 @@
+// Once a more-specific impl matches the same head, direct trait proof search
+// must not keep using the shadowed generic impl's associated type equality.
+// stderr: type does not satisfy trait bounds
+// stderr: X: HasOut[4, Out = i32]
+
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl[N: usize] X: HasOut[N] {
+    type Out = i32;
+}
+
+impl X: HasOut[4] {
+    type Out = i64;
+}
+
+fn need[T](value: T) void
+    where T: HasOut[4, Out = i32],
+{
+    let _ = value;
+}
+
+fn main() i32 {
+    need(X.{});
+    return 0;
+}

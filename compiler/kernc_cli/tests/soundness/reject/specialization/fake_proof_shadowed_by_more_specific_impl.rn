@@ -1,0 +1,43 @@
+// Inspired by Rust specialization/projection soundness bugs where different
+// query paths accidentally reused a less-specific impl after a more-specific
+// impl should have shadowed it.
+// stderr: type does not satisfy trait bounds
+// stderr: FakeProof[L, R]: TypeIs[R, Is = R]
+
+type TypeIs[T] = trait {
+    type Is;
+};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+type FakeProof[L, R] = struct {};
+
+impl[L, R] FakeProof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+fn rewrite[R, Rw](value: Rw.TypeIs[R].Is) R
+    where Rw: TypeIs[R, Is = R],
+{
+    return value;
+}
+
+fn cast[L, R](value: L) R
+    where FakeProof[L, R]: TypeIs[R, Is = L],
+{
+    return rewrite[R, FakeProof[L, R]](value);
+}
+
+fn seed() i32 {
+    return 11;
+}
+
+fn forge[R]() R {
+    return cast[fn() i32, R](seed);
+}
+
+fn main() i32 {
+    return forge[i32]();
+}

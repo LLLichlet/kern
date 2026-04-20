@@ -1,0 +1,32 @@
+// Trait object construction must use the same most-specific proof choice as
+// direct trait checks and projection normalization.
+// stderr: does not implement the target trait
+
+type Factory[N: usize] = trait {
+    type Out;
+    make: fn() Out,
+};
+
+type X = struct {};
+
+impl[N: usize] *X: Factory[N] {
+    type Out = i32;
+
+    fn make() Out {
+        return 1;
+    }
+}
+
+impl *X: Factory[4] {
+    type Out = i64;
+
+    fn make() Out {
+        return 9;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let _ = *Factory[4, Out = i32].{ x.& };
+    return 0;
+}

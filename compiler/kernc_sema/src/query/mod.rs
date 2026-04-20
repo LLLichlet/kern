@@ -578,7 +578,11 @@ pub(crate) fn augment_trait_object_assoc_bindings_from_map(
     // intermediate traits that declare no assoc types of their own. Otherwise
     // multi-hop chains like `Leaf -> Mid -> Base` lose `Base::Assoc` before the
     // next recursive step can see it.
-    merged.extend(assoc_binding_map.iter().map(|(assoc_id, assoc_ty)| (*assoc_id, *assoc_ty)));
+    merged.extend(
+        assoc_binding_map
+            .iter()
+            .map(|(assoc_id, assoc_ty)| (*assoc_id, *assoc_ty)),
+    );
 
     let mut merged = merged.into_iter().collect::<Vec<_>>();
     merged.sort_by_key(|(assoc_id, _)| assoc_id.0);
@@ -599,9 +603,11 @@ pub(crate) fn enrich_trait_object_assoc_bindings(
     };
 
     let mut assoc_binding_map = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
-    let head_ty = ctx
-        .type_registry
-        .intern(TypeKind::TraitObject(trait_def_id, trait_args.clone(), Vec::new()));
+    let head_ty = ctx.type_registry.intern(TypeKind::TraitObject(
+        trait_def_id,
+        trait_args.clone(),
+        Vec::new(),
+    ));
     let mut visited = FastHashSet::default();
     collect_trait_hierarchy_assoc_bindings(
         ctx,
@@ -623,7 +629,11 @@ pub(crate) fn trait_object_view_from_hierarchy(
     target_trait_def_id: DefId,
     target_trait_args: &[crate::ty::GenericArg],
 ) -> Option<TypeId> {
-    let trait_ty = match ctx.type_registry.get(ctx.type_registry.normalize(trait_ty)).clone() {
+    let trait_ty = match ctx
+        .type_registry
+        .get(ctx.type_registry.normalize(trait_ty))
+        .clone()
+    {
         TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. }
             if matches!(
                 ctx.type_registry.get(ctx.type_registry.normalize(elem)),
@@ -651,13 +661,10 @@ pub(crate) fn trait_object_assoc_from_hierarchy(
     target_trait_args: &[crate::ty::GenericArg],
     assoc_def_id: DefId,
 ) -> Option<TypeId> {
-    let trait_view = trait_object_view_from_hierarchy(
-        ctx,
-        trait_ty,
-        target_trait_def_id,
-        target_trait_args,
-    )?;
-    let TypeKind::TraitObject(_, _, assoc_bindings) = ctx.type_registry.get(trait_view).clone() else {
+    let trait_view =
+        trait_object_view_from_hierarchy(ctx, trait_ty, target_trait_def_id, target_trait_args)?;
+    let TypeKind::TraitObject(_, _, assoc_bindings) = ctx.type_registry.get(trait_view).clone()
+    else {
         return None;
     };
     assoc_bindings
@@ -739,7 +746,8 @@ fn collect_trait_hierarchy_assoc_bindings(
         return;
     }
 
-    let TypeKind::TraitObject(trait_def_id, trait_args, _) = ctx.type_registry.get(trait_ty).clone()
+    let TypeKind::TraitObject(trait_def_id, trait_args, _) =
+        ctx.type_registry.get(trait_ty).clone()
     else {
         return;
     };
@@ -775,7 +783,8 @@ fn collect_trait_hierarchy_assoc_bindings(
             substituted,
             assoc_binding_map,
         );
-        let enriched = augment_trait_object_assoc_bindings_from_map(ctx, substituted, assoc_binding_map);
+        let enriched =
+            augment_trait_object_assoc_bindings_from_map(ctx, substituted, assoc_binding_map);
         collect_trait_hierarchy_assoc_bindings(
             ctx,
             receiver_ty,
@@ -905,8 +914,11 @@ fn resolve_trait_impl_obligation_inner(
         // Obligations can mention associated types inherited from supertraits.
         // Validate against the receiver's full resolved trait hierarchy, not
         // just the direct assoc bindings written on the impl head itself.
-        let instantiated_impl_trait_ty =
-            enrich_trait_object_assoc_bindings(checker.ctx, receiver_norm, instantiated_impl_trait_ty);
+        let instantiated_impl_trait_ty = enrich_trait_object_assoc_bindings(
+            checker.ctx,
+            receiver_norm,
+            instantiated_impl_trait_ty,
+        );
         let TypeKind::TraitObject(_, _, impl_assoc_bindings) = checker
             .ctx
             .type_registry

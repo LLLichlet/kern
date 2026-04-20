@@ -32,13 +32,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let available_assoc_bindings = available_assoc_bindings
             .into_iter()
             .collect::<FastHashMap<_, _>>();
-        required_assoc_bindings.into_iter().all(|(assoc_def_id, required_assoc_ty)| {
-            available_assoc_bindings
-                .get(&assoc_def_id)
-                .is_some_and(|available_assoc_ty| {
-                    self.resolve_tv(*available_assoc_ty) == self.resolve_tv(required_assoc_ty)
-                })
-        })
+        required_assoc_bindings
+            .into_iter()
+            .all(|(assoc_def_id, required_assoc_ty)| {
+                available_assoc_bindings
+                    .get(&assoc_def_id)
+                    .is_some_and(|available_assoc_ty| {
+                        self.resolve_tv(*available_assoc_ty) == self.resolve_tv(required_assoc_ty)
+                    })
+            })
     }
 
     pub(super) fn check_pointer_coercions(
@@ -184,7 +186,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             target_def_id,
             &target_args,
         )
-        .is_some_and(|candidate_view| self.trait_object_satisfies_required(candidate_view, target_norm))
+        .is_some_and(|candidate_view| {
+            self.trait_object_satisfies_required(candidate_view, target_norm)
+        })
     }
 
     fn check_value_to_trait_object_pointer(

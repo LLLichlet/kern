@@ -762,7 +762,8 @@ impl<'a> SemaContext<'a> {
             .collect::<FastHashMap<_, _>>();
         let assoc_binding_map = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
 
-        for (supertrait_index, &supertrait_ty) in trait_def.resolved_supertraits.iter().enumerate() {
+        for (supertrait_index, &supertrait_ty) in trait_def.resolved_supertraits.iter().enumerate()
+        {
             let substituted_supertrait = if trait_arg_map.is_empty() {
                 supertrait_ty
             } else {
@@ -780,8 +781,10 @@ impl<'a> SemaContext<'a> {
                 &assoc_binding_map,
             );
             let substituted_supertrait = self.type_registry.normalize(substituted_supertrait);
-            if !matches!(self.type_registry.get(substituted_supertrait), TypeKind::TraitObject(..))
-            {
+            if !matches!(
+                self.type_registry.get(substituted_supertrait),
+                TypeKind::TraitObject(..)
+            ) {
                 continue;
             }
 
@@ -1374,7 +1377,10 @@ impl<'a> SemaContext<'a> {
             trait_args,
             assoc_args,
             ..
-        } = self.type_registry.get(self.type_registry.normalize(ty)).clone()
+        } = self
+            .type_registry
+            .get(self.type_registry.normalize(ty))
+            .clone()
         else {
             return false;
         };
@@ -1398,7 +1404,8 @@ impl<'a> SemaContext<'a> {
             | TypeKind::Alias(_, elem)
             | TypeKind::AnonymousEnumPayload(elem) => self.type_contains_params_or_vars(elem),
             TypeKind::Array { elem, len, .. } => {
-                self.type_contains_params_or_vars(elem) || self.const_generic_contains_params_or_vars(len)
+                self.type_contains_params_or_vars(elem)
+                    || self.const_generic_contains_params_or_vars(len)
             }
             TypeKind::ArrayInfer { elem, .. } => self.type_contains_params_or_vars(elem),
             TypeKind::Def(_, args)

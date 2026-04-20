@@ -119,13 +119,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     init,
                     else_clause,
                 } => outer_stmts.extend(self.measure_phase("            lower_for_init", |this| {
-                    this.lower_let_stmts(
-                        i,
-                        pattern,
-                        init,
-                        else_clause.as_ref(),
-                        subst_map,
-                    )
+                    this.lower_let_stmts(i, pattern, init, else_clause.as_ref(), subst_map)
                 })),
                 _ => {
                     if let Some(stmt) = self.measure_phase("            lower_for_init", |this| {

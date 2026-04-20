@@ -536,7 +536,10 @@ fn cross_compiles_x86_64_darwin_std_runtime_env_and_proc_paths() {
         "x86_64-apple-darwin",
     );
 
-    assert_success(&output, "kernc cross-compile x86_64 darwin std runtime/env/proc");
+    assert_success(
+        &output,
+        "kernc cross-compile x86_64 darwin std runtime/env/proc",
+    );
 }
 
 #[test]
@@ -546,7 +549,10 @@ fn cross_compiles_aarch64_darwin_std_runtime_env_and_proc_paths() {
         "aarch64-apple-darwin",
     );
 
-    assert_success(&output, "kernc cross-compile aarch64 darwin std runtime/env/proc");
+    assert_success(
+        &output,
+        "kernc cross-compile aarch64 darwin std runtime/env/proc",
+    );
 }
 
 #[test]

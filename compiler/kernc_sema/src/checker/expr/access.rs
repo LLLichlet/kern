@@ -493,7 +493,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     fn emit_let_else_unreachable_arm(&mut self, span: Span) {
         self.ctx
-            .struct_error(span, "`let ... else` arm does not match any remaining failure case")
+            .struct_error(
+                span,
+                "`let ... else` arm does not match any remaining failure case",
+            )
             .with_hint("earlier patterns already cover every value matched by this arm")
             .emit();
     }
@@ -778,7 +781,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                     let has_constructor_coverage = self.coverage_constructors(norm_init).is_some();
                     let mut seen_patterns = Vec::new();
-                    if let Some(lowered) = self.coverage_lower_pattern(&pattern.pattern, norm_init) {
+                    if let Some(lowered) = self.coverage_lower_pattern(&pattern.pattern, norm_init)
+                    {
                         seen_patterns.push(vec![lowered]);
                     }
                     let mut failure_closed = false;
@@ -798,10 +802,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             ) {
                                 seen_patterns.push(vec![lowered]);
                                 if irrefutable
-                                    || self.coverage_matrix_is_exhaustive(
-                                        norm_init,
-                                        &seen_patterns,
-                                    )
+                                    || self.coverage_matrix_is_exhaustive(norm_init, &seen_patterns)
                                 {
                                     failure_closed = true;
                                 }

@@ -360,7 +360,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn coverage_bool_constructors(&mut self, target_ty: TypeId) -> Option<Vec<CoverageConstructor>> {
+    fn coverage_bool_constructors(
+        &mut self,
+        target_ty: TypeId,
+    ) -> Option<Vec<CoverageConstructor>> {
         (self.resolve_tv(target_ty) == TypeId::BOOL).then(|| {
             vec![
                 CoverageConstructor {
@@ -559,13 +562,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 ..
             } => {
                 if let [field] = fields.as_slice()
-                    && let Some(ctor) = self.coverage_enum_constructors(norm_target).and_then(
-                        |ctors| {
-                            ctors.into_iter().find(|ctor| {
-                                ctor.kind == CoverageConstructorKind::EnumVariant(field.name)
+                    && let Some(ctor) =
+                        self.coverage_enum_constructors(norm_target)
+                            .and_then(|ctors| {
+                                ctors.into_iter().find(|ctor| {
+                                    ctor.kind == CoverageConstructorKind::EnumVariant(field.name)
+                                })
                             })
-                        },
-                    )
                 {
                     let args = if let Some(&payload_ty) = ctor.arg_tys.first() {
                         vec![self.coverage_lower_expr_pattern(&field.value, payload_ty)?]

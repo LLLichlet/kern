@@ -1008,8 +1008,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 TypeKind::Pointer { is_mut, elem } => {
                     let elem = match self.ctx.type_registry.get(inner_elem_norm).clone() {
                         TypeKind::TraitObject(_, _, assoc_bindings) => {
-                            let assoc_binding_map =
-                                assoc_bindings.into_iter().collect::<kernc_utils::FastHashMap<_, _>>();
+                            let assoc_binding_map = assoc_bindings
+                                .into_iter()
+                                .collect::<kernc_utils::FastHashMap<_, _>>();
                             crate::query::augment_trait_object_assoc_bindings_from_map(
                                 self.ctx,
                                 elem,
@@ -1029,8 +1030,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 TypeKind::VolatilePtr { is_mut, elem } => {
                     let elem = match self.ctx.type_registry.get(inner_elem_norm).clone() {
                         TypeKind::TraitObject(_, _, assoc_bindings) => {
-                            let assoc_binding_map =
-                                assoc_bindings.into_iter().collect::<kernc_utils::FastHashMap<_, _>>();
+                            let assoc_binding_map = assoc_bindings
+                                .into_iter()
+                                .collect::<kernc_utils::FastHashMap<_, _>>();
                             crate::query::augment_trait_object_assoc_bindings_from_map(
                                 self.ctx,
                                 elem,

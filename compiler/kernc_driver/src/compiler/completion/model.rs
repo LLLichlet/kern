@@ -180,8 +180,9 @@ impl CompletionModel {
                             for arm in arms {
                                 if span_contains_offset(query_span_for_expr(&arm.body), offset) {
                                     let mut branch_visible = visible.clone();
-                                    if let Some(facts) =
-                                        self.let_else_facts_by_span.get(&query_span_for_expr(&arm.body))
+                                    if let Some(facts) = self
+                                        .let_else_facts_by_span
+                                        .get(&query_span_for_expr(&arm.body))
                                     {
                                         extend_completion_items(
                                             &mut branch_visible,

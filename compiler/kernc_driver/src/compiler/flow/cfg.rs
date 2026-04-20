@@ -611,11 +611,14 @@ impl<'a> FlowCfgBuilder<'a> {
 
         let arm = &arms[arm_index];
         let branch = self.add_node(AnalysisFlowCfgNodeKind::Branch, arm.span, Some(owner_id));
-        self.node_effects[branch.index()] =
-            classify_expr_effects(branch, &arm.body);
+        self.node_effects[branch.index()] = classify_expr_effects(branch, &arm.body);
         self.connect_to_node(incoming, branch);
 
-        let arm_node = self.add_node(AnalysisFlowCfgNodeKind::Eval, arm.pattern.span, Some(owner_id));
+        let arm_node = self.add_node(
+            AnalysisFlowCfgNodeKind::Eval,
+            arm.pattern.span,
+            Some(owner_id),
+        );
         self.add_edge(branch, arm_node, AnalysisFlowCfgEdgeKind::TrueBranch);
         self.record_defs(
             arm_node,

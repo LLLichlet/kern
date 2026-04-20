@@ -472,26 +472,20 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 continue;
             };
 
-            let resolved_target = self
-                .ctx
-                .type_registry
-                .normalize(
-                    self.ctx
-                        .node_types
-                        .get(&impl_def.target_type.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR),
-                );
-            let resolved_trait = self
-                .ctx
-                .type_registry
-                .normalize(
-                    self.ctx
-                        .node_types
-                        .get(&trait_ty_node.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR),
-                );
+            let resolved_target = self.ctx.type_registry.normalize(
+                self.ctx
+                    .node_types
+                    .get(&impl_def.target_type.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
+            let resolved_trait = self.ctx.type_registry.normalize(
+                self.ctx
+                    .node_types
+                    .get(&trait_ty_node.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
             if resolved_target == TypeId::ERROR || resolved_trait == TypeId::ERROR {
                 continue;
             }
@@ -516,9 +510,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 .zip(trait_args.iter())
                 .map(|(param, arg)| (param.name, *arg))
                 .collect::<FastHashMap<_, _>>();
-            let assoc_binding_map = assoc_bindings
-                .into_iter()
-                .collect::<FastHashMap<_, _>>();
+            let assoc_binding_map = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
 
             let prev_bounds_len = self.push_impl_context_where_bounds(&impl_def);
             for super_ty in trait_def.resolved_supertraits {

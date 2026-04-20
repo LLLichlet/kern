@@ -90,17 +90,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> Option<MastExpr> {
         let norm_target = self.ctx.type_registry.normalize(target_ty);
         match &value.kind {
-            ExprKind::Bool(expected) if norm_target == TypeId::BOOL => {
-                Some(MastExpr::new(
-                    TypeId::BOOL,
-                    MastExprKind::Binary {
-                        op: ast::BinaryOperator::Equal,
-                        lhs: Box::new(target_expr.clone()),
-                        rhs: Box::new(self.bool_expr(span, *expected)),
-                    },
-                    span,
-                ))
-            }
+            ExprKind::Bool(expected) if norm_target == TypeId::BOOL => Some(MastExpr::new(
+                TypeId::BOOL,
+                MastExprKind::Binary {
+                    op: ast::BinaryOperator::Equal,
+                    lhs: Box::new(target_expr.clone()),
+                    rhs: Box::new(self.bool_expr(span, *expected)),
+                },
+                span,
+            )),
             ExprKind::EnumLiteral { variant, .. } => self
                 .build_enum_variant_condition(span, target_expr, target_ty, *variant)
                 .map(|(cond, _)| cond),
@@ -115,8 +113,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     let [field] = fields.as_slice() else {
                         return None;
                     };
-                    let (tag_cond, payload_info) =
-                        self.build_enum_variant_condition(span, target_expr, target_ty, field.name)?;
+                    let (tag_cond, payload_info) = self.build_enum_variant_condition(
+                        span,
+                        target_expr,
+                        target_ty,
+                        field.name,
+                    )?;
                     let Some((variant_idx, payload_ty, mono_id)) = payload_info else {
                         return Some(tag_cond);
                     };
@@ -475,11 +477,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
 
             let lowered_else = match else_clause {
-                ast::LetElseClause::Expr(else_expr) => {
-                    self.measure_phase("        lower_let_else_block", |this| {
+                ast::LetElseClause::Expr(else_expr) => self
+                    .measure_phase("        lower_let_else_block", |this| {
                         this.lower_block_as_body(else_expr, subst_map, TypeId::VOID)
-                    })
-                }
+                    }),
                 ast::LetElseClause::Arms(arms) => MastBlock {
                     stmts: vec![],
                     result: Some(Box::new(self.measure_phase(
@@ -584,7 +585,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             this.lower_match_pattern_body(&arm.body, bindings, subst_map, TypeId::VOID)
         });
         let fallback = self.measure_phase("          lower_let_else_arm_fallback", |this| {
-            this.lower_let_else_arm_chain(arms, target_var_expr, target_ty, subst_map, arm_index + 1)
+            this.lower_let_else_arm_chain(
+                arms,
+                target_var_expr,
+                target_ty,
+                subst_map,
+                arm_index + 1,
+            )
         });
 
         MastExpr::new(

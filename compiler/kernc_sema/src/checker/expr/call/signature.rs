@@ -217,16 +217,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             (
                 TypeKind::TraitObject(generic_def, generic_args, generic_assoc),
                 TypeKind::TraitObject(_, _, _),
-            ) => {
-                self.infer_generic_args_from_trait_object_candidates(
-                    generic_def,
-                    &generic_args,
-                    &generic_assoc,
-                    concrete_ty,
-                    type_map,
-                    const_map,
-                )
-            }
+            ) => self.infer_generic_args_from_trait_object_candidates(
+                generic_def,
+                &generic_args,
+                &generic_assoc,
+                concrete_ty,
+                type_map,
+                const_map,
+            ),
             (
                 TypeKind::Projection {
                     target: generic_target,
@@ -334,7 +332,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> bool {
         let mut candidates = Vec::new();
         let mut visited = FastHashSet::default();
-        self.collect_trait_object_hierarchy_candidates(concrete_ty, generic_def, &mut visited, &mut candidates);
+        self.collect_trait_object_hierarchy_candidates(
+            concrete_ty,
+            generic_def,
+            &mut visited,
+            &mut candidates,
+        );
 
         for concrete_view in candidates {
             let TypeKind::TraitObject(_, concrete_args, concrete_assoc) =
@@ -364,19 +367,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 continue;
             }
 
-            let assoc_match = generic_assoc.iter().all(|(assoc_def_id, generic_assoc_ty)| {
-                concrete_assoc
-                    .iter()
-                    .find(|(candidate_def_id, _)| *candidate_def_id == *assoc_def_id)
-                    .is_some_and(|(_, concrete_assoc_ty)| {
-                        self.infer_generic_args_from_types(
-                            *generic_assoc_ty,
-                            *concrete_assoc_ty,
-                            &mut local_type_map,
-                            &mut local_const_map,
-                        )
-                    })
-            });
+            let assoc_match = generic_assoc
+                .iter()
+                .all(|(assoc_def_id, generic_assoc_ty)| {
+                    concrete_assoc
+                        .iter()
+                        .find(|(candidate_def_id, _)| *candidate_def_id == *assoc_def_id)
+                        .is_some_and(|(_, concrete_assoc_ty)| {
+                            self.infer_generic_args_from_types(
+                                *generic_assoc_ty,
+                                *concrete_assoc_ty,
+                                &mut local_type_map,
+                                &mut local_const_map,
+                            )
+                        })
+                });
             if !assoc_match {
                 continue;
             }
@@ -410,7 +415,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             out.push(trait_ty);
         }
 
-        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned() else {
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned()
+        else {
             return;
         };
         let trait_arg_map = trait_def
@@ -438,7 +444,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 substituted,
                 &assoc_binding_map,
             );
-            self.collect_trait_object_hierarchy_candidates(enriched, target_trait_def_id, visited, out);
+            self.collect_trait_object_hierarchy_candidates(
+                enriched,
+                target_trait_def_id,
+                visited,
+                out,
+            );
         }
     }
 

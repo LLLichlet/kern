@@ -76,13 +76,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } = &expr.kind
         {
             let mut stmts = self.measure_phase("      lower_stmt_let", |this| {
-                this.lower_let_stmts(
-                    expr,
-                    pattern,
-                    init,
-                    else_clause.as_ref(),
-                    subst_map,
-                )
+                this.lower_let_stmts(expr, pattern, init, else_clause.as_ref(), subst_map)
             });
             lowered_stmts.append(&mut stmts);
         } else if let Some(stmt) = self.measure_phase("      lower_stmt_expr", |this| {

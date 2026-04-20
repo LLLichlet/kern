@@ -2235,9 +2235,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         ast::LetElseClause::Expr(expr) => {
                             self.expr_references_const_param(expr, env_scope)
                         }
-                        ast::LetElseClause::Arms(arms) => arms.iter().any(|arm| {
-                            self.expr_references_const_param(&arm.body, env_scope)
-                        }),
+                        ast::LetElseClause::Arms(arms) => arms
+                            .iter()
+                            .any(|arm| self.expr_references_const_param(&arm.body, env_scope)),
                     })
             }
             ast::ExprKind::Static { init, .. } => self.expr_references_const_param(init, env_scope),

@@ -89,7 +89,7 @@ pub fn write_stdout(ptr: *u8, len: usize) usize {
     let mut written = u32.{0};
     
     // The Win32 API expects a 32-bit length parameter.
-    let _ = WriteFile(handle, ptr, len as u32, written..&, 0 as *mut void);
+    let _ = WriteFile(handle, ptr, len as u32, written..&, usize.{0} as *mut void);
     return written as usize;
 }
 
@@ -376,11 +376,11 @@ pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) bool!Error {
 pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error {
     let mut pipe_attrs = SecurityAttributes.{
         nLength: SECURITY_ATTRIBUTES_SIZE,
-        lpSecurityDescriptor: 0 as *mut void,
+        lpSecurityDescriptor: usize.{0} as *mut void,
         bInheritHandle: 1,
     };
-    let mut read_pipe = 0 as Handle;
-    let mut write_pipe = 0 as Handle;
+    let mut read_pipe = usize.{0} as Handle;
+    let mut write_pipe = usize.{0} as Handle;
     if (CreatePipe(read_pipe..&, write_pipe..&, pipe_attrs..&, 0) == 0) {
         return .{ Err: last_error() };
     }
@@ -408,9 +408,9 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
 
     let mut startup = StartupInfoW.{
         cb: STARTUP_INFO_W_SIZE,
-        lpReserved: 0 as *u16,
-        lpDesktop: 0 as *u16,
-        lpTitle: 0 as *u16,
+        lpReserved: usize.{0} as *u16,
+        lpDesktop: usize.{0} as *u16,
+        lpTitle: usize.{0} as *u16,
         dwX: 0,
         dwY: 0,
         dwXSize: 0,
@@ -421,27 +421,27 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
         dwFlags: STARTF_USESTDHANDLES,
         wShowWindow: 0,
         cbReserved2: 0,
-        lpReserved2: 0 as *mut u8,
+        lpReserved2: usize.{0} as *mut u8,
         hStdInput: GetStdHandle(-10),
         hStdOutput: write_pipe,
         hStdError: write_pipe,
     };
     let mut proc_info = ProcessInformation.{
-        hProcess: 0 as Handle,
-        hThread: 0 as Handle,
+        hProcess: usize.{0} as Handle,
+        hThread: usize.{0} as Handle,
         dwProcessId: 0,
         dwThreadId: 0,
     };
 
     if (CreateProcessW(
-            0 as *u16,
+            usize.{0} as *u16,
             wide_command_line,
-            0 as *mut SecurityAttributes,
-            0 as *mut SecurityAttributes,
+            usize.{0} as *mut SecurityAttributes,
+            usize.{0} as *mut SecurityAttributes,
             1,
             0,
-            0 as *mut void,
-            0 as *u16,
+            usize.{0} as *mut void,
+            usize.{0} as *u16,
             startup..&,
             proc_info..&
         ) == 0)
@@ -460,7 +460,7 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
     let _ = CloseHandle(write_pipe);
 
     let output = String.{}..&;
-    let chunk = [1024]mut u8.{undef};
+    let mut chunk = [1024]u8.{undef};
     for (;;) {
         match (read_file(read_pipe, chunk.[0]..&, 1024)) {
             .{ Ok: read } => {
@@ -505,20 +505,20 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
 
 /// Returns the number of UTF-16 code units before the terminating zero.
 pub fn utf16_z_len(str: *u16) usize {
-    let mut len = 0;
+    let mut len = usize.{0};
     for (;;) {
         let current_ptr = str + len;
         if (current_ptr.* == 0) {
             return len;
         }
-        len += 1;
+        len += usize.{1};
     }
 }
 
 fn alloc_wide_units(units: usize) (*mut u16)!Error {
     let bytes = units * 2;
     let ptr = VirtualAlloc(
-        0 as *mut void,
+        usize.{0} as *mut void,
         bytes,
         (MEM_COMMIT | MEM_RESERVE) as u32,
         PAGE_READWRITE as u32
@@ -539,7 +539,7 @@ pub fn free_wide_units(ptr: *mut u16) void {
 
 fn alloc_utf8_units(bytes: usize) (*mut u8)!Error {
     let ptr = VirtualAlloc(
-        0 as *mut void,
+        usize.{0} as *mut void,
         bytes,
         (MEM_COMMIT | MEM_RESERVE) as u32,
         PAGE_READWRITE as u32
@@ -561,7 +561,7 @@ pub fn free_utf8_units(ptr: *mut u8) void {
 /// Converts a zero-terminated UTF-8 path into an owned zero-terminated UTF-16 buffer.
 pub fn utf8_z_to_wide(path: *u8) (*mut u16)!Error {
     let bytes = abi.cstr.len(path);
-    let required = MultiByteToWideChar(CP_UTF8, 0, path, bytes as i32, 0 as *mut u16, 0);
+    let required = MultiByteToWideChar(CP_UTF8, 0, path, bytes as i32, usize.{0} as *mut u16, 0);
     if (required <= 0) {
         return .{ Err: last_error() };
     }
@@ -596,10 +596,10 @@ pub fn wide_to_utf8_into(wide: []u16, out: []mut u8) usize!Error {
         0,
         wide.[0].&,
         (#wide) as i32,
-        0 as *mut u8,
+        usize.{0} as *mut u8,
         0,
-        0 as *u8,
-        0 as *mut u8
+        usize.{0} as *u8,
+        usize.{0} as *mut u8
     );
     if (required <= 0) {
         return .{ Err: last_error() };
@@ -615,8 +615,8 @@ pub fn wide_to_utf8_into(wide: []u16, out: []mut u8) usize!Error {
         (#wide) as i32,
         out.[0]..&,
         required,
-        0 as *u8,
-        0 as *mut u8
+        usize.{0} as *u8,
+        usize.{0} as *mut u8
     );
     if (written <= 0) {
         return .{ Err: last_error() };
@@ -633,7 +633,7 @@ pub fn wide_z_to_utf8_alloc(ptr: *u16) (*mut u8)!Error {
         return .{ Ok: out };
     }
 
-    let required = WideCharToMultiByte(CP_UTF8, 0, ptr, len as i32, 0 as *mut u8, 0, 0 as *u8, 0 as *mut u8);
+    let required = WideCharToMultiByte(CP_UTF8, 0, ptr, len as i32, usize.{0} as *mut u8, 0, usize.{0} as *u8, usize.{0} as *mut u8);
     if (required <= 0) {
         return .{ Err: last_error() };
     }
@@ -647,8 +647,8 @@ pub fn wide_z_to_utf8_alloc(ptr: *u16) (*mut u8)!Error {
         len as i32,
         out,
         required,
-        0 as *u8,
-        0 as *mut u8
+        usize.{0} as *u8,
+        usize.{0} as *mut u8
     );
     if (written <= 0) {
         free_utf8_units(out);
@@ -662,7 +662,7 @@ pub fn wide_z_to_utf8_alloc(ptr: *u16) (*mut u8)!Error {
 /// Reads up to `len` bytes from `handle` into `ptr`.
 pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) usize!Error {
     let mut read = u32.{0};
-    if (ReadFile(handle, ptr, len as u32, read..&, 0 as *mut void) == 0) {
+    if (ReadFile(handle, ptr, len as u32, read..&, usize.{0} as *mut void) == 0) {
         return .{ Err: last_error() };
     }
     return .{ Ok: read as usize };
@@ -671,7 +671,7 @@ pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) usize!Error {
 /// Writes up to `len` bytes from `ptr` into `handle`.
 pub fn write_file(handle: Handle, ptr: *u8, len: usize) usize!Error {
     let mut written = u32.{0};
-    if (WriteFile(handle, ptr, len as u32, written..&, 0 as *mut void) == 0) {
+    if (WriteFile(handle, ptr, len as u32, written..&, usize.{0} as *mut void) == 0) {
         return .{ Err: last_error() };
     }
     return .{ Ok: written as usize };
@@ -722,13 +722,13 @@ fn find_data_file_type(data: *Win32FindDataW) FileType {
 }
 
 fn find_data_name_len(data: *Win32FindDataW) usize {
-    let mut len = 0;
-    for (; len < 260; len += 1) {
+    let mut len = usize.{0};
+    for (; len < usize.{260}; len += usize.{1}) {
         if (data.cFileName.[len] == 0) {
             return len;
         }
     }
-    return 260;
+    return usize.{260};
 }
 
 fn is_dot_entry(name: []u16) bool {
@@ -755,15 +755,15 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
         let _ = FindClose(handle);
     };
 
-    let mut total = 0;
+    let mut total = usize.{0};
     for (;;) {
         let name_len = find_data_name_len(data.&);
         let name = data.cFileName.[0 .. name_len];
         if (!is_dot_entry(name)) {
-            let utf8_name_buf = [1040]mut u8.{undef};
+            let mut utf8_name_buf = [1040]u8.{undef};
             let utf8_name_len = wide_to_utf8_into(name, utf8_name_buf..[0 .. 1040]).!;
             let utf8_name = utf8_name_buf.[0 .. utf8_name_len];
-            total += 1;
+            total += usize.{1};
             if (!visitor(utf8_name, find_data_file_type(data.&))) {
                 return .{ Ok: total };
             }
@@ -809,10 +809,10 @@ pub fn open_file(
         wide_path,
         access,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
-        0 as *mut SecurityAttributes,
+        usize.{0} as *mut SecurityAttributes,
         disposition,
         FILE_ATTRIBUTE_NORMAL,
-        0 as Handle
+        usize.{0} as Handle
     );
     if (handle == invalid_handle()) {
         return .{ Err: last_error() };
@@ -825,7 +825,7 @@ pub fn create_dir(path: *u8) bool!Error {
     let wide_path = utf8_z_to_wide(path).!;
     defer free_wide_units(wide_path);
 
-    if (CreateDirectoryW(wide_path, 0 as *mut SecurityAttributes) == 0) {
+    if (CreateDirectoryW(wide_path, usize.{0} as *mut SecurityAttributes) == 0) {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };

@@ -30,10 +30,10 @@ extern {
 }
 
 #[if(os == "windows")]
-static mut WINDOWS_ARG_BUF = [32768]mut u8.{undef};
+static mut WINDOWS_ARG_BUF = [32768]u8.{undef};
 
 #[if(os == "windows")]
-static mut WINDOWS_ARGV_PTRS = [65]mut usize.{ 0; 65 };
+static mut WINDOWS_ARGV_PTRS = [65]usize.{ 0; 65 };
 
 #[if(runtime_entry == "rt" and os == "linux")]
 #[export_name("_start")]
@@ -122,10 +122,10 @@ extern fn main(_: i32, _: **u8) i32 {
 
 #[if(os == "windows")]
 fn build_windows_utf8_argv(argc: usize, argv_wide: *mut *mut u16) i32 {
-    let mut utf8_argc = 0;
-    let mut out_len = 0;
+    let mut utf8_argc = usize.{0};
+    let mut out_len = usize.{0};
 
-    for (; utf8_argc < argc and utf8_argc < 64; utf8_argc += 1) {
+    for (; utf8_argc < argc and utf8_argc < usize.{64}; utf8_argc += usize.{1}) {
         if (out_len >= 32767) {
             break;
         }
@@ -144,7 +144,7 @@ fn build_windows_utf8_argv(argc: usize, argv_wide: *mut *mut u16) i32 {
         out_len += written;
         WINDOWS_ARG_BUF.[out_len] = 0;
         WINDOWS_ARGV_PTRS.[utf8_argc] = WINDOWS_ARG_BUF.[arg_start]..& as usize;
-        out_len += 1;
+        out_len += usize.{1};
     }
 
     WINDOWS_ARGV_PTRS.[utf8_argc] = 0;

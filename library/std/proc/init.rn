@@ -151,7 +151,7 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) Capture!Error {
     }
 
     let output = String.{}..&;
-    let chunk = [1024]mut u8.{undef};
+    let mut chunk = [1024]u8.{undef};
     for (;;) {
         let read = system_fread(chunk.[0]..&, 1, 1024, stream);
         if (read == 0) {

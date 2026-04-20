@@ -46,7 +46,7 @@ impl *mut Page : Allocator{
 
         #[if(os == "darwin")] {
             let raw = os.darwin.mmap(
-                0 as *mut void,
+                usize.{0} as *mut void,
                 layout.size,
                 (os.darwin.PROT_READ | os.darwin.PROT_WRITE) as i32,
                 (os.darwin.MAP_PRIVATE | os.darwin.MAP_ANONYMOUS) as i32,
@@ -65,7 +65,7 @@ impl *mut Page : Allocator{
 
         #[if(os == "windows")] {
             let raw = os.windows.VirtualAlloc(
-                0 as *mut void,
+                usize.{0} as *mut void,
                 layout.size,
                 (os.windows.MEM_COMMIT | os.windows.MEM_RESERVE) as u32,
                 WINDOWS_PAGE_READWRITE

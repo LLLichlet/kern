@@ -104,7 +104,7 @@ extern type Termios = struct {
     c_cflag: u32,
     c_lflag: u32,
     c_line: u8,
-    c_cc: [32]mut u8,
+    c_cc: [32]u8,
     c_ispeed: u32,
     c_ospeed: u32,
 };
@@ -378,7 +378,7 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
     let .{ Some: command_c } = alloc_c_string(alloc, wrapped.as_str()) else return .{ Err: .{ code: 12 } };
     defer free_c_string(alloc, wrapped.as_str(), .{ Some: command_c });
 
-    let fds = [2]mut i32.{undef};
+    let mut fds = [2]i32.{undef};
     let pipe_ret = syscall3_raw(SYS_PIPE2, fds.[0]..& as usize, 0, 0);
     if (pipe_ret < 0) {
         return error_result[ProcessCapture](pipe_ret);
@@ -394,7 +394,7 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
     }
 
     if (pid == 0) {
-        let argv = [4]mut usize.{ sh_arg as usize, dash_lc as usize, command_c as usize, 0 };
+        let mut argv = [4]usize.{ sh_arg as usize, dash_lc as usize, command_c as usize, 0 };
         let envp = environment_entries().map_or(usize.{0}, .[](envp: **u8) usize {
             return envp as usize;
         });
@@ -408,7 +408,7 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
 
     let _ = close_file(write_end);
     let output = String.{}..&;
-    let chunk = [1024]mut u8.{undef};
+    let mut chunk = [1024]u8.{undef};
     for (;;) {
         let .{ Ok: read } = read_file(read_end, chunk.[0]..&, 1024) else .{ Err: err } => {
             let _ = close_file(read_end);
@@ -578,7 +578,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
     };
 
     let mut total = usize.{0};
-    let buf = [8192]mut u8.{undef};
+    let mut buf = [8192]u8.{undef};
 
     for (;;) {
         let read = syscall3_raw(GETDENTS64, handle, buf.[0]..& as usize, 8192);

@@ -47,11 +47,11 @@ fn dir_search_path_layout(path: []u8) ?base.mem.Layout {
     #[if(os == "windows")]
     {
         let needs_sep = if (#path == 0) true else !is_path_separator(path.[#path - 1]);
-        let extra = if (needs_sep) 3 else 2;
+        let extra = if (needs_sep) usize.{3} else usize.{2};
         return array_layout_of[u8](#path + extra);
     }
 
-    return array_layout_of[u8](#path + 1);
+    return array_layout_of[u8](#path + usize.{1});
 }
 
 fn alloc_dir_search_path(alloc: *mut Allocator, path: []u8) (*mut u8)!Error {
@@ -69,10 +69,10 @@ fn alloc_dir_search_path(alloc: *mut Allocator, path: []u8) (*mut u8)!Error {
         let needs_sep = if (len == 0) true else !is_path_separator(path.[len - 1]);
         if (needs_sep) {
             (ptr + end).* = b'\\';
-            end += 1;
+            end += usize.{1};
         }
         (ptr + end).* = b'*';
-        (ptr + end + 1).* = 0;
+        (ptr + end + usize.{1}).* = 0;
         return .{ Ok: ptr };
     }
 

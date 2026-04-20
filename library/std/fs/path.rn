@@ -58,16 +58,16 @@ pub/ fn root_prefix_len(path: []u8) usize {
     #[if(os == "windows")]
     {
         if (len >= 2 and is_path_separator(path.[0]) and is_path_separator(path.[1])) {
-            let mut index = 2;
-            for (; index < len and !is_path_separator(path.[index]); index += 1) {}
+            let mut index = usize.{2};
+            for (; index < len and !is_path_separator(path.[index]); index += usize.{1}) {}
             if (index >= len) {
-                return 2;
+                return usize.{2};
             }
 
-            index += 1;
-            for (; index < len and !is_path_separator(path.[index]); index += 1) {}
+            index += usize.{1};
+            for (; index < len and !is_path_separator(path.[index]); index += usize.{1}) {}
             if (index < len and is_path_separator(path.[index])) {
-                return index + 1;
+                return index + usize.{1};
             }
             return index;
         }
@@ -79,15 +79,15 @@ pub/ fn root_prefix_len(path: []u8) usize {
                 (drive >= b'A' and drive <= b'Z');
             if (is_alpha and path.[1] == b':') {
                 if (len >= 3 and is_path_separator(path.[2])) {
-                    return 3;
+                    return usize.{3};
                 }
-                return 2;
+                return usize.{2};
             }
         }
     }
 
     if (is_path_separator(path.[0])) {
-        return 1;
+        return usize.{1};
     }
     return usize.{0};
 }

@@ -274,7 +274,7 @@ impl *mut File {
 
     /// Copies all remaining bytes from this file into another file.
     pub fn copy_to(other: *mut File) usize!Error {
-        let chunk = [1024]mut u8.{undef};
+        let mut chunk = [1024]u8.{undef};
         let mut total = usize.{0};
 
         for (;;) {
@@ -309,7 +309,7 @@ impl *mut File {
     /// Reads the remainder of the file into an owned string.
     pub fn read_to_string(alloc: *mut Allocator) String!Error {
         let mut out = String.{};
-        let chunk = [1024]mut u8.{undef};
+        let mut chunk = [1024]u8.{undef};
 
         for (;;) {
             let .{ Ok: read } = self.read(chunk..[0 .. 1024]) else .{ Err: err } => {

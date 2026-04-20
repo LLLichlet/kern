@@ -14,6 +14,43 @@ fn nm_defines_global_symbol(symbols: &str, expected: &str) -> bool {
     })
 }
 
+fn compile_cross_target_std_object(prefix: &str, target: &str) -> std::process::Output {
+    // Keep cfg-gated std/runtime codepaths compiled even on non-native CI hosts.
+    compile_source_with_args(
+        prefix,
+        r#"
+use std.env;
+use std.proc;
+
+fn main(argc: i32, argv: **u8) i32 {
+    let args = proc.args(argc, argv);
+    let _ = args.len();
+    let mut saw_entry = false;
+
+    let visited = env.visit(.[saw_entry = saw_entry..&](entry: env.Var) bool {
+        let _ = entry.name;
+        let _ = entry.value;
+        saw_entry.* = true;
+        return false;
+    });
+    let _ = visited;
+    let _ = saw_entry;
+    return 0;
+}
+"#,
+        &[
+            "--library-bundle",
+            "std",
+            "--runtime-entry",
+            "rt",
+            "--runtime-libc",
+            "no",
+            "--target",
+            target,
+        ],
+    )
+}
+
 #[test]
 fn links_hosted_program_with_std_and_crt_startup() {
     let source_path = unique_temp_path("kernc_std_hosted", "rn");
@@ -480,6 +517,36 @@ fn main() i32 {
     );
 
     assert_success(&output, "kernc hosted std no-arg main");
+}
+
+#[test]
+fn cross_compiles_windows_std_runtime_env_and_proc_paths() {
+    let output = compile_cross_target_std_object(
+        "kernc_cross_windows_std_runtime_env_proc",
+        "x86_64-windows-msvc",
+    );
+
+    assert_success(&output, "kernc cross-compile windows std runtime/env/proc");
+}
+
+#[test]
+fn cross_compiles_x86_64_darwin_std_runtime_env_and_proc_paths() {
+    let output = compile_cross_target_std_object(
+        "kernc_cross_x86_64_darwin_std_runtime_env_proc",
+        "x86_64-apple-darwin",
+    );
+
+    assert_success(&output, "kernc cross-compile x86_64 darwin std runtime/env/proc");
+}
+
+#[test]
+fn cross_compiles_aarch64_darwin_std_runtime_env_and_proc_paths() {
+    let output = compile_cross_target_std_object(
+        "kernc_cross_aarch64_darwin_std_runtime_env_proc",
+        "aarch64-apple-darwin",
+    );
+
+    assert_success(&output, "kernc cross-compile aarch64 darwin std runtime/env/proc");
 }
 
 #[test]

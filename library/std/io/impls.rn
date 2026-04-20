@@ -45,7 +45,7 @@ fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
     }
 
     // `u64` uses at most 20 decimal digits and avoids zero-initialization here.
-    let buf = [20]mut u8.{undef};
+    let mut buf = [20]u8.{undef};
     let mut i = 20;
     let mut curr = val;
 

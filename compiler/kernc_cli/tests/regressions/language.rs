@@ -2680,6 +2680,28 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_multiline_string_inline_asm_templates_for_aarch64_darwin_target() {
+    let output = compile_source_with_args(
+        "kernc_multiline_inline_asm_aarch64_darwin",
+        r#"
+fn main() i32 {
+    @asm(.{
+        asm:
+            \\nop
+            \\nop
+        ,
+        volatile: true,
+    });
+    return 0;
+}
+"#,
+        &["--target", "aarch64-apple-darwin"],
+    );
+
+    assert_success(&output, "kernc multiline @asm for aarch64-apple-darwin");
+}
+
+#[test]
 fn rejects_legacy_inline_asm_string_arrays_with_migration_hint() {
     let output = compile_source(
         r#"

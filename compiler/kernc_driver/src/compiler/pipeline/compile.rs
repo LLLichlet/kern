@@ -356,9 +356,10 @@ impl CompilerDriver {
     }
 
     fn codegen_asm_dialect(&self) -> InlineAsmDialect {
-        match self.options.asm_dialect {
+        match self.options.asm_dialect.effective_for_target(&self.options.target) {
             AsmDialect::Intel => InlineAsmDialect::Intel,
             AsmDialect::Att => InlineAsmDialect::ATT,
+            AsmDialect::Auto => unreachable!("effective_for_target must resolve `auto`"),
         }
     }
 
@@ -1269,9 +1270,11 @@ impl CompilerDriver {
             );
         }
 
-        let asm_dialect = match self.options.asm_dialect {
+        let asm_dialect = match self.options.asm_dialect.effective_for_target(&self.options.target)
+        {
             AsmDialect::Intel => InlineAsmDialect::Intel,
             AsmDialect::Att => InlineAsmDialect::ATT,
+            AsmDialect::Auto => unreachable!("effective_for_target must resolve `auto`"),
         };
         let mut pending: Vec<PendingCodegenUnit> = codegen_unit_plans
             .iter()
@@ -1384,9 +1387,14 @@ impl CompilerDriver {
                 build_context.type_registry,
                 self.options.split_sections_for_gc,
             );
-            codegen.set_asm_dialect(match self.options.asm_dialect {
+            codegen.set_asm_dialect(match self
+                .options
+                .asm_dialect
+                .effective_for_target(&self.options.target)
+            {
                 AsmDialect::Intel => InlineAsmDialect::Intel,
                 AsmDialect::Att => InlineAsmDialect::ATT,
+                AsmDialect::Auto => unreachable!("effective_for_target must resolve `auto`"),
             });
             let mir_report = kernc_mir_lower::build_from_mast(&unit_module);
             let codegen_report =

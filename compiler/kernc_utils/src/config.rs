@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 use std::str::FromStr;
-use target_lexicon::{PointerWidth, Triple};
+use target_lexicon::{Architecture, PointerWidth, Triple};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptLevel {
@@ -256,8 +256,27 @@ impl Default for TargetMachine {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AsmDialect {
     #[default]
+    Auto,
     Intel,
     Att,
+}
+
+impl AsmDialect {
+    pub fn effective_for_target(self, target: &TargetMachine) -> Self {
+        match self {
+            Self::Auto => {
+                if matches!(
+                    target.triple.architecture,
+                    Architecture::X86_64 | Architecture::X86_32(_)
+                ) {
+                    Self::Intel
+                } else {
+                    Self::Att
+                }
+            }
+            explicit => explicit,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

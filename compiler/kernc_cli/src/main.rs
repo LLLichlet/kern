@@ -44,7 +44,7 @@ fn print_usage(program_name: &str) {
 
     println!("\nTargeting & Codegen:");
     println!("  --target <T>         Set target triple (e.g. x86_64-unknown-linux-gnu)");
-    println!("  --asm-dialect <D>    Set assembly dialect: intel (default) or att");
+    println!("  --asm-dialect <D>    Set assembly dialect: auto (default), intel, or att");
     println!("  --codegen-units <N>  Split code generation into N lowered codegen units");
     println!("  --lto <M>            Cross-CGU optimization mode: none, full, thin");
     println!("  --toolchain-root <d> Prefer toolchain binaries from directory <d>");
@@ -85,10 +85,11 @@ fn parse_target_machine(value: &str) -> TargetMachine {
 
 fn parse_asm_dialect(value: &str) -> AsmDialect {
     match value {
+        "auto" => AsmDialect::Auto,
         "intel" => AsmDialect::Intel,
         "att" => AsmDialect::Att,
         _ => cli_error(format!(
-            "Invalid asm dialect `{}`. Expected one of: intel, att.",
+            "Invalid asm dialect `{}`. Expected one of: auto, intel, att.",
             value
         )),
     }

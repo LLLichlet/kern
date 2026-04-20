@@ -1246,6 +1246,52 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_non_contractive_const_trait_projection_cycle_without_ice() {
+    let output = compile_source(
+        r#"
+type Loop[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl[N: usize] X: Loop[N] {
+    type Out = X.Loop[N + 1].Out;
+}
+
+fn project(value: X) X.Loop[0].Out {
+    let _ = value;
+    return X.{};
+}
+
+fn main() i32 {
+    let _ = project(X.{});
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("recursive associated type projection cycle detected"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_nested_typed_struct_pattern_with_mismatched_const_generic_argument() {
     let output = compile_source(
         r#"

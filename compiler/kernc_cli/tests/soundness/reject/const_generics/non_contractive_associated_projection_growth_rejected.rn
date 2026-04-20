@@ -1,0 +1,23 @@
+// class: projection-cycle
+// stderr: recursive associated type projection cycle detected
+// stderr: projection repeatedly re-enters the same impl-associated type
+
+type Loop[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl[N: usize] X: Loop[N] {
+    type Out = X.Loop[N + 1].Out;
+}
+
+fn project(value: X) X.Loop[0].Out {
+    let _ = value;
+    return X.{};
+}
+
+fn main() i32 {
+    let _ = project(X.{});
+    return 0;
+}

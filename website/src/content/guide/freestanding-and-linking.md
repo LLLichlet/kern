@@ -65,13 +65,13 @@ If the linker needs a custom script, keep that in `build.rn`:
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
-    b.link_script("kernel.ld");
+    b.link_arg_path("-T", "kernel.ld");
 }
 ```
 
-`link_script(...)` resolves relative paths from the package root, verifies that
-the file exists, and pushes the correct `-T <absolute-path>` pair into the link
-step.
+`link_arg_path("-T", ...)` resolves relative paths from the package root,
+verifies that the file exists, and pushes the correct `-T <absolute-path>` pair
+into the link step.
 
 The actual commands stay simple:
 

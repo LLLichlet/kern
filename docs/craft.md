@@ -81,7 +81,7 @@ For a single-package project whose linker script sits next to `Craft.toml`,
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
-    b.link_script("kernel.ld");
+    b.link_arg_path("-T", "kernel.ld");
 }
 ```
 
@@ -647,6 +647,7 @@ Relative path rules:
 - `set_source_root_from(output)` is the preferred way to bind staged generated outputs
 - `link_search("native")` records a relative search path in the plan, then resolves it from the current package root during execution
 - `link_search("/abs/path")` keeps the absolute search path as given
+- `link_arg_path("-T", "link/kernel.ld")` resolves the path from the current package root, validates that it exists, and records the normalized final path
 
 Package-relative staging rules:
 
@@ -742,7 +743,7 @@ The current `Builder` API includes:
   - `link_system_lib(...)`
   - `link_framework(...)`
   - `link_search(...)`
-  - `link_script(...)`
+  - `link_arg_path(flag, path)`
   - `link_arg(...)`
 
 The important property is not API breadth by itself. The important property is that these effects are represented in the build plan rather than being hidden behavior.

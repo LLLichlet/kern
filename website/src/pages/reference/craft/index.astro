@@ -20,7 +20,7 @@ const quickJumps = [
     kicker: "Freestanding",
     title: "Package a kernel or `_start` binary",
     href: "/guide/freestanding-and-linking/",
-    summary: "Use `entry = \"none\"`, keep `libc = false`, and attach the linker script through `b.link_script(...)`."
+    summary: "Use `entry = \"none\"`, keep `libc = false`, and attach the linker script through `b.link_arg_path(\"-T\", ...)`."
   },
   {
     kicker: "Boundary",
@@ -86,7 +86,7 @@ fn kmain() void {
 const linkScriptExample = `use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
-    b.link_script("kernel.ld");
+    b.link_arg_path("-T", "kernel.ld");
 }`;
 ---
 
@@ -109,7 +109,7 @@ pub fn build(b: *mut builder.Builder) void {
       <div class="mt-8 max-w-3xl border-y border-[color:var(--kern-line)] py-5 text-sm leading-7 text-[color:var(--kern-text-muted)]">
         The commands on this page were checked against the current toolchain while writing the docs.
         `craft doc` still requires at least one library target that emits package metadata, and freestanding linker
-        scripts should use `b.link_script(...)` instead of raw `-T` path pairs.
+        scripts should use `b.link_arg_path("-T", ...)` so path-bearing linker arguments resolve from the package root.
       </div>
     </div>
   </section>
@@ -240,7 +240,7 @@ pub fn build(b: *mut builder.Builder) void {
     <ul class="doc-bullet-columns mt-8">
       <li>`entry = "none"` means `craft` must not require a hosted program `main`.</li>
       <li>`bundle = "base"` keeps the library wiring aligned with freestanding bring-up.</li>
-      <li>`b.link_script("kernel.ld")` resolves from the package root and emits the correct linker arguments.</li>
+      <li>`b.link_arg_path("-T", "kernel.ld")` resolves from the package root and emits the correct linker arguments.</li>
       <li>If you want raw linker experimentation, that is usually the point where `kernc` becomes the clearer tool.</li>
     </ul>
   </section>

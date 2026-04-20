@@ -146,8 +146,8 @@ if (b.unit.kind == .test) {{
 }
 
 #[test]
-fn build_script_can_resolve_relative_linker_script_paths_from_package_root() {
-    let root = temp_dir("craft-build-plan-link-script");
+fn build_script_can_resolve_relative_link_arg_paths_from_package_root() {
+    let root = temp_dir("craft-build-plan-link-arg");
     fs::create_dir_all(root.join("link")).unwrap();
     fs::write(
         root.join("Craft.toml"),
@@ -169,7 +169,7 @@ root = "src/main.rn"
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
-    b.link_script("link/kernel.ld");
+    b.link_arg_path("-T", "link/kernel.ld");
 }
 "#,
     )

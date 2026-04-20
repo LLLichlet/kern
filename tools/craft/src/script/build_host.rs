@@ -86,25 +86,29 @@ impl ScriptHost for BuildUnitHost<'_> {
                 self.unit.link.args.push(arg);
                 Ok(ConstValue::Void)
             }
-            "__craft_build_link_script" => {
+            "__craft_build_link_arg_path" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
-                let path = expect_string(args, 1, "linker script path")?;
-                let script_path = package_or_absolute_path(
+                let flag = expect_string(args, 1, "link argument flag")?;
+                if flag.trim().is_empty() {
+                    return Err("link argument flag must not be empty".to_string());
+                }
+                let path = expect_string(args, 2, "link argument path")?;
+                let resolved_path = package_or_absolute_path(
                     &self.script_context.package_root_path,
                     &path,
-                    "linker script path",
+                    "link argument path",
                 )?;
-                if !script_path.is_file() {
+                if !resolved_path.exists() {
                     return Err(format!(
-                        "linker script `{}` does not exist",
-                        script_path.display()
+                        "link argument path `{}` does not exist",
+                        resolved_path.display()
                     ));
                 }
-                self.unit.link.args.push("-T".to_string());
+                self.unit.link.args.push(flag);
                 self.unit
                     .link
                     .args
-                    .push(normalized_path_string(&script_path));
+                    .push(normalized_path_string(&resolved_path));
                 Ok(ConstValue::Void)
             }
             "__craft_build_cfg_bool" => {

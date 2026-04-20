@@ -335,7 +335,7 @@ fn kmain() void {
 }
 
 #[test]
-fn build_script_can_attach_relative_linker_script_for_freestanding_bin() {
+fn build_script_can_attach_relative_link_arg_path_for_freestanding_bin() {
     if cfg!(windows) || cfg!(target_os = "macos") {
         return;
     }
@@ -368,7 +368,7 @@ root = "src/main.rn"
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
-    b.link_script("link/kernel.ld");
+    b.link_arg_path("-T", "link/kernel.ld");
 }
 "#,
     )

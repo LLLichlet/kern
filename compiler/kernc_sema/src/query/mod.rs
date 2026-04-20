@@ -318,7 +318,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         receiver_ty: TypeId,
         impl_id: DefId,
-    ) -> Option<Vec<TypeId>> {
+    ) -> Option<Vec<crate::ty::GenericArg>> {
         let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
         self.resolve_impl_applicability(receiver_norm, impl_id)
     }
@@ -451,11 +451,22 @@ pub fn impl_head_specializes(
         ImplHeadFreshness::Flexible,
     );
 
-    let mut map = FastHashMap::default();
-    checker.unify(general_target, specialized_target, &mut map)
+    let mut type_map = FastHashMap::default();
+    let mut const_map = FastHashMap::default();
+    checker.unify_with_const_map(
+        general_target,
+        specialized_target,
+        &mut type_map,
+        &mut const_map,
+    )
         && match (general_trait, specialized_trait) {
             (Some(general_trait), Some(specialized_trait)) => {
-                checker.unify(general_trait, specialized_trait, &mut map)
+                checker.unify_with_const_map(
+                    general_trait,
+                    specialized_trait,
+                    &mut type_map,
+                    &mut const_map,
+                )
             }
             (None, None) => true,
             _ => false,
@@ -558,31 +569,31 @@ enum ImplHeadFreshness {
 pub(crate) fn impl_bounds_satisfied(
     checker: &mut ExprChecker<'_, '_>,
     where_clauses: &[ast::WhereClause],
-    map: &FastHashMap<SymbolId, TypeId>,
+    type_map: &FastHashMap<SymbolId, TypeId>,
+    const_map: &FastHashMap<SymbolId, crate::ty::ConstGeneric>,
 ) -> bool {
     let mut pairs_to_check = Vec::new();
 
-    {
-        let mut subst = Substituter::new(&mut checker.ctx.type_registry, map);
-        for clause in where_clauses {
-            let original_target = checker
+    for clause in where_clauses {
+        let original_target = checker
+            .ctx
+            .node_types
+            .get(&clause.target_ty.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+        let sub_target =
+            checker.substitute_type_with_unification_maps(original_target, type_map, const_map);
+
+        for bound_ast in &clause.bounds {
+            let original_bound = checker
                 .ctx
                 .node_types
-                .get(&clause.target_ty.id)
+                .get(&bound_ast.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            let sub_target = subst.substitute(original_target);
-
-            for bound_ast in &clause.bounds {
-                let original_bound = checker
-                    .ctx
-                    .node_types
-                    .get(&bound_ast.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                let sub_bound = subst.substitute(original_bound);
-                pairs_to_check.push((sub_target, sub_bound));
-            }
+            let sub_bound =
+                checker.substitute_type_with_unification_maps(original_bound, type_map, const_map);
+            pairs_to_check.push((sub_target, sub_bound));
         }
     }
 

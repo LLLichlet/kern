@@ -954,9 +954,19 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 right_target_ty,
                 right_trait_ty,
             );
-            let mut map = FastHashMap::default();
-            checker.unify(left_fresh_target, right_fresh_target, &mut map)
-                && checker.unify(left_fresh_trait, right_fresh_trait, &mut map)
+            let mut type_map = FastHashMap::default();
+            let mut const_map = FastHashMap::default();
+            checker.unify_with_const_map(
+                left_fresh_target,
+                right_fresh_target,
+                &mut type_map,
+                &mut const_map,
+            ) && checker.unify_with_const_map(
+                left_fresh_trait,
+                right_fresh_trait,
+                &mut type_map,
+                &mut const_map,
+            )
         };
 
         if !overlaps {

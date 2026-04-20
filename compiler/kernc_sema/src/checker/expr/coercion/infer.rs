@@ -250,20 +250,29 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             Vec::new(),
         ));
         let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
-        let mut map = FastHashMap::default();
+        let mut type_map = FastHashMap::default();
+        let mut const_map = FastHashMap::default();
 
         for (env_target, env_bounds) in unsafe { &*active_bounds_ptr } {
-            map.clear();
-            let matched = *env_target == target_ty || self.unify(*env_target, target_ty, &mut map);
+            type_map.clear();
+            const_map.clear();
+            let matched = *env_target == target_ty
+                || self.unify_with_const_map(
+                    *env_target,
+                    target_ty,
+                    &mut type_map,
+                    &mut const_map,
+                );
             if !matched {
                 continue;
             }
 
             for bound in env_bounds.iter().copied() {
-                let inst_bound = {
-                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                    subst.substitute(bound)
-                };
+                let inst_bound = self.substitute_type_with_unification_maps(
+                    bound,
+                    &type_map,
+                    &const_map,
+                );
                 let inst_bound_norm = self.resolve_tv(inst_bound);
                 let TypeKind::TraitObject(bound_trait_def_id, _, assoc_bindings) =
                     self.ctx.type_registry.get(inst_bound_norm).clone()
@@ -274,8 +283,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     continue;
                 }
 
-                let mut trait_map = FastHashMap::default();
-                if !self.unify(expected_trait_ty, inst_bound_norm, &mut trait_map) {
+                let mut trait_type_map = FastHashMap::default();
+                let mut trait_const_map = FastHashMap::default();
+                if !self.unify_with_const_map(
+                    expected_trait_ty,
+                    inst_bound_norm,
+                    &mut trait_type_map,
+                    &mut trait_const_map,
+                ) {
                     continue;
                 }
 
@@ -346,15 +361,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 continue;
             }
 
-            let mut map = FastHashMap::default();
-            if !self.unify(impl_target_ty, target_ty, &mut map) {
+            let mut type_map = FastHashMap::default();
+            let mut const_map = FastHashMap::default();
+            if !self.unify_with_const_map(
+                impl_target_ty,
+                target_ty,
+                &mut type_map,
+                &mut const_map,
+            ) {
                 continue;
             }
 
-            let inst_trait_ty = {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                subst.substitute(impl_trait_ty)
-            };
+            let inst_trait_ty = self.substitute_type_with_unification_maps(
+                impl_trait_ty,
+                &type_map,
+                &const_map,
+            );
             let inst_trait_norm = self.resolve_tv(inst_trait_ty);
             let TypeKind::TraitObject(bound_trait_def_id, _, assoc_bindings) =
                 self.ctx.type_registry.get(inst_trait_norm).clone()
@@ -365,8 +387,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 continue;
             }
 
-            let mut trait_map = FastHashMap::default();
-            if !self.unify(expected_trait_ty, inst_trait_norm, &mut trait_map) {
+            let mut trait_type_map = FastHashMap::default();
+            let mut trait_const_map = FastHashMap::default();
+            if !self.unify_with_const_map(
+                expected_trait_ty,
+                inst_trait_norm,
+                &mut trait_type_map,
+                &mut trait_const_map,
+            ) {
                 continue;
             }
 

@@ -1,0 +1,22 @@
+// class: const-generic-projection
+// source: concrete associated projections must substitute const impl arguments before layout
+// exit: 0
+
+type HasOut = trait {
+    type Out;
+};
+
+type Buf[N: usize] = struct {};
+
+impl[N: usize] Buf[N]: HasOut {
+    type Out = [N]u8;
+}
+
+fn make() Buf[3].HasOut.Out {
+    return [3]u8.{ 1, 2, 3 };
+}
+
+fn main() i32 {
+    let value = make();
+    return (value.[2] as i32) - 3;
+}

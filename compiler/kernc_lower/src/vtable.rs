@@ -207,7 +207,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         receiver_ty: TypeId,
         data_ptr_ty: TypeId,
         target_trait_ty: TypeId,
-    ) -> Option<(ImplDef, Vec<TypeId>)> {
+    ) -> Option<(ImplDef, Vec<kernc_sema::ty::GenericArg>)> {
         let norm_receiver = self.ctx.type_registry.normalize(receiver_ty);
         let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
         let target_trait_norm = self.ctx.type_registry.normalize(target_trait_ty);
@@ -218,7 +218,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let search_types = self.vtable_impl_search_types(norm_receiver, norm_data_ptr);
 
         let global_impls = self.ctx.global_impls.clone();
-        let mut selected: Option<(ImplDef, Vec<TypeId>, kernc_sema::def::DefId)> = None;
+        let mut selected: Option<(ImplDef, Vec<kernc_sema::ty::GenericArg>, kernc_sema::def::DefId)> =
+            None;
         for impl_id in global_impls {
             let Some(impl_def) = self
                 .ctx
@@ -586,7 +587,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         actual_trait_ty: TypeId,
         trait_def: &TraitDef,
         impl_def: &ImplDef,
-        impl_args: &[TypeId],
+        impl_args: &[kernc_sema::ty::GenericArg],
     ) {
         let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
@@ -614,15 +615,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
                     && f.name == method.name
                 {
-                    let method_mono_id = self.instantiate_function_at(
-                        m_id,
-                        &kernc_sema::ty::wrap_type_args(impl_args.iter().copied()),
-                        f.name_span,
-                    );
-                    let method_fn_ty = self.ctx.type_registry.intern(TypeKind::FnDef(
-                        m_id,
-                        kernc_sema::ty::wrap_type_args(impl_args.iter().copied()),
-                    ));
+                    let method_mono_id =
+                        self.instantiate_function_at(m_id, impl_args, f.name_span);
+                    let method_fn_ty =
+                        self.ctx.type_registry.intern(TypeKind::FnDef(m_id, impl_args.to_vec()));
                     method_entry = self.get_or_create_vtable_method_adapter(
                         method_mono_id,
                         data_ptr_ty,

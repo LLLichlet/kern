@@ -1,0 +1,31 @@
+// class: const-generic-bounds
+// source: impl where-clause proof search must substitute const arguments through the impl head
+// exit: 0
+
+type Ready[N: usize] = trait {
+    value: fn() i32,
+};
+
+type Needs[N: usize] = trait {
+    get: fn() i32,
+};
+
+type Box[N: usize] = struct {};
+
+impl Box[2]: Ready[2] {
+    fn value() i32 {
+        return 7;
+    }
+}
+
+impl[N: usize] Box[N]: Needs[N]
+    where Box[N]: Ready[N],
+{
+    fn get() i32 {
+        return self.value();
+    }
+}
+
+fn main() i32 {
+    return Box[2].{}.get() - 7;
+}

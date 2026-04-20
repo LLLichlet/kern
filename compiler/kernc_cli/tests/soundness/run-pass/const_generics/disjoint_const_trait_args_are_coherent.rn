@@ -1,0 +1,27 @@
+// class: const-generic-coherence
+// source: impls that differ only in trait const arguments are disjoint, not overlapping
+// exit: 0
+
+type Marker[N: usize] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl *X: Marker[1] {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+impl *X: Marker[2] {
+    fn value() i32 {
+        return 2;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let marker = *Marker[2].{ x.& };
+    return marker.value() - 2;
+}

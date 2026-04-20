@@ -1,0 +1,32 @@
+// class: const-generic-proof
+// source: a symbolic `Marker[N + 1]` bound must not discharge a required `Marker[N]`
+// stderr: type does not satisfy trait bounds
+// stderr: required bound: `T: Marker[N]`
+
+type Marker[N: usize] = trait {
+    value: fn() i32,
+};
+
+fn needs_exact[T, N: usize](value: T) i32
+    where T: Marker[N],
+{
+    return value.value();
+}
+
+fn bad[T, N: usize](value: T) i32
+    where T: Marker[N + 1],
+{
+    return needs_exact[T, N](value);
+}
+
+type X = struct {};
+
+impl X: Marker[2] {
+    fn value() i32 {
+        return 42;
+    }
+}
+
+fn main() i32 {
+    return bad[X, 1](X.{});
+}

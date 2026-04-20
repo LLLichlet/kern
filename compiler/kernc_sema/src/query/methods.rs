@@ -1,4 +1,5 @@
 use super::*;
+use crate::ty::GenericArg;
 
 impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     pub(super) fn collect_bound_method_candidates(
@@ -183,7 +184,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 };
                 let type_id = self.ctx.type_registry.intern(TypeKind::FnDef(
                     *method_id,
-                    crate::ty::wrap_type_args(resolved_impl_args.clone()),
+                    resolved_impl_args.clone(),
                 ));
                 push_member_candidate(
                     candidates,
@@ -219,7 +220,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
         // Safety: method-name indexes are immutable during member lookup.
         let method_ids = unsafe { &*method_ids_ptr };
-        let mut best_match: Option<(DefId, DefId, Span, Vec<TypeId>)> = None;
+        let mut best_match: Option<(DefId, DefId, Span, Vec<GenericArg>)> = None;
         for &method_id in method_ids {
             let Some((impl_id, function_name_span)) = self
                 .ctx
@@ -258,7 +259,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 kind: SymbolKind::Function,
                 type_id: self.ctx.type_registry.intern(TypeKind::FnDef(
                     method_id,
-                    crate::ty::wrap_type_args(resolved_impl_args),
+                    resolved_impl_args,
                 )),
                 def_id: Some(method_id),
                 definition_span: function_name_span,
@@ -355,7 +356,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         receiver_norm: TypeId,
         impl_id: DefId,
-    ) -> Option<Vec<TypeId>> {
+    ) -> Option<Vec<crate::ty::GenericArg>> {
         let cache_key = (receiver_norm, impl_id);
         if let Some(cached) = self.ctx.impl_applicability_cache.get(&cache_key).cloned() {
             return cached;
@@ -406,9 +407,19 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     None
                 }
             } else {
-                let mut map = FastHashMap::default();
-                if !checker.unify(impl_target_ty, receiver_norm, &mut map)
-                    || !impl_bounds_satisfied(&mut checker, &impl_def.where_clauses, &map)
+                let mut type_map = FastHashMap::default();
+                let mut const_map = FastHashMap::default();
+                if !checker.unify_with_const_map(
+                    impl_target_ty,
+                    receiver_norm,
+                    &mut type_map,
+                    &mut const_map,
+                ) || !impl_bounds_satisfied(
+                    &mut checker,
+                    &impl_def.where_clauses,
+                    &type_map,
+                    &const_map,
+                )
                 {
                     None
                 } else {
@@ -416,7 +427,17 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         impl_def
                             .generics
                             .iter()
-                            .map(|param| map.get(&param.name).copied().unwrap_or(TypeId::ERROR))
+                            .map(|param| match &param.kind {
+                                ast::GenericParamKind::Type => GenericArg::Type(
+                                    type_map.get(&param.name).copied().unwrap_or(TypeId::ERROR),
+                                ),
+                                ast::GenericParamKind::Const { .. } => GenericArg::Const(
+                                    const_map
+                                        .get(&param.name)
+                                        .copied()
+                                        .unwrap_or(crate::ty::ConstGeneric::Error),
+                                ),
+                            })
                             .collect::<Vec<_>>(),
                     )
                 }

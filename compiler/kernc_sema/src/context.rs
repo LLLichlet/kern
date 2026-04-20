@@ -121,7 +121,8 @@ pub struct SemaContext<'a> {
     pub(crate) impl_method_query_cache:
         FastHashMap<(TypeId, SymbolId), Option<crate::query::MemberCandidate>>,
     pub(crate) bound_trait_match_cache: FastHashMap<TypeId, Vec<TypeId>>,
-    pub(crate) impl_applicability_cache: FastHashMap<(TypeId, DefId), Option<Vec<TypeId>>>,
+    pub(crate) impl_applicability_cache:
+        FastHashMap<(TypeId, DefId), Option<Vec<crate::ty::GenericArg>>>,
     pub(crate) impl_requirement_cycle_cache: FastHashMap<DefId, Option<ImplRequirementCycle>>,
     pub(crate) impl_paterson_boundedness_cache:
         FastHashMap<DefId, Option<NonDecreasingImplRequirement>>,
@@ -467,8 +468,10 @@ impl<'a> SemaContext<'a> {
             return None;
         }
 
-        let initial_requirements =
-            self.instantiated_impl_requirements(&impl_def, &FastHashMap::default());
+        let initial_requirements = self.instantiated_impl_requirements(
+            &impl_def,
+            &FastHashMap::<SymbolId, crate::ty::GenericArg>::default(),
+        );
         let mut obligation_stack = vec![(start_target_ty, start_trait_ty)];
         for requirement in initial_requirements {
             if self.obligation_matches_impl_head(
@@ -552,24 +555,40 @@ impl<'a> SemaContext<'a> {
                 continue;
             }
 
-            let mut head_map = FastHashMap::default();
+            let mut head_type_map = FastHashMap::default();
+            let mut head_const_map = FastHashMap::default();
             let applicable = {
                 let mut checker = ExprChecker::new(self, None);
-                if !checker.unify(impl_target_ty, source_ty, &mut head_map) {
+                if !checker.unify_with_const_map(
+                    impl_target_ty,
+                    source_ty,
+                    &mut head_type_map,
+                    &mut head_const_map,
+                ) {
                     false
                 } else {
-                    let instantiated_trait_ty = {
-                        let mut subst = Substituter::new(&mut checker.ctx.type_registry, &head_map);
-                        subst.substitute(impl_trait_ty)
-                    };
+                    let instantiated_trait_ty = checker.substitute_type_with_unification_maps(
+                        impl_trait_ty,
+                        &head_type_map,
+                        &head_const_map,
+                    );
                     let instantiated_trait_ty =
                         checker.ctx.type_registry.normalize(instantiated_trait_ty);
-                    let mut trait_map = FastHashMap::default();
+                    let mut trait_type_map = FastHashMap::default();
+                    let mut trait_const_map = FastHashMap::default();
                     let matches = instantiated_trait_ty == target_trait_ty
-                        || checker.unify(target_trait_ty, instantiated_trait_ty, &mut trait_map);
+                        || checker.unify_with_const_map(
+                            target_trait_ty,
+                            instantiated_trait_ty,
+                            &mut trait_type_map,
+                            &mut trait_const_map,
+                        );
                     if matches {
-                        for (name, ty) in trait_map {
-                            head_map.entry(name).or_insert(ty);
+                        for (name, ty) in trait_type_map {
+                            head_type_map.entry(name).or_insert(ty);
+                        }
+                        for (name, value) in trait_const_map {
+                            head_const_map.entry(name).or_insert(value);
                         }
                     }
                     matches
@@ -579,6 +598,16 @@ impl<'a> SemaContext<'a> {
                 continue;
             }
 
+            let head_map = {
+                let mut head_map = FastHashMap::default();
+                for (&name, &ty) in &head_type_map {
+                    head_map.insert(name, crate::ty::GenericArg::Type(ty));
+                }
+                for (&name, &value) in &head_const_map {
+                    head_map.insert(name, crate::ty::GenericArg::Const(value));
+                }
+                head_map
+            };
             let requirements = self.instantiated_impl_requirements(&candidate_impl, &head_map);
             for requirement in requirements {
                 path.push(requirement);
@@ -615,7 +644,7 @@ impl<'a> SemaContext<'a> {
     fn instantiated_impl_requirements(
         &mut self,
         impl_def: &ImplDef,
-        map: &FastHashMap<SymbolId, TypeId>,
+        map: &FastHashMap<SymbolId, crate::ty::GenericArg>,
     ) -> Vec<ImplRequirementEdge> {
         let mut requirements = Vec::new();
 
@@ -713,7 +742,10 @@ impl<'a> SemaContext<'a> {
             return None;
         }
 
-        for requirement in self.instantiated_impl_requirements(&impl_def, &FastHashMap::default()) {
+        for requirement in self.instantiated_impl_requirements(
+            &impl_def,
+            &FastHashMap::<SymbolId, crate::ty::GenericArg>::default(),
+        ) {
             let Some(issue) = self.compare_paterson_obligations(
                 Some(head_target_ty),
                 head_trait_ty,

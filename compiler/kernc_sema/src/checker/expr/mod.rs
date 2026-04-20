@@ -7,7 +7,7 @@ use crate::ty::{
     GenericArg, TypeId, TypeKind,
 };
 use kernc_ast::{self as ast, Expr, ExprKind};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{FastHashMap, Span, SymbolId};
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::time::{Duration, Instant};
@@ -345,6 +345,98 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             },
             ConstGeneric::Error => false,
         }
+    }
+
+    pub(crate) fn const_param_occurs_in_const_generic_with_map<S: BuildHasher>(
+        &mut self,
+        needle: SymbolId,
+        value: ConstGeneric,
+        map: &HashMap<SymbolId, ConstGeneric, S>,
+    ) -> bool {
+        self.const_param_occurs_in_const_generic_with_map_inner(needle, value, map, &mut Vec::new())
+    }
+
+    fn const_param_occurs_in_const_generic_with_map_inner<S: BuildHasher>(
+        &mut self,
+        needle: SymbolId,
+        value: ConstGeneric,
+        map: &HashMap<SymbolId, ConstGeneric, S>,
+        param_stack: &mut Vec<SymbolId>,
+    ) -> bool {
+        match value {
+            ConstGeneric::Value(_) | ConstGeneric::Error => false,
+            ConstGeneric::Param(name, _) => {
+                if name == needle {
+                    return true;
+                }
+                if param_stack.contains(&name) {
+                    return false;
+                }
+                let Some(&mapped_value) = map.get(&name) else {
+                    return false;
+                };
+                param_stack.push(name);
+                let occurs = self.const_param_occurs_in_const_generic_with_map_inner(
+                    needle,
+                    mapped_value,
+                    map,
+                    param_stack,
+                );
+                param_stack.pop();
+                occurs
+            }
+            ConstGeneric::Expr(expr_id) => match *self.ctx.type_registry.const_expr(expr_id) {
+                ConstExprKind::Unary { expr, .. } | ConstExprKind::Cast { expr, .. } => self
+                    .const_param_occurs_in_const_generic_with_map_inner(
+                        needle,
+                        expr,
+                        map,
+                        param_stack,
+                    ),
+                ConstExprKind::Binary { lhs, rhs, .. } => {
+                    self.const_param_occurs_in_const_generic_with_map_inner(
+                        needle,
+                        lhs,
+                        map,
+                        param_stack,
+                    ) || self.const_param_occurs_in_const_generic_with_map_inner(
+                        needle,
+                        rhs,
+                        map,
+                        param_stack,
+                    )
+                }
+            },
+        }
+    }
+
+    pub(crate) fn build_generic_subst_map<TS: BuildHasher, CS: BuildHasher>(
+        &self,
+        type_map: &HashMap<SymbolId, TypeId, TS>,
+        const_map: &HashMap<SymbolId, ConstGeneric, CS>,
+    ) -> FastHashMap<SymbolId, GenericArg> {
+        let mut subst_map = FastHashMap::default();
+        for (&name, &ty) in type_map {
+            subst_map.insert(name, GenericArg::Type(ty));
+        }
+        for (&name, &value) in const_map {
+            subst_map.insert(name, GenericArg::Const(value));
+        }
+        subst_map
+    }
+
+    pub(crate) fn substitute_type_with_unification_maps<TS: BuildHasher, CS: BuildHasher>(
+        &mut self,
+        ty: TypeId,
+        type_map: &HashMap<SymbolId, TypeId, TS>,
+        const_map: &HashMap<SymbolId, ConstGeneric, CS>,
+    ) -> TypeId {
+        if type_map.is_empty() && const_map.is_empty() {
+            return ty;
+        }
+        let subst_map = self.build_generic_subst_map(type_map, const_map);
+        let mut subst = crate::checker::Substituter::new(&mut self.ctx.type_registry, &subst_map);
+        subst.substitute(ty)
     }
 
     fn type_arg_is_direct_const_param_ref(&mut self, ty_node: &kernc_ast::TypeNode) -> bool {

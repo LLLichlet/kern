@@ -1,0 +1,32 @@
+// class: const-generic-proof
+// source: a bound proved for `Marker[2]` must not satisfy a required `Marker[1]`
+// stderr: type does not satisfy trait bounds
+// stderr: required bound: `T: Marker[1]`
+
+type Marker[N: usize] = trait {
+    value: fn() i32,
+};
+
+fn needs_one[T](value: T) i32
+    where T: Marker[1],
+{
+    return value.value();
+}
+
+fn bad[T](value: T) i32
+    where T: Marker[2],
+{
+    return needs_one[T](value);
+}
+
+type X = struct {};
+
+impl X: Marker[2] {
+    fn value() i32 {
+        return 42;
+    }
+}
+
+fn main() i32 {
+    return bad(X.{});
+}

@@ -194,7 +194,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     // Safety: method-name indexes are immutable while lowering reads semantic defs.
                     let method_ids = unsafe { &*method_ids_ptr };
                     let receiver_search_tys = this.receiver_search_types(norm_base);
-                    let mut best_match: Option<(DefId, DefId, Option<TypeId>, Vec<TypeId>)> = None;
+                    let mut best_match: Option<(
+                        DefId,
+                        DefId,
+                        Option<TypeId>,
+                        Vec<kernc_sema::ty::GenericArg>,
+                    )> = None;
                     for &method_id in method_ids {
                         let Some(impl_id) =
                             this.ctx
@@ -331,7 +336,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 arg_masts.insert(0, final_recv);
                 let mono_id = self.instantiate_function_at(
                     func_id,
-                    &kernc_sema::ty::wrap_type_args(resolved_impl_args),
+                    &resolved_impl_args,
                     call.span,
                 );
                 let func_ref =

@@ -217,26 +217,34 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
         let target_norm = self.resolve_tv(target_trait_ty);
         let source_norm = self.resolve_tv(source_ty);
-        let mut map = FastHashMap::default();
+        let mut type_map = FastHashMap::default();
+        let mut const_map = FastHashMap::default();
         // Safety: this helper only reads `active_bounds`; it never resizes or replaces the vec.
         for (env_target, env_bounds) in unsafe { &*active_bounds_ptr } {
-            map.clear();
+            type_map.clear();
+            const_map.clear();
 
             // If the queried source type matches the contextual target type, inspect its bounds.
             let matched = if *env_target == source_norm {
                 true
             } else {
-                self.unify(*env_target, source_ty, &mut map)
+                self.unify_with_const_map(*env_target, source_ty, &mut type_map, &mut const_map)
             };
             if matched {
-                if map.is_empty() {
+                if type_map.is_empty() && const_map.is_empty() {
                     for inst_env_bound in env_bounds.iter().copied() {
                         let inst_norm = self.resolve_tv(inst_env_bound);
-                        let mut trait_map = FastHashMap::default();
+                        let mut trait_type_map = FastHashMap::default();
+                        let mut trait_const_map = FastHashMap::default();
 
                         if inst_norm == target_norm
                             || inst_env_bound == target_trait_ty
-                            || self.unify(target_trait_ty, inst_env_bound, &mut trait_map)
+                            || self.unify_with_const_map(
+                                target_trait_ty,
+                                inst_env_bound,
+                                &mut trait_type_map,
+                                &mut trait_const_map,
+                            )
                         {
                             return true;
                         }
@@ -256,16 +264,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 for bound in env_bounds.iter().copied() {
-                    let inst_env_bound = {
-                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                        subst.substitute(bound)
-                    };
+                    let inst_env_bound = self.substitute_type_with_unification_maps(
+                        bound,
+                        &type_map,
+                        &const_map,
+                    );
                     let inst_norm = self.resolve_tv(inst_env_bound);
-                    let mut trait_map = FastHashMap::default();
+                    let mut trait_type_map = FastHashMap::default();
+                    let mut trait_const_map = FastHashMap::default();
 
                     if inst_norm == target_norm
                         || inst_env_bound == target_trait_ty
-                        || self.unify(target_trait_ty, inst_env_bound, &mut trait_map)
+                        || self.unify_with_const_map(
+                            target_trait_ty,
+                            inst_env_bound,
+                            &mut trait_type_map,
+                            &mut trait_const_map,
+                        )
                     {
                         return true;
                     }
@@ -342,23 +357,41 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 continue;
             }
 
-            let mut map = FastHashMap::default();
+            let mut type_map = FastHashMap::default();
+            let mut const_map = FastHashMap::default();
 
-            if self.unify(impl_target_ty, source_ty, &mut map) {
-                let instantiated_trait_ty = {
-                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                    subst.substitute(impl_trait_ty)
-                };
+            if self.unify_with_const_map(
+                impl_target_ty,
+                source_ty,
+                &mut type_map,
+                &mut const_map,
+            ) {
+                let instantiated_trait_ty = self.substitute_type_with_unification_maps(
+                    impl_trait_ty,
+                    &type_map,
+                    &const_map,
+                );
 
                 let inst_norm = self.resolve_tv(instantiated_trait_ty);
-                let mut trait_map = FastHashMap::default();
+                let mut trait_type_map = FastHashMap::default();
+                let mut trait_const_map = FastHashMap::default();
 
                 let directly_matches = inst_norm == target_norm
                     || instantiated_trait_ty == target_trait_ty
-                    || self.unify(target_trait_ty, instantiated_trait_ty, &mut trait_map);
+                    || self.unify_with_const_map(
+                        target_trait_ty,
+                        instantiated_trait_ty,
+                        &mut trait_type_map,
+                        &mut trait_const_map,
+                    );
 
                 if directly_matches
-                    && crate::query::impl_bounds_satisfied(self, &impl_def.where_clauses, &map)
+                    && crate::query::impl_bounds_satisfied(
+                        self,
+                        &impl_def.where_clauses,
+                        &type_map,
+                        &const_map,
+                    )
                 {
                     return true;
                 }
@@ -370,7 +403,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     ),
                     (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
                 ) && self.is_trait_object_upcast(instantiated_trait_ty, target_trait_ty)
-                    && crate::query::impl_bounds_satisfied(self, &impl_def.where_clauses, &map)
+                    && crate::query::impl_bounds_satisfied(
+                        self,
+                        &impl_def.where_clauses,
+                        &type_map,
+                        &const_map,
+                    )
                 {
                     return true;
                 }

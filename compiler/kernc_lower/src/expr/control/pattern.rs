@@ -80,6 +80,89 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             span,
         )
     }
+
+    fn collect_value_pattern_plan(
+        &mut self,
+        span: Span,
+        value: &Expr,
+        target_expr: &MastExpr,
+        target_ty: TypeId,
+    ) -> Option<MastExpr> {
+        let norm_target = self.ctx.type_registry.normalize(target_ty);
+        match &value.kind {
+            ExprKind::Bool(expected) if norm_target == TypeId::BOOL => {
+                Some(MastExpr::new(
+                    TypeId::BOOL,
+                    MastExprKind::Binary {
+                        op: ast::BinaryOperator::Equal,
+                        lhs: Box::new(target_expr.clone()),
+                        rhs: Box::new(self.bool_expr(span, *expected)),
+                    },
+                    span,
+                ))
+            }
+            ExprKind::EnumLiteral { variant, .. } => self
+                .build_enum_variant_condition(span, target_expr, target_ty, *variant)
+                .map(|(cond, _)| cond),
+            ExprKind::DataInit {
+                literal: ast::DataLiteralKind::Struct(fields),
+                ..
+            } => {
+                if matches!(
+                    self.ctx.type_registry.get(norm_target),
+                    TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
+                ) {
+                    let [field] = fields.as_slice() else {
+                        return None;
+                    };
+                    let (tag_cond, payload_info) =
+                        self.build_enum_variant_condition(span, target_expr, target_ty, field.name)?;
+                    let Some((variant_idx, payload_ty, mono_id)) = payload_info else {
+                        return Some(tag_cond);
+                    };
+                    let payload_expr = self.build_payload_extract_expr(
+                        span,
+                        target_expr,
+                        mono_id,
+                        variant_idx,
+                        payload_ty,
+                    )?;
+                    let inner = self.collect_value_pattern_plan(
+                        field.span,
+                        &field.value,
+                        &payload_expr,
+                        payload_ty,
+                    )?;
+                    Some(self.and_expr(span, tag_cond, inner))
+                } else {
+                    let mut cond = self.bool_expr(span, true);
+                    for field in fields {
+                        let (field_ty, struct_id, field_idx) =
+                            self.resolve_struct_pattern_field(target_ty, field.name, field.span)?;
+                        let field_expr = MastExpr::new(
+                            field_ty,
+                            MastExprKind::FieldAccess {
+                                lhs: Box::new(target_expr.clone()),
+                                struct_id,
+                                field_idx,
+                            },
+                            field.span,
+                        );
+                        let inner = self.collect_value_pattern_plan(
+                            field.span,
+                            &field.value,
+                            &field_expr,
+                            field_ty,
+                        )?;
+                        cond = self.and_expr(field.span, cond, inner);
+                    }
+                    Some(cond)
+                }
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn collect_pattern_plan(
         &mut self,
         span: Span,
@@ -558,15 +641,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let (cond, bindings) = match &pattern.kind {
             ast::MatchPatternKind::Value(value) => {
                 self.measure_phase("              lower_match_pattern_value", |this| {
-                    let cond = if let ExprKind::EnumLiteral { variant, .. } = value.kind {
-                        this.build_enum_variant_condition(
-                            pattern.span,
-                            match_context.target_var_expr,
-                            match_context.target_ty,
-                            variant,
-                        )
-                        .map(|(cond, _)| cond)
-                        .unwrap_or_else(|| this.bool_expr(pattern.span, false))
+                    let cond = if let Some(cond) = this.collect_value_pattern_plan(
+                        pattern.span,
+                        value,
+                        match_context.target_var_expr,
+                        match_context.target_ty,
+                    ) {
+                        cond
                     } else {
                         let value_expr = this.lower_expr(
                             value,

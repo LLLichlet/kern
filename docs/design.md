@@ -854,6 +854,92 @@ match (value) {
 }
 ```
 
+### 10.5 Refutable `let` and `let else`
+
+Kern treats `let else` as a first-class control-flow construct, not as a
+truncated `match`.
+
+Its job is specific: one pattern is the privileged success path, and if that
+pattern matches, its bindings continue into the surrounding scope.
+
+```kern
+let .{ Some: value } = maybe_value else return 0;
+use_value(value);
+```
+
+This is distinct from `match`:
+
+  * `match` branches between peers and produces a value
+  * `let else` privileges one success pattern and only routes failures away
+
+Refutable `let` patterns must use `else`. Irrefutable `let` patterns must not.
+
+```kern
+let .{ Ok: handle } = open(path) else return 1;
+```
+
+The short form stays valid:
+
+```kern
+let PAT = EXPR else DIVERGING_EXPR;
+```
+
+It is language sugar for a failure-only `else` block:
+
+```kern
+let PAT = EXPR else {
+    _ => DIVERGING_EXPR,
+};
+```
+
+Kern also supports a structured failure block:
+
+```kern
+let .{ Ready: value } = state else {
+    .{ Pending } => return 1,
+    .{ Failed: err } => return err.code,
+    _ => return 9,
+};
+```
+
+After `else`, a plain expression is still allowed. In particular:
+
+  * `else { return 0; }` is an ordinary block expression
+  * `else { PAT => EXPR, ... }` is a failure-arm block
+
+Kern does not reinterpret an ordinary block as a hidden `match`.
+
+The semantics are:
+
+  * `PAT` is tested first against `EXPR`
+  * if `PAT` matches, its bindings are introduced into the outer scope after
+    the statement
+  * if `PAT` does not match, control enters the `else` block
+  * each `else` arm matches against the original value, but only within the
+    remaining failure space not already accepted by the main `let` pattern
+  * bindings introduced by an `else` arm are local to that arm
+  * every `else` arm must diverge via `return`, `break`, `continue`, panic, or
+    another diverging expression
+
+Coverage in the `else` block is checked against the remaining failure space:
+
+  * `_` means "all remaining failures"
+  * if `_` is omitted, the listed `else` arms must exhaust every failure case
+    left over after the main `let` pattern
+  * an `else` arm that matches no remaining failure space is invalid
+
+This design keeps `let else` narrow and intentional. It is for "bind the good
+case here, handle failures immediately", not for replacing `match`.
+
+The earlier single-arm form:
+
+```kern
+let PAT = EXPR else OTHER_PAT => DIVERGING_EXPR;
+```
+
+is removed. Kern does not preserve this historical special case. Multi-way
+failure handling must use the block form instead.
+
 ## 11. Closures and Anonymous Functions
 
 Kern explicitly separates the physical state of a closure from its dynamic invocation interface. A closure in Kern is not a magical opaque type; it is fundamentally an anonymous structure combined with a function.

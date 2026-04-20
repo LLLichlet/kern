@@ -15,6 +15,7 @@ enum CoveragePattern {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CoverageConstructorKind {
+    Bool(bool),
     EnumVariant(SymbolId),
     Struct(Vec<SymbolId>),
 }
@@ -66,6 +67,7 @@ enum ScalarCoverageState {
 #[derive(Debug, Clone)]
 enum CoverageWitness {
     Wildcard,
+    Bool(bool),
     EnumVariant {
         name: SymbolId,
         payload: Option<Box<CoverageWitness>>,
@@ -77,6 +79,7 @@ impl CoverageWitness {
     fn format(&self, checker: &ExprChecker<'_, '_>) -> String {
         match self {
             Self::Wildcard => "_".to_string(),
+            Self::Bool(value) => value.to_string(),
             Self::EnumVariant { name, payload } => {
                 let name = checker.ctx.resolve(*name).to_string();
                 match payload {
@@ -357,6 +360,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
+    fn coverage_bool_constructors(&mut self, target_ty: TypeId) -> Option<Vec<CoverageConstructor>> {
+        (self.resolve_tv(target_ty) == TypeId::BOOL).then(|| {
+            vec![
+                CoverageConstructor {
+                    kind: CoverageConstructorKind::Bool(false),
+                    arg_tys: Vec::new(),
+                },
+                CoverageConstructor {
+                    kind: CoverageConstructorKind::Bool(true),
+                    arg_tys: Vec::new(),
+                },
+            ]
+        })
+    }
+
     fn coverage_struct_constructor(&mut self, target_ty: TypeId) -> Option<CoverageConstructor> {
         let norm_target = self.ctx.type_registry.normalize(target_ty);
         match self.ctx.type_registry.get(norm_target).clone() {
@@ -450,6 +468,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     fn coverage_constructors(&mut self, target_ty: TypeId) -> Option<Vec<CoverageConstructor>> {
+        if let Some(bool_ctors) = self.coverage_bool_constructors(target_ty) {
+            return Some(bool_ctors);
+        }
+
         if let Some(enum_ctors) = self.coverage_enum_constructors(target_ty) {
             return Some(enum_ctors);
         }
@@ -522,6 +544,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> Option<CoveragePattern> {
         let norm_target = self.resolve_tv(target_ty);
         match &expr.kind {
+            ExprKind::Bool(value) if norm_target == TypeId::BOOL => Some(
+                CoveragePattern::Constructor(CoverageConstructorKind::Bool(*value), Vec::new()),
+            ),
             ExprKind::EnumLiteral { variant, .. } => Some(CoveragePattern::Constructor(
                 CoverageConstructorKind::EnumVariant(*variant),
                 Vec::new(),
@@ -530,19 +555,38 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 literal: kernc_ast::DataLiteralKind::Struct(fields),
                 ..
             } => {
-                let [field] = fields.as_slice() else {
-                    return None;
+                if let [field] = fields.as_slice()
+                    && let Some(ctor) = self.coverage_enum_constructors(norm_target).and_then(
+                        |ctors| {
+                            ctors.into_iter().find(|ctor| {
+                                ctor.kind == CoverageConstructorKind::EnumVariant(field.name)
+                            })
+                        },
+                    )
+                {
+                    let args = if let Some(&payload_ty) = ctor.arg_tys.first() {
+                        vec![self.coverage_lower_expr_pattern(&field.value, payload_ty)?]
+                    } else {
+                        Vec::new()
+                    };
+                    return Some(CoveragePattern::Constructor(ctor.kind, args));
+                }
+
+                let ctor = self.coverage_struct_constructor(norm_target)?;
+                let CoverageConstructorKind::Struct(field_names) = ctor.kind.clone() else {
+                    unreachable!("struct constructor expected for struct value-pattern coverage");
                 };
-                let ctor = self
-                    .coverage_enum_constructors(norm_target)?
-                    .into_iter()
-                    .find(|ctor| ctor.kind == CoverageConstructorKind::EnumVariant(field.name))?;
-                let args = if let Some(&payload_ty) = ctor.arg_tys.first() {
-                    vec![self.coverage_lower_expr_pattern(&field.value, payload_ty)?]
-                } else {
-                    Vec::new()
-                };
-                Some(CoveragePattern::Constructor(ctor.kind, args))
+
+                let mut args = Vec::with_capacity(field_names.len());
+                for (index, field_name) in field_names.iter().enumerate() {
+                    let field = fields.iter().find(|field| field.name == *field_name)?;
+                    args.push(self.coverage_lower_expr_pattern(&field.value, ctor.arg_tys[index])?);
+                }
+
+                Some(CoveragePattern::Constructor(
+                    CoverageConstructorKind::Struct(field_names),
+                    args,
+                ))
             }
             _ => None,
         }
@@ -610,6 +654,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> CoverageWitness {
         let mut ctor_parts = parts.drain(..ctor.arg_tys.len()).collect::<Vec<_>>();
         match &ctor.kind {
+            CoverageConstructorKind::Bool(value) => CoverageWitness::Bool(*value),
             CoverageConstructorKind::EnumVariant(name) => CoverageWitness::EnumVariant {
                 name: *name,
                 payload: ctor_parts.pop().map(Box::new),

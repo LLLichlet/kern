@@ -16,8 +16,8 @@ pub enum Precedence {
     Comparison,
     Term,
     Factor,
-    Unary,
     Cast,
+    Unary,
     Call,
 }
 

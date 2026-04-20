@@ -42,6 +42,20 @@ fn main() i32 {
 }
 
 #[test]
+fn parses_casts_after_prefix_unary_operators() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let array = [4]u8.{ 1, 2, 3, 4 };
+    return #array as i32 - 1;
+}
+"#,
+    );
+
+    assert_eq!(output.status.code(), Some(3));
+}
+
+#[test]
 fn runs_root_module_use_imports_for_std_and_base() {
     let output = build_and_run_source_with_std(
         r#"

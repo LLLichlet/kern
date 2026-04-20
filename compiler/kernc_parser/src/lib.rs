@@ -971,4 +971,43 @@ type Bad = .util.Kind;
             session.diagnostics
         );
     }
+
+    #[test]
+    fn casts_bind_after_prefix_unary_operators() {
+        let source = "fn main() i32 { return #array as i32 - 1; }";
+        let (_session, module) = parse_module(source);
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block {
+            result: None,
+            stmts,
+        } = &body.kind
+        else {
+            panic!("expected block body");
+        };
+        let ast::StmtKind::ExprStmt(expr) = &stmts[0].kind else {
+            panic!("expected return statement");
+        };
+        let ast::ExprKind::Return(Some(value)) = &expr.kind else {
+            panic!("expected return expression");
+        };
+        let ast::ExprKind::Binary { lhs, op, rhs } = &value.kind else {
+            panic!("expected subtraction after cast");
+        };
+        assert_eq!(*op, ast::BinaryOperator::Subtract);
+        assert!(matches!(rhs.kind, ast::ExprKind::Integer(1)));
+
+        let ast::ExprKind::As { lhs: cast_lhs, .. } = &lhs.kind else {
+            panic!("expected cast on the unary prefix result");
+        };
+        let ast::ExprKind::Unary { op, operand } = &cast_lhs.kind else {
+            panic!("expected unary operand inside cast");
+        };
+        assert_eq!(*op, ast::UnaryOperator::MetaOf);
+        assert!(matches!(operand.kind, ast::ExprKind::Identifier(_)));
+    }
 }

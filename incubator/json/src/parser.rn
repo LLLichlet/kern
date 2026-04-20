@@ -263,7 +263,9 @@ fn parse_array_end(text: []u8, start: usize) usize!ParseError {
 
     for (;;) {
         let .{ Ok: span } = parse_value_span_from_value_start(text, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         index = skip_ws(text, span.next);
         if (index >= #text) {
             return .{ Err: ParseError.UnexpectedEof };
@@ -296,7 +298,9 @@ fn parse_object_end(text: []u8, start: usize) usize!ParseError {
             return .{ Err: .{ UnexpectedByte: index } };
         }
         let .{ Ok: next } = parse_string_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         index = next;
         index = skip_ws(text, index);
         if (index >= #text) {
@@ -310,7 +314,9 @@ fn parse_object_end(text: []u8, start: usize) usize!ParseError {
             return .{ Err: ParseError.UnexpectedEof };
         }
         let .{ Ok: value } = parse_value_span_from_value_start(text, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         index = skip_ws(text, value.next);
         if (index >= #text) {
             return .{ Err: ParseError.UnexpectedEof };
@@ -340,29 +346,39 @@ pub/ fn parse_value_span_from_value_start(text: []u8, index: usize) ParsedSpan!P
         b'f' => parse_literal(text, index, "false", Kind.Bool),
         b'"' => {
             let .{ Ok: next } = parse_string_end(text, index)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             .{ Ok: ParsedSpan.{ kind: Kind.String, next: next } }
         },
         b'[' => {
             let .{ Ok: next } = parse_array_end(text, index)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             .{ Ok: ParsedSpan.{ kind: Kind.Array, next: next } }
         },
         b'{' => {
             let .{ Ok: next } = parse_object_end(text, index)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             .{ Ok: ParsedSpan.{ kind: Kind.Object, next: next } }
         },
         b'-' => {
             let .{ Ok: next } = parse_number_end(text, index)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } }
         },
         _ => {
             let byte = text.[index];
             if (byte >= b'0' and byte <= b'9') {
                 let .{ Ok: next } = parse_number_end(text, index)
-                    else .{ Err: err } => return .{ Err: err };
+                    else {
+                        .{ Err: err } => return .{ Err: err },
+                    };
                 return .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } };
             }
             return .{ Err: .{ UnexpectedByte: index } };
@@ -383,7 +399,9 @@ pub/ fn parse_value_span(text: []u8, start: usize) ParsedSpan!ParseError {
 }
 
 pub/ fn validate(text: []u8) void!ParseError {
-    let .{ Ok: _ } = parse(text) else .{ Err: err } => return .{ Err: err };
+    let .{ Ok: _ } = parse(text) else {
+        .{ Err: err } => return .{ Err: err },
+    };
     return .{ Ok: {} };
 }
 
@@ -393,7 +411,9 @@ pub/ fn parse_prefix(text: []u8) ParsedPrefix!ParseError {
         return .{ Err: .EmptyInput };
     }
     let .{ Ok: span } = parse_value_span_from_value_start(text, start)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return .{ Ok: ParsedPrefix.{
         value: Value.{
             kind: span.kind,
@@ -409,7 +429,9 @@ pub/ fn parse_value(text: []u8) ParsedValue!ParseError {
 
 pub/ fn parse(text: []u8) Value!ParseError {
     let .{ Ok: parsed } = parse_prefix(text)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     let trailing = skip_ws(text, #text - #parsed.remaining);
     if (trailing != #text) {
         return .{ Err: .{ TrailingData: trailing } };
@@ -445,9 +467,9 @@ pub/ fn locate_error(text: []u8, err: ParseError) ?ErrorLocation {
         return .None;
     }
 
-    let mut line = 1;
-    let mut column = 1;
-    for (let mut i = 0; i < offset; i += 1) {
+    let mut line = usize.{1};
+    let mut column = usize.{1};
+    for (let mut i = usize.{0}; i < offset; i += 1) {
         if (text.[i] == b'\n') {
             line += 1;
             column = 1;

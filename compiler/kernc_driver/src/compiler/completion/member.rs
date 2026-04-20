@@ -148,7 +148,7 @@ impl CompilerDriver {
                 }
             }
             ast::ExprKind::Let {
-                init, else_branch, ..
+                init, else_clause, ..
             } => {
                 self.collect_member_completion_items_in_expr(
                     member_query,
@@ -157,14 +157,29 @@ impl CompilerDriver {
                     member_env,
                     member_items_by_span,
                 );
-                if let Some(else_branch) = else_branch {
-                    self.collect_member_completion_items_in_expr(
-                        member_query,
-                        module_id,
-                        else_branch,
-                        member_env,
-                        member_items_by_span,
-                    );
+                if let Some(else_clause) = else_clause {
+                    match else_clause {
+                        ast::LetElseClause::Expr(else_expr) => {
+                            self.collect_member_completion_items_in_expr(
+                                member_query,
+                                module_id,
+                                else_expr,
+                                member_env,
+                                member_items_by_span,
+                            );
+                        }
+                        ast::LetElseClause::Arms(arms) => {
+                            for arm in arms {
+                                self.collect_member_completion_items_in_expr(
+                                    member_query,
+                                    module_id,
+                                    &arm.body,
+                                    member_env,
+                                    member_items_by_span,
+                                );
+                            }
+                        }
+                    }
                 }
             }
             ast::ExprKind::Static { init, .. }

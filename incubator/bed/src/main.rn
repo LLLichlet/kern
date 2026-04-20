@@ -38,28 +38,34 @@ fn open_editor_state(
     args: proc.Args,
 ) ?editor.Editor {
     if (args.len() <= 1) {
-        let .{ Ok: state } = editor.empty(gpa) else .{ Err: _ } => {
-            io.println("bed: failed to create editor", .{});
-            return .None;
+        let .{ Ok: state } = editor.empty(gpa) else {
+            .{ Err: _ } => {
+                io.println("bed: failed to create editor", .{});
+                return .None;
+            },
         };
         return .{ Some: state };
     }
 
     let path = args.get(1).?;
-    let .{ Ok: state } = editor.open(gpa, path) else .{ Err: _ } => {
-        io.println("bed: failed to open {}", .{ path, });
-        return .None;
+    let .{ Ok: state } = editor.open(gpa, path) else {
+        .{ Err: _ } => {
+            io.println("bed: failed to open {}", .{ path, });
+            return .None;
+        },
     };
     return .{ Some: state };
 }
 
 fn enter_raw_mode() ?term.RawMode {
-    let .{ Ok: raw_mode } = term.stdin_raw_mode() else .{ Err: err } => {
-        match (err) {
-            .NotTerminal => io.println("bed: stdin is not a terminal", .{}),
-            .{ Os: _ } => io.println("bed: failed to enter raw mode", .{}),
-        }
-        return .None;
+    let .{ Ok: raw_mode } = term.stdin_raw_mode() else {
+        .{ Err: err } => {
+            match (err) {
+                .NotTerminal => io.println("bed: stdin is not a terminal", .{}),
+                .{ Os: _ } => io.println("bed: failed to enter raw mode", .{}),
+            }
+            return .None;
+        },
     };
     return .{ Some: raw_mode };
 }
@@ -87,8 +93,8 @@ fn main(argc: i32, argv: **u8) i32 {
     defer last_frame.deinit(gpa);
     let mut pending_render = true;
     let mut full_redraw = true;
-    let mut last_rows = 0;
-    let mut last_cols = 0;
+    let mut last_rows = usize.{0};
+    let mut last_cols = usize.{0};
 
     let mut ui_active = false;
     defer {
@@ -132,7 +138,9 @@ fn main(argc: i32, argv: **u8) i32 {
             full_redraw = false;
         }
 
-        let .{ Ok: key } = input.read_key(stdin) else .{ Err: _ } => return 1;
+        let .{ Ok: key } = input.read_key(stdin) else {
+            .{ Err: _ } => return 1,
+        };
         match (key) {
             .NoInput => continue,
             _ => {}

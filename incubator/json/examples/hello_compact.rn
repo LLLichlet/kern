@@ -4,15 +4,19 @@ use json.{parse, render_compact};
 const INPUT = " { \"ok\" : true, \"items\" : [ 1, 2, 3 ] } ";
 
 fn main() i32 {
-    let .{ Ok: value } = parse(INPUT) else .{ Err: _ } => {
-        io.println("parse failed", .{});
-        return 1;
+    let .{ Ok: value } = parse(INPUT) else {
+        .{ Err: _ } => {
+            io.println("parse failed", .{});
+            return 1;
+        },
     };
 
-    let out = [128]u8.{undef};
-    let .{ Ok: written } = render_compact(value, out..[0 .. 128]) else .{ Err: _ } => {
-        io.println("render failed", .{});
-        return 2;
+    let mut out = [128]u8.{undef};
+    let .{ Ok: written } = render_compact(value, out..[0 .. 128]) else {
+        .{ Err: _ } => {
+            io.println("render failed", .{});
+            return 2;
+        },
     };
 
     io.println(out.[0 .. written], .{});

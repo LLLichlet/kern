@@ -22,7 +22,9 @@ fn validate_number_raw(raw: []u8) void!NumberDecodeError {
     }
 
     let .{ Ok: end } = parse_number_end(raw, 0)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     if (end != #raw) {
         return .{ Err: .{ Parse: .{ TrailingData: end } } };
     }
@@ -31,9 +33,11 @@ fn validate_number_raw(raw: []u8) void!NumberDecodeError {
 
 fn parse_integer_raw(raw: []u8) ParsedInteger!NumberDecodeError {
     let .{ Ok: _ } = validate_number_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
 
-    let mut start = 0;
+    let mut start = usize.{0};
     let mut negative = false;
     if (raw.[0] == b'-') {
         negative = true;
@@ -59,7 +63,7 @@ fn parse_unsigned_digits(digits: []u8, limit: u64) u64!NumberDecodeError {
     }
 
     let mut value = u64.{0};
-    for (let mut i = 0; i < #digits; i += 1) {
+    for (let mut i = usize.{0}; i < #digits; i += 1) {
         let byte = digits.[i];
         if (byte < b'0' or byte > b'9') {
             return .{ Err: .{ Parse: .{ InvalidNumber: i } } };
@@ -130,7 +134,9 @@ fn narrow_i64_to_i8(value: i64) i8!NumberDecodeError {
 
 pub/ fn parse_u64_raw(raw: []u8) u64!NumberDecodeError {
     let .{ Ok: parsed } = parse_integer_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     if (parsed.negative) {
         return .{ Err: NumberDecodeError.NegativeUnsigned };
     }
@@ -139,11 +145,15 @@ pub/ fn parse_u64_raw(raw: []u8) u64!NumberDecodeError {
 
 pub/ fn parse_i64_raw(raw: []u8) i64!NumberDecodeError {
     let .{ Ok: parsed } = parse_integer_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
 
     if (parsed.negative) {
         let .{ Ok: magnitude } = parse_unsigned_digits(parsed.digits, I64_MIN_MAGNITUDE)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         if (magnitude == I64_MIN_MAGNITUDE) {
             return .{ Ok: I64_MIN_MAGNITUDE as i64 };
         }
@@ -151,49 +161,65 @@ pub/ fn parse_i64_raw(raw: []u8) i64!NumberDecodeError {
     }
 
     let .{ Ok: magnitude } = parse_unsigned_digits(parsed.digits, I64_MAX_MAGNITUDE)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return .{ Ok: magnitude as i64 };
 }
 
 pub/ fn parse_u32_raw(raw: []u8) u32!NumberDecodeError {
     let .{ Ok: value } = parse_u64_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return narrow_u64_to_u32(value);
 }
 
 pub/ fn parse_i32_raw(raw: []u8) i32!NumberDecodeError {
     let .{ Ok: value } = parse_i64_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return narrow_i64_to_i32(value);
 }
 
 pub/ fn parse_u16_raw(raw: []u8) u16!NumberDecodeError {
     let .{ Ok: value } = parse_u64_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return narrow_u64_to_u16(value);
 }
 
 pub/ fn parse_i16_raw(raw: []u8) i16!NumberDecodeError {
     let .{ Ok: value } = parse_i64_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return narrow_i64_to_i16(value);
 }
 
 pub/ fn parse_u8_raw(raw: []u8) u8!NumberDecodeError {
     let .{ Ok: value } = parse_u64_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return narrow_u64_to_u8(value);
 }
 
 pub/ fn parse_i8_raw(raw: []u8) i8!NumberDecodeError {
     let .{ Ok: value } = parse_i64_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return narrow_i64_to_i8(value);
 }
 
 pub/ fn parse_usize_raw(raw: []u8) usize!NumberDecodeError {
     let .{ Ok: value } = parse_u64_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     let out = value as usize;
     if ((out as u64) != value) {
         return .{ Err: NumberDecodeError.Overflow };
@@ -203,7 +229,9 @@ pub/ fn parse_usize_raw(raw: []u8) usize!NumberDecodeError {
 
 pub/ fn parse_isize_raw(raw: []u8) isize!NumberDecodeError {
     let .{ Ok: value } = parse_i64_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     let out = value as isize;
     if ((out as i64) != value) {
         return .{ Err: NumberDecodeError.Overflow };
@@ -252,7 +280,7 @@ fn scale_pow10_f64(value: f64, exp10: i32) f64!FloatDecodeError {
 
     let mut out = value;
     let mut bits = if (exp10 < 0) -exp10 else exp10;
-    let mut part = 0;
+    let mut part = usize.{0};
     for (; bits > 0; ) {
         if ((bits & i32.{1}) != i32.{0}) {
             if (exp10 < 0) {
@@ -273,16 +301,18 @@ fn scale_pow10_f64(value: f64, exp10: i32) f64!FloatDecodeError {
 }
 
 pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
-    let .{ Ok: _ } = validate_number_raw(raw) else .{ Err: err } => {
-        match (err) {
-            .{ Parse: parse_err } => return .{ Err: .{ Parse: parse_err } },
-            .NotInteger => return .{ Err: .{ Parse: .{ InvalidNumber: 0 } } },
-            .NegativeUnsigned => return .{ Err: .{ Parse: .{ InvalidNumber: 0 } } },
-            .Overflow => return .{ Err: FloatDecodeError.Overflow },
-        }
+    let .{ Ok: _ } = validate_number_raw(raw) else {
+        .{ Err: err } => {
+            match (err) {
+                .{ Parse: parse_err } => return .{ Err: .{ Parse: parse_err } },
+                .NotInteger => return .{ Err: .{ Parse: .{ InvalidNumber: 0 } } },
+                .NegativeUnsigned => return .{ Err: .{ Parse: .{ InvalidNumber: 0 } } },
+                .Overflow => return .{ Err: FloatDecodeError.Overflow },
+            }
+        },
     };
 
-    let mut index = 0;
+    let mut index = usize.{0};
     let mut negative = false;
     if (raw.[index] == b'-') {
         negative = true;
@@ -335,17 +365,23 @@ pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
     }
 
     let .{ Ok: exp_adjust } = parse_decimal_exponent(raw, index)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     let total_exp10 = exp10 + exp_adjust;
 
     let .{ Ok: scaled } = scale_pow10_f64(significand as f64, total_exp10)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return .{ Ok: if (negative) -scaled else scaled };
 }
 
 pub/ fn parse_f32_raw(raw: []u8) f32!FloatDecodeError {
     let .{ Ok: value } = parse_f64_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     let magnitude = if (value < 0.0) -value else value;
     if (magnitude > F32_MAX_AS_F64) {
         return .{ Err: FloatDecodeError.Overflow };

@@ -7,9 +7,9 @@ use ..buffer;
 use ..buffer.{Cursor, Error as BufferError, TextBuffer};
 
 pub.. const NO_NAME = "[No Name]";
-pub.. const PROMPT_HISTORY_LIMIT = 32;
-pub.. const OUTPUT_HISTORY_LIMIT = 16;
-pub.. const TAB_STOP = 4;
+pub.. const PROMPT_HISTORY_LIMIT = usize.{32};
+pub.. const OUTPUT_HISTORY_LIMIT = usize.{16};
+pub.. const TAB_STOP = usize.{4};
 
 pub.. type PendingNormal = enum {
     None,
@@ -116,7 +116,7 @@ impl *mut ShellOutputEntry {
 
 fn deinit_string_list(alloc: *mut Allocator, items: *mut List[String]) void {
     let slice = items.as_mut_slice();
-    for (let mut i = 0; i < #slice; i += 1) {
+    for (let mut i = usize.{0}; i < #slice; i += 1) {
         slice.[i]..&.deinit(alloc);
     }
     items.deinit(alloc);
@@ -128,7 +128,7 @@ pub.. fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], li
     }
     let remove_count = items.len - limit;
     let slice = items.as_mut_slice();
-    for (let mut i = 0; i < remove_count; i += 1) {
+    for (let mut i = usize.{0}; i < remove_count; i += 1) {
         slice.[i]..&.deinit(alloc);
     }
     let kept = items.len - remove_count;
@@ -141,7 +141,7 @@ pub.. fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], li
 
 fn deinit_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry]) void {
     let slice = items.as_mut_slice();
-    for (let mut i = 0; i < #slice; i += 1) {
+    for (let mut i = usize.{0}; i < #slice; i += 1) {
         slice.[i]..&.deinit(alloc);
     }
     items.deinit(alloc);
@@ -153,7 +153,7 @@ pub.. fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutput
     }
     let remove_count = items.len - limit;
     let slice = items.as_mut_slice();
-    for (let mut i = 0; i < remove_count; i += 1) {
+    for (let mut i = usize.{0}; i < remove_count; i += 1) {
         slice.[i]..&.deinit(alloc);
     }
     let kept = items.len - remove_count;
@@ -255,7 +255,7 @@ impl *mut Editor {
     /// Releases the full editor state.
     pub fn deinit(alloc: *mut Allocator) void {
         let buffers = self.buffers..&.as_mut_slice();
-        for (let mut i = 0; i < #buffers; i += 1) {
+        for (let mut i = usize.{0}; i < #buffers; i += 1) {
             if (buffers.[i].ref_count > 0) {
                 buffers.[i].text..&.deinit(alloc);
             }

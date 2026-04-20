@@ -30,8 +30,7 @@ pub enum ExprKind {
     Let {
         pattern: LetPattern,
         init: Box<Expr>,
-        else_pattern: Option<Pattern>,
-        else_branch: Option<Box<Expr>>,
+        else_clause: Option<LetElseClause>,
     },
 
     /// `static x = v`
@@ -227,6 +226,31 @@ pub struct CapturePattern {
 pub struct MatchArm {
     /// One arm may contain multiple patterns, for example `11, 12, 13 =>`.
     pub patterns: Vec<MatchPattern>,
+    pub body: Expr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LetElseClause {
+    Expr(Box<Expr>),
+    Arms(Vec<LetElseArm>),
+}
+
+impl LetElseClause {
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Expr(expr) => expr.span,
+            Self::Arms(arms) => arms
+                .first()
+                .map(|arm| arm.span)
+                .unwrap_or_else(Span::default),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LetElseArm {
+    pub pattern: Pattern,
     pub body: Expr,
     pub span: Span,
 }

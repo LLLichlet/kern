@@ -128,11 +128,20 @@ fn collect_call_sites_in_expr(
 ) {
     match &expr.kind {
         ast::ExprKind::Let {
-            init, else_branch, ..
+            init, else_clause, ..
         } => {
             collect_call_sites_in_expr(ctx, file_id, init, call_sites);
-            if let Some(else_branch) = else_branch {
-                collect_call_sites_in_expr(ctx, file_id, else_branch, call_sites);
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => {
+                        collect_call_sites_in_expr(ctx, file_id, else_expr, call_sites);
+                    }
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            collect_call_sites_in_expr(ctx, file_id, &arm.body, call_sites);
+                        }
+                    }
+                }
             }
         }
         ast::ExprKind::Static { init, .. }

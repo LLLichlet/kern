@@ -332,11 +332,18 @@ fn collect_owner_exprs<'a>(
 
     match &expr.kind {
         ast::ExprKind::Let {
-            init, else_branch, ..
+            init, else_clause, ..
         } => {
             collect_owner_exprs(init, exprs);
-            if let Some(else_branch) = else_branch {
-                collect_owner_exprs(else_branch, exprs);
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => collect_owner_exprs(else_expr, exprs),
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            collect_owner_exprs(&arm.body, exprs);
+                        }
+                    }
+                }
             }
         }
         ast::ExprKind::Static { init, .. } => collect_owner_exprs(init, exprs),
@@ -474,10 +481,10 @@ fn collect_simple_binding_let_expr_ids(
 ) {
     if let ast::ExprKind::Let {
         pattern,
-        else_branch,
+        else_clause,
         ..
     } = &expr.kind
-        && else_branch.is_none()
+        && else_clause.is_none()
         && let ast::PatternKind::Binding(binding) = &pattern.pattern.kind
     {
         expr_ids.insert(binding.name_span, expr.id);
@@ -485,11 +492,20 @@ fn collect_simple_binding_let_expr_ids(
 
     match &expr.kind {
         ast::ExprKind::Let {
-            init, else_branch, ..
+            init, else_clause, ..
         } => {
             collect_simple_binding_let_expr_ids(init, expr_ids);
-            if let Some(else_branch) = else_branch {
-                collect_simple_binding_let_expr_ids(else_branch, expr_ids);
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => {
+                        collect_simple_binding_let_expr_ids(else_expr, expr_ids);
+                    }
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            collect_simple_binding_let_expr_ids(&arm.body, expr_ids);
+                        }
+                    }
+                }
             }
         }
         ast::ExprKind::Static { init, .. } => collect_simple_binding_let_expr_ids(init, expr_ids),

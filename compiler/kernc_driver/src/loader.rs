@@ -520,16 +520,30 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             ast::ExprKind::Let {
                 pattern,
                 init,
-                else_pattern,
-                else_branch,
+                else_clause,
             } => {
                 Self::collect_let_pattern_alias_references(pattern, alias_names, referenced);
                 Self::collect_expr_alias_references(init, alias_names, referenced);
-                if let Some(else_pattern) = else_pattern {
-                    Self::collect_pattern_alias_references(else_pattern, alias_names, referenced);
-                }
-                if let Some(else_branch) = else_branch {
-                    Self::collect_expr_alias_references(else_branch, alias_names, referenced);
+                if let Some(else_clause) = else_clause {
+                    match else_clause {
+                        ast::LetElseClause::Expr(else_expr) => {
+                            Self::collect_expr_alias_references(else_expr, alias_names, referenced);
+                        }
+                        ast::LetElseClause::Arms(arms) => {
+                            for arm in arms {
+                                Self::collect_pattern_alias_references(
+                                    &arm.pattern,
+                                    alias_names,
+                                    referenced,
+                                );
+                                Self::collect_expr_alias_references(
+                                    &arm.body,
+                                    alias_names,
+                                    referenced,
+                                );
+                            }
+                        }
+                    }
                 }
             }
             ast::ExprKind::Static { init, .. } => {

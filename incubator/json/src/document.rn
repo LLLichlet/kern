@@ -64,7 +64,7 @@ pub/ type DocumentObjectEntry = struct {
 };
 
 fn document_arena_chunk_size(input_len: usize) usize {
-    let min = 16384;
+    let min = usize.{16384};
     if (input_len == 0) {
         return min;
     }
@@ -180,10 +180,12 @@ pub/ fn clone_owned_document(
     state.root = OwnedValue.Null;
 
     let .{ Ok: root } = clone_owned_value_in_arena(state.arena..&, value)
-        else .{ Err: err } => {
-            state.arena..&.deinit();
-            page.free(raw, layout);
-            return .{ Err: err };
+        else {
+            .{ Err: err } => {
+                state.arena..&.deinit();
+                page.free(raw, layout);
+                return .{ Err: err };
+            },
         };
     state.root = root;
     return .{ Ok: OwnedDocument.{ state: .{ Some: state } } };
@@ -205,10 +207,12 @@ pub/ fn clone_indexed_object_document(
     state.index = IndexedObjectView.{ object: OwnedObject.{} };
 
     let .{ Ok: root } = clone_owned_value_in_arena(state.arena..&, value)
-        else .{ Err: err } => {
-            state.arena..&.deinit();
-            page.free(raw, layout);
-            return .{ Err: .{ Materialize: err } };
+        else {
+            .{ Err: err } => {
+                state.arena..&.deinit();
+                page.free(raw, layout);
+                return .{ Err: .{ Materialize: err } };
+            },
         };
     state.root = root;
     let .{ Ok: indexed } = state.root..&.build_indexed_object_view(state.arena..&)
@@ -380,8 +384,8 @@ impl DocumentValue {
 
     pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntryRef) ?usize {
         let .{ Object: object } = self.value_ptr().* else return .None;
-        let mut total = 0;
-        for (let mut i = 0; i < object.entries.len; i += 1) {
+        let mut total = usize.{0};
+        for (let mut i = usize.{0}; i < object.entries.len; i += 1) {
             let .{ Some: entry } = object.entries.&.get(i) else continue;
             if (!entry.key_eq(name)) {
                 continue;
@@ -468,7 +472,9 @@ impl DocumentValue {
 
     pub fn require_value(name: []u8) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value(value) };
     }
 
@@ -486,13 +492,17 @@ impl DocumentValue {
 
     pub fn require_array(name: []u8) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_array(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value(value) };
     }
 
     pub fn require_object(name: []u8) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_object(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value(value) };
     }
 
@@ -680,8 +690,8 @@ impl DocumentValueMut {
 
     pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntry) ?usize {
         let .{ Object: object } = self.value_ptr().* else return .None;
-        let mut total = 0;
-        for (let mut i = 0; i < object.entries.len; i += 1) {
+        let mut total = usize.{0};
+        for (let mut i = usize.{0}; i < object.entries.len; i += 1) {
             let .{ Some: entry } = object.entries.&.get(i) else continue;
             if (!entry.key_eq(name)) {
                 continue;
@@ -768,7 +778,9 @@ impl DocumentValueMut {
 
     pub fn require_value(name: []u8) DocumentValueMut!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut(self.state_ptr(), value) };
     }
 
@@ -786,13 +798,17 @@ impl DocumentValueMut {
 
     pub fn require_array(name: []u8) DocumentValueMut!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_array(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut(self.state_ptr(), value) };
     }
 
     pub fn require_object(name: []u8) DocumentValueMut!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_object(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut(self.state_ptr(), value) };
     }
 
@@ -864,7 +880,9 @@ impl DocumentValueMut {
         value: OwnedValue,
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().push_array_item(self.state_ptr().arena..&, value)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut_option(self.state_ptr(), item) };
     }
 
@@ -872,7 +890,9 @@ impl DocumentValueMut {
         text: []u8,
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().push_array_string(self.state_ptr().arena..&, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut_option(self.state_ptr(), item) };
     }
 
@@ -880,7 +900,9 @@ impl DocumentValueMut {
         text: []u8,
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().push_array_number_text(self.state_ptr().arena..&, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut_option(self.state_ptr(), item) };
     }
 
@@ -926,7 +948,9 @@ impl DocumentValueMut {
         value: OwnedValue,
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().append_object_field(self.state_ptr().arena..&, key, value)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut_option(self.state_ptr(), item) };
     }
 
@@ -935,7 +959,9 @@ impl DocumentValueMut {
         text: []u8,
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().append_object_string(self.state_ptr().arena..&, key, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut_option(self.state_ptr(), item) };
     }
 
@@ -944,7 +970,9 @@ impl DocumentValueMut {
         text: []u8,
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().append_object_number_text(self.state_ptr().arena..&, key, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut_option(self.state_ptr(), item) };
     }
 
@@ -953,7 +981,9 @@ impl DocumentValueMut {
         value: OwnedValue,
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().set_object_field(self.state_ptr().arena..&, key, value)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value_mut_option(self.state_ptr(), item) };
     }
 
@@ -1003,8 +1033,8 @@ impl IndexedDocumentView {
     }
 
     pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntryRef) usize {
-        let mut total = 0;
-        for (let mut i = 0; i < self.view_ptr().len(); i += 1) {
+        let mut total = usize.{0};
+        for (let mut i = usize.{0}; i < self.view_ptr().len(); i += 1) {
             let .{ Some: entry } = self.view_ptr().get_entry(i) else continue;
             if (!entry.key_eq(name)) {
                 continue;
@@ -1091,7 +1121,9 @@ impl IndexedDocumentView {
 
     pub fn require_value(name: []u8) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.view_ptr().require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value(value) };
     }
 
@@ -1109,13 +1141,17 @@ impl IndexedDocumentView {
 
     pub fn require_array(name: []u8) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.view_ptr().require_array(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value(value) };
     }
 
     pub fn require_object(name: []u8) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.view_ptr().require_object(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: wrap_document_value(value) };
     }
 

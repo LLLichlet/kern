@@ -381,22 +381,21 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Let {
                 pattern,
                 init,
-                else_pattern,
-                else_branch,
+                else_clause,
             } => {
                 let value = self.eval_inner(init, depth + 1)?;
                 let init_ty = self.expr_type(init);
 
                 let is_irrefutable =
                     self.pattern_is_irrefutable(&pattern.pattern, init_ty, depth + 1)?;
-                if is_irrefutable && else_branch.is_some() {
+                if is_irrefutable && else_clause.is_some() {
                     self.ctx
                         .struct_error(expr.span, "irrefutable `let` patterns cannot use `else`")
                         .with_code(kernc_utils::DiagnosticCode::IrrefutableLetElse)
                         .emit();
                     return Err(ConstEvalError);
                 }
-                if !is_irrefutable && else_branch.is_none() {
+                if !is_irrefutable && else_clause.is_none() {
                     self.ctx
                         .struct_error(
                             expr.span,
@@ -409,7 +408,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 let Some(bindings) =
                     self.match_inner_pattern(&pattern.pattern, &value, init_ty, depth + 1)?
                 else {
-                    let Some(else_expr) = else_branch else {
+                    let Some(else_clause) = else_clause else {
                         self.ctx
                             .struct_error(
                                 expr.span,
@@ -419,31 +418,46 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         return Err(ConstEvalError);
                     };
 
-                    if let Some(else_pattern) = else_pattern {
-                        let Some(else_bindings) =
-                            self.match_inner_pattern(else_pattern, &value, init_ty, depth + 1)?
-                        else {
+                    match else_clause {
+                        kernc_ast::LetElseClause::Expr(else_expr) => {
+                            let _ = self.eval_inner(else_expr, depth + 1)?;
+                            return Ok(ConstValue::Void);
+                        }
+                        kernc_ast::LetElseClause::Arms(arms) => {
+                            for arm in arms {
+                                let Some(else_bindings) = self.match_inner_pattern(
+                                    &arm.pattern,
+                                    &value,
+                                    init_ty,
+                                    depth + 1,
+                                )?
+                                else {
+                                    continue;
+                                };
+
+                                self.push_local_scope();
+                                for (name, value) in else_bindings {
+                                    self.define_local(name, value);
+                                }
+                                self.install_pattern_binding_types(
+                                    &arm.pattern,
+                                    init_ty,
+                                    depth + 1,
+                                )?;
+                                let _ = self.eval_inner(&arm.body, depth + 1)?;
+                                self.pop_local_scope();
+                                return Ok(ConstValue::Void);
+                            }
+
                             self.ctx
                                 .struct_error(
-                                    else_pattern.span,
-                                    "explicit `else` pattern did not match the failing `let` value",
+                                    else_clause.span(),
+                                    "`let ... else` arms did not match the failing value during constant evaluation",
                                 )
                                 .emit();
                             return Err(ConstEvalError);
-                        };
-
-                        self.push_local_scope();
-                        for (name, value) in else_bindings {
-                            self.define_local(name, value);
                         }
-                        self.install_pattern_binding_types(else_pattern, init_ty, depth + 1)?;
-                        let _ = self.eval_inner(else_expr, depth + 1)?;
-                        self.pop_local_scope();
-                        return Ok(ConstValue::Void);
                     }
-
-                    let _ = self.eval_inner(else_expr, depth + 1)?;
-                    return Ok(ConstValue::Void);
                 };
 
                 for (name, value) in bindings {

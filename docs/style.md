@@ -28,7 +28,9 @@ read:
 
 ```kern
 let .{ Ok: span } = parse_value_span(text, index)
-    else .{ Err: err } => return .{ Err: err };
+    else {
+        .{ Err: err } => return .{ Err: err },
+    };
 ```
 
 Use `.?` and `.!` when the surrounding return type already makes the

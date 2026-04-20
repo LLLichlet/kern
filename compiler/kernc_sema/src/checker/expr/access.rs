@@ -10,11 +10,6 @@ use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, TypeNode, Visibility};
 use kernc_utils::{DiagnosticCode, FastHashSet, NodeId, Span, SymbolId};
 
-pub(crate) struct LetElseClause<'a> {
-    pub(crate) pattern: Option<&'a ast::Pattern>,
-    pub(crate) branch: &'a Expr,
-}
-
 #[derive(Clone, Copy)]
 struct ResolvedPatternField {
     name: SymbolId,
@@ -484,32 +479,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn let_else_anon_enum_patterns_cover_all_variants(
+    fn let_else_uncovered_witness(
         &mut self,
         primary: &ast::Pattern,
-        else_pattern: &ast::Pattern,
+        arms: &[ast::LetElseArm],
         target_ty: TypeId,
-        _enum_def: &crate::ty::AnonymousEnum,
     ) -> Option<String> {
-        self.uncovered_pattern_witness(target_ty, &[primary, else_pattern])
+        let mut patterns = Vec::with_capacity(arms.len() + 1);
+        patterns.push(primary);
+        patterns.extend(arms.iter().map(|arm| &arm.pattern));
+        self.uncovered_pattern_witness(target_ty, &patterns)
     }
 
-    fn let_else_enum_patterns_cover_all_variants(
-        &mut self,
-        primary: &ast::Pattern,
-        else_pattern: &ast::Pattern,
-        target_ty: TypeId,
-        def_id: DefId,
-        span: Span,
-    ) -> Option<String> {
-        let Some(def) =
-            self.match_enum_def(def_id, span, "check `let ... else` enum pattern coverage")
-        else {
-            return Some("_".to_string());
-        };
-        // Safety: semantic defs are immutable while type checking expressions.
-        let _def = unsafe { &*def };
-        self.uncovered_pattern_witness(target_ty, &[primary, else_pattern])
+    fn emit_let_else_unreachable_arm(&mut self, span: Span) {
+        self.ctx
+            .struct_error(span, "`let ... else` arm does not match any remaining failure case")
+            .with_hint("earlier patterns already cover every value matched by this arm")
+            .emit();
     }
 
     fn cached_current_module_id(&mut self) -> Option<DefId> {
@@ -723,7 +709,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         node_id: NodeId,
         pattern: &ast::LetPattern,
         init: &Expr,
-        else_clause: Option<LetElseClause<'_>>,
+        else_clause: Option<&ast::LetElseClause>,
         expected_ty: Option<TypeId>,
         span: Span,
     ) -> TypeId {
@@ -764,86 +750,102 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         if let Some(else_clause) = else_clause {
-            let else_expr = else_clause.branch;
-            if let Some(else_pattern) = else_clause.pattern {
-                let else_irrefutable = self.pattern_is_irrefutable(else_pattern, norm_init);
-                match self.ctx.type_registry.get(norm_init).clone() {
-                    TypeKind::Enum(def_id, _) => {
-                        if let Some(witness) = self.let_else_enum_patterns_cover_all_variants(
-                            &pattern.pattern,
-                            else_pattern,
-                            norm_init,
-                            def_id,
-                            span,
-                        ) {
-                            self.ctx
-                                .struct_error(
-                                    else_pattern.span,
-                                    "explicit `else` pattern does not cover all remaining enum variants",
-                                )
-                                .with_hint(
-                                    "make the `else` pattern irrefutable, or cover every variant not matched by the main `let` pattern",
-                                )
-                                .with_hint(format!(
-                                    "for example, this value is still uncovered: `{}`",
-                                    witness
-                                ))
-                                .emit();
-                        }
-                    }
-                    TypeKind::AnonymousEnum(enum_def) => {
-                        if let Some(witness) = self.let_else_anon_enum_patterns_cover_all_variants(
-                            &pattern.pattern,
-                            else_pattern,
-                            norm_init,
-                            &enum_def,
-                        ) {
-                            self.ctx
-                                .struct_error(
-                                    else_pattern.span,
-                                    "explicit `else` pattern does not cover all remaining enum variants",
-                                )
-                                .with_hint(
-                                    "make the `else` pattern irrefutable, or cover every variant not matched by the main `let` pattern",
-                                )
-                                .with_hint(format!(
-                                    "for example, this value is still uncovered: `{}`",
-                                    witness
-                                ))
-                                .emit();
-                        }
-                    }
-                    _ if !else_irrefutable => {
+            match else_clause {
+                ast::LetElseClause::Expr(else_expr) => {
+                    let else_ty = self.check_expr(else_expr, None);
+                    let norm_else = self.resolve_tv(else_ty);
+                    if norm_else != TypeId::NEVER && norm_else != TypeId::ERROR {
                         self.ctx
                             .struct_error(
-                                else_pattern.span,
-                                "explicit `else` patterns on non-enum `let` bindings must be irrefutable",
+                                else_expr.span,
+                                "`let ... else` failure branches must diverge",
                             )
                             .with_hint(
-                                "use an irrefutable binding like `err` or `_`, or keep using a plain `else` expression",
+                                "end the `else` block with `return`, `break`, `continue`, or another diverging expression",
                             )
                             .emit();
                     }
-                    _ => {}
                 }
+                ast::LetElseClause::Arms(arms) => {
+                    if arms.is_empty() {
+                        self.ctx
+                            .struct_error(span, "`let ... else` arm blocks cannot be empty")
+                            .with_hint(
+                                "write at least one failure arm, or use a plain diverging `else` expression",
+                            )
+                            .emit();
+                    }
 
-                self.ctx.scopes.enter_scope();
-                self.check_pattern(node_id, else_pattern, init_ty);
-            }
+                    let has_constructor_coverage = self.coverage_constructors(norm_init).is_some();
+                    let mut seen_patterns = Vec::new();
+                    if let Some(lowered) = self.coverage_lower_pattern(&pattern.pattern, norm_init) {
+                        seen_patterns.push(vec![lowered]);
+                    }
+                    let mut failure_closed = false;
 
-            let else_ty = self.check_expr(else_expr, None);
-            let norm_else = self.resolve_tv(else_ty);
-            if norm_else != TypeId::NEVER && norm_else != TypeId::ERROR {
-                self.ctx
-                    .struct_error(else_expr.span, "`let ... else` failure branches must diverge")
-                    .with_hint(
-                        "end the `else` block with `return`, `break`, `continue`, or another diverging expression",
-                    )
-                    .emit();
-            }
+                    for arm in arms {
+                        let irrefutable = self.pattern_is_irrefutable(&arm.pattern, norm_init);
+                        if failure_closed {
+                            self.emit_let_else_unreachable_arm(arm.pattern.span);
+                        } else if has_constructor_coverage
+                            && let Some(lowered) =
+                                self.coverage_lower_pattern(&arm.pattern, norm_init)
+                        {
+                            if self.coverage_vector_is_useful(
+                                &[norm_init],
+                                &seen_patterns,
+                                std::slice::from_ref(&lowered),
+                            ) {
+                                seen_patterns.push(vec![lowered]);
+                                if irrefutable
+                                    || self.coverage_matrix_is_exhaustive(
+                                        norm_init,
+                                        &seen_patterns,
+                                    )
+                                {
+                                    failure_closed = true;
+                                }
+                            } else {
+                                self.emit_let_else_unreachable_arm(arm.pattern.span);
+                            }
+                        } else if irrefutable {
+                            failure_closed = true;
+                        }
 
-            if else_clause.pattern.is_some() {
-                self.ctx.scopes.exit_scope();
+                        self.ctx.scopes.enter_scope();
+                        self.check_pattern(node_id, &arm.pattern, init_ty);
+
+                        let body_ty = self.check_expr(&arm.body, None);
+                        let norm_body = self.resolve_tv(body_ty);
+                        if norm_body != TypeId::NEVER && norm_body != TypeId::ERROR {
+                            self.ctx
+                                .struct_error(
+                                    arm.body.span,
+                                    "`let ... else` failure branches must diverge",
+                                )
+                                .with_hint(
+                                    "end the `else` block with `return`, `break`, `continue`, or another diverging expression",
+                                )
+                                .emit();
+                        }
+                        self.ctx.scopes.exit_scope();
+                    }
+
+                    if let Some(witness) =
+                        self.let_else_uncovered_witness(&pattern.pattern, arms, norm_init)
+                    {
+                        self.ctx
+                            .struct_error(
+                                else_clause.span(),
+                                "`let ... else` arms do not cover all remaining failure cases",
+                            )
+                            .with_hint(format!(
+                                "for example, this value is still uncovered: `{}`",
+                                witness
+                            ))
+                            .emit();
+                    }
+                }
             }
         }
 

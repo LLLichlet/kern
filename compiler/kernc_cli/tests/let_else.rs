@@ -246,7 +246,7 @@ fn main() i32 {
 }
 
 #[test]
-fn compiles_let_else_with_explicit_else_pattern_unpack() {
+fn compiles_let_else_with_failure_arm_block() {
     let output = build_and_run_source(
         r#"
 type Result[T, E] = enum {
@@ -255,7 +255,9 @@ type Result[T, E] = enum {
 };
 
 fn unwrap_or_error(value: Result[i32, i32]) i32 {
-    let .{ Ok: inner } = value else .{ Err: err } => return err;
+    let .{ Ok: inner } = value else {
+        .{ Err: err } => return err,
+    };
     return inner;
 }
 
@@ -275,7 +277,7 @@ fn main() i32 {
 }
 
 #[test]
-fn compiles_const_fn_using_explicit_else_pattern_unpack() {
+fn compiles_const_fn_using_failure_arm_block() {
     let output = compile_source(
         r#"
 type Option[T] = enum {
@@ -284,7 +286,9 @@ type Option[T] = enum {
 };
 
 const fn pick(value: Option[i32]) i32 {
-    let .{ Some: inner } = value else .None => return 11;
+    let .{ Some: inner } = value else {
+        .None => return 11,
+    };
     return inner;
 }
 
@@ -305,7 +309,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_non_exhaustive_explicit_else_pattern() {
+fn rejects_non_exhaustive_let_else_arm_block() {
     let output = compile_source(
         r#"
 type Result[T, E] = enum {
@@ -315,7 +319,9 @@ type Result[T, E] = enum {
 };
 
 fn main() i32 {
-    let .{ Ok: value } = Result[i32, i32].Pending else .{ Err: err } => return err;
+    let .{ Ok: value } = Result[i32, i32].Pending else {
+        .{ Err: err } => return err,
+    };
     return value;
 }
 "#,
@@ -329,7 +335,7 @@ fn main() i32 {
     );
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .contains("explicit `else` pattern does not cover all remaining enum variants"),
+            .contains("`let ... else` arms do not cover all remaining failure cases"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -418,7 +424,9 @@ fn validate(count: u8) Result[u8, i32] {
 }
 
 fn keep_valid(count: u8) i32 {
-    let .{ Ok: count } = validate(count) else .{ Err: err } => return err;
+    let .{ Ok: count } = validate(count) else {
+        .{ Err: err } => return err,
+    };
     return count as i32;
 }
 
@@ -476,7 +484,7 @@ fn main() i32 {
 }
 
 #[test]
-fn compiles_nested_explicit_else_pattern_let_else() {
+fn compiles_nested_let_else_arm_blocks() {
     let output = build_and_run_source(
         r#"
 type Result[T, E] = enum {
@@ -485,11 +493,16 @@ type Result[T, E] = enum {
 };
 
 fn pick(value: Result[Result[i32, i32], i32]) i32 {
-    let .{ Ok: inner } = value else .{ Err: outer_err } => return outer_err;
-    let .{ Ok: number } = inner else .{ Err: inner_err } => {
-        let .{ Ok: fallback } = Result[i32, i32].{ Ok: inner_err + 1 }
-            else .{ Err: fallback_err } => return fallback_err;
-        return fallback;
+    let .{ Ok: inner } = value else {
+        .{ Err: outer_err } => return outer_err,
+    };
+    let .{ Ok: number } = inner else {
+        .{ Err: inner_err } => {
+            let .{ Ok: fallback } = Result[i32, i32].{ Ok: inner_err + 1 } else {
+                .{ Err: fallback_err } => return fallback_err,
+            };
+            return fallback;
+        },
     };
     return number;
 }

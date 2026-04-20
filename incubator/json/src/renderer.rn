@@ -55,8 +55,8 @@ fn escaped_byte_size(byte: u8) usize {
 }
 
 fn compact_owned_string_size(text: []u8) usize {
-    let mut written = 2;
-    for (let mut i = 0; i < #text; i += 1) {
+    let mut written = usize.{2};
+    for (let mut i = usize.{0}; i < #text; i += 1) {
         written += escaped_byte_size(text.[i]);
     }
     return written;
@@ -104,7 +104,7 @@ fn write_escaped_byte_unchecked(out: []mut u8, offset: usize, byte: u8) usize {
 
 fn write_escaped_string_unchecked(out: []mut u8, offset: usize, text: []u8) usize {
     let mut written = write_byte_unchecked(out, offset, b'"');
-    for (let mut i = 0; i < #text; i += 1) {
+    for (let mut i = usize.{0}; i < #text; i += 1) {
         written = write_escaped_byte_unchecked(out, written, text.[i]);
     }
     return write_byte_unchecked(out, written, b'"');
@@ -116,8 +116,8 @@ fn compact_owned_array_size(array: *OwnedArray) usize {
         return 2;
     }
 
-    let mut written = 2 + compact_size_owned(items.[0]);
-    for (let mut i = 1; i < #items; i += 1) {
+    let mut written = usize.{2} + compact_size_owned(items.[0]);
+    for (let mut i = usize.{1}; i < #items; i += 1) {
         written += 1;
         written += compact_size_owned(items.[i]);
     }
@@ -133,11 +133,11 @@ fn compact_owned_object_size(object: *OwnedObject) usize {
 
     let first = entries.[0];
     let mut written =
-        3 +
+        usize.{3} +
         compact_owned_string_size(first.key.&.as_str()) +
         compact_size_owned(first.value);
 
-    for (let mut i = 1; i < #entries; i += 1) {
+    for (let mut i = usize.{1}; i < #entries; i += 1) {
         let entry = entries.[i];
         written += 1;
         written += compact_owned_string_size(entry.key.&.as_str());
@@ -155,7 +155,7 @@ fn render_owned_array_unchecked(array: *OwnedArray, out: []mut u8, offset: usize
     }
 
     written = render_owned_compact_inner_unchecked(items.[0], out, written);
-    for (let mut i = 1; i < #items; i += 1) {
+    for (let mut i = usize.{1}; i < #items; i += 1) {
         written = write_byte_unchecked(out, written, b',');
         written = render_owned_compact_inner_unchecked(items.[i], out, written);
     }
@@ -173,7 +173,7 @@ fn render_owned_object_unchecked(object: *OwnedObject, out: []mut u8, offset: us
     written = write_escaped_string_unchecked(out, written, first.key.&.as_str());
     written = write_byte_unchecked(out, written, b':');
     written = render_owned_compact_inner_unchecked(first.value, out, written);
-    for (let mut i = 1; i < #entries; i += 1) {
+    for (let mut i = usize.{1}; i < #entries; i += 1) {
         let entry = entries.[i];
         written = write_byte_unchecked(out, written, b',');
         written = write_escaped_string_unchecked(out, written, entry.key.&.as_str());
@@ -207,26 +207,34 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
     let byte = text.[index];
     if (byte == b'n') {
         let .{ Ok: span } = parse_literal(text, index, "null", Kind.Null)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: CompactProgress.{ next: span.next, written: span.next - index } };
     }
     if (byte == b't') {
         let .{ Ok: span } = parse_literal(text, index, "true", Kind.Bool)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: CompactProgress.{ next: span.next, written: span.next - index } };
     }
     if (byte == b'f') {
         let .{ Ok: span } = parse_literal(text, index, "false", Kind.Bool)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: CompactProgress.{ next: span.next, written: span.next - index } };
     }
     if (byte == b'"') {
         let .{ Ok: next } = parse_string_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: CompactProgress.{ next: next, written: next - index } };
     }
     if (byte == b'[') {
-        let mut written = 1;
+        let mut written = usize.{1};
         let mut index2 = skip_ws(text, index + 1);
         if (index2 >= #text) {
             return .{ Err: ParseError.UnexpectedEof };
@@ -237,7 +245,9 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
 
         for (;;) {
             let .{ Ok: progress } = measure_compact_inner(text, index2)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             written += progress.written;
             index2 = skip_ws(text, progress.next);
             if (index2 >= #text) {
@@ -258,7 +268,7 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
         }
     }
     if (byte == b'{') {
-        let mut written = 1;
+        let mut written = usize.{1};
         let mut index2 = skip_ws(text, index + 1);
         if (index2 >= #text) {
             return .{ Err: ParseError.UnexpectedEof };
@@ -272,7 +282,9 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
                 return .{ Err: .{ UnexpectedByte: index2 } };
             }
             let .{ Ok: key_end } = parse_string_end(text, index2)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             written += key_end - index2;
             index2 = skip_ws(text, key_end);
             if (index2 >= #text) {
@@ -287,7 +299,9 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
                 return .{ Err: ParseError.UnexpectedEof };
             }
             let .{ Ok: value } = measure_compact_inner(text, index2)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             written += value.written;
             index2 = skip_ws(text, value.next);
             if (index2 >= #text) {
@@ -310,7 +324,9 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
 
     if (byte == b'-' or is_digit(byte)) {
         let .{ Ok: next } = parse_number_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: CompactProgress.{ next: next, written: next - index } };
     }
 
@@ -331,25 +347,33 @@ fn render_compact_inner_unchecked(
     let byte = text.[index];
     if (byte == b'n') {
         let .{ Ok: span } = parse_literal(text, index, "null", Kind.Null)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
         return .{ Ok: CompactProgress.{ next: span.next, written: written } };
     }
     if (byte == b't') {
         let .{ Ok: span } = parse_literal(text, index, "true", Kind.Bool)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
         return .{ Ok: CompactProgress.{ next: span.next, written: written } };
     }
     if (byte == b'f') {
         let .{ Ok: span } = parse_literal(text, index, "false", Kind.Bool)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
         return .{ Ok: CompactProgress.{ next: span.next, written: written } };
     }
     if (byte == b'"') {
         let .{ Ok: next } = parse_string_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         let written = write_bytes_unchecked(out, offset, text.[index .. next]);
         return .{ Ok: CompactProgress.{ next: next, written: written } };
     }
@@ -366,7 +390,9 @@ fn render_compact_inner_unchecked(
 
         for (;;) {
             let .{ Ok: progress } = render_compact_inner_unchecked(text, index2, out, written)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             written = progress.written;
             index2 = skip_ws(text, progress.next);
             if (index2 >= #text) {
@@ -403,7 +429,9 @@ fn render_compact_inner_unchecked(
                 return .{ Err: .{ UnexpectedByte: index2 } };
             }
             let .{ Ok: key_end } = parse_string_end(text, index2)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             written = write_bytes_unchecked(out, written, text.[index2 .. key_end]);
             index2 = skip_ws(text, key_end);
             if (index2 >= #text) {
@@ -418,7 +446,9 @@ fn render_compact_inner_unchecked(
                 return .{ Err: ParseError.UnexpectedEof };
             }
             let .{ Ok: value } = render_compact_inner_unchecked(text, index2, out, written)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
             written = value.written;
             index2 = skip_ws(text, value.next);
             if (index2 >= #text) {
@@ -442,7 +472,9 @@ fn render_compact_inner_unchecked(
 
     if (byte == b'-' or is_digit(byte)) {
         let .{ Ok: next } = parse_number_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         let written = write_bytes_unchecked(out, offset, text.[index .. next]);
         return .{ Ok: CompactProgress.{ next: next, written: written } };
     }
@@ -453,7 +485,9 @@ fn render_compact_inner_unchecked(
 pub/ fn compact_size(value: Value) usize!ParseError {
     let raw = value.raw;
     let .{ Ok: progress } = measure_compact_inner(raw, 0)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     let trailing = skip_ws(raw, progress.next);
     if (trailing != #raw) {
         return .{ Err: .{ TrailingData: trailing } };
@@ -463,12 +497,16 @@ pub/ fn compact_size(value: Value) usize!ParseError {
 
 pub/ fn render_compact(value: Value, out: []mut u8) usize!RenderError {
     let .{ Ok: needed } = compact_size(value)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     if (needed > #out) {
         return .{ Err: RenderError.BufferTooSmall };
     }
     let .{ Ok: progress } = render_compact_inner_unchecked(value.raw, 0, out, 0)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     return .{ Ok: progress.written };
 }
 

@@ -133,7 +133,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_nested_enum_gap_in_explicit_let_else_pattern() {
+fn rejects_nested_enum_gap_in_let_else_arm_block() {
     let output = compile_source(
         r#"
 type Inner = enum {
@@ -147,7 +147,9 @@ type Outer = enum {
 };
 
 fn main() i32 {
-    let .{ A: .X } = Outer.{ A: Inner.Y } else .B => return 2;
+    let .{ A: .X } = Outer.{ A: Inner.Y } else {
+        .B => return 2,
+    };
     return 0;
 }
 "#,
@@ -162,7 +164,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("explicit `else` pattern does not cover all remaining enum variants"),
+        stderr.contains("`let ... else` arms do not cover all remaining failure cases"),
         "unexpected stderr:\n{}",
         stderr
     );

@@ -122,7 +122,7 @@ pub fn read_u64_be(text: []u8) u64!BitIoError {
     }
 
     let mut value = u64.{0};
-    for (let mut i = 0; i < 8; i += 1) {
+    for (let mut i = usize.{0}; i < 8; i += 1) {
         value = (value << 8) | (text.[i] as u64);
     }
     return .{ Ok: value };
@@ -134,7 +134,7 @@ pub fn read_u64_le(text: []u8) u64!BitIoError {
     }
 
     let mut value = u64.{0};
-    for (let mut i = 0; i < 8; i += 1) {
+    for (let mut i = usize.{0}; i < 8; i += 1) {
         value |= (text.[i] as u64) << ((i as u64) * 8);
     }
     return .{ Ok: value };
@@ -224,7 +224,7 @@ pub fn xor_mask4(input: []u8, mask: [4]u8, out: []mut u8) usize!BitIoError {
         mask.[0], mask.[1], mask.[2], mask.[3],
     };
 
-    let mut i = 0;
+    let mut i = usize.{0};
     for (; i + 16 <= #input; i += 16) {
         let chunk = @simdLoad[u8x16](input.[i].& as *u8, 1);
         @simdStore(out.[i]..&, chunk ^ mask16, 1);
@@ -277,7 +277,7 @@ impl BitReader {
         let bytes = ptr.[0 .. self.len];
         let byte_index = self.bit_offset / 8;
         let bit_index = self.bit_offset % 8;
-        let mask = u8.{1} << ((7 - bit_index) as u8);
+        let mask = u8.{1} << ((usize.{7} - bit_index) as u8);
         return .{ Ok: (bytes.[byte_index] & mask) != 0 };
     }
 }
@@ -308,7 +308,7 @@ impl *mut BitReader {
         if (extra == 0) {
             return 0;
         }
-        let skipped = 8 - extra;
+        let skipped = usize.{8} - extra;
         self.*.bit_offset += skipped;
         return skipped;
     }
@@ -346,7 +346,7 @@ impl *mut BitWriter {
             out.* = 0;
         }
 
-        let shift = (7 - bit_index) as u8;
+        let shift = (usize.{7} - bit_index) as u8;
         let mask = u8.{1} << shift;
         if (value) {
             out.* |= mask;
@@ -376,9 +376,11 @@ impl *mut BitWriter {
             return 0;
         }
 
-        let padded = 8 - extra;
-        for (let mut i = 0; i < padded; i += 1) {
-            let .{ Ok: _ } = self.write_bit(false) else .{ Err: _ } => return i;
+        let padded = usize.{8} - extra;
+        for (let mut i = usize.{0}; i < padded; i += 1) {
+            let .{ Ok: _ } = self.write_bit(false) else {
+                .{ Err: _ } => return i,
+            };
         }
         return padded;
     }

@@ -229,6 +229,30 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_let_else_arm(&mut self) -> ParseResult<LetElseArm> {
+        let arm_start = self.peek().span;
+        let pattern = self.parse_pattern()?;
+        self.expect(TokenType::Arrow)?;
+        let body = self.parse_match_body()?;
+        self.match_token(&[TokenType::Comma]);
+
+        Ok(LetElseArm {
+            span: arm_start.to(body.span),
+            pattern,
+            body,
+        })
+    }
+
+    fn parse_let_else_arms(&mut self) -> ParseResult<LetElseClause> {
+        self.expect(TokenType::LBrace)?;
+        let mut arms = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            arms.push(self.parse_let_else_arm()?);
+        }
+        self.expect(TokenType::RBrace)?;
+        Ok(LetElseClause::Arms(arms))
+    }
+
     fn parse_match_patterns(&mut self) -> ParseResult<Vec<MatchPattern>> {
         let mut patterns = Vec::new();
         loop {
@@ -551,11 +575,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn has_let_else_pattern_clause(&mut self) -> bool {
-        let Some(end) = self.lookahead_pattern_end(0) else {
+    fn has_let_else_arm_start(&mut self, start: usize) -> bool {
+        let Some(end) = self.lookahead_pattern_end(start) else {
             return false;
         };
         self.stream.peek_tag_nth(end) == TokenType::Arrow
+    }
+
+    fn looks_like_let_else_arm_block(&mut self) -> bool {
+        self.stream.peek_tag_nth(0) == TokenType::LBrace && self.has_let_else_arm_start(1)
     }
 
     fn looks_like_typed_pattern(&mut self) -> bool {
@@ -603,18 +631,16 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::Assign)?;
         let init = self.parse_expression(Precedence::Lowest)?;
         let mut span = start_token.span.to(init.span);
-        let mut else_pattern = None;
-        let mut else_branch = None;
+        let mut else_clause = None;
 
         if tag != TokenType::Static && self.match_token(&[TokenType::Else]) {
-            if self.has_let_else_pattern_clause() {
-                let pattern = self.parse_pattern()?;
-                self.expect(TokenType::Arrow)?;
-                else_pattern = Some(pattern);
-            }
-            let else_expr = self.parse_expression(Precedence::Lowest)?;
-            span = start_token.span.to(else_expr.span);
-            else_branch = Some(Box::new(else_expr));
+            let clause = if self.looks_like_let_else_arm_block() {
+                self.parse_let_else_arms()?
+            } else {
+                LetElseClause::Expr(Box::new(self.parse_expression(Precedence::Lowest)?))
+            };
+            span = start_token.span.to(clause.span());
+            else_clause = Some(clause);
         }
 
         match tag {
@@ -632,8 +658,7 @@ impl<'a> Parser<'a> {
                 kind: ExprKind::Let {
                     pattern: let_pattern.unwrap(),
                     init: Box::new(init),
-                    else_pattern,
-                    else_branch,
+                    else_clause,
                 },
             }),
             _ => unreachable!(),

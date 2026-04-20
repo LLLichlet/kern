@@ -12,7 +12,7 @@ impl *mut Editor {
     }
 
     fn split_rect(rect: WindowRect, axis: LayoutAxis, first_weight: usize, second_weight: usize, first: *mut WindowRect, second: *mut WindowRect) void {
-        let total = if (first_weight + second_weight > 0) first_weight + second_weight else 1;
+        let total = if (first_weight + second_weight > 0) first_weight + second_weight else usize.{1};
         match (axis) {
             .Rows => {
                 if (rect.rows == 0) {
@@ -20,7 +20,7 @@ impl *mut Editor {
                     second.* = .{ row: rect.row, col: rect.col, rows: 0, cols: rect.cols };
                     return;
                 }
-                let content_rows = if (rect.rows > 0) rect.rows - 1 else 0;
+                let content_rows = if (rect.rows > 0) rect.rows - 1 else usize.{0};
                 let mut first_rows = content_rows * first_weight / total;
                 if (first_rows == 0 and content_rows > 0) {
                     first_rows = 1;
@@ -38,7 +38,7 @@ impl *mut Editor {
                     second.* = .{ row: rect.row, col: rect.col, rows: rect.rows, cols: 0 };
                     return;
                 }
-                let content_cols = if (rect.cols > 0) rect.cols - 1 else 0;
+                let content_cols = if (rect.cols > 0) rect.cols - 1 else usize.{0};
                 let mut first_cols = content_cols * first_weight / total;
                 if (first_cols == 0 and content_cols > 0) {
                     first_cols = 1;
@@ -359,7 +359,7 @@ impl *mut Editor {
 
     fn first_non_blank_col(row: usize) usize {
         let line = self.active_buffer().line(row);
-        for (let mut i = 0; i < #line; i += 1) {
+        for (let mut i = usize.{0}; i < #line; i += 1) {
             let byte = line.[i];
             if (!self.is_space_byte(byte)) {
                 return i;
@@ -597,7 +597,7 @@ impl *mut Editor {
             slot.text..&.deinit(alloc);
             slot.text = incoming;
         } else {
-            let mut next_index = 0;
+            let mut next_index = usize.{0};
             if (!self.store_buffer_slot(alloc, incoming, next_index..&)) {
                 incoming..&.deinit(alloc);
                 self.set_message(alloc, "out of memory");

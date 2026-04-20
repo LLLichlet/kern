@@ -33,10 +33,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn drain_pending_function_instantiations(&mut self) {
-        let mut next_pending = 0;
-        while next_pending < self.pending_function_instantiations.len() {
-            let pending = self.pending_function_instantiations[next_pending].clone();
-            next_pending += 1;
+        while self.next_pending_function_instantiation < self.pending_function_instantiations.len() {
+            let pending = self.pending_function_instantiations
+                [self.next_pending_function_instantiation]
+                .clone();
+            self.next_pending_function_instantiation += 1;
             let saved_active = std::mem::replace(
                 &mut self.active_function_instantiations,
                 pending.lineage.clone(),
@@ -51,6 +52,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
             self.active_function_instantiations = saved_active;
         }
+        self.pending_function_instantiations.clear();
+        self.next_pending_function_instantiation = 0;
     }
 
     fn lower_const_value_expr(
@@ -185,6 +188,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.cache_stats.mono_function_hits += 1;
             return id;
         }
+        let pending_outstanding = self
+            .pending_function_instantiations
+            .len()
+            .saturating_sub(self.next_pending_function_instantiation);
+        if pending_outstanding >= MAX_PENDING_FUNCTION_SPECIALIZATIONS {
+            self.drain_pending_function_instantiations();
+        }
         if let Some(limit) = self.recursive_specialization_limit() {
             self.cache_stats.mono_function_misses += 1;
             let id = self.new_mono_id();
@@ -225,7 +235,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return Some(SpecializationLimit::ActiveDepth);
         }
 
-        if self.pending_function_instantiations.len() >= MAX_PENDING_FUNCTION_SPECIALIZATIONS {
+        let pending_outstanding = self
+            .pending_function_instantiations
+            .len()
+            .saturating_sub(self.next_pending_function_instantiation);
+        if pending_outstanding >= MAX_PENDING_FUNCTION_SPECIALIZATIONS {
             return Some(SpecializationLimit::PendingQueue);
         }
 

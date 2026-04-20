@@ -72,8 +72,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } else if let ExprKind::Let {
             pattern,
             init,
-            else_pattern,
-            else_branch,
+            else_clause,
         } = &expr.kind
         {
             let mut stmts = self.measure_phase("      lower_stmt_let", |this| {
@@ -81,8 +80,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     expr,
                     pattern,
                     init,
-                    else_pattern.as_ref(),
-                    else_branch.as_deref(),
+                    else_clause.as_ref(),
                     subst_map,
                 )
             });

@@ -169,11 +169,10 @@ impl<'a> FlowCfgBuilder<'a> {
             ast::ExprKind::Let {
                 pattern,
                 init,
-                else_pattern,
-                else_branch,
+                else_clause,
             } => {
                 let init_out = self.lower_expr(init, incoming, loop_ctx);
-                if let Some(else_expr) = else_branch {
+                if let Some(else_clause) = else_clause {
                     let branch =
                         self.add_node(AnalysisFlowCfgNodeKind::Branch, expr.span, Some(expr.id));
                     self.node_effects[branch.index()] = classify_expr_effects(branch, expr);
@@ -191,30 +190,25 @@ impl<'a> FlowCfgBuilder<'a> {
                         self.local_binding_uses_in_expr(init),
                     );
                     let success_out = self.fallthrough(let_node);
-                    let else_out = if let Some(else_pattern) = else_pattern {
-                        let else_node = self.add_node(
-                            AnalysisFlowCfgNodeKind::Eval,
-                            else_pattern.span,
-                            Some(expr.id),
-                        );
-                        self.add_edge(branch, else_node, AnalysisFlowCfgEdgeKind::FalseBranch);
-                        self.record_defs(
-                            else_node,
-                            self.collect_pattern_binding_ids(else_pattern),
-                            AnalysisFlowDefinitionKind::Initializer,
-                            None,
-                            Vec::new(),
-                        );
-                        self.lower_expr(else_expr, self.fallthrough(else_node), loop_ctx)
-                    } else {
-                        self.lower_expr(
+                    let else_out = match else_clause {
+                        ast::LetElseClause::Expr(else_expr) => self.lower_expr(
                             else_expr,
                             vec![PendingEdge {
                                 from: branch,
                                 kind: AnalysisFlowCfgEdgeKind::FalseBranch,
                             }],
                             loop_ctx,
-                        )
+                        ),
+                        ast::LetElseClause::Arms(arms) => self.lower_let_else_arm_chain(
+                            expr.id,
+                            arms,
+                            vec![PendingEdge {
+                                from: branch,
+                                kind: AnalysisFlowCfgEdgeKind::FalseBranch,
+                            }],
+                            loop_ctx,
+                            0,
+                        ),
                     };
                     let mut merged = success_out;
                     merged.extend(else_out);
@@ -602,6 +596,48 @@ impl<'a> FlowCfgBuilder<'a> {
             _ => None,
         }
     }
+
+    fn lower_let_else_arm_chain(
+        &mut self,
+        owner_id: kernc_utils::NodeId,
+        arms: &[ast::LetElseArm],
+        incoming: Vec<PendingEdge>,
+        loop_ctx: Option<LoopContext>,
+        arm_index: usize,
+    ) -> Vec<PendingEdge> {
+        if arm_index >= arms.len() {
+            return Vec::new();
+        }
+
+        let arm = &arms[arm_index];
+        let branch = self.add_node(AnalysisFlowCfgNodeKind::Branch, arm.span, Some(owner_id));
+        self.node_effects[branch.index()] =
+            classify_expr_effects(branch, &arm.body);
+        self.connect_to_node(incoming, branch);
+
+        let arm_node = self.add_node(AnalysisFlowCfgNodeKind::Eval, arm.pattern.span, Some(owner_id));
+        self.add_edge(branch, arm_node, AnalysisFlowCfgEdgeKind::TrueBranch);
+        self.record_defs(
+            arm_node,
+            self.collect_pattern_binding_ids(&arm.pattern),
+            AnalysisFlowDefinitionKind::Initializer,
+            None,
+            Vec::new(),
+        );
+
+        let mut out = self.lower_expr(&arm.body, self.fallthrough(arm_node), loop_ctx);
+        out.extend(self.lower_let_else_arm_chain(
+            owner_id,
+            arms,
+            vec![PendingEdge {
+                from: branch,
+                kind: AnalysisFlowCfgEdgeKind::FalseBranch,
+            }],
+            loop_ctx,
+            arm_index + 1,
+        ));
+        out
+    }
 }
 
 fn collect_pattern_binding_spans(pattern: &ast::Pattern, spans: &mut HashSet<Span>) {
@@ -631,11 +667,24 @@ fn collect_local_binding_uses_in_expr(
 
     match &expr.kind {
         ast::ExprKind::Let {
-            init, else_branch, ..
+            init, else_clause, ..
         } => {
             collect_local_binding_uses_in_expr(init, reference_to_binding, uses);
-            if let Some(else_branch) = else_branch {
-                collect_local_binding_uses_in_expr(else_branch, reference_to_binding, uses);
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => {
+                        collect_local_binding_uses_in_expr(else_expr, reference_to_binding, uses);
+                    }
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            collect_local_binding_uses_in_expr(
+                                &arm.body,
+                                reference_to_binding,
+                                uses,
+                            );
+                        }
+                    }
+                }
             }
         }
         ast::ExprKind::Static { init, .. } => {
@@ -884,12 +933,21 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
             }
         }
         ast::ExprKind::Let {
-            init, else_branch, ..
+            init, else_clause, ..
         } => {
             effects.has_control_flow = true;
             accumulate_expr_effects(init, effects);
-            if let Some(else_branch) = else_branch {
-                accumulate_expr_effects(else_branch, effects);
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => {
+                        accumulate_expr_effects(else_expr, effects);
+                    }
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            accumulate_expr_effects(&arm.body, effects);
+                        }
+                    }
+                }
             }
         }
         ast::ExprKind::Static { init, .. } => {

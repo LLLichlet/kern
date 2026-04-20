@@ -161,25 +161,40 @@ impl CompletionModel {
             ast::ExprKind::Let {
                 pattern: _,
                 init,
-                else_pattern: _,
-                else_branch,
+                else_clause,
             } => {
                 if self.collect_in_expr(init, visible, offset) {
                     return true;
                 }
-                if let Some(else_branch) = else_branch
-                    && span_contains_offset(query_span_for_expr(else_branch), offset)
-                {
-                    let mut branch_visible = visible.clone();
-                    if let Some(facts) = self
-                        .let_else_facts_by_span
-                        .get(&query_span_for_expr(else_branch))
-                    {
-                        extend_completion_items(&mut branch_visible, &facts.binding_items);
+                if let Some(else_clause) = else_clause {
+                    match else_clause {
+                        ast::LetElseClause::Expr(else_expr) => {
+                            if span_contains_offset(query_span_for_expr(else_expr), offset) {
+                                let mut branch_visible = visible.clone();
+                                self.collect_in_expr(else_expr, &mut branch_visible, offset);
+                                *visible = branch_visible;
+                                return true;
+                            }
+                        }
+                        ast::LetElseClause::Arms(arms) => {
+                            for arm in arms {
+                                if span_contains_offset(query_span_for_expr(&arm.body), offset) {
+                                    let mut branch_visible = visible.clone();
+                                    if let Some(facts) =
+                                        self.let_else_facts_by_span.get(&query_span_for_expr(&arm.body))
+                                    {
+                                        extend_completion_items(
+                                            &mut branch_visible,
+                                            &facts.binding_items,
+                                        );
+                                    }
+                                    self.collect_in_expr(&arm.body, &mut branch_visible, offset);
+                                    *visible = branch_visible;
+                                    return true;
+                                }
+                            }
+                        }
                     }
-                    self.collect_in_expr(else_branch, &mut branch_visible, offset);
-                    *visible = branch_visible;
-                    return true;
                 }
                 true
             }

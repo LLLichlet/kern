@@ -449,7 +449,7 @@ impl *mut Editor {
             self.clear_pending_count();
             return;
         }
-        for (let mut i = 0; i < count; i += 1) {
+        for (let mut i = usize.{0}; i < count; i += 1) {
             let direction = if (reverse) {
                 match (self.last_find.direction) {
                     .Forward => FindDirection.Backward,
@@ -466,7 +466,7 @@ impl *mut Editor {
 
     fn line_is_blank(row: usize) bool {
         let line = self.active_buffer().line(row);
-        for (let mut i = 0; i < #line; i += 1) {
+        for (let mut i = usize.{0}; i < #line; i += 1) {
             if (!self.is_space_byte(line.[i])) {
                 return false;
             }
@@ -547,7 +547,7 @@ impl *mut Editor {
         if (forward) {
             for (let mut row = cursor.row; row < self.active_buffer().line_count(); row += 1) {
                 let text = self.active_buffer().line(row);
-                let start = if (row == cursor.row) cursor.col else 0;
+                let start = if (row == cursor.row) cursor.col else usize.{0};
                 for (let mut col = start; col < #text; col += 1) {
                     let byte = text.[col];
                     if (byte == current) {

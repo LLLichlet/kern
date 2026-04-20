@@ -661,16 +661,21 @@ impl CachedAstRebinder<'_> {
             ast::ExprKind::Let {
                 pattern,
                 init,
-                else_pattern,
-                else_branch,
+                else_clause,
             } => {
                 self.rebind_let_pattern(pattern);
                 self.rebind_expr(init);
-                if let Some(pattern) = else_pattern {
-                    self.rebind_pattern(pattern);
-                }
-                if let Some(branch) = else_branch {
-                    self.rebind_expr(branch);
+                if let Some(else_clause) = else_clause {
+                    match else_clause {
+                        ast::LetElseClause::Expr(branch) => self.rebind_expr(branch),
+                        ast::LetElseClause::Arms(arms) => {
+                            for arm in arms {
+                                self.rebind_pattern(&mut arm.pattern);
+                                self.rebind_expr(&mut arm.body);
+                                self.rebind_span(&mut arm.span);
+                            }
+                        }
+                    }
                 }
             }
             ast::ExprKind::Static { pattern, init } => {
@@ -1356,11 +1361,20 @@ mod tests {
             ast::ExprKind::Identifier(symbol) => visit(*symbol),
             ast::ExprKind::AnchoredPath { name, .. } => visit(*name),
             ast::ExprKind::Let {
-                init, else_branch, ..
+                init, else_clause, ..
             } => {
                 collect_identifier_symbols(init, visit);
-                if let Some(else_branch) = else_branch {
-                    collect_identifier_symbols(else_branch, visit);
+                if let Some(else_clause) = else_clause {
+                    match else_clause {
+                        ast::LetElseClause::Expr(else_expr) => {
+                            collect_identifier_symbols(else_expr, visit);
+                        }
+                        ast::LetElseClause::Arms(arms) => {
+                            for arm in arms {
+                                collect_identifier_symbols(&arm.body, visit);
+                            }
+                        }
+                    }
                 }
             }
             ast::ExprKind::Static { init, .. } => collect_identifier_symbols(init, visit),

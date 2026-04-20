@@ -38,7 +38,7 @@ impl *mut Editor {
     }
 
     fn first_live_window() ?usize {
-        for (let mut i = 0; i < self.windows.len; i += 1) {
+        for (let mut i = usize.{0}; i < self.windows.len; i += 1) {
             if (self.window(i).alive) {
                 return .{ Some: i };
             }
@@ -76,8 +76,8 @@ impl *mut Editor {
     }
 
     fn nth_live_window(ordinal: usize) ?usize {
-        let mut seen = 0;
-        for (let mut i = 0; i < self.windows.len; i += 1) {
+        let mut seen = usize.{0};
+        for (let mut i = usize.{0}; i < self.windows.len; i += 1) {
             if (!self.window(i).alive) {
                 continue;
             }
@@ -90,8 +90,8 @@ impl *mut Editor {
     }
 
     fn window_ordinal(index: usize) usize {
-        let mut ordinal = 0;
-        for (let mut i = 0; i < self.windows.len; i += 1) {
+        let mut ordinal = usize.{0};
+        for (let mut i = usize.{0}; i < self.windows.len; i += 1) {
             if (!self.window(i).alive) {
                 continue;
             }
@@ -100,7 +100,7 @@ impl *mut Editor {
             }
             ordinal += 1;
         }
-        return 0;
+        return usize.{0};
     }
 
     fn buffer_slot(index: usize) BufferSlot {
@@ -161,7 +161,7 @@ impl *mut Editor {
         // Reuse an empty shared-buffer slot first so window-local `:e` does not
         // leave permanently abandoned holes behind after split churn.
         let slots = self.buffers..&.as_mut_slice();
-        for (let mut i = 0; i < #slots; i += 1) {
+        for (let mut i = usize.{0}; i < #slots; i += 1) {
             if (slots.[i].ref_count == 0) {
                 slots.[i] = .{ text: text, ref_count: 1 };
                 index_out.* = i;
@@ -284,8 +284,8 @@ impl *mut Editor {
             self.previous_window = 0;
             return;
         };
-        let mut count = 0;
-        for (let mut i = 0; i < self.windows.len; i += 1) {
+        let mut count = usize.{0};
+        for (let mut i = usize.{0}; i < self.windows.len; i += 1) {
             if (self.window(i).alive) {
                 count += 1;
             }

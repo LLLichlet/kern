@@ -119,9 +119,11 @@ pub/ fn create_new(alloc: *mut Allocator, path: []u8) File!Error {
 /// Renames or moves a filesystem entry.
 pub/ fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) bool!Error {
     let old_c_path = alloc_c_path(alloc, old_path).!;
-    let .{ Ok: new_c_path } = alloc_c_path(alloc, new_path) else .{ Err: err } => {
-        free_c_path(alloc, old_path, old_c_path);
-        return .{ Err: err };
+    let .{ Ok: new_c_path } = alloc_c_path(alloc, new_path) else {
+        .{ Err: err } => {
+            free_c_path(alloc, old_path, old_c_path);
+            return .{ Err: err };
+        },
     };
 
     let result = rename_with_c_paths(old_c_path, new_c_path);
@@ -312,9 +314,11 @@ impl *mut File {
         let mut chunk = [1024]u8.{undef};
 
         for (;;) {
-            let .{ Ok: read } = self.read(chunk..[0 .. 1024]) else .{ Err: err } => {
-                out..&.deinit(alloc);
-                return .{ Err: err };
+            let .{ Ok: read } = self.read(chunk..[0 .. 1024]) else {
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: err };
+                },
             };
 
             if (read == 0) {

@@ -72,19 +72,32 @@ fn collect_expr_closure_completion_facts(
             }
         }
         ast::ExprKind::Let {
-            init, else_branch, ..
+            init, else_clause, ..
         } => {
             collect_expr_closure_completion_facts(
                 init,
                 closure_binding_items_by_body_span,
                 closure_facts_by_span,
             );
-            if let Some(else_branch) = else_branch {
-                collect_expr_closure_completion_facts(
-                    else_branch,
-                    closure_binding_items_by_body_span,
-                    closure_facts_by_span,
-                );
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => {
+                        collect_expr_closure_completion_facts(
+                            else_expr,
+                            closure_binding_items_by_body_span,
+                            closure_facts_by_span,
+                        );
+                    }
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            collect_expr_closure_completion_facts(
+                                &arm.body,
+                                closure_binding_items_by_body_span,
+                                closure_facts_by_span,
+                            );
+                        }
+                    }
+                }
             }
         }
         ast::ExprKind::Static { init, .. }

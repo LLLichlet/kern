@@ -120,11 +120,18 @@ impl<'a> Pruner<'a> {
             }
             ExprKind::Closure { body, .. } => self.prune_expr(body),
             ExprKind::Let {
-                init, else_branch, ..
+                init, else_clause, ..
             } => {
                 self.prune_expr(init);
-                if let Some(else_branch) = else_branch {
-                    self.prune_expr(else_branch);
+                if let Some(else_clause) = else_clause {
+                    match else_clause {
+                        LetElseClause::Expr(else_expr) => self.prune_expr(else_expr),
+                        LetElseClause::Arms(arms) => {
+                            for arm in arms {
+                                self.prune_expr(&mut arm.body);
+                            }
+                        }
+                    }
                 }
             }
             ExprKind::Static { init, .. } => self.prune_expr(init),

@@ -117,7 +117,9 @@ fn decode_string_tail_into_unchecked(
         }
 
         let .{ Ok: escape } = decode_string_escape(raw, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         written = write_utf8_scalar_unchecked(out, written, escape.scalar);
         index = escape.next;
     }
@@ -147,9 +149,13 @@ fn decode_string_tail_into_checked(
         }
 
         let .{ Ok: escape } = decode_string_escape(raw, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         let .{ Ok: next_written } = write_utf8_scalar_checked(out, written, escape.scalar)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         written = next_written;
         index = escape.next;
     }
@@ -191,7 +197,9 @@ fn validate_string_raw(raw: []u8) usize!StringDecodeError {
     }
 
     let .{ Ok: end } = parse_string_end(raw, 0)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     if (end != #raw) {
         return .{ Err: .{ Parse: .{ TrailingData: end } } };
     }
@@ -215,14 +223,18 @@ fn decode_string_escape(raw: []u8, slash_index: usize) DecodedEscape!StringDecod
         b't' => .{ Ok: DecodedEscape.{ next: esc_index + 1, scalar: b'\t' as u32 } },
         b'u' => {
             let .{ Ok: first } = decode_hex_quad(raw, esc_index + 1, slash_index)
-                else .{ Err: err } => return .{ Err: err };
+                else {
+                    .{ Err: err } => return .{ Err: err },
+                };
 
             if (is_high_surrogate(first)) {
                 if (esc_index + 6 >= #raw or raw.[esc_index + 5] != b'\\' or raw.[esc_index + 6] != b'u') {
                     return .{ Err: .{ InvalidUnicodeEscape: slash_index } };
                 }
                 let .{ Ok: second } = decode_hex_quad(raw, esc_index + 7, esc_index + 5)
-                    else .{ Err: err } => return .{ Err: err };
+                    else {
+                        .{ Err: err } => return .{ Err: err },
+                    };
                 if (!is_low_surrogate(second)) {
                     return .{ Err: .{ InvalidUnicodeEscape: slash_index } };
                 }
@@ -244,7 +256,9 @@ fn decode_string_escape(raw: []u8, slash_index: usize) DecodedEscape!StringDecod
 
 pub/ fn decoded_string_size_raw(raw: []u8) usize!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return decoded_parsed_string_size_raw_with_end(raw, end);
 }
 
@@ -263,7 +277,9 @@ fn decoded_parsed_string_size_raw_with_end(
         }
 
         let .{ Ok: escape } = decode_string_escape(raw, index)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         written += utf8_scalar_width(escape.scalar);
         index = escape.next;
     }
@@ -273,13 +289,17 @@ fn decoded_parsed_string_size_raw_with_end(
 
 pub/ fn decoded_parsed_string_size_raw(raw: []u8) usize!StringDecodeError {
     let .{ Ok: end } = raw_string_content_end(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return decoded_parsed_string_size_raw_with_end(raw, end);
 }
 
 pub/ fn write_decoded_string_raw(raw: []u8, out: []mut u8) usize!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
 
     let .{ Some: escape_index } = first_raw_escape_index(raw, end)
         else {
@@ -305,7 +325,9 @@ pub/ fn write_decoded_parsed_string_raw(
     out: []mut u8,
 ) usize!StringDecodeError {
     let .{ Ok: end } = raw_string_content_end(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
 
     let upper_bound = end - 1;
     if (upper_bound > #out) {
@@ -327,7 +349,9 @@ pub/ fn clone_decoded_string_raw(
     raw: []u8,
 ) String!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return clone_decoded_string_single_pass_with_end(alloc, raw, end);
 }
 
@@ -336,7 +360,9 @@ pub/ fn clone_decoded_string_raw_in_arena(
     raw: []u8,
 ) String!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return clone_decoded_string_single_pass_with_end_in_arena(arena, raw, end);
 }
 
@@ -366,9 +392,11 @@ fn clone_decoded_string_single_pass_with_end(
     }
 
     let .{ Ok: written } = decode_string_tail_into_unchecked(raw, escape_index, buf, prefix_len)
-        else .{ Err: err } => {
-            out..&.deinit(alloc);
-            return .{ Err: err };
+        else {
+            .{ Err: err } => {
+                out..&.deinit(alloc);
+                return .{ Err: err };
+            },
         };
     if (written > upper_bound) {
         out..&.deinit(alloc);
@@ -407,9 +435,11 @@ fn clone_decoded_string_single_pass_with_end_in_arena(
     }
 
     let .{ Ok: written } = decode_string_tail_into_unchecked(raw, escape_index, buf, prefix_len)
-        else .{ Err: err } => {
-            out..&.deinit(alloc);
-            return .{ Err: err };
+        else {
+            .{ Err: err } => {
+                out..&.deinit(alloc);
+                return .{ Err: err };
+            },
         };
     if (written > upper_bound) {
         out..&.deinit(alloc);
@@ -426,7 +456,9 @@ pub/ fn clone_decoded_parsed_string_raw(
     raw: []u8,
 ) String!StringDecodeError {
     let .{ Ok: end } = raw_string_content_end(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return clone_decoded_string_single_pass_with_end(alloc, raw, end);
 }
 
@@ -435,6 +467,8 @@ pub/ fn clone_decoded_parsed_string_raw_in_arena(
     raw: []u8,
 ) String!StringDecodeError {
     let .{ Ok: end } = raw_string_content_end(raw)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return clone_decoded_string_single_pass_with_end_in_arena(arena, raw, end);
 }

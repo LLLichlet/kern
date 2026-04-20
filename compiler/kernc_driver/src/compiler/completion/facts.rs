@@ -123,8 +123,7 @@ fn collect_expr_binding_completion_facts(
         ast::ExprKind::Let {
             pattern,
             init,
-            else_pattern,
-            else_branch,
+            else_clause,
         } => {
             let mut bindings = Vec::new();
             collect_pattern_binding_items(&pattern.pattern, items_by_span, &mut bindings);
@@ -137,25 +136,43 @@ fn collect_expr_binding_completion_facts(
                 closure_binding_items_by_body_span,
                 let_else_facts_by_span,
             );
-            if let Some(else_branch) = else_branch {
-                if let Some(else_pattern) = else_pattern {
-                    let mut bindings = Vec::new();
-                    collect_pattern_binding_items(else_pattern, items_by_span, &mut bindings);
-                    let_else_facts_by_span.insert(
-                        query_span_for_expr(else_branch),
-                        CompletionLetElseFacts {
-                            binding_items: bindings,
-                        },
-                    );
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => {
+                        collect_expr_binding_completion_facts(
+                            else_expr,
+                            items_by_span,
+                            expr_binding_items_by_span,
+                            match_arm_binding_items_by_span,
+                            closure_binding_items_by_body_span,
+                            let_else_facts_by_span,
+                        );
+                    }
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            let mut bindings = Vec::new();
+                            collect_pattern_binding_items(
+                                &arm.pattern,
+                                items_by_span,
+                                &mut bindings,
+                            );
+                            let_else_facts_by_span.insert(
+                                query_span_for_expr(&arm.body),
+                                CompletionLetElseFacts {
+                                    binding_items: bindings,
+                                },
+                            );
+                            collect_expr_binding_completion_facts(
+                                &arm.body,
+                                items_by_span,
+                                expr_binding_items_by_span,
+                                match_arm_binding_items_by_span,
+                                closure_binding_items_by_body_span,
+                                let_else_facts_by_span,
+                            );
+                        }
+                    }
                 }
-                collect_expr_binding_completion_facts(
-                    else_branch,
-                    items_by_span,
-                    expr_binding_items_by_span,
-                    match_arm_binding_items_by_span,
-                    closure_binding_items_by_body_span,
-                    let_else_facts_by_span,
-                );
             }
         }
         ast::ExprKind::Static { pattern, init, .. } => {

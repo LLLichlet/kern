@@ -366,7 +366,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn parses_let_else_pattern_unpack_clause() {
+    fn parses_let_else_arm_block() {
         let source = r#"
 type Result[T, E] = enum {
     Ok: T,
@@ -374,7 +374,9 @@ type Result[T, E] = enum {
 };
 
 fn unwrap_or(err: Result[i32, i32]) i32 {
-    let .{ Ok: value } = err else .{ Err: code } => return code;
+    let .{ Ok: value } = err else {
+        .{ Err: code } => return code,
+    };
     return value;
 }
 "#;
@@ -396,27 +398,20 @@ fn unwrap_or(err: Result[i32, i32]) i32 {
         let ast::StmtKind::ExprStmt(expr) = &stmts[0].kind else {
             panic!("expected let statement");
         };
-        let ast::ExprKind::Let {
-            else_pattern,
-            else_branch,
-            ..
-        } = &expr.kind
-        else {
+        let ast::ExprKind::Let { else_clause, .. } = &expr.kind else {
             panic!("expected let expression");
         };
 
-        let Some(else_pattern) = else_pattern.as_ref() else {
-            panic!("expected explicit else pattern");
+        let Some(ast::LetElseClause::Arms(arms)) = else_clause.as_ref() else {
+            panic!("expected let-else arm block");
         };
-        let ast::PatternKind::Destructure(destructure) = &else_pattern.kind else {
+        assert_eq!(arms.len(), 1);
+        let ast::PatternKind::Destructure(destructure) = &arms[0].pattern.kind else {
             panic!("expected destructure else pattern");
         };
         assert_eq!(destructure.fields.len(), 1);
 
-        let Some(else_branch) = else_branch.as_ref() else {
-            panic!("expected else branch");
-        };
-        let ast::ExprKind::Return(Some(returned)) = &else_branch.kind else {
+        let ast::ExprKind::Return(Some(returned)) = &arms[0].body.kind else {
             panic!("expected return else branch");
         };
         let ast::ExprKind::Identifier(_) = returned.kind else {
@@ -425,7 +420,7 @@ fn unwrap_or(err: Result[i32, i32]) i32 {
     }
 
     #[test]
-    fn parses_nested_let_else_inside_explicit_else_pattern_block() {
+    fn parses_nested_let_else_inside_arm_block() {
         let source = r#"
 type Result[T, E] = enum {
     Ok: T,
@@ -433,9 +428,13 @@ type Result[T, E] = enum {
 };
 
 fn pick(value: Result[Result[i32, i32], i32]) i32 {
-    let .{ Ok: inner } = value else .{ Err: outer_err } => {
-        let .{ Ok: fallback } = Result[i32, i32].{ Ok: 9 } else .{ Err: inner_err } => return inner_err;
-        return fallback;
+    let .{ Ok: inner } = value else {
+        .{ Err: outer_err } => {
+            let .{ Ok: fallback } = Result[i32, i32].{ Ok: 9 } else {
+                .{ Err: inner_err } => return inner_err,
+            };
+            return fallback;
+        },
     };
     return 0;
 }
@@ -458,49 +457,33 @@ fn pick(value: Result[Result[i32, i32], i32]) i32 {
         let ast::StmtKind::ExprStmt(expr) = &stmts[0].kind else {
             panic!("expected outer let statement");
         };
-        let ast::ExprKind::Let {
-            else_pattern,
-            else_branch,
-            ..
-        } = &expr.kind
-        else {
+        let ast::ExprKind::Let { else_clause, .. } = &expr.kind else {
             panic!("expected outer let expression");
         };
 
-        assert!(
-            else_pattern.is_some(),
-            "expected explicit outer else pattern"
-        );
-        let Some(else_branch) = else_branch.as_ref() else {
-            panic!("expected outer else branch");
+        let Some(ast::LetElseClause::Arms(outer_arms)) = else_clause.as_ref() else {
+            panic!("expected outer let-else arm block");
         };
+        assert_eq!(outer_arms.len(), 1);
         let ast::ExprKind::Block {
             stmts,
             result: None,
-        } = &else_branch.kind
+        } = &outer_arms[0].body.kind
         else {
             panic!("expected block else branch");
         };
         let ast::StmtKind::ExprStmt(nested) = &stmts[0].kind else {
             panic!("expected nested let statement");
         };
-        let ast::ExprKind::Let {
-            else_pattern,
-            else_branch,
-            ..
-        } = &nested.kind
-        else {
+        let ast::ExprKind::Let { else_clause, .. } = &nested.kind else {
             panic!("expected nested let expression");
         };
 
-        assert!(
-            else_pattern.is_some(),
-            "expected explicit nested else pattern"
-        );
-        let Some(else_branch) = else_branch.as_ref() else {
-            panic!("expected nested else branch");
+        let Some(ast::LetElseClause::Arms(nested_arms)) = else_clause.as_ref() else {
+            panic!("expected nested let-else arm block");
         };
-        let ast::ExprKind::Return(Some(_)) = &else_branch.kind else {
+        assert_eq!(nested_arms.len(), 1);
+        let ast::ExprKind::Return(Some(_)) = &nested_arms[0].body.kind else {
             panic!("expected nested return branch");
         };
     }

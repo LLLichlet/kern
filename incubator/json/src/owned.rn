@@ -208,7 +208,7 @@ impl *mut OwnedValuePool {
     #[inline]
     fn grow(alloc: *mut Allocator) bool {
         let capacity = if (self.*.next_block_capacity == 0) {
-            8
+            usize.{8}
         } else {
             self.*.next_block_capacity
         };
@@ -320,7 +320,9 @@ type OwnedParsedValue = struct {
 
 fn parse_owned_null(text: []u8, start: usize) OwnedParsedValue!MaterializeError {
     let .{ Ok: span } = parse_literal(text, start, "null", Kind.Null)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     return .{ Ok: OwnedParsedValue.{ value: OwnedValue.Null, next: span.next } };
 }
 
@@ -331,7 +333,9 @@ fn parse_owned_bool(
     value: bool,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: span } = parse_literal(text, start, literal, Kind.Bool)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     return .{ Ok: OwnedParsedValue.{ value: .{ Bool: value }, next: span.next } };
 }
 
@@ -341,9 +345,13 @@ fn parse_owned_number(
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_number_end(text, start)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     let .{ Ok: number } = clone_number_text(alloc, text.[start .. next])
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return .{ Ok: OwnedParsedValue.{ value: .{ Number: number }, next: next } };
 }
 
@@ -353,9 +361,13 @@ fn parse_owned_number_in_arena(
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_number_end(text, start)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     let .{ Ok: number } = clone_number_text_in_arena(arena, text.[start .. next])
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     return .{ Ok: OwnedParsedValue.{ value: .{ Number: number }, next: next } };
 }
 
@@ -365,9 +377,13 @@ fn parse_owned_string(
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_string_end(text, start)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     let .{ Ok: string } = clone_decoded_parsed_string_raw(alloc, text.[start .. next])
-        else .{ Err: err } => return .{ Err: .{ String: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ String: err } },
+        };
     return .{ Ok: OwnedParsedValue.{ value: .{ String: string }, next: next } };
 }
 
@@ -377,9 +393,13 @@ fn parse_owned_string_in_arena(
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_string_end(text, start)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
     let .{ Ok: string } = clone_decoded_parsed_string_raw_in_arena(arena, text.[start .. next])
-        else .{ Err: err } => return .{ Err: .{ String: err } };
+        else {
+            .{ Err: err } => return .{ Err: .{ String: err } },
+        };
     return .{ Ok: OwnedParsedValue.{ value: .{ String: string }, next: next } };
 }
 
@@ -410,9 +430,11 @@ fn parse_owned_array_from_start(
         }
 
         let .{ Ok: parsed } = parse_owned_value_from_start(alloc, text, item_start)
-            else .{ Err: err } => {
-                out..&.deinit(alloc);
-                return .{ Err: err };
+            else {
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: err };
+                },
             };
         let mut item = parsed.value;
         let .{ Some: item_ptr } = out.nodes..&.alloc_node_fresh(alloc, item) else {
@@ -473,9 +495,11 @@ fn parse_owned_array_from_start_in_arena(
         }
 
         let .{ Ok: parsed } = parse_owned_value_from_start_in_arena(arena, text, item_start)
-            else .{ Err: err } => {
-                out..&.deinit(alloc);
-                return .{ Err: err };
+            else {
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: err };
+                },
             };
         let mut item = parsed.value;
         let .{ Some: item_ptr } = out.nodes..&.alloc_node_fresh(alloc, item) else {
@@ -539,14 +563,18 @@ fn parse_owned_object_from_start(
         }
 
         let .{ Ok: key_end } = parse_string_end(text, field_start)
-            else .{ Err: err } => {
-                out..&.deinit(alloc);
-                return .{ Err: .{ Parse: err } };
+            else {
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: .{ Parse: err } };
+                },
             };
         let .{ Ok: mut key } = clone_decoded_parsed_string_raw(alloc, text.[field_start .. key_end])
-            else .{ Err: err } => {
-                out..&.deinit(alloc);
-                return .{ Err: .{ String: err } };
+            else {
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: .{ String: err } };
+                },
             };
 
         let colon = skip_ws(text, key_end);
@@ -568,10 +596,12 @@ fn parse_owned_object_from_start(
             return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
         }
         let .{ Ok: parsed } = parse_owned_value_from_start(alloc, text, value_start)
-            else .{ Err: err } => {
-                key..&.deinit(alloc);
-                out..&.deinit(alloc);
-                return .{ Err: err };
+            else {
+                .{ Err: err } => {
+                    key..&.deinit(alloc);
+                    out..&.deinit(alloc);
+                    return .{ Err: err };
+                },
             };
 
         let mut child = parsed.value;
@@ -639,14 +669,18 @@ fn parse_owned_object_from_start_in_arena(
         }
 
         let .{ Ok: key_end } = parse_string_end(text, field_start)
-            else .{ Err: err } => {
-                out..&.deinit(alloc);
-                return .{ Err: .{ Parse: err } };
+            else {
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: .{ Parse: err } };
+                },
             };
         let .{ Ok: mut key } = clone_decoded_parsed_string_raw_in_arena(arena, text.[field_start .. key_end])
-            else .{ Err: err } => {
-                out..&.deinit(alloc);
-                return .{ Err: .{ String: err } };
+            else {
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: .{ String: err } };
+                },
             };
 
         let colon = skip_ws(text, key_end);
@@ -668,10 +702,12 @@ fn parse_owned_object_from_start_in_arena(
             return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
         }
         let .{ Ok: parsed } = parse_owned_value_from_start_in_arena(arena, text, value_start)
-            else .{ Err: err } => {
-                key..&.deinit(alloc);
-                out..&.deinit(alloc);
-                return .{ Err: err };
+            else {
+                .{ Err: err } => {
+                    key..&.deinit(alloc);
+                    out..&.deinit(alloc);
+                    return .{ Err: err };
+                },
             };
 
         let mut child = parsed.value;
@@ -760,7 +796,9 @@ fn parse_owned_value_from_start_in_arena(
 fn clone_owned_array(alloc: *mut Allocator, value: Value) OwnedArray!MaterializeError {
     let start = skip_ws(value.raw, 0);
     let .{ Ok: parsed } = parse_owned_array_from_start(alloc, value.raw, start)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     let end = skip_ws(value.raw, parsed.next);
     if (end != #value.raw) {
         match (parsed.value) {
@@ -876,7 +914,9 @@ fn require_f32_value(value: *mut OwnedValue) f32!FieldDecodeError {
 fn clone_owned_object(alloc: *mut Allocator, value: Value) OwnedObject!MaterializeError {
     let start = skip_ws(value.raw, 0);
     let .{ Ok: parsed } = parse_owned_object_from_start(alloc, value.raw, start)
-        else .{ Err: err } => return .{ Err: err };
+        else {
+            .{ Err: err } => return .{ Err: err },
+        };
     let end = skip_ws(value.raw, parsed.next);
     if (end != #value.raw) {
         match (parsed.value) {
@@ -951,7 +991,7 @@ impl *mut OwnedObjectEntry {
 
 impl *mut OwnedArray {
     pub fn deinit(alloc: *mut Allocator) void {
-        for (let mut i = 0; i < self.*.items.len; i += 1) {
+        for (let mut i = usize.{0}; i < self.*.items.len; i += 1) {
             let .{ Some: value } = self.*.items.&.get(i) else continue;
             if ((value as usize) == 0) {
                 continue;
@@ -998,7 +1038,9 @@ impl *mut OwnedArray {
 
     pub fn push_string(alloc: *mut Allocator, text: []u8) (*mut OwnedValue)!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return self.push(alloc, .{ String: text });
     }
 
@@ -1007,7 +1049,9 @@ impl *mut OwnedArray {
         text: []u8,
     ) (*mut OwnedValue)!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return self.push(alloc, .{ Number: text });
     }
 
@@ -1033,7 +1077,7 @@ impl *mut OwnedArray {
 
 impl *mut OwnedObject {
     pub fn deinit(alloc: *mut Allocator) void {
-        for (let mut i = 0; i < self.*.entries.len; i += 1) {
+        for (let mut i = usize.{0}; i < self.*.entries.len; i += 1) {
             let .{ Some: mut entry } = self.*.entries.&.get(i) else continue;
             entry..&.deinit(alloc);
         }
@@ -1056,7 +1100,7 @@ impl *OwnedObject {
     }
 
     pub fn get_field(name: []u8) ?OwnedObjectEntry {
-        for (let mut i = 0; i < self.entries.len; i += 1) {
+        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (entry.key_eq(name)) {
                 return .{ Some: entry };
@@ -1072,7 +1116,7 @@ impl *OwnedObject {
 
     pub fn get_last_field(name: []u8) ?OwnedObjectEntry {
         let mut found = ?OwnedObjectEntry.None;
-        for (let mut i = 0; i < self.entries.len; i += 1) {
+        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (entry.key_eq(name)) {
                 found = .{ Some: entry };
@@ -1082,8 +1126,8 @@ impl *OwnedObject {
     }
 
     pub fn count_fields(name: []u8) usize {
-        let mut total = 0;
-        for (let mut i = 0; i < self.entries.len; i += 1) {
+        let mut total = usize.{0};
+        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (entry.key_eq(name)) {
                 total += 1;
@@ -1093,8 +1137,8 @@ impl *OwnedObject {
     }
 
     pub fn collect_fields(name: []u8, out: []mut OwnedObjectEntry) usize {
-        let mut total = 0;
-        for (let mut i = 0; i < self.entries.len; i += 1) {
+        let mut total = usize.{0};
+        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (!entry.key_eq(name)) {
                 continue;
@@ -1109,8 +1153,8 @@ impl *OwnedObject {
 
     pub fn require_value(name: []u8) (*mut OwnedValue)!FieldDecodeError {
         let mut found = (?*mut OwnedValue).None;
-        let mut total = 0;
-        for (let mut i = 0; i < self.entries.len; i += 1) {
+        let mut total = usize.{0};
+        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
             let .{ Some: entry } = self.entries.&.get(i) else continue;
             if (!entry.key_eq(name)) {
                 continue;
@@ -1132,103 +1176,137 @@ impl *OwnedObject {
 
     pub fn require_bool(name: []u8) bool!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_bool_value(value);
     }
 
     pub fn require_number_text(name: []u8) ([]u8)!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_number_text_value(value);
     }
 
     pub fn require_string(name: []u8) ([]u8)!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_string_text_value(value);
     }
 
     pub fn require_array(name: []u8) (*mut OwnedValue)!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_array_value(value);
     }
 
     pub fn require_object(name: []u8) (*mut OwnedValue)!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_object_value(value);
     }
 
     pub fn require_u64(name: []u8) u64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_u64_value(value);
     }
 
     pub fn require_u32(name: []u8) u32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_u32_value(value);
     }
 
     pub fn require_u16(name: []u8) u16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_u16_value(value);
     }
 
     pub fn require_u8(name: []u8) u8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_u8_value(value);
     }
 
     pub fn require_i64(name: []u8) i64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_i64_value(value);
     }
 
     pub fn require_i32(name: []u8) i32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_i32_value(value);
     }
 
     pub fn require_i16(name: []u8) i16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_i16_value(value);
     }
 
     pub fn require_i8(name: []u8) i8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_i8_value(value);
     }
 
     pub fn require_usize(name: []u8) usize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_usize_value(value);
     }
 
     pub fn require_isize(name: []u8) isize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_isize_value(value);
     }
 
     pub fn require_f64(name: []u8) f64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_f64_value(value);
     }
 
     pub fn require_f32(name: []u8) f32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return require_f32_value(value);
     }
 
@@ -1339,7 +1417,9 @@ impl *mut OwnedObject {
         value: OwnedValue,
     ) (*mut OwnedValue)!OwnedBuildError {
         let .{ Ok: mut owned_key } = clone_owned_text(alloc, key)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         let mut owned_value = value;
         let .{ Some: value_ptr } = self.*.nodes..&.alloc_node(alloc, owned_value)
             else {
@@ -1362,7 +1442,9 @@ impl *mut OwnedObject {
         text: []u8,
     ) (*mut OwnedValue)!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return self.append(alloc, key, .{ String: text });
     }
 
@@ -1372,7 +1454,9 @@ impl *mut OwnedObject {
         text: []u8,
     ) (*mut OwnedValue)!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return self.append(alloc, key, .{ Number: text });
     }
 
@@ -1430,7 +1514,9 @@ impl *mut OwnedValue {
         text: []u8,
     ) OwnedValue!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Number: text } };
     }
 
@@ -1439,7 +1525,9 @@ impl *mut OwnedValue {
         text: []u8,
     ) OwnedValue!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ String: text } };
     }
 
@@ -1466,7 +1554,9 @@ impl *mut OwnedValue {
         return match (self.*) {
             .{ Array: mut array } => {
                 let .{ Ok: item } = array..&.push(alloc, value)
-                    else .{ Err: err } => return .{ Err: err };
+                    else {
+                        .{ Err: err } => return .{ Err: err },
+                    };
                 self.* = .{ Array: array };
                 .{ Ok: .{ Some: item } }
             },
@@ -1481,7 +1571,9 @@ impl *mut OwnedValue {
         return match (self.*) {
             .{ Array: mut array } => {
                 let .{ Ok: item } = array..&.push_string(alloc, text)
-                    else .{ Err: err } => return .{ Err: err };
+                    else {
+                        .{ Err: err } => return .{ Err: err },
+                    };
                 self.* = .{ Array: array };
                 .{ Ok: .{ Some: item } }
             },
@@ -1496,7 +1588,9 @@ impl *mut OwnedValue {
         return match (self.*) {
             .{ Array: mut array } => {
                 let .{ Ok: item } = array..&.push_number_text(alloc, text)
-                    else .{ Err: err } => return .{ Err: err };
+                    else {
+                        .{ Err: err } => return .{ Err: err },
+                    };
                 self.* = .{ Array: array };
                 .{ Ok: .{ Some: item } }
             },
@@ -1534,7 +1628,9 @@ impl *mut OwnedValue {
         return match (self.*) {
             .{ Object: mut object } => {
                 let .{ Ok: item } = object..&.append(alloc, key, value)
-                    else .{ Err: err } => return .{ Err: err };
+                    else {
+                        .{ Err: err } => return .{ Err: err },
+                    };
                 self.* = .{ Object: object };
                 .{ Ok: .{ Some: item } }
             },
@@ -1550,7 +1646,9 @@ impl *mut OwnedValue {
         return match (self.*) {
             .{ Object: mut object } => {
                 let .{ Ok: item } = object..&.append_string(alloc, key, text)
-                    else .{ Err: err } => return .{ Err: err };
+                    else {
+                        .{ Err: err } => return .{ Err: err },
+                    };
                 self.* = .{ Object: object };
                 .{ Ok: .{ Some: item } }
             },
@@ -1566,7 +1664,9 @@ impl *mut OwnedValue {
         return match (self.*) {
             .{ Object: mut object } => {
                 let .{ Ok: item } = object..&.append_number_text(alloc, key, text)
-                    else .{ Err: err } => return .{ Err: err };
+                    else {
+                        .{ Err: err } => return .{ Err: err },
+                    };
                 self.* = .{ Object: object };
                 .{ Ok: .{ Some: item } }
             },
@@ -1582,7 +1682,9 @@ impl *mut OwnedValue {
         return match (self.*) {
             .{ Object: mut object } => {
                 let .{ Ok: item } = object..&.set(alloc, key, value)
-                    else .{ Err: err } => return .{ Err: err };
+                    else {
+                        .{ Err: err } => return .{ Err: err },
+                    };
                 self.* = .{ Object: object };
                 .{ Ok: .{ Some: item } }
             },
@@ -1667,84 +1769,108 @@ impl *mut OwnedValue {
     pub fn u64_value() ?u64!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_u64_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn u32_value() ?u32!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_u32_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn u16_value() ?u16!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_u16_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn u8_value() ?u8!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_u8_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn i64_value() ?i64!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_i64_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn i32_value() ?i32!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_i32_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn i16_value() ?i16!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_i16_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn i8_value() ?i8!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_i8_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn usize_value() ?usize!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_usize_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn isize_value() ?isize!NumberDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_isize_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn f64_value() ?f64!FloatDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_f64_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 
     pub fn f32_value() ?f32!FloatDecodeError {
         let .{ Some: text } = self.number_text() else return .{ Ok: .None };
         let .{ Ok: value } = parse_f32_raw(text)
-            else .{ Err: err } => return .{ Err: err };
+            else {
+                .{ Err: err } => return .{ Err: err },
+            };
         return .{ Ok: .{ Some: value } };
     }
 

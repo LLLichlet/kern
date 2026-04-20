@@ -65,8 +65,8 @@ pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
     }
 
     let text = storage.&.as_str();
-    let mut start = 0;
-    for (let mut i = 0; i < #text; i += 1) {
+    let mut start = usize.{0};
+    for (let mut i = usize.{0}; i < #text; i += 1) {
         if (text.[i] != b'\n') {
             continue;
         }
@@ -91,8 +91,8 @@ pub fn from_text(alloc: *mut Allocator, path: []u8, text: []u8) TextBuffer!Error
         return .{ Err: .OutOfMemory };
     }
 
-    let mut start = 0;
-    for (let mut i = 0; i < #text; i += 1) {
+    let mut start = usize.{0};
+    for (let mut i = usize.{0}; i < #text; i += 1) {
         if (text.[i] != b'\n') {
             continue;
         }
@@ -114,7 +114,7 @@ impl *mut TextBuffer {
     /// Releases every owned line plus the stored path.
     pub fn deinit(alloc: *mut Allocator) void {
         let lines = self.lines..&.as_mut_slice();
-        for (let mut i = 0; i < #lines; i += 1) {
+        for (let mut i = usize.{0}; i < #lines; i += 1) {
             lines.[i]..&.deinit(alloc);
         }
         self.lines..&.deinit(alloc);
@@ -265,7 +265,7 @@ impl *mut TextBuffer {
         let mut text = String.{};
         defer text..&.deinit(alloc);
 
-        for (let mut i = 0; i < self.lines.len; i += 1) {
+        for (let mut i = usize.{0}; i < self.lines.len; i += 1) {
             if (!text..&.push_str(alloc, self.line(i))) {
                 return .{ Err: .OutOfMemory };
             }

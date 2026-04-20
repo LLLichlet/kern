@@ -8,20 +8,20 @@ use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{DiagnosticCode, DiagnosticTag, Span, SymbolId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum CoveragePattern {
+pub(super) enum CoveragePattern {
     Wildcard,
     Constructor(CoverageConstructorKind, Vec<CoveragePattern>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum CoverageConstructorKind {
+pub(super) enum CoverageConstructorKind {
     Bool(bool),
     EnumVariant(SymbolId),
     Struct(Vec<SymbolId>),
 }
 
 #[derive(Debug, Clone)]
-struct CoverageConstructor {
+pub(super) struct CoverageConstructor {
     kind: CoverageConstructorKind,
     arg_tys: Vec<TypeId>,
 }
@@ -467,7 +467,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn coverage_constructors(&mut self, target_ty: TypeId) -> Option<Vec<CoverageConstructor>> {
+    pub(super) fn coverage_constructors(
+        &mut self,
+        target_ty: TypeId,
+    ) -> Option<Vec<CoverageConstructor>> {
         if let Some(bool_ctors) = self.coverage_bool_constructors(target_ty) {
             return Some(bool_ctors);
         }
@@ -480,7 +483,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .map(|ctor| vec![ctor])
     }
 
-    fn coverage_lower_pattern(
+    pub(super) fn coverage_lower_pattern(
         &mut self,
         pattern: &ast::Pattern,
         target_ty: TypeId,
@@ -669,7 +672,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn coverage_matrix_is_exhaustive(
+    pub(super) fn coverage_matrix_is_exhaustive(
         &mut self,
         target_ty: TypeId,
         matrix: &[Vec<CoveragePattern>],
@@ -873,7 +876,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn coverage_vector_is_useful(
+    pub(super) fn coverage_vector_is_useful(
         &mut self,
         tys: &[TypeId],
         matrix: &[Vec<CoveragePattern>],

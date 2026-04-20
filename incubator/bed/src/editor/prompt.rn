@@ -155,7 +155,9 @@ impl *mut Editor {
         let entries = self.output_history..&.as_mut_slice();
         let entry = entries.[index].&;
         let .{ Ok: next } = buffer.from_text(alloc, "", entry.text.&.as_str())
-            else .{ Err: _ } => return false;
+            else {
+                .{ Err: _ } => return false,
+            };
 
         self.clear_visible_output(alloc);
         self.output = next;
@@ -207,7 +209,7 @@ impl *mut Editor {
         if (self.output_history.len == 0) {
             return;
         }
-        let next_index = if (self.output_history_index > 0) self.output_history_index - 1 else 0;
+        let next_index = if (self.output_history_index > 0) self.output_history_index - 1 else usize.{0};
         self.show_output_history(alloc, next_index, true);
     }
 
@@ -267,9 +269,11 @@ impl *mut Editor {
 
     fn save_current(alloc: *mut Allocator) bool {
         let text_buffer = self.active_buffer_mut();
-        let .{ Ok: _ } = text_buffer.write(alloc) else .{ Err: err } => {
-            self.set_buffer_error_message(alloc, err, "write failed");
-            return false;
+        let .{ Ok: _ } = text_buffer.write(alloc) else {
+            .{ Err: err } => {
+                self.set_buffer_error_message(alloc, err, "write failed");
+                return false;
+            },
         };
         self.set_message(alloc, "written");
         return true;
@@ -281,9 +285,11 @@ impl *mut Editor {
             return;
         }
 
-        let .{ Ok: next } = open_path(alloc, path) else .{ Err: err } => {
-            self.set_buffer_error_message(alloc, err, "open failed");
-            return;
+        let .{ Ok: next } = open_path(alloc, path) else {
+            .{ Err: err } => {
+                self.set_buffer_error_message(alloc, err, "open failed");
+                return;
+            },
         };
 
         self.replace_buffer(alloc, next);
@@ -355,12 +361,14 @@ impl *mut Editor {
     fn run_shell_command(alloc: *mut Allocator) void {
         let command_text = self.command_line.&.as_str();
         self.record_prompt_history(alloc, command_text);
-        let .{ Ok: mut capture } = proc.shell_capture(alloc, command_text) else .{ Err: err } => {
-            self.set_shell_error_message(alloc, err);
-            let _ = self.install_output(alloc, command_text, "shell command failed", -1);
-            self.command_line..&.clear();
-            self.finish_command();
-            return;
+        let .{ Ok: mut capture } = proc.shell_capture(alloc, command_text) else {
+            .{ Err: err } => {
+                self.set_shell_error_message(alloc, err);
+                let _ = self.install_output(alloc, command_text, "shell command failed", -1);
+                self.command_line..&.clear();
+                self.finish_command();
+                return;
+            },
         };
         defer capture.output..&.deinit(alloc);
 

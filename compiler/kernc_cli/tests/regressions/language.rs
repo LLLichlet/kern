@@ -1324,6 +1324,47 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_large_non_recursive_specialization_batches_without_queue_limit_false_positive() {
+    let mut source = String::from(
+        r#"
+fn id[N: usize](x: i32) i32 {
+    return x;
+}
+
+fn main() i32 {
+    let mut sum = 0;
+"#,
+    );
+
+    for n in 0..1100 {
+        source.push_str(&format!("    sum += id[{}](1);\n", n));
+    }
+
+    source.push_str(
+        r#"
+    return if (sum == 1100) 0 else 1;
+}
+"#,
+    );
+
+    let output = build_and_run_source(&source);
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("specialization work queue limit"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn runs_const_fn_with_const_generic_arguments_during_consteval() {
     let output = build_and_run_source(
         r#"

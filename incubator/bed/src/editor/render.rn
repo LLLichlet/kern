@@ -26,15 +26,15 @@ fn push_truncated(out: *mut String, alloc: *mut Allocator, text: []u8, remaining
 }
 
 fn push_rendered_line(out: *mut String, alloc: *mut Allocator, text: []u8, max_cols: usize) bool {
-    let mut used = 0;
-    for (let mut i = 0; i < #text and used < max_cols; i += 1) {
+    let mut used = usize.{0};
+    for (let mut i = usize.{0}; i < #text and used < max_cols; i += 1) {
         let byte = text.[i];
         if (byte == b'\t') {
-            let mut fill = 4;
+            let mut fill = usize.{4};
             if (max_cols - used < fill) {
                 fill = max_cols - used;
             }
-            for (let mut j = 0; j < fill; j += 1) {
+            for (let mut j = usize.{0}; j < fill; j += 1) {
                 if (!out.push_char(alloc, b' ')) {
                     return false;
                 }
@@ -61,7 +61,7 @@ fn render_buffer_rows(
     cols: usize,
     fill_tilde: bool,
 ) bool {
-    for (let mut screen_row = 0; screen_row < rows; screen_row += 1) {
+    for (let mut screen_row = usize.{0}; screen_row < rows; screen_row += 1) {
         let row = scroll_row + screen_row;
         if (row < text_buffer.line_count()) {
             if (!push_rendered_line(out, alloc, text_buffer.line(row), cols)) {
@@ -94,7 +94,7 @@ fn push_i32(out: *mut String, alloc: *mut Allocator, value: i32) bool {
 }
 
 fn decimal_width(value: usize) usize {
-    let mut width = 1;
+    let mut width = usize.{1};
     let mut current = value;
     for (; current >= 10; ) {
         current /= 10;
@@ -111,7 +111,7 @@ fn abs_diff_usize(lhs: usize, rhs: usize) usize {
 }
 
 fn push_spaces(out: *mut String, alloc: *mut Allocator, count: usize) bool {
-    for (let mut i = 0; i < count; i += 1) {
+    for (let mut i = usize.{0}; i < count; i += 1) {
         if (!out.push_char(alloc, b' ')) {
             return false;
         }
@@ -145,7 +145,7 @@ fn push_window_label(
 
 fn editor_gutter_width(text_buffer: *TextBuffer, show_line_numbers: bool, relative_line_numbers: bool) usize {
     if (!show_line_numbers and !relative_line_numbers) {
-        return 0;
+        return usize.{0};
     }
     return decimal_width(text_buffer.line_count()) + 1;
 }
@@ -162,13 +162,13 @@ fn render_editor_row_segment(
     relative_line_numbers: bool,
 ) bool {
     let gutter = editor_gutter_width(text_buffer, show_line_numbers, relative_line_numbers);
-    let text_cols = if (cols > gutter) cols - gutter else 0;
+    let text_cols = if (cols > gutter) cols - gutter else usize.{0};
 
     if (row < text_buffer.line_count()) {
         if (gutter > 0) {
             let number = if (relative_line_numbers) {
                 if (row == cursor_row) {
-                    if (show_line_numbers) row + 1 else 0
+                    if (show_line_numbers) row + 1 else usize.{0}
                 } else {
                     abs_diff_usize(row, cursor_row)
                 }
@@ -276,7 +276,7 @@ impl *mut Editor {
         if (!push_truncated(out, alloc, label, remaining..&)) {
             return false;
         }
-        let position = if (self.output_history.len == 0) 0 else self.output_history_index + 1;
+        let position = if (self.output_history.len == 0) usize.{0} else self.output_history_index + 1;
         let total = self.output_history_count();
         let digits = String.{}..&;
         defer digits.deinit(alloc);
@@ -442,7 +442,7 @@ impl *mut Editor {
         let mut wrote_editor_lines = false;
         if (editor_rows > 0) {
             let rect = self.editor_area_rect();
-            for (let mut screen_row = 0; screen_row < editor_rows; screen_row += 1) {
+            for (let mut screen_row = usize.{0}; screen_row < editor_rows; screen_row += 1) {
                 if (!self.render_layout_row(alloc, out, self.layout_root, rect, screen_row)) {
                     return false;
                 }
@@ -489,22 +489,22 @@ impl *mut Editor {
         let cursor_row = if (self.mode == .Command) {
             rows
         } else if (self.active_pane == .Output and output_rows > 0) {
-            let visible = if (self.output_cursor.row < self.output_scroll_row) 0 else self.output_cursor.row - self.output_scroll_row;
-            let max_row = if (output_rows == 0) 0 else output_rows - 1;
+            let visible = if (self.output_cursor.row < self.output_scroll_row) usize.{0} else self.output_cursor.row - self.output_scroll_row;
+            let max_row = if (output_rows == 0) usize.{0} else output_rows - 1;
             let clamped = if (visible > max_row) max_row else visible;
             editor_rows + clamped + 2
         } else {
             let rect = self.active_window_rect();
             let view = self.view(self.active_window);
-            let visible = if (view.cursor.row < view.scroll_row) 0 else view.cursor.row - view.scroll_row;
-            let max_row = if (rect.rows == 0) 0 else rect.rows - 1;
+            let visible = if (view.cursor.row < view.scroll_row) usize.{0} else view.cursor.row - view.scroll_row;
+            let max_row = if (rect.rows == 0) usize.{0} else rect.rows - 1;
             let clamped = if (visible > max_row) max_row else visible;
             rect.row + clamped
         };
 
         let raw_col = if (self.mode == .Command) {
             if (cols == 0) {
-                1
+                usize.{1}
             } else {
                 let view_col = self.command_view_col(cols);
                 self.command_col - view_col + 2

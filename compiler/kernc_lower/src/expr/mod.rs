@@ -84,8 +84,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ExprKind::Let {
                 pattern,
                 init,
-                else_pattern,
-                else_branch,
+                else_clause,
             } => {
                 return self.measure_phase("        lower_expr_binding", |this| {
                     MastExpr::new(
@@ -95,8 +94,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 expr,
                                 pattern,
                                 init,
-                                else_pattern.as_ref(),
-                                else_branch.as_deref(),
+                                else_clause.as_ref(),
                                 subst_map,
                             ),
                             result: None,

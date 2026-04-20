@@ -43,11 +43,20 @@ fn collect_expr_if_completion_facts(
             }
         }
         ast::ExprKind::Let {
-            init, else_branch, ..
+            init, else_clause, ..
         } => {
             collect_expr_if_completion_facts(init, if_facts_by_span);
-            if let Some(else_branch) = else_branch {
-                collect_expr_if_completion_facts(else_branch, if_facts_by_span);
+            if let Some(else_clause) = else_clause {
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => {
+                        collect_expr_if_completion_facts(else_expr, if_facts_by_span);
+                    }
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            collect_expr_if_completion_facts(&arm.body, if_facts_by_span);
+                        }
+                    }
+                }
             }
         }
         ast::ExprKind::Static { init, .. }

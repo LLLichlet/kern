@@ -7,13 +7,13 @@ use base.coll.List;
 use base.mem.alloc.Allocator;
 use ..{Editor, LayoutAxis, LayoutNode, WindowRect, WindowState};
 
-const MIN_WINDOW_ROWS = 3;
-const MIN_WINDOW_COLS = 16;
+const MIN_WINDOW_ROWS = usize.{3};
+const MIN_WINDOW_COLS = usize.{16};
 
 impl *mut Editor {
     fn reset_layout_weights() void {
         let nodes = self.layout_nodes..&.as_mut_slice();
-        for (let mut i = 0; i < #nodes; i += 1) {
+        for (let mut i = usize.{0}; i < #nodes; i += 1) {
             if (nodes.[i].alive) {
                 nodes.[i].weight = 1;
             }
@@ -177,7 +177,7 @@ impl *mut Editor {
         }
         let keep_index = self.active_window;
         let keep = self.window(keep_index);
-        for (let mut index = 0; index < self.windows.len; index += 1) {
+        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
             if (index == keep_index or !self.window(index).alive) {
                 continue;
             }
@@ -277,7 +277,7 @@ impl *mut Editor {
         let .{ Some: first } = self.first_live_window() else return;
         let mut best_index = first;
         let mut best_rect = self.window_rect(first);
-        for (let mut index = 0; index < self.windows.len; index += 1) {
+        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
             if (!self.window(index).alive or index == first) {
                 continue;
             }
@@ -294,7 +294,7 @@ impl *mut Editor {
         let .{ Some: first } = self.first_live_window() else return;
         let mut best_index = first;
         let mut best_rect = self.window_rect(first);
-        for (let mut index = 0; index < self.windows.len; index += 1) {
+        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
             if (!self.window(index).alive or index == first) {
                 continue;
             }
@@ -315,10 +315,10 @@ impl *mut Editor {
         let active_rect = self.active_window_rect();
         let mut best_index = self.active_window;
         let mut has_best = false;
-        let mut best_primary = 0;
-        let mut best_secondary = 0;
+        let mut best_primary = usize.{0};
+        let mut best_secondary = usize.{0};
 
-        for (let mut index = 0; index < self.windows.len; index += 1) {
+        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
             if (!self.window(index).alive or index == self.active_window) {
                 continue;
             }

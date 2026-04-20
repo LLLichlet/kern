@@ -16,17 +16,26 @@ fn collect_control_facts_expr(
 ) {
     match &expr.kind {
         ast::ExprKind::Let {
-            init, else_branch, ..
+            init, else_clause, ..
         } => {
             collect_control_facts_expr(init, regions, summary);
-            if let Some(else_expr) = else_branch {
+            if let Some(else_clause) = else_clause {
                 summary.branch_count += 1;
                 summary.let_else_count += 1;
                 regions.push(FlowRegionFacts {
-                    span: else_expr.span,
+                    span: else_clause.span(),
                     kind: AnalysisFlowRegionKind::LetElse,
                 });
-                collect_control_facts_expr(else_expr, regions, summary);
+                match else_clause {
+                    ast::LetElseClause::Expr(else_expr) => {
+                        collect_control_facts_expr(else_expr, regions, summary);
+                    }
+                    ast::LetElseClause::Arms(arms) => {
+                        for arm in arms {
+                            collect_control_facts_expr(&arm.body, regions, summary);
+                        }
+                    }
+                }
             }
         }
         ast::ExprKind::Static { init, .. } => collect_control_facts_expr(init, regions, summary),

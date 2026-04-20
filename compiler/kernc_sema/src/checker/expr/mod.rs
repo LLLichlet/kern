@@ -20,8 +20,6 @@ mod control;
 mod literal;
 mod ops;
 
-use access::LetElseClause;
-
 pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) ctx: &'a mut SemaContext<'ctx>,
     pub(crate) current_return_type: Option<TypeId>,
@@ -631,18 +629,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Let {
                 pattern,
                 init,
-                else_pattern,
-                else_branch,
+                else_clause,
             } => {
                 let started = self.timing_start();
                 let ty = self.check_let(
                     expr.id,
                     pattern,
                     init,
-                    else_branch.as_deref().map(|branch| LetElseClause {
-                        pattern: else_pattern.as_ref(),
-                        branch,
-                    }),
+                    else_clause.as_ref(),
                     expected_ty,
                     expr.span,
                 );

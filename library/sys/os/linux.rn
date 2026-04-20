@@ -410,12 +410,14 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
     let output = String.{}..&;
     let mut chunk = [1024]u8.{undef};
     for (;;) {
-        let .{ Ok: read } = read_file(read_end, chunk.[0]..&, 1024) else .{ Err: err } => {
-            let _ = close_file(read_end);
-            output.deinit(alloc);
-            let mut raw_status = i32.{0};
-            let _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
-            return .{ Err: err };
+        let .{ Ok: read } = read_file(read_end, chunk.[0]..&, 1024) else {
+            .{ Err: err } => {
+                let _ = close_file(read_end);
+                output.deinit(alloc);
+                let mut raw_status = i32.{0};
+                let _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+                return .{ Err: err };
+            },
         };
         if (read == 0) {
             break;

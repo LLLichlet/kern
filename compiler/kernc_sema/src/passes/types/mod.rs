@@ -431,16 +431,20 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::Let {
                 pattern,
                 init,
-                else_pattern,
-                else_branch,
+                else_clause,
             } => {
                 self.resolve_pattern(&pattern.pattern, scope);
-                if let Some(else_pattern) = else_pattern {
-                    self.resolve_pattern(else_pattern, scope);
-                }
                 self.resolve_expr(init, scope);
-                if let Some(else_branch) = else_branch {
-                    self.resolve_expr(else_branch, scope);
+                if let Some(else_clause) = else_clause {
+                    match else_clause {
+                        ast::LetElseClause::Expr(else_expr) => self.resolve_expr(else_expr, scope),
+                        ast::LetElseClause::Arms(arms) => {
+                            for arm in arms {
+                                self.resolve_pattern(&arm.pattern, scope);
+                                self.resolve_expr(&arm.body, scope);
+                            }
+                        }
+                    }
                 }
             }
             ast::ExprKind::Static { init, .. } => {
@@ -2224,12 +2228,17 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     || self.expr_references_const_param(rhs, env_scope)
             }
             ast::ExprKind::Let {
-                init, else_branch, ..
+                init, else_clause, ..
             } => {
                 self.expr_references_const_param(init, env_scope)
-                    || else_branch
-                        .as_deref()
-                        .is_some_and(|expr| self.expr_references_const_param(expr, env_scope))
+                    || else_clause.as_ref().is_some_and(|clause| match clause {
+                        ast::LetElseClause::Expr(expr) => {
+                            self.expr_references_const_param(expr, env_scope)
+                        }
+                        ast::LetElseClause::Arms(arms) => arms.iter().any(|arm| {
+                            self.expr_references_const_param(&arm.body, env_scope)
+                        }),
+                    })
             }
             ast::ExprKind::Static { init, .. } => self.expr_references_const_param(init, env_scope),
             ast::ExprKind::GenericInstantiation { target, args } => {

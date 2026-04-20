@@ -295,11 +295,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         expr: &Expr,
         pattern: &ast::LetPattern,
         init: &Expr,
-        else_pattern: Option<&ast::Pattern>,
-        else_branch: Option<&Expr>,
+        else_clause: Option<&ast::LetElseClause>,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     ) -> Vec<MastStmt> {
-        if else_branch.is_none() {
+        if else_clause.is_none() {
             match &pattern.pattern.kind {
                 ast::PatternKind::Binding(binding) => {
                     if self.measure_phase("        lower_let_binding_ignored", |this| {
@@ -430,7 +429,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             )
         });
 
-        if let Some(else_expr) = else_branch {
+        if let Some(else_clause) = else_clause {
             let mut outer_stmts = Vec::new();
             let mut success_stmts = Vec::new();
             let mut finalized_bindings = Vec::new();
@@ -475,47 +474,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             });
 
-            let lowered_else = if let Some(else_pattern) = else_pattern {
-                let mut else_bindings = Vec::new();
-                let else_condition =
-                    self.measure_phase("        lower_let_else_pattern_plan", |this| {
-                        this.collect_pattern_plan(
-                            expr.span,
-                            else_pattern,
-                            &target_var_expr,
-                            target_ty,
-                            &mut else_bindings,
-                        )
-                    });
-                let else_body = self.measure_phase("        lower_let_else_pattern_body", |this| {
-                    this.lower_match_pattern_body(else_expr, else_bindings, subst_map, TypeId::VOID)
-                });
-
-                MastBlock {
+            let lowered_else = match else_clause {
+                ast::LetElseClause::Expr(else_expr) => {
+                    self.measure_phase("        lower_let_else_block", |this| {
+                        this.lower_block_as_body(else_expr, subst_map, TypeId::VOID)
+                    })
+                }
+                ast::LetElseClause::Arms(arms) => MastBlock {
                     stmts: vec![],
-                    result: Some(Box::new(MastExpr::new(
-                        TypeId::VOID,
-                        MastExprKind::If {
-                            cond: Box::new(else_condition),
-                            then_branch: else_body,
-                            else_branch: Some(MastBlock {
-                                stmts: vec![],
-                                result: Some(Box::new(MastExpr::new(
-                                    TypeId::NEVER,
-                                    MastExprKind::Trap,
-                                    else_expr.span,
-                                ))),
-                                defers: vec![],
-                            }),
+                    result: Some(Box::new(self.measure_phase(
+                        "        lower_let_else_arm_chain",
+                        |this| {
+                            this.lower_let_else_arm_chain(
+                                arms,
+                                &target_var_expr,
+                                target_ty,
+                                subst_map,
+                                0,
+                            )
                         },
-                        else_expr.span,
                     ))),
                     defers: vec![],
-                }
-            } else {
-                self.measure_phase("        lower_let_else_block", |this| {
-                    this.lower_block_as_body(else_expr, subst_map, TypeId::VOID)
-                })
+                },
             };
 
             let if_expr = MastExpr::new(
@@ -575,6 +555,51 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
             stmts
         }
+    }
+
+    fn lower_let_else_arm_chain(
+        &mut self,
+        arms: &[ast::LetElseArm],
+        target_var_expr: &MastExpr,
+        target_ty: TypeId,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+        arm_index: usize,
+    ) -> MastExpr {
+        if arm_index >= arms.len() {
+            return MastExpr::new(TypeId::NEVER, MastExprKind::Trap, target_var_expr.span);
+        }
+
+        let arm = &arms[arm_index];
+        let mut bindings = Vec::new();
+        let cond = self.measure_phase("          lower_let_else_arm_plan", |this| {
+            this.collect_pattern_plan(
+                arm.span,
+                &arm.pattern,
+                target_var_expr,
+                target_ty,
+                &mut bindings,
+            )
+        });
+        let then_branch = self.measure_phase("          lower_let_else_arm_body", |this| {
+            this.lower_match_pattern_body(&arm.body, bindings, subst_map, TypeId::VOID)
+        });
+        let fallback = self.measure_phase("          lower_let_else_arm_fallback", |this| {
+            this.lower_let_else_arm_chain(arms, target_var_expr, target_ty, subst_map, arm_index + 1)
+        });
+
+        MastExpr::new(
+            TypeId::VOID,
+            MastExprKind::If {
+                cond: Box::new(cond),
+                then_branch,
+                else_branch: Some(MastBlock {
+                    stmts: vec![],
+                    result: Some(Box::new(fallback)),
+                    defers: vec![],
+                }),
+            },
+            arm.span,
+        )
     }
 
     pub(crate) fn lower_match(

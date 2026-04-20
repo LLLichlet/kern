@@ -849,6 +849,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 MastExprKind::ExtractFatPtrMeta(Box::new(source_expr)),
                 span,
             )
+        } else if self.trait_object_satisfies_required(source_trait_norm, target_trait_norm) {
+            // Forgetting extra assoc bindings does not require rebuilding the
+            // vtable; the existing metadata still points at the same receiver
+            // implementation and method layout.
+            MastExpr::new(
+                TypeId::USIZE,
+                MastExprKind::ExtractFatPtrMeta(Box::new(source_expr)),
+                span,
+            )
         } else {
             let Some(super_slot) =
                 self.vtable_supertrait_slot(source_trait_norm, target_trait_norm)

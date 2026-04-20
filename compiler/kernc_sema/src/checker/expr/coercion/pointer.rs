@@ -2,6 +2,45 @@ use super::*;
 use crate::ty::GenericArg;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn trait_object_satisfies_required(
+        &mut self,
+        available_trait_ty: TypeId,
+        required_trait_ty: TypeId,
+    ) -> bool {
+        let available_norm = self.resolve_tv(available_trait_ty);
+        let required_norm = self.resolve_tv(required_trait_ty);
+
+        let (
+            TypeKind::TraitObject(available_def_id, available_args, available_assoc_bindings),
+            TypeKind::TraitObject(required_def_id, required_args, required_assoc_bindings),
+        ) = (
+            self.ctx.type_registry.get(available_norm).clone(),
+            self.ctx.type_registry.get(required_norm).clone(),
+        )
+        else {
+            return false;
+        };
+
+        if available_def_id != required_def_id || available_args != required_args {
+            return false;
+        }
+
+        if required_assoc_bindings.is_empty() {
+            return true;
+        }
+
+        let available_assoc_bindings = available_assoc_bindings
+            .into_iter()
+            .collect::<FastHashMap<_, _>>();
+        required_assoc_bindings.into_iter().all(|(assoc_def_id, required_assoc_ty)| {
+            available_assoc_bindings
+                .get(&assoc_def_id)
+                .is_some_and(|available_assoc_ty| {
+                    self.resolve_tv(*available_assoc_ty) == self.resolve_tv(required_assoc_ty)
+                })
+        })
+    }
+
     pub(super) fn check_pointer_coercions(
         &mut self,
         expr: &Expr,
@@ -133,7 +172,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let source_norm = self.resolve_tv(source_trait_ty);
         let target_norm = self.resolve_tv(target_trait_ty);
 
-        if source_norm == target_norm {
+        if self.trait_object_satisfies_required(source_norm, target_norm) {
             return true;
         }
 
@@ -194,7 +233,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 &assoc_binding_map,
             );
 
-            if inst_super_norm == target_norm {
+            if self.trait_object_satisfies_required(inst_super_norm, target_norm) {
                 return Some(inst_super_norm);
             }
 

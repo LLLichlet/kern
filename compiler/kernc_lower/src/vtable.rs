@@ -8,6 +8,48 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::{HashMap, HashSet};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    pub(crate) fn trait_object_satisfies_required(
+        &mut self,
+        available_trait_ty: TypeId,
+        required_trait_ty: TypeId,
+    ) -> bool {
+        let available_norm = self.ctx.type_registry.normalize(available_trait_ty);
+        let required_norm = self.ctx.type_registry.normalize(required_trait_ty);
+
+        let (
+            TypeKind::TraitObject(available_def_id, available_args, available_assoc_bindings),
+            TypeKind::TraitObject(required_def_id, required_args, required_assoc_bindings),
+        ) = (
+            self.ctx.type_registry.get(available_norm).clone(),
+            self.ctx.type_registry.get(required_norm).clone(),
+        )
+        else {
+            return false;
+        };
+
+        if available_def_id != required_def_id || available_args != required_args {
+            return false;
+        }
+
+        if required_assoc_bindings.is_empty() {
+            return true;
+        }
+
+        let available_assoc_bindings = available_assoc_bindings
+            .into_iter()
+            .collect::<HashMap<_, _>>();
+        required_assoc_bindings
+            .into_iter()
+            .all(|(assoc_def_id, required_assoc_ty)| {
+                available_assoc_bindings
+                    .get(&assoc_def_id)
+                    .is_some_and(|available_assoc_ty| {
+                        self.ctx.type_registry.normalize(*available_assoc_ty)
+                            == self.ctx.type_registry.normalize(required_assoc_ty)
+                    })
+            })
+    }
+
     fn augment_trait_object_assoc_bindings_from_map(
         &mut self,
         trait_ty: TypeId,
@@ -111,7 +153,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let target_norm = self.ctx.type_registry.normalize(target_trait_ty);
         self.collect_transitive_supertraits(trait_ty)
             .iter()
-            .position(|&super_ty| super_ty == target_norm)
+            .position(|&super_ty| self.trait_object_satisfies_required(super_ty, target_norm))
     }
 
     pub(crate) fn is_trait_object_upcast(
@@ -121,7 +163,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> bool {
         let source_norm = self.ctx.type_registry.normalize(source_trait_ty);
         let target_norm = self.ctx.type_registry.normalize(target_trait_ty);
-        source_norm == target_norm
+        self.trait_object_satisfies_required(source_norm, target_norm)
             || self
                 .vtable_supertrait_slot(source_norm, target_norm)
                 .is_some()

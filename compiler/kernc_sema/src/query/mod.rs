@@ -504,7 +504,7 @@ fn resolve_trait_impl_obligation_inner(
     receiver_ty: TypeId,
     target_trait_ty: TypeId,
     impl_id: DefId,
-    erase_impl_assoc_bindings: bool,
+    ignore_target_assoc_bindings: bool,
 ) -> Option<Vec<crate::ty::GenericArg>> {
     let receiver_norm = ctx.type_registry.normalize(receiver_ty);
     let target_trait_norm = ctx.type_registry.normalize(target_trait_ty);
@@ -533,15 +533,12 @@ fn resolve_trait_impl_obligation_inner(
         .get(&impl_def.target_type.id)
         .copied()
         .unwrap_or(TypeId::ERROR);
-    let mut impl_trait_ty = checker
+    let impl_trait_ty = checker
         .ctx
         .node_types
         .get(&impl_trait_node.id)
         .copied()
         .unwrap_or(TypeId::ERROR);
-    if erase_impl_assoc_bindings && impl_trait_ty != TypeId::ERROR {
-        impl_trait_ty = erase_impl_head_assoc_bindings(checker.ctx, impl_trait_ty);
-    }
 
     if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
         return None;
@@ -565,10 +562,16 @@ fn resolve_trait_impl_obligation_inner(
 
     let mut type_map = FastHashMap::default();
     let mut const_map = FastHashMap::default();
+    // `impl Trait for Type { type Assoc = ...; }` satisfies a plain `Type: Trait`
+    // obligation even though the instantiated impl trait carries concrete
+    // associated-type bindings internally. Match the trait head first, then
+    // verify only the bindings explicitly requested by the obligation.
+    let impl_trait_head_ty = erase_trait_assoc_bindings(checker.ctx, impl_trait_ty);
+    let target_trait_head_ty = erase_trait_assoc_bindings(checker.ctx, target_trait_norm);
     if !checker.unify_with_const_map(impl_target_ty, receiver_norm, &mut type_map, &mut const_map)
         || !checker.unify_with_const_map(
-            impl_trait_ty,
-            target_trait_norm,
+            impl_trait_head_ty,
+            target_trait_head_ty,
             &mut type_map,
             &mut const_map,
         )
@@ -577,23 +580,74 @@ fn resolve_trait_impl_obligation_inner(
         return None;
     }
 
-    Some(
-        impl_def
+    let resolved_args: Vec<_> = impl_def
+        .generics
+        .iter()
+        .map(|param| match &param.kind {
+            ast::GenericParamKind::Type => crate::ty::GenericArg::Type(
+                type_map.get(&param.name).copied().unwrap_or(TypeId::ERROR),
+            ),
+            ast::GenericParamKind::Const { .. } => crate::ty::GenericArg::Const(
+                const_map
+                    .get(&param.name)
+                    .copied()
+                    .unwrap_or(crate::ty::ConstGeneric::Error),
+            ),
+        })
+        .collect();
+
+    if ignore_target_assoc_bindings {
+        return Some(resolved_args);
+    }
+
+    let TypeKind::TraitObject(_, _, target_assoc_bindings) = checker
+        .ctx
+        .type_registry
+        .get(target_trait_norm)
+        .clone()
+    else {
+        return None;
+    };
+
+    if !target_assoc_bindings.is_empty() {
+        let subst_map = impl_def
             .generics
             .iter()
-            .map(|param| match &param.kind {
-                ast::GenericParamKind::Type => crate::ty::GenericArg::Type(
-                    type_map.get(&param.name).copied().unwrap_or(TypeId::ERROR),
-                ),
-                ast::GenericParamKind::Const { .. } => crate::ty::GenericArg::Const(
-                    const_map
-                        .get(&param.name)
-                        .copied()
-                        .unwrap_or(crate::ty::ConstGeneric::Error),
-                ),
-            })
-            .collect(),
-    )
+            .zip(resolved_args.iter().copied())
+            .map(|(param, arg)| (param.name, arg))
+            .collect::<FastHashMap<_, _>>();
+        let instantiated_impl_trait_ty = if subst_map.is_empty() {
+            impl_trait_ty
+        } else {
+            let mut subst = Substituter::new(&mut checker.ctx.type_registry, &subst_map);
+            subst.substitute(impl_trait_ty)
+        };
+        let TypeKind::TraitObject(_, _, impl_assoc_bindings) = checker
+            .ctx
+            .type_registry
+            .get(checker.ctx.type_registry.normalize(instantiated_impl_trait_ty))
+            .clone()
+        else {
+            return None;
+        };
+        let impl_assoc_bindings = impl_assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
+
+        for (assoc_def_id, target_assoc_ty) in target_assoc_bindings {
+            let Some(&impl_assoc_ty) = impl_assoc_bindings.get(&assoc_def_id) else {
+                return None;
+            };
+            if !checker.unify_with_const_map(
+                target_assoc_ty,
+                impl_assoc_ty,
+                &mut type_map,
+                &mut const_map,
+            ) {
+                return None;
+            }
+        }
+    }
+
+    Some(resolved_args)
 }
 
 fn impl_head_signature(
@@ -613,7 +667,7 @@ fn impl_head_signature(
         .trait_type
         .as_ref()
         .and_then(|trait_ty| ctx.node_types.get(&trait_ty.id).copied());
-    let trait_ty = trait_ty.map(|trait_ty| erase_impl_head_assoc_bindings(ctx, trait_ty));
+    let trait_ty = trait_ty.map(|trait_ty| erase_trait_assoc_bindings(ctx, trait_ty));
 
     if target_ty == TypeId::ERROR || matches!(trait_ty, Some(TypeId::ERROR)) {
         return None;
@@ -622,7 +676,7 @@ fn impl_head_signature(
     Some((impl_def, target_ty, trait_ty))
 }
 
-fn erase_impl_head_assoc_bindings(ctx: &mut SemaContext<'_>, ty: TypeId) -> TypeId {
+fn erase_trait_assoc_bindings(ctx: &mut SemaContext<'_>, ty: TypeId) -> TypeId {
     match ctx
         .type_registry
         .get(ctx.type_registry.normalize(ty))

@@ -278,6 +278,7 @@ fn compiles_trait_impls_with_concrete_associated_types() {
         r#"
 type Bump[Rhs] = trait {
     type Out;
+    bump: fn(Rhs) Out,
 };
 
 type Vec2 = struct {
@@ -1085,20 +1086,24 @@ type Vec2 = struct {
 
 impl Vec2 : Bump[i32] {
     type Out = Vec2;
+
+    fn bump(rhs: i32) Vec2 {
+        return Vec2.{ x: self.x + rhs, y: self.y + rhs };
+    }
 }
 
-fn keep_projection[T](value: T.Bump[i32].Out) T.Bump[i32].Out
+fn plus_one[T](value: T) T.Bump[i32].Out
     where T: Bump[i32],
 {
-    return value;
+    return value.bump(i32.{1});
 }
 
 fn main() i32 {
-    let out = keep_projection[Vec2](Vec2.{ x: 2, y: 5 });
-    if (out.x != 2) {
+    let out = plus_one(Vec2.{ x: 2, y: 5 });
+    if (out.x != 3) {
         return 1;
     }
-    if (out.y != 5) {
+    if (out.y != 6) {
         return 2;
     }
     return 0;

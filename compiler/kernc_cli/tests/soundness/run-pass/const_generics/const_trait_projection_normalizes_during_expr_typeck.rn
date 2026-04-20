@@ -1,0 +1,21 @@
+// class: const-generic-projection
+// source: expression type checking must normalize associated projections that carry const trait arguments
+// exit: 0
+
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: HasOut[1] {
+    type Out = i32;
+}
+
+fn take(value: X.HasOut[1].Out) i32 {
+    return value;
+}
+
+fn main() i32 {
+    return take(7) - 7;
+}

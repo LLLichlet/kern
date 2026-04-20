@@ -1168,6 +1168,74 @@ fn main() i32 {
 }
 
 #[test]
+fn normalizes_const_trait_projection_during_expression_typeck() {
+    let output = build_and_run_source(
+        r#"
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: HasOut[1] {
+    type Out = i32;
+}
+
+fn take(value: X.HasOut[1].Out) i32 {
+    return value;
+}
+
+fn main() i32 {
+    return take(7);
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "const trait projection regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn normalizes_const_trait_projection_from_env_bounds() {
+    let output = build_and_run_source(
+        r#"
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: HasOut[1] {
+    type Out = i32;
+}
+
+fn lift[T](value: T.HasOut[1].Out) T.HasOut[1].Out
+    where T: HasOut[1, Out = i32],
+{
+    return value;
+}
+
+fn main() i32 {
+    return lift[X](7);
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "const trait projection env-bound regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_uninstantiated_generic_function_items_in_value_position() {
     let output = compile_source(
         r#"

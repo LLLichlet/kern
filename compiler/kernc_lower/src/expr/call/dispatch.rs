@@ -226,7 +226,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         };
 
                         // Safety: lowering only reads semantic definition storage.
-                        let impl_def = unsafe { &*impl_ptr };
+                        let _impl_def = unsafe { &*impl_ptr };
                         let mut matched_receiver_ty = None;
                         let mut candidate_impl_args = None;
                         for search_ty in receiver_search_tys.iter().copied() {
@@ -238,39 +238,25 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 break;
                             }
                         }
-                        let Some(candidate_impl_args) = candidate_impl_args else {
+                        let Some(matched_receiver_ty) = matched_receiver_ty else {
+                            continue;
+                        };
+                        let Some(mut candidate_impl_args) = candidate_impl_args else {
                             continue;
                         };
 
                         if owner_trait_filter {
-                            let Some(trait_ast) = &impl_def.trait_type else {
+                            let Some(resolved_args) =
+                                kernc_sema::query::resolve_trait_impl_obligation(
+                                    this.ctx,
+                                    matched_receiver_ty,
+                                    owner_trait_norm,
+                                    impl_id,
+                                )
+                            else {
                                 continue;
                             };
-                            let impl_trait_ty = this
-                                .ctx
-                                .node_types
-                                .get(&trait_ast.id)
-                                .copied()
-                                .unwrap_or(TypeId::ERROR);
-                            let mut subst_map = HashMap::new();
-                            for (param, arg) in impl_def
-                                .generics
-                                .iter()
-                                .zip(candidate_impl_args.iter().copied())
-                            {
-                                subst_map.insert(param.name, arg);
-                            }
-                            let inst_trait_ty = if subst_map.is_empty() {
-                                impl_trait_ty
-                            } else {
-                                let mut subst =
-                                    Substituter::new(&mut this.ctx.type_registry, &subst_map);
-                                subst.substitute(impl_trait_ty)
-                            };
-                            if !this.trait_ty_satisfies_requirement(owner_trait_norm, inst_trait_ty)
-                            {
-                                continue;
-                            }
+                            candidate_impl_args = resolved_args;
                         }
 
                         let replace = match best_match.as_ref() {
@@ -288,7 +274,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             best_match = Some((
                                 impl_id,
                                 method_id,
-                                matched_receiver_ty,
+                                Some(matched_receiver_ty),
                                 candidate_impl_args,
                             ));
                         }

@@ -475,6 +475,99 @@ pub fn impl_head_specializes(
             .all(|name| !const_map.contains_key(name))
 }
 
+pub fn resolve_trait_impl_obligation(
+    ctx: &mut SemaContext<'_>,
+    receiver_ty: TypeId,
+    target_trait_ty: TypeId,
+    impl_id: DefId,
+) -> Option<Vec<crate::ty::GenericArg>> {
+    let receiver_norm = ctx.type_registry.normalize(receiver_ty);
+    let target_trait_norm = ctx.type_registry.normalize(target_trait_ty);
+
+    let mut checker = ExprChecker::new(ctx, None);
+    let Some(impl_ptr) = checker
+        .ctx
+        .defs
+        .get(impl_id.0 as usize)
+        .and_then(|def| match def {
+            Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+            _ => None,
+        })
+    else {
+        return None;
+    };
+
+    let impl_def = unsafe { &*impl_ptr };
+    let Some(impl_trait_node) = &impl_def.trait_type else {
+        return None;
+    };
+
+    let impl_target_ty = checker
+        .ctx
+        .node_types
+        .get(&impl_def.target_type.id)
+        .copied()
+        .unwrap_or(TypeId::ERROR);
+    let impl_trait_ty = checker
+        .ctx
+        .node_types
+        .get(&impl_trait_node.id)
+        .copied()
+        .unwrap_or(TypeId::ERROR);
+
+    if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
+        return None;
+    }
+
+    if checker
+        .ctx
+        .direct_self_referential_impl_requirement(impl_def)
+        .is_some()
+        || checker
+            .ctx
+            .indirect_self_referential_impl_requirement(impl_id)
+            .is_some()
+        || checker
+            .ctx
+            .non_decreasing_impl_requirement(impl_id)
+            .is_some()
+    {
+        return None;
+    }
+
+    let mut type_map = FastHashMap::default();
+    let mut const_map = FastHashMap::default();
+    if !checker.unify_with_const_map(impl_target_ty, receiver_norm, &mut type_map, &mut const_map)
+        || !checker.unify_with_const_map(
+            impl_trait_ty,
+            target_trait_norm,
+            &mut type_map,
+            &mut const_map,
+        )
+        || !impl_bounds_satisfied(&mut checker, &impl_def.where_clauses, &type_map, &const_map)
+    {
+        return None;
+    }
+
+    Some(
+        impl_def
+            .generics
+            .iter()
+            .map(|param| match &param.kind {
+                ast::GenericParamKind::Type => crate::ty::GenericArg::Type(
+                    type_map.get(&param.name).copied().unwrap_or(TypeId::ERROR),
+                ),
+                ast::GenericParamKind::Const { .. } => crate::ty::GenericArg::Const(
+                    const_map
+                        .get(&param.name)
+                        .copied()
+                        .unwrap_or(crate::ty::ConstGeneric::Error),
+                ),
+            })
+            .collect(),
+    )
+}
+
 fn impl_head_signature(
     ctx: &mut SemaContext<'_>,
     impl_id: DefId,

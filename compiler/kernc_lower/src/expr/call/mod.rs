@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
 use kernc_sema::LayoutEngine;
-use kernc_sema::checker::{ConstEvaluator, ConstValue, Substituter};
+use kernc_sema::checker::{ConstEvaluator, ConstValue};
 
 mod asm;
 mod dispatch;
@@ -265,42 +265,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | TypeKind::Simd { .. }
             | TypeKind::Error
             | TypeKind::Module(_) => false,
-        }
-    }
-
-    fn trait_ty_satisfies_requirement(
-        &mut self,
-        required_trait_ty: TypeId,
-        candidate_trait_ty: TypeId,
-    ) -> bool {
-        let required_norm = self.ctx.type_registry.normalize(required_trait_ty);
-        let candidate_norm = self.ctx.type_registry.normalize(candidate_trait_ty);
-
-        match (
-            self.ctx.type_registry.get(required_norm).clone(),
-            self.ctx.type_registry.get(candidate_norm).clone(),
-        ) {
-            (
-                TypeKind::TraitObject(required_def_id, required_args, required_assoc_bindings),
-                TypeKind::TraitObject(candidate_def_id, candidate_args, candidate_assoc_bindings),
-            ) if required_def_id == candidate_def_id && required_args == candidate_args => {
-                required_assoc_bindings
-                    .into_iter()
-                    .all(|(required_assoc_id, required_assoc_ty)| {
-                        let Some((_, candidate_assoc_ty)) =
-                            candidate_assoc_bindings
-                                .iter()
-                                .find(|(candidate_assoc_id, _)| {
-                                    *candidate_assoc_id == required_assoc_id
-                                })
-                        else {
-                            return false;
-                        };
-                        self.ctx.type_registry.normalize(required_assoc_ty)
-                            == self.ctx.type_registry.normalize(*candidate_assoc_ty)
-                    })
-            }
-            _ => required_norm == candidate_norm,
         }
     }
 }

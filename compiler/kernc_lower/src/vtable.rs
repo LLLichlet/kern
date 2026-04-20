@@ -3,7 +3,6 @@ use kernc_mast::*;
 use kernc_mono::MonoId;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, ImplDef, TraitDef};
-use kernc_sema::query::MemberQuery;
 use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 use std::collections::{HashMap, HashSet};
@@ -259,40 +258,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
 
             for search_ty in &search_types {
-                let Some(resolved_impl_args) = MemberQuery::new(self.ctx)
-                    .resolve_impl_applicability_for_type(*search_ty, impl_id)
-                else {
+                let Some(resolved_impl_args) = kernc_sema::query::resolve_trait_impl_obligation(
+                    self.ctx,
+                    *search_ty,
+                    target_trait_norm,
+                    impl_id,
+                ) else {
                     continue;
                 };
 
-                let instantiated_trait_ty = if resolved_impl_args.is_empty() {
-                    impl_trait_ty
-                } else {
-                    let subst_map = impl_def
-                        .generics
-                        .iter()
-                        .zip(resolved_impl_args.iter())
-                        .map(|(param, arg)| (param.name, *arg))
-                        .collect::<HashMap<_, _>>();
-                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-                    subst.substitute(impl_trait_ty)
-                };
-
-                if self.ctx.type_registry.normalize(instantiated_trait_ty) == target_trait_norm {
-                    let replace = match selected.as_ref() {
-                        None => true,
-                        Some((_, _, selected_impl_id)) => matches!(
-                            kernc_sema::query::compare_impl_specificity(
-                                self.ctx,
-                                impl_id,
-                                *selected_impl_id,
-                            ),
-                            kernc_sema::query::ImplSpecificity::LeftMoreSpecific
+                let replace = match selected.as_ref() {
+                    None => true,
+                    Some((_, _, selected_impl_id)) => matches!(
+                        kernc_sema::query::compare_impl_specificity(
+                            self.ctx,
+                            impl_id,
+                            *selected_impl_id,
                         ),
-                    };
-                    if replace {
-                        selected = Some((impl_def.clone(), resolved_impl_args, impl_id));
-                    }
+                        kernc_sema::query::ImplSpecificity::LeftMoreSpecific
+                    ),
+                };
+                if replace {
+                    selected = Some((impl_def.clone(), resolved_impl_args, impl_id));
                 }
             }
         }

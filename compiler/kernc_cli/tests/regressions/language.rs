@@ -2417,6 +2417,38 @@ fn main() i32 {
 }
 
 #[test]
+fn casts_to_const_generic_trait_object_from_generic_impl() {
+    let output = build_and_run_source(
+        r#"
+type Score[N: usize] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl[N: usize] *X: Score[N] {
+    fn value() i32 {
+        return N as i32;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let score = *Score[4].{ x.& };
+    return score.value() - 4;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_assignment_through_struct_mut_array_fields_only() {
     let output = compile_source(
         r#"

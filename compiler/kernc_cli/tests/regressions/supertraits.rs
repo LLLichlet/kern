@@ -91,6 +91,42 @@ fn main() i32 {
 }
 
 #[test]
+fn dispatches_inherited_const_supertrait_method_from_generic_trait_object_impl() {
+    let output = build_and_run_source(
+        r#"
+type Base[N: usize] = trait {
+    value: fn() i32,
+};
+
+type Derived[N: usize]: Base[N] = trait {};
+
+type X = struct {};
+
+impl[N: usize] *X: Derived[N] {}
+
+impl[N: usize] *X: Base[N] {
+    fn value() i32 {
+        return N as i32;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let derived = *Derived[4].{ x.& };
+    return derived.value() - 4;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_self_recursive_supertrait_hierarchy() {
     let output = compile_source(
         r#"

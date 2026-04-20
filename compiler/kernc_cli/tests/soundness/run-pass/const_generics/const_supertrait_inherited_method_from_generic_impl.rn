@@ -1,0 +1,25 @@
+// class: const-generic-supertrait-dispatch
+// source: inherited trait-object methods should keep const generic arguments when the impl is generic only in the trait head
+// exit: 0
+
+type Base[N: usize] = trait {
+    value: fn() i32,
+};
+
+type Derived[N: usize]: Base[N] = trait {};
+
+type X = struct {};
+
+impl[N: usize] *X: Derived[N] {}
+
+impl[N: usize] *X: Base[N] {
+    fn value() i32 {
+        return N as i32;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let derived = *Derived[4].{ x.& };
+    return derived.value() - 4;
+}

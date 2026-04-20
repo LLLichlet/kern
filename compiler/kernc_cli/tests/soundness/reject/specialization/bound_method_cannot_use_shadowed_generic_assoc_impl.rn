@@ -1,0 +1,40 @@
+// Bound-method lookup should agree with direct proof search: once a more-
+// specific impl matches, method availability cannot fall back to the shadowed
+// generic impl's associated type equality.
+// stderr: type does not satisfy trait bounds
+// stderr: *X: Factory[4, Out = i32]
+
+type Factory[N: usize] = trait {
+    type Out;
+    make: fn() Out,
+};
+
+type X = struct {};
+
+impl[N: usize] *X: Factory[N] {
+    type Out = i32;
+
+    fn make() Out {
+        return 1;
+    }
+}
+
+impl *X: Factory[4] {
+    type Out = i64;
+
+    fn make() Out {
+        return 9;
+    }
+}
+
+fn call[N: usize](x: *X) i32
+    where *X: Factory[N, Out = i32],
+{
+    let _ = x.make();
+    return 0;
+}
+
+fn main() i32 {
+    let x = X.{};
+    return call[4](x.&);
+}

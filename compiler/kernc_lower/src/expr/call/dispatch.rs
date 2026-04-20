@@ -67,6 +67,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     callee_id,
                     recv,
                     arg_masts,
+                    subst_map,
                     MethodCallSite {
                         field,
                         norm_callee,
@@ -87,6 +88,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         callee_id: NodeId,
         recv: MastExpr,
         arg_masts: Vec<MastExpr>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         call: MethodCallSite,
     ) -> MastExprKind {
         // Resolve methods against the type that actually owns the implementation.
@@ -106,6 +108,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .get(&callee_id)
             .copied()
             .unwrap_or(inner_ty);
+        let owner_trait_ty = self.substitute_type_with_map(owner_trait_ty, subst_map);
 
         self.lower_resolved_trait_method_call(recv, arg_masts, owner_trait_ty, call)
     }

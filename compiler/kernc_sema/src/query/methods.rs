@@ -83,58 +83,25 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return false;
         }
 
-        let mut map = FastHashMap::default();
         let mut matched_bounds = if can_use_cache {
             Some(Vec::new())
         } else {
             None
         };
         for (env_target, bound_tys) in env.active_bounds() {
-            map.clear();
-            let matched = if *env_target == search_norm {
-                true
-            } else {
-                let mut checker = ExprChecker::new(self.ctx, None);
-                checker.unify(*env_target, search_norm, &mut map)
-            };
-            if !matched {
-                continue;
-            }
-
-            if map.is_empty() {
-                for bound_ty in bound_tys.iter().copied() {
-                    if matches!(
-                        self.ctx.type_registry.get(bound_ty),
-                        TypeKind::TraitObject(..)
-                    ) {
-                        if let Some(bounds) = matched_bounds.as_mut() {
-                            bounds.push(bound_ty);
-                        }
-                        if visit(self, bound_ty) {
-                            if let Some(bounds) = matched_bounds {
-                                self.ctx.bound_trait_match_cache.insert(search_norm, bounds);
-                            }
-                            return true;
-                        }
-                    }
-                }
+            if *env_target != search_norm {
                 continue;
             }
 
             for bound_ty in bound_tys.iter().copied() {
-                let substituted = {
-                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                    subst.substitute(bound_ty)
-                };
-                let bound_norm = self.ctx.type_registry.normalize(substituted);
                 if matches!(
-                    self.ctx.type_registry.get(bound_norm),
+                    self.ctx.type_registry.get(bound_ty),
                     TypeKind::TraitObject(..)
                 ) {
                     if let Some(bounds) = matched_bounds.as_mut() {
-                        bounds.push(bound_norm);
+                        bounds.push(bound_ty);
                     }
-                    if visit(self, bound_norm) {
+                    if visit(self, bound_ty) {
                         if let Some(bounds) = matched_bounds {
                             self.ctx.bound_trait_match_cache.insert(search_norm, bounds);
                         }

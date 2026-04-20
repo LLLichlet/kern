@@ -2560,6 +2560,49 @@ fn main() i32 {
 }
 
 #[test]
+fn dispatches_bound_methods_through_const_specific_trait_args() {
+    let output = build_and_run_source(
+        r#"
+type Family[N: usize] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl *X: Family[1] {
+    fn value() i32 {
+        return 11;
+    }
+}
+
+impl *X: Family[2] {
+    fn value() i32 {
+        return 22;
+    }
+}
+
+fn call[N: usize](x: *X) i32
+    where *X: Family[N],
+{
+    return x.value();
+}
+
+fn main() i32 {
+    let x = X.{};
+    return call[2](x.&) - 22;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn casts_to_const_generic_trait_object_from_generic_impl() {
     let output = build_and_run_source(
         r#"

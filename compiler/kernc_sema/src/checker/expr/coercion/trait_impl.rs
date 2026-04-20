@@ -853,97 +853,61 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         target_trait_ty: TypeId,
         _visited: &mut FastHashSet<DefId>,
     ) -> bool {
+        let target_trait_norm = self.resolve_tv(target_trait_ty);
+        let TypeKind::TraitObject(trait_def_id, trait_args, _) =
+            self.ctx.type_registry.get(target_trait_norm).clone()
+        else {
+            return false;
+        };
+
         let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impls.as_slice());
+        let mut selected_impl_id: Option<DefId> = None;
+
         // Safety: this helper only reads the collected impl id list; it never mutates the vec.
         for impl_id in unsafe { &*trait_impl_ids_ptr }.iter().copied() {
-            let Some(impl_ptr) = self
-                .ctx
-                .defs
-                .get(impl_id.0 as usize)
-                .and_then(|def| match def {
-                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                    _ => None,
-                })
-            else {
+            if !matches!(self.ctx.defs.get(impl_id.0 as usize), Some(Def::Impl(_))) {
                 continue;
-            };
+            }
 
             {
                 let mut resolver = TypeResolver::new(self.ctx);
                 resolver.ensure_impl_signature_types_resolved(impl_id);
             }
 
-            if self.ctx.non_decreasing_impl_requirement(impl_id).is_some() {
-                continue;
-            }
-
-            // Safety: semantic definitions are stable during type queries; use a raw pointer
-            // to avoid cloning each impl block on every trait-impl check.
-            let impl_def = unsafe { &*impl_ptr };
-            let Some(trait_ast) = &impl_def.trait_type else {
-                continue;
-            };
-
-            let impl_target_ty = self
-                .ctx
-                .node_types
-                .get(&impl_def.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            let impl_trait_ty = self
-                .ctx
-                .node_types
-                .get(&trait_ast.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-
-            if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
-                continue;
-            }
-
-            let mut type_map = FastHashMap::default();
-            let mut const_map = FastHashMap::default();
-
-            if self.match_available_type_against_requirement(
-                impl_target_ty,
+            if crate::query::resolve_trait_impl_head_obligation(
+                self.ctx,
                 source_ty,
-                &mut type_map,
-                &mut const_map,
-            ) {
-                let instantiated_trait_ty = self.substitute_type_with_unification_maps(
-                    impl_trait_ty,
-                    &type_map,
-                    &const_map,
-                );
-                let mut trait_type_map = type_map.clone();
-                let mut trait_const_map = const_map.clone();
-                if self.match_available_type_against_requirement(
-                    instantiated_trait_ty,
-                    target_trait_ty,
-                    &mut trait_type_map,
-                    &mut trait_const_map,
-                ) && crate::query::impl_bounds_satisfied(
-                    self,
-                    &impl_def.where_clauses,
-                    &trait_type_map,
-                    &trait_const_map,
-                ) {
-                    return true;
-                }
+                trait_def_id,
+                &trait_args,
+                impl_id,
+            )
+            .is_none()
+            {
+                continue;
+            }
 
-                if self.trait_obligation_matches_available_trait(
-                    instantiated_trait_ty,
-                    target_trait_ty,
-                ) && crate::query::impl_bounds_satisfied(
-                    self,
-                    &impl_def.where_clauses,
-                    &type_map,
-                    &const_map,
-                ) {
-                    return true;
-                }
+            let replace = match selected_impl_id {
+                None => true,
+                Some(current_impl_id) => matches!(
+                    crate::query::compare_impl_specificity(self.ctx, impl_id, current_impl_id),
+                    crate::query::ImplSpecificity::LeftMoreSpecific
+                ),
+            };
+            if replace {
+                selected_impl_id = Some(impl_id);
             }
         }
-        false
+
+        let Some(selected_impl_id) = selected_impl_id else {
+            return false;
+        };
+
+        crate::query::resolve_trait_impl_obligation(
+            self.ctx,
+            source_ty,
+            target_trait_ty,
+            selected_impl_id,
+        )
+        .is_some()
     }
 }

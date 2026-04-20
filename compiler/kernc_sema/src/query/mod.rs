@@ -495,6 +495,41 @@ pub fn resolve_trait_impl_head_obligation(
     resolve_trait_impl_obligation_inner(ctx, receiver_ty, target_trait_ty, impl_id, true)
 }
 
+pub(crate) fn instantiate_impl_trait_ty(
+    ctx: &mut SemaContext<'_>,
+    impl_id: DefId,
+    impl_args: &[crate::ty::GenericArg],
+) -> Option<TypeId> {
+    let impl_def = ctx.defs.get(impl_id.0 as usize).and_then(|def| match def {
+        Def::Impl(impl_def) => Some(impl_def.clone()),
+        _ => None,
+    })?;
+    let impl_trait_node = impl_def.trait_type.as_ref()?;
+    let impl_trait_ty = ctx
+        .node_types
+        .get(&impl_trait_node.id)
+        .copied()
+        .unwrap_or(TypeId::ERROR);
+    if impl_trait_ty == TypeId::ERROR {
+        return None;
+    }
+
+    let subst_map = impl_def
+        .generics
+        .iter()
+        .zip(impl_args.iter().copied())
+        .map(|(param, arg)| (param.name, arg))
+        .collect::<FastHashMap<_, _>>();
+    let inst_trait_ty = if subst_map.is_empty() {
+        impl_trait_ty
+    } else {
+        let mut subst = Substituter::new(&mut ctx.type_registry, &subst_map);
+        subst.substitute(impl_trait_ty)
+    };
+
+    Some(ctx.type_registry.normalize(inst_trait_ty))
+}
+
 fn resolve_trait_impl_obligation_inner(
     ctx: &mut SemaContext<'_>,
     receiver_ty: TypeId,
@@ -606,27 +641,15 @@ fn resolve_trait_impl_obligation_inner(
     };
 
     if !target_assoc_bindings.is_empty() {
-        let subst_map = impl_def
-            .generics
-            .iter()
-            .zip(resolved_args.iter().copied())
-            .map(|(param, arg)| (param.name, arg))
-            .collect::<FastHashMap<_, _>>();
-        let instantiated_impl_trait_ty = if subst_map.is_empty() {
-            impl_trait_ty
-        } else {
-            let mut subst = Substituter::new(&mut checker.ctx.type_registry, &subst_map);
-            subst.substitute(impl_trait_ty)
+        let Some(instantiated_impl_trait_ty) =
+            instantiate_impl_trait_ty(checker.ctx, impl_id, &resolved_args)
+        else {
+            return None;
         };
         let TypeKind::TraitObject(_, _, impl_assoc_bindings) = checker
             .ctx
             .type_registry
-            .get(
-                checker
-                    .ctx
-                    .type_registry
-                    .normalize(instantiated_impl_trait_ty),
-            )
+            .get(instantiated_impl_trait_ty)
             .clone()
         else {
             return None;

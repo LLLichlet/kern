@@ -285,68 +285,33 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         trait_args: &[crate::ty::GenericArg],
         assoc_def_id: DefId,
     ) -> Option<TypeId> {
-        let expected_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
-            trait_def_id,
-            trait_args.to_vec(),
-            Vec::new(),
-        ));
         let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impls.as_slice());
         let mut selected: Option<(DefId, TypeId)> = None;
 
         for impl_id in unsafe { &*trait_impl_ids_ptr }.iter().copied() {
-            let Some(impl_ptr) = self
-                .ctx
-                .defs
-                .get(impl_id.0 as usize)
-                .and_then(|def| match def {
-                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                    _ => None,
-                })
-            else {
+            if !matches!(self.ctx.defs.get(impl_id.0 as usize), Some(Def::Impl(_))) {
                 continue;
-            };
+            }
 
             {
                 let mut resolver = TypeResolver::new(self.ctx);
                 resolver.ensure_impl_signature_types_resolved(impl_id);
             }
 
-            let impl_def = unsafe { &*impl_ptr };
-            let Some(trait_ast) = &impl_def.trait_type else {
+            let Some(impl_args) = crate::query::resolve_trait_impl_head_obligation(
+                self.ctx,
+                target_ty,
+                trait_def_id,
+                trait_args,
+                impl_id,
+            ) else {
                 continue;
             };
-
-            let impl_target_ty = self
-                .ctx
-                .node_types
-                .get(&impl_def.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            let impl_trait_ty = self
-                .ctx
-                .node_types
-                .get(&trait_ast.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-
-            if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
+            let Some(inst_trait_norm) =
+                crate::query::instantiate_impl_trait_ty(self.ctx, impl_id, &impl_args)
+            else {
                 continue;
-            }
-
-            let mut type_map = FastHashMap::default();
-            let mut const_map = FastHashMap::default();
-            if !self.match_available_type_against_requirement(
-                impl_target_ty,
-                target_ty,
-                &mut type_map,
-                &mut const_map,
-            ) {
-                continue;
-            }
-
-            let inst_trait_ty =
-                self.substitute_type_with_unification_maps(impl_trait_ty, &type_map, &const_map);
-            let inst_trait_norm = self.resolve_tv(inst_trait_ty);
+            };
             let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) =
                 self.ctx.type_registry.get(inst_trait_norm).clone()
             else {
@@ -355,20 +320,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if bound_trait_def_id != trait_def_id {
                 continue;
             }
-
-            let mut trait_type_map = FastHashMap::default();
-            let mut trait_const_map = FastHashMap::default();
-            let inst_trait_head_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
-                bound_trait_def_id,
-                bound_trait_args,
-                Vec::new(),
-            ));
-            if !self.match_available_type_against_requirement(
-                inst_trait_head_ty,
-                expected_trait_ty,
-                &mut trait_type_map,
-                &mut trait_const_map,
-            ) {
+            if bound_trait_args != trait_args {
                 continue;
             }
 

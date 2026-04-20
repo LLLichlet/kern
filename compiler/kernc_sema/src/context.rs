@@ -1180,12 +1180,9 @@ impl<'a> SemaContext<'a> {
             let trait_impls = self.trait_impls.clone();
             let mut selected: Option<(DefId, DefId, TypeId)> = None;
             for impl_id in trait_impls {
-                let Some(impl_ptr) = self.defs.get(impl_id.0 as usize).and_then(|def| match def {
-                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                    _ => None,
-                }) else {
+                if !matches!(self.defs.get(impl_id.0 as usize), Some(Def::Impl(_))) {
                     continue;
-                };
+                }
 
                 let Some(impl_args) = crate::query::resolve_trait_impl_head_obligation(
                     self,
@@ -1197,34 +1194,14 @@ impl<'a> SemaContext<'a> {
                     continue;
                 };
 
-                let impl_def = unsafe { &*impl_ptr };
-                let Some(trait_ast) = &impl_def.trait_type else {
+                let Some(inst_trait_ty) =
+                    crate::query::instantiate_impl_trait_ty(self, impl_id, &impl_args)
+                else {
                     continue;
-                };
-                let impl_trait_ty = self
-                    .node_types
-                    .get(&trait_ast.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                if impl_trait_ty == TypeId::ERROR {
-                    continue;
-                }
-
-                let mut subst_map = HashMap::new();
-                for (param, arg) in impl_def.generics.iter().zip(impl_args.iter().copied()) {
-                    subst_map.insert(param.name, arg);
-                }
-                let inst_trait_ty = if subst_map.is_empty() {
-                    impl_trait_ty
-                } else {
-                    let mut subst = Substituter::new(&mut self.type_registry, &subst_map);
-                    subst.substitute(impl_trait_ty)
                 };
 
                 let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) =
-                    self.type_registry
-                        .get(self.type_registry.normalize(inst_trait_ty))
-                        .clone()
+                    self.type_registry.get(inst_trait_ty).clone()
                 else {
                     continue;
                 };
@@ -1255,6 +1232,10 @@ impl<'a> SemaContext<'a> {
             }
 
             let Some((_, impl_assoc_id, assoc_ty)) = selected else {
+                if self.projection_is_fully_concrete(ty) {
+                    self.emit_unresolved_projection_diagnostic(ty);
+                    return Some(TypeId::ERROR);
+                }
                 return None;
             };
             if let Some(ancestor_index) = projection_assoc_chain
@@ -1276,6 +1257,134 @@ impl<'a> SemaContext<'a> {
         let popped = projection_stack.pop();
         debug_assert_eq!(popped, Some(ty));
         result
+    }
+
+    fn projection_is_fully_concrete(&self, ty: TypeId) -> bool {
+        let TypeKind::Projection {
+            target,
+            trait_args,
+            assoc_args,
+            ..
+        } = self.type_registry.get(self.type_registry.normalize(ty)).clone()
+        else {
+            return false;
+        };
+
+        !self.type_contains_params_or_vars(target)
+            && trait_args
+                .into_iter()
+                .all(|arg| !self.generic_arg_contains_params_or_vars(arg))
+            && assoc_args
+                .into_iter()
+                .all(|arg| !self.generic_arg_contains_params_or_vars(arg))
+    }
+
+    fn type_contains_params_or_vars(&self, ty: TypeId) -> bool {
+        let norm = self.type_registry.normalize(ty);
+        match self.type_registry.get(norm).clone() {
+            TypeKind::Param(_) | TypeKind::TypeVar(_) => true,
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::Alias(_, elem)
+            | TypeKind::AnonymousEnumPayload(elem) => self.type_contains_params_or_vars(elem),
+            TypeKind::Array { elem, len, .. } => {
+                self.type_contains_params_or_vars(elem) || self.const_generic_contains_params_or_vars(len)
+            }
+            TypeKind::ArrayInfer { elem, .. } => self.type_contains_params_or_vars(elem),
+            TypeKind::Def(_, args)
+            | TypeKind::Enum(_, args)
+            | TypeKind::Associated(_, args)
+            | TypeKind::FnDef(_, args) => args
+                .into_iter()
+                .any(|arg| self.generic_arg_contains_params_or_vars(arg)),
+            TypeKind::TraitObject(_, args, assoc_bindings) => {
+                args.into_iter()
+                    .any(|arg| self.generic_arg_contains_params_or_vars(arg))
+                    || assoc_bindings
+                        .into_iter()
+                        .any(|(_, ty)| self.type_contains_params_or_vars(ty))
+            }
+            TypeKind::Projection {
+                target,
+                trait_args,
+                assoc_args,
+                ..
+            } => {
+                self.type_contains_params_or_vars(target)
+                    || trait_args
+                        .into_iter()
+                        .any(|arg| self.generic_arg_contains_params_or_vars(arg))
+                    || assoc_args
+                        .into_iter()
+                        .any(|arg| self.generic_arg_contains_params_or_vars(arg))
+            }
+            TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
+                params
+                    .into_iter()
+                    .any(|param| self.type_contains_params_or_vars(param))
+                    || self.type_contains_params_or_vars(ret)
+            }
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => {
+                captures
+                    .into_iter()
+                    .any(|capture| self.type_contains_params_or_vars(capture))
+                    || params
+                        .into_iter()
+                        .any(|param| self.type_contains_params_or_vars(param))
+                    || self.type_contains_params_or_vars(ret)
+            }
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields
+                .into_iter()
+                .any(|field| self.type_contains_params_or_vars(field.ty)),
+            TypeKind::AnonymousEnum(enum_def) => enum_def.variants.into_iter().any(|variant| {
+                variant
+                    .payload_ty
+                    .is_some_and(|payload_ty| self.type_contains_params_or_vars(payload_ty))
+            }),
+            _ => false,
+        }
+    }
+
+    fn generic_arg_contains_params_or_vars(&self, arg: GenericArg) -> bool {
+        match arg {
+            GenericArg::Type(ty) => ty == TypeId::ERROR || self.type_contains_params_or_vars(ty),
+            GenericArg::Const(value) => self.const_generic_contains_params_or_vars(value),
+        }
+    }
+
+    fn const_generic_contains_params_or_vars(&self, value: crate::ty::ConstGeneric) -> bool {
+        self.type_registry.const_generic_contains_params(value)
+    }
+
+    pub(crate) fn emit_unresolved_projection_diagnostic(&mut self, projection_ty: TypeId) {
+        let projection_ty = self.type_registry.normalize(projection_ty);
+        let span = match self.type_registry.get(projection_ty) {
+            TypeKind::Projection { assoc_def_id, .. } => self
+                .defs
+                .get(assoc_def_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::AssociatedType(def) => Some(def.span),
+                    _ => None,
+                })
+                .unwrap_or_default(),
+            _ => Span::default(),
+        };
+
+        self.struct_error(
+            span,
+            format!(
+                "cannot resolve associated type projection `{}`",
+                self.ty_to_string(projection_ty)
+            ),
+        )
+        .with_hint("no in-scope bound or applicable impl proves this associated type")
+        .emit();
     }
 
     pub(crate) fn emit_projection_cycle_diagnostic(&mut self, cycle: &[TypeId]) {

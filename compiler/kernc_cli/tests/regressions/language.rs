@@ -1960,6 +1960,72 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_more_specific_overlap_with_conflicting_associated_type_proofs() {
+    let output = compile_source(
+        r#"
+type TypeIs[T] = trait {
+    type Is;
+};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+type FakeProof[L, R] = struct {};
+
+impl[L, R] FakeProof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+fn rewrite[R, Rw](value: Rw.TypeIs[R].Is) R
+    where Rw: TypeIs[R, Is = R],
+{
+    return value;
+}
+
+fn cast[L, R](value: L) R
+    where FakeProof[L, R]: TypeIs[R, Is = L],
+{
+    return rewrite[R, FakeProof[L, R]](value);
+}
+
+fn seed() i32 {
+    return 11;
+}
+
+fn forge[R]() R {
+    return cast[fn() i32, R](seed);
+}
+
+fn main() i32 {
+    return forge[i32]();
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds")
+            || stderr.contains("cannot resolve associated type projection"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("FakeProof[L, R]: TypeIs[R, Is = R]")
+            || stderr.contains("TypeIs[R, Is = R]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_overlapping_trait_impls_with_conflicting_associated_type_proofs() {
     let output = compile_source(
         r#"
@@ -2016,6 +2082,159 @@ fn main() i32 {
     );
     assert!(
         stderr.contains("associated type projection ambiguous") || stderr.contains("global proofs"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_projection_from_global_impl_with_unsatisfied_where_clause() {
+    let output = compile_source(
+        r#"
+type Need = trait {};
+
+type HasOut = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl[T] T: HasOut
+    where T: Need,
+{
+    type Out = i32;
+}
+
+fn take(value: X.HasOut.Out) i32 {
+    return value;
+}
+
+fn main() i32 {
+    return take(7);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds")
+            || stderr.contains("cannot resolve associated type projection")
+            || stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_direct_trait_proof_against_shadowed_generic_assoc_impl() {
+    let output = compile_source(
+        r#"
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl[N: usize] X: HasOut[N] {
+    type Out = i32;
+}
+
+impl X: HasOut[4] {
+    type Out = i64;
+}
+
+fn need[T](value: T) void
+    where T: HasOut[4, Out = i32],
+{
+    let _ = value;
+}
+
+fn main() i32 {
+    need(X.{});
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("X: HasOut[4, Out = i32]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_trait_object_assoc_binding_against_shadowed_generic_impl() {
+    let output = compile_source(
+        r#"
+type Factory[N: usize] = trait {
+    type Out;
+    make: fn() Out,
+};
+
+type X = struct {};
+
+impl[N: usize] *X: Factory[N] {
+    type Out = i32;
+
+    fn make() Out {
+        return 1;
+    }
+}
+
+impl *X: Factory[4] {
+    type Out = i64;
+
+    fn make() Out {
+        return 9;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let _ = *Factory[4, Out = i32].{ x.& };
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types")
+            || stderr.contains("type does not satisfy trait bounds")
+            || stderr.contains("does not implement the target trait"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Factory[4, Out = i32]") || stderr.contains("Out = i32"),
         "unexpected stderr:\n{}",
         stderr
     );

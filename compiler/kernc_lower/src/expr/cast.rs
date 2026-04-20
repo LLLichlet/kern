@@ -107,6 +107,27 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return rewritten;
         }
 
+        if let TypeKind::Pointer { elem, .. } = exp_kind
+            && matches!(
+                self.ctx
+                    .type_registry
+                    .get(self.ctx.type_registry.normalize(elem)),
+                TypeKind::TraitObject(..)
+            )
+            && let TypeKind::Array {
+                elem: array_elem,
+                is_mut,
+                ..
+            } = conc_kind
+        {
+            let slice_ty = self.ctx.type_registry.intern(TypeKind::Slice {
+                elem: array_elem,
+                is_mut,
+            });
+            let slice_expr = self.apply_implicit_cast(mast_kind, concrete_ty, slice_ty, span);
+            return self.apply_implicit_cast(slice_expr.kind, slice_ty, exp_ty, span);
+        }
+
         // 1. Implicit array-to-slice conversion.
         if let TypeKind::Slice { .. } = exp_kind
             && let TypeKind::Array { .. } = conc_kind

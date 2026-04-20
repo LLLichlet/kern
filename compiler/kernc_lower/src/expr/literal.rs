@@ -338,11 +338,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     // Treat these as empty aggregates so they are still instantiated correctly.
                     self.lower_struct_union_data_init(&[], subst_map, concrete_ty)
                 } else {
-                    self.lower_array_init(elems, subst_map, concrete_ty)
+                    self.lower_array_init(elems, subst_map, concrete_ty, span)
                 }
             }
             ast::DataLiteralKind::Repeat { value, .. } => {
-                self.lower_repeat_init(value, subst_map, concrete_ty)
+                self.lower_repeat_init(value, subst_map, concrete_ty, span)
             }
             ast::DataLiteralKind::Scalar(inner) => {
                 self.lower_scalar_init(inner, subst_map, concrete_ty, span)
@@ -714,12 +714,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         elems: &[Expr],
         subst_map: &HashMap<SymbolId, GenericArg>,
         concrete_ty: TypeId,
+        span: Span,
     ) -> MastExprKind {
         let elem_ty = self.ctx.type_registry.get_elem_type(concrete_ty);
         let lowered_elems = elems
             .iter()
             .map(|e| self.lower_expr(e, subst_map, elem_ty))
-            .collect();
+            .collect::<Vec<_>>();
+
+        if let Some(backing_array_ty) =
+            self.slice_literal_backing_array_ty(concrete_ty, elems.len())
+        {
+            // Explicit slice literals still need concrete backing storage before array decay.
+            return MastExprKind::Cast {
+                kind: MastCastKind::ArrayToSlice,
+                operand: Box::new(MastExpr::new(
+                    backing_array_ty,
+                    MastExprKind::ArrayInit(lowered_elems),
+                    span,
+                )),
+            };
+        }
+
         MastExprKind::ArrayInit(lowered_elems)
     }
 
@@ -728,6 +744,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         value: &Expr,
         subst_map: &HashMap<SymbolId, GenericArg>,
         concrete_ty: TypeId,
+        span: Span,
     ) -> MastExprKind {
         let elem_ty = self.ctx.type_registry.get_elem_type(concrete_ty);
         let elem = self.lower_expr(value, subst_map, elem_ty);
@@ -740,7 +757,39 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } else {
             0
         };
-        MastExprKind::ArrayInit(vec![elem; array_len as usize])
+        let repeated = vec![elem; array_len as usize];
+
+        if let Some(backing_array_ty) =
+            self.slice_literal_backing_array_ty(concrete_ty, array_len as usize)
+        {
+            return MastExprKind::Cast {
+                kind: MastCastKind::ArrayToSlice,
+                operand: Box::new(MastExpr::new(
+                    backing_array_ty,
+                    MastExprKind::ArrayInit(repeated),
+                    span,
+                )),
+            };
+        }
+
+        MastExprKind::ArrayInit(repeated)
+    }
+
+    fn slice_literal_backing_array_ty(
+        &mut self,
+        concrete_ty: TypeId,
+        len: usize,
+    ) -> Option<TypeId> {
+        let norm = self.ctx.type_registry.normalize(concrete_ty);
+        let TypeKind::Slice { elem, is_mut } = self.ctx.type_registry.get(norm).clone() else {
+            return None;
+        };
+
+        Some(self.ctx.type_registry.intern(TypeKind::Array {
+            is_mut,
+            elem,
+            len: self.usize_const_generic(len as u64),
+        }))
     }
 
     pub(crate) fn lower_scalar_init(

@@ -311,8 +311,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MirRvalue::Binary { op, lhs, rhs } => {
                 let lhs_ty = self.mir_operand_ty(body, lhs).unwrap_or(TypeId::ERROR);
                 let rhs_ty = self.mir_operand_ty(body, rhs).unwrap_or(TypeId::ERROR);
+                let result_ty = expected_ty.unwrap_or(lhs_ty);
                 if self.type_registry.is_simd(lhs_ty) {
-                    let result_ty = expected_ty.unwrap_or({
+                    let simd_result_ty = expected_ty.unwrap_or({
                         if matches!(
                             op,
                             BinaryOperator::Equal
@@ -327,7 +328,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             lhs_ty
                         }
                     });
-                    return self.compile_mir_simd_binary(body, *op, lhs, rhs, result_ty);
+                    return self.compile_mir_simd_binary(body, *op, lhs, rhs, simd_result_ty);
                 }
 
                 let lhs_val = self.compile_mir_operand(body, lhs);
@@ -336,11 +337,36 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 if lhs_val.is_pointer_value() || rhs_val.is_pointer_value() {
                     self.compile_ptr_math(*op, lhs_val, rhs_val, lhs_ty, rhs_ty, Span::default())
                 } else if lhs_val.is_int_value() && rhs_val.is_int_value() {
+                    // Sema can contextualize arithmetic to a wider integer result without
+                    // leaving behind an explicit cast node in MIR.
+                    let arithmetic_result = !matches!(
+                        op,
+                        BinaryOperator::Equal
+                            | BinaryOperator::NotEqual
+                            | BinaryOperator::LessThan
+                            | BinaryOperator::LessOrEqual
+                            | BinaryOperator::GreaterThan
+                            | BinaryOperator::GreaterOrEqual
+                    );
+                    let lhs_int = if arithmetic_result && self.type_registry.is_integer(result_ty) {
+                        self.cast_mir_int_to_expected_type(lhs_val.into_int_value(), result_ty)
+                    } else {
+                        lhs_val.into_int_value()
+                    };
+                    let rhs_int = if arithmetic_result && self.type_registry.is_integer(result_ty) {
+                        self.cast_mir_int_to_expected_type(rhs_val.into_int_value(), result_ty)
+                    } else {
+                        rhs_val.into_int_value()
+                    };
                     self.compile_int_math(
                         *op,
-                        lhs_val.into_int_value(),
-                        rhs_val.into_int_value(),
-                        self.is_signed_int(lhs_ty),
+                        lhs_int,
+                        rhs_int,
+                        if arithmetic_result {
+                            self.is_signed_int(result_ty)
+                        } else {
+                            self.is_signed_int(lhs_ty)
+                        },
                         Span::default(),
                     )
                 } else if lhs_val.is_float_value() && rhs_val.is_float_value() {

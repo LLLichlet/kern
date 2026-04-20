@@ -31,7 +31,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return result_llvm_ty.const_zero();
         };
         let start_val = if let Some(start) = start {
-            self.compile_mir_operand(body, start).into_int_value()
+            self.compile_mir_index_operand(body, start)
         } else {
             self.context.i64_type().const_zero()
         };
@@ -39,7 +39,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return result_llvm_ty.const_zero();
         }
         let end_val = if let Some(end) = end {
-            self.compile_mir_operand(body, end).into_int_value()
+            self.compile_mir_index_operand(body, end)
         } else if let Some(base_len) = base_len {
             base_len
         } else {

@@ -227,6 +227,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
+        let actual_norm = self.resolve_tv(actual_ty);
+        if let TypeKind::Array { elem, is_mut, .. } =
+            self.ctx.type_registry.get(actual_norm).clone()
+        {
+            let slice_ty = self
+                .ctx
+                .type_registry
+                .intern(TypeKind::Slice { elem, is_mut });
+            if self.check_trait_impl(slice_ty, expected_elem) {
+                return true;
+            }
+        }
+
         let virtual_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: expected_mut,
             elem: actual_ty,

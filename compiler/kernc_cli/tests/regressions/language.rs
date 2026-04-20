@@ -104,6 +104,167 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_direct_array_printing_through_slice_trait_coercion() {
+    let output = build_and_run_source_with_std(
+        r#"
+use std.io;
+
+fn main() i32 {
+    let array = [3]mut i32.{ 1, 2, 3 };
+    io.println("{}", .{ array, });
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "[1, 2, 3]\n");
+}
+
+#[test]
+fn rejects_passing_explicit_slice_literal_to_fixed_array_parameter() {
+    let output = compile_source(
+        r#"
+fn take(items: [3]mut i32) i32 {
+    return items.[1];
+}
+
+fn main() i32 {
+    return take([]mut i32.{ 1, 2, 3 });
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted an explicit slice literal as `[3]mut i32`:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expected `[3]mut i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("found `[]mut i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn runs_explicit_slice_literals_with_local_backing_storage() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let items = []mut i32.{ 1, 2, 3 };
+    items.[1] = 9;
+    return items.[1] - 9;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_computed_mut_slice_element_address_of_with_signed_index() {
+    let output = build_and_run_source(
+        r#"
+fn bump(ptr: *mut i32) void {
+    ptr.* += 1;
+}
+
+fn main() i32 {
+    let array = [3]mut i32.{ 10, 20, 30 };
+    let view = array..[0 .. 3];
+    let i = i32.{0};
+    bump(view.[i + 1]..&);
+    return view.[1] - 21;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_in_place_quicksort_on_mut_slice() {
+    let output = build_and_run_source(
+        r#"
+fn swap(a: *mut i32, b: *mut i32) void {
+    let t = a.*;
+    a.* = b.*;
+    b.* = t;
+}
+
+fn partition(arr: []mut i32, low: i32, high: i32) i32 {
+    let pivot = arr.[high];
+    let mut i = low - 1;
+
+    for (let mut j = low; j <= high - 1; j += 1) {
+        if (arr.[j] < pivot) {
+            i += 1;
+            swap(arr.[i]..&, arr.[j]..&);
+        }
+    }
+
+    let pivot_idx = i + 1;
+    swap(arr.[pivot_idx]..&, arr.[high]..&);
+    return pivot_idx;
+}
+
+fn quick_sort(arr: []mut i32, low: i32, high: i32) void {
+    if (low < high) {
+        let pivot = partition(arr, low, high);
+        quick_sort(arr, low, pivot - 1);
+        quick_sort(arr, pivot + 1, high);
+    }
+}
+
+fn main() i32 {
+    let array = [8]mut i32.{ 1, 23, 3, 7, 8, 29, 28, 57 };
+    let view = array..[0 .. 8];
+    quick_sort(view, 0, 7);
+
+    let expected = [8]i32.{ 1, 3, 7, 8, 23, 28, 29, 57 };
+    for (let mut i = 0; i < 8; i += 1) {
+        if (array.[i] != expected.[i]) {
+            return (i as i32) + 1;
+        }
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_explicit_loc_intrinsic_and_const_loc_values() {
     let output = build_and_run_source(
         r#"

@@ -1,4 +1,6 @@
 use super::*;
+use crate::types::IntType;
+use crate::values::IntValue;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(super) fn lookup_mir_local_ptr(
@@ -31,6 +33,61 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MirOperand::Local(local) => body.locals.get(local.0 as usize).map(|local| local.ty),
             MirOperand::Const(value) => Some(value.ty()),
         }
+    }
+
+    fn cast_int_value_to_target_width(
+        &mut self,
+        value: IntValue<'ctx>,
+        target: IntType<'ctx>,
+        extend_signed: bool,
+    ) -> IntValue<'ctx> {
+        let source_width = value.get_type().bit_width();
+        let target_width = target.bit_width();
+
+        if source_width == target_width {
+            return value;
+        }
+
+        if source_width < target_width {
+            if extend_signed {
+                self.builder
+                    .build_int_s_extend(value, target, "mir_idx_sext")
+                    .unwrap()
+            } else {
+                self.builder
+                    .build_int_z_extend(value, target, "mir_idx_zext")
+                    .unwrap()
+            }
+        } else {
+            self.builder
+                .build_int_truncate(value, target, "mir_idx_trunc")
+                .unwrap()
+        }
+    }
+
+    pub(super) fn compile_mir_index_operand(
+        &mut self,
+        body: &MirBody,
+        operand: &MirOperand,
+    ) -> IntValue<'ctx> {
+        let source_ty = self.mir_operand_ty(body, operand).unwrap_or(TypeId::USIZE);
+        let value = self.compile_mir_operand(body, operand).into_int_value();
+        // GEP indices must use a stable widened integer so signed `i32` indices do not leak
+        // uninitialized high bits when a contextual `usize` temp is involved.
+        self.cast_int_value_to_target_width(
+            value,
+            self.context.i64_type(),
+            self.is_signed_int(source_ty),
+        )
+    }
+
+    pub(super) fn cast_mir_int_to_expected_type(
+        &mut self,
+        value: IntValue<'ctx>,
+        target_ty: TypeId,
+    ) -> IntValue<'ctx> {
+        let target = self.get_llvm_type(target_ty).into_int_type();
+        self.cast_int_value_to_target_width(value, target, self.is_signed_int(target_ty))
     }
 
     pub(super) fn mir_operand_pointee_ty(
@@ -306,7 +363,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .unwrap()
             }
             MirPlace::Index { base, index } => {
-                let idx_val = self.compile_mir_operand(body, index).into_int_value();
+                let idx_val = self.compile_mir_index_operand(body, index);
                 if self.current_block_is_terminated() {
                     return self.null_ptr();
                 }

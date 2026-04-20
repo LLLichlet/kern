@@ -521,30 +521,34 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> TypeId {
         // 1. Peel aliases and wrappers to inspect the real container type.
-        let (exp_elem_ty, expected_len, exp_is_mut) = match self.ctx.type_registry.get(exp_norm) {
-            TypeKind::Array { elem, len, is_mut } => (*elem, Some(*len), *is_mut),
-            TypeKind::ArrayInfer { elem, is_mut } => (*elem, None, *is_mut),
-            TypeKind::Slice { elem, is_mut } => (*elem, None, *is_mut),
-            TypeKind::Simd { elem, lanes } => (
-                *elem,
-                Some(ConstGeneric::Value(ConstGenericValue {
-                    ty: TypeId::USIZE,
-                    kind: ConstGenericValueKind::Int(*lanes as i128),
-                })),
-                false,
-            ),
-            _ => {
-                let ty_str = self.ctx.ty_to_string(expected);
-                self.ctx
-                    .struct_error(
-                        span,
-                        "expected an array, slice, or SIMD type for literal `.{ ... }`",
-                    )
-                    .with_hint(format!("context expects `{}`", ty_str))
-                    .emit();
-                return TypeId::ERROR;
-            }
-        };
+        let (exp_elem_ty, expected_len, exp_is_mut, preserve_slice_ty) =
+            match self.ctx.type_registry.get(exp_norm) {
+                TypeKind::Array { elem, len, is_mut } => (*elem, Some(*len), *is_mut, false),
+                TypeKind::ArrayInfer { elem, is_mut } => (*elem, None, *is_mut, false),
+                // Explicit `[]T.{ ... }` stays slice-typed. Only contextual array inference
+                // synthesizes a fresh `[N]T`.
+                TypeKind::Slice { elem, is_mut } => (*elem, None, *is_mut, true),
+                TypeKind::Simd { elem, lanes } => (
+                    *elem,
+                    Some(ConstGeneric::Value(ConstGenericValue {
+                        ty: TypeId::USIZE,
+                        kind: ConstGenericValueKind::Int(*lanes as i128),
+                    })),
+                    false,
+                    false,
+                ),
+                _ => {
+                    let ty_str = self.ctx.ty_to_string(expected);
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "expected an array, slice, or SIMD type for literal `.{ ... }`",
+                        )
+                        .with_hint(format!("context expects `{}`", ty_str))
+                        .emit();
+                    return TypeId::ERROR;
+                }
+            };
 
         // 2. Check the length when the target is a fixed-size array.
         if let Some(ConstGeneric::Value(len)) = expected_len
@@ -570,7 +574,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 4. Return the final inferred array type.
-        if expected_len.is_none() {
+        if preserve_slice_ty {
+            expected
+        } else if expected_len.is_none() {
             let actual_len = elems.len() as u64;
             if actual_len > u32::MAX as u64 {
                 self.ctx
@@ -613,44 +619,45 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> TypeId {
         // 1. Peel aliases and wrappers to inspect the real container type.
         let simd_info = self.ctx.type_registry.simd_info(exp_norm);
-        let (exp_elem_ty, is_infer, exp_is_mut) = match self.ctx.type_registry.get(exp_norm) {
-            TypeKind::Array { elem, is_mut, .. } => (*elem, false, *is_mut),
-            TypeKind::ArrayInfer { elem, is_mut } => (*elem, true, *is_mut),
-            TypeKind::Slice { elem, is_mut } => (*elem, true, *is_mut),
-            TypeKind::Simd { .. } => {
-                let mut ce = ConstEvaluator::new(self.ctx);
-                let Ok(actual_len) = ce.eval_usize(count) else {
-                    return TypeId::ERROR;
-                };
-                let Some((elem, lanes)) = simd_info else {
-                    return TypeId::ERROR;
-                };
-                if actual_len != lanes as u64 {
+        let (exp_elem_ty, is_infer, exp_is_mut, preserve_slice_ty) =
+            match self.ctx.type_registry.get(exp_norm) {
+                TypeKind::Array { elem, is_mut, .. } => (*elem, false, *is_mut, false),
+                TypeKind::ArrayInfer { elem, is_mut } => (*elem, true, *is_mut, false),
+                TypeKind::Slice { elem, is_mut } => (*elem, true, *is_mut, true),
+                TypeKind::Simd { .. } => {
+                    let mut ce = ConstEvaluator::new(self.ctx);
+                    let Ok(actual_len) = ce.eval_usize(count) else {
+                        return TypeId::ERROR;
+                    };
+                    let Some((elem, lanes)) = simd_info else {
+                        return TypeId::ERROR;
+                    };
+                    if actual_len != lanes as u64 {
+                        self.ctx
+                            .struct_error(
+                                count.span,
+                                format!(
+                                    "repeat literal count ({}) does not match SIMD lane count ({})",
+                                    actual_len, lanes
+                                ),
+                            )
+                            .emit();
+                        return TypeId::ERROR;
+                    }
+                    (elem, false, false, false)
+                }
+                _ => {
+                    let ty_str = self.ctx.ty_to_string(expected);
                     self.ctx
                         .struct_error(
-                            count.span,
-                            format!(
-                                "repeat literal count ({}) does not match SIMD lane count ({})",
-                                actual_len, lanes
-                            ),
+                            span,
+                            "expected an array, slice, or SIMD type for repeat literal `.{ v; N }`",
                         )
+                        .with_hint(format!("context expects `{}`", ty_str))
                         .emit();
                     return TypeId::ERROR;
                 }
-                (elem, false, false)
-            }
-            _ => {
-                let ty_str = self.ctx.ty_to_string(expected);
-                self.ctx
-                    .struct_error(
-                        span,
-                        "expected an array, slice, or SIMD type for repeat literal `.{ v; N }`",
-                    )
-                    .with_hint(format!("context expects `{}`", ty_str))
-                    .emit();
-                return TypeId::ERROR;
-            }
-        };
+            };
 
         // 2. Check the repeated element value.
         let val_ty = self.check_expr(value, Some(exp_elem_ty));
@@ -666,7 +673,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 4. Return the final array type.
-        if is_infer {
+        if preserve_slice_ty {
+            expected
+        } else if is_infer {
             let mut ce = ConstEvaluator::new(self.ctx);
             let Ok(actual_len) = ce.eval_usize(count) else {
                 return TypeId::ERROR;

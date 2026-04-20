@@ -1,0 +1,24 @@
+// class: const-generic-pattern
+// source: a nested typed enum pattern must use the instantiated const arguments of the payload type
+// stderr: mismatched types
+// stderr: expected `Inner[3]`
+// stderr: found `Inner[4]`
+
+type Inner[N: usize] = enum {
+    A: [N]u8,
+    B,
+};
+
+type Outer[N: usize] = enum {
+    Wrap: Inner[N],
+    Done,
+};
+
+fn main() i32 {
+    let value = Outer[3].{ Wrap: Inner[3].{ A: [3]u8.{ 1, 2, 3 } } };
+    return match (value) {
+        .{ Wrap: Inner[4].{ A: _ } } => 0,
+        .{ Wrap: .B } => 1,
+        .Done => 2,
+    };
+}

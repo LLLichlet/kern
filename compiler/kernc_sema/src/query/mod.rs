@@ -617,12 +617,11 @@ pub(crate) fn enrich_trait_object_assoc_bindings(
         .intern(TypeKind::TraitObject(trait_def_id, trait_args, merged))
 }
 
-pub(crate) fn trait_object_assoc_from_hierarchy(
+pub(crate) fn trait_object_view_from_hierarchy(
     ctx: &mut SemaContext<'_>,
     trait_ty: TypeId,
     target_trait_def_id: DefId,
     target_trait_args: &[crate::ty::GenericArg],
-    assoc_def_id: DefId,
 ) -> Option<TypeId> {
     let trait_ty = match ctx.type_registry.get(ctx.type_registry.normalize(trait_ty)).clone() {
         TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. }
@@ -636,22 +635,42 @@ pub(crate) fn trait_object_assoc_from_hierarchy(
         _ => trait_ty,
     };
     let mut visited = FastHashSet::default();
-    trait_object_assoc_from_hierarchy_inner(
+    trait_object_view_from_hierarchy_inner(
         ctx,
         trait_ty,
         target_trait_def_id,
         target_trait_args,
-        assoc_def_id,
         &mut visited,
     )
 }
 
-fn trait_object_assoc_from_hierarchy_inner(
+pub(crate) fn trait_object_assoc_from_hierarchy(
     ctx: &mut SemaContext<'_>,
     trait_ty: TypeId,
     target_trait_def_id: DefId,
     target_trait_args: &[crate::ty::GenericArg],
     assoc_def_id: DefId,
+) -> Option<TypeId> {
+    let trait_view = trait_object_view_from_hierarchy(
+        ctx,
+        trait_ty,
+        target_trait_def_id,
+        target_trait_args,
+    )?;
+    let TypeKind::TraitObject(_, _, assoc_bindings) = ctx.type_registry.get(trait_view).clone() else {
+        return None;
+    };
+    assoc_bindings
+        .into_iter()
+        .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+        .map(|(_, assoc_ty)| assoc_ty)
+}
+
+fn trait_object_view_from_hierarchy_inner(
+    ctx: &mut SemaContext<'_>,
+    trait_ty: TypeId,
+    target_trait_def_id: DefId,
+    target_trait_args: &[crate::ty::GenericArg],
     visited: &mut FastHashSet<TypeId>,
 ) -> Option<TypeId> {
     let trait_ty = ctx.type_registry.normalize(trait_ty);
@@ -666,12 +685,7 @@ fn trait_object_assoc_from_hierarchy_inner(
     };
 
     if trait_def_id == target_trait_def_id && trait_args == target_trait_args {
-        if let Some((_, assoc_ty)) = assoc_bindings
-            .iter()
-            .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
-        {
-            return Some(*assoc_ty);
-        }
+        return Some(trait_ty);
     }
 
     let Some(Def::Trait(trait_def)) = ctx.defs.get(trait_def_id.0 as usize).cloned() else {
@@ -699,12 +713,11 @@ fn trait_object_assoc_from_hierarchy_inner(
         );
         let enriched =
             augment_trait_object_assoc_bindings_from_map(ctx, substituted, &assoc_binding_map);
-        if let Some(found) = trait_object_assoc_from_hierarchy_inner(
+        if let Some(found) = trait_object_view_from_hierarchy_inner(
             ctx,
             enriched,
             target_trait_def_id,
             target_trait_args,
-            assoc_def_id,
             visited,
         ) {
             return Some(found);

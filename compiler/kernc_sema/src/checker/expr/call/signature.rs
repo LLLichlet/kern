@@ -218,15 +218,34 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 TypeKind::TraitObject(generic_def, generic_args, generic_assoc),
                 TypeKind::TraitObject(concrete_def, concrete_args, concrete_assoc),
             ) => {
-                generic_def == concrete_def
-                    && generic_args.len() == concrete_args.len()
-                    && generic_args
-                        .into_iter()
-                        .zip(concrete_args)
-                        .all(|(generic, concrete)| {
-                            self.infer_generic_arg_direct(generic, concrete, type_map, const_map)
-                        })
-                    && generic_assoc.len() == concrete_assoc.len()
+                let concrete_view = if generic_def == concrete_def {
+                    Some(self.ctx.type_registry.intern(TypeKind::TraitObject(
+                        concrete_def,
+                        concrete_args.clone(),
+                        concrete_assoc.clone(),
+                    )))
+                } else {
+                    crate::query::trait_object_view_from_hierarchy(
+                        self.ctx,
+                        concrete_ty,
+                        generic_def,
+                        &generic_args,
+                    )
+                };
+
+                let Some(concrete_view) = concrete_view else {
+                    return false;
+                };
+                let TypeKind::TraitObject(_, concrete_args, concrete_assoc) =
+                    self.ctx.type_registry.get(concrete_view).clone()
+                else {
+                    return false;
+                };
+
+                generic_args.len() == concrete_args.len()
+                    && generic_args.into_iter().zip(concrete_args).all(|(generic, concrete)| {
+                        self.infer_generic_arg_direct(generic, concrete, type_map, const_map)
+                    })
                     && generic_assoc.into_iter().all(|(assoc_def_id, generic_ty)| {
                         concrete_assoc
                             .iter()

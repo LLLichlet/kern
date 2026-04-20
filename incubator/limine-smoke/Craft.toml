@@ -1,0 +1,20 @@
+[package]
+name = "limine-smoke"
+version = "0.1.0"
+kern = "0.7.0"
+publish = false
+description = "Small freestanding Limine smoke package for craft resource-flow testing"
+readme = "README.md"
+license = "MIT"
+
+[runtime]
+entry = "none"
+libc = false
+bundle = "base"
+
+[[bin]]
+name = "kernel"
+root = "src/main.rn"
+
+[resources]
+limine = { path = "vendor/limine" }

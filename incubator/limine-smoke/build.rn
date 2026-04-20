@@ -1,0 +1,9 @@
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_arg_path("-T", "link/kernel.ld");
+
+    let _ = b.copy_resource_dir_to_artifact("limine", "boot", "boot");
+    let _ = b.copy_resource_dir_to_artifact("limine", "EFI", "EFI");
+    let _ = b.copy_package_file_to_artifact("boot/limine.conf", "boot/limine.conf");
+}

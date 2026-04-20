@@ -1,0 +1,5 @@
+#[export_name("_start")]
+fn kmain() void {
+    for (;;) {}
+    @unreachable();
+}

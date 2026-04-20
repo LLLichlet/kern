@@ -481,6 +481,31 @@ pub fn resolve_trait_impl_obligation(
     target_trait_ty: TypeId,
     impl_id: DefId,
 ) -> Option<Vec<crate::ty::GenericArg>> {
+    resolve_trait_impl_obligation_inner(ctx, receiver_ty, target_trait_ty, impl_id, false)
+}
+
+pub fn resolve_trait_impl_head_obligation(
+    ctx: &mut SemaContext<'_>,
+    receiver_ty: TypeId,
+    trait_def_id: DefId,
+    trait_args: &[crate::ty::GenericArg],
+    impl_id: DefId,
+) -> Option<Vec<crate::ty::GenericArg>> {
+    let target_trait_ty = ctx.type_registry.intern(TypeKind::TraitObject(
+        trait_def_id,
+        trait_args.to_vec(),
+        Vec::new(),
+    ));
+    resolve_trait_impl_obligation_inner(ctx, receiver_ty, target_trait_ty, impl_id, true)
+}
+
+fn resolve_trait_impl_obligation_inner(
+    ctx: &mut SemaContext<'_>,
+    receiver_ty: TypeId,
+    target_trait_ty: TypeId,
+    impl_id: DefId,
+    erase_impl_assoc_bindings: bool,
+) -> Option<Vec<crate::ty::GenericArg>> {
     let receiver_norm = ctx.type_registry.normalize(receiver_ty);
     let target_trait_norm = ctx.type_registry.normalize(target_trait_ty);
 
@@ -508,12 +533,15 @@ pub fn resolve_trait_impl_obligation(
         .get(&impl_def.target_type.id)
         .copied()
         .unwrap_or(TypeId::ERROR);
-    let impl_trait_ty = checker
+    let mut impl_trait_ty = checker
         .ctx
         .node_types
         .get(&impl_trait_node.id)
         .copied()
         .unwrap_or(TypeId::ERROR);
+    if erase_impl_assoc_bindings && impl_trait_ty != TypeId::ERROR {
+        impl_trait_ty = erase_impl_head_assoc_bindings(checker.ctx, impl_trait_ty);
+    }
 
     if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
         return None;

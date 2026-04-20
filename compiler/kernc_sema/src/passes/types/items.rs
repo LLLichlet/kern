@@ -10,6 +10,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.validate_supertrait_graph();
         self.validate_trait_impl_orphans();
         self.validate_trait_impl_coherence();
+        self.validate_impl_associated_type_targets();
     }
 
     fn collect_module_ids(&self) -> Vec<DefId> {
@@ -857,6 +858,47 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     "this prevents downstream packages from creating competing global proofs for the same foreign trait and foreign type family",
                 )
                 .emit();
+        }
+    }
+
+    fn validate_impl_associated_type_targets(&mut self) {
+        let trait_impl_ids = self.ctx.trait_impls.clone();
+        for impl_id in trait_impl_ids {
+            let Some(impl_def) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| {
+                if let Def::Impl(impl_def) = def {
+                    Some(impl_def.clone())
+                } else {
+                    None
+                }
+            }) else {
+                continue;
+            };
+
+            for assoc_id in impl_def.assoc_types {
+                let Some(assoc_def) = self.ctx.defs.get(assoc_id.0 as usize).and_then(|def| {
+                    if let Def::AssociatedType(assoc_def) = def {
+                        Some(assoc_def.clone())
+                    } else {
+                        None
+                    }
+                }) else {
+                    continue;
+                };
+                let Some(target) = assoc_def.target.as_ref() else {
+                    continue;
+                };
+                let resolved_target = self
+                    .ctx
+                    .node_types
+                    .get(&target.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                if resolved_target == TypeId::ERROR {
+                    continue;
+                }
+
+                let _ = self.ctx.normalize_concrete_type(resolved_target);
+            }
         }
     }
 

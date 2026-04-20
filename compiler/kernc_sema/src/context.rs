@@ -41,6 +41,7 @@ pub struct SemaStructureSnapshot {
     pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
     pub reported_recursive_layout_types: FastHashSet<TypeId>,
     pub reported_recursive_projection_types: FastHashSet<TypeId>,
+    pub reported_recursive_projection_assoc_defs: FastHashSet<DefId>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -131,6 +132,7 @@ pub struct SemaContext<'a> {
         FastHashMap<MemberResolutionQueryKey, crate::query::MemberResolution>,
     pub(crate) reported_recursive_layout_types: FastHashSet<TypeId>,
     pub(crate) reported_recursive_projection_types: FastHashSet<TypeId>,
+    pub(crate) reported_recursive_projection_assoc_defs: FastHashSet<DefId>,
     identifier_references: Vec<(Span, Span)>,
     semantic_definitions: BTreeMap<Span, SemanticDefinition>,
 }
@@ -229,6 +231,7 @@ impl<'a> SemaContext<'a> {
             member_resolution_query_cache: FastHashMap::default(),
             reported_recursive_layout_types: FastHashSet::default(),
             reported_recursive_projection_types: FastHashSet::default(),
+            reported_recursive_projection_assoc_defs: FastHashSet::default(),
             global_impls: Vec::new(),
             trait_impls: Vec::new(),
             impl_methods_by_name: FastHashMap::default(),
@@ -278,6 +281,9 @@ impl<'a> SemaContext<'a> {
             owner_scopes_by_def: self.owner_scopes_by_def.clone(),
             reported_recursive_layout_types: self.reported_recursive_layout_types.clone(),
             reported_recursive_projection_types: self.reported_recursive_projection_types.clone(),
+            reported_recursive_projection_assoc_defs: self
+                .reported_recursive_projection_assoc_defs
+                .clone(),
         }
     }
 
@@ -303,6 +309,7 @@ impl<'a> SemaContext<'a> {
             owner_scopes_by_def: self.owner_scopes_by_def,
             reported_recursive_layout_types: self.reported_recursive_layout_types,
             reported_recursive_projection_types: self.reported_recursive_projection_types,
+            reported_recursive_projection_assoc_defs: self.reported_recursive_projection_assoc_defs,
         }
     }
 
@@ -329,6 +336,8 @@ impl<'a> SemaContext<'a> {
         self.owner_scopes_by_def = snapshot.owner_scopes_by_def;
         self.reported_recursive_layout_types = snapshot.reported_recursive_layout_types;
         self.reported_recursive_projection_types = snapshot.reported_recursive_projection_types;
+        self.reported_recursive_projection_assoc_defs =
+            snapshot.reported_recursive_projection_assoc_defs;
         self.expr_timing_stats = ExprTimingStats::default();
         self.call_signature_instantiation_cache.clear();
         self.field_type_subst_cache.clear();
@@ -1075,7 +1084,13 @@ impl<'a> SemaContext<'a> {
     pub fn normalize_concrete_type(&mut self, ty: TypeId) -> TypeId {
         let mut projection_stack = Vec::new();
         let mut projection_chain = Vec::new();
-        self.normalize_concrete_type_inner(ty, &mut projection_stack, &mut projection_chain)
+        let mut projection_assoc_chain = Vec::new();
+        self.normalize_concrete_type_inner(
+            ty,
+            &mut projection_stack,
+            &mut projection_chain,
+            &mut projection_assoc_chain,
+        )
     }
 
     fn normalize_concrete_type_inner(
@@ -1083,6 +1098,7 @@ impl<'a> SemaContext<'a> {
         ty: TypeId,
         projection_stack: &mut Vec<TypeId>,
         projection_chain: &mut Vec<TypeId>,
+        projection_assoc_chain: &mut Vec<(DefId, TypeId)>,
     ) -> TypeId {
         let mut curr = ty;
         loop {
@@ -1101,9 +1117,12 @@ impl<'a> SemaContext<'a> {
                 }
                 projection_chain.push(norm);
             }
-            let Some(next) =
-                self.try_normalize_projection_type(norm, projection_stack, projection_chain)
-            else {
+            let Some(next) = self.try_normalize_projection_type(
+                norm,
+                projection_stack,
+                projection_chain,
+                projection_assoc_chain,
+            ) else {
                 return norm;
             };
             if next == norm {
@@ -1122,6 +1141,7 @@ impl<'a> SemaContext<'a> {
         ty: TypeId,
         projection_stack: &mut Vec<TypeId>,
         projection_chain: &mut Vec<TypeId>,
+        projection_assoc_chain: &mut Vec<(DefId, TypeId)>,
     ) -> Option<TypeId> {
         let TypeKind::Projection {
             target,
@@ -1140,8 +1160,12 @@ impl<'a> SemaContext<'a> {
         projection_stack.push(ty);
 
         let result = (|| {
-            let target_norm =
-                self.normalize_concrete_type_inner(target, projection_stack, projection_chain);
+            let target_norm = self.normalize_concrete_type_inner(
+                target,
+                projection_stack,
+                projection_chain,
+                projection_assoc_chain,
+            );
             if let TypeKind::TraitObject(target_trait_def_id, target_trait_args, assoc_bindings) =
                 self.type_registry.get(target_norm).clone()
                 && target_trait_def_id == trait_def_id
@@ -1154,7 +1178,7 @@ impl<'a> SemaContext<'a> {
             }
 
             let trait_impls = self.trait_impls.clone();
-            let mut selected: Option<(DefId, TypeId)> = None;
+            let mut selected: Option<(DefId, DefId, TypeId)> = None;
             for impl_id in trait_impls {
                 let Some(impl_ptr) = self.defs.get(impl_id.0 as usize).and_then(|def| match def {
                     Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
@@ -1163,9 +1187,13 @@ impl<'a> SemaContext<'a> {
                     continue;
                 };
 
-                let Some(impl_args) = crate::query::MemberQuery::new(self)
-                    .resolve_impl_applicability_for_type(target_norm, impl_id)
-                else {
+                let Some(impl_args) = crate::query::resolve_trait_impl_head_obligation(
+                    self,
+                    target_norm,
+                    trait_def_id,
+                    &trait_args,
+                    impl_id,
+                ) else {
                     continue;
                 };
 
@@ -1208,20 +1236,41 @@ impl<'a> SemaContext<'a> {
                     .iter()
                     .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
                 {
+                    let Some(impl_assoc_id) =
+                        self.impl_assoc_def_for_trait_assoc(impl_id, assoc_def_id)
+                    else {
+                        continue;
+                    };
                     let replace = match selected {
                         None => true,
-                        Some((selected_impl_id, _)) => matches!(
+                        Some((selected_impl_id, ..)) => matches!(
                             crate::query::compare_impl_specificity(self, impl_id, selected_impl_id),
                             crate::query::ImplSpecificity::LeftMoreSpecific
                         ),
                     };
                     if replace {
-                        selected = Some((impl_id, *assoc_ty));
+                        selected = Some((impl_id, impl_assoc_id, *assoc_ty));
                     }
                 }
             }
 
-            selected.map(|(_, assoc_ty)| assoc_ty)
+            let Some((_, impl_assoc_id, assoc_ty)) = selected else {
+                return None;
+            };
+            if let Some(ancestor_index) = projection_assoc_chain
+                .iter()
+                .position(|(seen_assoc_id, _)| *seen_assoc_id == impl_assoc_id)
+            {
+                let cycle = projection_assoc_chain[ancestor_index..]
+                    .iter()
+                    .copied()
+                    .chain(std::iter::once((impl_assoc_id, ty)))
+                    .collect::<Vec<_>>();
+                self.emit_non_contractive_projection_cycle_diagnostic(&cycle);
+                return Some(TypeId::ERROR);
+            }
+            projection_assoc_chain.push((impl_assoc_id, ty));
+            Some(assoc_ty)
         })();
 
         let popped = projection_stack.pop();
@@ -1266,6 +1315,89 @@ impl<'a> SemaContext<'a> {
             ),
         )
         .with_hint(format!("projection cycle: {}", chain))
+        .with_hint("break the cycle by giving one associated type a concrete non-projecting result")
+        .emit();
+    }
+
+    fn impl_assoc_def_for_trait_assoc(
+        &self,
+        impl_id: DefId,
+        trait_assoc_id: DefId,
+    ) -> Option<DefId> {
+        let trait_assoc_name =
+            self.defs
+                .get(trait_assoc_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::AssociatedType(def) => Some(def.name),
+                    _ => None,
+                })?;
+        let impl_def = self
+            .defs
+            .get(impl_id.0 as usize)
+            .and_then(|def| match def {
+                Def::Impl(def) => Some(def),
+                _ => None,
+            })?;
+        impl_def.assoc_types.iter().copied().find(|assoc_id| {
+            self.defs
+                .get(assoc_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::AssociatedType(def) => Some(def.name),
+                    _ => None,
+                })
+                == Some(trait_assoc_name)
+        })
+    }
+
+    pub(crate) fn emit_non_contractive_projection_cycle_diagnostic(
+        &mut self,
+        cycle: &[(DefId, TypeId)],
+    ) {
+        if cycle.iter().any(|(assoc_id, _)| {
+            self.reported_recursive_projection_assoc_defs
+                .contains(assoc_id)
+        }) {
+            return;
+        }
+        for (assoc_id, _) in cycle {
+            self.reported_recursive_projection_assoc_defs
+                .insert(*assoc_id);
+        }
+
+        let head_assoc_id = cycle.first().map(|(assoc_id, _)| *assoc_id);
+        let head_ty = cycle.first().map(|(_, ty)| *ty).unwrap_or(TypeId::ERROR);
+        let span = head_assoc_id
+            .and_then(|assoc_id| self.defs.get(assoc_id.0 as usize))
+            .and_then(|def| match def {
+                Def::AssociatedType(def) => Some(def.span),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let chain = cycle
+            .iter()
+            .map(|(assoc_id, ty)| {
+                let assoc_name = self
+                    .defs
+                    .get(assoc_id.0 as usize)
+                    .and_then(|def| def.name())
+                    .map(|name| self.resolve(name).to_string())
+                    .unwrap_or_else(|| "<assoc>".to_string());
+                format!("{} via {}", assoc_name, self.ty_to_string(*ty))
+            })
+            .collect::<Vec<_>>()
+            .join(" -> ");
+
+        self.struct_error(
+            span,
+            format!(
+                "recursive associated type projection cycle detected while normalizing `{}`",
+                self.ty_to_string(head_ty)
+            ),
+        )
+        .with_hint(format!(
+            "projection repeatedly re-enters the same impl-associated type: {}",
+            chain
+        ))
         .with_hint("break the cycle by giving one associated type a concrete non-projecting result")
         .emit();
     }

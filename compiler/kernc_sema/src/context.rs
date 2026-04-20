@@ -1166,15 +1166,20 @@ impl<'a> SemaContext<'a> {
                 projection_chain,
                 projection_assoc_chain,
             );
-            if let TypeKind::TraitObject(target_trait_def_id, target_trait_args, assoc_bindings) =
-                self.type_registry.get(target_norm).clone()
-                && target_trait_def_id == trait_def_id
-                && target_trait_args == trait_args
-                && let Some((_, assoc_ty)) = assoc_bindings
-                    .iter()
-                    .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
-            {
-                return Some(*assoc_ty);
+            if let Some(assoc_ty) = crate::query::trait_object_assoc_from_hierarchy(
+                self,
+                target_norm,
+                trait_def_id,
+                &trait_args,
+                assoc_def_id,
+            ) {
+                let assoc_ty = self.normalize_concrete_type_inner(
+                    assoc_ty,
+                    projection_stack,
+                    projection_chain,
+                    projection_assoc_chain,
+                );
+                return Some(assoc_ty);
             }
 
             let trait_impls = self.trait_impls.clone();

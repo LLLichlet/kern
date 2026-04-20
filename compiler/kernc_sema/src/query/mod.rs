@@ -617,6 +617,103 @@ pub(crate) fn enrich_trait_object_assoc_bindings(
         .intern(TypeKind::TraitObject(trait_def_id, trait_args, merged))
 }
 
+pub(crate) fn trait_object_assoc_from_hierarchy(
+    ctx: &mut SemaContext<'_>,
+    trait_ty: TypeId,
+    target_trait_def_id: DefId,
+    target_trait_args: &[crate::ty::GenericArg],
+    assoc_def_id: DefId,
+) -> Option<TypeId> {
+    let trait_ty = match ctx.type_registry.get(ctx.type_registry.normalize(trait_ty)).clone() {
+        TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. }
+            if matches!(
+                ctx.type_registry.get(ctx.type_registry.normalize(elem)),
+                TypeKind::TraitObject(..)
+            ) =>
+        {
+            elem
+        }
+        _ => trait_ty,
+    };
+    let mut visited = FastHashSet::default();
+    trait_object_assoc_from_hierarchy_inner(
+        ctx,
+        trait_ty,
+        target_trait_def_id,
+        target_trait_args,
+        assoc_def_id,
+        &mut visited,
+    )
+}
+
+fn trait_object_assoc_from_hierarchy_inner(
+    ctx: &mut SemaContext<'_>,
+    trait_ty: TypeId,
+    target_trait_def_id: DefId,
+    target_trait_args: &[crate::ty::GenericArg],
+    assoc_def_id: DefId,
+    visited: &mut FastHashSet<TypeId>,
+) -> Option<TypeId> {
+    let trait_ty = ctx.type_registry.normalize(trait_ty);
+    if !visited.insert(trait_ty) {
+        return None;
+    }
+
+    let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
+        ctx.type_registry.get(trait_ty).clone()
+    else {
+        return None;
+    };
+
+    if trait_def_id == target_trait_def_id && trait_args == target_trait_args {
+        if let Some((_, assoc_ty)) = assoc_bindings
+            .iter()
+            .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
+        {
+            return Some(*assoc_ty);
+        }
+    }
+
+    let Some(Def::Trait(trait_def)) = ctx.defs.get(trait_def_id.0 as usize).cloned() else {
+        return None;
+    };
+    let trait_arg_map = trait_def
+        .generics
+        .iter()
+        .zip(trait_args.iter())
+        .map(|(param, arg)| (param.name, *arg))
+        .collect::<FastHashMap<_, _>>();
+    let assoc_binding_map = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
+
+    for super_ty in trait_def.resolved_supertraits {
+        let substituted = if trait_arg_map.is_empty() {
+            super_ty
+        } else {
+            let mut subst = Substituter::new(&mut ctx.type_registry, &trait_arg_map);
+            subst.substitute(super_ty)
+        };
+        let substituted = crate::checker::substitute_associated_types(
+            &mut ctx.type_registry,
+            substituted,
+            &assoc_binding_map,
+        );
+        let enriched =
+            augment_trait_object_assoc_bindings_from_map(ctx, substituted, &assoc_binding_map);
+        if let Some(found) = trait_object_assoc_from_hierarchy_inner(
+            ctx,
+            enriched,
+            target_trait_def_id,
+            target_trait_args,
+            assoc_def_id,
+            visited,
+        ) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
 fn collect_trait_hierarchy_assoc_bindings(
     ctx: &mut SemaContext<'_>,
     receiver_ty: TypeId,

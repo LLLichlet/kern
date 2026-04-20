@@ -201,14 +201,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
 
             let target_norm = self.resolve_tv(target);
-            if let TypeKind::TraitObject(target_trait_def_id, _, assoc_bindings) =
-                self.ctx.type_registry.get(target_norm).clone()
-                && target_trait_def_id == trait_def_id
-                && let Some((_, assoc_ty)) = assoc_bindings
-                    .iter()
-                    .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
-            {
-                return Some(self.resolve_tv(*assoc_ty));
+            if let Some(assoc_ty) = crate::query::trait_object_assoc_from_hierarchy(
+                self.ctx,
+                target_norm,
+                trait_def_id,
+                &trait_args,
+                assoc_def_id,
+            ) {
+                return Some(self.resolve_tv(assoc_ty));
             }
 
             if let Some(bound_ty) = self.projection_assoc_from_env_bounds(
@@ -257,20 +257,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             for bound in env_bounds.iter().copied() {
                 let inst_bound_norm = self.resolve_tv(bound);
-                let TypeKind::TraitObject(bound_trait_def_id, bound_trait_args, assoc_bindings) =
-                    self.ctx.type_registry.get(inst_bound_norm).clone()
-                else {
-                    continue;
-                };
-                if bound_trait_def_id != trait_def_id || bound_trait_args != trait_args {
+                if !matches!(
+                    self.ctx.type_registry.get(inst_bound_norm),
+                    TypeKind::TraitObject(..)
+                ) {
                     continue;
                 }
-
-                if let Some((_, assoc_ty)) = assoc_bindings
-                    .iter()
-                    .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
-                {
-                    return Some(*assoc_ty);
+                if let Some(assoc_ty) = crate::query::trait_object_assoc_from_hierarchy(
+                    self.ctx,
+                    inst_bound_norm,
+                    trait_def_id,
+                    trait_args,
+                    assoc_def_id,
+                ) {
+                    return Some(assoc_ty);
                 }
             }
         }

@@ -2056,6 +2056,55 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_mismatched_const_trait_bound_arguments() {
+    let output = compile_source(
+        r#"
+type Cap[N: usize] = trait {
+    value: fn() i32,
+};
+
+type X = struct {};
+
+impl X: Cap[0] {
+    fn value() i32 {
+        return 0;
+    }
+}
+
+fn need[T](x: T) i32
+    where T: Cap[1],
+{
+    return x.value();
+}
+
+fn main() i32 {
+    return need(X.{});
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("required bound: `T: Cap[1]`")
+            || stderr.contains("required bound: `X: Cap[1]`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_self_recursive_trait_impl_where_clauses_without_overflowing() {
     let output = compile_source(
         r#"

@@ -1376,6 +1376,46 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_unique_more_specific_overlapping_trait_impl_with_const_args() {
+    let output = build_and_run_source(
+        r#"
+type Score = trait {
+    value: fn() i32,
+};
+
+type Buf[N: usize] = struct {};
+
+impl[N: usize] Buf[N]: Score {
+    fn value() i32 {
+        return 1;
+    }
+}
+
+impl Buf[4]: Score {
+    fn value() i32 {
+        return 2;
+    }
+}
+
+fn score(buf: Buf[4]) i32 {
+    return buf.value();
+}
+
+fn main() i32 {
+    return score(Buf[4].{}) - 2;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_overlapping_trait_impls_with_conflicting_associated_type_proofs() {
     let output = compile_source(
         r#"

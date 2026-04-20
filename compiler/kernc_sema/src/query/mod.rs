@@ -436,14 +436,14 @@ pub fn impl_head_specializes(
     }
 
     let mut checker = ExprChecker::new(ctx, None);
-    let (specialized_target, specialized_trait) = freshen_impl_head_types(
+    let (specialized_target, specialized_trait, specialized_rigid_consts) = freshen_impl_head_types(
         &mut checker,
         &specialized_impl,
         specialized_target_ty,
         specialized_trait_ty,
         ImplHeadFreshness::Rigid,
     );
-    let (general_target, general_trait) = freshen_impl_head_types(
+    let (general_target, general_trait, _) = freshen_impl_head_types(
         &mut checker,
         &general_impl,
         general_target_ty,
@@ -453,7 +453,7 @@ pub fn impl_head_specializes(
 
     let mut type_map = FastHashMap::default();
     let mut const_map = FastHashMap::default();
-    checker.unify_with_const_map(
+    let specializes = checker.unify_with_const_map(
         general_target,
         specialized_target,
         &mut type_map,
@@ -467,7 +467,12 @@ pub fn impl_head_specializes(
         ),
         (None, None) => true,
         _ => false,
-    }
+    };
+
+    specializes
+        && specialized_rigid_consts
+            .iter()
+            .all(|name| !const_map.contains_key(name))
 }
 
 fn impl_head_signature(
@@ -516,8 +521,9 @@ fn freshen_impl_head_types(
     target_ty: TypeId,
     trait_ty: Option<TypeId>,
     freshness: ImplHeadFreshness,
-) -> (TypeId, Option<TypeId>) {
+) -> (TypeId, Option<TypeId>, Vec<SymbolId>) {
     let mut subst_map = FastHashMap::default();
+    let mut rigid_const_params = Vec::new();
 
     for (index, param) in impl_def.generics.iter().enumerate() {
         let fresh_name = checker.ctx.intern(&format!(
@@ -545,6 +551,9 @@ fn freshen_impl_head_types(
                     .get(&ty.id)
                     .copied()
                     .unwrap_or(TypeId::ERROR);
+                if matches!(freshness, ImplHeadFreshness::Rigid) {
+                    rigid_const_params.push(fresh_name);
+                }
                 crate::ty::GenericArg::Const(crate::ty::ConstGeneric::Param(fresh_name, const_ty))
             }
         };
@@ -555,6 +564,7 @@ fn freshen_impl_head_types(
     (
         subst.substitute(target_ty),
         trait_ty.map(|trait_ty| subst.substitute(trait_ty)),
+        rigid_const_params,
     )
 }
 

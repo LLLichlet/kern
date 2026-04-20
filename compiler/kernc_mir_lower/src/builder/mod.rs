@@ -231,7 +231,7 @@ impl MirFunctionBuilder {
         let body = function
             .body
             .as_ref()
-            .map(|body| Self::build_body(body, &params))
+            .map(|body| Self::build_body(body, &params, function.span))
             .transpose()?;
         Ok(MirFunction {
             id: function.id,
@@ -248,7 +248,11 @@ impl MirFunctionBuilder {
         })
     }
 
-    fn build_body(body: &MastBlock, params: &[MirParam]) -> LowerResult<MirBody> {
+    fn build_body(
+        body: &MastBlock,
+        params: &[MirParam],
+        function_span: Span,
+    ) -> LowerResult<MirBody> {
         let mut builder = Self {
             locals: vec![],
             next_local_id: 0,
@@ -261,7 +265,7 @@ impl MirFunctionBuilder {
         for param in params {
             let local = builder.new_local(
                 param.name,
-                Span::default(),
+                function_span,
                 param.ty,
                 param.is_mut,
                 MirLocalKind::Param,

@@ -1,5 +1,5 @@
 use crate::llvm_api::{
-    Builder, Context as LlvmContext, DICompileUnit, DIFile, DISubprogram, DebugInfoBuilder,
+    Builder, Context as LlvmContext, DICompileUnit, DIFile, DISubprogram, DIType, DebugInfoBuilder,
     FunctionValue, GlobalValue, InlineAsmDialect, Module as LlvmModule, ModuleFlagBehavior,
     PointerValue, StructType,
 };
@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 use kernc_mir::{MirFunction, MirLocalId, MirModule};
 use kernc_mono::MonoId;
 use kernc_sema::def::DefId;
-use kernc_sema::ty::{TypeId, TypeRegistry};
+use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind, TypeRegistry};
 use kernc_utils::config::{LlvmIrStage, OptLevel};
 use kernc_utils::{FileId, Session, Span, SymbolId};
 use llvm_sys::LLVMOpcode;
@@ -591,6 +591,195 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             location.line.min(u32::MAX as usize) as u32,
             location.col.min(u32::MAX as usize) as u32,
         ))
+    }
+
+    fn debug_type_name(&self, ty: TypeId) -> String {
+        let norm = self.type_registry.normalize(ty);
+        match self.type_registry.get(norm).clone() {
+            TypeKind::Primitive(primitive) => match primitive {
+                PrimitiveType::Void => "void".to_string(),
+                PrimitiveType::Bool => "bool".to_string(),
+                PrimitiveType::I8 => "i8".to_string(),
+                PrimitiveType::I16 => "i16".to_string(),
+                PrimitiveType::I32 => "i32".to_string(),
+                PrimitiveType::I64 => "i64".to_string(),
+                PrimitiveType::I128 => "i128".to_string(),
+                PrimitiveType::ISize => "isize".to_string(),
+                PrimitiveType::U8 => "u8".to_string(),
+                PrimitiveType::U16 => "u16".to_string(),
+                PrimitiveType::U32 => "u32".to_string(),
+                PrimitiveType::U64 => "u64".to_string(),
+                PrimitiveType::U128 => "u128".to_string(),
+                PrimitiveType::USize => "usize".to_string(),
+                PrimitiveType::F32 => "f32".to_string(),
+                PrimitiveType::F64 => "f64".to_string(),
+                PrimitiveType::Str => "str".to_string(),
+                PrimitiveType::Never => "never".to_string(),
+            },
+            TypeKind::Pointer { is_mut, elem } => {
+                format!(
+                    "*{}{}",
+                    if is_mut { "mut " } else { "" },
+                    self.debug_type_name(elem)
+                )
+            }
+            TypeKind::VolatilePtr { is_mut, elem } => {
+                format!(
+                    "^{}{}",
+                    if is_mut { "mut " } else { "" },
+                    self.debug_type_name(elem)
+                )
+            }
+            TypeKind::Array { elem, .. } => format!("[_]{}", self.debug_type_name(elem)),
+            TypeKind::Slice { is_mut, elem } => {
+                format!(
+                    "[]{}{}",
+                    if is_mut { "mut " } else { "" },
+                    self.debug_type_name(elem)
+                )
+            }
+            TypeKind::Function { .. } => "fn".to_string(),
+            TypeKind::ClosureInterface { .. } => "Fn".to_string(),
+            TypeKind::Def(..)
+            | TypeKind::Enum(..)
+            | TypeKind::EnumPayload(..)
+            | TypeKind::TraitObject(..)
+            | TypeKind::Projection { .. }
+            | TypeKind::AnonymousStruct(..)
+            | TypeKind::AnonymousUnion(..)
+            | TypeKind::AnonymousEnum(..)
+            | TypeKind::AnonymousEnumPayload(_)
+            | TypeKind::Alias(..)
+            | TypeKind::Param(_)
+            | TypeKind::Associated(..)
+            | TypeKind::FnDef(..)
+            | TypeKind::Module(_)
+            | TypeKind::TypeVar(_)
+            | TypeKind::Simd { .. }
+            | TypeKind::ArrayInfer { .. }
+            | TypeKind::AnonymousState { .. }
+            | TypeKind::Error => "<unnamed>".to_string(),
+        }
+    }
+
+    fn debug_basic_type_encoding(
+        primitive: PrimitiveType,
+    ) -> Option<(u64, llvm_sys::debuginfo::LLVMDWARFTypeEncoding)> {
+        // DWARF DW_ATE_* encodings.
+        const DW_ATE_ADDRESS: u32 = 0x01;
+        const DW_ATE_BOOLEAN: u32 = 0x02;
+        const DW_ATE_FLOAT: u32 = 0x04;
+        const DW_ATE_SIGNED: u32 = 0x05;
+        const DW_ATE_UNSIGNED: u32 = 0x07;
+        match primitive {
+            PrimitiveType::Bool => Some((8, DW_ATE_BOOLEAN)),
+            PrimitiveType::I8 => Some((8, DW_ATE_SIGNED)),
+            PrimitiveType::I16 => Some((16, DW_ATE_SIGNED)),
+            PrimitiveType::I32 => Some((32, DW_ATE_SIGNED)),
+            PrimitiveType::I64 => Some((64, DW_ATE_SIGNED)),
+            PrimitiveType::I128 => Some((128, DW_ATE_SIGNED)),
+            PrimitiveType::ISize => Some((0, DW_ATE_SIGNED)),
+            PrimitiveType::U8 => Some((8, DW_ATE_UNSIGNED)),
+            PrimitiveType::U16 => Some((16, DW_ATE_UNSIGNED)),
+            PrimitiveType::U32 => Some((32, DW_ATE_UNSIGNED)),
+            PrimitiveType::U64 => Some((64, DW_ATE_UNSIGNED)),
+            PrimitiveType::U128 => Some((128, DW_ATE_UNSIGNED)),
+            PrimitiveType::USize => Some((0, DW_ATE_UNSIGNED)),
+            PrimitiveType::F32 => Some((32, DW_ATE_FLOAT)),
+            PrimitiveType::F64 => Some((64, DW_ATE_FLOAT)),
+            PrimitiveType::Str => Some((0, DW_ATE_ADDRESS)),
+            PrimitiveType::Void | PrimitiveType::Never => None,
+        }
+    }
+
+    fn debug_type(&mut self, ty: TypeId) -> Option<DIType<'ctx>> {
+        if !self.debug_info_enabled {
+            return None;
+        }
+        let norm = self.type_registry.normalize(ty);
+        match self.type_registry.get(norm).clone() {
+            TypeKind::Primitive(primitive) => {
+                let name = self.debug_type_name(norm);
+                let pointer_bits = (self.sess.target.pointer_size * 8) as u64;
+                let type_info = Self::debug_basic_type_encoding(primitive);
+                let builder = &self.ensure_debug_info_state()?.builder;
+                if let Some((mut bits, encoding)) = type_info {
+                    if bits == 0 {
+                        bits = pointer_bits;
+                    }
+                    Some(builder.create_basic_type(&name, bits, encoding))
+                } else {
+                    Some(builder.create_unspecified_type(&name))
+                }
+            }
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let pointee = self.debug_type(elem)?;
+                let bits = (self.sess.target.pointer_size * 8) as u64;
+                let name = self.debug_type_name(norm);
+                let builder = &self.ensure_debug_info_state()?.builder;
+                Some(builder.create_pointer_type(pointee, bits, bits as u32, &name))
+            }
+            _ => {
+                let name = self.debug_type_name(norm);
+                let builder = &self.ensure_debug_info_state()?.builder;
+                Some(builder.create_unspecified_type(&name))
+            }
+        }
+    }
+
+    fn declare_debug_local(
+        &mut self,
+        function: &MirFunction,
+        local: &kernc_mir::MirLocal,
+        storage: PointerValue<'ctx>,
+        entry_block: crate::llvm_api::BasicBlock<'ctx>,
+        arg_no: Option<u32>,
+    ) {
+        let name = self.resolve_symbol(local.name).to_string();
+        if name == "<unknown>" {
+            return;
+        }
+        let span = if local.span == Span::default() {
+            function.span
+        } else {
+            local.span
+        };
+        let Some((file, line, column)) = self.debug_source_location(span) else {
+            return;
+        };
+        let Some(di_ty) = self.debug_type(local.ty) else {
+            return;
+        };
+        let Some(subprogram) = self
+            .debug_info
+            .as_ref()
+            .and_then(|state| state.subprograms.get(&function.id).copied())
+        else {
+            return;
+        };
+        let context = self.context;
+        let state = self
+            .ensure_debug_info_state()
+            .expect("debug info state must exist");
+        let location = state
+            .builder
+            .create_debug_location(context, line, column, subprogram);
+        let variable = match arg_no {
+            Some(arg_no) => state
+                .builder
+                .create_parameter_variable(subprogram, &name, arg_no, file, line, di_ty),
+            None => state
+                .builder
+                .create_auto_variable(subprogram, &name, file, line, di_ty, 0),
+        };
+        let expression = state.builder.create_expression();
+        let _ = state.builder.insert_declare_at_end(
+            storage,
+            variable,
+            expression,
+            location,
+            entry_block,
+        );
     }
 
     fn debug_compile_unit(&mut self, file: DIFile<'ctx>) -> Option<DICompileUnit<'ctx>> {

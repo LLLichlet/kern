@@ -87,6 +87,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.create_entry_block_alloca(local_llvm_ty, &format!("{prefix}_{local_name}"));
             self.mir_locals.insert(local.id, alloca);
 
+            let arg_no = matches!(local.kind, kernc_mir::MirLocalKind::Param)
+                .then_some((next_param_index + 1) as u32);
             if matches!(local.kind, kernc_mir::MirLocalKind::Param) {
                 let Some(param_val) =
                     self.function_param_value(llvm_func, next_param_index, &function.name)
@@ -102,6 +104,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.builder.build_store(alloca, param_val).unwrap();
                 next_param_index += 1;
             }
+
+            self.declare_debug_local(function, local, alloca, entry_block, arg_no);
         }
 
         let mut llvm_blocks = HashMap::new();

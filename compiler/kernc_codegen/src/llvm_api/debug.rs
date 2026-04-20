@@ -1,15 +1,19 @@
 use llvm_sys::LLVMModuleFlagBehavior;
 use llvm_sys::core::{LLVMAddModuleFlag, LLVMValueAsMetadata};
 use llvm_sys::debuginfo::{
-    LLVMCreateDIBuilder, LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateDebugLocation,
-    LLVMDIBuilderCreateFile, LLVMDIBuilderCreateFunction, LLVMDIBuilderCreateSubroutineType,
-    LLVMDIBuilderFinalize, LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage,
+    LLVMCreateDIBuilder, LLVMDIBuilderCreateAutoVariable, LLVMDIBuilderCreateBasicType,
+    LLVMDIBuilderCreateCompileUnit, LLVMDIBuilderCreateDebugLocation,
+    LLVMDIBuilderCreateExpression, LLVMDIBuilderCreateFile, LLVMDIBuilderCreateFunction,
+    LLVMDIBuilderCreateParameterVariable, LLVMDIBuilderCreatePointerType,
+    LLVMDIBuilderCreateSubroutineType, LLVMDIBuilderCreateUnspecifiedType, LLVMDIBuilderFinalize,
+    LLVMDIBuilderInsertDeclareRecordAtEnd as LLVMDIBuilderInsertDeclareAtEnd,
+    LLVMDWARFEmissionKind, LLVMDWARFSourceLanguage, LLVMDWARFTypeEncoding,
     LLVMDebugMetadataVersion, LLVMDisposeDIBuilder,
 };
 use llvm_sys::prelude::{LLVMDIBuilderRef, LLVMMetadataRef};
 use std::marker::PhantomData;
 
-use super::{BasicValue, Context, Module};
+use super::{AsValueRef, BasicBlock, BasicValue, Context, InstructionValue, Module, PointerValue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleFlagBehavior {
@@ -94,6 +98,54 @@ pub struct DILocation<'ctx> {
     _marker: PhantomData<&'ctx Context>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DIType<'ctx> {
+    pub(super) raw: LLVMMetadataRef,
+    _marker: PhantomData<&'ctx Context>,
+}
+
+impl<'ctx> DIType<'ctx> {
+    fn new(raw: LLVMMetadataRef) -> Self {
+        assert!(!raw.is_null());
+        Self {
+            raw,
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DILocalVariable<'ctx> {
+    pub(super) raw: LLVMMetadataRef,
+    _marker: PhantomData<&'ctx Context>,
+}
+
+impl<'ctx> DILocalVariable<'ctx> {
+    fn new(raw: LLVMMetadataRef) -> Self {
+        assert!(!raw.is_null());
+        Self {
+            raw,
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DIExpression<'ctx> {
+    pub(super) raw: LLVMMetadataRef,
+    _marker: PhantomData<&'ctx Context>,
+}
+
+impl<'ctx> DIExpression<'ctx> {
+    fn new(raw: LLVMMetadataRef) -> Self {
+        assert!(!raw.is_null());
+        Self {
+            raw,
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<'ctx> DILocation<'ctx> {
     fn new(raw: LLVMMetadataRef) -> Self {
         assert!(!raw.is_null());
@@ -164,6 +216,53 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         DICompileUnit::new(raw)
     }
 
+    pub fn create_unspecified_type(&self, name: &str) -> DIType<'ctx> {
+        let raw = unsafe {
+            LLVMDIBuilderCreateUnspecifiedType(self.raw, name.as_ptr() as *const _, name.len())
+        };
+        DIType::new(raw)
+    }
+
+    pub fn create_basic_type(
+        &self,
+        name: &str,
+        size_in_bits: u64,
+        encoding: LLVMDWARFTypeEncoding,
+    ) -> DIType<'ctx> {
+        let raw = unsafe {
+            LLVMDIBuilderCreateBasicType(
+                self.raw,
+                name.as_ptr() as *const _,
+                name.len(),
+                size_in_bits,
+                encoding,
+                0,
+            )
+        };
+        DIType::new(raw)
+    }
+
+    pub fn create_pointer_type(
+        &self,
+        pointee: DIType<'ctx>,
+        size_in_bits: u64,
+        align_in_bits: u32,
+        name: &str,
+    ) -> DIType<'ctx> {
+        let raw = unsafe {
+            LLVMDIBuilderCreatePointerType(
+                self.raw,
+                pointee.raw,
+                size_in_bits,
+                align_in_bits,
+                0,
+                name.as_ptr() as *const _,
+                name.len(),
+            )
+        };
+        DIType::new(raw)
+    }
+
     pub fn create_subroutine_type(&self, file: DIFile<'ctx>) -> DISubroutineType<'ctx> {
         let mut tys = [std::ptr::null_mut()];
         let raw = unsafe {
@@ -228,6 +327,84 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
             )
         };
         DILocation::new(raw)
+    }
+
+    pub fn create_parameter_variable(
+        &self,
+        scope: DISubprogram<'ctx>,
+        name: &str,
+        arg_no: u32,
+        file: DIFile<'ctx>,
+        line: u32,
+        ty: DIType<'ctx>,
+    ) -> DILocalVariable<'ctx> {
+        let raw = unsafe {
+            LLVMDIBuilderCreateParameterVariable(
+                self.raw,
+                scope.raw,
+                name.as_ptr() as *const _,
+                name.len(),
+                arg_no,
+                file.raw,
+                line,
+                ty.raw,
+                1,
+                0,
+            )
+        };
+        DILocalVariable::new(raw)
+    }
+
+    pub fn create_auto_variable(
+        &self,
+        scope: DISubprogram<'ctx>,
+        name: &str,
+        file: DIFile<'ctx>,
+        line: u32,
+        ty: DIType<'ctx>,
+        align_in_bits: u32,
+    ) -> DILocalVariable<'ctx> {
+        let raw = unsafe {
+            LLVMDIBuilderCreateAutoVariable(
+                self.raw,
+                scope.raw,
+                name.as_ptr() as *const _,
+                name.len(),
+                file.raw,
+                line,
+                ty.raw,
+                1,
+                0,
+                align_in_bits,
+            )
+        };
+        DILocalVariable::new(raw)
+    }
+
+    pub fn create_expression(&self) -> DIExpression<'ctx> {
+        let raw = unsafe { LLVMDIBuilderCreateExpression(self.raw, std::ptr::null_mut(), 0) };
+        DIExpression::new(raw)
+    }
+
+    pub fn insert_declare_at_end(
+        &self,
+        storage: PointerValue<'ctx>,
+        variable: DILocalVariable<'ctx>,
+        expr: DIExpression<'ctx>,
+        location: DILocation<'ctx>,
+        block: BasicBlock<'ctx>,
+    ) -> InstructionValue<'ctx> {
+        let raw = unsafe {
+            LLVMDIBuilderInsertDeclareAtEnd(
+                self.raw,
+                storage.as_value_ref(),
+                variable.raw,
+                expr.raw,
+                location.raw,
+                block.raw,
+            )
+        };
+        InstructionValue::new(raw as _)
     }
 
     pub fn finalize(&self) {

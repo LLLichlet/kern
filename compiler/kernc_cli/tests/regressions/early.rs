@@ -791,6 +791,40 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_debug_declare_for_named_params_and_locals() {
+    let source = r#"fn id(value: i32) i32 {
+    let mut copy = value;
+    copy = copy + 1;
+    return copy;
+}
+
+fn main() i32 {
+    return id(3);
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_emit_llvm_debug_locals", source, &["-g"]);
+    assert_success(&output, "kernc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("dbg_declare"),
+        "debug-enabled LLVM IR should declare variable storage, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains(r#"!DILocalVariable(name: "value""#),
+        "debug-enabled LLVM IR should retain parameter debug metadata, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains(r#"!DILocalVariable(name: "copy""#),
+        "debug-enabled LLVM IR should retain local variable debug metadata, got:\n{}",
+        stdout
+    );
+}
+
+#[test]
 fn emits_optimized_llvm_ir_stage_after_running_pass_pipeline() {
     let source = r#"
 extern fn main() i32 {

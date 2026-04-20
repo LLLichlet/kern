@@ -99,7 +99,7 @@ impl MirModule {
             for block in &body.blocks {
                 stats.instructions += block.instructions.len();
                 for instruction in &block.instructions {
-                    match instruction {
+                    match &instruction.kind {
                         MirInstruction::Let { init, .. } => {
                             stats.let_instructions += 1;
                             visit_rvalue(init, &mut stats);
@@ -148,7 +148,7 @@ impl MirModule {
                         }
                     }
                 }
-                match &block.terminator {
+                match &block.terminator.kind {
                     MirTerminator::Goto(_) => stats.gotos += 1,
                     MirTerminator::Branch { cond, .. } => {
                         stats.branches += 1;

@@ -11,10 +11,10 @@ use kernc_mast::{
 use kernc_mir::{
     MirAggregateKind, MirBitIntrinsicKind, MirBlock, MirBlockId, MirBody, MirCallTarget,
     MirCastKind, MirConst, MirField, MirFunction, MirGlobal, MirInlineAsm, MirInlineHint,
-    MirInstruction, MirLinkage, MirLocal, MirLocalId, MirLocalKind, MirMemoryIntrinsic, MirModule,
-    MirOperand, MirParam, MirPlace, MirProjectionKind, MirRvalue, MirSimdBinaryIntrinsicKind,
-    MirSimdReduceKind, MirSimdUnaryIntrinsicKind, MirSliceBase, MirStaticInit, MirStruct,
-    MirSwitchTarget, MirTerminator,
+    MirInstruction, MirInstructionData, MirLinkage, MirLocal, MirLocalId, MirLocalKind,
+    MirMemoryIntrinsic, MirModule, MirOperand, MirParam, MirPlace, MirProjectionKind, MirRvalue,
+    MirSimdBinaryIntrinsicKind, MirSimdReduceKind, MirSimdUnaryIntrinsicKind, MirSliceBase,
+    MirStaticInit, MirStruct, MirSwitchTarget, MirTerminator, MirTerminatorData,
 };
 use kernc_sema::ty::TypeId;
 use kernc_utils::{Span, SymbolId};
@@ -207,8 +207,8 @@ struct MirLoopTargets {
 
 #[derive(Debug, Clone, Default)]
 struct MirBlockBuilder {
-    instructions: Vec<MirInstruction>,
-    terminator: Option<MirTerminator>,
+    instructions: Vec<MirInstructionData>,
+    terminator: Option<MirTerminatorData>,
 }
 
 struct MirFunctionBuilder {
@@ -259,7 +259,13 @@ impl MirFunctionBuilder {
         };
         builder.push_scope();
         for param in params {
-            let local = builder.new_local(param.name, param.ty, param.is_mut, MirLocalKind::Param);
+            let local = builder.new_local(
+                param.name,
+                Span::default(),
+                param.ty,
+                param.is_mut,
+                MirLocalKind::Param,
+            );
             builder.bind_local(param.name, local);
         }
         let entry = builder.new_block();
@@ -273,7 +279,10 @@ impl MirFunctionBuilder {
             .map(|(index, block)| MirBlock {
                 id: MirBlockId(index as u32),
                 instructions: block.instructions,
-                terminator: block.terminator.unwrap_or(MirTerminator::Unreachable),
+                terminator: block.terminator.unwrap_or(MirTerminatorData {
+                    span: Span::default(),
+                    kind: MirTerminator::Unreachable,
+                }),
             })
             .collect::<Vec<_>>();
         Ok(MirBody {
@@ -313,6 +322,7 @@ impl MirFunctionBuilder {
     pub(super) fn new_local(
         &mut self,
         name: SymbolId,
+        span: Span,
         ty: TypeId,
         is_mut: bool,
         kind: MirLocalKind,
@@ -322,6 +332,7 @@ impl MirFunctionBuilder {
         self.locals.push(MirLocal {
             id,
             name,
+            span,
             ty,
             is_mut,
             kind,
@@ -329,22 +340,35 @@ impl MirFunctionBuilder {
         id
     }
 
-    pub(super) fn new_temp_local(&mut self, ty: TypeId) -> MirLocalId {
+    pub(super) fn new_temp_local(&mut self, ty: TypeId, span: Span) -> MirLocalId {
         let name = SymbolId(usize::MAX - self.next_temp_name);
         self.next_temp_name += 1;
-        self.new_local(name, ty, false, MirLocalKind::Let)
+        self.new_local(name, span, ty, false, MirLocalKind::Let)
     }
 
     fn current_block(&mut self, id: MirBlockId) -> &mut MirBlockBuilder {
         &mut self.blocks[id.0 as usize]
     }
 
-    pub(super) fn emit_instruction(&mut self, id: MirBlockId, instruction: MirInstruction) {
-        self.current_block(id).instructions.push(instruction);
+    pub(super) fn emit_instruction(
+        &mut self,
+        id: MirBlockId,
+        span: Span,
+        instruction: MirInstruction,
+    ) {
+        self.current_block(id)
+            .instructions
+            .push(MirInstructionData {
+                span,
+                kind: instruction,
+            });
     }
 
-    pub(super) fn set_terminator(&mut self, id: MirBlockId, terminator: MirTerminator) {
-        self.current_block(id).terminator = Some(terminator);
+    pub(super) fn set_terminator(&mut self, id: MirBlockId, span: Span, terminator: MirTerminator) {
+        self.current_block(id).terminator = Some(MirTerminatorData {
+            span,
+            kind: terminator,
+        });
     }
 
     pub(super) fn unsupported_expr<T>(&self, expr: &MastExpr, context: &str) -> LowerResult<T> {

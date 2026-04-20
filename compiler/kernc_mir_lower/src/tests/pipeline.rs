@@ -54,15 +54,21 @@ fn mir_pass_pipeline_forwards_trivial_local_copy_chains() {
     assert!(pass.removed_let_instructions >= 2);
     assert!(matches!(
         body.blocks[0].instructions.as_slice(),
-        [MirInstruction::Assign {
-            op: AssignmentOperator::Assign,
-            value: MirRvalue::Use(MirOperand::Local(source_local)),
+        [MirInstructionData {
+            kind: MirInstruction::Assign {
+                op: AssignmentOperator::Assign,
+                value: MirRvalue::Use(MirOperand::Local(source_local)),
+                ..
+            },
             ..
         }] if source_local == &param_local
     ));
     assert!(matches!(
         &body.blocks[0].terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(_))))
+        MirTerminatorData {
+            kind: MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(_)))),
+            ..
+        }
     ));
 }
 
@@ -123,17 +129,29 @@ fn mir_pass_pipeline_folds_const_branch_after_copy_propagation() {
     assert_eq!(cfg_pass.name, "cfg_prune_unreachable_blocks");
     assert_eq!(cfg_pass.removed_blocks, 1);
     assert_eq!(body.blocks.len(), 3);
-    assert!(matches!(&body.blocks[0].terminator, MirTerminator::Goto(_)));
+    assert!(matches!(
+        &body.blocks[0].terminator,
+        MirTerminatorData {
+            kind: MirTerminator::Goto(_),
+            ..
+        }
+    ));
     assert!(body.blocks.iter().any(|block| matches!(
         block.instructions.as_slice(),
-        [MirInstruction::Assign {
-            value: MirRvalue::Use(MirOperand::Const(MirConst::Integer { value: 1, .. })),
+        [MirInstructionData {
+            kind: MirInstruction::Assign {
+                value: MirRvalue::Use(MirOperand::Const(MirConst::Integer { value: 1, .. })),
+                ..
+            },
             ..
         }]
     )));
     assert!(body.blocks.iter().any(|block| matches!(
         &block.terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(_))))
+        MirTerminatorData {
+            kind: MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(_)))),
+            ..
+        }
     )));
 }
 
@@ -198,16 +216,28 @@ fn mir_pass_pipeline_folds_const_switch_to_matching_case() {
     assert_eq!(cfg_pass.name, "cfg_prune_unreachable_blocks");
     assert_eq!(cfg_pass.removed_blocks, 2);
     assert_eq!(body.blocks.len(), 3);
-    assert!(matches!(&body.blocks[0].terminator, MirTerminator::Goto(_)));
+    assert!(matches!(
+        &body.blocks[0].terminator,
+        MirTerminatorData {
+            kind: MirTerminator::Goto(_),
+            ..
+        }
+    ));
     assert!(body.blocks.iter().any(|block| matches!(
         block.instructions.as_slice(),
-        [MirInstruction::Assign {
-            value: MirRvalue::Use(MirOperand::Const(MirConst::Integer { value: 20, .. })),
+        [MirInstructionData {
+            kind: MirInstruction::Assign {
+                value: MirRvalue::Use(MirOperand::Const(MirConst::Integer { value: 20, .. })),
+                ..
+            },
             ..
         }]
     )));
     assert!(body.blocks.iter().any(|block| matches!(
         &block.terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(_))))
+        MirTerminatorData {
+            kind: MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(_)))),
+            ..
+        }
     )));
 }

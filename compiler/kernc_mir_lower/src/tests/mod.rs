@@ -12,8 +12,9 @@ use kernc_mast::{
 };
 use kernc_mir::{
     MirAggregateKind, MirBitIntrinsicKind, MirCallTarget, MirCastKind, MirConst, MirInlineHint,
-    MirInstruction, MirLocalKind, MirMemoryIntrinsic, MirOperand, MirPlace, MirProjectionKind,
-    MirRvalue, MirSimdBinaryIntrinsicKind, MirSliceBase, MirStaticInit, MirTerminator,
+    MirInstruction, MirInstructionData, MirLocalKind, MirMemoryIntrinsic, MirOperand, MirPlace,
+    MirProjectionKind, MirRvalue, MirSimdBinaryIntrinsicKind, MirSliceBase, MirStaticInit,
+    MirTerminator, MirTerminatorData,
 };
 use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::ty::TypeId;

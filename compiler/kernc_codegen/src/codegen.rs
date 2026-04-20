@@ -640,6 +640,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 
     fn set_function_debug_location(&mut self, function: &MirFunction) {
+        self.set_debug_location_for_span(function, function.span);
+    }
+
+    fn set_debug_location_for_span(&mut self, function: &MirFunction, span: Span) {
         let Some(subprogram) = self
             .debug_info
             .as_ref()
@@ -647,7 +651,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         else {
             return;
         };
-        let Some((_, line, column)) = self.debug_source_location(function.span) else {
+        let Some((_, line, column)) = self.debug_source_location(span) else {
             return;
         };
         let context = self.context;

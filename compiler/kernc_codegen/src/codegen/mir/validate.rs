@@ -8,7 +8,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     ) -> bool {
         for block in &body.blocks {
             for instruction in &block.instructions {
-                match instruction {
+                match &instruction.kind {
                     MirInstruction::Let { init, .. } => {
                         if !self.mir_rvalue_is_codegen_ready(body, init) {
                             self.emit_mir_codegen_error(
@@ -164,7 +164,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
 
-            match &block.terminator {
+            match &block.terminator.kind {
                 MirTerminator::Goto(_) | MirTerminator::Unreachable => {}
                 MirTerminator::Branch { cond, .. } => {
                     if !self.mir_rvalue_is_codegen_ready(body, cond) {

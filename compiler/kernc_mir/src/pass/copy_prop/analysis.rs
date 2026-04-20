@@ -15,6 +15,7 @@ pub(super) fn collect_copy_candidates(body: &MirBody) -> HashMap<crate::MirLocal
         }
         for block in &body.blocks {
             for instruction in &block.instructions {
+                let instruction = &instruction.kind;
                 if let MirInstruction::Let {
                     place: MirPlace::Local(id),
                     init: MirRvalue::Use(operand),
@@ -31,6 +32,7 @@ pub(super) fn collect_copy_candidates(body: &MirBody) -> HashMap<crate::MirLocal
     let mut rooted_place_uses = HashSet::new();
     for block in &body.blocks {
         for instruction in &block.instructions {
+            let instruction = &instruction.kind;
             match instruction {
                 MirInstruction::Let { init, .. } => {
                     collect_rooted_place_uses_in_rvalue(init, &mut rooted_place_uses);
@@ -57,7 +59,7 @@ pub(super) fn collect_copy_candidates(body: &MirBody) -> HashMap<crate::MirLocal
                 }
             }
         }
-        match &block.terminator {
+        match &block.terminator.kind {
             crate::MirTerminator::Goto(_) | crate::MirTerminator::Unreachable => {}
             crate::MirTerminator::Branch { cond, .. } => {
                 collect_rooted_place_uses_in_rvalue(cond, &mut rooted_place_uses);

@@ -140,6 +140,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             self.builder.position_at_end(llvm_block);
 
             for instruction in &block.instructions {
+                self.set_debug_location_for_span(function, instruction.span);
                 self.compile_mir_instruction(body, instruction);
                 if self.current_block_is_terminated() {
                     break;
@@ -147,6 +148,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
 
             if !self.current_block_is_terminated() {
+                self.set_debug_location_for_span(function, block.terminator.span);
                 self.compile_mir_terminator(body, function, &llvm_blocks, &block.terminator);
             }
         }

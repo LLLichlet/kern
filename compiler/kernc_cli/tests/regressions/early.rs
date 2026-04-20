@@ -760,6 +760,37 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_distinct_debug_locations_for_multiple_source_lines() {
+    let source = r#"extern {
+    fn opaque(value: i32) i32;
+}
+fn main() i32 {
+    let first = opaque(1);
+    let second = opaque(first);
+    return second;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_emit_llvm_debug_lines", source, &["-g"]);
+    assert_success(&output, "kernc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let location_count = stdout.matches("!DILocation(line: ").count();
+    assert!(
+        location_count >= 3,
+        "debug-enabled LLVM IR should contain multiple line locations, got {location_count}:\n{}",
+        stdout
+    );
+    for line in [4, 5, 6] {
+        assert!(
+            stdout.contains(&format!("!DILocation(line: {line},")),
+            "debug-enabled LLVM IR should contain a debug location for source line {line}, got:\n{}",
+            stdout
+        );
+    }
+}
+
+#[test]
 fn emits_optimized_llvm_ir_stage_after_running_pass_pipeline() {
     let source = r#"
 extern fn main() i32 {

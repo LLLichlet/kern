@@ -48,13 +48,15 @@ fn rewrite_body(body: &mut crate::MirBody) -> MirPassReport {
     let mut removed_let_instructions = 0;
     for block in &mut body.blocks {
         let before = block.instructions.len();
-        block.instructions.retain(|instruction| match instruction {
-            MirInstruction::Let {
-                place: MirPlace::Local(local),
-                ..
-            } => !replacements.contains_key(local) || remaining_uses.contains_key(local),
-            _ => true,
-        });
+        block
+            .instructions
+            .retain(|instruction| match &instruction.kind {
+                MirInstruction::Let {
+                    place: MirPlace::Local(local),
+                    ..
+                } => !replacements.contains_key(local) || remaining_uses.contains_key(local),
+                _ => true,
+            });
         removed_let_instructions += before - block.instructions.len();
     }
 

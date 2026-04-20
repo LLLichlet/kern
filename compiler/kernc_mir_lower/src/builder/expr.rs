@@ -8,7 +8,7 @@ impl MirFunctionBuilder {
     ) -> LowerResult<Option<MirRvalue>> {
         match &expr.kind {
             MastExprKind::Block(_) | MastExprKind::If { .. } | MastExprKind::Switch { .. } => {
-                let temp = self.new_temp_local(expr.ty);
+                let temp = self.new_temp_local(expr.ty, expr.span);
                 let Some(end_block) =
                     self.lower_expr_into_place(*block_id, expr, MirPlace::Local(temp))?
                 else {
@@ -506,7 +506,7 @@ impl MirFunctionBuilder {
             expr.kind,
             MastExprKind::Block(_) | MastExprKind::If { .. } | MastExprKind::Switch { .. }
         ) {
-            let temp = self.new_temp_local(expr.ty);
+            let temp = self.new_temp_local(expr.ty, expr.span);
             let Some(end_block) =
                 self.lower_expr_into_place(*block_id, expr, MirPlace::Local(temp))?
             else {
@@ -538,12 +538,13 @@ impl MirFunctionBuilder {
             | MastExprKind::Memmove { .. }
             | MastExprKind::Memset { .. } => self.unsupported_expr(expr, "operand position"),
             _ => {
-                let temp = self.new_temp_local(expr.ty);
+                let temp = self.new_temp_local(expr.ty, expr.span);
                 let Some(init) = self.lower_rvalue(block_id, expr)? else {
                     return Ok(None);
                 };
                 self.emit_instruction(
                     *block_id,
+                    expr.span,
                     MirInstruction::Let {
                         place: MirPlace::Local(temp),
                         init,
@@ -622,6 +623,7 @@ impl MirFunctionBuilder {
                 };
                 self.emit_instruction(
                     current,
+                    expr.span,
                     MirInstruction::Assign {
                         place,
                         op: kernc_ast::AssignmentOperator::Assign,
@@ -684,7 +686,7 @@ impl MirFunctionBuilder {
                 }))
             }
             _ => {
-                let temp = self.new_temp_local(expr.ty);
+                let temp = self.new_temp_local(expr.ty, expr.span);
                 let Some(end_block) =
                     self.lower_expr_into_place(*block_id, expr, MirPlace::Local(temp))?
                 else {
@@ -716,6 +718,7 @@ impl MirFunctionBuilder {
         };
         self.emit_instruction(
             *block_id,
+            expr.span,
             MirInstruction::Assign {
                 place: place.clone(),
                 op: *op,
@@ -769,7 +772,7 @@ impl MirFunctionBuilder {
             }
             _ => return Ok(Some(false)),
         };
-        self.emit_instruction(*block_id, MirInstruction::Memory(intrinsic));
+        self.emit_instruction(*block_id, expr.span, MirInstruction::Memory(intrinsic));
         Ok(Some(true))
     }
 
@@ -801,7 +804,7 @@ impl MirFunctionBuilder {
             },
             _ => return Ok(Some(false)),
         };
-        self.emit_instruction(*block_id, instruction);
+        self.emit_instruction(*block_id, expr.span, instruction);
         Ok(Some(true))
     }
 
@@ -829,6 +832,7 @@ impl MirFunctionBuilder {
         }
         self.emit_instruction(
             *block_id,
+            expr.span,
             MirInstruction::InlineAsm(MirInlineAsm {
                 asm_template: asm.asm_template.clone(),
                 constraints: asm.constraints.clone(),
@@ -929,7 +933,7 @@ impl MirFunctionBuilder {
             }
             _ => return Ok(Some(false)),
         };
-        self.emit_instruction(*block_id, instruction);
+        self.emit_instruction(*block_id, expr.span, instruction);
         Ok(Some(true))
     }
 }

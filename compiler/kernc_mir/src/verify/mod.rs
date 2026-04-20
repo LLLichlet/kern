@@ -31,9 +31,9 @@ fn verify_body(function: &MirFunction, body: &MirBody) -> Result<(), MirVerifyEr
 
     for block in &body.blocks {
         for instruction in &block.instructions {
-            verify_instruction(function, instruction, local_count)?;
+            verify_instruction(function, &instruction.kind, local_count)?;
         }
-        verify_terminator(function, &block.terminator, local_count, block_count)?;
+        verify_terminator(function, &block.terminator.kind, local_count, block_count)?;
     }
 
     Ok(())

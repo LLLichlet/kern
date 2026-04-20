@@ -70,11 +70,13 @@ impl MirFunctionBuilder {
         let else_block = self.new_block();
         let join = self.new_block();
         let mut cond_block = block_id;
+        let cond_span = cond.span;
         let Some(cond) = self.lower_rvalue(&mut cond_block, cond)? else {
             return Ok(None);
         };
         self.set_terminator(
             cond_block,
+            cond_span,
             MirTerminator::Branch {
                 cond,
                 then_block,
@@ -83,15 +85,15 @@ impl MirFunctionBuilder {
         );
         let then_end = self.lower_value_block(then_block, then_branch, place.clone())?;
         if let Some(then_end) = then_end {
-            self.set_terminator(then_end, MirTerminator::Goto(join));
+            self.set_terminator(then_end, cond_span, MirTerminator::Goto(join));
         }
         if let Some(else_branch) = else_branch {
             let else_end = self.lower_value_block(else_block, else_branch, place)?;
             if let Some(else_end) = else_end {
-                self.set_terminator(else_end, MirTerminator::Goto(join));
+                self.set_terminator(else_end, cond_span, MirTerminator::Goto(join));
             }
         } else {
-            self.set_terminator(else_block, MirTerminator::Goto(join));
+            self.set_terminator(else_block, cond_span, MirTerminator::Goto(join));
         }
         Ok(Some(join))
     }
@@ -115,11 +117,13 @@ impl MirFunctionBuilder {
         }
         let default_block = default_case.as_ref().map(|_| self.new_block());
         let mut target_block = block_id;
+        let target_span = target.span;
         let Some(target) = self.lower_rvalue(&mut target_block, target)? else {
             return Ok(None);
         };
         self.set_terminator(
             target_block,
+            target_span,
             MirTerminator::Switch {
                 target,
                 cases: mir_cases.clone(),
@@ -129,14 +133,14 @@ impl MirFunctionBuilder {
         for (case, mir_case) in cases.iter().zip(mir_cases.iter()) {
             let end = self.lower_value_block(mir_case.block, &case.body, place.clone())?;
             if let Some(end) = end {
-                self.set_terminator(end, MirTerminator::Goto(join));
+                self.set_terminator(end, target_span, MirTerminator::Goto(join));
             }
         }
         if let Some(default_case) = default_case {
             let default_id = default_block.expect("default block must exist");
             let end = self.lower_value_block(default_id, default_case, place)?;
             if let Some(end) = end {
-                self.set_terminator(end, MirTerminator::Goto(join));
+                self.set_terminator(end, target_span, MirTerminator::Goto(join));
             }
         }
         Ok(Some(join))
@@ -171,7 +175,7 @@ impl MirFunctionBuilder {
                 Ok(None)
             }
             MastExprKind::Unreachable => {
-                self.set_terminator(block_id, MirTerminator::Unreachable);
+                self.set_terminator(block_id, result.span, MirTerminator::Unreachable);
                 Ok(None)
             }
             MastExprKind::Trap => self.lower_tail(block_id, Some(result), None),
@@ -221,16 +225,16 @@ impl MirFunctionBuilder {
                     return Ok(None);
                 };
                 if let Some(next) = fallthrough {
-                    self.set_terminator(block_id, MirTerminator::Goto(next));
+                    self.set_terminator(block_id, result.span, MirTerminator::Goto(next));
                     self.pop_scope();
                     return Ok(Some(next));
                 }
-                self.set_terminator(block_id, MirTerminator::Return(None));
+                self.set_terminator(block_id, result.span, MirTerminator::Return(None));
                 self.pop_scope();
                 return Ok(None);
             }
 
-            let result_temp = self.new_temp_local(result.ty);
+            let result_temp = self.new_temp_local(result.ty, result.span);
             let Some(end_block) =
                 self.lower_expr_into_place(block_id, result, MirPlace::Local(result_temp))?
             else {
@@ -243,12 +247,13 @@ impl MirFunctionBuilder {
                 return Ok(None);
             };
             if let Some(next) = fallthrough {
-                self.set_terminator(block_id, MirTerminator::Goto(next));
+                self.set_terminator(block_id, result.span, MirTerminator::Goto(next));
                 self.pop_scope();
                 return Ok(Some(next));
             }
             self.set_terminator(
                 block_id,
+                result.span,
                 MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(result_temp)))),
             );
             self.pop_scope();
@@ -291,7 +296,7 @@ impl MirFunctionBuilder {
                 let mut block_id = block_id;
                 let ret_value = match value.as_deref() {
                     Some(value) if value.ty != TypeId::VOID && value.ty != TypeId::ERROR => {
-                        let ret_temp = self.new_temp_local(value.ty);
+                        let ret_temp = self.new_temp_local(value.ty, value.span);
                         let Some(end_block) =
                             self.lower_expr_into_place(block_id, value, MirPlace::Local(ret_temp))?
                         else {
@@ -313,7 +318,7 @@ impl MirFunctionBuilder {
                 let Some(block_id) = self.lower_block_defers(block_id, defers)? else {
                     return Ok(None);
                 };
-                self.set_terminator(block_id, MirTerminator::Return(ret_value));
+                self.set_terminator(block_id, result.span, MirTerminator::Return(ret_value));
                 Ok(None)
             }
             MastExprKind::Break => {
@@ -325,7 +330,7 @@ impl MirFunctionBuilder {
                     .last()
                     .map(|targets| targets.break_block)
                     .unwrap_or_else(|| self.new_block());
-                self.set_terminator(block_id, MirTerminator::Goto(break_block));
+                self.set_terminator(block_id, result.span, MirTerminator::Goto(break_block));
                 Ok(None)
             }
             MastExprKind::Continue => {
@@ -337,7 +342,7 @@ impl MirFunctionBuilder {
                     .last()
                     .map(|targets| targets.continue_block)
                     .unwrap_or_else(|| self.new_block());
-                self.set_terminator(block_id, MirTerminator::Goto(continue_block));
+                self.set_terminator(block_id, result.span, MirTerminator::Goto(continue_block));
                 Ok(None)
             }
             _ => {
@@ -356,16 +361,16 @@ impl MirFunctionBuilder {
     ) -> LowerResult<Option<MirBlockId>> {
         match &expr.kind {
             MastExprKind::Trap => {
-                self.emit_instruction(block_id, MirInstruction::Trap);
-                self.set_terminator(block_id, MirTerminator::Unreachable);
+                self.emit_instruction(block_id, expr.span, MirInstruction::Trap);
+                self.set_terminator(block_id, expr.span, MirTerminator::Unreachable);
                 Ok(None)
             }
             MastExprKind::Breakpoint => {
-                self.emit_instruction(block_id, MirInstruction::Breakpoint);
+                self.emit_instruction(block_id, expr.span, MirInstruction::Breakpoint);
                 Ok(Some(block_id))
             }
             MastExprKind::Unreachable => {
-                self.set_terminator(block_id, MirTerminator::Unreachable);
+                self.set_terminator(block_id, expr.span, MirTerminator::Unreachable);
                 Ok(None)
             }
             _ => {
@@ -373,7 +378,7 @@ impl MirFunctionBuilder {
                 let Some(defer_rvalue) = self.lower_rvalue(&mut defer_block, expr)? else {
                     return Ok(None);
                 };
-                self.emit_instruction(defer_block, MirInstruction::Defer(defer_rvalue));
+                self.emit_instruction(defer_block, expr.span, MirInstruction::Defer(defer_rvalue));
                 Ok(Some(defer_block))
             }
         }
@@ -392,13 +397,15 @@ impl MirFunctionBuilder {
                 init,
             } => {
                 let mut block_id = block_id;
-                let local = self.new_local(*name, *ty, *is_mut, MirLocalKind::Let);
+                let init_span = init.span;
+                let local = self.new_local(*name, init_span, *ty, *is_mut, MirLocalKind::Let);
                 let Some(init) = self.lower_rvalue(&mut block_id, init)? else {
                     return Ok(None);
                 };
                 self.bind_local(*name, local);
                 self.emit_instruction(
                     block_id,
+                    init_span,
                     MirInstruction::Let {
                         place: MirPlace::Local(local),
                         init,
@@ -430,11 +437,13 @@ impl MirFunctionBuilder {
                 let then_block = self.new_block();
                 let else_block = self.new_block();
                 let join = self.new_block();
+                let cond_span = cond.span;
                 let Some(cond) = self.lower_rvalue(&mut block_id, cond)? else {
                     return Ok(None);
                 };
                 self.set_terminator(
                     block_id,
+                    cond_span,
                     MirTerminator::Branch {
                         cond,
                         then_block,
@@ -443,11 +452,11 @@ impl MirFunctionBuilder {
                 );
                 let then_end = self.lower_block(then_block, then_branch, Some(join))?;
                 if then_end.is_none() && else_branch.is_none() {
-                    self.set_terminator(else_block, MirTerminator::Goto(join));
+                    self.set_terminator(else_block, cond_span, MirTerminator::Goto(join));
                 } else if let Some(else_branch) = else_branch {
                     let _ = self.lower_block(else_block, else_branch, Some(join))?;
                 } else {
-                    self.set_terminator(else_block, MirTerminator::Goto(join));
+                    self.set_terminator(else_block, cond_span, MirTerminator::Goto(join));
                 }
                 Ok(Some(join))
             }
@@ -466,11 +475,13 @@ impl MirFunctionBuilder {
                     });
                 }
                 let default_block = default_case.as_ref().map(|_| self.new_block());
+                let target_span = target.span;
                 let Some(target) = self.lower_rvalue(&mut block_id, target)? else {
                     return Ok(None);
                 };
                 self.set_terminator(
                     block_id,
+                    target_span,
                     MirTerminator::Switch {
                         target,
                         cases: mir_cases.clone(),
@@ -496,7 +507,7 @@ impl MirFunctionBuilder {
                     .map(|_| self.new_block())
                     .unwrap_or(body_block);
                 let exit_block = self.new_block();
-                self.set_terminator(block_id, MirTerminator::Goto(body_block));
+                self.set_terminator(block_id, expr.span, MirTerminator::Goto(body_block));
                 self.loop_stack.push(MirLoopTargets {
                     break_block: exit_block,
                     continue_block,
@@ -516,7 +527,7 @@ impl MirFunctionBuilder {
                     },
                     None => None,
                 };
-                self.set_terminator(block_id, MirTerminator::Return(ret_value));
+                self.set_terminator(block_id, expr.span, MirTerminator::Return(ret_value));
                 Ok(None)
             }
             MastExprKind::Break => {
@@ -525,7 +536,7 @@ impl MirFunctionBuilder {
                     .last()
                     .map(|targets| targets.break_block)
                     .unwrap_or_else(|| self.new_block());
-                self.set_terminator(block_id, MirTerminator::Goto(break_block));
+                self.set_terminator(block_id, expr.span, MirTerminator::Goto(break_block));
                 Ok(None)
             }
             MastExprKind::Continue => {
@@ -534,7 +545,7 @@ impl MirFunctionBuilder {
                     .last()
                     .map(|targets| targets.continue_block)
                     .unwrap_or_else(|| self.new_block());
-                self.set_terminator(block_id, MirTerminator::Goto(continue_block));
+                self.set_terminator(block_id, expr.span, MirTerminator::Goto(continue_block));
                 Ok(None)
             }
             MastExprKind::Assign { .. } => {
@@ -547,16 +558,16 @@ impl MirFunctionBuilder {
                 Ok(Some(block_id))
             }
             MastExprKind::Unreachable => {
-                self.set_terminator(block_id, MirTerminator::Unreachable);
+                self.set_terminator(block_id, expr.span, MirTerminator::Unreachable);
                 Ok(None)
             }
             MastExprKind::Trap => {
-                self.emit_instruction(block_id, MirInstruction::Trap);
-                self.set_terminator(block_id, MirTerminator::Unreachable);
+                self.emit_instruction(block_id, expr.span, MirInstruction::Trap);
+                self.set_terminator(block_id, expr.span, MirTerminator::Unreachable);
                 Ok(None)
             }
             MastExprKind::Breakpoint => {
-                self.emit_instruction(block_id, MirInstruction::Breakpoint);
+                self.emit_instruction(block_id, expr.span, MirInstruction::Breakpoint);
                 Ok(Some(block_id))
             }
             MastExprKind::Memcpy { .. }
@@ -604,7 +615,7 @@ impl MirFunctionBuilder {
                 let Some(value) = self.lower_rvalue(&mut block_id, expr)? else {
                     return Ok(None);
                 };
-                self.emit_instruction(block_id, MirInstruction::Eval(value));
+                self.emit_instruction(block_id, expr.span, MirInstruction::Eval(value));
                 Ok(Some(block_id))
             }
         }
@@ -619,10 +630,10 @@ impl MirFunctionBuilder {
         let mut block_id = block_id;
         let Some(result) = result else {
             if let Some(next) = fallthrough {
-                self.set_terminator(block_id, MirTerminator::Goto(next));
+                self.set_terminator(block_id, Span::default(), MirTerminator::Goto(next));
                 return Ok(Some(next));
             }
-            self.set_terminator(block_id, MirTerminator::Return(None));
+            self.set_terminator(block_id, Span::default(), MirTerminator::Return(None));
             return Ok(None);
         };
 
@@ -635,11 +646,13 @@ impl MirFunctionBuilder {
             } => {
                 let then_block = self.new_block();
                 let else_block = self.new_block();
+                let cond_span = cond.span;
                 let Some(cond) = self.lower_rvalue(&mut block_id, cond)? else {
                     return Ok(None);
                 };
                 self.set_terminator(
                     block_id,
+                    cond_span,
                     MirTerminator::Branch {
                         cond,
                         then_block,
@@ -650,9 +663,9 @@ impl MirFunctionBuilder {
                 if let Some(else_branch) = else_branch {
                     let _ = self.lower_block(else_block, else_branch, fallthrough)?;
                 } else if let Some(next) = fallthrough {
-                    self.set_terminator(else_block, MirTerminator::Goto(next));
+                    self.set_terminator(else_block, cond_span, MirTerminator::Goto(next));
                 } else {
-                    self.set_terminator(else_block, MirTerminator::Return(None));
+                    self.set_terminator(else_block, cond_span, MirTerminator::Return(None));
                 }
                 Ok(fallthrough)
             }
@@ -679,11 +692,13 @@ impl MirFunctionBuilder {
                 } else {
                     None
                 };
+                let target_span = target.span;
                 let Some(target) = self.lower_rvalue(&mut block_id, target)? else {
                     return Ok(None);
                 };
                 self.set_terminator(
                     block_id,
+                    target_span,
                     MirTerminator::Switch {
                         target,
                         cases: mir_cases,
@@ -697,18 +712,18 @@ impl MirFunctionBuilder {
             | MastExprKind::Break
             | MastExprKind::Continue => self.lower_control_or_eval_stmt(block_id, result),
             MastExprKind::Unreachable => {
-                self.set_terminator(block_id, MirTerminator::Unreachable);
+                self.set_terminator(block_id, result.span, MirTerminator::Unreachable);
                 Ok(None)
             }
             MastExprKind::Trap => {
-                self.emit_instruction(block_id, MirInstruction::Trap);
-                self.set_terminator(block_id, MirTerminator::Unreachable);
+                self.emit_instruction(block_id, result.span, MirInstruction::Trap);
+                self.set_terminator(block_id, result.span, MirTerminator::Unreachable);
                 Ok(None)
             }
             MastExprKind::Breakpoint => {
-                self.emit_instruction(block_id, MirInstruction::Breakpoint);
+                self.emit_instruction(block_id, result.span, MirInstruction::Breakpoint);
                 if let Some(next) = fallthrough {
-                    self.set_terminator(block_id, MirTerminator::Goto(next));
+                    self.set_terminator(block_id, result.span, MirTerminator::Goto(next));
                     Ok(Some(next))
                 } else {
                     Ok(Some(block_id))
@@ -719,11 +734,12 @@ impl MirFunctionBuilder {
                     return Ok(None);
                 };
                 if let Some(next) = fallthrough {
-                    self.set_terminator(block_id, MirTerminator::Goto(next));
+                    self.set_terminator(block_id, result.span, MirTerminator::Goto(next));
                     Ok(Some(next))
                 } else {
                     self.set_terminator(
                         block_id,
+                        result.span,
                         MirTerminator::Return(Some(MirRvalue::Load(place))),
                     );
                     Ok(None)
@@ -739,10 +755,10 @@ impl MirFunctionBuilder {
                     return Ok(None);
                 }
                 if let Some(next) = fallthrough {
-                    self.set_terminator(block_id, MirTerminator::Goto(next));
+                    self.set_terminator(block_id, result.span, MirTerminator::Goto(next));
                     Ok(Some(next))
                 } else {
-                    self.set_terminator(block_id, MirTerminator::Return(None));
+                    self.set_terminator(block_id, result.span, MirTerminator::Return(None));
                     Ok(None)
                 }
             }
@@ -754,10 +770,10 @@ impl MirFunctionBuilder {
                     return Ok(None);
                 }
                 if let Some(next) = fallthrough {
-                    self.set_terminator(block_id, MirTerminator::Goto(next));
+                    self.set_terminator(block_id, result.span, MirTerminator::Goto(next));
                     Ok(Some(next))
                 } else {
-                    self.set_terminator(block_id, MirTerminator::Return(None));
+                    self.set_terminator(block_id, result.span, MirTerminator::Return(None));
                     Ok(None)
                 }
             }
@@ -772,10 +788,10 @@ impl MirFunctionBuilder {
                     return Ok(None);
                 }
                 if let Some(next) = fallthrough {
-                    self.set_terminator(block_id, MirTerminator::Goto(next));
+                    self.set_terminator(block_id, result.span, MirTerminator::Goto(next));
                     Ok(Some(next))
                 } else {
-                    self.set_terminator(block_id, MirTerminator::Return(None));
+                    self.set_terminator(block_id, result.span, MirTerminator::Return(None));
                     Ok(None)
                 }
             }
@@ -787,10 +803,10 @@ impl MirFunctionBuilder {
                     return Ok(None);
                 }
                 if let Some(next) = fallthrough {
-                    self.set_terminator(block_id, MirTerminator::Goto(next));
+                    self.set_terminator(block_id, result.span, MirTerminator::Goto(next));
                     Ok(Some(next))
                 } else {
-                    self.set_terminator(block_id, MirTerminator::Return(None));
+                    self.set_terminator(block_id, result.span, MirTerminator::Return(None));
                     Ok(None)
                 }
             }
@@ -799,11 +815,15 @@ impl MirFunctionBuilder {
                     return Ok(None);
                 };
                 if let Some(next) = fallthrough {
-                    self.emit_instruction(block_id, MirInstruction::Eval(lowered));
-                    self.set_terminator(block_id, MirTerminator::Goto(next));
+                    self.emit_instruction(block_id, result.span, MirInstruction::Eval(lowered));
+                    self.set_terminator(block_id, result.span, MirTerminator::Goto(next));
                     Ok(Some(next))
                 } else {
-                    self.set_terminator(block_id, MirTerminator::Return(Some(lowered)));
+                    self.set_terminator(
+                        block_id,
+                        result.span,
+                        MirTerminator::Return(Some(lowered)),
+                    );
                     Ok(None)
                 }
             }

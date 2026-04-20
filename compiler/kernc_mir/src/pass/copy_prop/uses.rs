@@ -8,7 +8,7 @@ pub(super) fn count_local_uses(body: &MirBody) -> HashMap<crate::MirLocalId, usi
     let mut counts = HashMap::new();
     for block in &body.blocks {
         for instruction in &block.instructions {
-            match instruction {
+            match &instruction.kind {
                 MirInstruction::Let { init, .. } => count_rvalue_uses(init, &mut counts),
                 MirInstruction::Assign { place, value, .. } => {
                     count_place_uses(place, &mut counts);
@@ -65,7 +65,7 @@ pub(super) fn count_local_uses(body: &MirBody) -> HashMap<crate::MirLocalId, usi
                 }
             }
         }
-        match &block.terminator {
+        match &block.terminator.kind {
             crate::MirTerminator::Goto(_) | crate::MirTerminator::Unreachable => {}
             crate::MirTerminator::Branch { cond, .. } => count_rvalue_uses(cond, &mut counts),
             crate::MirTerminator::Switch { target, .. } => count_rvalue_uses(target, &mut counts),

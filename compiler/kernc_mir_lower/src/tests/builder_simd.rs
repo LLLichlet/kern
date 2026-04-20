@@ -261,24 +261,30 @@ fn mir_builder_extracts_simd_memory_and_slice_operations() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::SimdLoad {
-                ptr: MirOperand::Local(ptr_ref),
-                align: 16,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::SimdLoad {
+                    ptr: MirOperand::Local(ptr_ref),
+                    align: 16,
+                },
             },
+            ..
         } if place_local == &loaded_local && ptr_ref == &ptr_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[1],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::SimdMaskedLoad {
-                ptr: MirOperand::Local(ptr_ref),
-                mask: MirOperand::Local(mask_ref),
-                or_else: MirOperand::Local(fallback_ref),
-                align: 16,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::SimdMaskedLoad {
+                    ptr: MirOperand::Local(ptr_ref),
+                    mask: MirOperand::Local(mask_ref),
+                    or_else: MirOperand::Local(fallback_ref),
+                    align: 16,
+                },
             },
+            ..
         } if place_local == &masked_local
             && ptr_ref == &ptr_local
             && mask_ref == &mask_local
@@ -286,49 +292,64 @@ fn mir_builder_extracts_simd_memory_and_slice_operations() {
     ));
     assert!(matches!(
         &body.blocks[0].instructions[2],
-        MirInstruction::SimdStore {
-            ptr: MirOperand::Local(ptr_ref),
-            value: MirOperand::Local(value_ref),
-            align: 16,
+        MirInstructionData {
+            kind: MirInstruction::SimdStore {
+                ptr: MirOperand::Local(ptr_ref),
+                value: MirOperand::Local(value_ref),
+                align: 16,
+            },
+            ..
         } if ptr_ref == &ptr_local && value_ref == &loaded_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[3],
-        MirInstruction::SimdMaskedStore {
-            ptr: MirOperand::Local(ptr_ref),
-            mask: MirOperand::Local(mask_ref),
-            value: MirOperand::Local(value_ref),
-            align: 16,
+        MirInstructionData {
+            kind: MirInstruction::SimdMaskedStore {
+                ptr: MirOperand::Local(ptr_ref),
+                mask: MirOperand::Local(mask_ref),
+                value: MirOperand::Local(value_ref),
+                align: 16,
+            },
+            ..
         } if ptr_ref == &ptr_local && mask_ref == &mask_local && value_ref == &masked_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[4],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::SimdGather {
-                ptr: MirOperand::Local(ptr_ref),
-                indices: MirOperand::Local(indices_ref),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::SimdGather {
+                    ptr: MirOperand::Local(ptr_ref),
+                    indices: MirOperand::Local(indices_ref),
+                },
             },
+            ..
         } if place_local == &gathered_local && ptr_ref == &ptr_local && indices_ref == &indices_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[5],
-        MirInstruction::SimdScatter {
-            ptr: MirOperand::Local(ptr_ref),
-            indices: MirOperand::Local(indices_ref),
-            value: MirOperand::Local(value_ref),
+        MirInstructionData {
+            kind: MirInstruction::SimdScatter {
+                ptr: MirOperand::Local(ptr_ref),
+                indices: MirOperand::Local(indices_ref),
+                value: MirOperand::Local(value_ref),
+            },
+            ..
         } if ptr_ref == &ptr_local && indices_ref == &indices_local && value_ref == &gathered_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[6],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::SimdMaskedGather {
-                ptr: MirOperand::Local(ptr_ref),
-                indices: MirOperand::Local(indices_ref),
-                mask: MirOperand::Local(mask_ref),
-                or_else: MirOperand::Local(fallback_ref),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::SimdMaskedGather {
+                    ptr: MirOperand::Local(ptr_ref),
+                    indices: MirOperand::Local(indices_ref),
+                    mask: MirOperand::Local(mask_ref),
+                    or_else: MirOperand::Local(fallback_ref),
+                },
             },
+            ..
         } if place_local == &masked_gathered_local
             && ptr_ref == &ptr_local
             && indices_ref == &indices_local
@@ -337,11 +358,14 @@ fn mir_builder_extracts_simd_memory_and_slice_operations() {
     ));
     assert!(matches!(
         &body.blocks[0].instructions[7],
-        MirInstruction::SimdMaskedScatter {
-            ptr: MirOperand::Local(ptr_ref),
-            indices: MirOperand::Local(indices_ref),
-            mask: MirOperand::Local(mask_ref),
-            value: MirOperand::Local(value_ref),
+        MirInstructionData {
+            kind: MirInstruction::SimdMaskedScatter {
+                ptr: MirOperand::Local(ptr_ref),
+                indices: MirOperand::Local(indices_ref),
+                mask: MirOperand::Local(mask_ref),
+                value: MirOperand::Local(value_ref),
+            },
+            ..
         } if ptr_ref == &ptr_local
             && indices_ref == &indices_local
             && mask_ref == &mask_local
@@ -349,14 +373,17 @@ fn mir_builder_extracts_simd_memory_and_slice_operations() {
     ));
     assert!(matches!(
         &body.blocks[0].instructions[8],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::SliceOp {
-                lhs: MirSliceBase::Place(MirPlace::Local(base_local)),
-                start: Some(MirOperand::Const(_)),
-                end: Some(MirOperand::Const(_)),
-                is_inclusive: false,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::SliceOp {
+                    lhs: MirSliceBase::Place(MirPlace::Local(base_local)),
+                    start: Some(MirOperand::Const(_)),
+                    end: Some(MirOperand::Const(_)),
+                    is_inclusive: false,
+                },
             },
+            ..
         } if place_local == &slice_local && base_local == &array_local
     ));
 }
@@ -505,44 +532,56 @@ fn mir_builder_extracts_pure_simd_rvalues() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::Binary {
-                op: BinaryOperator::Add,
-                lhs: MirOperand::Local(lhs_ref),
-                rhs: MirOperand::Local(rhs_ref),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::Binary {
+                    op: BinaryOperator::Add,
+                    lhs: MirOperand::Local(lhs_ref),
+                    rhs: MirOperand::Local(rhs_ref),
+                },
             },
+            ..
         } if place_local == &sum_local && lhs_ref == &lhs_local && rhs_ref == &rhs_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[1],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::SimdBinaryIntrinsic {
-                kind: MirSimdBinaryIntrinsicKind::Min,
-                lhs: MirOperand::Local(lhs_ref),
-                rhs: MirOperand::Local(rhs_ref),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::SimdBinaryIntrinsic {
+                    kind: MirSimdBinaryIntrinsicKind::Min,
+                    lhs: MirOperand::Local(lhs_ref),
+                    rhs: MirOperand::Local(rhs_ref),
+                },
             },
+            ..
         } if place_local == &mins_local && lhs_ref == &lhs_local && rhs_ref == &rhs_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[2],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::Binary {
-                op: BinaryOperator::LessThan,
-                lhs: MirOperand::Local(lhs_ref),
-                rhs: MirOperand::Local(rhs_ref),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::Binary {
+                    op: BinaryOperator::LessThan,
+                    lhs: MirOperand::Local(lhs_ref),
+                    rhs: MirOperand::Local(rhs_ref),
+                },
             },
+            ..
         } if place_local == &mask_local && lhs_ref == &lhs_local && rhs_ref == &rhs_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[3],
-        MirInstruction::Let {
-            init: MirRvalue::SimdSelect {
-                mask: MirOperand::Local(mask_ref),
-                on_true: MirOperand::Local(true_ref),
-                on_false: MirOperand::Local(false_ref),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::SimdSelect {
+                    mask: MirOperand::Local(mask_ref),
+                    on_true: MirOperand::Local(true_ref),
+                    on_false: MirOperand::Local(false_ref),
+                },
+                ..
             },
             ..
         } if mask_ref == &mask_local && true_ref == &sum_local && false_ref == &mins_local

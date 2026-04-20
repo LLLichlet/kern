@@ -127,10 +127,13 @@ fn mir_builder_extracts_aggregate_rvalues() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Let {
-            init: MirRvalue::Aggregate {
-                kind: MirAggregateKind::Struct { struct_id: got },
-                fields,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Aggregate {
+                    kind: MirAggregateKind::Struct { struct_id: got },
+                    fields,
+                    ..
+                },
                 ..
             },
             ..
@@ -139,10 +142,13 @@ fn mir_builder_extracts_aggregate_rvalues() {
     ));
     assert!(matches!(
         &body.blocks[0].instructions[1],
-        MirInstruction::Let {
-            init: MirRvalue::Aggregate {
-                kind: MirAggregateKind::Array,
-                fields,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Aggregate {
+                    kind: MirAggregateKind::Array,
+                    fields,
+                    ..
+                },
                 ..
             },
             ..
@@ -150,10 +156,13 @@ fn mir_builder_extracts_aggregate_rvalues() {
     ));
     assert!(matches!(
         &body.blocks[0].instructions[2],
-        MirInstruction::Let {
-            init: MirRvalue::Aggregate {
-                kind: MirAggregateKind::FatPointer,
-                fields,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Aggregate {
+                    kind: MirAggregateKind::FatPointer,
+                    fields,
+                    ..
+                },
                 ..
             },
             ..
@@ -161,10 +170,13 @@ fn mir_builder_extracts_aggregate_rvalues() {
     ));
     assert!(matches!(
         &body.blocks[0].instructions[3],
-        MirInstruction::Let {
-            init: MirRvalue::Aggregate {
-                kind: MirAggregateKind::Data { data_struct_id: got, tag_value: 3 },
-                fields,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Aggregate {
+                    kind: MirAggregateKind::Data { data_struct_id: got, tag_value: 3 },
+                    fields,
+                    ..
+                },
                 ..
             },
             ..
@@ -240,20 +252,26 @@ fn mir_builder_extracts_fat_pointer_projection_rvalues() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Let {
-            init: MirRvalue::Projection {
-                kind: MirProjectionKind::FatPtrData,
-                operand: MirOperand::Local(local),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Projection {
+                    kind: MirProjectionKind::FatPtrData,
+                    operand: MirOperand::Local(local),
+                },
+                ..
             },
             ..
         } if local == &fat_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[1],
-        MirInstruction::Let {
-            init: MirRvalue::Projection {
-                kind: MirProjectionKind::FatPtrMeta,
-                operand: MirOperand::Local(local),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Projection {
+                    kind: MirProjectionKind::FatPtrMeta,
+                    operand: MirOperand::Local(local),
+                },
+                ..
             },
             ..
         } if local == &fat_local
@@ -379,27 +397,36 @@ fn mir_builder_extracts_memory_intrinsics() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Memory(MirMemoryIntrinsic::Copy {
-            dest: MirOperand::Local(d),
-            src: MirOperand::Local(s),
-            len: MirOperand::Local(n),
-        }) if d == &dest_local && s == &src_local && n == &len_local
+        MirInstructionData {
+            kind: MirInstruction::Memory(MirMemoryIntrinsic::Copy {
+                dest: MirOperand::Local(d),
+                src: MirOperand::Local(s),
+                len: MirOperand::Local(n),
+            }),
+            ..
+        } if d == &dest_local && s == &src_local && n == &len_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[1],
-        MirInstruction::Memory(MirMemoryIntrinsic::Move {
-            dest: MirOperand::Local(d),
-            src: MirOperand::Local(s),
-            len: MirOperand::Local(n),
-        }) if d == &dest_local && s == &src_local && n == &len_local
+        MirInstructionData {
+            kind: MirInstruction::Memory(MirMemoryIntrinsic::Move {
+                dest: MirOperand::Local(d),
+                src: MirOperand::Local(s),
+                len: MirOperand::Local(n),
+            }),
+            ..
+        } if d == &dest_local && s == &src_local && n == &len_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[2],
-        MirInstruction::Memory(MirMemoryIntrinsic::Set {
-            dest: MirOperand::Local(d),
-            val: MirOperand::Local(v),
-            len: MirOperand::Local(n),
-        }) if d == &dest_local && v == &val_local && n == &len_local
+        MirInstructionData {
+            kind: MirInstruction::Memory(MirMemoryIntrinsic::Set {
+                dest: MirOperand::Local(d),
+                val: MirOperand::Local(v),
+                len: MirOperand::Local(n),
+            }),
+            ..
+        } if d == &dest_local && v == &val_local && n == &len_local
     ));
     assert!(report.workload.memory_instructions >= 3);
 }

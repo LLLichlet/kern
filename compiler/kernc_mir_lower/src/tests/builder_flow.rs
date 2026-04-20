@@ -148,13 +148,31 @@ fn mir_builder_extracts_cfg_from_if_statement() {
     assert_eq!(body.blocks.len(), 4);
     assert!(matches!(
         body.blocks[0].terminator,
-        MirTerminator::Branch { .. }
+        MirTerminatorData {
+            kind: MirTerminator::Branch { .. },
+            ..
+        }
     ));
-    assert!(matches!(body.blocks[1].terminator, MirTerminator::Goto(_)));
-    assert!(matches!(body.blocks[2].terminator, MirTerminator::Goto(_)));
+    assert!(matches!(
+        body.blocks[1].terminator,
+        MirTerminatorData {
+            kind: MirTerminator::Goto(_),
+            ..
+        }
+    ));
+    assert!(matches!(
+        body.blocks[2].terminator,
+        MirTerminatorData {
+            kind: MirTerminator::Goto(_),
+            ..
+        }
+    ));
     assert!(matches!(
         body.blocks[3].terminator,
-        MirTerminator::Return(Some(_))
+        MirTerminatorData {
+            kind: MirTerminator::Return(Some(_)),
+            ..
+        }
     ));
 }
 
@@ -193,23 +211,23 @@ fn mir_builder_records_defers_and_loop_edges() {
         block
             .instructions
             .iter()
-            .any(|instruction| matches!(instruction, MirInstruction::Breakpoint))
+            .any(|instruction| matches!(instruction.kind, MirInstruction::Breakpoint))
     }));
     assert!(body.blocks.iter().any(|block| {
         block
             .instructions
             .iter()
-            .any(|instruction| matches!(instruction, MirInstruction::Trap))
+            .any(|instruction| matches!(instruction.kind, MirInstruction::Trap))
     }));
     assert!(
         body.blocks
             .iter()
-            .any(|block| matches!(block.terminator, MirTerminator::Unreachable))
+            .any(|block| matches!(block.terminator.kind, MirTerminator::Unreachable))
     );
     assert!(
         body.blocks
             .iter()
-            .any(|block| matches!(block.terminator, MirTerminator::Goto(_)))
+            .any(|block| matches!(block.terminator.kind, MirTerminator::Goto(_)))
     );
 }
 
@@ -254,7 +272,7 @@ fn mir_builder_accepts_nonvoid_loop_tail_as_diverging_control() {
     assert!(
         body.blocks
             .iter()
-            .any(|block| matches!(block.terminator, MirTerminator::Return(Some(_))))
+            .any(|block| matches!(block.terminator.kind, MirTerminator::Return(Some(_))))
     );
 }
 
@@ -315,7 +333,7 @@ fn mir_builder_accepts_diverging_block_rvalue_with_loop_tail() {
     assert!(
         body.blocks
             .iter()
-            .any(|block| matches!(block.terminator, MirTerminator::Return(Some(_))))
+            .any(|block| matches!(block.terminator.kind, MirTerminator::Return(Some(_))))
     );
 }
 
@@ -344,7 +362,10 @@ fn mir_builder_lowers_explicit_unreachable_to_unreachable_terminator() {
 
     assert!(matches!(
         body.blocks[0].terminator,
-        MirTerminator::Unreachable
+        MirTerminatorData {
+            kind: MirTerminator::Unreachable,
+            ..
+        }
     ));
 }
 
@@ -387,25 +408,31 @@ fn mir_builder_resolves_param_and_let_uses_to_locals() {
 
     assert!(body.blocks.iter().any(|block| matches!(
         block.instructions.first(),
-        Some(
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::Use(MirOperand::Local(init_local)),
-        }
-        ) if *place_local == let_local && *init_local == param_local
+        Some(MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::Use(MirOperand::Local(init_local)),
+            },
+            ..
+        }) if *place_local == let_local && *init_local == param_local
     )));
     assert!(body.blocks.iter().any(|block| matches!(
         block.instructions.get(1),
-        Some(MirInstruction::Assign {
-            place: MirPlace::Local(place_local),
-            op: AssignmentOperator::Assign,
-            value: MirRvalue::Use(MirOperand::Local(init_local)),
+        Some(MirInstructionData {
+            kind: MirInstruction::Assign {
+                place: MirPlace::Local(place_local),
+                op: AssignmentOperator::Assign,
+                value: MirRvalue::Use(MirOperand::Local(init_local)),
+            },
+            ..
         }) if place_local == &return_local && init_local == &let_local
     )));
     assert!(body.blocks.iter().any(|block| matches!(
         &block.terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local))))
-            if local == &return_local
+        MirTerminatorData {
+            kind: MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local)))),
+            ..
+        } if local == &return_local
     )));
 }
 
@@ -447,25 +474,31 @@ fn mir_builder_let_initializer_uses_outer_binding_before_shadowing() {
 
     assert!(body.blocks.iter().any(|block| matches!(
         block.instructions.first(),
-        Some(
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::Use(MirOperand::Local(init_local)),
-        }
-        ) if *place_local == let_local && *init_local == param_local
+        Some(MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::Use(MirOperand::Local(init_local)),
+            },
+            ..
+        }) if *place_local == let_local && *init_local == param_local
     )));
     assert!(body.blocks.iter().any(|block| matches!(
         block.instructions.get(1),
-        Some(MirInstruction::Assign {
-            place: MirPlace::Local(place_local),
-            op: AssignmentOperator::Assign,
-            value: MirRvalue::Use(MirOperand::Local(init_local)),
+        Some(MirInstructionData {
+            kind: MirInstruction::Assign {
+                place: MirPlace::Local(place_local),
+                op: AssignmentOperator::Assign,
+                value: MirRvalue::Use(MirOperand::Local(init_local)),
+            },
+            ..
         }) if place_local == &return_local && init_local == &let_local
     )));
     assert!(body.blocks.iter().any(|block| matches!(
         &block.terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local))))
-            if local == &return_local
+        MirTerminatorData {
+            kind: MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local)))),
+            ..
+        } if local == &return_local
     )));
 }
 
@@ -510,10 +543,13 @@ fn mir_builder_extracts_direct_calls_from_mast_exprs() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Let {
-            init: MirRvalue::Call {
-                callee: MirCallTarget::Direct(id),
-                args,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Call {
+                    callee: MirCallTarget::Direct(id),
+                    args,
+                },
+                ..
             },
             ..
         } if id == &helper_id
@@ -568,10 +604,13 @@ fn mir_builder_lowers_global_assignments_to_global_places() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Assign {
-            place: MirPlace::Global(id),
-            op: AssignmentOperator::Assign,
-            value: MirRvalue::Use(MirOperand::Const(_)),
+        MirInstructionData {
+            kind: MirInstruction::Assign {
+                place: MirPlace::Global(id),
+                op: AssignmentOperator::Assign,
+                value: MirRvalue::Use(MirOperand::Const(_)),
+            },
+            ..
         } if *id == global_id
     ));
 }

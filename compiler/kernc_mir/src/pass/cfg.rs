@@ -14,10 +14,10 @@ pub(super) fn run_branch_folding(module: &mut MirModule) -> MirPassReport {
         };
         let mut body_changed = false;
         for block in &mut body.blocks {
-            let Some(new_terminator) = folded_terminator(&block.terminator) else {
+            let Some(new_terminator) = folded_terminator(&block.terminator.kind) else {
                 continue;
             };
-            block.terminator = new_terminator;
+            block.terminator.kind = new_terminator;
             report.terminator_rewrites += 1;
             body_changed = true;
         }
@@ -44,7 +44,7 @@ pub(super) fn run_cfg_thread_jumps(module: &mut MirModule) -> MirPassReport {
             let Some(new_terminator) = threaded_terminator(body, index) else {
                 continue;
             };
-            body.blocks[index].terminator = new_terminator;
+            body.blocks[index].terminator.kind = new_terminator;
             report.terminator_rewrites += 1;
             body_changed = true;
         }
@@ -126,7 +126,7 @@ fn const_u128_from_rvalue(rvalue: &MirRvalue) -> Option<u128> {
 }
 
 fn threaded_terminator(body: &MirBody, block_index: usize) -> Option<MirTerminator> {
-    let terminator = &body.blocks[block_index].terminator;
+    let terminator = &body.blocks[block_index].terminator.kind;
     match terminator {
         MirTerminator::Goto(target) => {
             let threaded = thread_target(body, *target)?;
@@ -191,7 +191,7 @@ fn thread_target(body: &MirBody, start: MirBlockId) -> Option<MirBlockId> {
         if !block.instructions.is_empty() {
             break;
         }
-        let MirTerminator::Goto(next) = block.terminator else {
+        let MirTerminator::Goto(next) = block.terminator.kind else {
             break;
         };
         if next == current {
@@ -224,7 +224,7 @@ fn prune_unreachable_blocks(body: &mut MirBody) -> usize {
     }
 
     for block in &mut new_blocks {
-        remap_terminator_targets(&mut block.terminator, &remap);
+        remap_terminator_targets(&mut block.terminator.kind, &remap);
     }
     body.entry = *remap
         .get(&body.entry)
@@ -241,7 +241,7 @@ fn collect_reachable_blocks(body: &MirBody) -> HashSet<MirBlockId> {
         if !reachable.insert(block) {
             continue;
         }
-        let terminator = &body.blocks[block.0 as usize].terminator;
+        let terminator = &body.blocks[block.0 as usize].terminator.kind;
         push_successors(terminator, &mut worklist);
     }
     reachable

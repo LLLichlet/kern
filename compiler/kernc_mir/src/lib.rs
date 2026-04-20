@@ -13,11 +13,11 @@ mod tests;
 pub use ids::{MirBlockId, MirLocalId};
 pub use ir::{
     MirAggregateKind, MirBitIntrinsicKind, MirBlock, MirBody, MirCallTarget, MirCastKind, MirConst,
-    MirField, MirFunction, MirGlobal, MirInlineAsm, MirInlineHint, MirInstruction, MirLinkage,
-    MirLocal, MirLocalKind, MirMemoryIntrinsic, MirModule, MirOperand, MirParam, MirPlace,
-    MirProjectionKind, MirRvalue, MirSimdBinaryIntrinsicKind, MirSimdReduceKind,
-    MirSimdUnaryIntrinsicKind, MirSliceBase, MirStaticInit, MirStruct, MirSwitchTarget,
-    MirTerminator,
+    MirField, MirFunction, MirGlobal, MirInlineAsm, MirInlineHint, MirInstruction,
+    MirInstructionData, MirLinkage, MirLocal, MirLocalKind, MirMemoryIntrinsic, MirModule,
+    MirOperand, MirParam, MirPlace, MirProjectionKind, MirRvalue, MirSimdBinaryIntrinsicKind,
+    MirSimdReduceKind, MirSimdUnaryIntrinsicKind, MirSliceBase, MirStaticInit, MirStruct,
+    MirSwitchTarget, MirTerminator, MirTerminatorData,
 };
 pub use pass::{MirPassPipelineReport, MirPassReport, run_default_pass_pipeline};
 pub use stats::MirWorkloadStats;

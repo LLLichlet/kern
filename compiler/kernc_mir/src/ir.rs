@@ -93,8 +93,8 @@ pub struct MirBody {
 #[derive(Debug, Clone)]
 pub struct MirBlock {
     pub id: MirBlockId,
-    pub instructions: Vec<MirInstruction>,
-    pub terminator: MirTerminator,
+    pub instructions: Vec<MirInstructionData>,
+    pub terminator: MirTerminatorData,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +107,7 @@ pub enum MirLocalKind {
 pub struct MirLocal {
     pub id: MirLocalId,
     pub name: SymbolId,
+    pub span: Span,
     pub ty: TypeId,
     pub is_mut: bool,
     pub kind: MirLocalKind,
@@ -447,6 +448,12 @@ pub struct MirInlineAsm {
 }
 
 #[derive(Debug, Clone)]
+pub struct MirInstructionData {
+    pub span: Span,
+    pub kind: MirInstruction,
+}
+
+#[derive(Debug, Clone)]
 pub enum MirInstruction {
     Let {
         place: MirPlace,
@@ -493,6 +500,12 @@ pub enum MirInstruction {
     Breakpoint,
     Eval(MirRvalue),
     Defer(MirRvalue),
+}
+
+#[derive(Debug, Clone)]
+pub struct MirTerminatorData {
+    pub span: Span,
+    pub kind: MirTerminator,
 }
 
 #[derive(Debug, Clone)]

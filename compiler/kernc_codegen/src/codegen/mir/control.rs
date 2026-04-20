@@ -1,8 +1,12 @@
 use super::*;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
-    pub(super) fn compile_mir_instruction(&mut self, body: &MirBody, instruction: &MirInstruction) {
-        match instruction {
+    pub(super) fn compile_mir_instruction(
+        &mut self,
+        body: &MirBody,
+        instruction: &kernc_mir::MirInstructionData,
+    ) {
+        match &instruction.kind {
             MirInstruction::Let { place, init } => {
                 let expected_ty = self.mir_place_ty(body, place);
                 let value = self.compile_mir_rvalue(body, init, expected_ty);
@@ -125,9 +129,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         body: &MirBody,
         function: &MirFunction,
         blocks: &HashMap<MirBlockId, BasicBlock<'ctx>>,
-        terminator: &MirTerminator,
+        terminator: &kernc_mir::MirTerminatorData,
     ) {
-        match terminator {
+        match &terminator.kind {
             MirTerminator::Goto(target) => {
                 let Some(block) = blocks.get(target).copied() else {
                     self.sess.emit_ice(

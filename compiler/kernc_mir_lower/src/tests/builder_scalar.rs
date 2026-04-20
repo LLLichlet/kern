@@ -47,23 +47,29 @@ fn mir_builder_materializes_nested_operands_into_temps() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::Binary {
-                op: BinaryOperator::Add,
-                lhs: MirOperand::Local(lhs),
-                rhs: MirOperand::Const(_),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::Binary {
+                    op: BinaryOperator::Add,
+                    lhs: MirOperand::Local(lhs),
+                    rhs: MirOperand::Const(_),
+                },
             },
+            ..
         } if place_local == &temp_local && lhs == &param_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[1],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::Call {
-                callee: MirCallTarget::Direct(id),
-                args,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::Call {
+                    callee: MirCallTarget::Direct(id),
+                    args,
+                },
             },
+            ..
         } if place_local == &value_local
             && id == &helper_id
             && matches!(args.as_slice(), [MirOperand::Local(local)] if local == &temp_local)
@@ -143,31 +149,40 @@ fn mir_builder_extracts_structured_scalar_rvalues() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Let {
-            init: MirRvalue::Unary {
-                op: UnaryOperator::Negate,
-                operand: MirOperand::Local(local),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Unary {
+                    op: UnaryOperator::Negate,
+                    operand: MirOperand::Local(local),
+                },
+                ..
             },
             ..
         } if local == &param_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[1],
-        MirInstruction::Let {
-            init: MirRvalue::Binary {
-                op: BinaryOperator::Add,
-                lhs: MirOperand::Local(lhs),
-                rhs: MirOperand::Local(rhs),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Binary {
+                    op: BinaryOperator::Add,
+                    lhs: MirOperand::Local(lhs),
+                    rhs: MirOperand::Local(rhs),
+                },
+                ..
             },
             ..
         } if lhs == &param_local && rhs == &neg_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[2],
-        MirInstruction::Let {
-            init: MirRvalue::Cast {
-                kind: MirCastKind::SignExt,
-                operand: MirOperand::Local(local),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Cast {
+                    kind: MirCastKind::SignExt,
+                    operand: MirOperand::Local(local),
+                },
+                ..
             },
             ..
         } if local == &sum_local
@@ -237,15 +252,21 @@ fn mir_builder_extracts_address_of_and_load_places() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::Let {
-            init: MirRvalue::AddressOf(MirPlace::Local(local)),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::AddressOf(MirPlace::Local(local)),
+                ..
+            },
             ..
         } if local == &value_local
     ));
     assert!(matches!(
         &body.blocks[0].instructions[1],
-        MirInstruction::Let {
-            init: MirRvalue::Load(MirPlace::Deref(MirOperand::Local(local))),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                init: MirRvalue::Load(MirPlace::Deref(MirOperand::Local(local))),
+                ..
+            },
             ..
         } if local == &ptr_local
     ));
@@ -304,14 +325,17 @@ fn mir_builder_extracts_assignment_instruction() {
 
     assert!(matches!(
         &body.blocks[0].instructions[1],
-        MirInstruction::Assign {
-            place: MirPlace::Local(place_local),
-            op: AssignmentOperator::Assign,
-            value: MirRvalue::Binary {
-                op: BinaryOperator::Add,
-                lhs: MirOperand::Local(lhs),
-                rhs: MirOperand::Const(_),
+        MirInstructionData {
+            kind: MirInstruction::Assign {
+                place: MirPlace::Local(place_local),
+                op: AssignmentOperator::Assign,
+                value: MirRvalue::Binary {
+                    op: BinaryOperator::Add,
+                    lhs: MirOperand::Local(lhs),
+                    rhs: MirOperand::Const(_),
+                },
             },
+            ..
         } if place_local == &value_local && lhs == &seed_local
     ));
 }
@@ -429,63 +453,81 @@ fn mir_builder_extracts_bit_and_atomic_operations() {
 
     assert!(matches!(
         instructions[0],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::BitIntrinsic {
-                kind: MirBitIntrinsicKind::PopCount,
-                operand: MirOperand::Local(local),
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::BitIntrinsic {
+                    kind: MirBitIntrinsicKind::PopCount,
+                    operand: MirOperand::Local(local),
+                },
             },
+            ..
         } if place_local == &bits_local && local == &value_local
     ));
     assert!(matches!(
         instructions[1],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::AtomicLoad {
-                ptr: MirOperand::Local(local),
-                ordering: AtomicOrdering::Acquire,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::AtomicLoad {
+                    ptr: MirOperand::Local(local),
+                    ordering: AtomicOrdering::Acquire,
+                },
             },
+            ..
         } if place_local == &loaded_local && local == &ptr_local
     ));
     assert!(matches!(
         instructions[2],
-        MirInstruction::AtomicStore {
-            ptr: MirOperand::Local(ptr_ref),
-            value: MirOperand::Local(value_ref),
-            ordering: AtomicOrdering::Release,
+        MirInstructionData {
+            kind: MirInstruction::AtomicStore {
+                ptr: MirOperand::Local(ptr_ref),
+                value: MirOperand::Local(value_ref),
+                ordering: AtomicOrdering::Release,
+            },
+            ..
         } if ptr_ref == &ptr_local && value_ref == &loaded_local
     ));
     assert!(matches!(
         instructions[3],
-        MirInstruction::Fence {
-            ordering: AtomicOrdering::SeqCst,
+        MirInstructionData {
+            kind: MirInstruction::Fence {
+                ordering: AtomicOrdering::SeqCst,
+            },
+            ..
         }
     ));
     assert!(matches!(
         instructions[4],
-        MirInstruction::Let {
-            place: MirPlace::Local(place_local),
-            init: MirRvalue::AtomicRmw {
-                op: AtomicRmwOp::Xchg,
-                ptr: MirOperand::Local(ptr_ref),
-                value: MirOperand::Local(value_ref),
-                ordering: AtomicOrdering::AcqRel,
+        MirInstructionData {
+            kind: MirInstruction::Let {
+                place: MirPlace::Local(place_local),
+                init: MirRvalue::AtomicRmw {
+                    op: AtomicRmwOp::Xchg,
+                    ptr: MirOperand::Local(ptr_ref),
+                    value: MirOperand::Local(value_ref),
+                    ordering: AtomicOrdering::AcqRel,
+                },
             },
+            ..
         } if place_local == &swapped_local && ptr_ref == &ptr_local && value_ref == &bits_local
     ));
     assert!(body.blocks.iter().any(|block| matches!(
         block.instructions.get(5),
-        Some(MirInstruction::Assign {
-            place: MirPlace::Local(place_local),
-            op: AssignmentOperator::Assign,
-            value: MirRvalue::AtomicCas {
-            weak: false,
-            ptr: MirOperand::Local(ptr_ref),
-            expected: MirOperand::Local(expected_ref),
-            desired: MirOperand::Local(desired_ref),
-            success: AtomicOrdering::AcqRel,
-            failure: AtomicOrdering::Acquire,
-        },
+        Some(MirInstructionData {
+            kind: MirInstruction::Assign {
+                place: MirPlace::Local(place_local),
+                op: AssignmentOperator::Assign,
+                value: MirRvalue::AtomicCas {
+                    weak: false,
+                    ptr: MirOperand::Local(ptr_ref),
+                    expected: MirOperand::Local(expected_ref),
+                    desired: MirOperand::Local(desired_ref),
+                    success: AtomicOrdering::AcqRel,
+                    failure: AtomicOrdering::Acquire,
+                },
+            },
+            ..
         }) if place_local == &return_local
             && ptr_ref == &ptr_local
             && expected_ref == &swapped_local
@@ -493,8 +535,10 @@ fn mir_builder_extracts_bit_and_atomic_operations() {
     )));
     assert!(body.blocks.iter().any(|block| matches!(
         &block.terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local))))
-            if local == &return_local
+        MirTerminatorData {
+            kind: MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local)))),
+            ..
+        } if local == &return_local
     )));
 }
 
@@ -549,7 +593,10 @@ fn mir_builder_extracts_inline_asm_instruction() {
 
     assert!(matches!(
         &body.blocks[0].instructions[0],
-        MirInstruction::InlineAsm(asm)
+        MirInstructionData {
+            kind: MirInstruction::InlineAsm(asm),
+            ..
+        }
             if asm.asm_template == "mov eax, eax"
                 && asm.constraints == "={eax},{eax}"
                 && asm.is_volatile
@@ -559,6 +606,9 @@ fn mir_builder_extracts_inline_asm_instruction() {
     ));
     assert!(matches!(
         body.blocks[0].terminator,
-        MirTerminator::Return(None)
+        MirTerminatorData {
+            kind: MirTerminator::Return(None),
+            ..
+        }
     ));
 }

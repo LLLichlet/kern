@@ -179,12 +179,12 @@ fn summarize_function(function: &MirFunction) -> MirFunctionSummary {
         for block in &body.blocks {
             for instruction in &block.instructions {
                 contains_control_flow_asm |= matches!(
-                    instruction,
+                    &instruction.kind,
                     MirInstruction::InlineAsm(asm) if inline_asm_has_control_flow(asm)
                 );
-                refs.visit_instruction(instruction);
+                refs.visit_instruction(&instruction.kind);
             }
-            refs.visit_terminator(&block.terminator);
+            refs.visit_terminator(&block.terminator.kind);
         }
     }
 

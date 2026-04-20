@@ -10,7 +10,7 @@ pub(super) fn rewrite_block(
 ) -> usize {
     let mut rewrites = 0;
     for instruction in &mut block.instructions {
-        match instruction {
+        match &mut instruction.kind {
             MirInstruction::Let { init, .. } => rewrites += rewrite_rvalue(init, replacements),
             MirInstruction::Assign { place, value, .. } => {
                 rewrites += rewrite_place(place, replacements);
@@ -70,7 +70,7 @@ pub(super) fn rewrite_block(
         }
     }
 
-    match &mut block.terminator {
+    match &mut block.terminator.kind {
         crate::MirTerminator::Goto(_) | crate::MirTerminator::Unreachable => {}
         crate::MirTerminator::Branch { cond, .. } => rewrites += rewrite_rvalue(cond, replacements),
         crate::MirTerminator::Switch { target, .. } => {

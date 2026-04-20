@@ -11,6 +11,7 @@ use llvm_sys::core::{
     LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
     LLVMSetVolatile, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
+use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::{
     LLVMAtomicOrdering, LLVMAtomicRMWBinOp, LLVMInlineAsmDialect, LLVMIntPredicate, LLVMLinkage,
@@ -21,7 +22,7 @@ use std::ffi::CString;
 use std::marker::PhantomData;
 use std::slice;
 
-use super::Context;
+use super::{Context, DISubprogram};
 
 pub(super) fn to_c_string(input: &str) -> CString {
     CString::new(input).expect("LLVM strings cannot contain interior NUL bytes")
@@ -1002,6 +1003,10 @@ impl<'ctx> FunctionValue<'ctx> {
         }
         let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
         String::from_utf8_lossy(bytes).into_owned()
+    }
+
+    pub fn set_subprogram(self, subprogram: DISubprogram<'ctx>) {
+        unsafe { LLVMSetSubprogram(self.raw, subprogram.raw) };
     }
 }
 

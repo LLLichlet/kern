@@ -15,6 +15,7 @@ fn mir_builder_extracts_simd_memory_and_slice_operations() {
     let function = MastFunction {
         id: MonoId(101),
         name: "simd_memory".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![
             MastParam {
@@ -371,6 +372,7 @@ fn mir_builder_extracts_pure_simd_rvalues() {
     let function = MastFunction {
         id: MonoId(87),
         name: "simd_ops".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![
             MastParam {

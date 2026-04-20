@@ -5,6 +5,7 @@ fn mir_builder_lowers_static_slice_literal_via_fat_pointer_init() {
     let backing = MastGlobal {
         id: MonoId(10),
         name: "backing".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::Internal,
         ty: TypeId::USIZE,
         is_mut: false,
@@ -19,6 +20,7 @@ fn mir_builder_lowers_static_slice_literal_via_fat_pointer_init() {
     let slice = MastGlobal {
         id: MonoId(11),
         name: "slice".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::Internal,
         ty: TypeId::USIZE,
         is_mut: false,
@@ -78,6 +80,7 @@ fn mir_builder_preserves_inline_hint() {
     let report = build_from_mast(&module_with_function(MastFunction {
         id: MonoId(77),
         name: "inline_demo".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![],
         ret_ty: TypeId::VOID,
@@ -107,6 +110,7 @@ fn mir_builder_extracts_cfg_from_if_statement() {
     let function = MastFunction {
         id: MonoId(1),
         name: "demo".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![MastParam {
             name: SymbolId(1),
@@ -159,6 +163,7 @@ fn mir_builder_records_defers_and_loop_edges() {
     let function = MastFunction {
         id: MonoId(2),
         name: "loop_demo".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![],
         ret_ty: TypeId::VOID,
@@ -213,6 +218,7 @@ fn mir_builder_accepts_nonvoid_loop_tail_as_diverging_control() {
     let function = MastFunction {
         id: MonoId(93),
         name: "loop_tail_value".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![],
         ret_ty: TypeId::I32,
@@ -258,6 +264,7 @@ fn mir_builder_accepts_diverging_block_rvalue_with_loop_tail() {
     let function = MastFunction {
         id: MonoId(94),
         name: "loop_in_rvalue_block".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![],
         ret_ty: TypeId::I32,
@@ -317,6 +324,7 @@ fn mir_builder_lowers_explicit_unreachable_to_unreachable_terminator() {
     let function = MastFunction {
         id: MonoId(92),
         name: "never".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![],
         ret_ty: TypeId::VOID,
@@ -347,6 +355,7 @@ fn mir_builder_resolves_param_and_let_uses_to_locals() {
     let function = MastFunction {
         id: MonoId(3),
         name: "bindings".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![MastParam {
             name: seed,
@@ -406,6 +415,7 @@ fn mir_builder_let_initializer_uses_outer_binding_before_shadowing() {
     let function = MastFunction {
         id: MonoId(19),
         name: "shadow_init".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![MastParam {
             name: align,
@@ -467,6 +477,7 @@ fn mir_builder_extracts_direct_calls_from_mast_exprs() {
     let function = MastFunction {
         id: MonoId(4),
         name: "caller".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![MastParam {
             name: seed,
@@ -516,6 +527,7 @@ fn mir_builder_lowers_global_assignments_to_global_places() {
     let function = MastFunction {
         id: MonoId(91),
         name: "write_global".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![],
         ret_ty: TypeId::VOID,
@@ -539,6 +551,7 @@ fn mir_builder_lowers_global_assignments_to_global_places() {
         globals: vec![MastGlobal {
             id: global_id,
             name: "answer".to_string(),
+            span: Span::default(),
             linkage: MastLinkage::Internal,
             ty: TypeId::I32,
             is_mut: true,

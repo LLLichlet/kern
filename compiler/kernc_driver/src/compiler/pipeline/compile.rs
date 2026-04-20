@@ -1,7 +1,7 @@
 use super::*;
 use crate::compiler::codegen_units;
 use crate::compiler::{TempDirGuard, TempFileGuard};
-use kernc_utils::config::LinkerInputFlavor;
+use kernc_utils::config::{LinkerInputFlavor, OptLevel};
 use std::fs;
 use std::path::Path;
 
@@ -251,6 +251,10 @@ impl CompilerDriver {
                 self.options.split_sections_for_gc,
             );
             codegen.set_asm_dialect(self.codegen_asm_dialect());
+            codegen.set_debug_info(
+                self.options.debug_info,
+                self.options.opt_level != OptLevel::O0,
+            );
             let codegen_report = Self::measure_phase(pipeline.phase_timings, "codegen", || {
                 codegen.compile_mir(mir_module, pipeline.report.collect_codegen_diagnostics)
             });
@@ -579,6 +583,7 @@ impl CompilerDriver {
                             split_sections_for_gc,
                         );
                         codegen.set_asm_dialect(asm_dialect);
+                        codegen.set_debug_info(self.options.debug_info, opt_level != OptLevel::O0);
                         let codegen_report =
                             codegen.compile_mir(&unit.mir_report.module, collect_diagnostics);
                         let (bitcode, emit_report) = codegen.emit_thin_lto_bitcode(
@@ -1002,6 +1007,10 @@ impl CompilerDriver {
                             split_sections_for_gc,
                         );
                         codegen.set_asm_dialect(asm_dialect);
+                        codegen.set_debug_info(
+                            self.options.debug_info,
+                            self.options.opt_level != OptLevel::O0,
+                        );
                         let codegen_report =
                             codegen.compile_mir(&unit.mir_report.module, collect_diagnostics);
                         let bitcode = codegen.into_module().bitcode()?;
@@ -1049,6 +1058,10 @@ impl CompilerDriver {
             self.options.split_sections_for_gc,
         );
         merged_codegen.set_asm_dialect(self.codegen_asm_dialect());
+        merged_codegen.set_debug_info(
+            self.options.debug_info,
+            self.options.opt_level != OptLevel::O0,
+        );
         for (_, unit_name, bitcode, unit_report) in completed {
             Self::absorb_codegen_report(&mut codegen_report, unit_report);
             let unit_module = match codegen_ctx
@@ -1328,6 +1341,7 @@ impl CompilerDriver {
                             split_sections_for_gc,
                         );
                         codegen.set_asm_dialect(asm_dialect);
+                        codegen.set_debug_info(self.options.debug_info, opt_level != OptLevel::O0);
                         let mir_report = kernc_mir_lower::build_from_mast(&unit_module);
                         let codegen_report = codegen
                             .compile_mir(&mir_report.module, build_context.collect_diagnostics);
@@ -1404,6 +1418,10 @@ impl CompilerDriver {
                     AsmDialect::Att => InlineAsmDialect::ATT,
                     AsmDialect::Auto => unreachable!("effective_for_target must resolve `auto`"),
                 },
+            );
+            codegen.set_debug_info(
+                self.options.debug_info,
+                self.options.opt_level != OptLevel::O0,
             );
             let mir_report = kernc_mir_lower::build_from_mast(&unit_module);
             let codegen_report =

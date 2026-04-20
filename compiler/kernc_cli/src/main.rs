@@ -41,12 +41,14 @@ fn print_usage(program_name: &str) {
     println!("  --module-root-name <name>");
     println!("                       Override the compiled root module name");
     println!("  -O<0-3>              Set optimization level (default: O0)");
+    println!("  -g / -g0             Enable or disable debug info emission");
 
     println!("\nTargeting & Codegen:");
     println!("  --target <T>         Set target triple (e.g. x86_64-unknown-linux-gnu)");
     println!("  --asm-dialect <D>    Set assembly dialect: auto (default), intel, or att");
     println!("  --codegen-units <N>  Split code generation into N lowered codegen units");
     println!("  --lto <M>            Cross-CGU optimization mode: none, full, thin");
+    println!("  --debug-info <b>     Whether to emit debug info: yes, no");
     println!("  --toolchain-root <d> Prefer toolchain binaries from directory <d>");
     println!("  --link-driver <cmd>  Set the linker driver command (default: $CC or cc)");
     println!("  --runtime-entry <m>  Runtime entry contract: none, rt, crt");
@@ -264,6 +266,10 @@ fn parse_args() -> CompileOptions {
             options.lto_mode = parse_lto_mode(&value);
             continue;
         }
+        if let Some(value) = consume_long_option_value(&arg, "--debug-info", &mut args, "yes|no") {
+            options.debug_info = parse_yes_no(&value, "--debug-info");
+            continue;
+        }
         if let Some(value) = consume_long_option_value(&arg, "--link-driver", &mut args, "command")
         {
             options.linker_cmd = value;
@@ -359,6 +365,8 @@ fn parse_args() -> CompileOptions {
             "-O1" => options.opt_level = OptLevel::O1,
             "-O2" => options.opt_level = OptLevel::O2,
             "-O3" => options.opt_level = OptLevel::O3,
+            "-g" => options.debug_info = true,
+            "-g0" => options.debug_info = false,
             "--emit-llvm" => set_driver_mode(&mut options, DriverMode::EmitLlvmIr, "--emit-llvm"),
             "--timings" => options.report_timings = true,
             "--print-link-command" => options.print_link_command = true,

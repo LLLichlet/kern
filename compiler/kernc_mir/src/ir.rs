@@ -3,7 +3,7 @@ use kernc_ast::MetaItem;
 use kernc_ast::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::ty::TypeId;
-use kernc_utils::{AtomicOrdering, AtomicRmwOp, SymbolId};
+use kernc_utils::{AtomicOrdering, AtomicRmwOp, Span, SymbolId};
 
 #[derive(Debug, Clone)]
 pub struct MirModule {
@@ -52,6 +52,7 @@ pub struct MirField {
 pub struct MirGlobal {
     pub id: MonoId,
     pub name: String,
+    pub span: Span,
     pub linkage: MirLinkage,
     pub ty: TypeId,
     pub is_mut: bool,
@@ -64,6 +65,7 @@ pub struct MirGlobal {
 pub struct MirFunction {
     pub id: MonoId,
     pub name: String,
+    pub span: Span,
     pub linkage: MirLinkage,
     pub params: Vec<MirParam>,
     pub ret_ty: TypeId,

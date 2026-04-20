@@ -8,6 +8,7 @@ fn mir_builder_materializes_nested_operands_into_temps() {
     let function = MastFunction {
         id: MonoId(34),
         name: "nested_call_args".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![MastParam {
             name: seed,
@@ -78,6 +79,7 @@ fn mir_builder_extracts_structured_scalar_rvalues() {
     let function = MastFunction {
         id: MonoId(5),
         name: "scalar_ops".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![MastParam {
             name: seed,
@@ -181,6 +183,7 @@ fn mir_builder_extracts_address_of_and_load_places() {
     let function = MastFunction {
         id: MonoId(6),
         name: "memory_ops".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![
             MastParam {
@@ -255,6 +258,7 @@ fn mir_builder_extracts_assignment_instruction() {
     let function = MastFunction {
         id: MonoId(7),
         name: "assign_ops".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![MastParam {
             name: seed,
@@ -322,6 +326,7 @@ fn mir_builder_extracts_bit_and_atomic_operations() {
     let function = MastFunction {
         id: MonoId(71),
         name: "atomics".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![
             MastParam {
@@ -500,6 +505,7 @@ fn mir_builder_extracts_inline_asm_instruction() {
     let function = MastFunction {
         id: MonoId(74),
         name: "asm_ops".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![
             MastParam {

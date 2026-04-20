@@ -196,6 +196,7 @@ pub(super) fn compile_action_options(
         driver_mode: compile_action_driver_mode(command),
         report_progress: false,
         opt_level: profile_opt_level(&action.profile),
+        debug_info: action.profile.debug,
         codegen_units: action.profile.codegen_units,
         lto_mode: action.profile.lto_mode,
         linker_input_flavor: profile_linker_input_flavor(&action.profile, action.domain),
@@ -293,10 +294,17 @@ pub(super) fn apply_host_linker_env(options: &mut CompileOptions) {
 
 #[cfg(test)]
 mod tests {
-    use super::{profile_emit_multi_linker_input_dir, profile_linker_input_flavor};
-    use crate::graph::BuildDomain;
+    use super::{
+        compile_action_options, profile_emit_multi_linker_input_dir, profile_linker_input_flavor,
+    };
+    use crate::build_plan::{CompileAction, CompileSourceInput};
+    use crate::graph::{BuildDomain, PackageId, SourceId};
+    use crate::plan::TargetKind;
     use crate::script::ScriptProfile;
     use kernc_utils::config::{LinkerInputFlavor, LtoMode};
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn profile(codegen_units: usize, lto_mode: LtoMode) -> ScriptProfile {
         ScriptProfile {
@@ -306,6 +314,21 @@ mod tests {
             codegen_units,
             lto_mode,
         }
+    }
+
+    fn temp_dir(prefix: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "{}-{}-{}",
+            prefix,
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let path = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&path).unwrap();
+        path
     }
 
     #[test]
@@ -350,5 +373,59 @@ mod tests {
             profile_linker_input_flavor(&profile(2, LtoMode::Thin), BuildDomain::Host),
             LinkerInputFlavor::Object,
         );
+    }
+
+    #[test]
+    fn compile_action_options_thread_profile_debug_into_compile_options() {
+        let root = temp_dir("craft-debug-options");
+        let manifest_path = root.join("Craft.toml");
+        fs::write(
+            &manifest_path,
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nkern = \"0.7.0\"\n",
+        )
+        .unwrap();
+        let source_path = root.join("src/main.rn");
+        let action = CompileAction {
+            domain: BuildDomain::Target,
+            package_id: PackageId {
+                name: "demo".to_string(),
+                version: "0.1.0".to_string(),
+                source: SourceId::Root,
+            },
+            manifest_path: manifest_path.clone(),
+            target_kind: TargetKind::Bin,
+            target_name: Some("demo".to_string()),
+            artifact_name: "demo".to_string(),
+            source_input: CompileSourceInput::AbsolutePath(source_path.clone()),
+            metadata_path: None,
+            object_path: root.join("demo.o"),
+            artifact_path: root.join("demo"),
+            profile: ScriptProfile {
+                name: "dev".to_string(),
+                opt: 0,
+                debug: true,
+                codegen_units: 1,
+                lto_mode: LtoMode::None,
+            },
+            cfg: BTreeMap::new(),
+            define: BTreeMap::new(),
+            compile_inputs: Vec::new(),
+            local_dependencies: Vec::new(),
+            external_dependencies: Vec::new(),
+        };
+        let mut manifest_runtime_options = BTreeMap::new();
+        let options = compile_action_options(
+            crate::script::ScriptCommand::Build,
+            &action,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &mut manifest_runtime_options,
+        )
+        .unwrap();
+
+        assert!(options.debug_info);
+
+        let _ = fs::remove_dir_all(root);
     }
 }

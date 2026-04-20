@@ -13,6 +13,7 @@ fn mir_builder_extracts_aggregate_rvalues() {
     let function = MastFunction {
         id: MonoId(8),
         name: "aggregates".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![
             MastParam {
@@ -181,6 +182,7 @@ fn mir_builder_extracts_fat_pointer_projection_rvalues() {
     let function = MastFunction {
         id: MonoId(10),
         name: "fat_proj".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![MastParam {
             name: fat,
@@ -268,6 +270,7 @@ fn mir_builder_extracts_memory_intrinsics() {
     let function = MastFunction {
         id: MonoId(11),
         name: "memory_intrinsics".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![
             MastParam {

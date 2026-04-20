@@ -149,6 +149,7 @@ pub(crate) fn build_from_mast_unoptimized(module: &MastModule) -> MirBuildReport
         .map(|global| MirGlobal {
             id: global.id,
             name: global.name.clone(),
+            span: global.span,
             linkage: lower_linkage(global.linkage),
             ty: global.ty,
             is_mut: global.is_mut,
@@ -235,6 +236,7 @@ impl MirFunctionBuilder {
         Ok(MirFunction {
             id: function.id,
             name: function.name.clone(),
+            span: function.span,
             linkage: lower_linkage(function.linkage),
             params,
             ret_ty: function.ret_ty,

@@ -1,6 +1,7 @@
 use crate::llvm_api::{
-    Builder, Context as LlvmContext, FunctionValue, GlobalValue, InlineAsmDialect,
-    Module as LlvmModule, PointerValue, StructType,
+    Builder, Context as LlvmContext, DICompileUnit, DIFile, DISubprogram, DebugInfoBuilder,
+    FunctionValue, GlobalValue, InlineAsmDialect, Module as LlvmModule, ModuleFlagBehavior,
+    PointerValue, StructType,
 };
 use llvm_sys::core::{
     LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
@@ -24,16 +25,17 @@ use llvm_sys::transforms::pass_builder::{
 };
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
+use std::path::Path;
 use std::ptr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use kernc_mir::{MirLocalId, MirModule};
+use kernc_mir::{MirFunction, MirLocalId, MirModule};
 use kernc_mono::MonoId;
 use kernc_sema::def::DefId;
 use kernc_sema::ty::{TypeId, TypeRegistry};
 use kernc_utils::config::{LlvmIrStage, OptLevel};
-use kernc_utils::{Session, SymbolId};
+use kernc_utils::{FileId, Session, Span, SymbolId};
 use llvm_sys::LLVMOpcode;
 
 mod abi;
@@ -138,6 +140,14 @@ pub struct EmitObjectReport {
     pub remaining_alloca_names: Vec<AllocaNameStat>,
 }
 
+struct DebugInfoState<'ctx> {
+    builder: DebugInfoBuilder<'ctx>,
+    compile_unit: Option<DICompileUnit<'ctx>>,
+    files: HashMap<FileId, DIFile<'ctx>>,
+    subprograms: HashMap<MonoId, DISubprogram<'ctx>>,
+    finalized: bool,
+}
+
 pub struct CodeGenerator<'ctx, 'a> {
     context: &'ctx LlvmContext,
     builder: Builder<'ctx>,
@@ -170,6 +180,9 @@ pub struct CodeGenerator<'ctx, 'a> {
     anon_union_map: HashMap<TypeId, MonoId>,
     anon_enum_map: HashMap<TypeId, MonoId>,
     split_sections_for_gc: bool,
+    debug_info_enabled: bool,
+    debug_info_is_optimized: bool,
+    debug_info: Option<DebugInfoState<'ctx>>,
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
@@ -354,6 +367,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             anon_union_map: HashMap::new(),
             anon_enum_map: HashMap::new(),
             split_sections_for_gc,
+            debug_info_enabled: false,
+            debug_info_is_optimized: false,
+            debug_info: None,
         }
     }
 
@@ -464,6 +480,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             name: "  codegen_compile_functions",
             duration: compile_functions_started.elapsed(),
         });
+        self.finalize_debug_info();
         if collect_diagnostics {
             let (ir_stats, ir_hot_functions) = self.collect_ir_instruction_stats();
             report.ir_stats = ir_stats;
@@ -476,6 +493,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     pub fn set_asm_dialect(&mut self, dialect: InlineAsmDialect) {
         self.asm_dialect = dialect;
+    }
+
+    pub fn set_debug_info(&mut self, enabled: bool, is_optimized: bool) {
+        self.debug_info_enabled = enabled;
+        self.debug_info_is_optimized = is_optimized;
+        if !enabled {
+            self.debug_info = None;
+        }
     }
 
     pub fn into_module(self) -> LlvmModule<'ctx> {
@@ -495,6 +520,157 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .get_insert_block()
             .and_then(|block| block.get_terminator())
             .is_some()
+    }
+
+    fn ensure_debug_info_state(&mut self) -> Option<&mut DebugInfoState<'ctx>> {
+        if !self.debug_info_enabled {
+            return None;
+        }
+        if self.debug_info.is_none() {
+            let version = self
+                .context
+                .i32_type()
+                .const_int(self.context.debug_metadata_version() as u64, false);
+            self.module.add_basic_value_flag(
+                "Debug Info Version",
+                ModuleFlagBehavior::Warning,
+                version,
+            );
+            if self.target_uses_coff_sections() {
+                let codeview = self.context.i32_type().const_int(1, false);
+                self.module
+                    .add_basic_value_flag("CodeView", ModuleFlagBehavior::Warning, codeview);
+            }
+            self.debug_info = Some(DebugInfoState {
+                builder: self.module.create_debug_info_builder(),
+                compile_unit: None,
+                files: HashMap::new(),
+                subprograms: HashMap::new(),
+                finalized: false,
+            });
+        }
+        self.debug_info.as_mut()
+    }
+
+    fn debug_file_parts(path: &Path) -> (String, String) {
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("unknown.rn")
+            .to_string();
+        let directory = path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_string_lossy()
+            .into_owned();
+        (filename, directory)
+    }
+
+    fn debug_source_location(&mut self, span: Span) -> Option<(DIFile<'ctx>, u32, u32)> {
+        if !self.debug_info_enabled || span == Span::default() {
+            return None;
+        }
+        let location = self.sess.source_manager.lookup_location(span)?;
+        let path = self
+            .sess
+            .source_manager
+            .get_file_path(location.file_id)
+            .cloned()
+            .unwrap_or_default();
+        let (filename, directory) = Self::debug_file_parts(&path);
+        let state = self.ensure_debug_info_state()?;
+        let file = if let Some(file) = state.files.get(&location.file_id).copied() {
+            file
+        } else {
+            let file = state.builder.create_file(&filename, &directory);
+            state.files.insert(location.file_id, file);
+            file
+        };
+        Some((
+            file,
+            location.line.min(u32::MAX as usize) as u32,
+            location.col.min(u32::MAX as usize) as u32,
+        ))
+    }
+
+    fn debug_compile_unit(&mut self, file: DIFile<'ctx>) -> Option<DICompileUnit<'ctx>> {
+        let is_optimized = self.debug_info_is_optimized;
+        let producer = format!("kernc {}", env!("CARGO_PKG_VERSION"));
+        let state = self.ensure_debug_info_state()?;
+        if let Some(unit) = state.compile_unit {
+            return Some(unit);
+        }
+        let unit = state
+            .builder
+            .create_compile_unit(file, &producer, is_optimized);
+        state.compile_unit = Some(unit);
+        Some(unit)
+    }
+
+    fn attach_debug_info_to_function(
+        &mut self,
+        function: &MirFunction,
+        llvm_func: FunctionValue<'ctx>,
+    ) {
+        let Some((file, line, _column)) = self.debug_source_location(function.span) else {
+            return;
+        };
+        let Some(compile_unit) = self.debug_compile_unit(file) else {
+            return;
+        };
+        let is_optimized = self.debug_info_is_optimized;
+        let is_local_to_unit = matches!(function.linkage, kernc_mir::MirLinkage::Internal);
+        let state = self
+            .ensure_debug_info_state()
+            .expect("debug info state must exist");
+        let subroutine_type = state.builder.create_subroutine_type(file);
+        let subprogram = state.builder.create_function(
+            compile_unit,
+            file,
+            &function.name,
+            &function.name,
+            line,
+            line,
+            subroutine_type,
+            is_local_to_unit,
+            is_optimized,
+        );
+        llvm_func.set_subprogram(subprogram);
+        state.subprograms.insert(function.id, subprogram);
+    }
+
+    fn set_function_debug_location(&mut self, function: &MirFunction) {
+        let Some(subprogram) = self
+            .debug_info
+            .as_ref()
+            .and_then(|state| state.subprograms.get(&function.id).copied())
+        else {
+            return;
+        };
+        let Some((_, line, column)) = self.debug_source_location(function.span) else {
+            return;
+        };
+        let context = self.context;
+        let state = self
+            .ensure_debug_info_state()
+            .expect("debug info state must exist");
+        let location = state
+            .builder
+            .create_debug_location(context, line, column, subprogram);
+        self.builder.set_current_debug_location(location);
+    }
+
+    fn clear_function_debug_location(&mut self) {
+        self.builder.clear_current_debug_location();
+    }
+
+    fn finalize_debug_info(&mut self) {
+        if let Some(state) = self.debug_info.as_mut()
+            && !state.finalized
+        {
+            state.builder.finalize();
+            state.finalized = true;
+        }
     }
 
     pub fn print_ir(&self) -> Result<(), String> {

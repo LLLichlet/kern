@@ -8,6 +8,7 @@ fn mir_pass_pipeline_forwards_trivial_local_copy_chains() {
     let function = MastFunction {
         id: MonoId(13),
         name: "copy_chain".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![MastParam {
             name: seed,
@@ -71,6 +72,7 @@ fn mir_pass_pipeline_folds_const_branch_after_copy_propagation() {
     let report = build_from_mast(&module_with_function(MastFunction {
         id: MonoId(14),
         name: "const_branch".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![],
         ret_ty: TypeId::I32,
@@ -140,6 +142,7 @@ fn mir_pass_pipeline_folds_const_switch_to_matching_case() {
     let report = build_from_mast(&module_with_function(MastFunction {
         id: MonoId(15),
         name: "const_switch".to_string(),
+        span: Span::default(),
         linkage: MastLinkage::External,
         params: vec![],
         ret_ty: TypeId::I32,

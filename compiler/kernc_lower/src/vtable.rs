@@ -63,7 +63,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let mut merged = assoc_bindings.into_iter().collect::<HashMap<_, _>>();
-        merged.extend(assoc_binding_map.iter().map(|(assoc_id, assoc_ty)| (*assoc_id, *assoc_ty)));
+        merged.extend(
+            assoc_binding_map
+                .iter()
+                .map(|(assoc_id, assoc_ty)| (*assoc_id, *assoc_ty)),
+        );
 
         let mut merged = merged.into_iter().collect::<Vec<_>>();
         merged.sort_by_key(|(assoc_id, _)| assoc_id.0);
@@ -135,8 +139,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 inst_super_ty,
                 &assoc_binding_map,
             );
-            let inst_super_ty =
-                self.augment_trait_object_assoc_bindings_from_map(inst_super_ty, &assoc_binding_map);
+            let inst_super_ty = self
+                .augment_trait_object_assoc_bindings_from_map(inst_super_ty, &assoc_binding_map);
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
             if visited.insert(inst_super_norm) {
                 supertraits.push(inst_super_norm);
@@ -574,6 +578,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.functions.push(MastFunction {
             id: adapter_id,
             name: format!("__vtable_method_adapter_{}", adapter_id.0),
+            span,
             linkage: MastLinkage::Internal,
             params: mast_params,
             ret_ty,
@@ -625,6 +630,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 "__vtable_invalid_{}_{}_{}",
                 data_ptr_ty.0, receiver_ty.0, trait_ty.0
             ),
+            span: Span::default(),
             linkage: MastLinkage::Internal,
             ty: vtable_array_ty,
             is_mut: false,
@@ -736,6 +742,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 "__vtable_{}_{}_{}",
                 data_ptr_ty.0, receiver_ty.0, actual_trait_ty.0
             ),
+            span: Span::default(),
             linkage: MastLinkage::Internal,
             ty: vtable_array_ty,
             is_mut: false,

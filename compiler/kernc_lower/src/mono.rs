@@ -33,7 +33,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn drain_pending_function_instantiations(&mut self) {
-        while self.next_pending_function_instantiation < self.pending_function_instantiations.len() {
+        while self.next_pending_function_instantiation < self.pending_function_instantiations.len()
+        {
             let pending = self.pending_function_instantiations
                 [self.next_pending_function_instantiation]
                 .clone();
@@ -100,6 +101,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.functions.push(MastFunction {
             id,
             name,
+            span: Span::default(),
             linkage: MastLinkage::Internal,
             params: vec![],
             ret_ty: TypeId::VOID,
@@ -410,6 +412,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let mast_fn = MastFunction {
                 id,
                 name: mangled_name,
+                span: def.name_span,
                 linkage: this.lowered_function_linkage(
                     def.vis,
                     def.is_extern,
@@ -1371,6 +1374,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.globals.push(MastGlobal {
             id,
             name: self.ctx.get_export_name(g.id, &[]),
+            span: g.span,
             linkage: self.lowered_global_linkage(g.vis, g.is_extern, &g.attributes),
             ty,
             is_mut,

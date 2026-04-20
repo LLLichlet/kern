@@ -24,6 +24,7 @@ fn function(id: u32, name: &str, linkage: MastLinkage, body: Vec<MastExpr>) -> M
     MastFunction {
         id: MonoId(id),
         name: name.to_string(),
+        span: kernc_utils::Span::default(),
         linkage,
         params: Vec::<MastParam>::new(),
         ret_ty: TypeId::VOID,
@@ -57,6 +58,7 @@ fn global(id: u32, name: &str, linkage: MastLinkage) -> MastGlobal {
     MastGlobal {
         id: MonoId(id),
         name: name.to_string(),
+        span: kernc_utils::Span::default(),
         linkage,
         ty: TypeId::U32,
         is_mut: false,

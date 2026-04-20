@@ -139,6 +139,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.functions.push(MastFunction {
             id: adapter_id,
             name: format!("__fn_closure_adapter_{}", adapter_id.0),
+            span,
             linkage: MastLinkage::Internal,
             params: mast_params,
             ret_ty,
@@ -340,6 +341,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.functions.push(MastFunction {
             id: func_id,
             name: format!("__closure_fn_{}", func_id.0),
+            span: spec.body.span,
             linkage: MastLinkage::Internal,
             params: mast_params,
             ret_ty,

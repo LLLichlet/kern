@@ -521,6 +521,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 llvm_func.as_global_value().set_section(Some(&sec));
             }
 
+            if f.body.is_some() {
+                self.attach_debug_info_to_function(f, llvm_func);
+            }
+
             self.functions.insert(f.id, llvm_func);
         }
     }

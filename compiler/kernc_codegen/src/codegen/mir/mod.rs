@@ -70,6 +70,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let saved_loop_targets = std::mem::take(&mut self.loop_targets);
         let saved_insert_block = self.builder.get_insert_block();
 
+        self.set_function_debug_location(function);
+
         let entry_block = self.context.append_basic_block(llvm_func, "entry");
         self.builder.position_at_end(entry_block);
 
@@ -155,5 +157,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             saved_loop_targets,
             saved_insert_block,
         );
+        self.clear_function_debug_location();
     }
 }

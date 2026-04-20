@@ -2,7 +2,7 @@ use crate::{MastBlock, MastExpr};
 use kernc_ast::MetaItem;
 use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::ty::TypeId;
-use kernc_utils::SymbolId;
+use kernc_utils::{Span, SymbolId};
 
 /// Final flattened compilation unit produced by lowering.
 /// At this stage there are no nested modules, impl blocks, or unresolved generics.
@@ -120,6 +120,7 @@ pub struct MastGlobal {
     pub id: MonoId,
     /// Flattened global symbol name.
     pub name: String,
+    pub span: Span,
     pub linkage: MastLinkage,
     pub ty: TypeId,
     /// Mirrors `static mut`.
@@ -135,6 +136,7 @@ pub struct MastFunction {
     pub id: MonoId,
     /// Flattened symbol name, for example `Point_i32_move_by`.
     pub name: String,
+    pub span: Span,
     pub linkage: MastLinkage,
     pub params: Vec<MastParam>,
     pub ret_ty: TypeId,

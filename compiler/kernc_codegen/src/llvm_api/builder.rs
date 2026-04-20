@@ -12,16 +12,17 @@ use llvm_sys::core::{
     LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem,
     LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition,
     LLVMDisposeBuilder, LLVMGetInsertBlock, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
+    LLVMSetCurrentDebugLocation2,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
 
 use super::{
     AggregateValue, AsTypeRef, AsValueRef, AtomicOrdering, AtomicRMWBinOp, BasicBlock,
-    BasicMetadataValueEnum, BasicValue, BasicValueEnum, CallSiteValue, Context, FloatPredicate,
-    FloatType, FloatValue, FunctionType, FunctionValue, InstructionValue, IntPredicate, IntType,
-    IntValue, LlvmResult, PhiValue, PointerType, PointerValue, StructValue, VectorValue,
-    to_c_string,
+    BasicMetadataValueEnum, BasicValue, BasicValueEnum, CallSiteValue, Context, DILocation,
+    FloatPredicate, FloatType, FloatValue, FunctionType, FunctionValue, InstructionValue,
+    IntPredicate, IntType, IntValue, LlvmResult, PhiValue, PointerType, PointerValue, StructValue,
+    VectorValue, to_c_string,
 };
 pub struct Builder<'ctx> {
     pub(super) raw: LLVMBuilderRef,
@@ -55,6 +56,14 @@ impl<'ctx> Builder<'ctx> {
 
     pub fn clear_insertion_position(&self) {
         unsafe { LLVMClearInsertionPosition(self.raw) };
+    }
+
+    pub fn set_current_debug_location(&self, location: DILocation<'ctx>) {
+        unsafe { LLVMSetCurrentDebugLocation2(self.raw, location.raw) };
+    }
+
+    pub fn clear_current_debug_location(&self) {
+        unsafe { LLVMSetCurrentDebugLocation2(self.raw, std::ptr::null_mut()) };
     }
 
     pub fn build_alloca<T: AsTypeRef>(&self, ty: T, name: &str) -> LlvmResult<PointerValue<'ctx>> {

@@ -172,6 +172,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.globals.push(MastGlobal {
             id: global_id,
             name: format!(".str.{}.{}", self.module.name, global_id.0),
+            span,
             linkage: MastLinkage::Internal,
             ty: array_ty,
             is_mut: false,
@@ -218,6 +219,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.globals.push(MastGlobal {
             id: global_id,
             name: format!("local_static_{}_{}", self.ctx.resolve(name), global_id.0),
+            span: init.span,
             linkage: MastLinkage::Internal,
             ty: concrete_ty,
             is_mut,

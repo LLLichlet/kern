@@ -725,6 +725,41 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_debug_info_metadata_when_enabled() {
+    let source = r#"
+fn main() i32 {
+    let value = 7;
+    return value;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_emit_llvm_debug_info", source, &["-g"]);
+    assert_success(&output, "kernc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("!llvm.dbg.cu"),
+        "debug-enabled LLVM IR should declare a compile unit, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("!DICompileUnit("),
+        "debug-enabled LLVM IR should contain DICompileUnit metadata, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("!DISubprogram("),
+        "debug-enabled LLVM IR should contain DISubprogram metadata, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("!dbg !"),
+        "debug-enabled LLVM IR should attach debug locations, got:\n{}",
+        stdout
+    );
+}
+
+#[test]
 fn emits_optimized_llvm_ir_stage_after_running_pass_pipeline() {
     let source = r#"
 extern fn main() i32 {

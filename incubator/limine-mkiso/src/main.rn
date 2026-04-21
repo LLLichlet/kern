@@ -1,0 +1,163 @@
+use base.coll.String;
+use base.mem.alloc.GPA;
+use std.fs;
+use std.proc;
+use sys.mem.Page;
+
+fn write_stderr(text: []u8) void {
+    let mut stderr = fs.stderr();
+    let _ = stderr..&.write_all(text);
+}
+
+fn write_stderr_line(text: []u8) void {
+    write_stderr(text);
+    write_stderr("\n");
+}
+
+fn fail(text: []u8) i32 {
+    write_stderr_line(text);
+    return 1;
+}
+
+fn push_shell_arg(out: *mut String, alloc: *mut base.mem.alloc.Allocator, arg: []u8) bool {
+    if (!out.is_empty() and !out.push_char(alloc, b' ')) {
+        return false;
+    }
+    if (!out.push_char(alloc, b'\'')) {
+        return false;
+    }
+    for (let mut i = usize.{0}; i < #arg; i += 1) {
+        if (arg.[i] == b'\'') {
+            if (!out.push_str(alloc, "'\"'\"'")) {
+                return false;
+            }
+            continue;
+        }
+        if (!out.push_char(alloc, arg.[i])) {
+            return false;
+        }
+    }
+    return out.push_char(alloc, b'\'');
+}
+
+fn run_shell(
+    alloc: *mut base.mem.alloc.Allocator,
+    label: []u8,
+    command: *String,
+) bool {
+    let .{ Ok: capture } = proc.shell_capture(alloc, command.as_str()) else {
+        .{ Err: _ } => {
+            write_stderr("limine-mkiso: failed to spawn command for ");
+            write_stderr_line(label);
+            return false;
+        },
+    };
+    let mut capture = capture;
+    defer capture.output..&.deinit(alloc);
+
+    if (capture.status == 0) {
+        return true;
+    }
+
+    write_stderr("limine-mkiso: command failed for ");
+    write_stderr_line(label);
+    write_stderr(command.as_str());
+    write_stderr("\n");
+    if (!capture.output.&.is_empty()) {
+        let output = capture.output.&.as_str();
+        write_stderr(output);
+        if (!output.ends_with("\n")) {
+            write_stderr("\n");
+        }
+    }
+    return false;
+}
+
+fn main(argc: i32, argv: **u8) i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    let args = proc.args(argc, argv);
+
+    if (args.len() != 4) {
+        return fail("usage: limine-mkiso <kernel-path> <build-root> <limine-root>");
+    }
+
+    let .{ Some: kernel_path } = args.get(1) else return fail("usage: limine-mkiso <kernel-path> <build-root> <limine-root>");
+    let .{ Some: build_root } = args.get(2) else return fail("usage: limine-mkiso <kernel-path> <build-root> <limine-root>");
+    let .{ Some: limine_root } = args.get(3) else return fail("usage: limine-mkiso <kernel-path> <build-root> <limine-root>");
+    let .{ Some: iso_root } = fs.parent(kernel_path) else {
+        return fail("limine-mkiso: kernel path did not include an iso-root parent");
+    };
+
+    let .{ Ok: tmp_iso } = fs.join(gpa, build_root, "limine-image.tmp.iso") else {
+        return fail("limine-mkiso: failed to allocate temporary ISO path");
+    };
+    let mut tmp_iso = tmp_iso;
+    let tmp_iso = tmp_iso..&;
+    defer tmp_iso.deinit(gpa);
+
+    let .{ Ok: limine_tool } = fs.join(gpa, limine_root, "limine") else {
+        return fail("limine-mkiso: failed to allocate limine tool path");
+    };
+    let mut limine_tool = limine_tool;
+    let limine_tool = limine_tool..&;
+    defer limine_tool.deinit(gpa);
+
+    let _ = fs.remove_file_if_exists(gpa, tmp_iso.as_str());
+
+    let make_cmd = String.{}..&;
+    defer make_cmd.deinit(gpa);
+    if (!make_cmd.push_str(gpa, "make -C")
+        or !push_shell_arg(make_cmd, gpa, limine_root)
+        or !make_cmd.push_str(gpa, " limine"))
+    {
+        return fail("limine-mkiso: failed to build limine make command");
+    }
+    if (!run_shell(gpa, "make limine", make_cmd)) {
+        return 1;
+    }
+
+    let xorriso_cmd = String.{}..&;
+    defer xorriso_cmd.deinit(gpa);
+    if (!xorriso_cmd.push_str(gpa, "xorriso -as mkisofs")
+        or !xorriso_cmd.push_str(gpa, " -b boot/limine-bios-cd.bin")
+        or !xorriso_cmd.push_str(gpa, " -no-emul-boot -boot-load-size 4 -boot-info-table")
+        or !xorriso_cmd.push_str(gpa, " --efi-boot boot/limine-uefi-cd.bin")
+        or !xorriso_cmd.push_str(gpa, " -efi-boot-part --efi-boot-image --protective-msdos-label")
+        or !push_shell_arg(xorriso_cmd, gpa, iso_root)
+        or !xorriso_cmd.push_str(gpa, " -o")
+        or !push_shell_arg(xorriso_cmd, gpa, tmp_iso.as_str()))
+    {
+        return fail("limine-mkiso: failed to build xorriso command");
+    }
+    if (!run_shell(gpa, "xorriso", xorriso_cmd)) {
+        return 1;
+    }
+
+    let bios_install_cmd = String.{}..&;
+    defer bios_install_cmd.deinit(gpa);
+    if (!push_shell_arg(bios_install_cmd, gpa, limine_tool.as_str())
+        or !bios_install_cmd.push_str(gpa, " bios-install")
+        or !push_shell_arg(bios_install_cmd, gpa, tmp_iso.as_str()))
+    {
+        return fail("limine-mkiso: failed to build bios-install command");
+    }
+    if (!run_shell(gpa, "limine bios-install", bios_install_cmd)) {
+        return 1;
+    }
+
+    let .{ Ok: image } = fs.open_read(gpa, tmp_iso.as_str()) else {
+        return fail("limine-mkiso: failed to open generated ISO");
+    };
+    let mut image = image;
+    let image = image..&;
+    defer image.deinit();
+
+    let mut stdout = fs.stdout();
+    let .{ Ok: _ } = image.copy_to(stdout..&) else {
+        return fail("limine-mkiso: failed to stream ISO to stdout");
+    };
+
+    let _ = fs.remove_file_if_exists(gpa, tmp_iso.as_str());
+    return 0;
+}

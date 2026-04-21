@@ -1,5 +1,72 @@
+const COM1 = u16.{0x3f8};
+const DEBUGCON = u16.{0xe9};
+
+fn outb(port: u16, value: u8) void {
+    @asm(.{
+        asm: "out dx, al",
+        inputs: .{
+            dx: port,
+            al: value,
+        },
+        volatile: true
+    });
+}
+
+fn inb(port: u16) u8 {
+    let mut value = u8.{undef};
+    @asm(.{
+        asm: "in al, dx",
+        outputs: .{ al: value..& },
+        inputs: .{ dx: port },
+        volatile: true
+    });
+    return value;
+}
+
+fn hlt() void {
+    @asm(.{
+        asm: "hlt",
+        volatile: true
+    });
+}
+
+fn serial_init() void {
+    outb(COM1 + 1, 0x00);
+    outb(COM1 + 3, 0x80);
+    outb(COM1 + 0, 0x03);
+    outb(COM1 + 1, 0x00);
+    outb(COM1 + 3, 0x03);
+    outb(COM1 + 2, 0xc7);
+    outb(COM1 + 4, 0x0b);
+}
+
+fn serial_can_write() bool {
+    return (inb(COM1 + 5) & 0x20) != 0;
+}
+
+fn serial_write_byte(byte: u8) void {
+    for (; !serial_can_write(); ) {}
+    outb(COM1, byte);
+}
+
+fn serial_write(text: []u8) void {
+    for (let mut i = usize.{0}; i < #text; i += 1) {
+        serial_write_byte(text.[i]);
+    }
+}
+
+fn debug_write(text: []u8) void {
+    for (let mut i = usize.{0}; i < #text; i += 1) {
+        outb(DEBUGCON, text.[i]);
+    }
+}
+
 #[export_name("_start")]
 fn kmain() void {
-    for (;;) {}
-    @unreachable();
+    debug_write("limine-smoke: kernel booted\r\n");
+    serial_init();
+    serial_write("limine-smoke: kernel booted\r\n");
+    for (;;) {
+        hlt();
+    }
 }

@@ -1,0 +1,11 @@
+[package]
+name = "limine-mkiso"
+version = "0.1.0"
+kern = "0.7.0"
+publish = false
+description = "Host tool that turns a prepared Limine tree into a bootable ISO image"
+license = "MIT"
+
+[[bin]]
+name = "limine-mkiso"
+root = "src/main.rn"

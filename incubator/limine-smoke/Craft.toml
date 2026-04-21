@@ -16,5 +16,8 @@ bundle = "base"
 name = "kernel"
 root = "src/main.rn"
 
+[build-dependencies]
+mkiso = { path = "../limine-mkiso", package = "limine-mkiso" }
+
 [resources]
-limine = { path = "vendor/limine" }
+limine = { git = "https://github.com/limine-bootloader/limine.git", tag = "v11.4.0-binary" }

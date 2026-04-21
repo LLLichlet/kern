@@ -12,9 +12,9 @@ fn contains(text: []u8, needle: []u8) bool {
     if (#needle > #text) {
         return false;
     }
-    for (let mut i = 0; i + #needle <= #text; i += 1) {
+    for (let mut i = usize.{0}; i + #needle <= #text; i += 1) {
         let mut matched = true;
-        for (let mut j = 0; j < #needle; j += 1) {
+        for (let mut j = usize.{0}; j < #needle; j += 1) {
             if (text.[i + j] != needle.[j]) {
                 matched = false;
                 break;
@@ -31,9 +31,9 @@ fn find_index(text: []u8, needle: []u8) usize {
     if (#needle == 0 or #needle > #text) {
         return #text;
     }
-    for (let mut i = 0; i + #needle <= #text; i += 1) {
+    for (let mut i = usize.{0}; i + #needle <= #text; i += 1) {
         let mut matched = true;
-        for (let mut j = 0; j < #needle; j += 1) {
+        for (let mut j = usize.{0}; j < #needle; j += 1) {
             if (text.[i + j] != needle.[j]) {
                 matched = false;
                 break;
@@ -47,7 +47,7 @@ fn find_index(text: []u8, needle: []u8) usize {
 }
 
 fn find_byte(text: []u8, needle: u8) usize {
-    for (let mut i = 0; i < #text; i += 1) {
+    for (let mut i = usize.{0}; i < #text; i += 1) {
         if (text.[i] == needle) {
             return i;
         }
@@ -56,9 +56,9 @@ fn find_byte(text: []u8, needle: u8) usize {
 }
 
 fn line_slice(text: []u8, line_index: usize) []u8 {
-    let mut start = 0;
-    let mut current = 0;
-    for (let mut i = 0; i < #text; i += 1) {
+    let mut start = usize.{0};
+    let mut current = usize.{0};
+    for (let mut i = usize.{0}; i < #text; i += 1) {
         if (current == line_index and text.[i] == b'\n') {
             return text.[start .. i];
         }
@@ -74,7 +74,7 @@ fn line_slice(text: []u8, line_index: usize) []u8 {
 }
 
 fn find_line_with(text: []u8, needle: []u8, max_lines: usize) usize {
-    for (let mut line = 0; line < max_lines; line += 1) {
+    for (let mut line = usize.{0}; line < max_lines; line += 1) {
         if (contains(line_slice(text, line), needle)) {
             return line;
         }
@@ -83,7 +83,7 @@ fn find_line_with(text: []u8, needle: []u8, max_lines: usize) usize {
 }
 
 fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
-    for (let mut i = 0; i < #text; i += 1) {
+    for (let mut i = usize.{0}; i < #text; i += 1) {
         state.handle_key(gpa, input.Key.{ Byte: text.[i] });
     }
 }
@@ -391,7 +391,7 @@ fn check_command_line_viewport_render() void {
 
     test.assert(state.resize(2, 8), "expected resize for render viewport test", .{});
     state.handle_key(gpa, .{ Byte: b':' });
-    for (let mut i = 0; i < #"abcdefghij"; i += 1) {
+    for (let mut i = usize.{0}; i < #"abcdefghij"; i += 1) {
         state.handle_key(gpa, .{ Byte: "abcdefghij".[i] });
     }
 

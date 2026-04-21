@@ -1,12 +1,27 @@
 use crate::{
     MirBlock, MirBlockId, MirBody, MirCallTarget, MirConst, MirDirectCalleeCallsiteCount,
-    MirFunction, MirGlobal, MirInlineHint, MirInstruction, MirItemBodyRole, MirLinkage, MirLocal,
-    MirLocalId, MirLocalKind, MirMemoryIntrinsic, MirModule, MirOperand, MirRvalue, MirStaticInit,
-    MirTerminator, run_default_pass_pipeline, verify_module,
+    MirFunction, MirGlobal, MirInlineHint, MirInstruction, MirInstructionData, MirItemBodyRole,
+    MirLinkage, MirLocal, MirLocalId, MirLocalKind, MirMemoryIntrinsic, MirModule, MirOperand,
+    MirRvalue, MirStaticInit, MirTerminator, MirTerminatorData, run_default_pass_pipeline,
+    verify_module,
 };
 use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::ty::TypeId;
-use kernc_utils::SymbolId;
+use kernc_utils::{Span, SymbolId};
+
+fn instr(kind: MirInstruction) -> MirInstructionData {
+    MirInstructionData {
+        span: Span::default(),
+        kind,
+    }
+}
+
+fn term(kind: MirTerminator) -> MirTerminatorData {
+    MirTerminatorData {
+        span: Span::default(),
+        kind,
+    }
+}
 
 #[test]
 fn mir_verifier_rejects_out_of_range_local_refs() {
@@ -17,6 +32,7 @@ fn mir_verifier_rejects_out_of_range_local_refs() {
         functions: vec![MirFunction {
             id: MonoId(9),
             name: "bad_fn".to_string(),
+            span: Span::default(),
             linkage: MirLinkage::External,
             params: vec![],
             ret_ty: TypeId::VOID,
@@ -25,16 +41,17 @@ fn mir_verifier_rejects_out_of_range_local_refs() {
                 locals: vec![MirLocal {
                     id: MirLocalId(0),
                     name: SymbolId(90),
+                    span: Span::default(),
                     ty: TypeId::I32,
                     is_mut: false,
                     kind: MirLocalKind::Let,
                 }],
                 blocks: vec![MirBlock {
                     id: MirBlockId(0),
-                    instructions: vec![MirInstruction::Eval(MirRvalue::Use(MirOperand::Local(
-                        MirLocalId(1),
+                    instructions: vec![instr(MirInstruction::Eval(MirRvalue::Use(
+                        MirOperand::Local(MirLocalId(1)),
                     )))],
-                    terminator: MirTerminator::Return(None),
+                    terminator: term(MirTerminator::Return(None)),
                 }],
             }),
             is_extern: false,
@@ -59,6 +76,7 @@ fn mir_verifier_rejects_out_of_range_memory_refs() {
         functions: vec![MirFunction {
             id: MonoId(12),
             name: "bad_mem_fn".to_string(),
+            span: Span::default(),
             linkage: MirLinkage::External,
             params: vec![],
             ret_ty: TypeId::VOID,
@@ -67,21 +85,22 @@ fn mir_verifier_rejects_out_of_range_memory_refs() {
                 locals: vec![MirLocal {
                     id: MirLocalId(0),
                     name: SymbolId(110),
+                    span: Span::default(),
                     ty: TypeId::USIZE,
                     is_mut: false,
                     kind: MirLocalKind::Let,
                 }],
                 blocks: vec![MirBlock {
                     id: MirBlockId(0),
-                    instructions: vec![MirInstruction::Memory(MirMemoryIntrinsic::Copy {
+                    instructions: vec![instr(MirInstruction::Memory(MirMemoryIntrinsic::Copy {
                         dest: MirOperand::Local(MirLocalId(0)),
                         src: MirOperand::Local(MirLocalId(1)),
                         len: MirOperand::Const(MirConst::Integer {
                             ty: TypeId::USIZE,
                             value: 4,
                         }),
-                    })],
-                    terminator: MirTerminator::Return(None),
+                    }))],
+                    terminator: term(MirTerminator::Return(None)),
                 }],
             }),
             is_extern: false,
@@ -107,6 +126,7 @@ fn mir_pass_pipeline_folds_degenerate_branch_targets() {
         functions: vec![MirFunction {
             id: MonoId(16),
             name: "degenerate_branch".to_string(),
+            span: Span::default(),
             linkage: MirLinkage::External,
             params: vec![],
             ret_ty: TypeId::VOID,
@@ -117,18 +137,18 @@ fn mir_pass_pipeline_folds_degenerate_branch_targets() {
                     MirBlock {
                         id: MirBlockId(0),
                         instructions: vec![],
-                        terminator: MirTerminator::Branch {
+                        terminator: term(MirTerminator::Branch {
                             cond: MirRvalue::Use(MirOperand::Const(MirConst::Bool {
                                 value: false,
                             })),
                             then_block: join,
                             else_block: join,
-                        },
+                        }),
                     },
                     MirBlock {
                         id: join,
                         instructions: vec![],
-                        terminator: MirTerminator::Return(None),
+                        terminator: term(MirTerminator::Return(None)),
                     },
                 ],
             }),
@@ -153,7 +173,7 @@ fn mir_pass_pipeline_folds_degenerate_branch_targets() {
     assert_eq!(cfg_pass.name, "cfg_prune_unreachable_blocks");
     assert_eq!(cfg_pass.removed_blocks, 0);
     let body = module.functions[0].body.as_ref().unwrap();
-    assert!(matches!(body.blocks[0].terminator, MirTerminator::Goto(target) if target == join));
+    assert!(matches!(body.blocks[0].terminator.kind, MirTerminator::Goto(target) if target == join));
 }
 
 #[test]
@@ -165,6 +185,7 @@ fn mir_pass_pipeline_threads_trivial_goto_chains_before_pruning() {
         functions: vec![MirFunction {
             id: MonoId(17),
             name: "goto_chain".to_string(),
+            span: Span::default(),
             linkage: MirLinkage::External,
             params: vec![],
             ret_ty: TypeId::VOID,
@@ -175,17 +196,17 @@ fn mir_pass_pipeline_threads_trivial_goto_chains_before_pruning() {
                     MirBlock {
                         id: MirBlockId(0),
                         instructions: vec![],
-                        terminator: MirTerminator::Goto(MirBlockId(1)),
+                        terminator: term(MirTerminator::Goto(MirBlockId(1))),
                     },
                     MirBlock {
                         id: MirBlockId(1),
                         instructions: vec![],
-                        terminator: MirTerminator::Goto(MirBlockId(2)),
+                        terminator: term(MirTerminator::Goto(MirBlockId(2))),
                     },
                     MirBlock {
                         id: MirBlockId(2),
                         instructions: vec![],
-                        terminator: MirTerminator::Return(None),
+                        terminator: term(MirTerminator::Return(None)),
                     },
                 ],
             }),
@@ -213,11 +234,11 @@ fn mir_pass_pipeline_threads_trivial_goto_chains_before_pruning() {
     let body = module.functions[0].body.as_ref().unwrap();
     assert_eq!(body.blocks.len(), 2);
     assert!(matches!(
-        body.blocks[0].terminator,
+        body.blocks[0].terminator.kind,
         MirTerminator::Goto(target) if target == MirBlockId(1)
     ));
     assert!(matches!(
-        body.blocks[1].terminator,
+        body.blocks[1].terminator.kind,
         MirTerminator::Return(None)
     ));
 }
@@ -230,6 +251,7 @@ fn mir_summary_tracks_calls_refs_and_body_roles() {
         globals: vec![MirGlobal {
             id: MonoId(10),
             name: "GLOBAL".to_string(),
+            span: Span::default(),
             linkage: MirLinkage::Internal,
             ty: TypeId::USIZE,
             is_mut: false,
@@ -244,6 +266,7 @@ fn mir_summary_tracks_calls_refs_and_body_roles() {
             MirFunction {
                 id: MonoId(1),
                 name: "root".to_string(),
+                span: Span::default(),
                 linkage: MirLinkage::External,
                 params: vec![],
                 ret_ty: TypeId::VOID,
@@ -253,30 +276,30 @@ fn mir_summary_tracks_calls_refs_and_body_roles() {
                     blocks: vec![MirBlock {
                         id: MirBlockId(0),
                         instructions: vec![
-                            MirInstruction::Eval(MirRvalue::Use(MirOperand::Const(
+                            instr(MirInstruction::Eval(MirRvalue::Use(MirOperand::Const(
                                 MirConst::GlobalRef {
                                     ty: TypeId::USIZE,
                                     id: MonoId(10),
                                 },
-                            ))),
-                            MirInstruction::Eval(MirRvalue::Use(MirOperand::Const(
+                            )))),
+                            instr(MirInstruction::Eval(MirRvalue::Use(MirOperand::Const(
                                 MirConst::FuncRef {
                                     ty: TypeId::USIZE,
                                     id: MonoId(3),
                                 },
-                            ))),
-                            MirInstruction::Eval(MirRvalue::Call {
+                            )))),
+                            instr(MirInstruction::Eval(MirRvalue::Call {
                                 callee: MirCallTarget::Direct(MonoId(2)),
                                 args: vec![MirOperand::Const(MirConst::GlobalRef {
                                     ty: TypeId::USIZE,
                                     id: MonoId(10),
                                 })],
-                            }),
-                            MirInstruction::Eval(MirRvalue::Call {
+                            })),
+                            instr(MirInstruction::Eval(MirRvalue::Call {
                                 callee: MirCallTarget::Direct(MonoId(2)),
                                 args: vec![],
-                            }),
-                            MirInstruction::Eval(MirRvalue::Call {
+                            })),
+                            instr(MirInstruction::Eval(MirRvalue::Call {
                                 callee: MirCallTarget::Operand(MirOperand::Const(
                                     MirConst::FuncRef {
                                         ty: TypeId::USIZE,
@@ -284,9 +307,9 @@ fn mir_summary_tracks_calls_refs_and_body_roles() {
                                     },
                                 )),
                                 args: vec![],
-                            }),
+                            })),
                         ],
-                        terminator: MirTerminator::Return(None),
+                        terminator: term(MirTerminator::Return(None)),
                     }],
                 }),
                 is_extern: false,
@@ -297,6 +320,7 @@ fn mir_summary_tracks_calls_refs_and_body_roles() {
             MirFunction {
                 id: MonoId(2),
                 name: "helper".to_string(),
+                span: Span::default(),
                 linkage: MirLinkage::Internal,
                 params: vec![],
                 ret_ty: TypeId::VOID,
@@ -306,7 +330,7 @@ fn mir_summary_tracks_calls_refs_and_body_roles() {
                     blocks: vec![MirBlock {
                         id: MirBlockId(0),
                         instructions: vec![],
-                        terminator: MirTerminator::Return(None),
+                        terminator: term(MirTerminator::Return(None)),
                     }],
                 }),
                 is_extern: false,
@@ -317,6 +341,7 @@ fn mir_summary_tracks_calls_refs_and_body_roles() {
             MirFunction {
                 id: MonoId(3),
                 name: "decl".to_string(),
+                span: Span::default(),
                 linkage: MirLinkage::External,
                 params: vec![],
                 ret_ty: TypeId::VOID,

@@ -18,32 +18,115 @@ struct ResolvedPatternField {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
-    pub(crate) fn resolve_type_namespace_expr(&mut self, expr: &Expr) -> Option<TypeId> {
-        if !self.expr_is_type_namespace(expr) {
-            return None;
-        }
-
+    fn resolve_namespace_expr(&mut self, expr: &Expr) -> Option<TypeId> {
         let ty = match &expr.kind {
-            ast::ExprKind::TypeNode(type_node) => {
-                let ty = self.evaluate_dynamic_typeof(type_node);
-                ty
+            ast::ExprKind::TypeNode(type_node) => self.evaluate_dynamic_typeof(type_node),
+            ast::ExprKind::Identifier(name) => {
+                let info = self.ctx.scopes.resolve(*name)?.clone();
+                if info.kind != SymbolKind::Module && !Self::symbol_is_type_namespace(info.kind) {
+                    return None;
+                }
+                self.resolved_symbol_type(&info, expr.span)
             }
-            ast::ExprKind::Identifier(name) => self.check_identifier(*name, expr.span),
             ast::ExprKind::AnchoredPath { anchor, name, .. } => {
-                self.check_anchored_identifier(*anchor, *name, expr.span)
+                let (owner_module, start_scope) = self.anchored_start_scope(*anchor, expr.span)?;
+                let info = self.ctx.scopes.resolve_in(start_scope, *name)?.clone();
+                if info.kind != SymbolKind::Module && !Self::symbol_is_type_namespace(info.kind) {
+                    return None;
+                }
+                let current_module = self.cached_current_module_id();
+                if !self
+                    .ctx
+                    .visibility_allows_access(info.vis, owner_module, current_module)
+                {
+                    self.ctx
+                        .struct_error(
+                            expr.span,
+                            format!(
+                                "cannot access private item `{}` through anchored path",
+                                self.ctx.resolve(*name)
+                            ),
+                        )
+                        .emit();
+                    TypeId::ERROR
+                } else {
+                    self.resolved_symbol_type(&info, expr.span)
+                }
             }
             ast::ExprKind::GenericInstantiation { target, args } => {
+                let _ = self.resolve_type_namespace_expr(target)?;
                 self.check_generic_instantiation(target, args, expr.span)
             }
             ast::ExprKind::FieldAccess {
                 lhs,
                 field,
                 field_span,
-            } => self.check_field_access(expr.id, lhs, *field, *field_span, expr.span),
+            } => {
+                let lhs_ty = self.resolve_namespace_expr(lhs)?;
+                let lhs_norm = self.resolve_tv(lhs_ty);
+                let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(lhs_norm).clone()
+                else {
+                    return None;
+                };
+
+                let Def::Module(module) = &self.ctx.defs[mod_def_id.0 as usize] else {
+                    self.ctx.emit_ice(
+                        expr.span,
+                        format!(
+                            "Kern ICE (Typeck): Expected module definition while resolving namespace access for DefId {}.",
+                            mod_def_id.0
+                        ),
+                    );
+                    return Some(TypeId::ERROR);
+                };
+
+                let target_info = self.ctx.scopes.resolve_in(module.scope_id, *field)?.clone();
+                if target_info.kind != SymbolKind::Module
+                    && !Self::symbol_is_type_namespace(target_info.kind)
+                {
+                    return None;
+                }
+
+                let current_module_id = self.cached_current_module_id();
+                if !self
+                    .ctx
+                    .visibility_allows_access(target_info.vis, mod_def_id, current_module_id)
+                {
+                    let field_name = self.ctx.resolve(*field);
+                    self.ctx
+                        .struct_error(
+                            expr.span,
+                            format!("module has no visible member `{}`", field_name),
+                        )
+                        .emit();
+                    return Some(TypeId::ERROR);
+                }
+
+                let mod_ty = self.ctx.type_registry.intern(TypeKind::Module(mod_def_id));
+                self.ctx.node_types.insert(lhs.id, mod_ty);
+                self.ctx
+                    .record_identifier_reference(*field_span, target_info.span);
+                if target_info.kind == SymbolKind::Module {
+                    self.ctx
+                        .type_registry
+                        .intern(TypeKind::Module(target_info.def_id.unwrap()))
+                } else {
+                    self.resolved_symbol_type(&target_info, *field_span)
+                }
+            }
             _ => return None,
         };
 
         self.ctx.node_types.insert(expr.id, ty);
+        Some(ty)
+    }
+
+    pub(crate) fn resolve_type_namespace_expr(&mut self, expr: &Expr) -> Option<TypeId> {
+        let ty = self.resolve_namespace_expr(expr)?;
+        let norm = self.resolve_tv(ty);
+        if matches!(self.ctx.type_registry.get(norm), TypeKind::Module(_)) {
+            return None;
+        }
         Some(ty)
     }
 
@@ -992,54 +1075,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn expr_is_type_namespace(&mut self, expr: &Expr) -> bool {
-        match &expr.kind {
-            ast::ExprKind::TypeNode(_) => true,
-            ast::ExprKind::Identifier(name) => self
-                .ctx
-                .scopes
-                .resolve(*name)
-                .map(|info| Self::symbol_is_type_namespace(info.kind))
-                .unwrap_or(false),
-            ast::ExprKind::AnchoredPath { anchor, name, .. } => self
-                .anchored_start_scope(*anchor, expr.span)
-                .and_then(|(_, scope)| self.ctx.scopes.resolve_in(scope, *name))
-                .map(|info| Self::symbol_is_type_namespace(info.kind))
-                .unwrap_or(false),
-            ast::ExprKind::GenericInstantiation { target, .. } => {
-                self.expr_is_type_namespace(target)
-            }
-            ast::ExprKind::FieldAccess { lhs, field, .. } => {
-                let lhs_ty = self
-                    .ctx
-                    .node_types
-                    .get(&lhs.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                let lhs_norm = self.resolve_tv(lhs_ty);
-
-                let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(lhs_norm).clone()
-                else {
-                    return false;
-                };
-                let Def::Module(module) = &self.ctx.defs[mod_def_id.0 as usize] else {
-                    self.ctx.emit_ice(
-                        expr.span,
-                        format!(
-                            "Kern ICE (Typeck): Expected module definition while classifying namespace access for DefId {}.",
-                            mod_def_id.0
-                        ),
-                    );
-                    return false;
-                };
-
-                self.ctx
-                    .scopes
-                    .resolve_in(module.scope_id, *field)
-                    .map(|info| Self::symbol_is_type_namespace(info.kind))
-                    .unwrap_or(false)
-            }
-            _ => false,
-        }
+        self.resolve_type_namespace_expr(expr).is_some()
     }
 
     fn check_payloadless_enum_variant_access(
@@ -1049,7 +1085,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field_span: Span,
         span: Span,
     ) -> Option<TypeId> {
-        let norm_target = self.resolve_tv(target_ty);
+        let resolved_target = self.resolve_tv(target_ty);
+        let norm_target = self.ctx.normalize_concrete_type(resolved_target);
 
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Enum(def_id, _) => {

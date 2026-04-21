@@ -111,7 +111,7 @@ fn check_value_lookup_helpers() void {
     test.eq(test.expect_some(test.expect_ok(duplicates.count_fields("dup"))), usize.{3});
     let last_dup = test.expect_some(test.expect_ok(duplicates.get_last_field("dup")));
     test.assert(last_dup.value.raw.eq("3"), "expected borrowed last duplicate field helper", .{});
-    let collected = [2]ObjectEntry.{ undef, undef };
+    let mut collected = [2]ObjectEntry.{ undef, undef };
     let total = test.expect_some(test.expect_ok(duplicates.collect_fields("dup", collected..[0 .. 2])));
     test.eq(total, usize.{3});
     test.assert(collected.[0].value.raw.eq("1"), "expected borrowed collect first duplicate", .{});
@@ -142,7 +142,7 @@ fn check_borrowed_required_field_and_index_helpers() void {
 
     let decoded_size = test.expect_ok(value.require_decoded_string_size_field("msg"));
     test.eq(decoded_size, usize.{3});
-    let out = [8]u8.{undef};
+    let mut out = [8]u8.{undef};
     let written = test.expect_ok(value.write_required_decoded_string_field("msg", out..[0 .. 8]));
     test.eq(written, decoded_size);
     test.assert(
@@ -249,7 +249,7 @@ fn check_packed_document_lookup_helpers() void {
     test.eq(test.expect_some(root.get_bool("ok")), true);
     test.assert(root.has_field("user"), "expected packed has_field helper", .{});
     test.eq(test.expect_some(root.count_fields("dup")), usize.{2});
-    let collected = [2]json.PackedObjectEntry.{ undef, undef };
+    let mut collected = [2]json.PackedObjectEntry.{ undef, undef };
     let total = test.expect_some(root.collect_fields("dup", collected..[0 .. 2]));
     test.eq(total, usize.{2});
     test.eq(test.expect_some(test.expect_ok(collected.[0].u64_value())), u64.{1});
@@ -321,7 +321,7 @@ fn check_packed_indexed_object_document_api() void {
     let last_dup = test.expect_some(view.get_last_field("dup"));
     test.eq(test.expect_some(test.expect_ok(last_dup.u64_value())), u64.{2});
 
-    let collected = [1]json.PackedObjectEntry.{ undef };
+    let mut collected = [1]json.PackedObjectEntry.{ undef };
     let total = view.collect_fields("dup", collected..[0 .. 1]);
     test.eq(total, usize.{2});
     test.eq(test.expect_some(test.expect_ok(collected.[0].u64_value())), u64.{1});
@@ -413,7 +413,7 @@ fn check_borrowed_optional_schema_helpers() void {
     );
     test.eq(test.expect_some(test.expect_ok(value.get_decoded_string_size_field("msg"))), usize.{3});
 
-    let out = [8]u8.{undef};
+    let mut out = [8]u8.{undef};
     let written = test.expect_some(test.expect_ok(value.write_decoded_string_field("msg", out..[0 .. 8])));
     test.eq(written, usize.{3});
     test.assert(
@@ -804,7 +804,7 @@ fn check_decoded_string_helpers() void {
     let decoded_size = test.expect_some(test.expect_ok(escaped.decoded_string_size()));
     test.eq(decoded_size, usize.{13});
 
-    let out = [32]u8.{undef};
+    let mut out = [32]u8.{undef};
     let written = test.expect_some(test.expect_ok(escaped.write_decoded_string(out..[0 .. 32])));
     test.eq(written, decoded_size);
     test.assert(
@@ -842,14 +842,14 @@ fn check_decoded_string_helpers() void {
 
 fn check_decoded_string_errors() void {
     let escaped = test.expect_ok(parse("\"\\u0041\""));
-    let small = [1]u8.{undef};
+    let mut small = [1]u8.{undef};
     match (test.expect_err(escaped.write_decoded_string(small..[0 .. 0]))) {
         .BufferTooSmall => {},
         _ => test.fail("expected decoded string buffer-too-small error", .{}),
     }
 
     let scalar = test.expect_ok(parse("true"));
-    let out = [4]u8.{undef};
+    let mut out = [4]u8.{undef};
     test.assert(
         test.expect_ok(scalar.write_decoded_string(out..[0 .. 4])).is_none(),
         "expected non-string decoded write to return none",
@@ -880,7 +880,7 @@ fn check_decoded_object_key_helpers() void {
     let decoded_size = test.expect_ok(entry.decoded_key_size());
     test.eq(decoded_size, usize.{6});
 
-    let out = [16]u8.{undef};
+    let mut out = [16]u8.{undef};
     let written = test.expect_ok(entry.write_decoded_key(out..[0 .. 16]));
     test.eq(written, decoded_size);
     test.assert(
@@ -937,7 +937,7 @@ fn check_borrowed_object_entry_value_helpers() void {
         .{}
     );
     test.eq(test.expect_some(test.expect_ok(msg.decoded_string_size())), usize.{3});
-    let out = [8]u8.{undef};
+    let mut out = [8]u8.{undef};
     let written = test.expect_some(test.expect_ok(msg.write_decoded_string(out..[0 .. 8])));
     test.eq(written, usize.{3});
     test.assert(
@@ -1066,7 +1066,7 @@ fn check_owned_materialization() void {
     test.eq(test.expect_some(dup_owned..&.count_fields("dup")), usize.{3});
     let last_dup = test.expect_some(dup_owned..&.get_last_field("dup"));
     test.eq(test.expect_some(test.expect_ok(last_dup.u64_value())), u64.{3});
-    let collected = [2]json.OwnedObjectEntry.{ undef, undef };
+    let mut collected = [2]json.OwnedObjectEntry.{ undef, undef };
     let total = test.expect_some(dup_owned..&.collect_fields("dup", collected..[0 .. 2]));
     test.eq(total, usize.{3});
     test.eq(test.expect_some(test.expect_ok(collected.[0].u64_value())), u64.{1});
@@ -1146,7 +1146,7 @@ fn check_indexed_object_view() void {
     test.eq(view.count_fields("dup"), usize.{2});
     let last_dup = test.expect_some(view.get_last_field("dup"));
     test.eq(test.expect_some(test.expect_ok(last_dup.u64_value())), u64.{2});
-    let collected = [1]json.OwnedObjectEntry.{ undef };
+    let mut collected = [1]json.OwnedObjectEntry.{ undef };
     let total = view.collect_fields("dup", collected..[0 .. 1]);
     test.eq(total, usize.{2});
     test.eq(test.expect_some(test.expect_ok(collected.[0].u64_value())), u64.{1});
@@ -1238,7 +1238,7 @@ fn check_owned_document_schema_and_duplicate_helpers() void {
 
     let last_dup = test.expect_some(root.get_last_field("dup"));
     test.eq(test.expect_some(test.expect_ok(last_dup.u64_value())), u64.{2});
-    let collected = [1]json.DocumentObjectEntryRef.{ undef };
+    let mut collected = [1]json.DocumentObjectEntryRef.{ undef };
     let total = test.expect_some(root.collect_fields("dup", collected..[0 .. 1]));
     test.eq(total, usize.{2});
     test.eq(test.expect_some(test.expect_ok(collected.[0].u64_value())), u64.{1});
@@ -1284,7 +1284,7 @@ fn check_indexed_object_document_api() void {
     test.eq(test.expect_some(view.get_bool("flag")), true);
     let last_dup = test.expect_some(view.get_last_field("dup"));
     test.eq(test.expect_some(test.expect_ok(last_dup.u64_value())), u64.{2});
-    let collected = [1]json.DocumentObjectEntryRef.{ undef };
+    let mut collected = [1]json.DocumentObjectEntryRef.{ undef };
     let total = view.collect_fields("dup", collected..[0 .. 1]);
     test.eq(total, usize.{2});
     test.eq(test.expect_some(test.expect_ok(collected.[0].u64_value())), u64.{1});
@@ -1444,7 +1444,7 @@ fn check_owned_compact_render_round_trip() void {
     test.eq(owned.compact_size(), compact_size_owned(owned));
     test.eq(owned.compact_size(), usize.{#expected});
 
-    let out = [256]u8.{undef};
+    let mut out = [256]u8.{undef};
     let written = test.expect_ok(owned.render_compact(out..[0 .. 256]));
     test.eq(written, owned.compact_size());
     test.assert(
@@ -1469,7 +1469,7 @@ fn check_owned_compact_render_reports_small_buffer() void {
     let owned = test.expect_ok(value.clone_owned(gpa))..&;
     defer owned.deinit(gpa);
 
-    let out = [4]u8.{undef};
+    let mut out = [4]u8.{undef};
     match (test.expect_err(owned.render_compact(out..[0 .. 4]))) {
         .BufferTooSmall => {},
     }
@@ -1524,7 +1524,7 @@ fn check_owned_dom_build_and_mutation() void {
     test.eq(test.expect_some(items.array_len()), usize.{1});
     test.eq(test.expect_some(test.expect_some(items.get_index(0)).bool_value()), true);
 
-    let out = [128]u8.{undef};
+    let mut out = [128]u8.{undef};
     let written = test.expect_ok(root.render_compact(out..[0 .. 128]));
     test.assert(
         out.[0 .. written].eq("{\"count\":12,\"flag\":true,\"nested\":{\"ok\":true},\"items\":[true]}"),
@@ -1667,7 +1667,7 @@ fn check_direct_indexed_document_parse_rejects_trailing_commas() void {
 
 fn check_compact_render_strips_insignificant_whitespace() void {
     let value = test.expect_ok(parse("{ \"ok\" : [ 1, 2 , 3 ], \"msg\" : \"hi\\n\" }"));
-    let out = [128]u8.{undef};
+    let mut out = [128]u8.{undef};
     let written = test.expect_ok(render_compact(value, out..[0 .. 128]));
     test.assert(
         out.[0 .. written].eq("{\"ok\":[1,2,3],\"msg\":\"hi\\n\"}"),
@@ -1679,14 +1679,14 @@ fn check_compact_render_strips_insignificant_whitespace() void {
 fn check_compact_size_matches_rendered_size() void {
     let value = test.expect_ok(parse("{ \"ok\" : [ 1, 2 , 3 ], \"msg\" : \"hi\\n\" }"));
     let expected = test.expect_ok(compact_size(value));
-    let out = [128]u8.{undef};
+    let mut out = [128]u8.{undef};
     let written = test.expect_ok(render_compact(value, out..[0 .. 128]));
     test.eq(written, expected);
 }
 
 fn check_compact_render_reports_small_buffer() void {
     let value = test.expect_ok(parse("{\"ok\":true}"));
-    let out = [4]u8.{undef};
+    let mut out = [4]u8.{undef};
     match (test.expect_err(render_compact(value, out..[0 .. 4]))) {
         .BufferTooSmall => {},
         .{ Parse: _ } => test.fail("expected buffer-too-small error", .{}),

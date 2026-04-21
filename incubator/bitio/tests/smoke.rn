@@ -30,9 +30,9 @@ fn check_rotate_helpers() void {
 }
 
 fn check_big_endian_round_trip() void {
-    let two = [2]u8.{ 0; 2 };
-    let four = [4]u8.{ 0; 4 };
-    let eight = [8]u8.{ 0; 8 };
+    let mut two = [2]u8.{ 0; 2 };
+    let mut four = [4]u8.{ 0; 4 };
+    let mut eight = [8]u8.{ 0; 8 };
 
     let _ = test.expect_ok(write_u16_be(two..[0 .. 2], u16.{0x1234}));
     let _ = test.expect_ok(write_u32_be(four..[0 .. 4], u32.{0x89abcdef}));
@@ -44,9 +44,9 @@ fn check_big_endian_round_trip() void {
 }
 
 fn check_little_endian_round_trip() void {
-    let two = [2]u8.{ 0; 2 };
-    let four = [4]u8.{ 0; 4 };
-    let eight = [8]u8.{ 0; 8 };
+    let mut two = [2]u8.{ 0; 2 };
+    let mut four = [4]u8.{ 0; 4 };
+    let mut eight = [8]u8.{ 0; 8 };
 
     let _ = test.expect_ok(write_u16_le(two..[0 .. 2], u16.{0x1234}));
     let _ = test.expect_ok(write_u32_le(four..[0 .. 4], u32.{0x89abcdef}));
@@ -58,7 +58,7 @@ fn check_little_endian_round_trip() void {
 }
 
 fn check_xor_mask4() void {
-    let out = [5]u8.{ 0; 5 };
+    let mut out = [5]u8.{ 0; 5 };
     let _ = test.expect_ok(xor_mask4("Hello", [4]u8.{ 1, 2, 3, 4 }, out..[0 .. 5]));
     test.assert(
         out.[0 .. 5].eq([5]u8.{ b'I', b'g', b'o', b'h', b'n' }.[0 .. 5]),
@@ -74,7 +74,7 @@ fn check_xor_mask4_large_payload() void {
         20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
         30, 31, 32, 33, 34, 35, 36,
     };
-    let out = [37]u8.{ 0; 37 };
+    let mut out = [37]u8.{ 0; 37 };
     let _ = test.expect_ok(xor_mask4(input.[0 .. 37], [4]u8.{ 1, 2, 3, 4 }, out..[0 .. 37]));
     test.assert(
         out.[0 .. 37].eq([37]u8.{
@@ -102,7 +102,7 @@ fn check_bit_reader() void {
 }
 
 fn check_bit_writer() void {
-    let out = [2]u8.{ 0xff; 2 };
+    let mut out = [2]u8.{ 0xff; 2 };
     let bits = writer(out..[0 .. 2])..&;
 
     let _ = test.expect_ok(bits.write_bits(u64.{0b1011}, u8.{4}));
@@ -124,7 +124,7 @@ fn check_bit_io_errors() void {
     test.eq(test.expect_err(reader0.*.peek_bit()), BitIoError.UnexpectedEof);
     test.eq(test.expect_err(reader0.read_bits(u8.{0})), BitIoError.InvalidBitCount);
 
-    let out = [1]u8.{ 0; 1 };
+    let mut out = [1]u8.{ 0; 1 };
     let writer0 = writer(out..[0 .. 1])..&;
     test.eq(test.expect_err(writer0.write_bits(u64.{1}, u8.{0})), BitIoError.InvalidBitCount);
 

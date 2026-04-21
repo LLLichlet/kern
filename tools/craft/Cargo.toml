@@ -9,3 +9,9 @@ license.workspace = true
 kernc_driver = { workspace = true }
 kernc_sema = { workspace = true }
 kernc_utils = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console"] }

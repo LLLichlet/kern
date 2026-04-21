@@ -443,7 +443,7 @@ pub(crate) fn materialize_analysis_inputs_with_progress(
 
     if let Some(progress) = &progress {
         progress.set_phase(ExecutionPhase::Stage);
-        progress.set_detail("materialize generated inputs");
+        progress.set_detail("materialize inputs");
     }
     for action in &action_plan.compile_actions {
         if action.domain != BuildDomain::Target {
@@ -626,7 +626,7 @@ fn build_with_command(
     let mut external_summary = ExecutionSummary::default();
     if let Some(progress) = &progress {
         progress.set_phase(ExecutionPhase::Bootstrap);
-        progress.set_detail("prepare workspace and runtime packages");
+        progress.set_detail("prepare runtime packages");
     }
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
@@ -697,7 +697,7 @@ fn build_with_command(
 
         if let Some(progress) = &progress {
             progress.set_phase(ExecutionPhase::Stage);
-            progress.set_detail("materialize generated inputs");
+            progress.set_detail("materialize inputs");
         }
         for action in &action_plan.compile_actions {
             if action.domain != BuildDomain::Target {
@@ -715,7 +715,7 @@ fn build_with_command(
 
     if let Some(progress) = &progress {
         progress.set_phase(ExecutionPhase::Compile);
-        progress.set_detail("compile target units");
+        progress.set_detail("compile targets");
     }
     loop {
         let jobs = parallel_target_compile_jobs(action_plan, &local_library_actions, &compiled);
@@ -787,7 +787,7 @@ fn build_with_command(
 
     if let Some(progress) = &progress {
         progress.set_phase(ExecutionPhase::Link);
-        progress.set_detail("link target artifacts");
+        progress.set_detail("link targets");
     }
     let parallel_jobs = parallel_target_link_jobs(action_plan, &compile_action_index, &linked)?;
     if let Some(progress) = &progress
@@ -1238,22 +1238,27 @@ fn format_run_tool_failure(
 
 fn compile_progress_label(action: &CompileAction) -> String {
     format!(
-        "{}:{} [{},{}]",
+        "{}:{} {}",
         action.package_id.name,
         action.artifact_name,
-        action.target_kind.as_str(),
-        action.domain.as_str()
+        format_progress_tags(action.target_kind.as_str(), action.domain)
     )
 }
 
 fn link_progress_label(action: &LinkAction) -> String {
     format!(
-        "{}:{} [{},{}]",
+        "{}:{} {}",
         action.package_id.name,
         action.artifact_name,
-        action.target_kind.as_str(),
-        action.domain.as_str()
+        format_progress_tags(action.target_kind.as_str(), action.domain)
     )
+}
+
+fn format_progress_tags(target_kind: &str, domain: BuildDomain) -> String {
+    match domain {
+        BuildDomain::Target => format!("[{target_kind}]"),
+        BuildDomain::Host => format!("[{target_kind},host]"),
+    }
 }
 
 fn stage_action_label(action: &StagedAction, output_path: &Path) -> String {

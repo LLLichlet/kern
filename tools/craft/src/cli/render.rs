@@ -28,6 +28,11 @@ pub(super) struct ProgressDisplay {
     worker: Option<JoinHandle<()>>,
 }
 
+const PROGRESS_BAR_WIDTH: usize = 24;
+const MIN_PROGRESS_BAR_WIDTH: usize = 12;
+const MIN_PROGRESS_COLUMNS: usize = 48;
+const MIN_PROGRESS_DETAIL_COLUMNS: usize = 12;
+
 #[derive(Clone, Copy)]
 pub(super) enum Tone {
     Accent,
@@ -162,7 +167,7 @@ impl ProgressDisplay {
             let mut last_line = String::new();
             loop {
                 let snapshot = worker_reporter.snapshot();
-                let line = render_progress_line(command, snapshot);
+                let line = render_progress_line(command, snapshot, progress_line_columns());
                 if line != last_line {
                     write_progress_line(&line, &mut last_len);
                     last_line = line;
@@ -702,7 +707,11 @@ fn format_duration(duration: std::time::Duration) -> String {
     }
 }
 
-fn render_progress_line(command: &str, snapshot: execute::ExecutionProgressSnapshot) -> String {
+fn render_progress_line(
+    command: &str,
+    snapshot: execute::ExecutionProgressSnapshot,
+    columns: usize,
+) -> String {
     let total_steps = snapshot.total_steps();
     let completed_steps = snapshot.completed_steps().min(total_steps);
     let percent = if total_steps == 0 {
@@ -710,34 +719,10 @@ fn render_progress_line(command: &str, snapshot: execute::ExecutionProgressSnaps
     } else {
         completed_steps.saturating_mul(100) / total_steps
     };
-    let bar = render_progress_bar(completed_steps, total_steps, 24);
+    let bar = render_progress_bar(completed_steps, total_steps, progress_bar_width(columns));
     let mut segments = Vec::new();
-    segments.push(format!("phase {}", format_progress_phase(snapshot.phase)));
-    if snapshot.plan.staged_actions > 0 {
-        segments.push(format!(
-            "gen {}/{}",
-            snapshot.staged_done.min(snapshot.plan.staged_actions),
-            snapshot.plan.staged_actions
-        ));
-    }
-    if snapshot.plan.compile_actions > 0 {
-        segments.push(format!(
-            "compile {}/{}",
-            snapshot.compile_done.min(snapshot.plan.compile_actions),
-            snapshot.plan.compile_actions
-        ));
-    }
-    if snapshot.plan.link_actions > 0 {
-        segments.push(format!(
-            "link {}/{}",
-            snapshot.link_done.min(snapshot.plan.link_actions),
-            snapshot.plan.link_actions
-        ));
-    }
-    segments.push(format!(
-        "elapsed {}",
-        format_progress_clock(snapshot.elapsed)
-    ));
+    segments.push(format_phase_progress(&snapshot));
+    segments.push(format_progress_clock(snapshot.elapsed));
     if total_steps > 0
         && completed_steps >= 2
         && completed_steps < total_steps
@@ -749,32 +734,66 @@ fn render_progress_line(command: &str, snapshot: execute::ExecutionProgressSnaps
             .mul_f64(remaining_steps as f64 / completed_steps as f64);
         segments.push(format!("eta {}", format_progress_clock(eta)));
     }
-    if !snapshot.detail.is_empty() {
-        segments.push(snapshot.detail);
-    }
 
-    format!("{command} {bar} {percent:>3}%  {}", segments.join("  "))
+    let mut line = format!("{command} {bar} {percent:>3}%  {}", segments.join("  "));
+    if !snapshot.detail.is_empty() {
+        let detail_budget = columns.saturating_sub(display_width(&line) + 2);
+        if detail_budget >= MIN_PROGRESS_DETAIL_COLUMNS {
+            line.push_str("  ");
+            line.push_str(&truncate_detail(&snapshot.detail, detail_budget));
+        }
+    }
+    truncate_text(&line, columns)
 }
 
 fn render_progress_bar(completed: usize, total: usize, width: usize) -> String {
     if total == 0 {
-        return format!("[{}]", "-".repeat(width));
+        return format!("[>{}]", "-".repeat(width.saturating_sub(1)));
+    }
+
+    if completed >= total {
+        return format!("[{}]", "=".repeat(width));
     }
 
     let filled = completed.saturating_mul(width) / total;
+    let head = filled.min(width.saturating_sub(1));
     format!(
-        "[{}{}]",
-        "=".repeat(filled),
-        "-".repeat(width.saturating_sub(filled))
+        "[{}>{}]",
+        "=".repeat(head),
+        "-".repeat(width.saturating_sub(head + 1))
     )
 }
 
 fn format_progress_phase(phase: execute::ExecutionPhase) -> &'static str {
     match phase {
-        execute::ExecutionPhase::Bootstrap => "bootstrap",
-        execute::ExecutionPhase::Stage => "generate",
+        execute::ExecutionPhase::Bootstrap => "prepare",
+        execute::ExecutionPhase::Stage => "gen",
         execute::ExecutionPhase::Compile => "compile",
         execute::ExecutionPhase::Link => "link",
+    }
+}
+
+fn format_phase_progress(snapshot: &execute::ExecutionProgressSnapshot) -> String {
+    match snapshot.phase {
+        execute::ExecutionPhase::Bootstrap => format_progress_phase(snapshot.phase).to_string(),
+        execute::ExecutionPhase::Stage => format!(
+            "{} {}/{}",
+            format_progress_phase(snapshot.phase),
+            snapshot.staged_done.min(snapshot.plan.staged_actions),
+            snapshot.plan.staged_actions
+        ),
+        execute::ExecutionPhase::Compile => format!(
+            "{} {}/{}",
+            format_progress_phase(snapshot.phase),
+            snapshot.compile_done.min(snapshot.plan.compile_actions),
+            snapshot.plan.compile_actions
+        ),
+        execute::ExecutionPhase::Link => format!(
+            "{} {}/{}",
+            format_progress_phase(snapshot.phase),
+            snapshot.link_done.min(snapshot.plan.link_actions),
+            snapshot.plan.link_actions
+        ),
     }
 }
 
@@ -792,21 +811,156 @@ fn format_progress_clock(duration: Duration) -> String {
 
 fn write_progress_line(line: &str, last_len: &mut usize) {
     let mut stderr = std::io::stderr();
-    let padding = last_len.saturating_sub(line.len());
-    let _ = write!(stderr, "\r{line}{}", " ".repeat(padding));
+    let _ = write!(stderr, "\r\x1b[2K{line}");
     let _ = stderr.flush();
-    *last_len = line.len();
+    *last_len = display_width(line);
 }
 
 fn clear_progress_line(last_len: usize) {
+    if last_len == 0 {
+        return;
+    }
     let mut stderr = std::io::stderr();
-    let _ = write!(stderr, "\r{}\r", " ".repeat(last_len));
+    let _ = write!(stderr, "\r\x1b[2K\r");
     let _ = stderr.flush();
+}
+
+fn progress_line_columns() -> usize {
+    terminal_columns()
+        .or_else(columns_from_env)
+        .unwrap_or(100)
+        .max(MIN_PROGRESS_COLUMNS)
+}
+
+fn progress_bar_width(columns: usize) -> usize {
+    columns
+        .saturating_sub(60)
+        .clamp(MIN_PROGRESS_BAR_WIDTH, PROGRESS_BAR_WIDTH)
+}
+
+fn columns_from_env() -> Option<usize> {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+}
+
+#[cfg(unix)]
+fn terminal_columns() -> Option<usize> {
+    use std::mem::MaybeUninit;
+    use std::os::fd::AsRawFd;
+
+    let fd = std::io::stderr().as_raw_fd();
+    let mut winsize = MaybeUninit::<libc::winsize>::uninit();
+    let result = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, winsize.as_mut_ptr()) };
+    if result != 0 {
+        return None;
+    }
+
+    let winsize = unsafe { winsize.assume_init() };
+    (winsize.ws_col > 0).then_some(winsize.ws_col as usize)
+}
+
+#[cfg(windows)]
+fn terminal_columns() -> Option<usize> {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Console::{
+        CONSOLE_SCREEN_BUFFER_INFO, GetConsoleScreenBufferInfo, GetStdHandle, STD_ERROR_HANDLE,
+    };
+
+    let handle = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
+    if handle == 0 || handle == INVALID_HANDLE_VALUE {
+        return None;
+    }
+
+    let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
+    if unsafe { GetConsoleScreenBufferInfo(handle, &mut info) } == 0 {
+        return None;
+    }
+
+    let width = info.srWindow.Right - info.srWindow.Left + 1;
+    (width > 0).then_some(width as usize)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn terminal_columns() -> Option<usize> {
+    None
+}
+
+fn truncate_text(text: &str, max_columns: usize) -> String {
+    if display_width(text) <= max_columns {
+        return text.to_string();
+    }
+    if max_columns <= 3 {
+        return ".".repeat(max_columns);
+    }
+
+    let mut out = String::new();
+    for ch in text.chars() {
+        if display_width(&out) + 1 + 3 > max_columns {
+            break;
+        }
+        out.push(ch);
+    }
+    out.push_str("...");
+    out
+}
+
+fn truncate_detail(text: &str, max_columns: usize) -> String {
+    if display_width(text) <= max_columns {
+        return text.to_string();
+    }
+    if max_columns <= 3 {
+        return ".".repeat(max_columns);
+    }
+
+    if let Some(tag_start) = text.rfind(" [") {
+        let suffix = &text[tag_start..];
+        let suffix_width = display_width(suffix);
+        if suffix_width + 3 < max_columns {
+            let prefix = take_prefix_columns(text, max_columns - suffix_width - 3);
+            return format!("{prefix}...{suffix}");
+        }
+    }
+
+    let prefix_columns = (max_columns - 3) / 2 + (max_columns - 3) % 2;
+    let suffix_columns = (max_columns - 3) / 2;
+    let prefix = take_prefix_columns(text, prefix_columns);
+    let suffix = take_suffix_columns(text, suffix_columns);
+    format!("{prefix}...{suffix}")
+}
+
+fn take_prefix_columns(text: &str, max_columns: usize) -> String {
+    let mut out = String::new();
+    for ch in text.chars() {
+        if display_width(&out) + 1 > max_columns {
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn take_suffix_columns(text: &str, max_columns: usize) -> String {
+    let mut out = String::new();
+    for ch in text.chars().rev() {
+        if display_width(&out) + 1 > max_columns {
+            break;
+        }
+        out.insert(0, ch);
+    }
+    out
+}
+
+fn display_width(text: &str) -> usize {
+    text.chars().count()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{format_action_timing_detail, format_thinlto_link_summary, render_progress_line};
+    use super::{
+        format_action_timing_detail, format_thinlto_link_summary, render_progress_line,
+        truncate_detail,
+    };
     use crate::execute::{
         ActionTiming, ActionTimingKind, ExecutionPhase, ExecutionProgressPlan,
         ExecutionProgressSnapshot, ExecutionSummary,
@@ -888,14 +1042,71 @@ mod tests {
                 elapsed: Duration::from_secs(6),
                 detail: "demo:bed [bin,target]".to_string(),
             },
+            160,
         );
 
         assert!(line.contains("build ["));
-        assert!(line.contains("phase compile"));
-        assert!(line.contains("gen 2/2"));
+        assert!(line.contains("compile"));
         assert!(line.contains("compile 1/4"));
-        assert!(line.contains("link 0/1"));
         assert!(line.contains("eta "));
-        assert!(line.contains("demo:bed [bin,target]"));
+        assert!(line.contains("demo:bed"));
+    }
+
+    #[test]
+    fn progress_line_truncates_detail_to_terminal_width() {
+        let line = render_progress_line(
+            "check",
+            ExecutionProgressSnapshot {
+                phase: ExecutionPhase::Compile,
+                plan: ExecutionProgressPlan {
+                    staged_actions: 0,
+                    compile_actions: 4,
+                    link_actions: 0,
+                },
+                staged_done: 0,
+                compile_done: 2,
+                link_done: 0,
+                elapsed: Duration::from_secs(5),
+                detail: "json:hello_compact [example,target]".to_string(),
+            },
+            64,
+        );
+
+        assert!(line.len() <= 64);
+        assert!(line.contains("..."));
+    }
+
+    #[test]
+    fn progress_line_uses_compact_layout_on_narrow_terminal() {
+        let line = render_progress_line(
+            "check",
+            ExecutionProgressSnapshot {
+                phase: ExecutionPhase::Compile,
+                plan: ExecutionProgressPlan {
+                    staged_actions: 0,
+                    compile_actions: 4,
+                    link_actions: 0,
+                },
+                staged_done: 0,
+                compile_done: 2,
+                link_done: 0,
+                elapsed: Duration::from_secs(5),
+                detail: "json:hello_compact [example,target]".to_string(),
+            },
+            80,
+        );
+
+        assert!(line.len() <= 80);
+        assert!(line.contains('>'));
+        assert!(!line.contains("elapsed"));
+        assert!(line.contains("eta 5s"));
+    }
+
+    #[test]
+    fn truncate_detail_preserves_tag_suffix_when_space_allows() {
+        let text = truncate_detail("json:hello_compact [example]", 24);
+
+        assert!(text.contains("..."));
+        assert!(text.ends_with(" [example]"));
     }
 }

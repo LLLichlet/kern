@@ -63,9 +63,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let f_norm = self.constrain_pointer_cast_integer(from);
         let is_f_ptr_int = f_norm == TypeId::USIZE
             || f_norm == TypeId::ISIZE
-            || self.type_numeric_candidates(f_norm).is_some_and(|candidates| {
-                candidates != 0 && (candidates & !Self::NUMERIC_CAND_POINTER_OFFSETS) == 0
-            });
+            || self
+                .type_numeric_candidates(f_norm)
+                .is_some_and(|candidates| {
+                    candidates != 0 && (candidates & !Self::NUMERIC_CAND_POINTER_OFFSETS) == 0
+                });
         let is_t_ptr_int = t_norm == TypeId::USIZE || t_norm == TypeId::ISIZE;
         if is_f_ptr && is_t_ptr_int {
             return;

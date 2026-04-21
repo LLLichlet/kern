@@ -134,9 +134,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        self.type_numeric_candidates(norm).is_some_and(|candidates| {
-            candidates != 0 && (candidates & !Self::NUMERIC_CAND_POINTER_OFFSETS) == 0
-        })
+        self.type_numeric_candidates(norm)
+            .is_some_and(|candidates| {
+                candidates != 0 && (candidates & !Self::NUMERIC_CAND_POINTER_OFFSETS) == 0
+            })
     }
 
     fn constrain_integer_type(&mut self, ty: TypeId) -> TypeId {
@@ -808,7 +809,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if self.ctx.type_registry.is_integer(op_ty_id) {
                     return op_ty;
                 }
-                if self.type_numeric_candidates(op_ty_id)
+                if self
+                    .type_numeric_candidates(op_ty_id)
                     .is_some_and(Self::numeric_candidates_have_integers)
                 {
                     return op_ty;

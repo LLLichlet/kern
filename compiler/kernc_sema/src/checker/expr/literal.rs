@@ -3,8 +3,7 @@ use crate::checker::{ConstEvaluator, Substituter};
 use crate::def::Def;
 use crate::passes::TypeResolver;
 use crate::ty::{
-    ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, TypeId,
-    TypeKind,
+    ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, TypeId, TypeKind,
 };
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::{Span, SymbolId};

@@ -76,8 +76,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         | Self::NUMERIC_CAND_USIZE;
     const NUMERIC_CAND_ALL_FLOATS: u16 = Self::NUMERIC_CAND_F32 | Self::NUMERIC_CAND_F64;
     const NUMERIC_CAND_ALL: u16 = Self::NUMERIC_CAND_ALL_INTS | Self::NUMERIC_CAND_ALL_FLOATS;
-    const NUMERIC_CAND_POINTER_OFFSETS: u16 =
-        Self::NUMERIC_CAND_ISIZE | Self::NUMERIC_CAND_USIZE;
+    const NUMERIC_CAND_POINTER_OFFSETS: u16 = Self::NUMERIC_CAND_ISIZE | Self::NUMERIC_CAND_USIZE;
 
     pub(crate) fn new(ctx: &'a mut SemaContext<'ctx>, current_return_type: Option<TypeId>) -> Self {
         Self {
@@ -229,7 +228,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     pub(crate) fn type_numeric_candidates(&self, ty: TypeId) -> Option<u16> {
         match self.ctx.type_registry.get(ty) {
-            TypeKind::TypeVar(vid) => self.numeric_inference_state(*vid).map(|state| state.candidates),
+            TypeKind::TypeVar(vid) => self
+                .numeric_inference_state(*vid)
+                .map(|state| state.candidates),
             _ => None,
         }
     }

@@ -935,7 +935,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             );
             if target_ty != TypeId::ERROR
                 && trait_ty != TypeId::ERROR
-                && matches!(self.ctx.type_registry.get(trait_ty), TypeKind::TraitObject(..))
+                && matches!(
+                    self.ctx.type_registry.get(trait_ty),
+                    TypeKind::TraitObject(..)
+                )
             {
                 self.ctx.active_bounds.push((target_ty, vec![trait_ty]));
             }

@@ -111,8 +111,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(inner_ty);
         let owner_trait_ty = self.substitute_type_with_map(owner_trait_ty, subst_map);
-        let owner_trait_ty =
-            kernc_sema::query::retain_declared_trait_object_assoc_bindings(self.ctx, owner_trait_ty);
+        let owner_trait_ty = kernc_sema::query::retain_declared_trait_object_assoc_bindings(
+            self.ctx,
+            owner_trait_ty,
+        );
 
         self.lower_resolved_trait_method_call(recv, arg_masts, owner_trait_ty, call)
     }
@@ -154,8 +156,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             );
         }
 
-        let stale_static_callee =
-            call.expected_self_ty.is_some_and(|expected_self_ty| expected_self_ty != recv.ty);
+        let stale_static_callee = call
+            .expected_self_ty
+            .is_some_and(|expected_self_ty| expected_self_ty != recv.ty);
 
         // 2. Choose dynamic (vtable) or static dispatch based on the recovered type.
         if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(inner_ty) {
@@ -178,7 +181,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             MastExpr::new(default_ret_ty, kind, call.span)
         } else if !stale_static_callee
             && let TypeKind::FnDef(method_id, generics) =
-            self.ctx.type_registry.get(call.norm_callee).clone()
+                self.ctx.type_registry.get(call.norm_callee).clone()
         {
             if let Def::Function(func) = &self.ctx.defs[method_id.0 as usize]
                 && func.is_intrinsic

@@ -651,9 +651,11 @@ pub fn retain_declared_trait_object_assoc_bindings(
         .collect::<Vec<_>>();
 
     if filtered.is_empty() {
-        return ctx
-            .type_registry
-            .intern(TypeKind::TraitObject(trait_def_id, trait_args, Vec::new()));
+        return ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def_id,
+            trait_args,
+            Vec::new(),
+        ));
     }
 
     ctx.type_registry

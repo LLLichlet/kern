@@ -780,11 +780,10 @@ impl<'a> SemaContext<'a> {
                 substituted_supertrait,
                 &assoc_binding_map,
             );
-            let substituted_supertrait =
-                crate::query::retain_declared_trait_object_assoc_bindings(
-                    self,
-                    substituted_supertrait,
-                );
+            let substituted_supertrait = crate::query::retain_declared_trait_object_assoc_bindings(
+                self,
+                substituted_supertrait,
+            );
             let substituted_supertrait = self.type_registry.normalize(substituted_supertrait);
             if !matches!(
                 self.type_registry.get(substituted_supertrait),

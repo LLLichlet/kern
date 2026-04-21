@@ -600,6 +600,53 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     .emit();
                 Err(ConstEvalError)
             }
+            ExprKind::TypeNode(type_node) => {
+                let resolved_ty = self.resolve_explicit_type_node(type_node);
+                match &type_node.kind {
+                    ast::TypeKind::Optional { .. } => {
+                        self.ctx
+                            .struct_error(
+                                expr.span,
+                                "optional types cannot be evaluated as value expressions",
+                            )
+                            .with_hint(
+                                "optional types are ordinary enum families, not null-pointer syntax",
+                            )
+                            .with_hint(
+                                "if you meant the empty optional constructor, write `?T.None`",
+                            )
+                            .emit();
+                    }
+                    ast::TypeKind::Result { .. } => {
+                        self.ctx
+                            .struct_error(
+                                expr.span,
+                                "result types cannot be evaluated as value expressions",
+                            )
+                            .with_hint(
+                                "results are types; construct values with `T!E.{ Ok: ... }` or `T!E.{ Err: ... }`",
+                            )
+                            .emit();
+                    }
+                    _ => {
+                        let message = if resolved_ty == TypeId::ERROR {
+                            "type expressions cannot be evaluated as values".to_string()
+                        } else {
+                            format!(
+                                "type `{}` cannot be evaluated as a value expression",
+                                self.ctx.ty_to_string(resolved_ty)
+                            )
+                        };
+                        self.ctx
+                            .struct_error(expr.span, message)
+                            .with_hint(
+                                "construct a value with `Type.{...}`, access a constructor like `Type.Variant`, or move the type back into a type position",
+                            )
+                            .emit();
+                    }
+                }
+                Err(ConstEvalError)
+            }
             ExprKind::Static { .. } | ExprKind::Defer { .. } | ExprKind::Closure { .. } => {
                 self.ctx
                     .struct_error(

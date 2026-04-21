@@ -62,6 +62,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         .map(|info| self.resolved_type(info.type_id))
                 })
                 .unwrap_or(TypeId::ERROR),
+            ExprKind::TypeNode(type_node) => self.resolve_explicit_type_node(type_node),
             ExprKind::SelfValue => {
                 let self_name = self.ctx.intern("self");
                 self.lookup_local_type(self_name)
@@ -268,6 +269,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     pub(super) fn expr_is_type_namespace(&mut self, expr: &Expr) -> bool {
         match &expr.kind {
+            ExprKind::TypeNode(_) => true,
             ExprKind::Identifier(name) => self
                 .resolve_symbol_info(*name)
                 .map(|info| Self::symbol_is_type_namespace(info.kind))

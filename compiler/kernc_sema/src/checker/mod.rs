@@ -258,6 +258,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 if init_ty != TypeId::ERROR {
                     resolved_globals.insert(item_id);
                     changed = true;
+                    let had_type_errors = self.ctx.sess.error_count > old_err_cnt;
 
                     if self
                         .ctx
@@ -269,6 +270,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     }
 
                     // Once the type is known, run constexpr validation as well.
+                    if had_type_errors {
+                        continue;
+                    }
+
                     if !unsafe { (*g).is_extern } {
                         if let ast::ExprKind::Undef = unsafe { &(*g).value.kind } {
                             self.ctx.emit_error(unsafe { (*g).span }, "Global variables cannot be initialized with bare `undef`. Must provide a typed constant value (e.g., `.{undef}`).");
@@ -351,6 +356,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 if init_ty != TypeId::ERROR {
                     resolved_globals.insert(item_id);
                     changed = true;
+                    let had_type_errors = self.ctx.sess.error_count > old_err_cnt;
 
                     if self
                         .ctx
@@ -361,6 +367,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         self.ctx
                             .scopes
                             .update_type(unsafe { (*global).name }, init_ty);
+                    }
+
+                    if had_type_errors {
+                        continue;
                     }
 
                     if !unsafe { (*global).is_extern } {

@@ -97,6 +97,50 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         TypeId::ERROR
     }
 
+    fn reject_type_node_value_expr(&mut self, type_node: &ast::TypeNode) -> TypeId {
+        let resolved_ty = self.evaluate_dynamic_typeof(type_node);
+        match &type_node.kind {
+            ast::TypeKind::Optional { .. } => {
+                self.ctx
+                    .struct_error(
+                        type_node.span,
+                        "optional types cannot be evaluated as value expressions",
+                    )
+                    .with_hint("optional types are ordinary enum families, not null-pointer syntax")
+                    .with_hint("if you meant the empty optional constructor, write `?T.None`")
+                    .emit();
+            }
+            ast::TypeKind::Result { .. } => {
+                self.ctx
+                    .struct_error(
+                        type_node.span,
+                        "result types cannot be evaluated as value expressions",
+                    )
+                    .with_hint(
+                        "results are types; construct values with `T!E.{ Ok: ... }` or `T!E.{ Err: ... }`",
+                    )
+                    .emit();
+            }
+            _ => {
+                let message = if resolved_ty == TypeId::ERROR {
+                    "type expressions cannot be evaluated as values".to_string()
+                } else {
+                    format!(
+                        "type `{}` cannot be evaluated as a value expression",
+                        self.ctx.ty_to_string(resolved_ty)
+                    )
+                };
+                self.ctx
+                    .struct_error(type_node.span, message)
+                    .with_hint(
+                        "construct a value with `Type.{...}`, access a constructor like `Type.Variant`, or move the type back into a type position",
+                    )
+                    .emit();
+            }
+        }
+        TypeId::ERROR
+    }
+
     fn timing_start(&self) -> Option<Instant> {
         self.ctx.collects_timings().then(Instant::now)
     }
@@ -622,7 +666,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 });
                 ty
             }
-            ExprKind::TypeNode(type_node) => self.evaluate_dynamic_typeof(type_node),
+            ExprKind::TypeNode(type_node) => self.reject_type_node_value_expr(type_node),
             ExprKind::SelfValue => self.check_self_value(expr.span),
 
             // === 3. Declarations and bindings ===

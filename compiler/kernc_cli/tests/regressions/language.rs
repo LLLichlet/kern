@@ -3168,6 +3168,293 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_unresolved_optional_type_in_pointer_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+type FramebufferRequest = struct {
+    response: *u8,
+};
+
+static REQUEST = FramebufferRequest.{ response: ?T };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Cannot find type `T` in this scope"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("optional types cannot be evaluated as value expressions"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert_eq!(
+        stderr
+            .matches("optional types cannot be evaluated as value expressions")
+            .count(),
+        1,
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("optional types are ordinary enum families, not null-pointer syntax"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at")
+            && !stderr.contains("Kern Compiler Internal Error")
+            && !stderr.contains("expected a valid constant expression"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_resolved_optional_type_in_pointer_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+type FramebufferRequest = struct {
+    response: *u8,
+};
+
+static REQUEST = FramebufferRequest.{ response: ?u8 };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("optional types cannot be evaluated as value expressions"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert_eq!(
+        stderr
+            .matches("optional types cannot be evaluated as value expressions")
+            .count(),
+        1,
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("if you meant the empty optional constructor, write `?T.None`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at")
+            && !stderr.contains("Kern Compiler Internal Error")
+            && !stderr.contains("expected a valid constant expression")
+            && !stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn accepts_optional_none_constructor_in_static_initializer() {
+    let output = build_and_run_source(
+        r#"
+type FramebufferRequest = struct {
+    response: ?*u8,
+};
+
+static REQUEST = FramebufferRequest.{ response: (?*u8).None };
+
+fn main() i32 {
+    return match (REQUEST.response) {
+        .None => 0,
+        .{ Some: _ } => 1,
+    };
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optional none static initializer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_integer_pointer_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+type FramebufferRequest = struct {
+    response: *u8,
+};
+
+static REQUEST = FramebufferRequest.{ response: 0 };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("expected `*u8`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("found `i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at") && !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_missing_struct_field_in_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+type Pair = struct {
+    a: u64,
+    b: u64,
+};
+
+static BAD = Pair.{ a: 1 };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("field `b` is missing and has no default value"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at") && !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_unknown_struct_field_in_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+type Pair = struct {
+    a: u64,
+};
+
+static BAD = Pair.{ a: 1, b: 2 };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("field `b` does not exist in `Pair`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at") && !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_static_array_initializer_length_mismatch_without_panicking() {
+    let output = compile_source(
+        r#"
+static BAD = [2]u8.{ 1, 2, 3 };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("array literal length (3) does not match expected length (2)"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at") && !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn accepts_large_u128_constant_literals() {
     let output = build_and_run_source(
         r#"

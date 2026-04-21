@@ -1134,7 +1134,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field_span: Span,
         span: Span,
     ) -> TypeId {
-        let lhs_ty = self.check_expr(lhs, None);
+        let lhs_ty = match &lhs.kind {
+            ast::ExprKind::TypeNode(type_node) if self.expr_is_type_namespace(lhs) => {
+                let ty = self.evaluate_dynamic_typeof(type_node);
+                self.ctx.node_types.insert(lhs.id, ty);
+                ty
+            }
+            _ => self.check_expr(lhs, None),
+        };
         if lhs_ty == TypeId::ERROR {
             return TypeId::ERROR;
         }

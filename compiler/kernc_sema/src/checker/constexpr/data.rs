@@ -748,59 +748,93 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     ) -> ConstEvalResult<ConstValue> {
         let ty = self.node_type(node_id);
         let norm_ty = self.ctx.type_registry.normalize(ty);
-
-        let def_id = if let TypeKind::Enum(id, _) = self.ctx.type_registry.get(norm_ty) {
-            *id
-        } else {
-            self.ctx
-                .struct_error(
-                    span,
-                    "variant literal type could not be resolved to a data type during constant evaluation",
-                )
-                .emit();
-            return Err(ConstEvalError);
-        };
-
-        let data_def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
-            d.clone()
-        } else {
-            return Err(ConstEvalError);
-        };
-
-        let has_payload_variants = data_def
-            .variants
-            .iter()
-            .any(|variant| variant.payload_type.is_some());
-
-        let mut current_val: i128 = 0;
-        for v in data_def.variants {
-            if let Some(v_expr) = v.value
-                && let Ok(ConstValue::Int(val)) = self.eval_inner(&v_expr, depth + 1)
-            {
-                current_val = val;
-            }
-            if v.name == variant_name {
-                if v.payload_type.is_some() {
-                    self.ctx
-                        .struct_error(
-                            span,
-                            "cannot evaluate ADT variants with payloads as integer constants",
-                        )
-                        .with_hint("only payload-less variants can be used directly in constant expressions")
-                        .emit();
+        match self.ctx.type_registry.get(norm_ty).clone() {
+            TypeKind::Enum(def_id, _) => {
+                let Some(Def::Enum(data_def)) = self.ctx.defs.get(def_id.0 as usize).cloned()
+                else {
                     return Err(ConstEvalError);
-                }
-
-                return if has_payload_variants {
-                    Ok(ConstValue::Enum {
-                        tag: current_val,
-                        payload: None,
-                    })
-                } else {
-                    Ok(ConstValue::Int(current_val))
                 };
+
+                let has_payload_variants = data_def
+                    .variants
+                    .iter()
+                    .any(|variant| variant.payload_type.is_some());
+
+                let mut current_val: i128 = 0;
+                for variant in data_def.variants {
+                    if let Some(value_expr) = variant.value
+                        && let Ok(ConstValue::Int(val)) = self.eval_inner(&value_expr, depth + 1)
+                    {
+                        current_val = val;
+                    }
+                    if variant.name == variant_name {
+                        if variant.payload_type.is_some() {
+                            self.ctx
+                                .struct_error(
+                                    span,
+                                    "cannot evaluate ADT variants with payloads as integer constants",
+                                )
+                                .with_hint("only payload-less variants can be used directly in constant expressions")
+                                .emit();
+                            return Err(ConstEvalError);
+                        }
+
+                        return if has_payload_variants {
+                            Ok(ConstValue::Enum {
+                                tag: current_val,
+                                payload: None,
+                            })
+                        } else {
+                            Ok(ConstValue::Int(current_val))
+                        };
+                    }
+                    current_val += 1;
+                }
             }
-            current_val += 1;
+            TypeKind::AnonymousEnum(enum_def) => {
+                let has_payload_variants = enum_def
+                    .variants
+                    .iter()
+                    .any(|variant| variant.payload_ty.is_some());
+
+                let mut current_val: i128 = 0;
+                for variant in enum_def.variants {
+                    if let Some(value) = variant.explicit_value {
+                        current_val = value;
+                    }
+                    if variant.name == variant_name {
+                        if variant.payload_ty.is_some() {
+                            self.ctx
+                                .struct_error(
+                                    span,
+                                    "cannot evaluate ADT variants with payloads as integer constants",
+                                )
+                                .with_hint("only payload-less variants can be used directly in constant expressions")
+                                .emit();
+                            return Err(ConstEvalError);
+                        }
+
+                        return if has_payload_variants {
+                            Ok(ConstValue::Enum {
+                                tag: current_val,
+                                payload: None,
+                            })
+                        } else {
+                            Ok(ConstValue::Int(current_val))
+                        };
+                    }
+                    current_val += 1;
+                }
+            }
+            _ => {
+                self.ctx
+                    .struct_error(
+                        span,
+                        "variant literal type could not be resolved to a data type during constant evaluation",
+                    )
+                    .emit();
+                return Err(ConstEvalError);
+            }
         }
 
         let v_str = self.ctx.resolve(variant_name).to_string();

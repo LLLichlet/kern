@@ -365,6 +365,66 @@ fn kmain() void {
 }
 
 #[test]
+fn build_reports_invalid_pointer_static_initializer_failure() {
+    let root = temp_dir("craft-build-invalid-pointer-static-init");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+type FramebufferRequest = struct {
+    response: *u8,
+};
+
+static REQUEST = FramebufferRequest.{ response: ?T };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let err = build(&build_plan, &action_plan).unwrap_err();
+
+    assert!(
+        err.to_string().contains(&format!(
+            "compile failed for `{}`",
+            root.join("src/main.rn").display()
+        )),
+        "unexpected error: {err}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_can_attach_relative_link_arg_path_for_freestanding_bin() {
     if cfg!(windows) || cfg!(target_os = "macos") {
         return;

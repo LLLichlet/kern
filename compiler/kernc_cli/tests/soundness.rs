@@ -391,7 +391,7 @@ fn compile_case_tree_output(case_root: &Path, case: &SoundnessCase) -> Output {
     for (alias, rel_path) in &case.module_interface_paths {
         let source_root = temp_dir.join(rel_path);
         let metadata_root = temp_dir.join(format!(".soundness-kmeta-{}", alias));
-        compile_interface_package(&source_root, &metadata_root);
+        compile_interface_package(&source_root, &metadata_root, case.timeout_ms, case_root);
         args.push("--module-interface-path".to_string());
         args.push(format!("{}={}", alias, metadata_root.display()));
     }
@@ -586,7 +586,12 @@ fn kernc_binary() -> PathBuf {
     path
 }
 
-fn compile_interface_package(source_root: &Path, metadata_root: &Path) {
+fn compile_interface_package(
+    source_root: &Path,
+    metadata_root: &Path,
+    timeout_ms: Option<u64>,
+    case_root: &Path,
+) {
     let entry = source_root.join("init.rn");
     assert!(
         entry.is_file(),
@@ -606,19 +611,35 @@ fn compile_interface_package(source_root: &Path, metadata_root: &Path) {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("iface");
-    let output = run_kernc(
-        [
-            OsStr::new("-c"),
-            OsStr::new("--module-root-name"),
-            OsStr::new(module_root_name),
-            OsStr::new("--metadata-output"),
-            metadata_root.as_os_str(),
-            entry.as_os_str(),
-            OsStr::new("-o"),
-            object_path.as_os_str(),
-        ]
-        .into_iter(),
-    );
+    let args = [
+        OsStr::new("-c"),
+        OsStr::new("--module-root-name"),
+        OsStr::new(module_root_name),
+        OsStr::new("--metadata-output"),
+        metadata_root.as_os_str(),
+        entry.as_os_str(),
+        OsStr::new("-o"),
+        object_path.as_os_str(),
+    ]
+    .into_iter()
+    .map(|arg| arg.to_string_lossy().to_string())
+    .collect::<Vec<_>>();
+    let output = match timeout_ms {
+        Some(timeout_ms) => {
+            match run_kernc_with_timeout(&args, Duration::from_millis(timeout_ms)) {
+                TimedCompileResult::Output(output) => output,
+                TimedCompileResult::TimedOut => {
+                    panic!(
+                        "{} timed out after {} ms while compiling interface package `{}`",
+                        case_root.display(),
+                        timeout_ms,
+                        source_root.display()
+                    );
+                }
+            }
+        }
+        None => run_kernc(args.iter().map(OsStr::new)),
+    };
     assert!(
         output.status.success(),
         "failed to compile interface package {}:\nstdout:\n{}\nstderr:\n{}",

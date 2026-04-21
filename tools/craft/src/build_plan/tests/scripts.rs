@@ -739,7 +739,8 @@ let _ = b.copy_output_to_artifact(artifact, "bundle/demo");
     assert!(unit_nodes[0].output.ends_with("bundle/demo"));
     assert!(matches!(
         &unit_nodes[0].kind,
-        StagedActionKind::CopyFile { source } if source.ends_with("/bin/demo")
+        StagedActionKind::CopyFile { source }
+            if source.replace('\\', "/").ends_with("/bin/demo")
     ));
 
     let _ = fs::remove_dir_all(root);

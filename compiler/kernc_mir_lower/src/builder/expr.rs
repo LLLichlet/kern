@@ -436,6 +436,15 @@ impl MirFunctionBuilder {
                 let _ = self.lower_control_or_eval_stmt(*block_id, expr)?;
                 Ok(None)
             }
+            MastExprKind::Breakpoint => {
+                let Some(end_block) = self.lower_control_or_eval_stmt(*block_id, expr)? else {
+                    return Ok(None);
+                };
+                *block_id = end_block;
+                Ok(Some(MirRvalue::Use(MirOperand::Const(MirConst::Undef {
+                    ty: expr.ty,
+                }))))
+            }
             _ => {
                 if let Some(operand) = self.lower_direct_operand(expr) {
                     Ok(Some(MirRvalue::Use(operand)))

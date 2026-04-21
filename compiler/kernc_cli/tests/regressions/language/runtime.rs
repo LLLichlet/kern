@@ -760,6 +760,39 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_breakpoint_in_let_initializer_without_ice() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let x = @breakpoint();
+    let _ = x;
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn compiles_returning_breakpoint_from_void_function_without_ice() {
+    let output = compile_source(
+        r#"
+fn stop() void {
+    return @breakpoint();
+}
+
+fn main() i32 {
+    stop();
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn runs_for_clauses_with_non_void_init_post_and_body() {
     let output = build_and_run_source(
         r#"

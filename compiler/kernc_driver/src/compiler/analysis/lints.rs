@@ -298,14 +298,16 @@ impl CompilerDriver {
                         .is_publicly_exported_from_root_module(function.id, function.name_span);
                     let is_root = function.vis == Visibility::Public
                         || function.is_extern
-                        || self.item_has_export_name(&function.attributes, ctx)
+                        || self.item_has_attr(&function.attributes, ctx, "export_name")
+                        || self.item_has_attr(&function.attributes, ctx, "retain")
                         || exported_via_pub_use
                         || ctx.resolve(function.name) == "main";
                     let preserve_package_export_root = self.options.metadata_output.is_some()
                         && (function.vis == Visibility::Public || exported_via_pub_use);
                     let is_lower_root = !function.vis.is_private()
                         || function.is_extern
-                        || self.item_has_export_name(&function.attributes, ctx)
+                        || self.item_has_attr(&function.attributes, ctx, "export_name")
+                        || self.item_has_attr(&function.attributes, ctx, "retain")
                         || ctx.resolve(function.name) == "main"
                         || exported_from_root_module
                         || preserve_package_export_root;
@@ -337,7 +339,8 @@ impl CompilerDriver {
                         scope_exports.is_publicly_exported_from_root_module(global.id, name_span);
                     let is_root = global.vis == Visibility::Public
                         || global.is_extern
-                        || self.item_has_export_name(&global.attributes, ctx)
+                        || self.item_has_attr(&global.attributes, ctx, "export_name")
+                        || self.item_has_attr(&global.attributes, ctx, "retain")
                         || exported_via_pub_use;
                     let preserve_package_export_root = self.options.metadata_output.is_some()
                         && (global.vis == Visibility::Public || exported_via_pub_use);
@@ -355,7 +358,8 @@ impl CompilerDriver {
                             is_root,
                             is_lower_root: !global.vis.is_private()
                                 || global.is_extern
-                                || self.item_has_export_name(&global.attributes, ctx)
+                                || self.item_has_attr(&global.attributes, ctx, "export_name")
+                                || self.item_has_attr(&global.attributes, ctx, "retain")
                                 || exported_from_root_module
                                 || preserve_package_export_root,
                             is_warnable: global.vis == Visibility::Private,
@@ -398,7 +402,12 @@ impl CompilerDriver {
             .collect()
     }
 
-    fn item_has_export_name(&self, attributes: &[ast::Attribute], ctx: &SemaContext<'_>) -> bool {
+    fn item_has_attr(
+        &self,
+        attributes: &[ast::Attribute],
+        ctx: &SemaContext<'_>,
+        expected: &str,
+    ) -> bool {
         attributes.iter().any(|attribute| {
             let ast::AttributeKind::Meta(items) = &attribute.kind else {
                 return false;
@@ -406,7 +415,7 @@ impl CompilerDriver {
 
             items.iter().any(|item| match item {
                 ast::MetaItem::Call(name, _) | ast::MetaItem::Marker(name) => {
-                    ctx.resolve(*name) == "export_name"
+                    ctx.resolve(*name) == expected
                 }
             })
         })

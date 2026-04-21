@@ -12,6 +12,14 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn has_meta_item_attr(&self, attributes: &[ast::MetaItem], expected: &str) -> bool {
+        attributes.iter().any(|attribute| match attribute {
+            ast::MetaItem::Call(id, _) | ast::MetaItem::Marker(id) => {
+                self.resolve_symbol(*id) == expected
+            }
+        })
+    }
+
     fn union_storage_type(
         &mut self,
         size: usize,
@@ -387,6 +395,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 global_val.set_alignment(align);
             }
 
+            if !g.is_extern && self.has_meta_item_attr(&g.attributes, "retain") {
+                self.retained_globals.push(global_val.as_pointer_value());
+            }
             self.globals.insert(g.id, global_val);
         }
     }
@@ -519,6 +530,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .flatten()
             }) {
                 llvm_func.as_global_value().set_section(Some(&sec));
+            }
+
+            if !f.is_extern && self.has_meta_item_attr(&f.attributes, "retain") {
+                self.retained_globals
+                    .push(llvm_func.as_global_value().as_pointer_value());
             }
 
             if f.body.is_some() {

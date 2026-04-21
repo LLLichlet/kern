@@ -37,6 +37,36 @@ fn analysis_artifact_exposes_unused_private_items() {
 }
 
 #[test]
+fn analysis_artifact_omits_retained_private_items_from_unused_list() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_unused_retained_items_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let source = concat!(
+        "#[retain]\n",
+        "const kept_const = 1;\n",
+        "#[retain]\n",
+        "fn kept_fn() i32 { return kept_const; }\n",
+        "extern fn main() i32 { return 0; }\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let unused = artifact.unused_private_items();
+
+    assert!(unused.is_empty(), "unexpected unused items: {unused:?}");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn analysis_artifact_exposes_unused_bindings() {
     let root = std::env::temp_dir().join(format!(
         "kern_unused_bindings_{}_{}",

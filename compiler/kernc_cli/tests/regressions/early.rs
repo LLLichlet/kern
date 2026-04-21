@@ -126,6 +126,80 @@ fn main() i32 {
 }
 
 #[test]
+fn retain_private_static_suppresses_unused_warning_and_keeps_internal_ir() {
+    let source = r#"
+#[retain]
+static helper = 1;
+
+fn main() i32 {
+    return 0;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_retain_private_static_ir", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("private static `helper` is never used"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("@_K4root6helper = internal"),
+        "retained helper unexpectedly missing or exported in LLVM IR:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains(
+            "@llvm.used = appending constant [1 x ptr] [ptr @_K4root6helper], section \"llvm.metadata\""
+        ),
+        "retained helper missing llvm.used root:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn retain_private_function_suppresses_unused_warning_and_keeps_internal_ir() {
+    let source = r#"
+#[retain]
+fn helper() i32 {
+    return 1;
+}
+
+fn main() i32 {
+    return 0;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_retain_private_function_ir", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("private function `helper` is never used"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("define internal i32 @_K4root6helper()"),
+        "retained helper unexpectedly missing or exported in LLVM IR:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains(
+            "@llvm.used = appending constant [1 x ptr] [ptr @_K4root6helper], section \"llvm.metadata\""
+        ),
+        "retained helper missing llvm.used root:\n{}",
+        stdout
+    );
+}
+
+#[test]
 fn resolves_imported_generic_bounds_for_struct_field_literals() {
     let source = r#"
 use base.coll.Map;

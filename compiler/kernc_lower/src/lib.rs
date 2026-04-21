@@ -640,13 +640,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         meta
     }
 
-    pub(crate) fn has_export_name_attr(&self, attrs: &[ast::Attribute]) -> bool {
+    pub(crate) fn has_meta_attr(&self, attrs: &[ast::Attribute], expected: &str) -> bool {
         attrs.iter().any(|attr| {
             let ast::AttributeKind::Meta(items) = &attr.kind else {
                 return false;
             };
             items.iter().any(|item| {
-                matches!(item, ast::MetaItem::Call(name, _) if self.ctx.resolve(*name) == "export_name")
+                matches!(
+                    item,
+                    ast::MetaItem::Call(name, _) | ast::MetaItem::Marker(name)
+                        if self.ctx.resolve(*name) == expected
+                )
             })
         })
     }
@@ -680,7 +684,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if uses_odr_linkage {
             return MastLinkage::LinkOnceOdr;
         }
-        if is_extern || !vis.is_private() || self.has_export_name_attr(attrs) {
+        if is_extern || !vis.is_private() || self.has_meta_attr(attrs, "export_name") {
             MastLinkage::External
         } else {
             MastLinkage::Internal
@@ -693,7 +697,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         is_extern: bool,
         attrs: &[ast::Attribute],
     ) -> MastLinkage {
-        if is_extern || !vis.is_private() || self.has_export_name_attr(attrs) {
+        if is_extern || !vis.is_private() || self.has_meta_attr(attrs, "export_name") {
             MastLinkage::External
         } else {
             MastLinkage::Internal

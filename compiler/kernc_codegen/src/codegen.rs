@@ -166,6 +166,7 @@ pub struct CodeGenerator<'ctx, 'a> {
     global_tys: HashMap<MonoId, TypeId>,
     functions: HashMap<MonoId, FunctionValue<'ctx>>,
     function_ret_tys: HashMap<MonoId, TypeId>,
+    retained_globals: Vec<PointerValue<'ctx>>,
     alloca_stats: CodegenAllocaStats,
 
     locals: HashMap<kernc_utils::SymbolId, PointerValue<'ctx>>,
@@ -365,6 +366,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             global_tys: HashMap::new(),
             functions: HashMap::new(),
             function_ret_tys: HashMap::new(),
+            retained_globals: Vec::new(),
             alloca_stats: CodegenAllocaStats::default(),
             locals: HashMap::new(),
             mir_locals: HashMap::new(),
@@ -437,6 +439,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         })
     }
 
+    fn emit_retained_globals_metadata(&mut self) {
+        if self.retained_globals.is_empty() {
+            return;
+        }
+
+        let ptr_ty = self.context.ptr_type(crate::llvm_api::AddressSpace(0));
+        let llvm_used = self.module.add_global(
+            ptr_ty.array_type(self.retained_globals.len() as u32).into(),
+            None,
+            "llvm.used",
+        );
+        llvm_used.set_linkage(crate::llvm_api::Linkage::Appending);
+        llvm_used.set_section(Some("llvm.metadata"));
+        llvm_used.set_constant(true);
+        llvm_used.set_initializer(&ptr_ty.const_array(&self.retained_globals));
+    }
+
     pub fn compile_mir(&mut self, module: &MirModule, collect_diagnostics: bool) -> CodegenReport {
         let mut report = CodegenReport::default();
 
@@ -490,6 +509,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             name: "  codegen_compile_functions",
             duration: compile_functions_started.elapsed(),
         });
+        self.emit_retained_globals_metadata();
         self.finalize_debug_info();
         if collect_diagnostics {
             let (ir_stats, ir_hot_functions) = self.collect_ir_instruction_stats();

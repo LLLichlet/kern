@@ -142,6 +142,12 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                                 .with_hint("use marker attributes: `#[inline]` or `#[noinline]`")
                                 .emit();
                         }
+                        "retain" => {
+                            self.ctx
+                                .struct_error(attr.span, "`#[retain(...)]` is not supported")
+                                .with_hint("use the marker attribute: `#[retain]`")
+                                .emit();
+                        }
                         _ => {}
                     },
                 }

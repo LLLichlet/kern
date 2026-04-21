@@ -1076,6 +1076,7 @@ A comma-separated list of tags attached to the AST for compiler side-effects. Me
 
   * `export_name("...")`: Overrides the mangled name with a specific string for the linker.
   * `link_section("...")`: Forces a global variable or function into a specific ELF/Mach-O/COFF section (crucial for OS bootloaders, e.g., `#[link_section(".multiboot")]`).
+  * `retain`: Forces a function or global to remain reachable even when no Kern code references it directly. This is orthogonal to symbol export and section placement.
 
 **B. Memory Layout**
 

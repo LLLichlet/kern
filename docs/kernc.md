@@ -430,6 +430,7 @@ At the language level:
 - `extern` defines a C ABI boundary.
 - `#[export_name("...")]` overrides the exported symbol name.
 - `#[link_section("...")]` selects the output section for a function or global.
+- `#[retain]` keeps a function or global in the output even if no reachable Kern code references it.
 
 At the driver level:
 

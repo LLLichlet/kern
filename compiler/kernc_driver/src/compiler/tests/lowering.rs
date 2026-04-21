@@ -757,7 +757,7 @@ fn mir_lower_preserves_deferred_return_value_snapshot() {
     let ret_temp_initialized = body.blocks.iter().any(|block| {
         block.instructions.iter().any(|instruction| {
             matches!(
-                instruction,
+                &instruction.kind,
                 kernc_mir::MirInstruction::Let {
                     place: kernc_mir::MirPlace::Local(local),
                     init: kernc_mir::MirRvalue::Use(kernc_mir::MirOperand::Local(_)),
@@ -828,7 +828,7 @@ fn mir_passes_preserve_deferred_return_value_snapshot() {
         .expect("expected deferred return temp local");
     let returned_temp = body.blocks.iter().any(|block| {
         matches!(
-            &block.terminator,
+            &block.terminator.kind,
             kernc_mir::MirTerminator::Return(Some(kernc_mir::MirRvalue::Use(
                 kernc_mir::MirOperand::Local(local),
             ))) if *local == ret_local.id

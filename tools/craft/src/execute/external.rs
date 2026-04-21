@@ -375,6 +375,7 @@ pub(super) fn ensure_external_tool_built(
                 linked: &mut linked,
                 staged_outputs: &mut staged_outputs,
                 execution_summary: &mut summary,
+                progress: None,
             },
         };
         ensure_link_action_built(root_link_action, &mut session)?;
@@ -662,6 +663,7 @@ pub(super) fn execute_compile_actions(
                 linked: &mut linked,
                 staged_outputs: &mut staged_outputs,
                 execution_summary: &mut summary,
+                progress: None,
             },
         };
         for action in actions {

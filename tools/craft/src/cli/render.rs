@@ -6,7 +6,12 @@ use crate::plan::TargetKind;
 use crate::source;
 use kernc_driver::{CodegenPlanFallback, CodegenPlanReport, CompileCacheStats, PhaseTiming};
 use std::fmt::Display;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use super::{ColorChoice, UiOptions};
 
@@ -14,6 +19,13 @@ pub(super) struct Renderer {
     verbose: bool,
     timings: bool,
     color_enabled: bool,
+    terminal_output: bool,
+}
+
+pub(super) struct ProgressDisplay {
+    reporter: execute::ProgressReporter,
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
 }
 
 #[derive(Clone, Copy)]
@@ -31,18 +43,18 @@ impl Renderer {
     const LABEL_WIDTH: usize = 10;
 
     pub(super) fn new(ui: UiOptions) -> Self {
+        let terminal_output = std::io::stdout().is_terminal();
         let color_enabled = match ui.color {
             ColorChoice::Always => true,
             ColorChoice::Never => false,
-            ColorChoice::Auto => {
-                std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
-            }
+            ColorChoice::Auto => terminal_output && std::env::var_os("NO_COLOR").is_none(),
         };
 
         Self {
             verbose: ui.verbose,
             timings: ui.timings,
             color_enabled,
+            terminal_output,
         }
     }
 
@@ -109,6 +121,18 @@ impl Renderer {
         self.verbose
     }
 
+    pub(super) fn progress(
+        &self,
+        command: &'static str,
+        plan: execute::ExecutionProgressPlan,
+    ) -> Option<ProgressDisplay> {
+        if self.verbose || !self.terminal_output || plan.is_empty() {
+            return None;
+        }
+
+        Some(ProgressDisplay::spawn(command, plan))
+    }
+
     fn paint(&self, tone: Tone, text: &str) -> String {
         if !self.color_enabled {
             return text.to_string();
@@ -124,6 +148,51 @@ impl Renderer {
             Tone::Fetch => "1;32",
         };
         format!("\x1b[{code}m{text}\x1b[0m")
+    }
+}
+
+impl ProgressDisplay {
+    fn spawn(command: &'static str, plan: execute::ExecutionProgressPlan) -> Self {
+        let reporter = execute::ProgressReporter::new(plan);
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let worker_reporter = reporter.clone();
+        let worker = thread::spawn(move || {
+            let mut last_len = 0usize;
+            loop {
+                let snapshot = worker_reporter.snapshot();
+                let line = render_progress_line(command, snapshot);
+                write_progress_line(&line, &mut last_len);
+                if worker_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(120));
+            }
+            clear_progress_line(last_len);
+        });
+
+        Self {
+            reporter,
+            stop,
+            worker: Some(worker),
+        }
+    }
+
+    pub(super) fn reporter(&self) -> execute::ProgressReporter {
+        self.reporter.clone()
+    }
+
+    pub(super) fn finish(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+impl Drop for ProgressDisplay {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
 
@@ -629,10 +698,110 @@ fn format_duration(duration: std::time::Duration) -> String {
     }
 }
 
+fn render_progress_line(command: &str, snapshot: execute::ExecutionProgressSnapshot) -> String {
+    let total_steps = snapshot.total_steps();
+    let completed_steps = snapshot.completed_steps().min(total_steps);
+    let percent = if total_steps == 0 {
+        0
+    } else {
+        completed_steps.saturating_mul(100) / total_steps
+    };
+    let bar = render_progress_bar(completed_steps, total_steps, 24);
+    let mut segments = Vec::new();
+    segments.push(format!("phase {}", format_progress_phase(snapshot.phase)));
+    if snapshot.plan.staged_actions > 0 {
+        segments.push(format!(
+            "gen {}/{}",
+            snapshot.staged_done.min(snapshot.plan.staged_actions),
+            snapshot.plan.staged_actions
+        ));
+    }
+    if snapshot.plan.compile_actions > 0 {
+        segments.push(format!(
+            "compile {}/{}",
+            snapshot.compile_done.min(snapshot.plan.compile_actions),
+            snapshot.plan.compile_actions
+        ));
+    }
+    if snapshot.plan.link_actions > 0 {
+        segments.push(format!(
+            "link {}/{}",
+            snapshot.link_done.min(snapshot.plan.link_actions),
+            snapshot.plan.link_actions
+        ));
+    }
+    segments.push(format!(
+        "elapsed {}",
+        format_progress_clock(snapshot.elapsed)
+    ));
+    if total_steps > 0 && completed_steps > 0 && completed_steps < total_steps {
+        let remaining_steps = total_steps - completed_steps;
+        let eta = snapshot
+            .elapsed
+            .mul_f64(remaining_steps as f64 / completed_steps as f64);
+        segments.push(format!("eta {}", format_progress_clock(eta)));
+    }
+
+    format!("{command} {bar} {percent:>3}%  {}", segments.join("  "))
+}
+
+fn render_progress_bar(completed: usize, total: usize, width: usize) -> String {
+    if total == 0 {
+        return format!("[{}]", "-".repeat(width));
+    }
+
+    let filled = completed.saturating_mul(width) / total;
+    format!(
+        "[{}{}]",
+        "#".repeat(filled),
+        "-".repeat(width.saturating_sub(filled))
+    )
+}
+
+fn format_progress_phase(phase: execute::ExecutionPhase) -> &'static str {
+    match phase {
+        execute::ExecutionPhase::Bootstrap => "bootstrap",
+        execute::ExecutionPhase::Stage => "generate",
+        execute::ExecutionPhase::Compile => "compile",
+        execute::ExecutionPhase::Link => "link",
+    }
+}
+
+fn format_progress_clock(duration: Duration) -> String {
+    if duration.as_secs() >= 60 {
+        let mins = duration.as_secs() / 60;
+        let secs = duration.as_secs() % 60;
+        format!("{mins}m{secs:02}s")
+    } else if duration.as_secs() >= 1 {
+        format!("{:.1}s", duration.as_secs_f64())
+    } else if duration.as_millis() >= 1 {
+        format!("{}ms", duration.as_millis())
+    } else {
+        format!("{}us", duration.as_micros())
+    }
+}
+
+fn write_progress_line(line: &str, last_len: &mut usize) {
+    let mut stdout = std::io::stdout();
+    let padding = last_len.saturating_sub(line.len());
+    let _ = write!(stdout, "\r{line}{}", " ".repeat(padding));
+    let _ = stdout.flush();
+    *last_len = line.len();
+}
+
+fn clear_progress_line(last_len: usize) {
+    let mut stdout = std::io::stdout();
+    let _ = write!(stdout, "\r{}\r", " ".repeat(last_len));
+    let _ = stdout.flush();
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{format_action_timing_detail, format_thinlto_link_summary};
-    use crate::execute::{ActionTiming, ActionTimingKind, ExecutionSummary};
+    use super::{format_action_timing_detail, format_thinlto_link_summary, render_progress_line};
+    use crate::execute::{
+        ActionTiming, ActionTimingKind, ExecutionPhase, ExecutionProgressPlan,
+        ExecutionProgressSnapshot, ExecutionSummary,
+    };
     use kernc_driver::{CompileCacheStats, PhaseTiming};
     use std::time::Duration;
 
@@ -691,5 +860,31 @@ mod tests {
             format_thinlto_link_summary(&summary).as_deref(),
             Some("final-links 2, cross-package 1, total-inputs 10, max-inputs 6")
         );
+    }
+
+    #[test]
+    fn progress_line_includes_phase_counts_and_eta() {
+        let line = render_progress_line(
+            "build",
+            ExecutionProgressSnapshot {
+                phase: ExecutionPhase::Compile,
+                plan: ExecutionProgressPlan {
+                    staged_actions: 2,
+                    compile_actions: 4,
+                    link_actions: 1,
+                },
+                staged_done: 2,
+                compile_done: 1,
+                link_done: 0,
+                elapsed: Duration::from_secs(6),
+            },
+        );
+
+        assert!(line.contains("build ["));
+        assert!(line.contains("phase compile"));
+        assert!(line.contains("gen 2/2"));
+        assert!(line.contains("compile 1/4"));
+        assert!(line.contains("link 0/1"));
+        assert!(line.contains("eta "));
     }
 }

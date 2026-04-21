@@ -140,13 +140,6 @@ fn run_check(
     let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Check)?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
-    execute::materialize_analysis_inputs(&build_plan, &action_plan)?;
-    let _ = analysis_context::sync_analysis_context(
-        &loaded.manifest_path,
-        &loaded.elaboration,
-        &build_plan,
-        &feature_selection,
-    );
 
     render.header_with_path(
         "check",
@@ -266,7 +259,35 @@ fn run_check(
         render.section("generated");
     }
     print_generated_files(&render, &build_plan);
-    let execution = execute::check(&build_plan, &action_plan)?;
+    let mut prepare_progress =
+        render.progress("check", staged_execution_progress_plan(&action_plan));
+    let prepare = execute::materialize_analysis_inputs_with_progress(
+        &build_plan,
+        &action_plan,
+        prepare_progress
+            .as_ref()
+            .map(|progress| progress.reporter()),
+    );
+    if let Some(progress) = prepare_progress.as_mut() {
+        progress.finish();
+    }
+    prepare?;
+    let _ = analysis_context::sync_analysis_context(
+        &loaded.manifest_path,
+        &loaded.elaboration,
+        &build_plan,
+        &feature_selection,
+    );
+    let mut progress = render.progress("check", compile_execution_progress_plan(&action_plan));
+    let execution = execute::check_with_progress(
+        &build_plan,
+        &action_plan,
+        progress.as_ref().map(|progress| progress.reporter()),
+    );
+    if let Some(progress) = progress.as_mut() {
+        progress.finish();
+    }
+    let execution = execution?;
     render_execution_timings(&render, &execution);
     render.ok("check completed");
 
@@ -497,7 +518,16 @@ fn run_build(
     print_generated_files(&render, &build_plan);
     print_compile_actions(&render, &action_plan);
     print_link_actions(&render, &action_plan);
-    let execution = execute::build(&build_plan, &action_plan)?;
+    let mut progress = render.progress("build", full_execution_progress_plan(&action_plan));
+    let execution = execute::build_with_progress(
+        &build_plan,
+        &action_plan,
+        progress.as_ref().map(|progress| progress.reporter()),
+    );
+    if let Some(progress) = progress.as_mut() {
+        progress.finish();
+    }
+    let execution = execution?;
     render_execution_timings(&render, &execution);
     render.ok(format!(
         "build completed (compile {}, link {})",
@@ -564,7 +594,16 @@ fn run_install(
         print_link_actions_for_unit(&render, &action_plan, unit);
     }
 
-    let execution = execute::build(&build_plan, &action_plan)?;
+    let mut progress = render.progress("install", full_execution_progress_plan(&action_plan));
+    let execution = execute::build_with_progress(
+        &build_plan,
+        &action_plan,
+        progress.as_ref().map(|progress| progress.reporter()),
+    );
+    if let Some(progress) = progress.as_mut() {
+        progress.finish();
+    }
+    let execution = execution?;
     for unit in &install_units {
         let link_action = link_action_for_unit(&action_plan, unit)?;
         let installed_path = install_bin_dir.join(installed_file_name(link_action));
@@ -634,7 +673,16 @@ fn run_doc(
     print_generated_files(&render, &build_plan);
     print_compile_actions(&render, &action_plan);
     print_link_actions(&render, &action_plan);
-    let execution = execute::build(&build_plan, &action_plan)?;
+    let mut progress = render.progress("doc", full_execution_progress_plan(&action_plan));
+    let execution = execute::build_with_progress(
+        &build_plan,
+        &action_plan,
+        progress.as_ref().map(|progress| progress.reporter()),
+    );
+    if let Some(progress) = progress.as_mut() {
+        progress.finish();
+    }
+    let execution = execution?;
     let docs = doc::sync_workspace_docs(&build_plan, &action_plan)?;
     render.summary(
         "docs",
@@ -796,7 +844,16 @@ fn run_target(
     print_generated_files_for_unit(&render, run_unit);
     print_compile_actions_for_unit(&render, &action_plan, run_unit);
     print_link_actions_for_unit(&render, &action_plan, run_unit);
-    let execution = execute::run(&build_plan, &action_plan, run_unit)?;
+    let mut progress = render.progress("run", full_execution_progress_plan(&action_plan));
+    let build = execute::build_with_progress(
+        &build_plan,
+        &action_plan,
+        progress.as_ref().map(|progress| progress.reporter()),
+    );
+    if let Some(progress) = progress.as_mut() {
+        progress.finish();
+    }
+    let execution = execute::run_built(&build_plan, &action_plan, run_unit, build?)?;
     render_execution_timings(&render, &execution.build);
     render.ok(format!(
         "run completed ({})",
@@ -868,7 +925,16 @@ fn run_tests(
     for unit in &tests {
         print_link_actions_for_unit(&render, &action_plan, unit);
     }
-    let execution = execute::test(&build_plan, &action_plan, &tests)?;
+    let mut progress = render.progress("test", full_execution_progress_plan(&action_plan));
+    let build = execute::build_with_progress(
+        &build_plan,
+        &action_plan,
+        progress.as_ref().map(|progress| progress.reporter()),
+    );
+    if let Some(progress) = progress.as_mut() {
+        progress.finish();
+    }
+    let execution = execute::test_built(&build_plan, &action_plan, &tests, build?)?;
     render_execution_timings(&render, &execution.build);
     render.ok(format!(
         "test run completed ({} executed)",
@@ -876,6 +942,36 @@ fn run_tests(
     ));
 
     Ok(())
+}
+
+fn staged_execution_progress_plan(
+    action_plan: &build_plan::ActionPlan,
+) -> execute::ExecutionProgressPlan {
+    execute::ExecutionProgressPlan {
+        staged_actions: action_plan.build_nodes.len(),
+        compile_actions: 0,
+        link_actions: 0,
+    }
+}
+
+fn compile_execution_progress_plan(
+    action_plan: &build_plan::ActionPlan,
+) -> execute::ExecutionProgressPlan {
+    execute::ExecutionProgressPlan {
+        staged_actions: 0,
+        compile_actions: action_plan.compile_count(),
+        link_actions: 0,
+    }
+}
+
+fn full_execution_progress_plan(
+    action_plan: &build_plan::ActionPlan,
+) -> execute::ExecutionProgressPlan {
+    execute::ExecutionProgressPlan {
+        staged_actions: action_plan.build_nodes.len(),
+        compile_actions: action_plan.compile_count(),
+        link_actions: action_plan.link_count(),
+    }
 }
 
 #[derive(Debug, Clone)]

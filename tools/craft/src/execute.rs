@@ -15,7 +15,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 mod external;
 mod fingerprint;
@@ -93,6 +95,131 @@ pub struct RunSummary {
 pub struct TestSummary {
     pub executed: usize,
     pub build: ExecutionSummary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ExecutionProgressPlan {
+    pub staged_actions: usize,
+    pub compile_actions: usize,
+    pub link_actions: usize,
+}
+
+impl ExecutionProgressPlan {
+    pub fn total_steps(self) -> usize {
+        self.staged_actions + self.compile_actions + self.link_actions
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.total_steps() == 0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExecutionPhase {
+    #[default]
+    Bootstrap,
+    Stage,
+    Compile,
+    Link,
+}
+
+impl ExecutionPhase {
+    fn encode(self) -> u8 {
+        match self {
+            Self::Bootstrap => 0,
+            Self::Stage => 1,
+            Self::Compile => 2,
+            Self::Link => 3,
+        }
+    }
+
+    fn decode(value: u8) -> Self {
+        match value {
+            1 => Self::Stage,
+            2 => Self::Compile,
+            3 => Self::Link,
+            _ => Self::Bootstrap,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutionProgressSnapshot {
+    pub phase: ExecutionPhase,
+    pub plan: ExecutionProgressPlan,
+    pub staged_done: usize,
+    pub compile_done: usize,
+    pub link_done: usize,
+    pub elapsed: Duration,
+}
+
+impl ExecutionProgressSnapshot {
+    pub fn completed_steps(self) -> usize {
+        self.staged_done.min(self.plan.staged_actions)
+            + self.compile_done.min(self.plan.compile_actions)
+            + self.link_done.min(self.plan.link_actions)
+    }
+
+    pub fn total_steps(self) -> usize {
+        self.plan.total_steps()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProgressReporter {
+    state: Arc<ProgressState>,
+}
+
+#[derive(Debug)]
+struct ProgressState {
+    plan: ExecutionProgressPlan,
+    phase: AtomicU8,
+    staged_done: AtomicUsize,
+    compile_done: AtomicUsize,
+    link_done: AtomicUsize,
+    started_at: Instant,
+}
+
+impl ProgressReporter {
+    pub fn new(plan: ExecutionProgressPlan) -> Self {
+        Self {
+            state: Arc::new(ProgressState {
+                plan,
+                phase: AtomicU8::new(ExecutionPhase::Bootstrap.encode()),
+                staged_done: AtomicUsize::new(0),
+                compile_done: AtomicUsize::new(0),
+                link_done: AtomicUsize::new(0),
+                started_at: Instant::now(),
+            }),
+        }
+    }
+
+    pub fn snapshot(&self) -> ExecutionProgressSnapshot {
+        ExecutionProgressSnapshot {
+            phase: ExecutionPhase::decode(self.state.phase.load(Ordering::Relaxed)),
+            plan: self.state.plan,
+            staged_done: self.state.staged_done.load(Ordering::Relaxed),
+            compile_done: self.state.compile_done.load(Ordering::Relaxed),
+            link_done: self.state.link_done.load(Ordering::Relaxed),
+            elapsed: self.state.started_at.elapsed(),
+        }
+    }
+
+    pub(crate) fn set_phase(&self, phase: ExecutionPhase) {
+        self.state.phase.store(phase.encode(), Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_staged_action(&self) {
+        self.state.staged_done.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_compile_action(&self) {
+        self.state.compile_done.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_link_action(&self) {
+        self.state.link_done.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 impl ExecutionSummary {
@@ -187,23 +314,72 @@ impl ExecutionSummary {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn build(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<ExecutionSummary> {
-    build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Build)
+    build_with_command(
+        build_plan,
+        action_plan,
+        crate::script::ScriptCommand::Build,
+        None,
+    )
 }
 
+pub fn build_with_progress(
+    build_plan: &BuildPlan,
+    action_plan: &ActionPlan,
+    progress: Option<ProgressReporter>,
+) -> Result<ExecutionSummary> {
+    build_with_command(
+        build_plan,
+        action_plan,
+        crate::script::ScriptCommand::Build,
+        progress,
+    )
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn check(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<ExecutionSummary> {
-    build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Check)
+    build_with_command(
+        build_plan,
+        action_plan,
+        crate::script::ScriptCommand::Check,
+        None,
+    )
+}
+
+pub fn check_with_progress(
+    build_plan: &BuildPlan,
+    action_plan: &ActionPlan,
+    progress: Option<ProgressReporter>,
+) -> Result<ExecutionSummary> {
+    build_with_command(
+        build_plan,
+        action_plan,
+        crate::script::ScriptCommand::Check,
+        progress,
+    )
 }
 
 pub(crate) fn materialize_analysis_inputs(
     build_plan: &BuildPlan,
     action_plan: &ActionPlan,
 ) -> Result<()> {
+    materialize_analysis_inputs_with_progress(build_plan, action_plan, None)
+}
+
+pub(crate) fn materialize_analysis_inputs_with_progress(
+    build_plan: &BuildPlan,
+    action_plan: &ActionPlan,
+    progress: Option<ProgressReporter>,
+) -> Result<()> {
     let source_config = load_source_config(build_plan)?;
     let profile_selection = profile_selection_for_action_plan(action_plan);
     let mut built_std_packages = BTreeMap::new();
     let mut driver_families = BTreeMap::new();
     let mut summary = ExecutionSummary::default();
+    if let Some(progress) = &progress {
+        progress.set_phase(ExecutionPhase::Bootstrap);
+    }
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
         &action_plan.compile_actions,
@@ -251,9 +427,13 @@ pub(crate) fn materialize_analysis_inputs(
             linked: &mut linked,
             staged_outputs: &mut staged_outputs,
             execution_summary: &mut summary,
+            progress: progress.clone(),
         },
     };
 
+    if let Some(progress) = &progress {
+        progress.set_phase(ExecutionPhase::Stage);
+    }
     for action in &action_plan.compile_actions {
         if action.domain != BuildDomain::Target {
             continue;
@@ -383,6 +563,7 @@ struct ExecutionState<'a> {
     linked: &'a mut BTreeSet<PathBuf>,
     staged_outputs: &'a mut BTreeSet<PathBuf>,
     execution_summary: &'a mut ExecutionSummary,
+    progress: Option<ProgressReporter>,
 }
 
 struct ExecutionSession<'a> {
@@ -425,12 +606,16 @@ fn build_with_command(
     build_plan: &BuildPlan,
     action_plan: &ActionPlan,
     command: crate::script::ScriptCommand,
+    progress: Option<ProgressReporter>,
 ) -> Result<ExecutionSummary> {
     let source_config = load_source_config(build_plan)?;
     let profile_selection = profile_selection_for_action_plan(action_plan);
     let mut built_std_packages = BTreeMap::new();
     let mut driver_families = BTreeMap::new();
     let mut external_summary = ExecutionSummary::default();
+    if let Some(progress) = &progress {
+        progress.set_phase(ExecutionPhase::Bootstrap);
+    }
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
         &action_plan.compile_actions,
@@ -494,9 +679,13 @@ fn build_with_command(
                 linked: &mut linked,
                 staged_outputs: &mut staged_outputs,
                 execution_summary: &mut local_summary,
+                progress: progress.clone(),
             },
         };
 
+        if let Some(progress) = &progress {
+            progress.set_phase(ExecutionPhase::Stage);
+        }
         for action in &action_plan.compile_actions {
             if action.domain != BuildDomain::Target {
                 continue;
@@ -511,6 +700,9 @@ fn build_with_command(
         }
     }
 
+    if let Some(progress) = &progress {
+        progress.set_phase(ExecutionPhase::Compile);
+    }
     loop {
         let jobs = parallel_target_compile_jobs(action_plan, &local_library_actions, &compiled);
         if jobs.len() < 2 {
@@ -525,6 +717,9 @@ fn build_with_command(
         )? {
             compiled.insert(result.compile_object_path);
             local_summary.absorb(result.summary);
+            if let Some(progress) = &progress {
+                progress.record_compile_action();
+            }
         }
     }
 
@@ -545,6 +740,7 @@ fn build_with_command(
                 linked: &mut linked,
                 staged_outputs: &mut staged_outputs,
                 execution_summary: &mut local_summary,
+                progress: progress.clone(),
             },
         };
 
@@ -572,6 +768,9 @@ fn build_with_command(
         return Ok(external_summary);
     }
 
+    if let Some(progress) = &progress {
+        progress.set_phase(ExecutionPhase::Link);
+    }
     let parallel_jobs = parallel_target_link_jobs(action_plan, &compile_action_index, &linked)?;
     for result in build_parallel_target_link_jobs(
         command,
@@ -583,6 +782,10 @@ fn build_with_command(
         compiled.insert(result.compile_object_path);
         linked.insert(result.artifact_path);
         local_summary.absorb(result.summary);
+        if let Some(progress) = &progress {
+            progress.record_compile_action();
+            progress.record_link_action();
+        }
     }
 
     {
@@ -602,6 +805,7 @@ fn build_with_command(
                 linked: &mut linked,
                 staged_outputs: &mut staged_outputs,
                 execution_summary: &mut local_summary,
+                progress: progress.clone(),
             },
         };
 
@@ -617,12 +821,27 @@ fn build_with_command(
     Ok(external_summary)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn run(
     build_plan: &BuildPlan,
     action_plan: &ActionPlan,
     unit: &BuildUnit,
 ) -> Result<RunSummary> {
-    let build = build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Run)?;
+    let build = build_with_command(
+        build_plan,
+        action_plan,
+        crate::script::ScriptCommand::Run,
+        None,
+    )?;
+    run_built(build_plan, action_plan, unit, build)
+}
+
+pub fn run_built(
+    build_plan: &BuildPlan,
+    action_plan: &ActionPlan,
+    unit: &BuildUnit,
+    build: ExecutionSummary,
+) -> Result<RunSummary> {
     let action = find_link_action(action_plan, unit)?;
     let executable_path = resolve_invocation_path(&action.artifact_path)?;
     let status = runtime_command(&executable_path, action, &build_plan.workspace_root)
@@ -642,13 +861,27 @@ pub fn run(
     })
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn test(
     build_plan: &BuildPlan,
     action_plan: &ActionPlan,
     units: &[&BuildUnit],
 ) -> Result<TestSummary> {
-    let build = build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Test)?;
+    let build = build_with_command(
+        build_plan,
+        action_plan,
+        crate::script::ScriptCommand::Test,
+        None,
+    )?;
+    test_built(build_plan, action_plan, units, build)
+}
 
+pub fn test_built(
+    build_plan: &BuildPlan,
+    action_plan: &ActionPlan,
+    units: &[&BuildUnit],
+    build: ExecutionSummary,
+) -> Result<TestSummary> {
     let mut executed = 0;
     for unit in units {
         let action = find_link_action(action_plan, unit)?;
@@ -897,6 +1130,9 @@ fn ensure_compile_action_built(
         session.external.driver_families,
         session.state.execution_summary,
     )?;
+    if let Some(progress) = &session.state.progress {
+        progress.record_compile_action();
+    }
     session.state.compiled.insert(action.object_path.clone());
     Ok(built)
 }
@@ -1088,6 +1324,9 @@ fn execute_staged_action(
     if build_state::action_state_is_current(&output_path, &fingerprint)? {
         session.state.execution_summary.record_staged_cache_hit();
         session.state.staged_outputs.insert(output_path);
+        if let Some(progress) = &session.state.progress {
+            progress.record_staged_action();
+        }
         return Ok(false);
     }
 
@@ -1148,6 +1387,9 @@ fn execute_staged_action(
     )?;
     session.state.execution_summary.record_staged_cache_miss();
     session.state.staged_outputs.insert(output_path);
+    if let Some(progress) = &session.state.progress {
+        progress.record_staged_action();
+    }
     Ok(true)
 }
 
@@ -1177,6 +1419,9 @@ fn ensure_link_action_built(
         &linker_inputs,
         session.state.execution_summary,
     )?;
+    if let Some(progress) = &session.state.progress {
+        progress.record_link_action();
+    }
 
     session.state.linked.insert(action.artifact_path.clone());
 

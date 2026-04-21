@@ -16,6 +16,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -143,7 +144,7 @@ impl ExecutionPhase {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionProgressSnapshot {
     pub phase: ExecutionPhase,
     pub plan: ExecutionProgressPlan,
@@ -151,16 +152,17 @@ pub struct ExecutionProgressSnapshot {
     pub compile_done: usize,
     pub link_done: usize,
     pub elapsed: Duration,
+    pub detail: String,
 }
 
 impl ExecutionProgressSnapshot {
-    pub fn completed_steps(self) -> usize {
+    pub fn completed_steps(&self) -> usize {
         self.staged_done.min(self.plan.staged_actions)
             + self.compile_done.min(self.plan.compile_actions)
             + self.link_done.min(self.plan.link_actions)
     }
 
-    pub fn total_steps(self) -> usize {
+    pub fn total_steps(&self) -> usize {
         self.plan.total_steps()
     }
 }
@@ -178,6 +180,7 @@ struct ProgressState {
     compile_done: AtomicUsize,
     link_done: AtomicUsize,
     started_at: Instant,
+    detail: Mutex<String>,
 }
 
 impl ProgressReporter {
@@ -190,6 +193,7 @@ impl ProgressReporter {
                 compile_done: AtomicUsize::new(0),
                 link_done: AtomicUsize::new(0),
                 started_at: Instant::now(),
+                detail: Mutex::new(String::new()),
             }),
         }
     }
@@ -202,6 +206,7 @@ impl ProgressReporter {
             compile_done: self.state.compile_done.load(Ordering::Relaxed),
             link_done: self.state.link_done.load(Ordering::Relaxed),
             elapsed: self.state.started_at.elapsed(),
+            detail: self.state.detail.lock().unwrap().clone(),
         }
     }
 
@@ -219,6 +224,10 @@ impl ProgressReporter {
 
     pub(crate) fn record_link_action(&self) {
         self.state.link_done.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_detail(&self, detail: impl Into<String>) {
+        *self.state.detail.lock().unwrap() = detail.into();
     }
 }
 
@@ -379,6 +388,7 @@ pub(crate) fn materialize_analysis_inputs_with_progress(
     let mut summary = ExecutionSummary::default();
     if let Some(progress) = &progress {
         progress.set_phase(ExecutionPhase::Bootstrap);
+        progress.set_detail("prepare semantic inputs");
     }
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
@@ -433,6 +443,7 @@ pub(crate) fn materialize_analysis_inputs_with_progress(
 
     if let Some(progress) = &progress {
         progress.set_phase(ExecutionPhase::Stage);
+        progress.set_detail("materialize generated inputs");
     }
     for action in &action_plan.compile_actions {
         if action.domain != BuildDomain::Target {
@@ -615,6 +626,7 @@ fn build_with_command(
     let mut external_summary = ExecutionSummary::default();
     if let Some(progress) = &progress {
         progress.set_phase(ExecutionPhase::Bootstrap);
+        progress.set_detail("prepare workspace and runtime packages");
     }
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
@@ -685,6 +697,7 @@ fn build_with_command(
 
         if let Some(progress) = &progress {
             progress.set_phase(ExecutionPhase::Stage);
+            progress.set_detail("materialize generated inputs");
         }
         for action in &action_plan.compile_actions {
             if action.domain != BuildDomain::Target {
@@ -702,11 +715,15 @@ fn build_with_command(
 
     if let Some(progress) = &progress {
         progress.set_phase(ExecutionPhase::Compile);
+        progress.set_detail("compile target units");
     }
     loop {
         let jobs = parallel_target_compile_jobs(action_plan, &local_library_actions, &compiled);
         if jobs.len() < 2 {
             break;
+        }
+        if let Some(progress) = &progress {
+            progress.set_detail(format!("compile parallel batch ({} jobs)", jobs.len()));
         }
         for result in build_parallel_target_compile_jobs(
             command,
@@ -770,8 +787,17 @@ fn build_with_command(
 
     if let Some(progress) = &progress {
         progress.set_phase(ExecutionPhase::Link);
+        progress.set_detail("link target artifacts");
     }
     let parallel_jobs = parallel_target_link_jobs(action_plan, &compile_action_index, &linked)?;
+    if let Some(progress) = &progress
+        && !parallel_jobs.is_empty()
+    {
+        progress.set_detail(format!(
+            "link parallel batch ({} jobs)",
+            parallel_jobs.len()
+        ));
+    }
     for result in build_parallel_target_link_jobs(
         command,
         &parallel_jobs,
@@ -1124,6 +1150,10 @@ fn ensure_compile_action_built(
         session.external.built_external_packages,
         session.external.manifest_runtime_options,
     )?;
+    if let Some(progress) = &session.state.progress {
+        progress.set_phase(ExecutionPhase::Compile);
+        progress.set_detail(compile_action_label(action, &options));
+    }
     let built = build_compile_action_if_needed(
         action,
         options,
@@ -1206,6 +1236,37 @@ fn format_run_tool_failure(
     message
 }
 
+fn stage_action_label(action: &StagedAction, output_path: &Path) -> String {
+    let output = output_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&action.output);
+    match &action.kind {
+        StagedActionKind::WriteFile { .. } => format!("write {output}"),
+        StagedActionKind::RunTool { tool, .. } => {
+            let tool_name = Path::new(&tool.executable_path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(&tool.executable_path);
+            format!("run-tool {tool_name} -> {output}")
+        }
+        StagedActionKind::CopyFile { source } => {
+            let input = Path::new(source)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(source);
+            format!("copy {input} -> {output}")
+        }
+        StagedActionKind::CopyDirectory { source } => {
+            let input = Path::new(source)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(source);
+            format!("copy-dir {input} -> {output}")
+        }
+    }
+}
+
 fn execute_staged_action(
     action: &StagedAction,
     action_index: &BTreeMap<usize, &StagedAction>,
@@ -1213,6 +1274,10 @@ fn execute_staged_action(
     session: &mut ExecutionSession<'_>,
 ) -> Result<bool> {
     let output_path = PathBuf::from(&action.output);
+    if let Some(progress) = &session.state.progress {
+        progress.set_phase(ExecutionPhase::Stage);
+        progress.set_detail(stage_action_label(action, &output_path));
+    }
     if session.state.staged_outputs.contains(&output_path) {
         return Ok(false);
     }
@@ -1413,6 +1478,10 @@ fn ensure_link_action_built(
         session.external.built_external_packages,
         session.external.manifest_runtime_options,
     )?;
+    if let Some(progress) = &session.state.progress {
+        progress.set_phase(ExecutionPhase::Link);
+        progress.set_detail(link_action_label(action, &options));
+    }
     let linked_now = build_link_action_if_needed(
         action,
         options,

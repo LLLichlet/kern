@@ -43,7 +43,7 @@ impl Renderer {
     const LABEL_WIDTH: usize = 10;
 
     pub(super) fn new(ui: UiOptions) -> Self {
-        let terminal_output = std::io::stdout().is_terminal();
+        let terminal_output = std::io::stderr().is_terminal();
         let color_enabled = match ui.color {
             ColorChoice::Always => true,
             ColorChoice::Never => false,
@@ -159,10 +159,14 @@ impl ProgressDisplay {
         let worker_reporter = reporter.clone();
         let worker = thread::spawn(move || {
             let mut last_len = 0usize;
+            let mut last_line = String::new();
             loop {
                 let snapshot = worker_reporter.snapshot();
                 let line = render_progress_line(command, snapshot);
-                write_progress_line(&line, &mut last_len);
+                if line != last_line {
+                    write_progress_line(&line, &mut last_len);
+                    last_line = line;
+                }
                 if worker_stop.load(Ordering::Relaxed) {
                     break;
                 }
@@ -734,12 +738,19 @@ fn render_progress_line(command: &str, snapshot: execute::ExecutionProgressSnaps
         "elapsed {}",
         format_progress_clock(snapshot.elapsed)
     ));
-    if total_steps > 0 && completed_steps > 0 && completed_steps < total_steps {
+    if total_steps > 0
+        && completed_steps >= 2
+        && completed_steps < total_steps
+        && snapshot.elapsed >= Duration::from_secs(3)
+    {
         let remaining_steps = total_steps - completed_steps;
         let eta = snapshot
             .elapsed
             .mul_f64(remaining_steps as f64 / completed_steps as f64);
         segments.push(format!("eta {}", format_progress_clock(eta)));
+    }
+    if !snapshot.detail.is_empty() {
+        segments.push(snapshot.detail);
     }
 
     format!("{command} {bar} {percent:>3}%  {}", segments.join("  "))
@@ -773,26 +784,24 @@ fn format_progress_clock(duration: Duration) -> String {
         let secs = duration.as_secs() % 60;
         format!("{mins}m{secs:02}s")
     } else if duration.as_secs() >= 1 {
-        format!("{:.1}s", duration.as_secs_f64())
-    } else if duration.as_millis() >= 1 {
-        format!("{}ms", duration.as_millis())
+        format!("{}s", duration.as_secs())
     } else {
-        format!("{}us", duration.as_micros())
+        "<1s".to_string()
     }
 }
 
 fn write_progress_line(line: &str, last_len: &mut usize) {
-    let mut stdout = std::io::stdout();
+    let mut stderr = std::io::stderr();
     let padding = last_len.saturating_sub(line.len());
-    let _ = write!(stdout, "\r{line}{}", " ".repeat(padding));
-    let _ = stdout.flush();
+    let _ = write!(stderr, "\r{line}{}", " ".repeat(padding));
+    let _ = stderr.flush();
     *last_len = line.len();
 }
 
 fn clear_progress_line(last_len: usize) {
-    let mut stdout = std::io::stdout();
-    let _ = write!(stdout, "\r{}\r", " ".repeat(last_len));
-    let _ = stdout.flush();
+    let mut stderr = std::io::stderr();
+    let _ = write!(stderr, "\r{}\r", " ".repeat(last_len));
+    let _ = stderr.flush();
 }
 
 #[cfg(test)]
@@ -877,6 +886,7 @@ mod tests {
                 compile_done: 1,
                 link_done: 0,
                 elapsed: Duration::from_secs(6),
+                detail: "demo:bed [bin,target]".to_string(),
             },
         );
 
@@ -886,5 +896,6 @@ mod tests {
         assert!(line.contains("compile 1/4"));
         assert!(line.contains("link 0/1"));
         assert!(line.contains("eta "));
+        assert!(line.contains("demo:bed [bin,target]"));
     }
 }

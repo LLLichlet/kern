@@ -7,9 +7,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         args: &[Expr],
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
-    ) -> MastExprKind {
+        result_ty: TypeId,
+    ) -> MastExpr {
         if let Some(asm_call) = self.maybe_lower_asm_call(callee, args, subst_map, span) {
-            return asm_call;
+            return MastExpr::new(result_ty, asm_call, span);
         }
 
         let raw_callee_ty = self
@@ -77,9 +78,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 )
             })
         } else {
-            self.measure_phase("            lower_call_plain_dispatch", |this| {
+            let kind = self.measure_phase("            lower_call_plain_dispatch", |this| {
                 this.lower_normal_call(callee, args, arg_masts, subst_map)
-            })
+            });
+            MastExpr::new(result_ty, kind, span)
         }
     }
 
@@ -90,7 +92,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         arg_masts: Vec<MastExpr>,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         call: MethodCallSite,
-    ) -> MastExprKind {
+    ) -> MastExpr {
         // Resolve methods against the type that actually owns the implementation.
         let norm_base = self.ctx.type_registry.normalize(recv.ty);
 
@@ -109,6 +111,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(inner_ty);
         let owner_trait_ty = self.substitute_type_with_map(owner_trait_ty, subst_map);
+        let owner_trait_ty =
+            kernc_sema::query::retain_declared_trait_object_assoc_bindings(self.ctx, owner_trait_ty);
 
         self.lower_resolved_trait_method_call(recv, arg_masts, owner_trait_ty, call)
     }
@@ -119,7 +123,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         mut arg_masts: Vec<MastExpr>,
         owner_trait_ty: TypeId,
         call: MethodCallSite,
-    ) -> MastExprKind {
+    ) -> MastExpr {
         let norm_base = self.ctx.type_registry.normalize(recv.ty);
         let mut inner_ty = norm_base;
         if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } =
@@ -127,6 +131,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             inner_ty = elem;
         }
+        let default_ret_ty = self
+            .fn_like_signature(call.norm_callee, call.span)
+            .map(|(_, ret_ty)| ret_ty)
+            .unwrap_or(TypeId::ERROR);
 
         let field_name = self.ctx.resolve(call.field).to_string();
         if field_name == "eq"
@@ -135,30 +143,41 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             && self.is_pure_enum_value_type(recv.ty)
             && arg_masts[0].ty == recv.ty
         {
-            return MastExprKind::Binary {
-                op: ast::BinaryOperator::Equal,
-                lhs: Box::new(recv),
-                rhs: Box::new(arg_masts.remove(0)),
-            };
+            return MastExpr::new(
+                default_ret_ty,
+                MastExprKind::Binary {
+                    op: ast::BinaryOperator::Equal,
+                    lhs: Box::new(recv),
+                    rhs: Box::new(arg_masts.remove(0)),
+                },
+                call.span,
+            );
         }
+
+        let stale_static_callee =
+            call.expected_self_ty.is_some_and(|expected_self_ty| expected_self_ty != recv.ty);
 
         // 2. Choose dynamic (vtable) or static dispatch based on the recovered type.
         if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(inner_ty) {
+            let recv_trait_ty =
+                kernc_sema::query::retain_declared_trait_object_assoc_bindings(self.ctx, inner_ty);
             // Hand the full fat pointer to the dynamic dispatcher so it can extract the vtable.
-            self.measure_phase("              lower_call_dynamic_dispatch", |this| {
+            let kind = self.measure_phase("              lower_call_dynamic_dispatch", |this| {
                 this.lower_dynamic_method_dispatch(
                     recv,
                     arg_masts,
                     DynamicDispatchCall {
                         field: call.field,
-                        recv_trait_ty: inner_ty,
+                        recv_trait_ty,
                         owner_trait_ty,
                         norm_callee: call.norm_callee,
                         span: call.span,
                     },
                 )
-            })
-        } else if let TypeKind::FnDef(method_id, generics) =
+            });
+            MastExpr::new(default_ret_ty, kind, call.span)
+        } else if !stale_static_callee
+            && let TypeKind::FnDef(method_id, generics) =
             self.ctx.type_registry.get(call.norm_callee).clone()
         {
             if let Def::Function(func) = &self.ctx.defs[method_id.0 as usize]
@@ -167,12 +186,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 arg_masts.insert(0, recv.clone());
                 if let Some(kind) = self.lower_builtin_operator_intrinsic(method_id, &mut arg_masts)
                 {
-                    return kind;
+                    return MastExpr::new(default_ret_ty, kind, call.span);
                 }
             }
-            self.measure_phase("              lower_call_static_dispatch", |this| {
+            let kind = self.measure_phase("              lower_call_static_dispatch", |this| {
                 this.lower_static_method_dispatch(recv, arg_masts, method_id, &generics, call)
-            })
+            });
+            MastExpr::new(default_ret_ty, kind, call.span)
         } else {
             // A plain `TypeKind::Function` here means Sema only knew a generic bound.
             // After monomorphization, find the concrete impl globally.
@@ -318,18 +338,29 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     if let Some(kind) =
                         self.lower_builtin_operator_intrinsic(func_id, &mut arg_masts)
                     {
-                        return kind;
+                        return MastExpr::new(default_ret_ty, kind, call.span);
                     }
                 }
 
                 arg_masts.insert(0, final_recv);
                 let mono_id = self.instantiate_function_at(func_id, &resolved_impl_args, call.span);
-                let func_ref =
-                    MastExpr::new(call.norm_callee, MastExprKind::FuncRef(mono_id), call.span);
-                MastExprKind::Call {
-                    callee: Box::new(func_ref),
-                    args: arg_masts,
-                }
+                let callee_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(func_id, resolved_impl_args.clone()));
+                let ret_ty = self
+                    .fn_like_signature(callee_ty, call.span)
+                    .map(|(_, ret_ty)| ret_ty)
+                    .unwrap_or(default_ret_ty);
+                let func_ref = MastExpr::new(callee_ty, MastExprKind::FuncRef(mono_id), call.span);
+                MastExpr::new(
+                    ret_ty,
+                    MastExprKind::Call {
+                        callee: Box::new(func_ref),
+                        args: arg_masts,
+                    },
+                    call.span,
+                )
             } else {
                 let type_name = self.ctx.ty_to_string(norm_base);
                 let field_name = self.ctx.resolve(call.field);
@@ -340,7 +371,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         field_name, type_name
                     ),
                 );
-                MastExprKind::Trap
+                MastExpr::new(TypeId::ERROR, MastExprKind::Trap, call.span)
             }
         }
     }

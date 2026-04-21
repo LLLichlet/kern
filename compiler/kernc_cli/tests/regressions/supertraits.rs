@@ -127,6 +127,130 @@ fn main() i32 {
 }
 
 #[test]
+fn preserves_specialized_assoc_bindings_while_lowering_supertrait_trait_objects() {
+    let output = build_and_run_source(
+        r#"
+type Width[N: usize] = trait {
+    width: fn() i32,
+};
+
+type Label = trait {
+    label: fn() i32,
+};
+
+type Mapped[N: usize]: Width[N] + Label = trait {
+    fold: fn() i32,
+};
+
+type Check[N: usize] = trait {
+    type Ty: Mapped[N];
+    make: fn() Ty,
+};
+
+type RichCheck[N: usize]: Check[N] + Width[N] = trait {
+    prove: fn() i32,
+};
+
+type Data = struct {
+    seed: i32,
+};
+
+type GenericProof[N: usize] = struct {
+    seed: i32,
+};
+
+type QuadProof = struct {
+    seed: i32,
+    bonus: i32,
+};
+
+impl[N: usize] GenericProof[N]: Width[N] {
+    fn width() i32 {
+        return N as i32;
+    }
+}
+
+impl[N: usize] GenericProof[N]: Label {
+    fn label() i32 {
+        return self.seed;
+    }
+}
+
+impl[N: usize] GenericProof[N]: Mapped[N] {
+    fn fold() i32 {
+        return self.label() + self.width();
+    }
+}
+
+impl QuadProof: Width[4] {
+    fn width() i32 {
+        return 4;
+    }
+}
+
+impl QuadProof: Label {
+    fn label() i32 {
+        return self.seed + self.bonus;
+    }
+}
+
+impl QuadProof: Mapped[4] {
+    fn fold() i32 {
+        return self.label() + self.width();
+    }
+}
+
+impl[N: usize] *Data: Width[N] {
+    fn width() i32 {
+        return N as i32;
+    }
+}
+
+impl[N: usize] *Data: Check[N] {
+    type Ty = GenericProof[N];
+
+    fn make() Ty {
+        return GenericProof[N].{ seed: self.seed };
+    }
+}
+
+impl *Data: Check[4] {
+    type Ty = QuadProof;
+
+    fn make() Ty {
+        return QuadProof.{ seed: self.seed, bonus: 20 };
+    }
+}
+
+impl[N: usize] *Data: RichCheck[N]
+    where *Data: Check[N],
+{
+    fn prove() i32 {
+        return self.make().fold() + self.width();
+    }
+}
+
+fn via_object(value: *Data) i32 {
+    let rich = *RichCheck[4].{ value };
+    return rich.prove() + rich.width();
+}
+
+fn main() i32 {
+    let data = Data.{ seed: 7 };
+    return via_object(data.&) - 39;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_self_recursive_supertrait_hierarchy() {
     let output = compile_source(
         r#"

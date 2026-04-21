@@ -77,14 +77,36 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn collect_transitive_supertraits(&mut self, trait_ty: TypeId) -> Vec<TypeId> {
+        let root_trait_ty = self.ctx.type_registry.normalize(trait_ty);
         let mut supertraits = Vec::new();
         let mut visited = HashSet::new();
-        self.collect_transitive_supertraits_inner(
-            self.ctx.type_registry.normalize(trait_ty),
-            &mut visited,
-            &mut supertraits,
-        );
-        supertraits
+        self.collect_transitive_supertraits_inner(root_trait_ty, &mut visited, &mut supertraits);
+
+        let mut canonical = Vec::with_capacity(supertraits.len());
+        for super_ty in supertraits {
+            let canonical_super_ty = match self.ctx.type_registry.get(super_ty).clone() {
+                TypeKind::TraitObject(super_def_id, super_args, _) => {
+                    kernc_sema::query::declared_trait_object_view_from_hierarchy(
+                        self.ctx,
+                        root_trait_ty,
+                        super_def_id,
+                        &super_args,
+                    )
+                    .unwrap_or_else(|| {
+                        kernc_sema::query::retain_declared_trait_object_assoc_bindings(
+                            self.ctx, super_ty,
+                        )
+                    })
+                }
+                _ => super_ty,
+            };
+
+            if !canonical.contains(&canonical_super_ty) {
+                canonical.push(canonical_super_ty);
+            }
+        }
+
+        canonical
     }
 
     fn collect_transitive_supertraits_inner(
@@ -204,6 +226,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MonoId {
         let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
         let norm_receiver = self.ctx.type_registry.normalize(receiver_ty);
+        let trait_ty =
+            kernc_sema::query::retain_declared_trait_object_assoc_bindings(self.ctx, trait_ty);
         let norm_trait = self.ctx.type_registry.normalize(trait_ty);
         let key = (norm_data_ptr, norm_receiver, norm_trait);
         if let Some(&id) = self.vtable_cache.get(&key) {
@@ -298,7 +322,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             Vec<kernc_sema::ty::GenericArg>,
             kernc_sema::def::DefId,
         )> = None;
-        for impl_id in global_impls {
+        for &impl_id in &global_impls {
             let Some(impl_def) = self
                 .ctx
                 .defs

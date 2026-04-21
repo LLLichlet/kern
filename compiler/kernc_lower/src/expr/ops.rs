@@ -302,11 +302,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if op == ast::BinaryOperator::NotEqual {
             return MastExprKind::Unary {
                 op: ast::UnaryOperator::LogicalNot,
-                operand: Box::new(MastExpr::new(TypeId::BOOL, call, span)),
+                operand: Box::new(call),
             };
         }
 
-        call
+        call.kind
     }
 
     fn lower_custom_unary_operator(
@@ -355,6 +355,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 span,
             },
         )
+        .kind
     }
 
     pub(crate) fn lower_binary(

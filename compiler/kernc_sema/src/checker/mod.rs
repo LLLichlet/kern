@@ -918,6 +918,28 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         let prev_bounds_len = self.ctx.active_bounds.len();
+        let target_ty = self.ctx.type_registry.normalize(
+            self.ctx
+                .node_types
+                .get(&i.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR),
+        );
+        if let Some(trait_ty_node) = &i.trait_type {
+            let trait_ty = self.ctx.type_registry.normalize(
+                self.ctx
+                    .node_types
+                    .get(&trait_ty_node.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
+            if target_ty != TypeId::ERROR
+                && trait_ty != TypeId::ERROR
+                && matches!(self.ctx.type_registry.get(trait_ty), TypeKind::TraitObject(..))
+            {
+                self.ctx.active_bounds.push((target_ty, vec![trait_ty]));
+            }
+        }
         for clause in &i.where_clauses {
             let target_ty = self.ctx.type_registry.normalize(
                 self.ctx
@@ -939,12 +961,6 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         // Inject the `Self` type for the impl target.
-        let target_ty = self
-            .ctx
-            .node_types
-            .get(&i.target_type.id)
-            .copied()
-            .unwrap_or(TypeId::ERROR);
         let self_sym = self.ctx.intern("Self");
         let _ = self.ctx.scopes.define(
             self_sym,

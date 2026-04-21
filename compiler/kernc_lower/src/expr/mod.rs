@@ -125,10 +125,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     this.lower_unary(*op, operand, subst_map, concrete_ty, expr.span)
                 }),
 
-            ExprKind::Call { callee, args } => self
-                .measure_phase("        lower_expr_call", |this| {
-                    this.lower_call(callee, args, subst_map, expr.span)
-                }),
+            ExprKind::Call { callee, args } => {
+                return self.measure_phase("        lower_expr_call", |this| {
+                    this.lower_call(callee, args, subst_map, expr.span, concrete_ty)
+                });
+            }
             ExprKind::FieldAccess { lhs, field, .. } => {
                 self.measure_phase("        lower_expr_access", |this| {
                     // Use the substituted concrete type to avoid instantiating `FnDef` with raw generic params.

@@ -23,6 +23,7 @@ pub(crate) struct DynamicDispatchCall {
     pub(crate) span: Span,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct MethodCallSite {
     pub(crate) field: SymbolId,
     pub(crate) norm_callee: TypeId,

@@ -709,6 +709,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 assoc_bindings,
             );
 
+            let owner_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+                trait_def_id,
+                trait_args.to_vec(),
+                assoc_bindings.to_vec(),
+            ));
+            let owner_trait_ty =
+                crate::query::retain_declared_trait_object_assoc_bindings(self.ctx, owner_trait_ty);
+
             return Some(MemberResolution {
                 candidate: MemberCandidate {
                     name: member_name,
@@ -718,11 +726,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     definition_span: trait_method_span(trait_def, member_name),
                     is_mut: false,
                 },
-                owner_trait_ty: Some(self.ctx.type_registry.intern(TypeKind::TraitObject(
-                    trait_def_id,
-                    trait_args.to_vec(),
-                    assoc_bindings.to_vec(),
-                ))),
+                owner_trait_ty: Some(owner_trait_ty),
             });
         }
 

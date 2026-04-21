@@ -623,7 +623,55 @@ pub(crate) fn enrich_trait_object_assoc_bindings(
         .intern(TypeKind::TraitObject(trait_def_id, trait_args, merged))
 }
 
-pub(crate) fn trait_object_view_from_hierarchy(
+pub fn retain_declared_trait_object_assoc_bindings(
+    ctx: &mut SemaContext<'_>,
+    trait_ty: TypeId,
+) -> TypeId {
+    let trait_ty = ctx.type_registry.normalize(trait_ty);
+    let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
+        ctx.type_registry.get(trait_ty).clone()
+    else {
+        return trait_ty;
+    };
+
+    if assoc_bindings.is_empty() {
+        return trait_ty;
+    }
+
+    let Some(Def::Trait(trait_def)) = ctx.defs.get(trait_def_id.0 as usize).cloned() else {
+        return trait_ty;
+    };
+    let declared_assoc = trait_def
+        .assoc_types
+        .into_iter()
+        .collect::<FastHashSet<_>>();
+    let filtered = assoc_bindings
+        .into_iter()
+        .filter(|(assoc_def_id, _)| declared_assoc.contains(assoc_def_id))
+        .collect::<Vec<_>>();
+
+    if filtered.is_empty() {
+        return ctx
+            .type_registry
+            .intern(TypeKind::TraitObject(trait_def_id, trait_args, Vec::new()));
+    }
+
+    ctx.type_registry
+        .intern(TypeKind::TraitObject(trait_def_id, trait_args, filtered))
+}
+
+pub fn declared_trait_object_view_from_hierarchy(
+    ctx: &mut SemaContext<'_>,
+    trait_ty: TypeId,
+    target_trait_def_id: DefId,
+    target_trait_args: &[crate::ty::GenericArg],
+) -> Option<TypeId> {
+    let trait_view =
+        trait_object_view_from_hierarchy(ctx, trait_ty, target_trait_def_id, target_trait_args)?;
+    Some(retain_declared_trait_object_assoc_bindings(ctx, trait_view))
+}
+
+pub fn trait_object_view_from_hierarchy(
     ctx: &mut SemaContext<'_>,
     trait_ty: TypeId,
     target_trait_def_id: DefId,

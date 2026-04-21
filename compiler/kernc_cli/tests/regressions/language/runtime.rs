@@ -793,6 +793,64 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_void_fence_in_let_initializer_without_ice() {
+    let output = compile_source_with_args(
+        "kernc_breakpoint_fence_runtime_regression",
+        r#"
+use sync.SEQ_CST;
+
+fn main() i32 {
+    let x = @fence(SEQ_CST);
+    let _ = x;
+    return 0;
+}
+"#,
+        &["--module-path", "sync=library/std/sync"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn compiles_void_memmove_in_let_initializer_without_ice() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let mut buf = [4]u8.{ 0, 1, 2, 3 };
+    let x = @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
+    let _ = x;
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn compiles_returning_atomic_store_from_void_function_without_ice() {
+    let output = compile_source_with_args(
+        "kernc_breakpoint_atomic_runtime_regression",
+        r#"
+use sync.SEQ_CST;
+
+fn store(ptr: *mut usize) void {
+    return @atomicStore[usize](ptr, 1, SEQ_CST);
+}
+
+fn main() i32 {
+    let mut value = usize.{0};
+    store(value..&);
+    return 0;
+}
+"#,
+        &["--module-path", "sync=library/std/sync"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn runs_for_clauses_with_non_void_init_post_and_body() {
     let output = build_and_run_source(
         r#"

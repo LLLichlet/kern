@@ -1,6 +1,20 @@
 use super::*;
 
 impl MirFunctionBuilder {
+    fn lower_void_effect_rvalue(
+        &mut self,
+        block_id: &mut MirBlockId,
+        expr: &MastExpr,
+    ) -> LowerResult<Option<MirRvalue>> {
+        let Some(end_block) = self.lower_control_or_eval_stmt(*block_id, expr)? else {
+            return Ok(None);
+        };
+        *block_id = end_block;
+        Ok(Some(MirRvalue::Use(MirOperand::Const(MirConst::Undef {
+            ty: expr.ty,
+        }))))
+    }
+
     pub(super) fn lower_rvalue(
         &mut self,
         block_id: &mut MirBlockId,
@@ -436,14 +450,17 @@ impl MirFunctionBuilder {
                 let _ = self.lower_control_or_eval_stmt(*block_id, expr)?;
                 Ok(None)
             }
-            MastExprKind::Breakpoint => {
-                let Some(end_block) = self.lower_control_or_eval_stmt(*block_id, expr)? else {
-                    return Ok(None);
-                };
-                *block_id = end_block;
-                Ok(Some(MirRvalue::Use(MirOperand::Const(MirConst::Undef {
-                    ty: expr.ty,
-                }))))
+            MastExprKind::Breakpoint
+            | MastExprKind::Memcpy { .. }
+            | MastExprKind::Memmove { .. }
+            | MastExprKind::Memset { .. }
+            | MastExprKind::AtomicStore { .. }
+            | MastExprKind::Fence { .. }
+            | MastExprKind::SimdStore { .. }
+            | MastExprKind::SimdMaskedStore { .. }
+            | MastExprKind::SimdScatter { .. }
+            | MastExprKind::SimdMaskedScatter { .. } => {
+                self.lower_void_effect_rvalue(block_id, expr)
             }
             _ => {
                 if let Some(operand) = self.lower_direct_operand(expr) {

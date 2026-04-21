@@ -1168,7 +1168,10 @@ fn cleanup_stale_artifact_outputs(action: &LinkAction, build_nodes: &[StagedActi
     )
 }
 
-fn cleanup_stale_compile_inputs(action: &CompileAction, build_nodes: &[StagedAction]) -> Result<()> {
+fn cleanup_stale_compile_inputs(
+    action: &CompileAction,
+    build_nodes: &[StagedAction],
+) -> Result<()> {
     cleanup_stale_staged_root(
         &action.generated_root_path,
         action.compile_inputs.as_slice(),
@@ -1239,7 +1242,9 @@ fn cleanup_stale_artifact_tree(
     for entry in fs::read_dir(dir).map_err(|err| Error::from_io(dir, err))? {
         let entry = entry.map_err(|err| Error::from_io(dir, err))?;
         let path = entry.path();
-        let file_type = entry.file_type().map_err(|err| Error::from_io(&path, err))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|err| Error::from_io(&path, err))?;
         if file_type.is_dir() {
             if keep_subtrees.contains(&path) {
                 continue;

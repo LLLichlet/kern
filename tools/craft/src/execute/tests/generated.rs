@@ -139,7 +139,11 @@ root = "src/placeholder.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src").join("placeholder.rn"), "fn main() i32 { return 1; }\n").unwrap();
+    fs::write(
+        root.join("src").join("placeholder.rn"),
+        "fn main() i32 { return 1; }\n",
+    )
+    .unwrap();
     fs::write(
         root.join("build.rn"),
         r#"
@@ -180,7 +184,10 @@ b.set_source_root(main);
             action.package_id.name == "demo" && action.target_kind == crate::plan::TargetKind::Bin
         })
         .unwrap();
-    let helper_path = compile_action.generated_root_path.join("src").join("helper.rn");
+    let helper_path = compile_action
+        .generated_root_path
+        .join("src")
+        .join("helper.rn");
     let helper_state = crate::build_state::action_state_path(&helper_path);
 
     let first = build(&build_plan, &action_plan).unwrap();
@@ -322,8 +329,16 @@ root = "src/main.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src").join("main.rn"), "fn main() i32 { return 0; }\n").unwrap();
-    fs::write(root.join("assets").join("config.json"), "{ \"mode\": \"old\" }\n").unwrap();
+    fs::write(
+        root.join("src").join("main.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("assets").join("config.json"),
+        "{ \"mode\": \"old\" }\n",
+    )
+    .unwrap();
     fs::write(
         root.join("build.rn"),
         r#"
@@ -437,9 +452,21 @@ root = "src/main.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src").join("main.rn"), "fn main() i32 { return 0; }\n").unwrap();
-    fs::write(root.join("assets").join("config.json"), "{ \"mode\": \"demo\" }\n").unwrap();
-    fs::write(root.join("assets").join("images").join("logo.txt"), "logo\n").unwrap();
+    fs::write(
+        root.join("src").join("main.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("assets").join("config.json"),
+        "{ \"mode\": \"demo\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("assets").join("images").join("logo.txt"),
+        "logo\n",
+    )
+    .unwrap();
     fs::write(
         root.join("build.rn"),
         r#"
@@ -539,8 +566,16 @@ root = "src/main.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src").join("main.rn"), "fn main() i32 { return 0; }\n").unwrap();
-    fs::write(root.join("assets").join("config.json"), "{ \"mode\": \"demo\" }\n").unwrap();
+    fs::write(
+        root.join("src").join("main.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("assets").join("config.json"),
+        "{ \"mode\": \"demo\" }\n",
+    )
+    .unwrap();
     fs::write(
         root.join("build.rn"),
         r#"
@@ -625,8 +660,16 @@ root = "src/main.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src").join("main.rn"), "fn main() i32 { return 0; }\n").unwrap();
-    fs::write(root.join("assets").join("config.json"), "{ \"mode\": \"demo\" }\n").unwrap();
+    fs::write(
+        root.join("src").join("main.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("assets").join("config.json"),
+        "{ \"mode\": \"demo\" }\n",
+    )
+    .unwrap();
     symlink(
         root.join("assets").join("config.json"),
         root.join("assets").join("config-link.json"),

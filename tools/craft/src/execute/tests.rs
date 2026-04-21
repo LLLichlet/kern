@@ -124,11 +124,7 @@ int ext_add(int lhs, int rhs) {
 }
 
 fn create_demo_static_library_with_source(dir: &Path, source: &str) {
-    fs::write(
-        dir.join("demo.c"),
-        source,
-    )
-    .unwrap();
+    fs::write(dir.join("demo.c"), source).unwrap();
 
     let mut cc = Command::new(c_compiler_tool());
     cc.arg("-c")
@@ -767,7 +763,10 @@ int ext_add(int lhs, int rhs) {
     assert_eq!(second.link_actions, 1);
     let second_image = fs::read(&link_action.artifact_path).unwrap();
     let second_output = run_binary_with_retry(&link_action.artifact_path, 0);
-    assert_eq!(String::from_utf8_lossy(&second_output.stdout), "native=43\n");
+    assert_eq!(
+        String::from_utf8_lossy(&second_output.stdout),
+        "native=43\n"
+    );
     assert_ne!(first_image, second_image);
 
     let _ = fs::remove_dir_all(root);

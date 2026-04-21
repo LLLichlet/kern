@@ -769,11 +769,7 @@ enum TreeEntry {
     File(String, Vec<u8>),
 }
 
-fn collect_tree_entries(
-    root: &Path,
-    current: &Path,
-    entries: &mut Vec<TreeEntry>,
-) -> Result<()> {
+fn collect_tree_entries(root: &Path, current: &Path, entries: &mut Vec<TreeEntry>) -> Result<()> {
     for entry in fs::read_dir(current).map_err(|err| Error::from_io(current, err))? {
         let entry = entry.map_err(Error::from_io_plain)?;
         if entry.file_name() == std::ffi::OsStr::new(".git")

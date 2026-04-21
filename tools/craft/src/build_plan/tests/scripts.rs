@@ -886,7 +886,11 @@ root = "src/lib.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/lib.rn"), "pub fn value() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("src/lib.rn"),
+        "pub fn value() i32 { return 0; }\n",
+    )
+    .unwrap();
     fs::write(
         root.join("build.rn"),
         r#"
@@ -937,7 +941,11 @@ root = "src/lib.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/lib.rn"), "pub fn value() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("src/lib.rn"),
+        "pub fn value() i32 { return 0; }\n",
+    )
+    .unwrap();
     fs::write(
         root.join("build.rn"),
         r#"
@@ -989,7 +997,11 @@ root = "src/placeholder.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/placeholder.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("src/placeholder.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
     fs::write(
         root.join("build.rn"),
         r#"
@@ -1091,7 +1103,11 @@ root = "src/placeholder.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/placeholder.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("src/placeholder.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
     fs::write(
         root.join("build.rn"),
         r#"
@@ -1146,7 +1162,11 @@ root = "src/placeholder.rn"
 "#,
     )
     .unwrap();
-    fs::write(root.join("src/placeholder.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("src/placeholder.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
     fs::write(
         root.join("build.rn"),
         r#"
@@ -1173,9 +1193,8 @@ b.set_source_root_from("pre|999|/tmp/forged-main.rn");
     let err = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap_err();
 
     assert!(
-        err.to_string().contains(
-            "`output` must refer to a staged build output declared by the current unit"
-        )
+        err.to_string()
+            .contains("`output` must refer to a staged build output declared by the current unit")
     );
 
     let _ = fs::remove_dir_all(root);

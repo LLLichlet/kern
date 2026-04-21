@@ -1,0 +1,66 @@
+// class: static-initializer-type-eval
+// source: minimized from a Limine-style framebuffer request where a pointer field was initialized with `?T`
+// stderr: Cannot find type `T` in this scope
+// stderr: optional types cannot be evaluated as value expressions
+// timeout-ms: 2000
+
+type limine_video_mode = struct {
+    pitch: u64,
+    width: u64,
+    height: u64,
+    bpp: u16,
+    memory_model: u8,
+    red_mask_size: u8,
+    red_mask_shift: u8,
+    green_mask_size: u8,
+    green_mask_shift: u8,
+    blue_mask_size: u8,
+    blue_mask_shift: u8,
+};
+
+type limine_framebuffer = struct {
+    address: *u8,
+    width: u64,
+    height: u64,
+    pitch: u64,
+    bpp: u16,
+    memory_model: u8,
+    red_mask_size: u8,
+    red_mask_shift: u8,
+    green_mask_size: u8,
+    green_mask_shift: u8,
+    blue_mask_size: u8,
+    blue_mask_shift: u8,
+    unused: [7]u8,
+    edid_size: u64,
+    edid: *u64,
+    mode_count: u64,
+    modes: **limine_video_mode,
+};
+
+type limine_framebuffer_response = struct {
+    revision: u64,
+    framebuffer_count: u64,
+    framebuffers: **limine_framebuffer,
+};
+
+type limine_framebuffer_request = struct {
+    id: [4]u64,
+    revision: u64,
+    response: *limine_framebuffer_response,
+};
+
+static framebuffer_request = limine_framebuffer_request.{
+    id: .{
+        0xc7b1dd30df4c8b88,
+        0x0a82e883a194f07b,
+        0x9d5827dcd881dd75,
+        0xa3148604f6fab11b,
+    },
+    revision: 0,
+    response: ?T,
+};
+
+fn main() i32 {
+    return 0;
+}

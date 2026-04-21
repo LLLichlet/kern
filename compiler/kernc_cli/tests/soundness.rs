@@ -79,8 +79,24 @@ fn run_reject_cases(paths: &[PathBuf]) {
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>();
-        let output =
-            compile_source_with_args("kernc_soundness_reject", &case.source, &compile_args);
+        let output = match case.timeout_ms {
+            Some(timeout_ms) => match compile_source_with_args_timeout(
+                "kernc_soundness_reject",
+                &case.source,
+                &compile_args,
+                Duration::from_millis(timeout_ms),
+            ) {
+                TimedCompileResult::Output(output) => output,
+                TimedCompileResult::TimedOut => {
+                    panic!(
+                        "{} timed out after {} ms while compiling",
+                        path.display(),
+                        timeout_ms
+                    );
+                }
+            },
+            None => compile_source_with_args("kernc_soundness_reject", &case.source, &compile_args),
+        };
 
         assert!(
             !output.status.success(),

@@ -1,0 +1,17 @@
+// class: static-initializer-nullability
+// source: Limine-style boot requests often use optional pointers to express an initially-empty response slot
+// exit: 0
+// timeout-ms: 2000
+
+type framebuffer_request = struct {
+    response: ?*u8,
+};
+
+static REQUEST = framebuffer_request.{ response: (?*u8).None };
+
+fn main() i32 {
+    return match (REQUEST.response) {
+        .None => 0,
+        .{ Some: _ } => 1,
+    };
+}

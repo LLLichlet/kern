@@ -642,6 +642,9 @@ fn sync_dir_all(source: &Path, dest: &Path) -> Result<()> {
         let entry = entry.map_err(Error::from_io_plain)?;
         let file_type = entry.file_type().map_err(Error::from_io_plain)?;
         let name = entry.file_name();
+        if name == std::ffi::OsStr::new(".git") || name == std::ffi::OsStr::new(".craft") {
+            continue;
+        }
         let source_path = entry.path();
         let dest_path = dest.join(&name);
         source_names.insert(name.clone());
@@ -748,12 +751,14 @@ fn collect_tree_entries(
 ) -> Result<()> {
     for entry in fs::read_dir(current).map_err(|err| Error::from_io(current, err))? {
         let entry = entry.map_err(Error::from_io_plain)?;
+        if entry.file_name() == std::ffi::OsStr::new(".git")
+            || entry.file_name() == std::ffi::OsStr::new(".craft")
+        {
+            continue;
+        }
         let path = entry.path();
         let file_type = entry.file_type().map_err(Error::from_io_plain)?;
         if file_type.is_dir() {
-            if entry.file_name() == std::ffi::OsStr::new(".craft") {
-                continue;
-            }
             collect_tree_entries(root, &path, entries)?;
         } else if file_type.is_file() {
             let relative = path
@@ -1072,6 +1077,58 @@ log = {{ git = "{}", branch = "main", version = "1" }}
             normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
             "pub fn x() i32 { return 1; }\n"
         );
+    }
+
+    #[test]
+    fn fetches_git_resources_without_materializing_git_metadata() {
+        let root = temp_dir("craft-fetch-git-resource");
+        let repo = root.join("limine.git");
+        init_git_package(&repo, "pub fn x() i32 { return 0; }\n");
+        fs::write(repo.join("resource.txt"), "limine\n").unwrap();
+        run_git(&repo, ["add", "."]).unwrap();
+        run_git(&repo, ["commit", "-m", "resource"]).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            format!(
+                r#"
+[package]
+name = "kernel"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "kernel"
+root = "src/main.rn"
+
+[resources]
+limine = {{ git = "{}", branch = "main" }}
+"#,
+                toml_string_literal(&repo)
+            ),
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Fetch,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let fetched = fetch_package_resources(&elaboration).unwrap();
+        assert_eq!(fetched.len(), 1);
+        assert!(fetched[0].cache_path.join("resource.txt").is_file());
+        assert!(!fetched[0].cache_path.join(".git").exists());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     fn init_git_package(repo: &PathBuf, lib_source: &str) {

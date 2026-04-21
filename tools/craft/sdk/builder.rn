@@ -49,6 +49,7 @@ pub extern type Builder = struct {
 
 extern {
     fn __craft_build_feature_enabled(builder: *Builder, name: []u8) bool;
+    fn __craft_build_primary_artifact(builder: *Builder) Output;
     fn __craft_build_resource_root(builder: *Builder, name: []u8) []u8;
     fn __craft_build_resource_path(builder: *Builder, name: []u8, relative_path: []u8) []u8;
     fn __craft_build_link_system_lib(builder: *mut Builder, name: []u8) void;
@@ -70,6 +71,7 @@ extern {
     fn __craft_build_stage_generated_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, generated_relative: []u8, args: [][]u8) Output;
     fn __craft_build_stage_artifact_file(builder: *mut Builder, relative_path: []u8, contents: []u8) Output;
     fn __craft_build_stage_artifact_file_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, artifact_relative: []u8, args: [][]u8) Output;
+    fn __craft_build_stage_copy_output_to_artifact(builder: *mut Builder, source_output: Output, artifact_relative: []u8) Output;
     fn __craft_build_stage_copy_package_file_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) Output;
     fn __craft_build_stage_copy_package_dir_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) Output;
     fn __craft_build_stage_copy_resource_file_to_artifact(builder: *mut Builder, resource_name: []u8, source_relative: []u8, artifact_relative: []u8) Output;
@@ -80,6 +82,10 @@ extern {
 impl *Builder {
     pub fn feature_enabled(name: []u8) bool {
         return __craft_build_feature_enabled(self, name);
+    }
+
+    pub fn primary_artifact() Output {
+        return __craft_build_primary_artifact(self);
     }
 
     pub fn tool_path(dependency_name: []u8, tool_name: []u8) []u8 {
@@ -190,6 +196,14 @@ impl *mut Builder {
 
     pub fn emit_artifact_file_from_tool(dependency_name: []u8, tool_name: []u8, artifact_relative: []u8, args: [][]u8) []u8 {
         return self.output_path(self.stage_artifact_file_from_tool(dependency_name, tool_name, artifact_relative, args));
+    }
+
+    pub fn stage_copy_output_to_artifact(source_output: Output, artifact_relative: []u8) Output {
+        return __craft_build_stage_copy_output_to_artifact(self, source_output, artifact_relative);
+    }
+
+    pub fn copy_output_to_artifact(source_output: Output, artifact_relative: []u8) []u8 {
+        return self.output_path(self.stage_copy_output_to_artifact(source_output, artifact_relative));
     }
 
     pub fn stage_copy_package_file_to_artifact(source_relative: []u8, artifact_relative: []u8) Output {

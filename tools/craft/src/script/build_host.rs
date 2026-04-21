@@ -30,6 +30,17 @@ impl<'a> BuildUnitHost<'a> {
             script_context,
         }
     }
+
+    fn ensure_executable_artifact_phase(&self, operation: &str) -> std::result::Result<(), String> {
+        if self.unit.artifact_kind == crate::build_plan::ArtifactKind::Executable {
+            return Ok(());
+        }
+
+        Err(format!(
+            "`{operation}` is only supported for executable units; current unit kind is `{:?}`",
+            self.unit.target_kind
+        ))
+    }
 }
 
 impl ScriptHost for BuildUnitHost<'_> {
@@ -49,6 +60,14 @@ impl ScriptHost for BuildUnitHost<'_> {
                         .features
                         .contains(feature.as_str()),
                 ))
+            }
+            "__craft_build_primary_artifact" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                self.ensure_executable_artifact_phase("primary_artifact()")?;
+                Ok(output_value(&BuildOutput {
+                    kind: BuildOutputKind::PrimaryArtifact,
+                    path: self.script_context.paths.artifact_path.clone(),
+                }))
             }
             "__craft_build_tool_path" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
@@ -126,10 +145,9 @@ impl ScriptHost for BuildUnitHost<'_> {
                     ));
                 }
                 self.unit.link.args.push(flag);
-                self.unit
-                    .link
-                    .args
-                    .push(normalized_path_string(&resolved_path));
+                let resolved = normalized_path_string(&resolved_path);
+                self.unit.link.args.push(resolved.clone());
+                push_unique(&mut self.unit.link.input_paths, resolved);
                 Ok(ConstValue::Void)
             }
             "__craft_build_cfg_bool" => {
@@ -169,8 +187,17 @@ impl ScriptHost for BuildUnitHost<'_> {
             "__craft_build_set_source_root_from" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let output = expect_output(args, 1, "output")?;
+                let BuildOutputKind::Staged {
+                    id,
+                    phase: StagedActionPhase::PreCompile,
+                } = output.kind
+                else {
+                    return Err(
+                        "source root can only be bound from pre-compile staged outputs".to_string(),
+                    );
+                };
                 self.unit.source_root = SourceRootBinding::BuildOutput {
-                    id: output.id,
+                    id,
                     path: normalize_path_display(&output.path),
                 };
                 Ok(ConstValue::Void)
@@ -238,6 +265,16 @@ impl ScriptHost for BuildUnitHost<'_> {
             "__craft_build_stage_copy_output" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let source_output = expect_output(args, 1, "source output")?;
+                let BuildOutputKind::Staged {
+                    id: dependency_id,
+                    phase: StagedActionPhase::PreCompile,
+                } = source_output.kind
+                else {
+                    return Err(
+                        "generated outputs can only copy from pre-compile staged outputs"
+                            .to_string(),
+                    );
+                };
                 let generated_relative = expect_string(args, 2, "generated relative path")?;
                 let dest_path = generated_output_path(
                     Path::new(&self.script_context.paths.generated_root),
@@ -265,7 +302,11 @@ impl ScriptHost for BuildUnitHost<'_> {
                         source: source_output.path,
                     },
                 );
-                add_staged_dependency(self.build_nodes, output.id, source_output.id)?;
+                add_staged_dependency(
+                    self.build_nodes,
+                    output.staged_id("generated output")?,
+                    dependency_id,
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_stage_generated_from_tool" => {
@@ -300,6 +341,7 @@ impl ScriptHost for BuildUnitHost<'_> {
             }
             "__craft_build_stage_artifact_file" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
+                self.ensure_executable_artifact_phase("stage_artifact_file(...)")?;
                 let relative_path = expect_string(args, 1, "artifact relative path")?;
                 let contents = expect_string(args, 2, "artifact file contents")?;
                 let dest_path = generated_output_path(
@@ -318,6 +360,7 @@ impl ScriptHost for BuildUnitHost<'_> {
             }
             "__craft_build_stage_artifact_file_from_tool" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
+                self.ensure_executable_artifact_phase("stage_artifact_file_from_tool(...)")?;
                 let dependency_name = expect_string(args, 1, "tool dependency name")?;
                 let tool_name = expect_string(args, 2, "tool target name")?;
                 let artifact_relative = expect_string(args, 3, "artifact relative path")?;
@@ -340,8 +383,38 @@ impl ScriptHost for BuildUnitHost<'_> {
                 );
                 Ok(output_value(&output))
             }
+            "__craft_build_stage_copy_output_to_artifact" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                self.ensure_executable_artifact_phase("stage_copy_output_to_artifact(...)")?;
+                let source_output = expect_output(args, 1, "source output")?;
+                let dependency_id = source_output.dependency_id_for_post_link_copy();
+                let artifact_relative = expect_string(args, 2, "artifact relative path")?;
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.artifact_root),
+                    &artifact_relative,
+                )?;
+                let output = record_staged_action(
+                    self.build_nodes,
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PostLink,
+                    StagedActionKind::CopyFile {
+                        source: source_output.path,
+                    },
+                );
+                if let Some(dependency_id) = dependency_id {
+                    add_staged_dependency(
+                        self.build_nodes,
+                        output.staged_id("artifact output")?,
+                        dependency_id,
+                    )?;
+                }
+                Ok(output_value(&output))
+            }
             "__craft_build_stage_copy_package_file_to_artifact" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
+                self.ensure_executable_artifact_phase("stage_copy_package_file_to_artifact(...)")?;
                 let source_relative = expect_string(args, 1, "package relative source path")?;
                 let artifact_relative = expect_string(args, 2, "artifact relative path")?;
                 let source_path =
@@ -370,6 +443,7 @@ impl ScriptHost for BuildUnitHost<'_> {
             }
             "__craft_build_stage_copy_package_dir_to_artifact" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
+                self.ensure_executable_artifact_phase("stage_copy_package_dir_to_artifact(...)")?;
                 let source_relative = expect_string(args, 1, "package relative source dir")?;
                 let artifact_relative = expect_string(args, 2, "artifact relative dir")?;
                 let source_path =
@@ -398,6 +472,7 @@ impl ScriptHost for BuildUnitHost<'_> {
             }
             "__craft_build_stage_copy_resource_file_to_artifact" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
+                self.ensure_executable_artifact_phase("stage_copy_resource_file_to_artifact(...)")?;
                 let resource_name = expect_string(args, 1, "resource name")?;
                 let source_relative = expect_string(args, 2, "resource relative source path")?;
                 let artifact_relative = expect_string(args, 3, "artifact relative path")?;
@@ -428,6 +503,7 @@ impl ScriptHost for BuildUnitHost<'_> {
             }
             "__craft_build_stage_copy_resource_dir_to_artifact" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
+                self.ensure_executable_artifact_phase("stage_copy_resource_dir_to_artifact(...)")?;
                 let resource_name = expect_string(args, 1, "resource name")?;
                 let source_relative = expect_string(args, 2, "resource relative source dir")?;
                 let artifact_relative = expect_string(args, 3, "artifact relative dir")?;
@@ -460,7 +536,11 @@ impl ScriptHost for BuildUnitHost<'_> {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let output = expect_output(args, 1, "output")?;
                 let dependency = expect_output(args, 2, "dependency")?;
-                add_staged_dependency(self.build_nodes, output.id, dependency.id)?;
+                add_staged_dependency(
+                    self.build_nodes,
+                    output.staged_id("output")?,
+                    dependency.staged_id("dependency")?,
+                )?;
                 Ok(ConstValue::Void)
             }
             _ => Err(format!("unsupported build host function `{name}`")),
@@ -541,8 +621,39 @@ pub(super) fn build_argument_value(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BuildOutput {
-    id: usize,
+    kind: BuildOutputKind,
     path: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildOutputKind {
+    Staged { id: usize, phase: StagedActionPhase },
+    PrimaryArtifact,
+}
+
+impl BuildOutput {
+    fn staged_id(&self, label: &str) -> std::result::Result<usize, String> {
+        match self.kind {
+            BuildOutputKind::Staged { id, .. } => Ok(id),
+            BuildOutputKind::PrimaryArtifact => {
+                Err(format!("`{label}` must refer to a staged build output"))
+            }
+        }
+    }
+
+    fn dependency_id_for_post_link_copy(&self) -> Option<usize> {
+        match self.kind {
+            BuildOutputKind::Staged {
+                id,
+                phase: StagedActionPhase::PostLink,
+            } => Some(id),
+            BuildOutputKind::Staged {
+                phase: StagedActionPhase::PreCompile,
+                ..
+            }
+            | BuildOutputKind::PrimaryArtifact => None,
+        }
+    }
 }
 
 fn generated_output_path(root: &Path, relative_path: &str) -> std::result::Result<PathBuf, String> {
@@ -696,7 +807,10 @@ fn record_staged_action(
             .expect("build node id must exist");
         existing.kind = kind;
         return BuildOutput {
-            id: existing_id,
+            kind: BuildOutputKind::Staged {
+                id: existing_id,
+                phase,
+            },
             path: normalized_path_string(path),
         };
     }
@@ -710,7 +824,7 @@ fn record_staged_action(
     });
     unit_bound_node_ids_mut(unit, phase).push(id);
     BuildOutput {
-        id,
+        kind: BuildOutputKind::Staged { id, phase },
         path: normalized_path_string(path),
     }
 }
@@ -772,7 +886,17 @@ fn unit_bound_node_ids_mut(unit: &mut BuildUnit, phase: StagedActionPhase) -> &m
 }
 
 fn output_value(output: &BuildOutput) -> ConstValue {
-    ConstValue::String(format!("{}|{}", output.id, output.path))
+    match output.kind {
+        BuildOutputKind::Staged {
+            id,
+            phase: StagedActionPhase::PreCompile,
+        } => ConstValue::String(format!("pre|{}|{}", id, output.path)),
+        BuildOutputKind::Staged {
+            id,
+            phase: StagedActionPhase::PostLink,
+        } => ConstValue::String(format!("post|{}|{}", id, output.path)),
+        BuildOutputKind::PrimaryArtifact => ConstValue::String(format!("artifact|{}", output.path)),
+    }
 }
 
 fn resolve_build_tool<'a>(
@@ -830,19 +954,50 @@ fn expect_output(
     label: &str,
 ) -> std::result::Result<BuildOutput, String> {
     let value = expect_string(args, index, label)?;
-    let Some((id, path)) = value.split_once('|') else {
-        return Err(format!("expected `{label}` to be a build output handle"));
-    };
-    let id = id
-        .parse::<usize>()
-        .map_err(|_| format!("expected `{label}` to carry a numeric build output id"))?;
-    if path.is_empty() {
-        return Err(format!("expected `{label}` to carry a build output path"));
+    let mut parts = value.splitn(3, '|');
+    let kind = parts
+        .next()
+        .ok_or_else(|| format!("expected `{label}` to be a build output handle"))?;
+
+    match kind {
+        "pre" | "post" => {
+            let id = parts
+                .next()
+                .ok_or_else(|| format!("expected `{label}` to carry a build output id"))?
+                .parse::<usize>()
+                .map_err(|_| format!("expected `{label}` to carry a numeric build output id"))?;
+            let path = parts
+                .next()
+                .ok_or_else(|| format!("expected `{label}` to carry a build output path"))?;
+            if path.is_empty() {
+                return Err(format!("expected `{label}` to carry a build output path"));
+            }
+            Ok(BuildOutput {
+                kind: BuildOutputKind::Staged {
+                    id,
+                    phase: if kind == "pre" {
+                        StagedActionPhase::PreCompile
+                    } else {
+                        StagedActionPhase::PostLink
+                    },
+                },
+                path: path.to_string(),
+            })
+        }
+        "artifact" => {
+            let path = parts
+                .next()
+                .ok_or_else(|| format!("expected `{label}` to carry a build output path"))?;
+            if path.is_empty() {
+                return Err(format!("expected `{label}` to carry a build output path"));
+            }
+            Ok(BuildOutput {
+                kind: BuildOutputKind::PrimaryArtifact,
+                path: path.to_string(),
+            })
+        }
+        _ => Err(format!("expected `{label}` to be a build output handle")),
     }
-    Ok(BuildOutput {
-        id,
-        path: path.to_string(),
-    })
 }
 
 fn push_unique(values: &mut Vec<String>, value: String) {

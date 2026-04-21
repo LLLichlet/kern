@@ -137,6 +137,7 @@ pub struct LinkPlan {
     pub frameworks: Vec<String>,
     pub search_paths: Vec<String>,
     pub args: Vec<String>,
+    pub input_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,6 +155,7 @@ pub struct CompileAction {
     pub target_kind: TargetKind,
     pub target_name: Option<String>,
     pub artifact_name: String,
+    pub generated_root_path: PathBuf,
     pub source_input: CompileSourceInput,
     pub metadata_path: Option<PathBuf>,
     pub object_path: PathBuf,
@@ -179,6 +181,7 @@ pub struct LinkAction {
     pub package_id: PackageId,
     pub manifest_path: PathBuf,
     pub package_root_path: PathBuf,
+    pub artifact_root_path: PathBuf,
     pub target_kind: TargetKind,
     pub target_name: Option<String>,
     pub artifact_name: String,

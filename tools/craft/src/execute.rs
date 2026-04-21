@@ -258,6 +258,7 @@ pub(crate) fn materialize_analysis_inputs(
         if action.domain != BuildDomain::Target {
             continue;
         }
+        cleanup_stale_compile_inputs(action, action_plan.build_nodes.as_slice())?;
         execute_staged_actions(
             action.compile_inputs.as_slice(),
             action_plan.build_nodes.as_slice(),
@@ -500,6 +501,7 @@ fn build_with_command(
             if action.domain != BuildDomain::Target {
                 continue;
             }
+            cleanup_stale_compile_inputs(action, action_plan.build_nodes.as_slice())?;
             execute_staged_actions(
                 action.compile_inputs.as_slice(),
                 action_plan.build_nodes.as_slice(),
@@ -797,7 +799,24 @@ fn build_link_action_if_needed(
 ) -> Result<bool> {
     let _link_lock = OutputOperationLock::acquire(&action.artifact_path, "link-action")?;
     let toolchain_digest = build_state::current_process_digest()?;
-    let fingerprint = link_action_fingerprint(action, &options, linker_inputs, &toolchain_digest);
+    let mut link_input_paths = action
+        .link
+        .input_paths
+        .iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    for path in local_link_search_input_paths(action, &options) {
+        if !link_input_paths.contains(&path) {
+            link_input_paths.push(path);
+        }
+    }
+    let fingerprint = link_action_fingerprint(
+        action,
+        &options,
+        linker_inputs,
+        &link_input_paths,
+        &toolchain_digest,
+    );
     if build_state::action_state_is_current(&action.artifact_path, &fingerprint)? {
         execution_summary.record_link_cache_hit();
         return Ok(false);
@@ -812,10 +831,12 @@ fn build_link_action_if_needed(
             action.artifact_path.display()
         )));
     };
+    let mut state_inputs = linker_inputs.to_vec();
+    state_inputs.extend(link_input_paths);
     build_state::record_action_state(
         &action.artifact_path,
         fingerprint,
-        linker_inputs,
+        &state_inputs,
         std::slice::from_ref(&action.artifact_path),
     )?;
     execution_summary.record_link_cache_miss();
@@ -852,6 +873,7 @@ fn ensure_compile_action_built(
         }
     }
 
+    cleanup_stale_compile_inputs(action, session.indexes.action_plan.build_nodes.as_slice())?;
     execute_staged_actions(
         action.compile_inputs.as_slice(),
         session.indexes.action_plan.build_nodes.as_slice(),
@@ -936,7 +958,21 @@ fn execute_staged_action(
     active.remove(&action.id);
     let _staged_lock = OutputOperationLock::acquire(&output_path, "staged-action")?;
     let toolchain_digest = build_state::current_process_digest()?;
-    let mut input_paths = Vec::new();
+    let mut input_paths = action
+        .depends_on
+        .iter()
+        .map(|dependency_id| {
+            action_index
+                .get(dependency_id)
+                .map(|dependency| PathBuf::from(&dependency.output))
+                .ok_or_else(|| {
+                    Error::Execution(format!(
+                        "missing build node `{dependency_id}` while hashing `{}`",
+                        action.output
+                    ))
+                })
+        })
+        .collect::<Result<Vec<_>>>()?;
     let fingerprint = match &action.kind {
         StagedActionKind::WriteFile { contents } => build_fingerprint(&[
             "kind=write".to_string(),
@@ -967,26 +1003,45 @@ fn execute_staged_action(
                 format!("tool={}", tool_path.display()),
                 format!("output={}", output_path.display()),
             ];
+            lines.extend(
+                input_paths
+                    .iter()
+                    .map(|path| format!("dep={}", path.display())),
+            );
             lines.extend(args.iter().map(|arg| format!("arg={arg}")));
             build_fingerprint(&lines)
         }
         StagedActionKind::CopyFile { source } => {
             let input_path = PathBuf::from(source);
             input_paths.push(input_path.clone());
-            build_fingerprint(&[
+            let mut lines = vec![
                 "kind=copy-file".to_string(),
                 format!("input={}", input_path.display()),
                 format!("output={}", output_path.display()),
-            ])
+            ];
+            lines.extend(
+                action
+                    .depends_on
+                    .iter()
+                    .map(|dependency_id| format!("dep={dependency_id}")),
+            );
+            build_fingerprint(&lines)
         }
         StagedActionKind::CopyDirectory { source } => {
             let input_path = PathBuf::from(source);
             input_paths.push(input_path.clone());
-            build_fingerprint(&[
+            let mut lines = vec![
                 "kind=copy-dir".to_string(),
                 format!("input={}", input_path.display()),
                 format!("output={}", output_path.display()),
-            ])
+            ];
+            lines.extend(
+                action
+                    .depends_on
+                    .iter()
+                    .map(|dependency_id| format!("dep={dependency_id}")),
+            );
+            build_fingerprint(&lines)
         }
     };
 
@@ -1084,6 +1139,8 @@ fn ensure_link_action_built(
 
     session.state.linked.insert(action.artifact_path.clone());
 
+    cleanup_stale_artifact_outputs(action, session.indexes.action_plan.build_nodes.as_slice())?;
+
     execute_staged_actions(
         action.artifact_outputs.as_slice(),
         session.indexes.action_plan.build_nodes.as_slice(),
@@ -1091,6 +1148,115 @@ fn ensure_link_action_built(
         session,
     )?;
     Ok(linked_now)
+}
+
+fn local_link_search_input_paths(action: &LinkAction, options: &CompileOptions) -> Vec<PathBuf> {
+    options
+        .linker_search_paths
+        .iter()
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir() && path.starts_with(&action.package_root_path))
+        .collect()
+}
+
+fn cleanup_stale_artifact_outputs(action: &LinkAction, build_nodes: &[StagedAction]) -> Result<()> {
+    cleanup_stale_staged_root(
+        &action.artifact_root_path,
+        action.artifact_outputs.as_slice(),
+        build_nodes,
+        "artifact",
+    )
+}
+
+fn cleanup_stale_compile_inputs(action: &CompileAction, build_nodes: &[StagedAction]) -> Result<()> {
+    cleanup_stale_staged_root(
+        &action.generated_root_path,
+        action.compile_inputs.as_slice(),
+        build_nodes,
+        "generated",
+    )
+}
+
+fn cleanup_stale_staged_root(
+    root: &Path,
+    root_ids: &[usize],
+    build_nodes: &[StagedAction],
+    label: &str,
+) -> Result<()> {
+    if !root.is_dir() {
+        return Ok(());
+    }
+
+    let action_index = build_nodes
+        .iter()
+        .map(|node| (node.id, node))
+        .collect::<BTreeMap<_, _>>();
+    let mut keep_files = BTreeSet::new();
+    let mut keep_dirs = BTreeSet::new();
+    let mut keep_subtrees = BTreeSet::new();
+    keep_dirs.insert(root.to_path_buf());
+
+    for root_id in root_ids {
+        let node = action_index
+            .get(root_id)
+            .ok_or_else(|| Error::Execution(format!("missing build node `{root_id}`")))?;
+        let output_path = PathBuf::from(&node.output);
+        if !output_path.starts_with(root) {
+            return Err(Error::Execution(format!(
+                "{label} output `{}` escapes owned root `{}`",
+                output_path.display(),
+                root.display()
+            )));
+        }
+        keep_files.insert(output_path.clone());
+        keep_files.insert(build_state::action_state_path(&output_path));
+        if matches!(node.kind, StagedActionKind::CopyDirectory { .. }) {
+            keep_subtrees.insert(output_path.clone());
+        }
+        let mut current = output_path.parent();
+        while let Some(path) = current {
+            if !path.starts_with(root) {
+                break;
+            }
+            keep_dirs.insert(path.to_path_buf());
+            if path == root {
+                break;
+            }
+            current = path.parent();
+        }
+    }
+
+    cleanup_stale_artifact_tree(root, root, &keep_files, &keep_dirs, &keep_subtrees)
+}
+
+fn cleanup_stale_artifact_tree(
+    root: &Path,
+    dir: &Path,
+    keep_files: &BTreeSet<PathBuf>,
+    keep_dirs: &BTreeSet<PathBuf>,
+    keep_subtrees: &BTreeSet<PathBuf>,
+) -> Result<()> {
+    for entry in fs::read_dir(dir).map_err(|err| Error::from_io(dir, err))? {
+        let entry = entry.map_err(|err| Error::from_io(dir, err))?;
+        let path = entry.path();
+        let file_type = entry.file_type().map_err(|err| Error::from_io(&path, err))?;
+        if file_type.is_dir() {
+            if keep_subtrees.contains(&path) {
+                continue;
+            }
+            cleanup_stale_artifact_tree(root, &path, keep_files, keep_dirs, keep_subtrees)?;
+            if path != root && !keep_dirs.contains(&path) && path.exists() {
+                fs::remove_dir_all(&path).map_err(|err| Error::from_io(&path, err))?;
+            }
+            continue;
+        }
+
+        if !keep_files.contains(&path) {
+            fs::remove_file(&path).map_err(|err| Error::from_io(&path, err))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn copy_dir_all(source: &Path, dest: &Path) -> std::result::Result<(), String> {

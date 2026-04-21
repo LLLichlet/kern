@@ -1,7 +1,7 @@
 use super::{
     ActionPlan, ArtifactKind, BuildPlan, BuildUnit, CompileAction, CompileSourceInput, LinkAction,
-    SourceRootBinding, StagedAction, artifact_path, metadata_path, object_path,
-    resolve_compile_source_input, resolve_staged_action,
+    SourceRootBinding, StagedAction, artifact_path, artifact_root_path, generated_root_path,
+    metadata_path, object_path, resolve_compile_source_input, resolve_staged_action,
 };
 use crate::graph::{BuildDomain, PackageId};
 use crate::plan::TargetKind;
@@ -237,6 +237,14 @@ impl BuildPlan {
                     target_kind: unit.target_kind,
                     target_name: unit.target_name.clone(),
                     artifact_name: unit.artifact_name.clone(),
+                    generated_root_path: generated_root_path(
+                        &self.workspace_root,
+                        unit.domain,
+                        &unit.package_id,
+                        &unit.profile.name,
+                        unit.target_kind,
+                        &unit.artifact_name,
+                    ),
                     source_input: resolve_compile_source_input(package_root, &unit.source_root),
                     metadata_path: (unit.target_kind == TargetKind::Lib).then(|| {
                         metadata_path(
@@ -295,6 +303,14 @@ impl BuildPlan {
                     package_id: unit.package_id.clone(),
                     manifest_path: package.manifest_path.clone(),
                     package_root_path: unit.package_root_path.clone(),
+                    artifact_root_path: artifact_root_path(
+                        &self.workspace_root,
+                        unit.domain,
+                        &unit.package_id,
+                        &unit.profile.name,
+                        unit.target_kind,
+                        &unit.artifact_name,
+                    ),
                     target_kind: unit.target_kind,
                     target_name: unit.target_name.clone(),
                     artifact_name: unit.artifact_name.clone(),

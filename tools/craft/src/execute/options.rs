@@ -396,6 +396,7 @@ mod tests {
             target_kind: TargetKind::Bin,
             target_name: Some("demo".to_string()),
             artifact_name: "demo".to_string(),
+            generated_root_path: root.join("gen"),
             source_input: CompileSourceInput::AbsolutePath(source_path.clone()),
             metadata_path: None,
             object_path: root.join("demo.o"),

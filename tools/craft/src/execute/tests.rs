@@ -113,13 +113,20 @@ fn run_command_checked(command: &mut Command, label: &str) {
 }
 
 fn create_demo_static_library(dir: &Path) {
-    fs::write(
-        dir.join("demo.c"),
+    create_demo_static_library_with_source(
+        dir,
         r#"
 int ext_add(int lhs, int rhs) {
     return lhs + rhs;
 }
 "#,
+    );
+}
+
+fn create_demo_static_library_with_source(dir: &Path, source: &str) {
+    fs::write(
+        dir.join("demo.c"),
+        source,
     )
     .unwrap();
 
@@ -432,6 +439,119 @@ fn kmain() void {
 }
 
 #[test]
+fn freestanding_link_rebuilds_when_link_arg_path_contents_change() {
+    if cfg!(windows) || cfg!(target_os = "macos") {
+        return;
+    }
+
+    let root = temp_dir("craft-build-freestanding-link-script-rebuild");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("link")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "kernel"
+version = "0.1.0"
+kern = "0.7.0"
+
+[runtime]
+entry = "none"
+libc = false
+bundle = "base"
+
+[[bin]]
+name = "kernel"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_arg_path("-T", "link/kernel.ld");
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("link").join("kernel.ld"),
+        r#"
+ENTRY(_start)
+SECTIONS {
+  . = 0x100000;
+  .text : { *(.text .text.*) }
+  .rodata : { *(.rodata .rodata.*) }
+  .data : { *(.data .data.*) }
+  .bss : { *(.bss .bss.*) *(COMMON) }
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+#[export_name("_start")]
+fn kmain() void {
+    for (;;) {}
+    @unreachable();
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let binary = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "kernel")
+        .unwrap()
+        .artifact_path
+        .clone();
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.link_actions, 1);
+    let first_image = fs::read(&binary).unwrap();
+
+    fs::write(
+        root.join("link").join("kernel.ld"),
+        r#"
+ENTRY(_start)
+SECTIONS {
+  . = 0x200000;
+  .text : { *(.text .text.*) }
+  .rodata : { *(.rodata .rodata.*) }
+  .data : { *(.data .data.*) }
+  .bss : { *(.bss .bss.*) *(COMMON) }
+}
+"#,
+    )
+    .unwrap();
+
+    let second = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(second.link_actions, 1);
+    let second_image = fs::read(&binary).unwrap();
+    assert_ne!(first_image, second_image);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_can_link_native_static_library_from_root_package_path() {
     let root = temp_dir("craft-build-native-link");
     fs::create_dir_all(root.join("src")).unwrap();
@@ -519,6 +639,109 @@ fn main() i32 {
     let _summary = build(&build_plan, &action_plan).unwrap();
     let output = run_binary_with_retry(&link_action.artifact_path, 0);
     assert_eq!(String::from_utf8_lossy(&output.stdout), "native=42\n");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn relinks_when_project_local_native_library_changes() {
+    let root = temp_dir("craft-build-native-link-rebuild");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "native"
+version = "0.1.0"
+kern = "0.7.0"
+
+[runtime]
+entry = "rt"
+bundle = "std"
+
+[[bin]]
+name = "native"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_search(b.package.root);
+    b.link_system_lib("demo");
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+use std.io;
+
+extern {
+    fn ext_add(lhs: i32, rhs: i32) i32;
+}
+
+fn main() i32 {
+    io.println("native={}", .{ ext_add(20, 22), });
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    create_demo_static_library_with_source(
+        &root,
+        r#"
+int ext_add(int lhs, int rhs) {
+    return lhs + rhs;
+}
+"#,
+    );
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let link_action = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "native")
+        .unwrap();
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.link_actions, 1);
+    let first_image = fs::read(&link_action.artifact_path).unwrap();
+    let first_output = run_binary_with_retry(&link_action.artifact_path, 0);
+    assert_eq!(String::from_utf8_lossy(&first_output.stdout), "native=42\n");
+
+    create_demo_static_library_with_source(
+        &root,
+        r#"
+int ext_add(int lhs, int rhs) {
+    return lhs + rhs + 1;
+}
+"#,
+    );
+
+    let second = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(second.link_actions, 1);
+    let second_image = fs::read(&link_action.artifact_path).unwrap();
+    let second_output = run_binary_with_retry(&link_action.artifact_path, 0);
+    assert_eq!(String::from_utf8_lossy(&second_output.stdout), "native=43\n");
+    assert_ne!(first_image, second_image);
 
     let _ = fs::remove_dir_all(root);
 }

@@ -576,7 +576,7 @@ Example:
 
 ```toml
 [resources]
-limine = { git = "https://github.com/limine-bootloader/limine.git", branch = "0.9.x-binary" }
+limine = { git = "https://github.com/limine-bootloader/limine.git", tag = "v11.4.0-binary" }
 assets = { path = "vendor/assets" }
 ```
 
@@ -636,6 +636,8 @@ pub fn build(b: *mut builder.Builder) void {
     let generated = b.copy_package_file("templates/main.rn", "src/main.rn");
     let generated_from_tool =
         b.emit_generated_from_tool("codegen", "codegen", "src/generated.rn", .{});
+    let artifact = b.primary_artifact();
+    let _ = b.copy_output_to_artifact(artifact, "bundle/app");
     let _ = b.copy_package_file_to_artifact("assets/config.json", "config/config.json");
     let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
     let _ = b.emit_artifact_file("notes/build.txt", "built by craft\n");
@@ -687,7 +689,7 @@ Relative path rules:
 - `set_source_root_from(output)` is the preferred way to bind staged generated outputs
 - `link_search("native")` records a relative search path in the plan, then resolves it from the current package root during execution
 - `link_search("/abs/path")` keeps the absolute search path as given
-- `link_arg_path("-T", "link/kernel.ld")` resolves the path from the current package root, validates that it exists, and records the normalized final path
+- `link_arg_path("-T", "link/kernel.ld")` resolves the path from the current package root, validates that it exists, records the normalized final path, and tracks that file as a real link input
 - `resource_root("limine")` returns the absolute fetched root for the declared resource
 - `resource_path("limine", "cfg/limine.conf")` resolves a path inside that fetched resource root and returns an absolute normalized path
 
@@ -696,6 +698,8 @@ Package-relative staging rules:
 - `copy_package_file(...)` and `stage_copy_package_file(...)` read from the package root
 - `copy_package_file_to_artifact(...)` and `copy_package_dir_to_artifact(...)` also read from the package root
 - `copy_resource_file_to_artifact(...)` and `copy_resource_dir_to_artifact(...)` read from fetched resource roots
+- `primary_artifact()` is only available on executable units and returns that unit's linked primary artifact as an output handle
+- `copy_output_to_artifact(...)` copies an output handle into the post-link artifact tree for an executable unit
 - generated destination paths are relative to `b.paths.generated_root`
 - artifact destination paths are relative to `b.paths.artifact_root`
 
@@ -720,6 +724,7 @@ Generated files:
 - belong to the designated generated source area
 - exist to participate in compilation
 - can replace the source root for a unit
+- treat the generated root as build-owned state rather than a historical cache of every old emitted file
 
 Staged actions:
 
@@ -727,6 +732,7 @@ Staged actions:
 - target either the generated area or the final artifact area
 - remain visible in the derived build plan and CLI output
 - are bound to units as either `compile_inputs` or `artifact_outputs`
+- treat the artifact root as build-owned state rather than an append-only cache directory
 
 The staged action model has two explicit phases:
 
@@ -745,6 +751,14 @@ The staged action kinds are:
 - `CopyFile`
 - `CopyDirectory`
 
+Dependency edges added with `depend(output, dependency)` are not just ordering hints:
+
+- dependencies are executed before the dependent staged action
+- dependency outputs are tracked as staged-action inputs for cache invalidation
+- changing an upstream staged file reruns downstream post-link tools that consume it indirectly
+- files under an executable's artifact root that are no longer planned staged outputs are deleted before current post-link staging runs
+- files under a unit's generated root that are no longer planned pre-compile outputs are deleted before current pre-compile staging runs
+
 This keeps build behavior explicit and inspectable instead of hiding it behind arbitrary script side effects.
 
 ## Current `build.rn` Capability Surface
@@ -760,6 +774,9 @@ The current `Builder` API includes:
   - object path
   - artifact path
   - optional metadata path
+- output handle inspection:
+  - `primary_artifact()`
+  - `output_path(output)`
 - feature queries
 - unit-domain inspection
 - compile-time mutation:
@@ -775,8 +792,10 @@ The current `Builder` API includes:
   - `resource_root(name)` and `resource_path(name, relative_path)`
   - `stage_generated_from_tool(dependency, tool, ...)` and `emit_generated_from_tool(dependency, tool, ...)`
 - post-link artifact staging:
+  - executable units only
   - `stage_artifact_file(...)` and `emit_artifact_file(...)`
   - `stage_artifact_file_from_tool(dependency, tool, ...)` and `emit_artifact_file_from_tool(dependency, tool, ...)`
+  - `stage_copy_output_to_artifact(output, ...)` and `copy_output_to_artifact(output, ...)`
   - `stage_copy_package_file_to_artifact(...)` and `copy_package_file_to_artifact(...)`
   - `stage_copy_package_dir_to_artifact(...)` and `copy_package_dir_to_artifact(...)`
   - `stage_copy_resource_file_to_artifact(name, ...)` and `copy_resource_file_to_artifact(name, ...)`

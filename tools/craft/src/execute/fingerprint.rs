@@ -69,6 +69,7 @@ pub(super) fn link_action_fingerprint(
     action: &LinkAction,
     options: &CompileOptions,
     linker_inputs: &[PathBuf],
+    link_input_paths: &[PathBuf],
     toolchain_digest: &str,
 ) -> String {
     let mut lines = vec![
@@ -85,6 +86,11 @@ pub(super) fn link_action_fingerprint(
         linker_inputs
             .iter()
             .map(|path| format!("input={}", path.display())),
+    );
+    lines.extend(
+        link_input_paths
+            .iter()
+            .map(|path| format!("link-input={}", path.display())),
     );
     lines.extend(
         options
@@ -270,6 +276,7 @@ mod tests {
             target_kind: crate::plan::TargetKind::Lib,
             target_name: None,
             artifact_name: "demo".to_string(),
+            generated_root_path: PathBuf::from("build/gen/demo"),
             source_input: CompileSourceInput::AbsolutePath(PathBuf::from("src/lib.rn")),
             metadata_path: None,
             object_path: PathBuf::from("build/demo.o"),
@@ -286,6 +293,7 @@ mod tests {
             package_id: package_id("demo"),
             manifest_path: PathBuf::from("Craft.toml"),
             package_root_path: PathBuf::from("."),
+            artifact_root_path: PathBuf::from("build/stage/demo"),
             target_kind: crate::plan::TargetKind::Bin,
             target_name: Some("demo".to_string()),
             artifact_name: "demo".to_string(),

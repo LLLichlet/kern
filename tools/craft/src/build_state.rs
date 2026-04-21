@@ -194,37 +194,57 @@ fn path_matches_digest(path: &Path, entry: &ActionStatePath) -> Result<bool> {
     Ok(digest_path(path)?.map(|(digest, _, _)| digest) == Some(entry.digest.clone()))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum TreeEntry {
+    Dir(PathBuf),
+    File(PathBuf),
+}
+
 fn digest_tree(root: &Path) -> Result<u64> {
-    let mut paths = Vec::new();
-    collect_tree_paths(root, root, &mut paths)?;
-    paths.sort();
+    let mut entries = Vec::new();
+    collect_tree_entries(root, root, &mut entries)?;
+    entries.sort();
 
     let mut hash = 0xcbf29ce484222325_u64;
-    for path in paths {
-        let relative = path
-            .strip_prefix(root)
-            .unwrap_or(path.as_path())
-            .to_string_lossy();
-        hash = fnv1a64_update(hash, relative.as_bytes());
-        let bytes = fs::read(&path).map_err(|err| Error::from_io(&path, err))?;
-        hash = fnv1a64_update(hash, &bytes);
+    for entry in entries {
+        match entry {
+            TreeEntry::Dir(path) => {
+                let relative = path
+                    .strip_prefix(root)
+                    .unwrap_or(path.as_path())
+                    .to_string_lossy();
+                hash = fnv1a64_update(hash, b"dir:");
+                hash = fnv1a64_update(hash, relative.as_bytes());
+            }
+            TreeEntry::File(path) => {
+                let relative = path
+                    .strip_prefix(root)
+                    .unwrap_or(path.as_path())
+                    .to_string_lossy();
+                hash = fnv1a64_update(hash, b"file:");
+                hash = fnv1a64_update(hash, relative.as_bytes());
+                let bytes = fs::read(&path).map_err(|err| Error::from_io(&path, err))?;
+                hash = fnv1a64_update(hash, &bytes);
+            }
+        }
     }
 
     Ok(hash)
 }
 
-fn collect_tree_paths(root: &Path, dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_tree_entries(root: &Path, dir: &Path, entries: &mut Vec<TreeEntry>) -> Result<()> {
     let _ = root;
-    let entries = fs::read_dir(dir).map_err(|err| Error::from_io(dir, err))?;
-    for entry in entries {
+    let dir_entries = fs::read_dir(dir).map_err(|err| Error::from_io(dir, err))?;
+    for entry in dir_entries {
         let entry = entry.map_err(Error::from_io_plain)?;
         let path = entry.path();
         if path.is_dir() {
-            collect_tree_paths(root, &path, paths)?;
+            entries.push(TreeEntry::Dir(path.clone()));
+            collect_tree_entries(root, &path, entries)?;
             continue;
         }
         if path.is_file() {
-            paths.push(path);
+            entries.push(TreeEntry::File(path));
         }
     }
     Ok(())
@@ -689,6 +709,31 @@ mod tests {
         assert!(action_state_is_current(&output, "fingerprint").unwrap());
         thread::sleep(Duration::from_millis(20));
         fs::write(&output, "bravo").unwrap();
+        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn action_state_detects_empty_directory_changes() {
+        let root = temp_dir("craft-build-state-empty-dir");
+        let input = root.join("input");
+        let output = root.join("output");
+
+        fs::create_dir_all(input.join("nested")).unwrap();
+        fs::create_dir_all(output.join("nested")).unwrap();
+        fs::write(input.join("data.txt"), "input").unwrap();
+        fs::write(output.join("data.txt"), "output").unwrap();
+        record_action_state(
+            &output,
+            "fingerprint".to_string(),
+            std::slice::from_ref(&input),
+            std::slice::from_ref(&output),
+        )
+        .unwrap();
+
+        assert!(action_state_is_current(&output, "fingerprint").unwrap());
+        fs::create_dir_all(output.join("extra-empty")).unwrap();
         assert!(!action_state_is_current(&output, "fingerprint").unwrap());
 
         let _ = fs::remove_dir_all(root);

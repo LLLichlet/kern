@@ -1,4 +1,5 @@
 use super::*;
+use crate::workspace;
 
 #[test]
 fn applies_build_script_link_directives_per_unit() {
@@ -206,6 +207,10 @@ pub fn build(b: *mut builder.Builder) void {
     assert_eq!(unit.link.args.get(0).map(String::as_str), Some("-T"));
     assert_eq!(
         unit.link.args.get(1).map(String::as_str),
+        Some(expected.as_str())
+    );
+    assert_eq!(
+        unit.link.input_paths.get(0).map(String::as_str),
         Some(expected.as_str())
     );
 
@@ -666,6 +671,418 @@ let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
     ));
     assert_eq!(unit_nodes[0].phase, StagedActionPhase::PostLink);
     assert_eq!(link_nodes.len(), 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_can_stage_copies_of_the_primary_artifact() {
+    let root = temp_dir("craft-build-plan-copy-primary-artifact");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let artifact = b.primary_artifact();
+let _ = b.copy_output_to_artifact(artifact, "bundle/demo");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let unit = build_plan.packages[0]
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+    let link_action = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "demo" && action.target_kind == TargetKind::Bin)
+        .unwrap();
+    let unit_nodes = build_plan.artifact_output_nodes_for_unit(unit);
+    let link_nodes = action_plan.artifact_output_nodes_for_link_action(link_action);
+
+    assert_eq!(unit_nodes.len(), 1);
+    assert_eq!(link_nodes.len(), 1);
+    assert_eq!(unit_nodes[0].phase, StagedActionPhase::PostLink);
+    assert!(unit_nodes[0].output.ends_with("bundle/demo"));
+    assert!(matches!(
+        &unit_nodes[0].kind,
+        StagedActionKind::CopyFile { source } if source.ends_with("/bin/demo")
+    ));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_can_chain_post_link_output_copies() {
+    let root = temp_dir("craft-build-plan-chain-post-link-output-copies");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let first = b.stage_artifact_file("notes/build.txt", "built by craft\n");
+let second = b.stage_copy_output_to_artifact(first, "bundle/build.txt");
+let _ = b.stage_copy_output_to_artifact(second, "bundle/build-copy.txt");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let unit = build_plan.packages[0]
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+    let unit_nodes = build_plan.artifact_output_nodes_for_unit(unit);
+
+    assert_eq!(unit_nodes.len(), 3);
+    let first = unit_nodes
+        .iter()
+        .find(|action| action.output.ends_with("notes/build.txt"))
+        .unwrap();
+    let second = unit_nodes
+        .iter()
+        .find(|action| action.output.ends_with("bundle/build.txt"))
+        .unwrap();
+    let third = unit_nodes
+        .iter()
+        .find(|action| action.output.ends_with("bundle/build-copy.txt"))
+        .unwrap();
+    assert_eq!(second.depends_on, vec![first.id]);
+    assert_eq!(third.depends_on, vec![second.id]);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_rejects_binding_primary_artifact_as_source_root() {
+    let root = temp_dir("craft-build-plan-primary-artifact-source-root-error");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let artifact = b.primary_artifact();
+b.set_source_root_from(artifact);
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let err = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("source root can only be bound from pre-compile staged outputs")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_rejects_primary_artifact_on_library_units() {
+    let root = temp_dir("craft-build-plan-lib-primary-artifact-error");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[lib]
+root = "src/lib.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.rn"), "pub fn value() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let _ = b.primary_artifact();
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let err = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("`primary_artifact()` is only supported for executable units")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_rejects_post_link_artifact_staging_on_library_units() {
+    let root = temp_dir("craft-build-plan-lib-artifact-stage-error");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[lib]
+root = "src/lib.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.rn"), "pub fn value() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let _ = b.emit_artifact_file("notes/build.txt", "built by craft\n");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let err = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("`stage_artifact_file(...)` is only supported for executable units")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_can_stage_post_link_artifact_files_from_host_tools() {
+    let root = temp_dir("craft-build-plan-artifact-file-from-tool");
+    let app_dir = root.join("app");
+    let tool_dir = root.join("tool");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::create_dir_all(tool_dir.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["app", "tool"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[build-dependencies]
+tool = { path = "../tool", package = "tool" }
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let note = b.stage_artifact_file_from_tool("tool", "artifact-note", "notes/build.txt", .{});
+let kernel = b.stage_copy_output_to_artifact(b.primary_artifact(), "bundle/app");
+b.depend(note, kernel);
+}
+"#,
+    )
+    .unwrap();
+    fs::write(app_dir.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        tool_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "tool"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "artifact-note"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        tool_dir.join("src/main.rn"),
+        r#"
+use std.io;
+use std.io.Writer;
+
+fn main() i32 {
+let mut out = io.stdout();
+let writer = *mut Writer.{ out..& };
+let _ = writer.write("built by tool\n");
+return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let package = build_plan
+        .packages
+        .iter()
+        .find(|package| package.package_id.name == "app")
+        .unwrap();
+    let unit = package
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+    let unit_nodes = build_plan.artifact_output_nodes_for_unit(unit);
+
+    assert_eq!(unit_nodes.len(), 2);
+    let bundle = unit_nodes
+        .iter()
+        .find(|action| action.output.ends_with("bundle/app"))
+        .unwrap();
+    let note = unit_nodes
+        .iter()
+        .find(|action| action.output.ends_with("notes/build.txt"))
+        .unwrap();
+    assert_eq!(note.depends_on, vec![bundle.id]);
+    assert!(matches!(&note.kind, StagedActionKind::RunTool { .. }));
 
     let _ = fs::remove_dir_all(root);
 }

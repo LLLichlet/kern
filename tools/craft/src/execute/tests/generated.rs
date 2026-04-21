@@ -1403,6 +1403,118 @@ return 0;
 }
 
 #[test]
+fn build_reports_staged_tool_stderr_on_failure() {
+    let root = temp_dir("craft-exec-tool-stderr");
+    let app_dir = root.join("app");
+    let tool_dir = root.join("tool");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::create_dir_all(tool_dir.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["app", "tool"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[build-dependencies]
+tool = { path = "../tool", package = "tool" }
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let _ = b.stage_artifact_file_from_tool("tool", "artifact-note", "notes/build.txt", .{});
+}
+"#,
+    )
+    .unwrap();
+    fs::write(app_dir.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        tool_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "tool"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "artifact-note"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        tool_dir.join("src/main.rn"),
+        r#"
+use std.io;
+use std.io.Writer;
+
+fn main() i32 {
+let mut out = io.stdout();
+let out_writer = *mut Writer.{ out..& };
+let _ = out_writer.write("partial stdout\n");
+
+let mut err = io.stderr();
+let err_writer = *mut Writer.{ err..& };
+let _ = err_writer.write("tool failed loudly\n");
+return 7;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan =
+        crate::build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let err = build(&build_plan, &action_plan).unwrap_err();
+    let message = err.to_string();
+
+    assert!(
+        message.contains("artifact-note") && message.contains("exited with status"),
+        "unexpected error: {message}"
+    );
+    assert!(
+        message.contains("stderr:\ntool failed loudly"),
+        "unexpected error: {message}"
+    );
+    assert!(
+        message.contains("stdout:\npartial stdout"),
+        "unexpected error: {message}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_relative_source_root_uses_member_package_root() {
     let root = temp_dir("craft-exec-member-relative-source-root");
     let app_dir = root.join("app");

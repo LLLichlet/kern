@@ -14,7 +14,7 @@ use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 use std::time::Duration;
 
 mod external;
@@ -930,6 +930,46 @@ fn execute_staged_actions(
     Ok(())
 }
 
+fn format_captured_child_stream(label: &str, bytes: &[u8]) -> Option<String> {
+    const MAX_LEN: usize = 8192;
+
+    let text = String::from_utf8_lossy(bytes);
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let rendered = if trimmed.len() > MAX_LEN {
+        format!("{}\n...<truncated>...", &trimmed[..MAX_LEN])
+    } else {
+        trimmed.to_string()
+    };
+
+    Some(format!("{label}:\n{rendered}"))
+}
+
+fn format_run_tool_failure(
+    tool_path: &Path,
+    status: ExitStatus,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> String {
+    let mut message = format!(
+        "tool `{}` exited with status {}",
+        tool_path.display(),
+        status
+    );
+    if let Some(stderr_text) = format_captured_child_stream("stderr", stderr) {
+        message.push('\n');
+        message.push_str(&stderr_text);
+    }
+    if let Some(stdout_text) = format_captured_child_stream("stdout", stdout) {
+        message.push('\n');
+        message.push_str(&stdout_text);
+    }
+    message
+}
+
 fn execute_staged_action(
     action: &StagedAction,
     action_index: &BTreeMap<usize, &StagedAction>,
@@ -1066,10 +1106,11 @@ fn execute_staged_action(
                 .output()
                 .map_err(Error::from_io_plain)?;
             if !output.status.success() {
-                return Err(Error::Execution(format!(
-                    "tool `{}` exited with status {}",
-                    tool_path.display(),
-                    output.status
+                return Err(Error::Execution(format_run_tool_failure(
+                    &tool_path,
+                    output.status,
+                    &output.stdout,
+                    &output.stderr,
                 )));
             }
             fs::write(&output_path, output.stdout)

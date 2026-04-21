@@ -1,0 +1,14 @@
+// class: static-initializer-struct-shape
+// source: global request/config structs must reject misspelled fields instead of silently accepting extras
+// stderr: field `b` does not exist in `pair`
+// timeout-ms: 2000
+
+type pair = struct {
+    a: u64,
+};
+
+static BAD = pair.{ a: 1, b: 2 };
+
+fn main() i32 {
+    return 0;
+}

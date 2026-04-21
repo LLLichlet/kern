@@ -1,0 +1,15 @@
+// class: static-initializer-struct-shape
+// source: global request/config structs must reject missing fields instead of fabricating defaults
+// stderr: field `b` is missing and has no default value
+// timeout-ms: 2000
+
+type pair = struct {
+    a: u64,
+    b: u64,
+};
+
+static BAD = pair.{ a: 1 };
+
+fn main() i32 {
+    return 0;
+}

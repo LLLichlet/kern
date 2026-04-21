@@ -1,0 +1,15 @@
+// class: static-initializer-enum-payload
+// source: static enum payload variants must still provide their payload
+// stderr: variant `Some` requires a payload
+// timeout-ms: 2000
+
+type option[T] = enum {
+    None,
+    Some: T,
+};
+
+static BAD = option[i32].Some;
+
+fn main() i32 {
+    return 0;
+}

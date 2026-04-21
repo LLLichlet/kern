@@ -1,0 +1,15 @@
+// class: static-initializer-enum-shape
+// source: static enum construction must choose exactly one variant
+// stderr: Enum literal must specify exactly one variant
+// timeout-ms: 2000
+
+type option[T] = enum {
+    None,
+    Some: T,
+};
+
+static BAD = option[i32].{ None: 0, Some: 1 };
+
+fn main() i32 {
+    return 0;
+}

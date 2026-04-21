@@ -252,7 +252,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 // Try to infer the initializer type.
                 self.ctx.scopes.set_current_scope(scope_id);
                 let mut checker = ExprChecker::new(self.ctx, None);
-                let init_ty = checker.check_expr(unsafe { &(*g).value }, None);
+                let init_ty = {
+                    let init_ty = checker.check_expr(unsafe { &(*g).value }, None);
+                    checker.finalize_numeric_inference(init_ty)
+                };
                 self.ctx.scopes.set_current_scope(scope_id);
 
                 if init_ty != TypeId::ERROR {
@@ -444,7 +447,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     fn check_global_initializer(&mut self, scope_id: ScopeId, global: &GlobalDef) -> TypeId {
         self.ctx.scopes.set_current_scope(scope_id);
         let mut checker = ExprChecker::new(self.ctx, None);
-        let init_ty = checker.check_expr(&global.value, None);
+        let init_ty = {
+            let init_ty = checker.check_expr(&global.value, None);
+            checker.finalize_numeric_inference(init_ty)
+        };
         self.ctx.scopes.set_current_scope(scope_id);
         init_ty
     }
@@ -636,7 +642,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         // 4. Run the expression checker on the body.
         let expr_started = collect_timings.then(Instant::now);
         let mut checker = ExprChecker::new(self.ctx, Some(ret_ty));
-        let body_eval_ty = checker.check_expr(body_expr, Some(ret_ty));
+        let body_eval_ty = {
+            let body_eval_ty = checker.check_expr(body_expr, Some(ret_ty));
+            checker.finalize_numeric_inference(body_eval_ty)
+        };
         if let Some(expr_started) = expr_started {
             self.body_timings.function_expr += expr_started.elapsed();
         }
@@ -697,7 +706,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                 // Type-check the default expression.
                 let mut checker = ExprChecker::new(self.ctx, None);
-                let eval_ty = checker.check_expr(default_expr, Some(field_ty));
+                let eval_ty = {
+                    let eval_ty = checker.check_expr(default_expr, Some(field_ty));
+                    checker.finalize_numeric_inference(eval_ty)
+                };
 
                 // 3. Verify the default value is compatible with the field type.
                 if field_ty != TypeId::ERROR
@@ -740,7 +752,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                 // Type-check the default expression.
                 let mut checker = ExprChecker::new(self.ctx, None);
-                let eval_ty = checker.check_expr(default_expr, Some(field_ty));
+                let eval_ty = {
+                    let eval_ty = checker.check_expr(default_expr, Some(field_ty));
+                    checker.finalize_numeric_inference(eval_ty)
+                };
 
                 // 3. Verify the default value is compatible with the field type.
                 if field_ty != TypeId::ERROR

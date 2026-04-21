@@ -828,6 +828,48 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_inline_asm_in_let_initializer_without_ice() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let x = @asm(.{
+        asm: "nop",
+        volatile: true,
+    });
+    let _ = x;
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn compiles_void_effect_intrinsics_in_void_argument_position_without_ice() {
+    let output = compile_source(
+        r#"
+fn consume(value: void) void {
+    let _ = value;
+}
+
+fn main() i32 {
+    let mut buf = [4]u8.{ 0, 1, 2, 3 };
+    consume(@breakpoint());
+    consume(@memcpy(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3));
+    consume(@asm(.{
+        asm: "nop",
+        volatile: true,
+    }));
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn compiles_returning_atomic_store_from_void_function_without_ice() {
     let output = compile_source_with_args(
         "kernc_breakpoint_atomic_runtime_regression",
@@ -919,6 +961,68 @@ fn main() i32 {
     );
 
     assert_success(&output, "kernc multiline @asm for aarch64-apple-darwin");
+}
+
+#[test]
+fn lowers_const_inline_asm_volatile_flag_for_output_asm() {
+    let output = emit_llvm_ir_with_args(
+        "kernc_inline_asm_const_volatile_ir",
+        r#"
+const VOL = true;
+
+fn main() i32 {
+    let mut out = usize.{0};
+    @asm(.{
+        asm: "mov {}, 7",
+        outputs: .{ rax: out..& },
+        volatile: VOL,
+    });
+    return out as i32;
+}
+"#,
+        &[],
+    );
+
+    assert_success(&output, "kernc inline asm const volatile");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("asm sideeffect inteldialect"),
+        "expected sideeffect inline asm in LLVM IR:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn rejects_non_constant_inline_asm_volatile_flag() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let vol = true;
+    let mut out = usize.{0};
+    @asm(.{
+        asm: "mov {}, 7",
+        outputs: .{ rax: out..& },
+        volatile: vol,
+    });
+    return out as i32;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted non-constant @asm volatile:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not a compile-time constant"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
 }
 
 #[test]

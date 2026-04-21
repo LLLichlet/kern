@@ -88,10 +88,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 let current_module_id = self.cached_current_module_id();
-                if !self
-                    .ctx
-                    .visibility_allows_access(target_info.vis, mod_def_id, current_module_id)
-                {
+                if !self.ctx.visibility_allows_access(
+                    target_info.vis,
+                    mod_def_id,
+                    current_module_id,
+                ) {
                     let field_name = self.ctx.resolve(*field);
                     self.ctx
                         .struct_error(
@@ -165,6 +166,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             info.is_mut,
             info.vis.is_public(),
         );
+        self.record_current_binding(name);
     }
 
     fn symbol_is_type_namespace(kind: SymbolKind) -> bool {

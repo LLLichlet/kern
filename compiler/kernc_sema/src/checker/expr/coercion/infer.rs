@@ -344,17 +344,82 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         selected.map(|(_, assoc_ty)| assoc_ty)
     }
 
-    pub(super) fn bind_type_var(&mut self, vid: u32, ty: TypeId) {
+    pub(crate) fn constrain_numeric_type_var(&mut self, vid: u32, candidates: u16) -> bool {
+        let idx = vid as usize;
+        let Some(state) = self.numeric_type_vars.get_mut(idx).and_then(Option::as_mut) else {
+            return false;
+        };
+
+        let narrowed = state.candidates & candidates;
+        if narrowed == 0 {
+            return false;
+        }
+
+        state.candidates = narrowed;
+        if let Some(exact) = Self::single_numeric_candidate_type(narrowed) {
+            if self.type_vars.len() <= idx {
+                self.type_vars.resize(idx + 1, None);
+            }
+            self.type_vars[idx] = Some(exact);
+        }
+        true
+    }
+
+    pub(crate) fn bind_type_var(&mut self, vid: u32, ty: TypeId) -> bool {
         let ty = self.resolve_tv(ty);
         if matches!(self.ctx.type_registry.get(ty), TypeKind::TypeVar(bound_vid) if *bound_vid == vid)
         {
-            return;
+            return true;
+        }
+
+        if self.numeric_inference_kind(vid).is_some() {
+            if let TypeKind::TypeVar(other_vid) = self.ctx.type_registry.get(ty).clone() {
+                if let (Some(current), Some(other)) = (
+                    self.numeric_inference_state(vid),
+                    self.numeric_inference_state(other_vid),
+                ) {
+                    let merged = current.candidates & other.candidates;
+                    if merged == 0 {
+                        return false;
+                    }
+                    if !self.constrain_numeric_type_var(other_vid, merged) {
+                        return false;
+                    }
+                    if self.type_vars.len() <= vid as usize {
+                        self.type_vars.resize(vid as usize + 1, None);
+                        self.numeric_type_vars.resize(vid as usize + 1, None);
+                    }
+                    if self.type_vars.len() <= other_vid as usize {
+                        self.type_vars.resize(other_vid as usize + 1, None);
+                        self.numeric_type_vars.resize(other_vid as usize + 1, None);
+                    }
+                    if self.type_vars[other_vid as usize].is_some() {
+                        self.type_vars[vid as usize] = Some(ty);
+                    } else {
+                        self.type_vars[vid as usize] = Some(ty);
+                    }
+                    return true;
+                }
+
+                let current_ty = self.ctx.type_registry.intern(TypeKind::TypeVar(vid));
+                return self.bind_type_var(other_vid, current_ty);
+            }
+
+            let candidates = Self::numeric_candidates_for_type(ty);
+            if ty != TypeId::ERROR && candidates == 0 {
+                return false;
+            }
+            if candidates != 0 && !self.constrain_numeric_type_var(vid, candidates) {
+                return false;
+            }
         }
 
         let vid = vid as usize;
         if self.type_vars.len() <= vid {
             self.type_vars.resize(vid + 1, None);
+            self.numeric_type_vars.resize(vid + 1, None);
         }
         self.type_vars[vid] = Some(ty);
+        true
     }
 }

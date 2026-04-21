@@ -1,4 +1,5 @@
 use super::ExprChecker;
+use crate::checker::{ConstEvaluator, ConstValue};
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::Span;
@@ -128,6 +129,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 "volatile" => {
                     let ty = self.check_expr(&field.value, Some(TypeId::BOOL));
                     self.check_coercion(&field.value, TypeId::BOOL, ty);
+                    if self.resolve_tv(ty) == TypeId::BOOL {
+                        let mut evaluator = ConstEvaluator::new(self.ctx);
+                        match evaluator.eval_const_value(&field.value) {
+                            Ok(ConstValue::Bool(_)) => {}
+                            Ok(_) => {
+                                self.ctx
+                                    .struct_error(
+                                        field.value.span,
+                                        "`@asm` `volatile` flag must evaluate to a compile-time boolean constant",
+                                    )
+                                    .with_hint("example: `volatile: true` or `const VOL = true`")
+                                    .emit();
+                            }
+                            Err(_) => {}
+                        }
+                    }
                 }
                 _ => {
                     self.ctx

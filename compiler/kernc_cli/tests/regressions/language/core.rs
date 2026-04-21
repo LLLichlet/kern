@@ -279,6 +279,71 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_usize_for_for_loop_counter_from_array_length_comparison() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let data = [4]u8.{ 3, 5, 7, 11 };
+    let mut sum = i32.{0};
+
+    for (let mut i = 0; i < #data; i += 1) {
+        sum += data.[i] as i32;
+    }
+
+    return sum - 26;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn infers_usize_for_slice_bounds_from_expected_context() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let data = [4]u8.{ 9, 8, 7, 6 };
+    let start = 0;
+    let tail = data.[start .. #data];
+    return (#tail as i32) - 4;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn keeps_explicit_numeric_casts_working_with_delayed_literal_inference() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let value = 0 as usize;
+    return value as i32;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_explicit_loc_intrinsic_and_const_loc_values() {
     let output = build_and_run_source(
         r#"
@@ -640,6 +705,29 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_bare_integer_literals_for_object_pointer_offsets() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let ptr = usize.{100} as *mut i32;
+    let step = 7;
+    let next = ptr + step;
+    let prev = 3 + next - 2;
+    return (prev as usize) as i32;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(132),
+        "object-pointer offset inference regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn keeps_zero_sized_object_pointer_offsets_stable_as_a_builtin_primitive() {
     let output = build_and_run_source(
         r#"
@@ -680,6 +768,246 @@ fn main() i32 {
         "address-pointer arithmetic regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn infers_bare_integer_literals_for_volatile_pointer_offsets() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let ptr = usize.{9} as ^mut i32;
+    let step = 5;
+    let next = ptr + step;
+    let prev = next - 2;
+    return (prev as usize) as i32;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(12),
+        "address-pointer offset inference regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn keeps_pointer_offset_literals_polymorphic_until_later_exact_context() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let ptr = usize.{100} as *mut i32;
+    let step = 7;
+    let next = ptr + step;
+    let amount = usize.{step};
+    return ((next as usize) + amount) as i32;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(135),
+        "pointer-offset polymorphic literal regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn pointer_offset_literal_conflicts_report_human_facing_types_instead_of_typevars() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let ptr = usize.{0} as *mut i32;
+    let step = 1;
+    let _next = ptr + step;
+    let narrowed = u8.{step};
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted conflicting pointer-offset literal narrowing:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("?T"),
+        "unexpected unresolved typevar leaked into diagnostic:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("pointer offset integer"),
+        "expected pointer-offset diagnostic wording:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn bitwise_literal_constraints_reject_later_float_reinterpretation() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let mask = 1;
+    let _bits = mask << 2;
+    let wrong = f64.{mask};
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted float reinterpretation after integer-only bitwise use:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("?T"),
+        "unexpected unresolved typevar leaked into diagnostic:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("inferred integer literal"),
+        "expected integer-literal diagnostic wording:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn bitwise_literal_constraints_still_allow_later_integer_specialization() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let mask = 1;
+    let widened = mask << 3;
+    let narrowed = u8.{mask};
+    return (widened as i32) + (narrowed as i32) - 9;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "bitwise literal integer specialization regression failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn unary_bitwise_literal_constraints_reject_later_float_reinterpretation() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let mask = 1;
+    let _bits = ~mask;
+    let wrong = f64.{mask};
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted float reinterpretation after unary integer-only bitwise use:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("?T"),
+        "unexpected unresolved typevar leaked into diagnostic:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("inferred integer literal"),
+        "expected integer-literal diagnostic wording:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn unary_bitwise_literal_constraints_still_allow_later_integer_specialization() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let mask = 1;
+    let flipped = ~mask;
+    let narrowed = u8.{mask};
+    return (flipped as i32) + (narrowed as i32) + 1;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "unary bitwise literal integer specialization regression failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn infers_bare_integer_literals_for_integer_to_pointer_casts() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let raw = 1;
+    let ptr = raw as *mut i32;
+    let widened = usize.{raw};
+    return ((ptr as usize) + widened) as i32 - 2;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "integer-to-pointer cast literal inference regression failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integer_to_pointer_cast_literals_conflict_cleanly_with_non_pointer_sized_integers() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let raw = 1;
+    let _ptr = raw as *mut i32;
+    let narrowed = u8.{raw};
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted narrowing after integer-to-pointer cast inference:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("?T"),
+        "unexpected unresolved typevar leaked into diagnostic:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("pointer offset integer"),
+        "expected pointer-sized integer diagnostic wording:\n{}",
+        stderr
     );
 }
 

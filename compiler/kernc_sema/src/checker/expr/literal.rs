@@ -1,9 +1,9 @@
-use super::ExprChecker;
+use super::{ExprChecker, NumericInferenceKind};
 use crate::checker::{ConstEvaluator, Substituter};
 use crate::def::Def;
 use crate::passes::TypeResolver;
 use crate::ty::{
-    ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, PrimitiveType, TypeId,
+    ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, TypeId,
     TypeKind,
 };
 use kernc_ast::{self as ast, Expr, ExprKind};
@@ -105,38 +105,39 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn check_integer(&mut self, _expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
-        // Default integer fallback is `i32`.
-        let mut res_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::Primitive(PrimitiveType::I32));
-
         if let Some(exp) = expected_ty {
             let norm = self.resolve_tv(exp);
 
             // Reuse the expected numeric type when the context already constrained it.
-            if self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm) {
-                res_ty = exp;
+            if self.ctx.type_registry.is_integer(norm)
+                || self.ctx.type_registry.is_float(norm)
+                || self.type_numeric_candidates(norm).is_some()
+            {
+                return exp;
             }
+
+            return TypeId::I32;
         }
-        res_ty
+
+        self.fresh_numeric_type_var(NumericInferenceKind::IntLiteral)
     }
 
     pub(crate) fn check_float(&mut self, _expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
-        // Default floating-point fallback is `f64`.
-        let mut res_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::Primitive(PrimitiveType::F64));
-
         if let Some(exp) = expected_ty {
             let norm = self.resolve_tv(exp);
             // Reuse the expected float type when available.
-            if self.ctx.type_registry.is_float(norm) {
-                res_ty = exp;
+            if self.ctx.type_registry.is_float(norm)
+                || self
+                    .type_numeric_candidates(norm)
+                    .is_some_and(Self::numeric_candidates_have_floats)
+            {
+                return exp;
             }
+
+            return TypeId::F64;
         }
-        res_ty
+
+        self.fresh_numeric_type_var(NumericInferenceKind::FloatLiteral)
     }
 
     pub(crate) fn check_data_init_expr(

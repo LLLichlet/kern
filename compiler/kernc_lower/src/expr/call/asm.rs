@@ -97,6 +97,35 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
+    pub(super) fn lower_asm_volatile_flag(&mut self, value: &Expr) -> Option<bool> {
+        match &value.kind {
+            ExprKind::Bool(flag) => Some(*flag),
+            _ => {
+                let mut evaluator = ConstEvaluator::new(self.ctx);
+                match evaluator.eval_const_value(value) {
+                    Ok(ConstValue::Bool(flag)) => Some(flag),
+                    Ok(other) => {
+                        self.ctx.emit_ice(
+                            value.span,
+                            format!(
+                                "Kern ICE (Lowering): `@asm` `volatile` flag must reduce to a compile-time boolean, found `{:?}`.",
+                                other
+                            ),
+                        );
+                        None
+                    }
+                    Err(_) => {
+                        self.ctx.emit_ice(
+                            value.span,
+                            "Kern ICE (Lowering): `@asm` `volatile` flag was not reduced to a compile-time boolean.",
+                        );
+                        None
+                    }
+                }
+            }
+        }
+    }
+
     pub(super) fn asm_output_value_type(
         &mut self,
         ptr_expr: &MastExpr,
@@ -141,9 +170,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     asm_template = template;
                 }
                 "volatile" => {
-                    if let ExprKind::Bool(b) = &field.value.kind {
-                        is_volatile = *b;
-                    }
+                    let Some(flag) = self.lower_asm_volatile_flag(&field.value) else {
+                        return MastExprKind::Trap;
+                    };
+                    is_volatile = flag;
                 }
                 "outputs" => {
                     if let ExprKind::DataInit {

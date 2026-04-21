@@ -72,20 +72,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         act_kind: &TypeKind,
     ) -> bool {
         if let TypeKind::TypeVar(vid) = act_kind {
-            self.bind_type_var(*vid, exp);
-            return true;
+            return self.bind_type_var(*vid, exp);
         }
         if let TypeKind::TypeVar(vid) = exp_kind {
-            self.bind_type_var(*vid, act);
-            return true;
+            return self.bind_type_var(*vid, act);
         }
         false
     }
 
     /// Format and emit a user-facing type mismatch diagnostic.
     pub fn emit_mismatch_error(&mut self, span: Span, expected: TypeId, actual: TypeId) {
-        let exp_str = self.ctx.ty_to_string(expected);
-        let act_str = self.ctx.ty_to_string(actual);
+        let exp_str = self.format_type_for_diagnostic(expected);
+        let act_str = self.format_type_for_diagnostic(actual);
 
         self.ctx
             .struct_error(span, "mismatched types")

@@ -294,6 +294,38 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_simd_alignment_that_exceeds_backend_limit() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let mut data = [4]f32.{ 1.0, 2.0, 3.0, 4.0 };
+    let _ = @simdLoad[f32x4](data.[0]..&, 1099511627776);
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("maximum backend-supported alignment"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_masked_load_with_mismatched_mask_lanes() {
     let output = compile_source(
         r#"

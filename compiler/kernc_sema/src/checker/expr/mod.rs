@@ -7,7 +7,7 @@ use crate::ty::{
     GenericArg, TypeId, TypeKind,
 };
 use kernc_ast::{self as ast, Expr, ExprKind};
-use kernc_utils::{FastHashMap, Span, SymbolId};
+use kernc_utils::{FastHashMap, NodeId, Span, SymbolId};
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::time::{Duration, Instant};
@@ -20,28 +20,519 @@ mod control;
 mod literal;
 mod ops;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NumericInferenceKind {
+    IntLiteral,
+    FloatLiteral,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NumericInferenceState {
+    pub(crate) kind: NumericInferenceKind,
+    pub(crate) candidates: u16,
+}
+
 pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) ctx: &'a mut SemaContext<'ctx>,
     pub(crate) current_return_type: Option<TypeId>,
     pub(crate) has_returned: bool,
     pub(crate) type_vars: Vec<Option<TypeId>>,
+    pub(crate) numeric_type_vars: Vec<Option<NumericInferenceState>>,
     pub(crate) trait_obligation_stack: Vec<(TypeId, TypeId)>,
     pub(crate) projection_normalization_stack: Vec<TypeId>,
     pub(crate) current_module_cache: Option<(ScopeId, Option<DefId>)>,
     pub(crate) allow_uninstantiated_generic_function_items: bool,
+    pub(crate) touched_expr_nodes: Vec<NodeId>,
+    pub(crate) touched_bindings: Vec<(ScopeId, SymbolId)>,
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    const NUMERIC_CAND_I8: u16 = 1 << 0;
+    const NUMERIC_CAND_I16: u16 = 1 << 1;
+    const NUMERIC_CAND_I32: u16 = 1 << 2;
+    const NUMERIC_CAND_I64: u16 = 1 << 3;
+    const NUMERIC_CAND_I128: u16 = 1 << 4;
+    const NUMERIC_CAND_ISIZE: u16 = 1 << 5;
+    const NUMERIC_CAND_U8: u16 = 1 << 6;
+    const NUMERIC_CAND_U16: u16 = 1 << 7;
+    const NUMERIC_CAND_U32: u16 = 1 << 8;
+    const NUMERIC_CAND_U64: u16 = 1 << 9;
+    const NUMERIC_CAND_U128: u16 = 1 << 10;
+    const NUMERIC_CAND_USIZE: u16 = 1 << 11;
+    const NUMERIC_CAND_F32: u16 = 1 << 12;
+    const NUMERIC_CAND_F64: u16 = 1 << 13;
+
+    const NUMERIC_CAND_ALL_INTS: u16 = Self::NUMERIC_CAND_I8
+        | Self::NUMERIC_CAND_I16
+        | Self::NUMERIC_CAND_I32
+        | Self::NUMERIC_CAND_I64
+        | Self::NUMERIC_CAND_I128
+        | Self::NUMERIC_CAND_ISIZE
+        | Self::NUMERIC_CAND_U8
+        | Self::NUMERIC_CAND_U16
+        | Self::NUMERIC_CAND_U32
+        | Self::NUMERIC_CAND_U64
+        | Self::NUMERIC_CAND_U128
+        | Self::NUMERIC_CAND_USIZE;
+    const NUMERIC_CAND_ALL_FLOATS: u16 = Self::NUMERIC_CAND_F32 | Self::NUMERIC_CAND_F64;
+    const NUMERIC_CAND_ALL: u16 = Self::NUMERIC_CAND_ALL_INTS | Self::NUMERIC_CAND_ALL_FLOATS;
+    const NUMERIC_CAND_POINTER_OFFSETS: u16 =
+        Self::NUMERIC_CAND_ISIZE | Self::NUMERIC_CAND_USIZE;
+
     pub(crate) fn new(ctx: &'a mut SemaContext<'ctx>, current_return_type: Option<TypeId>) -> Self {
         Self {
             ctx,
             current_return_type,
             has_returned: false,
             type_vars: Vec::new(),
+            numeric_type_vars: Vec::new(),
             trait_obligation_stack: Vec::new(),
             projection_normalization_stack: Vec::new(),
             current_module_cache: None,
             allow_uninstantiated_generic_function_items: false,
+            touched_expr_nodes: Vec::new(),
+            touched_bindings: Vec::new(),
+        }
+    }
+
+    pub(crate) fn numeric_state_for_kind(kind: NumericInferenceKind) -> NumericInferenceState {
+        let candidates = match kind {
+            NumericInferenceKind::IntLiteral => Self::NUMERIC_CAND_ALL,
+            NumericInferenceKind::FloatLiteral => Self::NUMERIC_CAND_ALL_FLOATS,
+        };
+        NumericInferenceState { kind, candidates }
+    }
+
+    pub(crate) fn numeric_candidates_for_type(ty: TypeId) -> u16 {
+        match ty {
+            TypeId::I8 => Self::NUMERIC_CAND_I8,
+            TypeId::I16 => Self::NUMERIC_CAND_I16,
+            TypeId::I32 => Self::NUMERIC_CAND_I32,
+            TypeId::I64 => Self::NUMERIC_CAND_I64,
+            TypeId::I128 => Self::NUMERIC_CAND_I128,
+            TypeId::ISIZE => Self::NUMERIC_CAND_ISIZE,
+            TypeId::U8 => Self::NUMERIC_CAND_U8,
+            TypeId::U16 => Self::NUMERIC_CAND_U16,
+            TypeId::U32 => Self::NUMERIC_CAND_U32,
+            TypeId::U64 => Self::NUMERIC_CAND_U64,
+            TypeId::U128 => Self::NUMERIC_CAND_U128,
+            TypeId::USIZE => Self::NUMERIC_CAND_USIZE,
+            TypeId::F32 => Self::NUMERIC_CAND_F32,
+            TypeId::F64 => Self::NUMERIC_CAND_F64,
+            _ => 0,
+        }
+    }
+
+    pub(crate) fn numeric_candidates_have_integers(candidates: u16) -> bool {
+        candidates & Self::NUMERIC_CAND_ALL_INTS != 0
+    }
+
+    pub(crate) fn numeric_candidates_have_floats(candidates: u16) -> bool {
+        candidates & Self::NUMERIC_CAND_ALL_FLOATS != 0
+    }
+
+    pub(crate) fn single_numeric_candidate_type(candidates: u16) -> Option<TypeId> {
+        [
+            (Self::NUMERIC_CAND_I8, TypeId::I8),
+            (Self::NUMERIC_CAND_I16, TypeId::I16),
+            (Self::NUMERIC_CAND_I32, TypeId::I32),
+            (Self::NUMERIC_CAND_I64, TypeId::I64),
+            (Self::NUMERIC_CAND_I128, TypeId::I128),
+            (Self::NUMERIC_CAND_ISIZE, TypeId::ISIZE),
+            (Self::NUMERIC_CAND_U8, TypeId::U8),
+            (Self::NUMERIC_CAND_U16, TypeId::U16),
+            (Self::NUMERIC_CAND_U32, TypeId::U32),
+            (Self::NUMERIC_CAND_U64, TypeId::U64),
+            (Self::NUMERIC_CAND_U128, TypeId::U128),
+            (Self::NUMERIC_CAND_USIZE, TypeId::USIZE),
+            (Self::NUMERIC_CAND_F32, TypeId::F32),
+            (Self::NUMERIC_CAND_F64, TypeId::F64),
+        ]
+        .into_iter()
+        .find_map(|(mask, ty)| (candidates == mask).then_some(ty))
+    }
+
+    pub(crate) fn finalize_numeric_inference(&mut self, ty: TypeId) -> TypeId {
+        let final_ty = self.materialize_numeric_defaults_in_type(ty);
+
+        let touched_expr_nodes = self.touched_expr_nodes.clone();
+        for node_id in touched_expr_nodes {
+            let Some(existing_ty) = self.ctx.node_types.get(&node_id).copied() else {
+                continue;
+            };
+            let rewritten = self.materialize_numeric_defaults_in_type(existing_ty);
+            self.ctx.node_types.insert(node_id, rewritten);
+        }
+
+        let touched_bindings = self.touched_bindings.clone();
+        for (scope_id, name) in touched_bindings {
+            let Some(existing_ty) = self
+                .ctx
+                .scopes
+                .resolve_in(scope_id, name)
+                .map(|info| info.type_id)
+            else {
+                continue;
+            };
+            let rewritten = self.materialize_numeric_defaults_in_type(existing_ty);
+            let _ = self
+                .ctx
+                .scopes
+                .update_type_in_scope(scope_id, name, rewritten);
+        }
+
+        final_ty
+    }
+
+    pub(crate) fn maybe_constrain_by_expected_type(
+        &mut self,
+        actual: TypeId,
+        expected: Option<TypeId>,
+    ) -> TypeId {
+        let Some(expected) = expected else {
+            return actual;
+        };
+
+        let resolved_actual = self.resolve_tv(actual);
+        let TypeKind::TypeVar(vid) = self.ctx.type_registry.get(resolved_actual).clone() else {
+            return actual;
+        };
+        if self.numeric_inference_kind(vid).is_none() {
+            return actual;
+        }
+
+        if self.bind_type_var(vid, expected) {
+            self.resolve_tv(actual)
+        } else {
+            actual
+        }
+    }
+
+    pub(crate) fn record_current_binding(&mut self, name: SymbolId) {
+        let Some(scope_id) = self.ctx.scopes.current_scope_id() else {
+            return;
+        };
+        self.touched_bindings.push((scope_id, name));
+    }
+
+    pub(crate) fn numeric_inference_kind(&self, vid: u32) -> Option<NumericInferenceKind> {
+        self.numeric_type_vars
+            .get(vid as usize)
+            .copied()
+            .flatten()
+            .map(|state| state.kind)
+    }
+
+    pub(crate) fn numeric_inference_state(&self, vid: u32) -> Option<NumericInferenceState> {
+        self.numeric_type_vars.get(vid as usize).copied().flatten()
+    }
+
+    pub(crate) fn type_numeric_candidates(&self, ty: TypeId) -> Option<u16> {
+        match self.ctx.type_registry.get(ty) {
+            TypeKind::TypeVar(vid) => self.numeric_inference_state(*vid).map(|state| state.candidates),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn type_is_integer_like(&mut self, ty: TypeId) -> bool {
+        let norm = self.resolve_tv(ty);
+        self.ctx.type_registry.is_integer(norm)
+            || self
+                .type_numeric_candidates(norm)
+                .is_some_and(Self::numeric_candidates_have_integers)
+    }
+
+    pub(crate) fn type_is_float_like(&mut self, ty: TypeId) -> bool {
+        let norm = self.resolve_tv(ty);
+        self.ctx.type_registry.is_float(norm)
+            || self
+                .type_numeric_candidates(norm)
+                .is_some_and(Self::numeric_candidates_have_floats)
+    }
+
+    pub(crate) fn type_is_numeric_like(&mut self, ty: TypeId) -> bool {
+        self.type_is_integer_like(ty) || self.type_is_float_like(ty)
+    }
+
+    fn numeric_default_type(&self, candidates: u16) -> TypeId {
+        [
+            TypeId::I32,
+            TypeId::F64,
+            TypeId::ISIZE,
+            TypeId::USIZE,
+            TypeId::I64,
+            TypeId::U32,
+            TypeId::F32,
+            TypeId::I128,
+            TypeId::U64,
+            TypeId::I16,
+            TypeId::U128,
+            TypeId::U16,
+            TypeId::I8,
+            TypeId::U8,
+        ]
+        .into_iter()
+        .find(|ty| Self::numeric_candidates_for_type(*ty) & candidates != 0)
+        .unwrap_or(TypeId::ERROR)
+    }
+
+    fn materialize_numeric_defaults_in_generic_arg(&mut self, arg: GenericArg) -> GenericArg {
+        match arg {
+            GenericArg::Type(ty) => GenericArg::Type(self.materialize_numeric_defaults_in_type(ty)),
+            GenericArg::Const(value) => GenericArg::Const(value),
+        }
+    }
+
+    fn materialize_numeric_defaults_in_type(&mut self, ty: TypeId) -> TypeId {
+        let resolved = self.resolve_tv(ty);
+        let kind = self.ctx.type_registry.get(resolved).clone();
+
+        match kind {
+            TypeKind::Primitive(_)
+            | TypeKind::Simd { .. }
+            | TypeKind::Error
+            | TypeKind::Module(_)
+            | TypeKind::Param(_) => resolved,
+            TypeKind::TypeVar(vid) => self
+                .numeric_inference_state(vid)
+                .map(|state| self.numeric_default_type(state.candidates))
+                .unwrap_or(resolved),
+            TypeKind::Pointer { is_mut, elem } => {
+                let elem = self.materialize_numeric_defaults_in_type(elem);
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Pointer { is_mut, elem })
+            }
+            TypeKind::VolatilePtr { is_mut, elem } => {
+                let elem = self.materialize_numeric_defaults_in_type(elem);
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::VolatilePtr { is_mut, elem })
+            }
+            TypeKind::Slice { is_mut, elem } => {
+                let elem = self.materialize_numeric_defaults_in_type(elem);
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Slice { is_mut, elem })
+            }
+            TypeKind::Array { elem, len } => {
+                let elem = self.materialize_numeric_defaults_in_type(elem);
+                self.ctx.type_registry.intern(TypeKind::Array { elem, len })
+            }
+            TypeKind::ArrayInfer { elem } => {
+                let elem = self.materialize_numeric_defaults_in_type(elem);
+                self.ctx.type_registry.intern(TypeKind::ArrayInfer { elem })
+            }
+            TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.materialize_numeric_defaults_in_type(param))
+                    .collect();
+                let ret = self.materialize_numeric_defaults_in_type(ret);
+                self.ctx.type_registry.intern(TypeKind::Function {
+                    params,
+                    ret,
+                    is_variadic,
+                })
+            }
+            TypeKind::Def(def_id, args) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.materialize_numeric_defaults_in_generic_arg(arg))
+                    .collect();
+                self.ctx.type_registry.intern(TypeKind::Def(def_id, args))
+            }
+            TypeKind::Enum(def_id, args) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.materialize_numeric_defaults_in_generic_arg(arg))
+                    .collect();
+                self.ctx.type_registry.intern(TypeKind::Enum(def_id, args))
+            }
+            TypeKind::EnumPayload(def_id, args) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.materialize_numeric_defaults_in_generic_arg(arg))
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::EnumPayload(def_id, args))
+            }
+            TypeKind::FnDef(def_id, args) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.materialize_numeric_defaults_in_generic_arg(arg))
+                    .collect();
+                self.ctx.type_registry.intern(TypeKind::FnDef(def_id, args))
+            }
+            TypeKind::Alias(name, target) => {
+                let target = self.materialize_numeric_defaults_in_type(target);
+                self.ctx.type_registry.intern(TypeKind::Alias(name, target))
+            }
+            TypeKind::Associated(def_id, args) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.materialize_numeric_defaults_in_generic_arg(arg))
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Associated(def_id, args))
+            }
+            TypeKind::TraitObject(def_id, args, assoc_bindings) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.materialize_numeric_defaults_in_generic_arg(arg))
+                    .collect();
+                let assoc_bindings = assoc_bindings
+                    .into_iter()
+                    .map(|(assoc_def_id, assoc_ty)| {
+                        (
+                            assoc_def_id,
+                            self.materialize_numeric_defaults_in_type(assoc_ty),
+                        )
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::TraitObject(def_id, args, assoc_bindings))
+            }
+            TypeKind::Projection {
+                target,
+                trait_def_id,
+                trait_args,
+                assoc_def_id,
+                assoc_args,
+            } => {
+                let target = self.materialize_numeric_defaults_in_type(target);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.materialize_numeric_defaults_in_generic_arg(arg))
+                    .collect();
+                let assoc_args = assoc_args
+                    .into_iter()
+                    .map(|arg| self.materialize_numeric_defaults_in_generic_arg(arg))
+                    .collect();
+                self.ctx.type_registry.intern(TypeKind::Projection {
+                    target,
+                    trait_def_id,
+                    trait_args,
+                    assoc_def_id,
+                    assoc_args,
+                })
+            }
+            TypeKind::ClosureInterface { params, ret } => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.materialize_numeric_defaults_in_type(param))
+                    .collect();
+                let ret = self.materialize_numeric_defaults_in_type(ret);
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::ClosureInterface { params, ret })
+            }
+            TypeKind::AnonymousState {
+                closure_node_id,
+                captures,
+                params,
+                ret,
+            } => {
+                let captures = captures
+                    .into_iter()
+                    .map(|capture| self.materialize_numeric_defaults_in_type(capture))
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|param| self.materialize_numeric_defaults_in_type(param))
+                    .collect();
+                let ret = self.materialize_numeric_defaults_in_type(ret);
+                self.ctx.type_registry.intern(TypeKind::AnonymousState {
+                    closure_node_id,
+                    captures,
+                    params,
+                    ret,
+                })
+            }
+            TypeKind::AnonymousStruct(is_extern, fields) => {
+                let fields = fields
+                    .into_iter()
+                    .map(|field| crate::ty::AnonymousField {
+                        name: field.name,
+                        ty: self.materialize_numeric_defaults_in_type(field.ty),
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousStruct(is_extern, fields))
+            }
+            TypeKind::AnonymousUnion(is_extern, fields) => {
+                let fields = fields
+                    .into_iter()
+                    .map(|field| crate::ty::AnonymousField {
+                        name: field.name,
+                        ty: self.materialize_numeric_defaults_in_type(field.ty),
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousUnion(is_extern, fields))
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                let backing_ty = enum_def
+                    .backing_ty
+                    .map(|ty| self.materialize_numeric_defaults_in_type(ty));
+                let variants = enum_def
+                    .variants
+                    .into_iter()
+                    .map(|variant| AnonymousVariant {
+                        name: variant.name,
+                        name_span: variant.name_span,
+                        payload_ty: variant
+                            .payload_ty
+                            .map(|ty| self.materialize_numeric_defaults_in_type(ty)),
+                        explicit_value: variant.explicit_value,
+                    })
+                    .collect();
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                        backing_ty,
+                        builtin: enum_def.builtin,
+                        variants,
+                    }))
+            }
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let enum_ty = self.materialize_numeric_defaults_in_type(enum_ty);
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnumPayload(enum_ty))
+            }
+        }
+    }
+
+    pub(crate) fn format_type_for_diagnostic(&mut self, ty: TypeId) -> String {
+        let resolved = self.resolve_tv(ty);
+        let Some(candidates) = self.type_numeric_candidates(resolved) else {
+            return self.ctx.ty_to_string(ty);
+        };
+
+        if let Some(single) = Self::single_numeric_candidate_type(candidates) {
+            return self.ctx.ty_to_string(single);
+        }
+
+        let ints = Self::numeric_candidates_have_integers(candidates);
+        let floats = Self::numeric_candidates_have_floats(candidates);
+        if candidates == Self::NUMERIC_CAND_POINTER_OFFSETS {
+            return "an inferred pointer offset integer (`usize` or `isize`)".to_string();
+        }
+        match (ints, floats) {
+            (true, true) => "an inferred numeric literal".to_string(),
+            (true, false) => "an inferred integer literal".to_string(),
+            (false, true) => "an inferred floating-point literal".to_string(),
+            (false, false) => self.ctx.ty_to_string(ty),
         }
     }
 
@@ -983,7 +1474,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.reject_uninstantiated_generic_function_item(expr, ty)
         };
 
+        let ty = self.maybe_constrain_by_expected_type(ty, expected_ty);
         self.ctx.node_types.insert(expr.id, ty);
+        self.touched_expr_nodes.push(expr.id);
         ty
     }
 

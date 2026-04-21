@@ -15,6 +15,18 @@ impl MirFunctionBuilder {
         }))))
     }
 
+    fn lower_void_effect_operand(
+        &mut self,
+        block_id: &mut MirBlockId,
+        expr: &MastExpr,
+    ) -> LowerResult<Option<MirOperand>> {
+        let Some(end_block) = self.lower_control_or_eval_stmt(*block_id, expr)? else {
+            return Ok(None);
+        };
+        *block_id = end_block;
+        Ok(Some(MirOperand::Const(MirConst::Undef { ty: expr.ty })))
+    }
+
     pub(super) fn lower_rvalue(
         &mut self,
         block_id: &mut MirBlockId,
@@ -451,6 +463,7 @@ impl MirFunctionBuilder {
                 Ok(None)
             }
             MastExprKind::Breakpoint
+            | MastExprKind::Asm(_)
             | MastExprKind::Memcpy { .. }
             | MastExprKind::Memmove { .. }
             | MastExprKind::Memset { .. }
@@ -562,7 +575,8 @@ impl MirFunctionBuilder {
             | MastExprKind::Fence { .. }
             | MastExprKind::Memcpy { .. }
             | MastExprKind::Memmove { .. }
-            | MastExprKind::Memset { .. } => self.unsupported_expr(expr, "operand position"),
+            | MastExprKind::Memset { .. }
+            | MastExprKind::Breakpoint => self.lower_void_effect_operand(block_id, expr),
             _ => {
                 let temp = self.new_temp_local(expr.ty, expr.span);
                 let Some(init) = self.lower_rvalue(block_id, expr)? else {

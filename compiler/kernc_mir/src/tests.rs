@@ -173,7 +173,9 @@ fn mir_pass_pipeline_folds_degenerate_branch_targets() {
     assert_eq!(cfg_pass.name, "cfg_prune_unreachable_blocks");
     assert_eq!(cfg_pass.removed_blocks, 0);
     let body = module.functions[0].body.as_ref().unwrap();
-    assert!(matches!(body.blocks[0].terminator.kind, MirTerminator::Goto(target) if target == join));
+    assert!(
+        matches!(body.blocks[0].terminator.kind, MirTerminator::Goto(target) if target == join)
+    );
 }
 
 #[test]

@@ -75,6 +75,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
+        if align > u32::MAX as u64 {
+            self.ctx
+                .struct_error(
+                    arg.span,
+                    format!(
+                        "`{}` alignment `{}` exceeds the maximum backend-supported alignment of {}",
+                        intrinsic_name,
+                        align,
+                        u32::MAX
+                    ),
+                )
+                .with_hint("choose a smaller power-of-two alignment that fits within 32 bits")
+                .emit();
+            return None;
+        }
+
         Some(align)
     }
 

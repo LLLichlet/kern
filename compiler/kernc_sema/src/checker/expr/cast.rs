@@ -18,9 +18,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let f_norm = self.resolve_tv(from);
         let t_norm = self.resolve_tv(to);
 
-        let is_f_int = self.ctx.type_registry.is_integer(f_norm);
+        let is_f_int = self.ctx.type_registry.is_integer(f_norm)
+            || self
+                .type_numeric_candidates(f_norm)
+                .is_some_and(Self::numeric_candidates_have_integers);
         let is_t_int = self.ctx.type_registry.is_integer(t_norm);
-        let is_f_float = self.ctx.type_registry.is_float(f_norm);
+        let is_f_float = self.ctx.type_registry.is_float(f_norm)
+            || self
+                .type_numeric_candidates(f_norm)
+                .is_some_and(Self::numeric_candidates_have_floats);
         let is_t_float = self.ctx.type_registry.is_float(t_norm);
 
         let is_f_ptr = matches!(
@@ -54,7 +60,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 2. Allow pointer -> integer casts and integer -> address-pointer casts.
-        let is_f_ptr_int = f_norm == TypeId::USIZE || f_norm == TypeId::ISIZE;
+        let f_norm = self.constrain_pointer_cast_integer(from);
+        let is_f_ptr_int = f_norm == TypeId::USIZE
+            || f_norm == TypeId::ISIZE
+            || self.type_numeric_candidates(f_norm).is_some_and(|candidates| {
+                candidates != 0 && (candidates & !Self::NUMERIC_CAND_POINTER_OFFSETS) == 0
+            });
         let is_t_ptr_int = t_norm == TypeId::USIZE || t_norm == TypeId::ISIZE;
         if is_f_ptr && is_t_ptr_int {
             return;
@@ -97,5 +108,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx.type_registry.get(norm),
             TypeKind::VolatilePtr { .. }
         )
+    }
+
+    fn constrain_pointer_cast_integer(&mut self, ty: TypeId) -> TypeId {
+        let resolved = self.resolve_tv(ty);
+        let TypeKind::TypeVar(vid) = self.ctx.type_registry.get(resolved).clone() else {
+            return resolved;
+        };
+
+        if self.numeric_inference_kind(vid).is_none() {
+            return resolved;
+        }
+
+        if self.constrain_numeric_type_var(vid, Self::NUMERIC_CAND_POINTER_OFFSETS) {
+            self.resolve_tv(ty)
+        } else {
+            resolved
+        }
     }
 }

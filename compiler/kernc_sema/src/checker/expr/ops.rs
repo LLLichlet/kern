@@ -1,10 +1,18 @@
-use super::ExprChecker;
+use super::{ExprChecker, NumericInferenceKind};
 use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{BinaryOperator, Expr, ExprKind, UnaryOperator};
 use kernc_utils::{DiagnosticCode, Span};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn alloc_type_var(&mut self, kind: Option<NumericInferenceKind>) -> TypeId {
+        let vid = self.type_vars.len() as u32;
+        self.type_vars.push(None);
+        self.numeric_type_vars
+            .push(kind.map(Self::numeric_state_for_kind));
+        self.ctx.type_registry.intern(TypeKind::TypeVar(vid))
+    }
+
     fn builtin_rhs_expectation_for_lhs(
         &mut self,
         op: BinaryOperator,
@@ -29,8 +37,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | BinaryOperator::BitwiseXor
             | BinaryOperator::ShiftLeft
             | BinaryOperator::ShiftRight => {
-                if self.ctx.type_registry.is_integer(lhs_norm)
-                    || self.ctx.type_registry.is_float(lhs_norm)
+                if self.type_is_integer_like(lhs_ty)
+                    || self.type_is_float_like(lhs_ty)
                     || lhs_norm == TypeId::BOOL
                     || self.ctx.type_registry.is_simd(lhs_norm)
                     || self.is_pure_enum_type(lhs_norm)
@@ -96,9 +104,56 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn fresh_type_var(&mut self) -> TypeId {
-        let vid = self.type_vars.len() as u32;
-        self.type_vars.push(None);
-        self.ctx.type_registry.intern(TypeKind::TypeVar(vid))
+        self.alloc_type_var(None)
+    }
+
+    pub(crate) fn fresh_numeric_type_var(&mut self, kind: NumericInferenceKind) -> TypeId {
+        self.alloc_type_var(Some(kind))
+    }
+
+    fn constrain_pointer_offset_type(&mut self, ty: TypeId) -> TypeId {
+        let resolved = self.resolve_tv(ty);
+        let TypeKind::TypeVar(vid) = self.ctx.type_registry.get(resolved).clone() else {
+            return resolved;
+        };
+
+        if self.numeric_inference_kind(vid).is_none() {
+            return resolved;
+        }
+
+        if self.constrain_numeric_type_var(vid, Self::NUMERIC_CAND_POINTER_OFFSETS) {
+            self.resolve_tv(ty)
+        } else {
+            resolved
+        }
+    }
+
+    fn type_is_pointer_offset_like(&mut self, ty: TypeId) -> bool {
+        let norm = self.resolve_tv(ty);
+        if norm == TypeId::USIZE || norm == TypeId::ISIZE {
+            return true;
+        }
+
+        self.type_numeric_candidates(norm).is_some_and(|candidates| {
+            candidates != 0 && (candidates & !Self::NUMERIC_CAND_POINTER_OFFSETS) == 0
+        })
+    }
+
+    fn constrain_integer_type(&mut self, ty: TypeId) -> TypeId {
+        let resolved = self.resolve_tv(ty);
+        let TypeKind::TypeVar(vid) = self.ctx.type_registry.get(resolved).clone() else {
+            return resolved;
+        };
+
+        if self.numeric_inference_kind(vid).is_none() {
+            return resolved;
+        }
+
+        if self.constrain_numeric_type_var(vid, Self::NUMERIC_CAND_ALL_INTS) {
+            self.resolve_tv(ty)
+        } else {
+            resolved
+        }
     }
 
     fn has_builtin_binary_fast_path(
@@ -126,16 +181,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if is_l_ptr || is_r_ptr {
                     return true;
                 }
-                (self.ctx.type_registry.is_integer(l_norm)
-                    && self.ctx.type_registry.is_integer(r_norm))
-                    || (self.ctx.type_registry.is_float(l_norm)
-                        && self.ctx.type_registry.is_float(r_norm))
+                (self.type_is_integer_like(lhs_ty) && self.type_is_integer_like(rhs_ty))
+                    || (self.type_is_numeric_like(lhs_ty) && self.type_is_numeric_like(rhs_ty))
             }
             BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo => {
-                (self.ctx.type_registry.is_integer(l_norm)
-                    && self.ctx.type_registry.is_integer(r_norm))
-                    || (self.ctx.type_registry.is_float(l_norm)
-                        && self.ctx.type_registry.is_float(r_norm))
+                (self.type_is_integer_like(lhs_ty) && self.type_is_integer_like(rhs_ty))
+                    || (self.type_is_numeric_like(lhs_ty) && self.type_is_numeric_like(rhs_ty))
             }
             BinaryOperator::Equal | BinaryOperator::NotEqual => {
                 if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm)
@@ -146,10 +197,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return true;
                 }
                 (is_l_ptr && is_r_ptr)
-                    || (self.ctx.type_registry.is_integer(l_norm)
-                        && self.ctx.type_registry.is_integer(r_norm))
-                    || (self.ctx.type_registry.is_float(l_norm)
-                        && self.ctx.type_registry.is_float(r_norm))
+                    || (self.type_is_numeric_like(lhs_ty) && self.type_is_numeric_like(rhs_ty))
                     || (l_norm == TypeId::BOOL && r_norm == TypeId::BOOL)
             }
             BinaryOperator::LessThan
@@ -161,10 +209,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return false;
                 }
                 (is_l_ptr && is_r_ptr)
-                    || (self.ctx.type_registry.is_integer(l_norm)
-                        && self.ctx.type_registry.is_integer(r_norm))
-                    || (self.ctx.type_registry.is_float(l_norm)
-                        && self.ctx.type_registry.is_float(r_norm))
+                    || (self.type_is_numeric_like(lhs_ty) && self.type_is_numeric_like(rhs_ty))
                     || (l_norm == TypeId::BOOL && r_norm == TypeId::BOOL)
             }
             BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => true,
@@ -173,8 +218,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | BinaryOperator::BitwiseXor
             | BinaryOperator::ShiftLeft
             | BinaryOperator::ShiftRight => {
-                self.ctx.type_registry.is_integer(l_norm)
-                    && self.ctx.type_registry.is_integer(r_norm)
+                self.type_is_integer_like(lhs_ty) && self.type_is_integer_like(rhs_ty)
             }
         }
     }
@@ -422,8 +466,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match op {
             Add | Subtract => {
                 if is_l_ptr || is_r_ptr {
-                    let rhs_is_offset = r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE;
-                    let lhs_is_offset = l_norm == TypeId::USIZE || l_norm == TypeId::ISIZE;
+                    let l_norm = if is_r_ptr {
+                        self.constrain_pointer_offset_type(lhs_ty)
+                    } else {
+                        l_norm
+                    };
+                    let r_norm = if is_l_ptr {
+                        self.constrain_pointer_offset_type(rhs_ty)
+                    } else {
+                        r_norm
+                    };
+                    let rhs_is_offset = self.type_is_pointer_offset_like(r_norm);
+                    let lhs_is_offset = self.type_is_pointer_offset_like(l_norm);
 
                     if op == Add {
                         if is_l_ptr && rhs_is_offset {
@@ -555,11 +609,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             BitwiseAnd | BitwiseOr | BitwiseXor | ShiftLeft | ShiftRight => {
                 if self.has_builtin_binary_fast_path(op, l_norm, r_norm) {
+                    let l_norm = self.constrain_integer_type(lhs_ty);
+                    let r_norm = self.constrain_integer_type(rhs_ty);
                     let bitwise_ok =
                         if let Some((elem, _)) = self.ctx.type_registry.simd_info(l_norm) {
                             self.ctx.type_registry.is_integer(elem) || elem == TypeId::BOOL
                         } else {
-                            self.ctx.type_registry.is_integer(l_norm)
+                            self.type_is_integer_like(lhs_ty)
                         };
                     if !bitwise_ok {
                         self.ctx
@@ -730,6 +786,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
                 if self.ctx.type_registry.is_integer(op_ty_id)
                     || self.ctx.type_registry.is_float(op_ty_id)
+                    || self.type_numeric_candidates(op_ty_id).is_some()
                 {
                     return op_ty;
                 }
@@ -742,13 +799,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.require_builtin_unary_trait(operand, op_ty, op, expected_ty)
             }
             UnaryOperator::BitwiseNot => {
-                let op_ty_id = norm_op;
+                let op_ty_id = self.constrain_integer_type(op_ty);
                 if let Some((elem, _)) = self.ctx.type_registry.simd_info(op_ty_id)
                     && self.ctx.type_registry.is_integer(elem)
                 {
                     return op_ty;
                 }
                 if self.ctx.type_registry.is_integer(op_ty_id) {
+                    return op_ty;
+                }
+                if self.type_numeric_candidates(op_ty_id)
+                    .is_some_and(Self::numeric_candidates_have_integers)
+                {
                     return op_ty;
                 }
                 self.require_builtin_unary_trait(operand, op_ty, op, expected_ty)

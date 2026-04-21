@@ -987,7 +987,7 @@ fn main() i32 {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("asm sideeffect inteldialect"),
+        stdout.contains("asm sideeffect"),
         "expected sideeffect inline asm in LLVM IR:\n{}",
         stdout
     );

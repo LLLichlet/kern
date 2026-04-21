@@ -972,6 +972,108 @@ let _ = b.emit_artifact_file("notes/build.txt", "built by craft\n");
 }
 
 #[test]
+fn build_script_rejects_overlapping_generated_outputs() {
+    let root = temp_dir("craft-build-plan-overlap-generated-error");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/placeholder.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/placeholder.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let _ = b.emit_generated("src/main.rn", "fn main() i32 { return 0; }\n");
+let _ = b.emit_generated("src", "conflict\n");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let err = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap_err();
+
+    assert!(err.to_string().contains("pre-compile output"));
+    assert!(err.to_string().contains("must not overlap"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_rejects_overlapping_artifact_outputs() {
+    let root = temp_dir("craft-build-plan-overlap-artifact-error");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let _ = b.emit_artifact_file("bundle", "conflict\n");
+let _ = b.emit_artifact_file("bundle/build.txt", "built by craft\n");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let err = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap_err();
+
+    assert!(err.to_string().contains("post-link output"));
+    assert!(err.to_string().contains("must not overlap"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_can_stage_post_link_artifact_files_from_host_tools() {
     let root = temp_dir("craft-build-plan-artifact-file-from-tool");
     let app_dir = root.join("app");

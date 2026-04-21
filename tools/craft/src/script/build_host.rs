@@ -223,7 +223,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     StagedActionPhase::PreCompile,
                     StagedActionKind::WriteFile { contents },
-                );
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_stage_copy_package_file" => {
@@ -259,7 +259,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     StagedActionPhase::PreCompile,
                     StagedActionKind::CopyFile { source },
-                );
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_stage_copy_output" => {
@@ -301,7 +301,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     StagedActionKind::CopyFile {
                         source: source_output.path,
                     },
-                );
+                )?;
                 add_staged_dependency(
                     self.build_nodes,
                     output.staged_id("generated output")?,
@@ -336,7 +336,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                         tool: Box::new(tool.clone()),
                         args,
                     },
-                );
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_stage_artifact_file" => {
@@ -355,7 +355,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     StagedActionPhase::PostLink,
                     StagedActionKind::WriteFile { contents },
-                );
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_stage_artifact_file_from_tool" => {
@@ -380,7 +380,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                         tool: Box::new(tool.clone()),
                         args,
                     },
-                );
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_stage_copy_output_to_artifact" => {
@@ -402,7 +402,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     StagedActionKind::CopyFile {
                         source: source_output.path,
                     },
-                );
+                )?;
                 if let Some(dependency_id) = dependency_id {
                     add_staged_dependency(
                         self.build_nodes,
@@ -438,7 +438,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     StagedActionPhase::PostLink,
                     StagedActionKind::CopyFile { source },
-                );
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_stage_copy_package_dir_to_artifact" => {
@@ -467,7 +467,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     StagedActionPhase::PostLink,
                     StagedActionKind::CopyDirectory { source },
-                );
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_stage_copy_resource_file_to_artifact" => {
@@ -498,7 +498,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     StagedActionPhase::PostLink,
                     StagedActionKind::CopyFile { source },
-                );
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_stage_copy_resource_dir_to_artifact" => {
@@ -529,7 +529,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     StagedActionPhase::PostLink,
                     StagedActionKind::CopyDirectory { source },
-                );
+                )?;
                 Ok(output_value(&output))
             }
             "__craft_build_depend" => {
@@ -793,26 +793,31 @@ fn record_staged_action(
     path: &Path,
     phase: StagedActionPhase,
     kind: StagedActionKind,
-) -> BuildOutput {
+) -> std::result::Result<BuildOutput, String> {
     let output = relative_display(workspace_root, path);
+    let output_path = PathBuf::from(&output);
     let node_ids = unit_bound_node_ids(unit, phase);
-    if let Some(existing_id) = node_ids.iter().copied().find(|id| {
-        build_nodes
-            .iter()
-            .any(|action| action.id == *id && action.phase == phase && action.output == output)
-    }) {
+    for id in node_ids {
         let existing = build_nodes
-            .iter_mut()
-            .find(|action| action.id == existing_id)
+            .iter()
+            .find(|action| action.id == *id)
             .expect("build node id must exist");
-        existing.kind = kind;
-        return BuildOutput {
-            kind: BuildOutputKind::Staged {
-                id: existing_id,
-                phase,
-            },
-            path: normalized_path_string(path),
-        };
+        let existing_path = Path::new(&existing.output);
+        if existing_path == output_path {
+            return Err(format!(
+                "{} output `{}` is already declared",
+                staged_phase_label(phase),
+                output_path.display()
+            ));
+        }
+        if existing_path.starts_with(&output_path) || output_path.starts_with(existing_path) {
+            return Err(format!(
+                "{} output `{}` conflicts with existing output `{}`; staged outputs within a single phase must not overlap",
+                staged_phase_label(phase),
+                output_path.display(),
+                existing_path.display()
+            ));
+        }
     }
     let id = next_staged_action_id(build_nodes);
     build_nodes.push(StagedAction {
@@ -823,10 +828,10 @@ fn record_staged_action(
         kind,
     });
     unit_bound_node_ids_mut(unit, phase).push(id);
-    BuildOutput {
+    Ok(BuildOutput {
         kind: BuildOutputKind::Staged { id, phase },
         path: normalized_path_string(path),
-    }
+    })
 }
 
 fn next_staged_action_id(build_nodes: &[StagedAction]) -> usize {
@@ -896,6 +901,13 @@ fn output_value(output: &BuildOutput) -> ConstValue {
             phase: StagedActionPhase::PostLink,
         } => ConstValue::String(format!("post|{}|{}", id, output.path)),
         BuildOutputKind::PrimaryArtifact => ConstValue::String(format!("artifact|{}", output.path)),
+    }
+}
+
+fn staged_phase_label(phase: StagedActionPhase) -> &'static str {
+    match phase {
+        StagedActionPhase::PreCompile => "pre-compile",
+        StagedActionPhase::PostLink => "post-link",
     }
 }
 

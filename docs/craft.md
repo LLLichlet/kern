@@ -758,6 +758,7 @@ Dependency edges added with `depend(output, dependency)` are not just ordering h
 - changing an upstream staged file reruns downstream post-link tools that consume it indirectly
 - files under an executable's artifact root that are no longer planned staged outputs are deleted before current post-link staging runs
 - files under a unit's generated root that are no longer planned pre-compile outputs are deleted before current pre-compile staging runs
+- staged outputs within one unit and one phase must not reuse or overlap each other's paths
 
 This keeps build behavior explicit and inspectable instead of hiding it behind arbitrary script side effects.
 

@@ -48,7 +48,7 @@ To achieve "high abstraction, low policy", Kern provides three core mechanisms:
 2.  **Generics** - strongly-typed code reuse via monomorphisation (zero runtime cost).
 3.  **Enum Types & Pattern Matching** - precise state management without implicit control flow.
 
-### 1.2 Non鈥慓oals
+### 1.2 Non goals
 
   * **Compile-time enforced memory safety** - no borrow checker.
   * **Standard library design** - Kern is freestanding.

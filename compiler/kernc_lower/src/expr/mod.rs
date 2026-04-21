@@ -129,7 +129,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let call_expr = self.measure_phase("        lower_expr_call", |this| {
                     this.lower_call(callee, args, subst_map, expr.span, concrete_ty)
                 });
-                return self.apply_implicit_cast(call_expr.kind, call_expr.ty, exp_ty, expr.span);
+                let target_ty = expected_ty.unwrap_or(call_expr.ty);
+                return self.apply_implicit_cast(
+                    call_expr.kind,
+                    call_expr.ty,
+                    target_ty,
+                    expr.span,
+                );
             }
             ExprKind::FieldAccess { lhs, field, .. } => {
                 self.measure_phase("        lower_expr_access", |this| {

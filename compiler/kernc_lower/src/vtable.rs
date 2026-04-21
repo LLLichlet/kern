@@ -226,8 +226,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MonoId {
         let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
         let norm_receiver = self.ctx.type_registry.normalize(receiver_ty);
-        let trait_ty =
-            kernc_sema::query::retain_declared_trait_object_assoc_bindings(self.ctx, trait_ty);
         let norm_trait = self.ctx.type_registry.normalize(trait_ty);
         let key = (norm_data_ptr, norm_receiver, norm_trait);
         if let Some(&id) = self.vtable_cache.get(&key) {

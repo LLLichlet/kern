@@ -162,8 +162,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // 2. Choose dynamic (vtable) or static dispatch based on the recovered type.
         if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(inner_ty) {
-            let recv_trait_ty =
-                kernc_sema::query::retain_declared_trait_object_assoc_bindings(self.ctx, inner_ty);
             // Hand the full fat pointer to the dynamic dispatcher so it can extract the vtable.
             let kind = self.measure_phase("              lower_call_dynamic_dispatch", |this| {
                 this.lower_dynamic_method_dispatch(
@@ -171,7 +169,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     arg_masts,
                     DynamicDispatchCall {
                         field: call.field,
-                        recv_trait_ty,
+                        recv_trait_ty: inner_ty,
                         owner_trait_ty,
                         norm_callee: call.norm_callee,
                         span: call.span,
@@ -528,7 +526,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let recv_trait_norm = self.ctx.type_registry.normalize(call.recv_trait_ty);
         let owner_trait_norm = self.ctx.type_registry.normalize(call.owner_trait_ty);
 
-        let owner_vtable_ptr = if owner_trait_norm == recv_trait_norm {
+        let owner_vtable_ptr = if self.trait_object_satisfies_required(recv_trait_norm, owner_trait_norm) {
             vtable_ptr
         } else {
             let Some(super_slot) = self.vtable_supertrait_slot(recv_trait_norm, owner_trait_norm)

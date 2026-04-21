@@ -303,9 +303,14 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         continue;
                     };
 
+                    let old_err_cnt = self.ctx.sess.error_count;
                     self.ctx.scopes.set_current_scope(scope_id);
                     let mut checker = ExprChecker::new(self.ctx, None);
                     checker.check_expr(unsafe { &(*g).value }, None); // Let the real diagnostics reach the user.
+
+                    if self.ctx.sess.error_count > old_err_cnt {
+                        continue;
+                    }
 
                     self.ctx.struct_error(unsafe { (*g).span }, format!("cannot resolve global constant `{}`", self.ctx.resolve(unsafe { (*g).name })))
                         .with_hint("this is usually caused by a circular dependency (e.g., A depends on B, and B depends on A) or an undefined variable")
@@ -401,7 +406,12 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         continue;
                     };
 
+                    let old_err_cnt = self.ctx.sess.error_count;
                     let _ = self.check_global_initializer(scope_id, unsafe { &*global });
+
+                    if self.ctx.sess.error_count > old_err_cnt {
+                        continue;
+                    }
 
                     self.ctx
                         .struct_error(

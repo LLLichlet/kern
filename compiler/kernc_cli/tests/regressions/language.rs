@@ -3622,6 +3622,119 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_static_enum_initializer_with_multiple_variants_without_panicking() {
+    let output = compile_source(
+        r#"
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+static BAD = Option[i32].{ None: 0, Some: 1 };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Enum literal must specify exactly one variant"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at")
+            && !stderr.contains("Kern Compiler Internal Error")
+            && !stderr.contains("cannot resolve global constant"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_static_enum_initializer_payload_for_payloadless_variant_without_panicking() {
+    let output = compile_source(
+        r#"
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+static BAD = Option[i32].{ None: 1 };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("variant `None` does not take a payload"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at") && !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_static_enum_initializer_missing_payload_without_panicking() {
+    let output = compile_source(
+        r#"
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+static BAD = Option[i32].Some;
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("variant `Some` requires a payload"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at") && !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn accepts_large_u128_constant_literals() {
     let output = build_and_run_source(
         r#"

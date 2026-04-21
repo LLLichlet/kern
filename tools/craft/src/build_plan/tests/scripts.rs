@@ -1074,6 +1074,166 @@ let _ = b.emit_artifact_file("bundle/build.txt", "built by craft\n");
 }
 
 #[test]
+fn build_script_rejects_cyclic_generated_output_dependencies() {
+    let root = temp_dir("craft-build-plan-cyclic-generated-deps");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/placeholder.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/placeholder.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let first = b.stage_generated("tmp/one.txt", "one\n");
+let second = b.stage_generated("tmp/two.txt", "two\n");
+b.depend(first, second);
+b.depend(second, first);
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let err = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("build output dependencies must not contain cycles")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_rejects_forged_staged_output_handles() {
+    let root = temp_dir("craft-build-plan-forged-staged-output");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/placeholder.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/placeholder.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+b.set_source_root_from("pre|999|/tmp/forged-main.rn");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let err = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap_err();
+
+    assert!(
+        err.to_string().contains(
+            "`output` must refer to a staged build output declared by the current unit"
+        )
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_rejects_forged_primary_artifact_handles() {
+    let root = temp_dir("craft-build-plan-forged-primary-artifact");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let _ = b.copy_output_to_artifact("artifact|/tmp/forged-artifact", "bundle/demo");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let err = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("`source output` must refer to the current unit primary artifact")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_can_stage_post_link_artifact_files_from_host_tools() {
     let root = temp_dir("craft-build-plan-artifact-file-from-tool");
     let app_dir = root.join("app");

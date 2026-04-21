@@ -459,6 +459,11 @@ fn copy_git_worktree(source: &Path, dest: &Path) -> Result<()> {
             copy_git_worktree(&source_path, &dest_path)?;
         } else if file_type.is_file() {
             fs::copy(&source_path, &dest_path).map_err(|err| Error::from_io(&dest_path, err))?;
+        } else {
+            return Err(Error::Execution(format!(
+                "unsupported filesystem entry `{}` while copying git worktree",
+                source_path.display()
+            )));
         }
     }
     Ok(())
@@ -659,6 +664,11 @@ fn sync_dir_all(source: &Path, dest: &Path) -> Result<()> {
                 fs::remove_dir_all(&dest_path).map_err(|err| Error::from_io(&dest_path, err))?;
             }
             fs::copy(&source_path, &dest_path).map_err(|err| Error::from_io(&dest_path, err))?;
+        } else {
+            return Err(Error::Execution(format!(
+                "unsupported filesystem entry `{}` while syncing source tree",
+                source_path.display()
+            )));
         }
     }
 
@@ -734,20 +744,35 @@ fn package_cache_segment(package_id: &PackageId) -> String {
 fn digest_tree(root: &Path) -> Result<u64> {
     let mut entries = Vec::new();
     collect_tree_entries(root, root, &mut entries)?;
-    entries.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
+    entries.sort();
 
     let mut hash = 0xcbf29ce484222325u64;
-    for (relative, bytes) in entries {
-        hash = fnv1a64_update(hash, relative.as_bytes());
-        hash = fnv1a64_update(hash, &bytes);
+    for entry in entries {
+        match entry {
+            TreeEntry::Dir(relative) => {
+                hash = fnv1a64_update(hash, b"dir:");
+                hash = fnv1a64_update(hash, relative.as_bytes());
+            }
+            TreeEntry::File(relative, bytes) => {
+                hash = fnv1a64_update(hash, b"file:");
+                hash = fnv1a64_update(hash, relative.as_bytes());
+                hash = fnv1a64_update(hash, &bytes);
+            }
+        }
     }
     Ok(hash)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum TreeEntry {
+    Dir(String),
+    File(String, Vec<u8>),
 }
 
 fn collect_tree_entries(
     root: &Path,
     current: &Path,
-    entries: &mut Vec<(String, Vec<u8>)>,
+    entries: &mut Vec<TreeEntry>,
 ) -> Result<()> {
     for entry in fs::read_dir(current).map_err(|err| Error::from_io(current, err))? {
         let entry = entry.map_err(Error::from_io_plain)?;
@@ -759,6 +784,12 @@ fn collect_tree_entries(
         let path = entry.path();
         let file_type = entry.file_type().map_err(Error::from_io_plain)?;
         if file_type.is_dir() {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            entries.push(TreeEntry::Dir(relative));
             collect_tree_entries(root, &path, entries)?;
         } else if file_type.is_file() {
             let relative = path
@@ -767,7 +798,12 @@ fn collect_tree_entries(
                 .to_string_lossy()
                 .replace('\\', "/");
             let bytes = fs::read(&path).map_err(|err| Error::from_io(&path, err))?;
-            entries.push((relative, bytes));
+            entries.push(TreeEntry::File(relative, bytes));
+        } else {
+            return Err(Error::Execution(format!(
+                "unsupported filesystem entry `{}` while hashing source tree",
+                path.display()
+            )));
         }
     }
     Ok(())
@@ -949,6 +985,109 @@ limine = { path = "vendor/limine" }
         );
         assert!(fetched[0].cache_path.join("cfg/limine.conf").is_file());
         assert_eq!(summarize_fetch_resources(&fetched).created, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refetch_updates_resources_when_source_adds_empty_directory() {
+        let root = temp_dir("craft-fetch-resource-empty-dir");
+        let resource_root = root.join("vendor").join("limine");
+        fs::create_dir_all(resource_root.join("cfg")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[resources]
+limine = { path = "vendor/limine" }
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(resource_root.join("cfg").join("limine.conf"), "TIMEOUT=0\n").unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Build,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let fetched = fetch_package_resources(&elaboration).unwrap();
+        assert_eq!(fetched.len(), 1);
+        assert_eq!(fetched[0].status, FetchStatus::Created);
+
+        fs::create_dir_all(resource_root.join("EFI").join("BOOT")).unwrap();
+
+        let refetched = fetch_package_resources(&elaboration).unwrap();
+        assert_eq!(refetched[0].status, FetchStatus::Updated);
+        assert!(refetched[0].cache_path.join("EFI").join("BOOT").is_dir());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fetch_package_resources_rejects_symlink_entries() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_dir("craft-fetch-resource-symlink");
+        let resource_root = root.join("vendor").join("limine");
+        fs::create_dir_all(resource_root.join("cfg")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[resources]
+limine = { path = "vendor/limine" }
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(resource_root.join("cfg").join("limine.conf"), "TIMEOUT=0\n").unwrap();
+        symlink(
+            resource_root.join("cfg").join("limine.conf"),
+            resource_root.join("cfg").join("limine-link.conf"),
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Build,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let err = fetch_package_resources(&elaboration).unwrap_err();
+        assert!(err.to_string().contains("unsupported filesystem entry"));
 
         let _ = fs::remove_dir_all(root);
     }

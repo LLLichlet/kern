@@ -146,6 +146,33 @@ fn create_demo_static_library_with_source(dir: &Path, source: &str) {
     run_command_checked(&mut ar, &format!("archive {}", demo_archive_name()));
 }
 
+fn create_named_static_library_with_source(dir: &Path, name: &str, source: &str) {
+    let archive_name = if cfg!(windows) {
+        format!("{name}.lib")
+    } else {
+        format!("lib{name}.a")
+    };
+    let source_name = format!("{name}.c");
+    let object_name = format!("{name}.o");
+
+    fs::write(dir.join(&source_name), source).unwrap();
+
+    let mut cc = Command::new(c_compiler_tool());
+    cc.arg("-c")
+        .arg(&source_name)
+        .arg("-o")
+        .arg(&object_name)
+        .current_dir(dir);
+    run_command_checked(&mut cc, &format!("cc compile {source_name}"));
+
+    let mut ar = Command::new(archive_tool());
+    ar.arg("rcs")
+        .arg(&archive_name)
+        .arg(&object_name)
+        .current_dir(dir);
+    run_command_checked(&mut ar, &format!("archive {archive_name}"));
+}
+
 fn run_binary_with_retry(executable: &Path, expected_code: i32) -> Output {
     let mut last_output = None;
     for attempt in 0..3 {
@@ -848,6 +875,107 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stdout),
         "member-native=42\n"
     );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn relinks_when_project_local_link_search_directory_appears() {
+    if cfg!(windows) {
+        return;
+    }
+
+    let root = temp_dir("craft-link-search-dir-appears");
+    let native_dir = root.join("native");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[runtime]
+entry = "rt"
+bundle = "std"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_search("native");
+    b.link_system_lib("m");
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+extern {
+    fn cos(x: f64) f64;
+}
+
+fn main() i32 {
+    if (cos(0.0) != 1.0) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let link_action = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "demo")
+        .unwrap();
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.link_actions, 1);
+    let first_output = run_binary_with_retry(&link_action.artifact_path, 0);
+    assert!(first_output.status.success());
+
+    fs::create_dir_all(&native_dir).unwrap();
+    create_named_static_library_with_source(
+        &native_dir,
+        "m",
+        r#"
+double cos(double x) {
+    (void)x;
+    return 123.0;
+}
+"#,
+    );
+
+    let second = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(second.compile_actions, 0);
+    assert_eq!(second.link_actions, 1);
+    let second_output = Command::new(&link_action.artifact_path).output().unwrap();
+    assert_eq!(second_output.status.code(), Some(1));
 
     let _ = fs::remove_dir_all(root);
 }

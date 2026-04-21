@@ -9,7 +9,7 @@ use crate::build_plan::{
 use crate::plan::PlanValue;
 use kernc_sema::checker::{ConstValue, ScriptHost};
 use kernc_utils::{Span, SymbolId};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 
 pub(super) struct BuildUnitHost<'a> {
@@ -40,6 +40,64 @@ impl<'a> BuildUnitHost<'a> {
             "`{operation}` is only supported for executable units; current unit kind is `{:?}`",
             self.unit.target_kind
         ))
+    }
+
+    fn expect_bound_output(
+        &self,
+        args: &[ConstValue],
+        index: usize,
+        label: &str,
+    ) -> std::result::Result<BuildOutput, String> {
+        let output = expect_output(args, index, label)?;
+        self.validate_output_handle(&output, label)?;
+        Ok(output)
+    }
+
+    fn validate_output_handle(
+        &self,
+        output: &BuildOutput,
+        label: &str,
+    ) -> std::result::Result<(), String> {
+        match output.kind {
+            BuildOutputKind::Staged { id, phase } => {
+                let unit_node_ids = unit_bound_node_ids(self.unit, phase);
+                if !unit_node_ids.contains(&id) {
+                    return Err(format!(
+                        "`{label}` must refer to a staged build output declared by the current unit"
+                    ));
+                }
+                let Some(action) = self.build_nodes.iter().find(|action| action.id == id) else {
+                    return Err(format!(
+                        "`{label}` refers to unknown staged build output id `{id}`"
+                    ));
+                };
+                let action_path = {
+                    let output_path = Path::new(&action.output);
+                    if output_path.is_absolute() {
+                        normalized_path_string(output_path)
+                    } else {
+                        normalized_path_string(
+                            &self.script_context.workspace_root_path.join(output_path),
+                        )
+                    }
+                };
+                if action.phase != phase || action_path != output.path {
+                    return Err(format!(
+                        "`{label}` must refer to a staged build output declared by the current unit"
+                    ));
+                }
+                Ok(())
+            }
+            BuildOutputKind::PrimaryArtifact => {
+                self.ensure_executable_artifact_phase("primary_artifact()")?;
+                if output.path != self.script_context.paths.artifact_path {
+                    return Err(format!(
+                        "`{label}` must refer to the current unit primary artifact"
+                    ));
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -99,7 +157,7 @@ impl ScriptHost for BuildUnitHost<'_> {
             }
             "__craft_build_output_path" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
-                let output = expect_output(args, 1, "output")?;
+                let output = self.expect_bound_output(args, 1, "output")?;
                 Ok(ConstValue::String(output.path))
             }
             "__craft_build_link_system_lib" => {
@@ -186,7 +244,7 @@ impl ScriptHost for BuildUnitHost<'_> {
             }
             "__craft_build_set_source_root_from" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
-                let output = expect_output(args, 1, "output")?;
+                let output = self.expect_bound_output(args, 1, "output")?;
                 let BuildOutputKind::Staged {
                     id,
                     phase: StagedActionPhase::PreCompile,
@@ -264,7 +322,7 @@ impl ScriptHost for BuildUnitHost<'_> {
             }
             "__craft_build_stage_copy_output" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
-                let source_output = expect_output(args, 1, "source output")?;
+                let source_output = self.expect_bound_output(args, 1, "source output")?;
                 let BuildOutputKind::Staged {
                     id: dependency_id,
                     phase: StagedActionPhase::PreCompile,
@@ -386,7 +444,7 @@ impl ScriptHost for BuildUnitHost<'_> {
             "__craft_build_stage_copy_output_to_artifact" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 self.ensure_executable_artifact_phase("stage_copy_output_to_artifact(...)")?;
-                let source_output = expect_output(args, 1, "source output")?;
+                let source_output = self.expect_bound_output(args, 1, "source output")?;
                 let dependency_id = source_output.dependency_id_for_post_link_copy();
                 let artifact_relative = expect_string(args, 2, "artifact relative path")?;
                 let dest_path = generated_output_path(
@@ -534,8 +592,8 @@ impl ScriptHost for BuildUnitHost<'_> {
             }
             "__craft_build_depend" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
-                let output = expect_output(args, 1, "output")?;
-                let dependency = expect_output(args, 2, "dependency")?;
+                let output = self.expect_bound_output(args, 1, "output")?;
+                let dependency = self.expect_bound_output(args, 2, "dependency")?;
                 add_staged_dependency(
                     self.build_nodes,
                     output.staged_id("output")?,
@@ -865,6 +923,9 @@ fn add_staged_dependency(
     if output_phase != dependency_phase {
         return Err("build output dependencies must stay within a single stage phase".to_string());
     }
+    if staged_dependency_reaches(build_nodes, dependency_id, output_id) {
+        return Err("build output dependencies must not contain cycles".to_string());
+    }
 
     let action = build_nodes
         .iter_mut()
@@ -874,6 +935,31 @@ fn add_staged_dependency(
         action.depends_on.push(dependency_id);
     }
     Ok(())
+}
+
+fn staged_dependency_reaches(
+    build_nodes: &[StagedAction],
+    start_id: usize,
+    target_id: usize,
+) -> bool {
+    let mut stack = vec![start_id];
+    let mut visited = BTreeSet::new();
+
+    while let Some(id) = stack.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        if id == target_id {
+            return true;
+        }
+
+        let Some(action) = build_nodes.iter().find(|action| action.id == id) else {
+            continue;
+        };
+        stack.extend(action.depends_on.iter().copied());
+    }
+
+    false
 }
 
 fn unit_bound_node_ids(unit: &BuildUnit, phase: StagedActionPhase) -> &[usize] {

@@ -1270,6 +1270,11 @@ fn copy_dir_all(source: &Path, dest: &Path) -> std::result::Result<(), String> {
             copy_dir_all(&source_path, &dest_path)?;
         } else if file_type.is_file() {
             fs::copy(&source_path, &dest_path).map_err(|err| err.to_string())?;
+        } else {
+            return Err(format!(
+                "unsupported filesystem entry `{}` while copying directory tree",
+                source_path.display()
+            ));
         }
     }
     Ok(())

@@ -603,6 +603,67 @@ let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
     let _ = fs::remove_dir_all(root);
 }
 
+#[cfg(unix)]
+#[test]
+fn post_link_directory_stage_rejects_symlink_entries() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_dir("craft-exec-post-link-dir-symlink");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("assets")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.0"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src").join("main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(root.join("assets").join("config.json"), "{ \"mode\": \"demo\" }\n").unwrap();
+    symlink(
+        root.join("assets").join("config.json"),
+        root.join("assets").join("config-link.json"),
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let err = build(&build_plan, &action_plan).unwrap_err();
+    assert!(err.to_string().contains("unsupported filesystem entry"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
 #[test]
 fn builds_and_runs_hosted_package_with_post_link_directory_stage_outputs() {
     let root = temp_dir("craft-exec-post-link-dir");

@@ -9,6 +9,7 @@ use kernc_cli::test_support::{
     build_and_run, compile_source_with_args, executable_extension, repo_root, run_kernc,
     unique_temp_path,
 };
+use kernc_utils::config::{resolve_base_path, resolve_sys_path};
 
 #[derive(Default)]
 struct SoundnessCase {
@@ -24,6 +25,50 @@ struct SoundnessCase {
 enum TimedCompileResult {
     Output(Output),
     TimedOut,
+}
+
+fn maybe_add_default_runtime_contract(args: &mut Vec<String>) {
+    if args.iter().any(|arg| arg == "--runtime-entry") {
+        return;
+    }
+
+    if args.iter().any(|arg| {
+        arg == "-c"
+            || arg == "--link-only"
+            || arg == "--entry-symbol"
+            || arg == "--emit-llvm"
+            || arg.starts_with("--emit-llvm=")
+    }) {
+        return;
+    }
+
+    let links_libc = args.windows(2).any(|window| {
+        window[0] == "--runtime-libc" && matches!(window[1].as_str(), "yes" | "true" | "on")
+    });
+    let entry = if links_libc { "crt" } else { "rt" };
+    let has_bundle = args.iter().any(|arg| arg == "--library-bundle");
+    let has_base_alias = has_module_alias(args, "base");
+    let has_sys_alias = has_module_alias(args, "sys");
+    args.push("--runtime-entry".to_string());
+    args.push(entry.to_string());
+
+    if !has_bundle && !has_base_alias {
+        args.push("--module-path".to_string());
+        args.push(format!("base={}", resolve_base_path().display()));
+    }
+    if !has_bundle && !has_sys_alias {
+        args.push("--module-path".to_string());
+        args.push(format!("sys={}", resolve_sys_path().display()));
+    }
+}
+
+fn has_module_alias(args: &[String], name: &str) -> bool {
+    args.windows(2).any(|window| {
+        window[0] == "--module-path"
+            && window[1]
+                .split_once('=')
+                .is_some_and(|(alias, _)| alias == name)
+    })
 }
 
 #[test]
@@ -122,13 +167,7 @@ fn run_reject_cases(paths: &[PathBuf]) {
 fn run_build_pass_cases(paths: &[PathBuf]) {
     for path in paths {
         let case = parse_case(path);
-        let compile_args = case
-            .compile_args
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        let output =
-            compile_source_with_args("kernc_soundness_build_pass", &case.source, &compile_args);
+        let output = compile_source_case_output(path, &case, "kernc_soundness_build_pass");
 
         assert!(
             output.status.success(),
@@ -231,7 +270,8 @@ fn run_known_bug_timeout_cases(paths: &[PathBuf]) {
 
 fn run_reject_tree_cases(paths: &[PathBuf]) {
     for path in paths {
-        let output = compile_case_tree(path);
+        let case = parse_case(&path.join("main.rn"));
+        let output = compile_case_tree_output(path, &case);
         assert!(
             !output.status.success(),
             "{} unexpectedly compiled:\nstdout:\n{}\nstderr:\n{}",
@@ -240,7 +280,6 @@ fn run_reject_tree_cases(paths: &[PathBuf]) {
             String::from_utf8_lossy(&output.stderr)
         );
 
-        let case = parse_case(&path.join("main.rn"));
         let stderr = String::from_utf8_lossy(&output.stderr);
         for needle in &case.stderr_substrings {
             assert!(
@@ -257,12 +296,7 @@ fn run_reject_tree_cases(paths: &[PathBuf]) {
 fn run_run_pass_cases(paths: &[PathBuf]) {
     for path in paths {
         let case = parse_case(path);
-        let compile_args = case
-            .compile_args
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        let output = build_and_run("kernc_soundness_run_pass", &case.source, &compile_args);
+        let output = build_and_run_case_output(path, &case, "kernc_soundness_run_pass");
         let expected_exit = case.exit_code.unwrap_or(0);
 
         assert_eq!(
@@ -320,12 +354,37 @@ fn collect_case_paths(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn compile_case_tree(case_root: &Path) -> Output {
+fn compile_source_case_output(path: &Path, case: &SoundnessCase, prefix: &str) -> Output {
+    let compile_args = case
+        .compile_args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    match case.timeout_ms {
+        Some(timeout_ms) => match compile_source_with_args_timeout(
+            prefix,
+            &case.source,
+            &compile_args,
+            Duration::from_millis(timeout_ms),
+        ) {
+            TimedCompileResult::Output(output) => output,
+            TimedCompileResult::TimedOut => {
+                panic!(
+                    "{} timed out after {} ms while compiling",
+                    path.display(),
+                    timeout_ms
+                );
+            }
+        },
+        None => compile_source_with_args(prefix, &case.source, &compile_args),
+    }
+}
+
+fn compile_case_tree_output(case_root: &Path, case: &SoundnessCase) -> Output {
     let temp_dir = unique_temp_path("kernc_soundness_tree", "dir");
     copy_case_tree(case_root, &temp_dir);
 
     let main = temp_dir.join("main.rn");
-    let case = parse_case(&main);
     let output_path = unique_temp_path("kernc_soundness_tree", executable_extension());
 
     let mut args: Vec<String> = case.compile_args.clone();
@@ -344,11 +403,45 @@ fn compile_case_tree(case_root: &Path) -> Output {
     args.push("-o".to_string());
     args.push(output_path.display().to_string());
 
-    let output = run_kernc(args.iter().map(OsStr::new));
+    let output = match case.timeout_ms {
+        Some(timeout_ms) => {
+            match run_kernc_with_timeout(&args, Duration::from_millis(timeout_ms)) {
+                TimedCompileResult::Output(output) => output,
+                TimedCompileResult::TimedOut => {
+                    let _ = fs::remove_file(&output_path);
+                    let _ = fs::remove_dir_all(&temp_dir);
+                    panic!(
+                        "{} timed out after {} ms while compiling",
+                        case_root.display(),
+                        timeout_ms
+                    );
+                }
+            }
+        }
+        None => run_kernc(args.iter().map(OsStr::new)),
+    };
 
     let _ = fs::remove_file(output_path);
     let _ = fs::remove_dir_all(temp_dir);
     output
+}
+
+fn build_and_run_case_output(path: &Path, case: &SoundnessCase, prefix: &str) -> Output {
+    let compile_args = case
+        .compile_args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    match case.timeout_ms {
+        Some(timeout_ms) => build_and_run_with_timeout(
+            path,
+            prefix,
+            &case.source,
+            &compile_args,
+            Duration::from_millis(timeout_ms),
+        ),
+        None => build_and_run(prefix, &case.source, &compile_args),
+    }
 }
 
 fn compile_source_with_args_timeout(
@@ -377,10 +470,89 @@ fn compile_source_with_args_timeout(
     result
 }
 
+fn build_and_run_with_timeout(
+    path: &Path,
+    prefix: &str,
+    source: &str,
+    compile_args: &[&str],
+    timeout: Duration,
+) -> Output {
+    let source_path = unique_temp_path(prefix, "rn");
+    let executable_path = unique_temp_path(prefix, executable_extension());
+    fs::write(&source_path, source).unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let exe_arg = executable_path.to_string_lossy().into_owned();
+
+    let mut args: Vec<String> = compile_args.iter().map(|arg| (*arg).to_string()).collect();
+    maybe_add_default_runtime_contract(&mut args);
+    args.push(source_arg);
+    args.push("-o".to_string());
+    args.push(exe_arg);
+
+    let compile_output = match run_kernc_with_timeout(&args, timeout) {
+        TimedCompileResult::Output(output) => output,
+        TimedCompileResult::TimedOut => {
+            let _ = fs::remove_file(&source_path);
+            let _ = fs::remove_file(&executable_path);
+            panic!(
+                "{} timed out after {} ms while compiling",
+                path.display(),
+                timeout.as_millis()
+            );
+        }
+    };
+    assert!(
+        compile_output.status.success(),
+        "{} failed to compile:\nstdout:\n{}\nstderr:\n{}",
+        path.display(),
+        String::from_utf8_lossy(&compile_output.stdout),
+        String::from_utf8_lossy(&compile_output.stderr)
+    );
+
+    let run_output = match run_binary_with_timeout(&executable_path, timeout) {
+        TimedCompileResult::Output(output) => output,
+        TimedCompileResult::TimedOut => {
+            let _ = fs::remove_file(&source_path);
+            let _ = fs::remove_file(&executable_path);
+            panic!(
+                "{} timed out after {} ms while running",
+                path.display(),
+                timeout.as_millis()
+            );
+        }
+    };
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+    run_output
+}
+
 fn run_kernc_with_timeout(args: &[String], timeout: Duration) -> TimedCompileResult {
     let mut child = Command::new(kernc_binary())
         .current_dir(repo_root())
         .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            return TimedCompileResult::Output(child.wait_with_output().unwrap());
+        }
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return TimedCompileResult::TimedOut;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn run_binary_with_timeout(executable: &Path, timeout: Duration) -> TimedCompileResult {
+    let mut child = Command::new(executable)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

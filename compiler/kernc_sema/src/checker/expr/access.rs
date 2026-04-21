@@ -18,6 +18,35 @@ struct ResolvedPatternField {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    pub(crate) fn resolve_type_namespace_expr(&mut self, expr: &Expr) -> Option<TypeId> {
+        if !self.expr_is_type_namespace(expr) {
+            return None;
+        }
+
+        let ty = match &expr.kind {
+            ast::ExprKind::TypeNode(type_node) => {
+                let ty = self.evaluate_dynamic_typeof(type_node);
+                ty
+            }
+            ast::ExprKind::Identifier(name) => self.check_identifier(*name, expr.span),
+            ast::ExprKind::AnchoredPath { anchor, name, .. } => {
+                self.check_anchored_identifier(*anchor, *name, expr.span)
+            }
+            ast::ExprKind::GenericInstantiation { target, args } => {
+                self.check_generic_instantiation(target, args, expr.span)
+            }
+            ast::ExprKind::FieldAccess {
+                lhs,
+                field,
+                field_span,
+            } => self.check_field_access(expr.id, lhs, *field, *field_span, expr.span),
+            _ => return None,
+        };
+
+        self.ctx.node_types.insert(expr.id, ty);
+        Some(ty)
+    }
+
     fn define_local_symbol(
         &mut self,
         name: SymbolId,
@@ -962,7 +991,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn expr_is_type_namespace(&mut self, expr: &Expr) -> bool {
+    pub(crate) fn expr_is_type_namespace(&mut self, expr: &Expr) -> bool {
         match &expr.kind {
             ast::ExprKind::TypeNode(_) => true,
             ast::ExprKind::Identifier(name) => self
@@ -1134,14 +1163,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field_span: Span,
         span: Span,
     ) -> TypeId {
-        let lhs_ty = match &lhs.kind {
-            ast::ExprKind::TypeNode(type_node) if self.expr_is_type_namespace(lhs) => {
-                let ty = self.evaluate_dynamic_typeof(type_node);
-                self.ctx.node_types.insert(lhs.id, ty);
-                ty
-            }
-            _ => self.check_expr(lhs, None),
-        };
+        let lhs_ty = self
+            .resolve_type_namespace_expr(lhs)
+            .unwrap_or_else(|| self.check_expr(lhs, None));
         if lhs_ty == TypeId::ERROR {
             return TypeId::ERROR;
         }

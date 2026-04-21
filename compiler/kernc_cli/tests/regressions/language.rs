@@ -3304,6 +3304,173 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_optional_alias_none_constructor_in_static_initializer() {
+    let output = build_and_run_source(
+        r#"
+type MaybePtr = ?*u8;
+
+type FramebufferRequest = struct {
+    response: MaybePtr,
+};
+
+static REQUEST = FramebufferRequest.{ response: MaybePtr.None };
+
+fn main() i32 {
+    return match (REQUEST.response) {
+        .None => 0,
+        .{ Some: _ } => 1,
+    };
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optional alias none static initializer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_result_type_in_pointer_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+type FramebufferRequest = struct {
+    response: *u8,
+};
+
+static REQUEST = FramebufferRequest.{ response: i32!u8 };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("result types cannot be evaluated as value expressions"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains(
+            "results are types; construct values with `T!E.{ Ok: ... }` or `T!E.{ Err: ... }`"
+        ),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at")
+            && !stderr.contains("Kern Compiler Internal Error")
+            && !stderr.contains("expected a valid constant expression"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_optional_alias_in_pointer_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+type MaybeByte = ?u8;
+
+type FramebufferRequest = struct {
+    response: *u8,
+};
+
+static REQUEST = FramebufferRequest.{ response: MaybeByte };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("optional types cannot be evaluated as value expressions"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("if you meant the empty optional constructor, write `?T.None`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at")
+            && !stderr.contains("Kern Compiler Internal Error")
+            && !stderr.contains("expected a valid constant expression"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_result_alias_in_pointer_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+type ResultByte = i32!u8;
+
+type FramebufferRequest = struct {
+    response: *u8,
+};
+
+static REQUEST = FramebufferRequest.{ response: ResultByte };
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("result types cannot be evaluated as value expressions"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains(
+            "results are types; construct values with `T!E.{ Ok: ... }` or `T!E.{ Err: ... }`"
+        ),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at")
+            && !stderr.contains("Kern Compiler Internal Error")
+            && !stderr.contains("expected a valid constant expression"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_integer_pointer_static_initializer_without_panicking() {
     let output = compile_source(
         r#"

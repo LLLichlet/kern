@@ -97,10 +97,64 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         TypeId::ERROR
     }
 
+    fn reject_resolved_type_namespace_value_expr(
+        &mut self,
+        span: Span,
+        resolved_ty: TypeId,
+    ) -> TypeId {
+        let resolved_builtin = match self.ctx.type_registry.get(resolved_ty).clone() {
+            TypeKind::AnonymousEnum(enum_def) => enum_def.builtin,
+            _ => None,
+        };
+
+        match resolved_builtin {
+            Some(BuiltinAnonymousEnumKind::Optional) => {
+                self.ctx
+                    .struct_error(
+                        span,
+                        "optional types cannot be evaluated as value expressions",
+                    )
+                    .with_hint("optional types are ordinary enum families, not null-pointer syntax")
+                    .with_hint("if you meant the empty optional constructor, write `?T.None`")
+                    .emit();
+            }
+            Some(BuiltinAnonymousEnumKind::Result) => {
+                self.ctx
+                    .struct_error(span, "result types cannot be evaluated as value expressions")
+                    .with_hint(
+                        "results are types; construct values with `T!E.{ Ok: ... }` or `T!E.{ Err: ... }`",
+                    )
+                    .emit();
+            }
+            None => {
+                let message = if resolved_ty == TypeId::ERROR {
+                    "type expressions cannot be evaluated as values".to_string()
+                } else {
+                    format!(
+                        "type `{}` cannot be evaluated as a value expression",
+                        self.ctx.ty_to_string(resolved_ty)
+                    )
+                };
+                self.ctx
+                    .struct_error(span, message)
+                    .with_hint(
+                        "construct a value with `Type.{...}`, access a constructor like `Type.Variant`, or move the type back into a type position",
+                    )
+                    .emit();
+            }
+        }
+        TypeId::ERROR
+    }
+
     fn reject_type_node_value_expr(&mut self, type_node: &ast::TypeNode) -> TypeId {
         let resolved_ty = self.evaluate_dynamic_typeof(type_node);
-        match &type_node.kind {
-            ast::TypeKind::Optional { .. } => {
+        let resolved_builtin = match self.ctx.type_registry.get(resolved_ty).clone() {
+            TypeKind::AnonymousEnum(enum_def) => enum_def.builtin,
+            _ => None,
+        };
+
+        match (&type_node.kind, resolved_builtin) {
+            (ast::TypeKind::Optional { .. }, _) | (_, Some(BuiltinAnonymousEnumKind::Optional)) => {
                 self.ctx
                     .struct_error(
                         type_node.span,
@@ -110,7 +164,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .with_hint("if you meant the empty optional constructor, write `?T.None`")
                     .emit();
             }
-            ast::TypeKind::Result { .. } => {
+            (ast::TypeKind::Result { .. }, _) | (_, Some(BuiltinAnonymousEnumKind::Result)) => {
                 self.ctx
                     .struct_error(
                         type_node.span,
@@ -122,20 +176,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .emit();
             }
             _ => {
-                let message = if resolved_ty == TypeId::ERROR {
-                    "type expressions cannot be evaluated as values".to_string()
-                } else {
-                    format!(
-                        "type `{}` cannot be evaluated as a value expression",
-                        self.ctx.ty_to_string(resolved_ty)
-                    )
-                };
-                self.ctx
-                    .struct_error(type_node.span, message)
-                    .with_hint(
-                        "construct a value with `Type.{...}`, access a constructor like `Type.Variant`, or move the type back into a type position",
-                    )
-                    .emit();
+                return self.reject_resolved_type_namespace_value_expr(type_node.span, resolved_ty);
             }
         }
         TypeId::ERROR
@@ -933,7 +974,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         };
 
-        let ty = if self.allow_uninstantiated_generic_function_items {
+        let ty = if !matches!(expr.kind, ExprKind::TypeNode(_)) && self.expr_is_type_namespace(expr)
+        {
+            self.reject_resolved_type_namespace_value_expr(expr.span, ty)
+        } else if self.allow_uninstantiated_generic_function_items {
             ty
         } else {
             self.reject_uninstantiated_generic_function_item(expr, ty)

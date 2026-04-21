@@ -978,7 +978,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> TypeId {
         let target_ty = self.with_uninstantiated_generic_function_items_allowed(|this| {
-            this.check_expr(target, None)
+            this.resolve_type_namespace_expr(target)
+                .unwrap_or_else(|| this.check_expr(target, None))
         });
         let target_norm = self.resolve_tv(target_ty);
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::ty::{ConstGeneric, GenericArg};
+use crate::ty::{BuiltinAnonymousEnumKind, ConstGeneric, GenericArg};
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     fn integer_literal_magnitude(expr: &Expr) -> Option<(bool, u128)> {
@@ -602,8 +602,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             ExprKind::TypeNode(type_node) => {
                 let resolved_ty = self.resolve_explicit_type_node(type_node);
-                match &type_node.kind {
-                    ast::TypeKind::Optional { .. } => {
+                let resolved_builtin = match self.ctx.type_registry.get(resolved_ty).clone() {
+                    TypeKind::AnonymousEnum(enum_def) => enum_def.builtin,
+                    _ => None,
+                };
+                match (&type_node.kind, resolved_builtin) {
+                    (ast::TypeKind::Optional { .. }, _)
+                    | (_, Some(BuiltinAnonymousEnumKind::Optional)) => {
                         self.ctx
                             .struct_error(
                                 expr.span,
@@ -617,7 +622,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             )
                             .emit();
                     }
-                    ast::TypeKind::Result { .. } => {
+                    (ast::TypeKind::Result { .. }, _)
+                    | (_, Some(BuiltinAnonymousEnumKind::Result)) => {
                         self.ctx
                             .struct_error(
                                 expr.span,

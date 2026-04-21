@@ -862,17 +862,18 @@ fn terminal_columns() -> Option<usize> {
 
 #[cfg(windows)]
 fn terminal_columns() -> Option<usize> {
+    use std::ptr::null_mut;
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::System::Console::{
         CONSOLE_SCREEN_BUFFER_INFO, GetConsoleScreenBufferInfo, GetStdHandle, STD_ERROR_HANDLE,
     };
 
     let handle = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
-    if handle == 0 || handle == INVALID_HANDLE_VALUE {
+    if handle == null_mut() || handle == INVALID_HANDLE_VALUE {
         return None;
     }
 
-    let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
+    let mut info = unsafe { std::mem::zeroed::<CONSOLE_SCREEN_BUFFER_INFO>() };
     if unsafe { GetConsoleScreenBufferInfo(handle, &mut info) } == 0 {
         return None;
     }

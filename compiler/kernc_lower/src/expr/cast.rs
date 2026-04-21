@@ -107,6 +107,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return rewritten;
         }
 
+        if let Some(rewritten) = self.rewrite_array_init_for_expected_container(
+            mast_kind.clone(),
+            conc_base,
+            exp_ty,
+            exp_base,
+            span,
+        ) {
+            return rewritten;
+        }
+
         if let TypeKind::Pointer { elem, .. } = exp_kind
             && matches!(
                 self.ctx
@@ -364,6 +374,63 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // Otherwise leave the expression unchanged.
         MastExpr::new(exp_ty, mast_kind, span)
+    }
+
+    fn rewrite_array_init_for_expected_container(
+        &mut self,
+        mast_kind: MastExprKind,
+        conc_base: TypeId,
+        exp_ty: TypeId,
+        exp_base: TypeId,
+        span: Span,
+    ) -> Option<MastExpr> {
+        let MastExprKind::ArrayInit(fields) = mast_kind else {
+            return None;
+        };
+
+        let conc_elem = match self.ctx.type_registry.get(conc_base).clone() {
+            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem } => elem,
+            _ => return None,
+        };
+
+        let (exp_elem, preserve_slice_ty) = match self.ctx.type_registry.get(exp_base).clone() {
+            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem } => (elem, false),
+            TypeKind::Slice { elem, .. } => (elem, true),
+            _ => return None,
+        };
+
+        if self.ctx.type_registry.normalize(conc_elem) == self.ctx.type_registry.normalize(exp_elem)
+        {
+            return None;
+        }
+
+        let rewritten_fields = fields
+            .into_iter()
+            .map(|field| self.apply_implicit_cast(field.kind, field.ty, exp_elem, field.span))
+            .collect::<Vec<_>>();
+
+        let rewritten_array_ty = match self.ctx.type_registry.get(exp_base).clone() {
+            TypeKind::Array { .. } => exp_ty,
+            TypeKind::ArrayInfer { .. } | TypeKind::Slice { .. } => {
+                self.ctx.type_registry.intern(TypeKind::Array {
+                    elem: exp_elem,
+                    len: self.usize_const_generic(rewritten_fields.len() as u64),
+                })
+            }
+            _ => return None,
+        };
+
+        let rewritten_array = MastExpr::new(
+            rewritten_array_ty,
+            MastExprKind::ArrayInit(rewritten_fields),
+            span,
+        );
+
+        if preserve_slice_ty {
+            Some(self.apply_implicit_cast(rewritten_array.kind, rewritten_array.ty, exp_ty, span))
+        } else {
+            Some(rewritten_array)
+        }
     }
 
     fn try_rewrite_named_aggregate_to_anonymous(

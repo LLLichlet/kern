@@ -1531,12 +1531,51 @@ fn ensure_link_action_built(
 }
 
 fn local_link_search_input_paths(action: &LinkAction, options: &CompileOptions) -> Vec<PathBuf> {
+    let package_root = normalize_local_input_path(&action.package_root_path);
     options
         .linker_search_paths
         .iter()
         .map(PathBuf::from)
-        .filter(|path| path.is_dir() && path.starts_with(&action.package_root_path))
+        .filter(|path| path.is_dir() && normalize_local_input_path(path).starts_with(&package_root))
         .collect()
+}
+
+fn normalize_local_input_path(path: &Path) -> PathBuf {
+    strip_macos_private_var_prefix(strip_windows_verbatim_prefix(path.to_path_buf()))
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\UNC\\") {
+        return PathBuf::from(format!("\\\\{stripped}"));
+    }
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\") {
+        return PathBuf::from(stripped);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(target_os = "macos")]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("/private/var/") {
+        return PathBuf::from(format!("/var/{stripped}"));
+    }
+    if raw == "/private/var" {
+        return PathBuf::from("/var");
+    }
+    path
+}
+
+#[cfg(not(target_os = "macos"))]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    path
 }
 
 fn cleanup_stale_artifact_outputs(action: &LinkAction, build_nodes: &[StagedAction]) -> Result<()> {

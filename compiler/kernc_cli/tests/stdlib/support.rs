@@ -454,6 +454,40 @@ fn main() i32 {
 }
 
 #[test]
+fn wrapped_fmt_helpers_accept_call_results_inside_inline_argument_arrays() {
+    let output = build_and_run(
+        "kernc_std_fmt_wrapper_call_results",
+        r#"
+use std.io;
+
+fn wrap(fmt: []u8, args: []*io.Printable) void {
+    io.println(fmt, args);
+}
+
+fn forty_two() i32 {
+    return 42;
+}
+
+fn main() i32 {
+    wrap("{}", .{ forty_two(), });
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    assert!(
+        output.status.success(),
+        "expected wrapped fmt helper call result program to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("42"), "unexpected stdout:\n{}", stdout);
+}
+
+#[test]
 fn hints_about_trailing_comma_for_single_print_argument() {
     let output = compile_source_with_args(
         "kernc_std_print_scalar_hint",

@@ -1152,7 +1152,7 @@ fn ensure_compile_action_built(
     )?;
     if let Some(progress) = &session.state.progress {
         progress.set_phase(ExecutionPhase::Compile);
-        progress.set_detail(compile_action_label(action, &options));
+        progress.set_detail(compile_progress_label(action));
     }
     let built = build_compile_action_if_needed(
         action,
@@ -1234,6 +1234,26 @@ fn format_run_tool_failure(
         message.push_str(&stdout_text);
     }
     message
+}
+
+fn compile_progress_label(action: &CompileAction) -> String {
+    format!(
+        "{}:{} [{},{}]",
+        action.package_id.name,
+        action.artifact_name,
+        action.target_kind.as_str(),
+        action.domain.as_str()
+    )
+}
+
+fn link_progress_label(action: &LinkAction) -> String {
+    format!(
+        "{}:{} [{},{}]",
+        action.package_id.name,
+        action.artifact_name,
+        action.target_kind.as_str(),
+        action.domain.as_str()
+    )
 }
 
 fn stage_action_label(action: &StagedAction, output_path: &Path) -> String {
@@ -1480,7 +1500,7 @@ fn ensure_link_action_built(
     )?;
     if let Some(progress) = &session.state.progress {
         progress.set_phase(ExecutionPhase::Link);
-        progress.set_detail(link_action_label(action, &options));
+        progress.set_detail(link_progress_label(action));
     }
     let linked_now = build_link_action_if_needed(
         action,

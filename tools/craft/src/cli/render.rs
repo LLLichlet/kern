@@ -764,7 +764,7 @@ fn render_progress_bar(completed: usize, total: usize, width: usize) -> String {
     let filled = completed.saturating_mul(width) / total;
     format!(
         "[{}{}]",
-        "#".repeat(filled),
+        "=".repeat(filled),
         "-".repeat(width.saturating_sub(filled))
     )
 }

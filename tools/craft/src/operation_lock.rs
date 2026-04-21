@@ -4,9 +4,11 @@ use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const LOCK_WAIT_REPORT_DELAY: Duration = Duration::from_secs(1);
+const LOCK_WAIT_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(crate) struct WorkspaceOperationLock {
     path: PathBuf,
@@ -68,6 +70,8 @@ struct AcquiredLock {
 
 fn acquire_lock(path: &Path, operation: &str) -> Result<AcquiredLock> {
     local_state::ensure_parent_dir(path)?;
+    let mut wait_started = None;
+    let mut last_report_at = None;
 
     loop {
         match try_acquire(path, operation) {
@@ -76,6 +80,7 @@ fn acquire_lock(path: &Path, operation: &str) -> Result<AcquiredLock> {
                 if reclaim_stale_lock(path)? {
                     continue;
                 }
+                report_lock_wait(path, operation, &mut wait_started, &mut last_report_at)?;
                 thread::sleep(LOCK_POLL_INTERVAL);
             }
             Err(err) => return Err(Error::from_io(path, err)),
@@ -209,10 +214,72 @@ fn lock_owner_is_alive(owner: LockOwner) -> bool {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn lock_owner_is_alive(owner: LockOwner) -> bool {
+    process_exists(owner.pid)
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn lock_owner_is_alive(owner: LockOwner) -> bool {
     let _ = owner.pid;
     true
+}
+
+#[cfg(windows)]
+fn process_exists(pid: u32) -> bool {
+    use std::ffi::c_void;
+
+    type Handle = *mut c_void;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+
+    unsafe extern "system" {
+        fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> Handle;
+        fn GetExitCodeProcess(process: Handle, exit_code: *mut u32) -> i32;
+        fn CloseHandle(object: Handle) -> i32;
+    }
+
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return false;
+    }
+
+    let mut exit_code = 0u32;
+    let alive =
+        unsafe { GetExitCodeProcess(handle, &mut exit_code) != 0 && exit_code == STILL_ACTIVE };
+    let _ = unsafe { CloseHandle(handle) };
+    alive
+}
+
+fn report_lock_wait(
+    path: &Path,
+    operation: &str,
+    wait_started: &mut Option<Instant>,
+    last_report_at: &mut Option<Instant>,
+) -> Result<()> {
+    let now = Instant::now();
+    let started = wait_started.get_or_insert(now);
+    let waited = now.saturating_duration_since(*started);
+    if waited < LOCK_WAIT_REPORT_DELAY {
+        return Ok(());
+    }
+    if let Some(last) = last_report_at
+        && now.saturating_duration_since(*last) < LOCK_WAIT_REPORT_INTERVAL
+    {
+        return Ok(());
+    }
+
+    let owner = read_lock_owner(path)?;
+    let owner_text = owner
+        .map(|owner| format!(" held by pid {}", owner.pid))
+        .unwrap_or_default();
+    eprintln!(
+        "craft: waiting {}s for {operation} lock `{}`{owner_text}",
+        waited.as_secs(),
+        path.display()
+    );
+    *last_report_at = Some(now);
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -249,6 +316,8 @@ fn process_exists(pid: u32) -> bool {
 mod tests {
     #[cfg(target_os = "linux")]
     use super::read_process_start_ticks;
+    #[cfg(windows)]
+    use super::{LockOwner, lock_owner_is_alive};
     use super::{
         OutputOperationLock, WorkspaceOperationLock, output_lock_path, workspace_lock_path,
     };
@@ -394,5 +463,14 @@ mod tests {
         acquired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_lock_owner_check_distinguishes_live_and_dead_processes() {
+        assert!(lock_owner_is_alive(LockOwner {
+            pid: std::process::id(),
+        }));
+        assert!(!lock_owner_is_alive(LockOwner { pid: u32::MAX }));
     }
 }

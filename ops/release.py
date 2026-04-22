@@ -288,7 +288,7 @@ def _prepare_dist_dir(
         shutil.copytree(source, dist_dir / "lib" / "kern" / layer)
 
     craft_sdk = root / "tools" / "craft" / "sdk"
-    ensure(craft_sdk.join("init.rn").is_file(), f"expected craft SDK `{craft_sdk}`")
+    ensure((craft_sdk / "init.rn").is_file(), f"expected craft SDK `{craft_sdk}`")
     shutil.copytree(craft_sdk, dist_dir / "lib" / "kern" / "craft")
 
     for text_file in ("README.md", "LICENSE"):

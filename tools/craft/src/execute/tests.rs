@@ -1,7 +1,9 @@
+use super::orchestrate::{build, check};
+use super::runtime::{run, test};
 use super::{
-    build, external, linker_input_paths_for_primary_output, multi_linker_input_dir,
-    parallel_target_compile_jobs, parallel_target_link_jobs, run, runtime_packages,
-    runtime_profile_key, test, validate_package_metadata_root,
+    external, linker_input_paths_for_primary_output, multi_linker_input_dir,
+    parallel_target_compile_jobs, parallel_target_link_jobs, runtime_packages, runtime_profile_key,
+    validate_package_metadata_root,
 };
 use crate::build_plan;
 use crate::elaborate::{FeatureSelection, plan};

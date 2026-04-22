@@ -59,7 +59,7 @@ return answer();
     let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Check).unwrap();
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
 
-    let summary = super::super::check(&build_plan, &action_plan).unwrap();
+    let summary = check(&build_plan, &action_plan).unwrap();
     assert_eq!(summary.compile_actions, 2);
     assert_eq!(summary.link_actions, 0);
 

@@ -1,0 +1,15 @@
+// exit: 0
+
+fn main() i32 {
+    let raw = usize.{32};
+    let ptr = raw.as_ptr[u8]();
+    let mut_ptr = raw.as_mut_ptr[u8]();
+    let addr_ptr = raw.as_addr_ptr[u8]();
+    let mut_addr_ptr = raw.as_mut_addr_ptr[u8]();
+
+    if ((ptr as usize) != raw) return 1;
+    if ((mut_ptr as usize) != raw) return 2;
+    if ((addr_ptr as usize) != raw) return 3;
+    if ((mut_addr_ptr as usize) != raw) return 4;
+    return 0;
+}

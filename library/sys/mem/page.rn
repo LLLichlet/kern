@@ -5,7 +5,7 @@
 //! allocations.
 
 use sys.os;
-use base.mem.{Layout, mut_ptr};
+use base.mem.{Layout, null_mut_ptr};
 use base.mem.alloc.Allocator;
 
 /// An allocator that requests memory directly from the OS page system.
@@ -19,7 +19,7 @@ fn normalize_align(align: usize) usize {
 }
 
 fn dangling_ptr(align: usize) *mut u8 {
-    return mut_ptr[u8](normalize_align(align));
+    return normalize_align(align).as_mut_ptr[u8]();
 }
 
 impl *mut Page : Allocator{
@@ -41,12 +41,12 @@ impl *mut Page : Allocator{
             if (raw == os.linux.MAP_FAILED) {
                 return .None;
             }
-            return .{ Some: mut_ptr[u8](raw) };
+            return .{ Some: raw.as_mut_ptr[u8]() };
         };
 
         #[if(os == "darwin")] {
             let raw = os.darwin.mmap(
-                usize.{0} as *mut void,
+                null_mut_ptr[void](),
                 layout.size,
                 (os.darwin.PROT_READ | os.darwin.PROT_WRITE) as i32,
                 (os.darwin.MAP_PRIVATE | os.darwin.MAP_ANONYMOUS) as i32,
@@ -65,7 +65,7 @@ impl *mut Page : Allocator{
 
         #[if(os == "windows")] {
             let raw = os.windows.VirtualAlloc(
-                usize.{0} as *mut void,
+                null_mut_ptr[void](),
                 layout.size,
                 (os.windows.MEM_COMMIT | os.windows.MEM_RESERVE) as u32,
                 WINDOWS_PAGE_READWRITE

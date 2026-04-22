@@ -4,14 +4,14 @@
 //! contiguous buffer and grows geometrically.
 
 use base.mem.alloc.{Allocator, Arena};
-use base.mem.{Layout, memmove, mut_ptr};
+use base.mem.{Layout, memmove};
 use base.num.USIZE_MAX;
 
 mod query;
 
 /// A growable contiguous collection of `T`.
 pub/ type List[T] = struct {
-    ptr: *mut T = mut_ptr[T](1),
+    ptr: *mut T = usize.{1}.as_mut_ptr[T](),
     /// The number of initialized elements in the list.
     pub len: usize = 0,
     cap: usize = 0,
@@ -35,7 +35,7 @@ impl[T] *mut List[T] {
 
     #[inline]
     fn zst_ptr() *mut T {
-        return mut_ptr[T](1);
+        return usize.{1}.as_mut_ptr[T]();
     }
 
     #[inline]
@@ -322,7 +322,7 @@ impl[T] *mut List[T] {
 
         let elem_size = self.elem_size();
         let mut src_ptr = slice.[0].& as *T;
-        let mut temp_ptr = mut_ptr[u8](1);
+        let mut temp_ptr = usize.{1}.as_mut_ptr[u8]();
         let mut temp_layout = Layout.{ size: 0, align: 1 };
 
         let base_addr = self.ptr as usize;

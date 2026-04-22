@@ -4,7 +4,6 @@
 //! keep probing, tombstones, and load-factor policy visible so higher layers stay predictable.
 
 use base.hash.Hash;
-use base.mem.mut_ptr;
 /// Control byte for an unused slot.
 pub.. const EMPTY = u8.{0};
 /// Control byte for a deleted slot.
@@ -124,8 +123,8 @@ pub.. fn max_occupied(capacity: usize) usize {
 /// `Map` stores keys and values in parallel slot arrays and uses linear probing
 /// with tombstones for deletions.
 pub.. type Map[K, V] where K: Eq[K] + Hash[K] = struct {
-    pub ctrl: *mut u8 = mut_ptr[u8](1),
-    pub entries: *mut Entry[K, V] = mut_ptr[Entry[K, V]](1),
+    pub ctrl: *mut u8 = usize.{1}.as_mut_ptr[u8](),
+    pub entries: *mut Entry[K, V] = usize.{1}.as_mut_ptr[Entry[K, V]](),
     /// The number of allocated slots.
     pub capacity: usize = 0,
     /// The number of live entries.

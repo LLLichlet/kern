@@ -674,6 +674,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if let ExprKind::IndexAccess { lhs, .. } = &operand.kind {
                     let lhs_ty = self
                         .ctx
+                        .facts
                         .node_types
                         .get(&lhs.id)
                         .copied()

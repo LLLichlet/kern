@@ -690,6 +690,7 @@ fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
         }
         ast::ExprKind::DataInit { literal, .. } => {
             let ty = ctx
+                .facts
                 .node_types
                 .get(&expr.id)
                 .copied()

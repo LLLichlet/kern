@@ -61,7 +61,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        self.ctx.atomic_orderings.insert(arg.id, ordering);
+        self.ctx.set_atomic_ordering(arg.id, ordering);
         Some(ordering)
     }
 

@@ -211,7 +211,7 @@ impl CompilerDriver {
             let Some(trait_type) = &impl_def.trait_type else {
                 continue;
             };
-            let Some(&trait_ty) = ctx.node_types.get(&trait_type.id) else {
+            let Some(&trait_ty) = ctx.facts.node_types.get(&trait_type.id) else {
                 continue;
             };
             let kernc_sema::ty::TypeKind::TraitObject(trait_def_id, _, _) =
@@ -495,7 +495,8 @@ impl CompilerDriver {
                 let detail = if let Some(def_id) = info.def_id
                     && let kernc_sema::def::Def::TypeAlias(alias) = &ctx.defs[def_id.0 as usize]
                 {
-                    ctx.node_types
+                    ctx.facts
+                        .node_types
                         .get(&alias.target.id)
                         .copied()
                         .map(|target_ty| ctx.ty_to_string(target_ty))
@@ -504,7 +505,8 @@ impl CompilerDriver {
                         &ctx.defs[def_id.0 as usize]
                     && let Some(target) = assoc.target.as_ref()
                 {
-                    ctx.node_types
+                    ctx.facts
+                        .node_types
                         .get(&target.id)
                         .copied()
                         .map(|target_ty| ctx.ty_to_string(target_ty))
@@ -619,7 +621,7 @@ impl CompilerDriver {
         name: kernc_utils::SymbolId,
         type_node_id: kernc_utils::NodeId,
     ) -> Option<String> {
-        let ty = ctx.node_types.get(&type_node_id).copied()?;
+        let ty = ctx.facts.node_types.get(&type_node_id).copied()?;
         Some(render_hover_markdown(
             &format!("field {}: {}", ctx.resolve(name), ctx.ty_to_string(ty)),
             self.field_doc_block(ctx, name, type_node_id),
@@ -632,7 +634,7 @@ impl CompilerDriver {
         name: kernc_utils::SymbolId,
         type_node_id: kernc_utils::NodeId,
     ) -> Option<String> {
-        let ty = ctx.node_types.get(&type_node_id).copied()?;
+        let ty = ctx.facts.node_types.get(&type_node_id).copied()?;
         Some(render_hover_markdown(
             &format!("fn {}: {}", ctx.resolve(name), ctx.ty_to_string(ty)),
             self.trait_method_doc_block(ctx, name, type_node_id),
@@ -646,7 +648,7 @@ impl CompilerDriver {
     ) -> Option<String> {
         let name = ctx.resolve(variant.name);
         if let Some(payload_type) = &variant.payload_type {
-            let ty = ctx.node_types.get(&payload_type.id).copied()?;
+            let ty = ctx.facts.node_types.get(&payload_type.id).copied()?;
             Some(render_hover_markdown(
                 &format!("variant {}: {}", name, ctx.ty_to_string(ty)),
                 variant.docs.as_ref(),
@@ -922,7 +924,7 @@ impl CompilerDriver {
     }
 
     fn describe_type_node(&self, ctx: &SemaContext<'_>, ty: &ast::TypeNode) -> String {
-        if let Some(ty_id) = ctx.node_types.get(&ty.id).copied() {
+        if let Some(ty_id) = ctx.facts.node_types.get(&ty.id).copied() {
             return ctx.ty_to_string(ty_id);
         }
 

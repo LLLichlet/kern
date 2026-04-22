@@ -11,7 +11,7 @@ impl CompilerDriver {
     }
 
     fn synthesize_program_main_adapter(&self, ctx: &mut SemaContext<'_>) {
-        let Some(root_module_id) = ctx.root_module else {
+        let Some(root_module_id) = ctx.root_module() else {
             return;
         };
         let Some((root_items, root_scope_id)) =
@@ -78,9 +78,9 @@ impl CompilerDriver {
             is_mut: false,
             elem: TypeId::U8,
         });
-        ctx.node_types.insert(argc_type_node.id, TypeId::I32);
+        ctx.facts.node_types.insert(argc_type_node.id, TypeId::I32);
         Self::record_main_argv_type_nodes(ctx, &argv_type_node, main_argv_ty, ptr_u8_ty);
-        ctx.node_types.insert(ret_type_node.id, TypeId::I32);
+        ctx.facts.node_types.insert(ret_type_node.id, TypeId::I32);
         let call_args = if main_arity_uses_args {
             vec![
                 ast::Expr {
@@ -288,15 +288,15 @@ impl CompilerDriver {
         argv_ty: TypeId,
         ptr_u8_ty: TypeId,
     ) {
-        ctx.node_types.insert(type_node.id, argv_ty);
+        ctx.facts.node_types.insert(type_node.id, argv_ty);
 
         let ast::TypeKind::Pointer { elem, .. } = &type_node.kind else {
             return;
         };
-        ctx.node_types.insert(elem.id, ptr_u8_ty);
+        ctx.facts.node_types.insert(elem.id, ptr_u8_ty);
 
         if let ast::TypeKind::Pointer { elem: inner, .. } = &elem.kind {
-            ctx.node_types.insert(inner.id, TypeId::U8);
+            ctx.facts.node_types.insert(inner.id, TypeId::U8);
         }
     }
 }

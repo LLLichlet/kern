@@ -40,6 +40,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub(super) fn node_type(&mut self, node_id: NodeId) -> TypeId {
         let ty = self
             .ctx
+            .facts
             .node_types
             .get(&node_id)
             .copied()
@@ -82,7 +83,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     }
 
     pub(super) fn resolve_explicit_type_node(&mut self, ty_node: &ast::TypeNode) -> TypeId {
-        if let Some(&ty) = self.ctx.node_types.get(&ty_node.id)
+        if let Some(&ty) = self.ctx.facts.node_types.get(&ty_node.id)
             && ty != TypeId::ERROR
         {
             return self.resolved_type(ty);
@@ -319,6 +320,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         | ast::GenericArg::AssocBinding { value: ty, .. } => {
                             let ty = self
                                 .ctx
+                                .facts
                                 .node_types
                                 .get(&ty.id)
                                 .copied()

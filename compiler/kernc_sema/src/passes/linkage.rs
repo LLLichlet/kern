@@ -50,6 +50,7 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                     self.check_attribute_surface(&g.attributes);
                     let sig_ty = self
                         .ctx
+                        .facts
                         .node_types
                         .get(&g.value.id)
                         .copied()

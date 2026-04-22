@@ -16,6 +16,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let trait_node = impl_def.trait_type.as_ref()?;
         let trait_ty = self
             .ctx
+            .facts
             .node_types
             .get(&trait_node.id)
             .copied()
@@ -659,28 +660,32 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.substitute_type_with_map(ret, &subst_map)
     }
 
-    pub(super) fn atomic_ordering_arg(&mut self, arg: &Expr) -> AtomicOrdering {
-        if let Some(&ordering) = self.ctx.atomic_orderings.get(&arg.id) {
+    pub(crate) fn atomic_ordering_arg(&mut self, arg: &Expr) -> AtomicOrdering {
+        if let Some(ordering) = self.ctx.atomic_ordering(arg.id) {
             return ordering;
         }
 
         let mut evaluator = ConstEvaluator::new(self.ctx);
         match evaluator.eval_inner(arg, 0) {
-            Ok(ConstValue::Int(value)) => AtomicOrdering::from_abi_const(value).unwrap_or_else(|| {
-                self.ctx.emit_ice(
-                    arg.span,
-                    format!(
-                        "Kern ICE (Lowering): invalid atomic ordering constant `{}` passed semantic validation.",
-                        value
-                    ),
-                );
-                AtomicOrdering::SeqCst
-            }),
+            Ok(ConstValue::Int(value)) => {
+                AtomicOrdering::from_abi_const(value).unwrap_or_else(|| {
+                    self.ctx
+                        .struct_error(
+                            arg.span,
+                            format!("invalid atomic ordering constant `{}`", value),
+                        )
+                        .with_hint("valid atomic orderings use ABI constants 0 through 4")
+                        .emit();
+                    AtomicOrdering::SeqCst
+                })
+            }
             _ => {
-                self.ctx.emit_ice(
-                    arg.span,
-                    "Kern ICE (Lowering): atomic ordering argument was not reduced to a compile-time integer.",
-                );
+                self.ctx
+                    .struct_error(
+                        arg.span,
+                        "atomic ordering argument must be a compile-time integer",
+                    )
+                    .emit();
                 AtomicOrdering::SeqCst
             }
         }
@@ -690,68 +695,74 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut evaluator = ConstEvaluator::new(self.ctx);
         match evaluator.eval_usize(arg) {
             Ok(value) => u32::try_from(value).unwrap_or_else(|_| {
-                self.ctx.emit_ice(
-                    arg.span,
-                    format!(
-                        "Kern ICE (Lowering): SIMD alignment `{}` does not fit into u32.",
-                        value
-                    ),
-                );
+                self.ctx
+                    .struct_error(
+                        arg.span,
+                        format!("SIMD alignment `{}` does not fit into 32 bits", value),
+                    )
+                    .emit();
                 1
             }),
             Err(_) => {
-                self.ctx.emit_ice(
-                    arg.span,
-                    "Kern ICE (Lowering): SIMD alignment argument was not reduced to a compile-time integer.",
-                );
+                self.ctx
+                    .struct_error(
+                        arg.span,
+                        "SIMD alignment argument must be a compile-time integer",
+                    )
+                    .emit();
                 1
             }
         }
     }
 
-    pub(super) fn simd_shuffle_indices_arg(&mut self, arg: &Expr) -> Vec<u32> {
+    pub(crate) fn simd_shuffle_indices_arg(&mut self, arg: &Expr) -> Vec<u32> {
         let mut evaluator = ConstEvaluator::new(self.ctx);
         match evaluator.eval_inner(arg, 0) {
             Ok(ConstValue::Array(values)) => values
                 .into_iter()
                 .map(|value| match value {
                     ConstValue::Int(idx) => u32::try_from(idx).unwrap_or_else(|_| {
-                        self.ctx.emit_ice(
-                            arg.span,
-                            format!(
-                                "Kern ICE (Lowering): SIMD shuffle index `{}` did not survive semantic validation.",
-                                idx
-                            ),
-                        );
+                        self.ctx
+                            .struct_error(
+                                arg.span,
+                                format!("SIMD shuffle index `{}` does not fit into 32 bits", idx),
+                            )
+                            .emit();
                         0
                     }),
                     other => {
-                        self.ctx.emit_ice(
-                            arg.span,
-                            format!(
-                                "Kern ICE (Lowering): SIMD shuffle indices must be integers, found `{:?}`.",
-                                other
-                            ),
-                        );
+                        self.ctx
+                            .struct_error(
+                                arg.span,
+                                format!(
+                                    "SIMD shuffle indices must all be integers, found `{:?}`",
+                                    other
+                                ),
+                            )
+                            .emit();
                         0
                     }
                 })
                 .collect(),
             Ok(other) => {
-                self.ctx.emit_ice(
-                    arg.span,
-                    format!(
-                        "Kern ICE (Lowering): SIMD shuffle indices expected a constant array, found `{:?}`.",
-                        other
-                    ),
-                );
+                self.ctx
+                    .struct_error(
+                        arg.span,
+                        format!(
+                            "SIMD shuffle indices must be provided as a constant array, found `{:?}`",
+                            other
+                        ),
+                    )
+                    .emit();
                 Vec::new()
             }
             Err(_) => {
-                self.ctx.emit_ice(
-                    arg.span,
-                    "Kern ICE (Lowering): SIMD shuffle indices were not reduced to compile-time constants.",
-                );
+                self.ctx
+                    .struct_error(
+                        arg.span,
+                        "SIMD shuffle indices must be compile-time constants",
+                    )
+                    .emit();
                 Vec::new()
             }
         }
@@ -762,10 +773,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         match evaluator.eval_usize(arg) {
             Ok(value) => (value % lanes as u64) as u32,
             Err(_) => {
-                self.ctx.emit_ice(
-                    arg.span,
-                    "Kern ICE (Lowering): SIMD rotate amount argument was not reduced to a compile-time integer.",
-                );
+                self.ctx
+                    .struct_error(
+                        arg.span,
+                        "SIMD rotate amount must be a compile-time integer",
+                    )
+                    .emit();
                 0
             }
         }

@@ -40,6 +40,7 @@ struct BridgeOutput {
   };
 
   Kind KindTag = Kind::Buffer;
+  SmallString<0> Identifier;
   SmallVector<char, 0> Buffer;
   SmallString<0> Path;
 };
@@ -53,8 +54,8 @@ class ThinLtoSession;
 
 class BufferStream final : public llvm::raw_pwrite_stream {
 public:
-  BufferStream(ThinLtoSession &Session, unsigned Task)
-      : Session(Session), Task(Task) {}
+  BufferStream(ThinLtoSession &Session, unsigned Task, StringRef Identifier)
+      : Session(Session), Task(Task), Identifier(Identifier) {}
 
   ~BufferStream() override;
 
@@ -74,6 +75,7 @@ private:
 
   ThinLtoSession &Session;
   unsigned Task;
+  SmallString<0> Identifier;
   SmallVector<char, 0> Buffer;
 };
 
@@ -168,9 +170,11 @@ public:
 
     auto AddStream = [this](size_t Task, const Twine &ModuleName)
         -> Expected<std::unique_ptr<llvm::CachedFileStream>> {
-      (void)ModuleName;
+      const SmallString<0> Identifier =
+          output_identifier_for_task(static_cast<unsigned>(Task), ModuleName);
       if (!HasGeneratedObjectsDir) {
-        auto Stream = std::make_unique<BufferStream>(*this, static_cast<unsigned>(Task));
+        auto Stream = std::make_unique<BufferStream>(*this, static_cast<unsigned>(Task),
+                                                     Identifier);
         return std::make_unique<llvm::CachedFileStream>(std::move(Stream));
       }
 
@@ -181,7 +185,7 @@ public:
       if (Ec) {
         return llvm::errorCodeToError(Ec);
       }
-      record_file_output(static_cast<unsigned>(Task), Path);
+      record_file_output(static_cast<unsigned>(Task), Identifier, Path);
       return std::make_unique<llvm::CachedFileStream>(std::move(Stream));
     };
 
@@ -189,7 +193,7 @@ public:
     if (HasCacheDir) {
       auto AddBuffer = [this](unsigned Task, const Twine &ModuleName,
                               std::unique_ptr<MemoryBuffer> Buffer) {
-        (void)ModuleName;
+        const SmallString<0> Identifier = output_identifier_for_task(Task, ModuleName);
         if (HasGeneratedObjectsDir) {
           SmallString<0> Path = make_output_path(Task);
           std::error_code Ec;
@@ -200,14 +204,14 @@ public:
           }
           Stream.write(Buffer->getBufferStart(), Buffer->getBufferSize());
           Stream.close();
-          record_file_output(Task, Path);
+          record_file_output(Task, Identifier, Path);
           return;
         }
 
         SmallVector<char, 0> Bytes;
         Bytes.append(Buffer->getBufferStart(),
                      Buffer->getBufferStart() + Buffer->getBufferSize());
-        record_buffer_output(Task, std::move(Bytes));
+        record_buffer_output(Task, Identifier, std::move(Bytes));
       };
 
       auto CacheOrErr = llvm::localCache("ThinLTO", "thinlto", CacheDir.c_str(), AddBuffer);
@@ -238,6 +242,25 @@ public:
   bool object_is_file(size_t Index) const {
     return Index < OrderedOutputs.size() &&
            OrderedOutputs[Index].KindTag == BridgeOutput::Kind::File;
+  }
+
+  size_t object_identifier_len(size_t Index) const {
+    if (Index >= OrderedOutputs.size()) {
+      return 0;
+    }
+    return OrderedOutputs[Index].Identifier.size();
+  }
+
+  bool copy_object_identifier(size_t Index, char *Dest, size_t DestLen) const {
+    if (Index >= OrderedOutputs.size() || Dest == nullptr) {
+      return false;
+    }
+    const auto &Output = OrderedOutputs[Index];
+    if (DestLen < Output.Identifier.size()) {
+      return false;
+    }
+    std::memcpy(Dest, Output.Identifier.data(), Output.Identifier.size());
+    return true;
   }
 
   size_t object_path_len(size_t Index) const {
@@ -285,10 +308,12 @@ public:
     return const_cast<SmallString<0> &>(LastError).c_str();
   }
 
-  void record_buffer_output(unsigned Task, SmallVector<char, 0> Buffer) {
+  void record_buffer_output(unsigned Task, StringRef Identifier,
+                            SmallVector<char, 0> Buffer) {
     llvm::sys::SmartScopedLock<true> Guard(Mutex);
     BridgeOutput Output;
     Output.KindTag = BridgeOutput::Kind::Buffer;
+    Output.Identifier = Identifier;
     Output.Buffer = std::move(Buffer);
     PendingOutputs[Task] = std::move(Output);
   }
@@ -335,10 +360,11 @@ private:
     PendingOutputs.clear();
   }
 
-  void record_file_output(unsigned Task, StringRef Path) {
+  void record_file_output(unsigned Task, StringRef Identifier, StringRef Path) {
     llvm::sys::SmartScopedLock<true> Guard(Mutex);
     BridgeOutput Output;
     Output.KindTag = BridgeOutput::Kind::File;
+    Output.Identifier = Identifier;
     Output.Path = Path;
     PendingOutputs[Task] = std::move(Output);
   }
@@ -352,6 +378,14 @@ private:
 #endif
     llvm::sys::path::append(Path, FileName);
     return Path;
+  }
+
+  SmallString<0> output_identifier_for_task(unsigned Task,
+                                            const Twine &ModuleName) const {
+    if (Task < Modules.size()) {
+      return Modules[Task].Identifier;
+    }
+    return SmallString<0>(ModuleName.str());
   }
 
   void set_error(StringRef Message) {
@@ -373,7 +407,7 @@ private:
 
 BufferStream::~BufferStream() {
   flush();
-  Session.record_buffer_output(Task, std::move(Buffer));
+  Session.record_buffer_output(Task, Identifier, std::move(Buffer));
 }
 
 } // namespace
@@ -414,6 +448,17 @@ size_t kern_thinlto_session_object_count(const ThinLtoSession *Session) {
 
 int kern_thinlto_session_object_is_file(const ThinLtoSession *Session, size_t Index) {
   return Session != nullptr && Session->object_is_file(Index);
+}
+
+size_t kern_thinlto_session_object_identifier_len(const ThinLtoSession *Session,
+                                                  size_t Index) {
+  return Session == nullptr ? 0 : Session->object_identifier_len(Index);
+}
+
+int kern_thinlto_session_copy_object_identifier(const ThinLtoSession *Session, size_t Index,
+                                                char *Dest, size_t DestLen) {
+  return Session != nullptr &&
+         Session->copy_object_identifier(Index, Dest, DestLen);
 }
 
 size_t kern_thinlto_session_object_path_len(const ThinLtoSession *Session, size_t Index) {

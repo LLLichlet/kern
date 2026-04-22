@@ -242,11 +242,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let boundary = match self.loop_frames.last().copied() {
             Some(b) => b,
             None => {
-                self.ctx.emit_ice(
-                    span,
-                    "Kern ICE (Lowering): `break` or `continue` found outside any loop frame.",
-                );
-                return MastExprKind::Trap;
+                return self
+                    .lower_error_kind(span, "`break` or `continue` cannot appear outside a loop");
             }
         };
 

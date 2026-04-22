@@ -2,6 +2,32 @@ use super::*;
 use crate::ty::GenericArg;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
+    fn compute_layout_size(&mut self, ty: TypeId) -> ConstEvalResult<u64> {
+        let errors_before = self.ctx.sess.error_count;
+        let size = {
+            let mut layout = LayoutEngine::new(self.ctx);
+            layout.compute_type_size(ty)
+        };
+        if self.ctx.sess.error_count != errors_before {
+            Err(ConstEvalError)
+        } else {
+            Ok(size)
+        }
+    }
+
+    fn compute_layout_align(&mut self, ty: TypeId) -> ConstEvalResult<u64> {
+        let errors_before = self.ctx.sess.error_count;
+        let align = {
+            let mut layout = LayoutEngine::new(self.ctx);
+            layout.compute_type_align(ty)
+        };
+        if self.ctx.sess.error_count != errors_before {
+            Err(ConstEvalError)
+        } else {
+            Ok(align)
+        }
+    }
+
     fn check_bit_intrinsic_target_type(
         &mut self,
         ty: TypeId,
@@ -488,8 +514,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         _span: Span,
     ) -> ConstEvalResult<ConstValue> {
         if let Some(&target_ty) = generic_args.first() {
-            let mut layout = LayoutEngine::new(self.ctx);
-            let size = layout.compute_type_size(target_ty);
+            let size = self.compute_layout_size(target_ty)?;
             Ok(ConstValue::Int(size as i128))
         } else {
             Err(ConstEvalError) // Already guarded by the generic-arity check above.
@@ -528,8 +553,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         _span: Span,
     ) -> ConstEvalResult<ConstValue> {
         if let Some(&target_ty) = generic_args.first() {
-            let mut layout = LayoutEngine::new(self.ctx);
-            let align = layout.compute_type_align(target_ty);
+            let align = self.compute_layout_align(target_ty)?;
             Ok(ConstValue::Int(align as i128))
         } else {
             Err(ConstEvalError)
@@ -550,8 +574,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         };
 
         if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
-            let mut layout = LayoutEngine::new(self.ctx);
-            let bit_width = layout.compute_type_size(target_ty) * 8;
+            let bit_width = self.compute_layout_size(target_ty)? * 8;
 
             let mask = if bit_width == 128 {
                 u128::MAX
@@ -597,8 +620,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             let target_ty = generic_args[1];
 
             // Use the layout engine so pointer-sized integers are handled correctly.
-            let mut layout = LayoutEngine::new(self.ctx);
-            let bit_width = layout.compute_type_size(target_ty) * 8;
+            let bit_width = self.compute_layout_size(target_ty)? * 8;
 
             let mask = if bit_width == 128 {
                 u128::MAX
@@ -641,8 +663,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
             // Use the layout engine so the operation respects target bit width.
-            let mut layout = LayoutEngine::new(self.ctx);
-            let bit_width = layout.compute_type_size(target_ty) * 8;
+            let bit_width = self.compute_layout_size(target_ty)? * 8;
 
             let mask = if bit_width == 128 {
                 u128::MAX

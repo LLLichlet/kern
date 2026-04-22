@@ -8,10 +8,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> Option<MatchAdtInfo> {
         let Def::Enum(def) = self.ctx.defs[def_id.0 as usize].clone() else {
-            self.ctx.emit_ice(
-                span,
-                format!("Kern ICE (Lowering): DefId {} is not an Enum.", def_id.0),
-            );
+            self.ctx
+                .struct_error(
+                    span,
+                    format!(
+                        "cannot lower match/propagation against def `{}` because it is not an enum",
+                        def_id.0
+                    ),
+                )
+                .emit();
             return None;
         };
 
@@ -23,6 +28,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
         let tag_ty = def.backing_type.as_ref().map_or(TypeId::U32, |backing_ty| {
             self.ctx
+                .facts
                 .node_types
                 .get(&backing_ty.id)
                 .copied()
@@ -91,27 +97,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             MatchAdtInfo::Anonymous { def, .. } => {
                 let variant = self.anon_enum_variant_info(def, variant_name);
                 if variant.is_none() {
-                    self.ctx.emit_ice(
-                        span,
-                        format!(
-                            "Kern ICE (Lowering): variant `{}` not found in anonymous enum match.",
-                            self.ctx.resolve(variant_name)
-                        ),
-                    );
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!(
+                                "variant `{}` not found in anonymous enum match",
+                                self.ctx.resolve(variant_name)
+                            ),
+                        )
+                        .emit();
                 }
                 variant
             }
         }
     }
 
-    pub(super) fn payload_union_id(&mut self, mono_id: MonoId, span: Span) -> Option<MonoId> {
+    pub(crate) fn payload_union_id(&mut self, mono_id: MonoId, span: Span) -> Option<MonoId> {
         match self.adt_union_map.get(&mono_id).copied() {
             Some(id) => Some(id),
             None => {
-                self.ctx.emit_ice(
-                    span,
-                    "Kern ICE (Lowering): missing enum payload union mapping in `adt_union_map`.",
-                );
+                self.ctx
+                    .struct_error(span, "missing enum payload union mapping during lowering")
+                    .emit();
                 None
             }
         }
@@ -243,10 +250,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let operand_info = match self.resolve_match_adt(operand_ty, span) {
             Some(info) => info,
             None => {
-                self.ctx.emit_ice(
-                    span,
-                    "Kern ICE (Lowering): propagation operand did not lower to an enum-like ADT.",
-                );
+                self.ctx
+                    .struct_error(
+                        span,
+                        "propagation operand must be an enum-like `Option` or `Result` value",
+                    )
+                    .emit();
                 return MastExprKind::Trap;
             }
         };
@@ -256,77 +265,87 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let ok_name = self.ctx.intern("Ok");
         let err_name = self.ctx.intern("Err");
 
-        let (success_variant, failure_variant, success_payload_info, failure_payload_info) = match (
-            kind,
-            operand_info,
-        ) {
-            (ast::PropagateKind::Option, MatchAdtInfo::Anonymous { def, .. })
-                if def.builtin == Some(BuiltinAnonymousEnumKind::Optional) =>
-            {
-                let success = self.build_enum_variant_condition(
-                    span,
-                    &target_var_expr,
-                    operand_ty,
-                    some_name,
-                );
-                let failure = self.build_enum_variant_condition(
-                    span,
-                    &target_var_expr,
-                    operand_ty,
-                    none_name,
-                );
-                let (success_cond, success_payload_info) = match success {
-                    Some(value) => value,
-                    None => return MastExprKind::Trap,
-                };
-                let (_, failure_payload_info) = match failure {
-                    Some(value) => value,
-                    None => return MastExprKind::Trap,
-                };
-                (
-                    success_cond,
-                    none_name,
-                    success_payload_info,
-                    failure_payload_info,
-                )
-            }
-            (ast::PropagateKind::Result, MatchAdtInfo::Anonymous { def, .. })
-                if def.builtin == Some(BuiltinAnonymousEnumKind::Result) =>
-            {
-                let success =
-                    self.build_enum_variant_condition(span, &target_var_expr, operand_ty, ok_name);
-                let failure =
-                    self.build_enum_variant_condition(span, &target_var_expr, operand_ty, err_name);
-                let (success_cond, success_payload_info) = match success {
-                    Some(value) => value,
-                    None => return MastExprKind::Trap,
-                };
-                let (_, failure_payload_info) = match failure {
-                    Some(value) => value,
-                    None => return MastExprKind::Trap,
-                };
-                (
-                    success_cond,
-                    err_name,
-                    success_payload_info,
-                    failure_payload_info,
-                )
-            }
-            _ => {
-                self.ctx.emit_ice(
-                    span,
-                    "Kern ICE (Lowering): propagation kind and operand builtin enum kind disagreed.",
-                );
-                return MastExprKind::Trap;
-            }
-        };
+        let (success_variant, failure_variant, success_payload_info, failure_payload_info) =
+            match (kind, operand_info) {
+                (ast::PropagateKind::Option, MatchAdtInfo::Anonymous { def, .. })
+                    if def.builtin == Some(BuiltinAnonymousEnumKind::Optional) =>
+                {
+                    let success = self.build_enum_variant_condition(
+                        span,
+                        &target_var_expr,
+                        operand_ty,
+                        some_name,
+                    );
+                    let failure = self.build_enum_variant_condition(
+                        span,
+                        &target_var_expr,
+                        operand_ty,
+                        none_name,
+                    );
+                    let (success_cond, success_payload_info) = match success {
+                        Some(value) => value,
+                        None => return MastExprKind::Trap,
+                    };
+                    let (_, failure_payload_info) = match failure {
+                        Some(value) => value,
+                        None => return MastExprKind::Trap,
+                    };
+                    (
+                        success_cond,
+                        none_name,
+                        success_payload_info,
+                        failure_payload_info,
+                    )
+                }
+                (ast::PropagateKind::Result, MatchAdtInfo::Anonymous { def, .. })
+                    if def.builtin == Some(BuiltinAnonymousEnumKind::Result) =>
+                {
+                    let success = self.build_enum_variant_condition(
+                        span,
+                        &target_var_expr,
+                        operand_ty,
+                        ok_name,
+                    );
+                    let failure = self.build_enum_variant_condition(
+                        span,
+                        &target_var_expr,
+                        operand_ty,
+                        err_name,
+                    );
+                    let (success_cond, success_payload_info) = match success {
+                        Some(value) => value,
+                        None => return MastExprKind::Trap,
+                    };
+                    let (_, failure_payload_info) = match failure {
+                        Some(value) => value,
+                        None => return MastExprKind::Trap,
+                    };
+                    (
+                        success_cond,
+                        err_name,
+                        success_payload_info,
+                        failure_payload_info,
+                    )
+                }
+                _ => {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "propagation operator does not match the operand enum kind",
+                        )
+                        .emit();
+                    return MastExprKind::Trap;
+                }
+            };
 
         let Some((success_field_idx, success_payload_ty, success_mono_id)) = success_payload_info
         else {
-            self.ctx.emit_ice(
-                span,
-                "Kern ICE (Lowering): propagation success branch is missing its payload.",
-            );
+            self.ctx
+                .struct_error(
+                    span,
+                    "propagation success branch must carry a payload value",
+                )
+                .emit();
             return MastExprKind::Trap;
         };
         let Some(success_value) = self.build_payload_extract_expr(
@@ -351,10 +370,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let Some((failure_field_idx, failure_payload_ty, failure_mono_id)) =
                     failure_payload_info
                 else {
-                    self.ctx.emit_ice(
-                        span,
-                        "Kern ICE (Lowering): result propagation error branch is missing its payload.",
-                    );
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "result propagation error branch must carry a payload value",
+                        )
+                        .emit();
                     return MastExprKind::Trap;
                 };
                 let Some(failure_payload) = self.build_payload_extract_expr(
@@ -447,6 +468,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         .map(|payload_ast| {
                             let mut payload_ty = self
                                 .ctx
+                                .facts
                                 .node_types
                                 .get(&payload_ast.id)
                                 .copied()

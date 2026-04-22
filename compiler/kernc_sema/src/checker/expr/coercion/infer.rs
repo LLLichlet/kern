@@ -17,6 +17,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             } => {
                 let ptr_ty = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&operand.id)
                     .copied()
@@ -32,6 +33,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::FieldAccess { lhs, .. } => {
                 let lhs_ty = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&lhs.id)
                     .copied()
@@ -48,6 +50,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::IndexAccess { lhs, .. } => {
                 let lhs_ty = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&lhs.id)
                     .copied()
@@ -196,10 +199,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return None;
             };
 
-            if !assoc_args.is_empty() {
-                return None;
-            }
-
             let target_norm = self.resolve_tv(target);
             if let Some(assoc_ty) = crate::query::trait_object_assoc_from_hierarchy(
                 self.ctx,
@@ -208,6 +207,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 &trait_args,
                 assoc_def_id,
             ) {
+                let assoc_ty = self.ctx.instantiate_assoc_projection_target(
+                    assoc_def_id,
+                    &assoc_args,
+                    assoc_ty,
+                );
                 return Some(self.resolve_tv(assoc_ty));
             }
 
@@ -216,6 +220,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 trait_def_id,
                 &trait_args,
                 assoc_def_id,
+                &assoc_args,
             ) {
                 return Some(self.resolve_tv(bound_ty));
             }
@@ -225,6 +230,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 trait_def_id,
                 &trait_args,
                 assoc_def_id,
+                &assoc_args,
             ) {
                 return Some(self.resolve_tv(bound_ty));
             }
@@ -243,35 +249,30 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         trait_def_id: DefId,
         trait_args: &[crate::ty::GenericArg],
         assoc_def_id: DefId,
+        assoc_args: &[crate::ty::GenericArg],
     ) -> Option<TypeId> {
-        if self.ctx.active_bounds.is_empty() {
+        if self.ctx.analysis.active_bounds.is_empty() {
             return None;
         }
 
-        let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
-
-        for (env_target, env_bounds) in unsafe { &*active_bounds_ptr } {
-            if *env_target != target_ty {
-                continue;
-            }
-
-            for bound in env_bounds.iter().copied() {
-                let inst_bound_norm = self.resolve_tv(bound);
-                if !matches!(
-                    self.ctx.type_registry.get(inst_bound_norm),
-                    TypeKind::TraitObject(..)
-                ) {
-                    continue;
-                }
-                if let Some(assoc_ty) = crate::query::trait_object_assoc_from_hierarchy(
-                    self.ctx,
-                    inst_bound_norm,
-                    trait_def_id,
-                    trait_args,
+        let active_bounds_ptr = std::ptr::from_ref(self.ctx.analysis.active_bounds.as_slice());
+        for inst_bound_norm in
+            crate::query::instantiated_env_trait_bounds(self.ctx, target_ty, unsafe {
+                &*active_bounds_ptr
+            })
+        {
+            if let Some(assoc_ty) = crate::query::trait_object_assoc_from_hierarchy(
+                self.ctx,
+                inst_bound_norm,
+                trait_def_id,
+                trait_args,
+                assoc_def_id,
+            ) {
+                return Some(self.ctx.instantiate_assoc_projection_target(
                     assoc_def_id,
-                ) {
-                    return Some(assoc_ty);
-                }
+                    assoc_args,
+                    assoc_ty,
+                ));
             }
         }
 
@@ -284,8 +285,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         trait_def_id: DefId,
         trait_args: &[crate::ty::GenericArg],
         assoc_def_id: DefId,
+        assoc_args: &[crate::ty::GenericArg],
     ) -> Option<TypeId> {
-        let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impls.as_slice());
+        let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.impl_index.trait_impls.as_slice());
         let mut selected: Option<(DefId, TypeId)> = None;
 
         for impl_id in unsafe { &*trait_impl_ids_ptr }.iter().copied() {
@@ -328,6 +330,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .iter()
                 .find(|(bound_assoc_id, _)| *bound_assoc_id == assoc_def_id)
             {
+                let assoc_ty = self.ctx.instantiate_assoc_projection_target(
+                    assoc_def_id,
+                    assoc_args,
+                    *assoc_ty,
+                );
                 let replace = match selected {
                     None => true,
                     Some((selected_impl_id, _)) => matches!(
@@ -336,7 +343,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     ),
                 };
                 if replace {
-                    selected = Some((impl_id, *assoc_ty));
+                    selected = Some((impl_id, assoc_ty));
                 }
             }
         }
@@ -421,5 +428,54 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
         self.type_vars[vid] = Some(ty);
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SemaContext;
+    use kernc_utils::Session;
+
+    #[test]
+    fn env_projection_instantiates_matched_bound_target_before_lookup() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let wrap_def = DefId(100);
+        let trait_def = DefId(101);
+        let assoc_def = DefId(102);
+        let param_t = ctx.intern("T");
+        let param_ty = ctx.type_registry.intern(TypeKind::Param(param_t));
+
+        let env_target = ctx.type_registry.intern(TypeKind::Def(
+            wrap_def,
+            vec![crate::ty::GenericArg::Type(param_ty)],
+        ));
+        let env_bound = ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def,
+            Vec::new(),
+            vec![(assoc_def, param_ty)],
+        ));
+        let concrete_target = ctx.type_registry.intern(TypeKind::Def(
+            wrap_def,
+            vec![crate::ty::GenericArg::Type(TypeId::I32)],
+        ));
+
+        ctx.analysis
+            .active_bounds
+            .push((env_target, vec![env_bound]));
+
+        let projected = {
+            let mut checker = ExprChecker::new(&mut ctx, None);
+            checker.projection_assoc_from_env_bounds(
+                concrete_target,
+                trait_def,
+                &[],
+                assoc_def,
+                &[],
+            )
+        };
+
+        assert_eq!(projected, Some(TypeId::I32));
     }
 }

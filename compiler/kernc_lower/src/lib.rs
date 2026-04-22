@@ -124,7 +124,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
         let collect_phase_timings = ctx.sess.report_timings;
         let module_name = ctx
-            .root_module
+            .root_module()
             .and_then(|root_id| match &ctx.defs[root_id.0 as usize] {
                 Def::Module(module) => Some(ctx.resolve(module.name).to_string()),
                 _ => None,
@@ -728,6 +728,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let raw_tag_ty = def.backing_type.as_ref().map_or(TypeId::U32, |backing_ty| {
             self.ctx
+                .facts
                 .node_types
                 .get(&backing_ty.id)
                 .copied()
@@ -823,5 +824,63 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 None
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kernc_ast::{GenericParam, GenericParamKind};
+    use kernc_utils::{DiagnosticLevel, Session};
+
+    #[test]
+    fn invalid_vtable_target_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let mut lowerer = Lowerer::new(&mut ctx);
+
+        let vtable_id = lowerer.get_or_create_vtable(TypeId::U8, TypeId::U8, TypeId::U8);
+
+        assert_eq!(lowerer.ctx.sess.diagnostics.len(), 1);
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].level,
+            DiagnosticLevel::Error
+        );
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].message,
+            "cannot build a vtable for non-trait-object type `Primitive(U8)`"
+        );
+        assert!(
+            lowerer
+                .module
+                .globals
+                .iter()
+                .any(|global| global.id == vtable_id)
+        );
+    }
+
+    #[test]
+    fn generic_subst_map_mismatch_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let param = GenericParam {
+            name: ctx.intern("T"),
+            span: Span::default(),
+            kind: GenericParamKind::Type,
+        };
+        let mut lowerer = Lowerer::new(&mut ctx);
+
+        let subst = lowerer.build_generic_subst_map("function", "demo", &[param], &[]);
+
+        assert_eq!(subst, None);
+        assert_eq!(lowerer.ctx.sess.diagnostics.len(), 1);
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].level,
+            DiagnosticLevel::Error
+        );
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].message,
+            "generic argument count mismatch for function `demo`: expected 1, got 0"
+        );
     }
 }

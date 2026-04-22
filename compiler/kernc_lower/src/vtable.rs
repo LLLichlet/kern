@@ -63,11 +63,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let mut merged = assoc_bindings.into_iter().collect::<HashMap<_, _>>();
-        merged.extend(
-            assoc_binding_map
-                .iter()
-                .map(|(assoc_id, assoc_ty)| (*assoc_id, *assoc_ty)),
-        );
+        // Traversal should fill missing inherited bindings, not overwrite a more specific
+        // equality already written on the current supertrait edge.
+        for (&assoc_id, &assoc_ty) in assoc_binding_map {
+            merged.entry(assoc_id).or_insert(assoc_ty);
+        }
 
         let mut merged = merged.into_iter().collect::<Vec<_>>();
         merged.sort_by_key(|(assoc_id, _)| assoc_id.0);
@@ -158,6 +158,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             };
             let inst_super_ty = substitute_associated_types(
                 &mut self.ctx.type_registry,
+                &self.ctx.defs,
                 inst_super_ty,
                 &assoc_binding_map,
             );
@@ -241,7 +242,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         receiver_ty,
                         trait_ty,
                         format!(
-                            "Kern ICE (Lowering): Target must be a TraitObject, found: {:?}",
+                            "cannot build a vtable for non-trait-object type `{:?}`",
                             other
                         ),
                     );
@@ -256,10 +257,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     data_ptr_ty,
                     receiver_ty,
                     trait_ty,
-                    format!(
-                        "Kern ICE (Lowering): DefId {} is not a Trait!",
-                        trait_def_id.0
-                    ),
+                    format!("cannot build a vtable because def `{}` is not a trait", trait_def_id.0),
                 );
             };
 
@@ -275,7 +273,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             receiver_ty,
                             trait_ty,
                             format!(
-                                "Kern ICE (Lowering): Impl block missing for cast `{} as {}`. Sema failed to enforce Trait bounding contract.",
+                                "cannot build a vtable for cast `{} as {}` because no matching impl was found",
                                 src_name, trait_name
                             ),
                         );
@@ -314,7 +312,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
         let search_types = self.vtable_impl_search_types(norm_receiver, norm_data_ptr);
 
-        let global_impls = self.ctx.global_impls.clone();
+        let global_impls = self.ctx.impl_index.global_impls.clone();
         let mut selected: Option<(
             ImplDef,
             Vec<kernc_sema::ty::GenericArg>,
@@ -339,6 +337,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             let impl_trait_ty = self
                 .ctx
+                .facts
                 .node_types
                 .get(&impl_trait_node.id)
                 .copied()
@@ -628,7 +627,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         trait_ty: TypeId,
         message: String,
     ) -> MonoId {
-        self.ctx.emit_ice(Span::default(), message);
+        self.ctx.struct_error(Span::default(), message).emit();
 
         if let Some(&existing) = self.vtable_cache.get(&key) {
             return existing;
@@ -723,13 +722,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 Some(id) => id,
                 None => {
                     let method_name = self.ctx.resolve(method.name);
-                    self.ctx.emit_ice(
-                        Span::default(),
-                        format!(
-                            "Kern ICE (Lowering): Missing implementation for trait method `{}`. Sema failed to check trait completeness.",
-                            method_name
-                        ),
-                    );
+                    self.ctx
+                        .struct_error(
+                            Span::default(),
+                            format!(
+                                "cannot build a complete vtable because trait method `{}` has no implementation",
+                                method_name
+                            ),
+                        )
+                        .emit();
                     vtable_entries.push(MastExpr::new(
                         void_ptr_ty,
                         MastExprKind::Integer(0),

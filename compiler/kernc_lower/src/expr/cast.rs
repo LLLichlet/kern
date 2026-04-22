@@ -61,6 +61,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastExpr {
         let raw_target_ty = self
             .ctx
+            .facts
             .node_types
             .get(&target.id)
             .copied()
@@ -602,10 +603,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let (_, physical_to_ast) =
             self.cached_named_struct_mapping(rewrite.def_id, rewrite.gen_args);
         if physical_to_ast.len() != rewrite.fields.len() {
-            self.ctx.emit_ice(
-                rewrite.span,
-                "Kern ICE (Lowering): named/anonymous struct field count mismatch during implicit aggregate decay.",
-            );
+            self.ctx
+                .struct_error(
+                    rewrite.span,
+                    "implicit decay from named struct to anonymous struct has mismatched field counts",
+                )
+                .emit();
             return Some(MastExpr::new(
                 rewrite.exp_base,
                 MastExprKind::Trap,
@@ -635,13 +638,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         for &ast_idx in &anon_physical_to_ast {
             let field = &rewrite.anon_fields[ast_idx];
             let Some(source_expr) = source_by_name.get(&field.name).cloned() else {
-                self.ctx.emit_ice(
-                    rewrite.span,
-                    format!(
-                        "Kern ICE (Lowering): missing source field `{}` during implicit anonymous struct decay.",
-                        self.ctx.resolve(field.name)
-                    ),
-                );
+                self.ctx
+                    .struct_error(
+                        rewrite.span,
+                        format!(
+                            "implicit anonymous-struct decay is missing source field `{}`",
+                            self.ctx.resolve(field.name)
+                        ),
+                    )
+                    .emit();
                 return Some(MastExpr::new(
                     rewrite.exp_base,
                     MastExprKind::Trap,
@@ -710,6 +715,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let field = &struct_def.fields[ast_idx];
             let raw_ty = self
                 .ctx
+                .facts
                 .node_types
                 .get(&field.type_node.id)
                 .copied()
@@ -776,10 +782,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let Some(source_field) = union_def.fields.get(rewrite.field_idx) else {
-            self.ctx.emit_ice(
-                rewrite.span,
-                "Kern ICE (Lowering): named union field index out of bounds during implicit aggregate decay.",
-            );
+            self.ctx
+                .struct_error(
+                    rewrite.span,
+                    "implicit decay from named union referenced an out-of-bounds field index",
+                )
+                .emit();
             return Some(MastExpr::new(
                 rewrite.exp_base,
                 MastExprKind::Trap,
@@ -791,13 +799,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .iter()
             .position(|field| field.name == source_field.name)
         else {
-            self.ctx.emit_ice(
-                rewrite.span,
-                format!(
-                    "Kern ICE (Lowering): missing target field `{}` during implicit anonymous union decay.",
-                    self.ctx.resolve(source_field.name)
-                ),
-            );
+            self.ctx
+                .struct_error(
+                    rewrite.span,
+                    format!(
+                        "implicit anonymous-union decay is missing target field `{}`",
+                        self.ctx.resolve(source_field.name)
+                    ),
+                )
+                .emit();
             return Some(MastExpr::new(
                 rewrite.exp_base,
                 MastExprKind::Trap,
@@ -836,13 +846,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let Some(target_payload_ty) =
             self.anon_enum_payload_ty_for_tag(rewrite.anon_enum, rewrite.tag_value as i128)
         else {
-            self.ctx.emit_ice(
-                rewrite.span,
-                format!(
-                    "Kern ICE (Lowering): missing anonymous enum variant for tag `{}` during implicit aggregate decay.",
-                    rewrite.tag_value
-                ),
-            );
+            self.ctx
+                .struct_error(
+                    rewrite.span,
+                    format!(
+                        "implicit anonymous-enum decay is missing a variant for tag `{}`",
+                        rewrite.tag_value
+                    ),
+                )
+                .emit();
             return Some(MastExpr::new(
                 rewrite.exp_base,
                 MastExprKind::Trap,
@@ -929,14 +941,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let Some(super_slot) =
                 self.vtable_supertrait_slot(source_trait_norm, target_trait_norm)
             else {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Kern ICE (Lowering): trait object upcast target `{}` is not a parent of `{}`.",
-                        self.ctx.ty_to_string(target_trait_norm),
-                        self.ctx.ty_to_string(source_trait_norm),
-                    ),
-                );
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!(
+                            "cannot upcast trait object from `{}` to unrelated trait `{}`",
+                            self.ctx.ty_to_string(source_trait_norm),
+                            self.ctx.ty_to_string(target_trait_norm),
+                        ),
+                    )
+                    .emit();
                 return MastExpr::new(target_ptr_ty, MastExprKind::Trap, span);
             };
 

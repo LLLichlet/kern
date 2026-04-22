@@ -29,6 +29,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
+        // Upcasts are allowed to forget extra inherited equalities carried by
+        // the richer source object, but they may not fabricate or rewrite any
+        // binding explicitly requested by the target type.
         let available_assoc_bindings = available_assoc_bindings
             .into_iter()
             .collect::<FastHashMap<_, _>>();
@@ -291,6 +294,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let exp_backing = exp_enum.backing_ty.unwrap_or(TypeId::U32);
                 let act_backing = act_enum.backing_type.as_ref().map_or(TypeId::U32, |bt| {
                     self.ctx
+                        .facts
                         .node_types
                         .get(&bt.id)
                         .copied()
@@ -328,6 +332,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     let act_payload = act_variant.payload_type.as_ref().map(|payload_ast| {
                         let raw_ty = self
                             .ctx
+                            .facts
                             .node_types
                             .get(&payload_ast.id)
                             .copied()
@@ -371,6 +376,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         for f in named_fields {
             let raw_ty = self
                 .ctx
+                .facts
                 .node_types
                 .get(&f.type_node.id)
                 .copied()

@@ -32,15 +32,17 @@ pub(crate) struct MethodCallSite {
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
-    fn lower_loc_intrinsic(&mut self, result_ty: TypeId, span: Span) -> MastExprKind {
+    pub(crate) fn lower_loc_intrinsic(&mut self, result_ty: TypeId, span: Span) -> MastExprKind {
         let norm_result_ty = self.ctx.type_registry.normalize(result_ty);
         let TypeKind::AnonymousStruct(_, fields) =
             self.ctx.type_registry.get(norm_result_ty).clone()
         else {
-            self.ctx.emit_ice(
-                span,
-                "Kern ICE (Lowering): `@loc` must return an anonymous struct.",
-            );
+            self.ctx
+                .struct_error(
+                    span,
+                    "`@loc` must return an anonymous struct containing `file`, `line`, and `col`",
+                )
+                .emit();
             return MastExprKind::Trap;
         };
 
@@ -70,10 +72,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 "line" => MastExpr::new(field.ty, MastExprKind::Integer(line as u128), span),
                 "col" => MastExpr::new(field.ty, MastExprKind::Integer(col as u128), span),
                 _ => {
-                    self.ctx.emit_ice(
-                        span,
-                        format!("Kern ICE (Lowering): unknown `@loc` field `{}`.", name),
-                    );
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!(
+                                "`@loc` result type contains unsupported field `{}`; expected only `file`, `line`, and `col`",
+                                name
+                            ),
+                        )
+                        .emit();
                     return MastExprKind::Trap;
                 }
             };

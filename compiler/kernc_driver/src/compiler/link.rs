@@ -1,5 +1,7 @@
 use super::{CompilerDriver, LinkTarget, TempDirGuard, TempFileGuard};
-use kernc_codegen::{ThinLtoModule, ThinLtoObject, ThinLtoOptions, run_thin_lto};
+use kernc_codegen::{
+    ThinLtoModule, ThinLtoObject, ThinLtoObjectKind, ThinLtoOptions, run_thin_lto,
+};
 use kernc_utils::config::{RuntimeEntry, runtime_links_libc, runtime_uses_crt_startup};
 use kernc_utils::llvm_bitcode::file_has_llvm_bitcode_magic;
 use std::env;
@@ -646,12 +648,31 @@ impl CompilerDriver {
         })
         .ok()?;
 
-        let generated_objects = object_outputs
+        let bitcode_module_indices = bitcode_positions
+            .iter()
+            .enumerate()
+            .map(|(original_index, (_, input))| (input.as_str(), original_index))
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut generated_objects = object_outputs
             .into_iter()
             .enumerate()
             .map(|(index, object)| match object {
-                ThinLtoObject::File(path) => Ok((index, path)),
-                ThinLtoObject::Buffer(_) => Err(format!(
+                ThinLtoObject {
+                    identifier,
+                    kind: ThinLtoObjectKind::File(path),
+                } => {
+                    let Some(&original_index) = bitcode_module_indices.get(identifier.as_str())
+                    else {
+                        return Err(format!(
+                            "ThinLTO returned object output for unknown module `{identifier}`"
+                        ));
+                    };
+                    Ok((original_index, path))
+                }
+                ThinLtoObject {
+                    kind: ThinLtoObjectKind::Buffer(_),
+                    ..
+                } => Err(format!(
                     "ThinLTO returned an unexpected in-memory object for output #{index}"
                 )),
             })
@@ -664,6 +685,7 @@ impl CompilerDriver {
             );
             return None;
         }
+        generated_objects.sort_by_key(|(original_index, _)| *original_index);
 
         let generated_object_paths = generated_objects
             .into_iter()

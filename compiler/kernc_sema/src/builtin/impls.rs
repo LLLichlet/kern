@@ -20,10 +20,13 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         };
 
         // Seed the real semantic types directly into the node-type cache.
-        self.ctx.node_types.insert(target_node.id, target_ty_id);
+        self.ctx
+            .facts
+            .node_types
+            .insert(target_node.id, target_ty_id);
 
         let trait_ty = self.builtin_trait_ty_by_id(trait_def_id, vec![]);
-        self.ctx.node_types.insert(trait_node.id, trait_ty);
+        self.ctx.facts.node_types.insert(trait_node.id, trait_ty);
 
         let impl_def = ImplDef {
             id: def_id,
@@ -38,8 +41,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             span: Default::default(),
         };
         self.ctx.add_def(Def::Impl(impl_def));
-        self.ctx.global_impls.push(def_id);
-        self.ctx.trait_impls.push(def_id);
+        self.ctx.impl_index.global_impls.push(def_id);
+        self.ctx.impl_index.trait_impls.push(def_id);
     }
 
     pub(super) fn inject_operator_impl(
@@ -70,13 +73,17 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             kind: ast::TypeKind::Infer,
         };
 
-        self.ctx.node_types.insert(target_node.id, target_ty_id);
+        self.ctx
+            .facts
+            .node_types
+            .insert(target_node.id, target_ty_id);
         let trait_ty = self.builtin_trait_ty_by_id(trait_def_id, trait_args.clone());
-        self.ctx.node_types.insert(trait_node.id, trait_ty);
+        self.ctx.facts.node_types.insert(trait_node.id, trait_ty);
 
         let self_sym = self.ctx.intern("self");
         let self_param_ty_node_id = self.ctx.next_node_id();
         self.ctx
+            .facts
             .node_types
             .insert(self_param_ty_node_id, target_ty_id);
         let mut params = vec![ast::FuncParam {
@@ -98,7 +105,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         for (index, param_ty) in explicit_param_tys.iter().copied().enumerate() {
             let name = self.ctx.intern(&format!("arg{}", index));
             let type_node_id = self.ctx.next_node_id();
-            self.ctx.node_types.insert(type_node_id, param_ty);
+            self.ctx.facts.node_types.insert(type_node_id, param_ty);
             params.push(ast::FuncParam {
                 pattern: ast::BindingPattern {
                     name,
@@ -117,7 +124,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         }
 
         let ret_type_id = self.ctx.next_node_id();
-        self.ctx.node_types.insert(ret_type_id, ret_ty);
+        self.ctx.facts.node_types.insert(ret_type_id, ret_ty);
         let name_id = self.ctx.intern(method_name);
         let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
             params: sig_params,
@@ -136,8 +143,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             methods: vec![],
             span: Span::default(),
         }));
-        self.ctx.global_impls.push(impl_id);
-        self.ctx.trait_impls.push(impl_id);
+        self.ctx.impl_index.global_impls.push(impl_id);
+        self.ctx.impl_index.trait_impls.push(impl_id);
 
         let assoc_specs = match self.ctx.defs.get(trait_def_id.0 as usize) {
             Some(Def::Trait(trait_def)) => {
@@ -155,6 +162,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                     .filter_map(|(assoc_index, trait_assoc_id)| {
                         match self.ctx.defs.get(trait_assoc_id.0 as usize) {
                             Some(Def::AssociatedType(trait_assoc_def)) => Some((
+                                trait_assoc_id,
                                 trait_assoc_def.name,
                                 assoc_args.get(assoc_index).copied().unwrap_or(ret_ty),
                             )),
@@ -166,9 +174,10 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             _ => vec![],
         };
         let mut assoc_type_ids = Vec::with_capacity(assoc_specs.len());
-        for (assoc_name, assoc_target_ty) in assoc_specs {
+        for (trait_assoc_id, assoc_name, assoc_target_ty) in assoc_specs {
             let assoc_target_node_id = self.ctx.next_node_id();
             self.ctx
+                .facts
                 .node_types
                 .insert(assoc_target_node_id, assoc_target_ty);
             let assoc_def_id = DefId(self.ctx.defs.len() as u32);
@@ -177,6 +186,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 name: assoc_name,
                 parent_trait: Some(trait_def_id),
                 parent_impl: Some(impl_id),
+                implemented_trait_assoc: Some(trait_assoc_id),
                 is_imported: false,
                 generics: vec![],
                 bounds: vec![],
@@ -236,7 +246,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                     Some(Def::AssociatedType(assoc_def)) => assoc_def
                         .target
                         .as_ref()
-                        .and_then(|target| self.ctx.node_types.get(&target.id).copied())
+                        .and_then(|target| self.ctx.facts.node_types.get(&target.id).copied())
                         .unwrap_or(TypeId::ERROR),
                     _ => TypeId::ERROR,
                 };
@@ -248,13 +258,17 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             crate::ty::wrap_type_args(trait_args),
             canonical_assoc_bindings,
         ));
-        self.ctx.node_types.insert(trait_id, canonical_trait_ty);
+        self.ctx
+            .facts
+            .node_types
+            .insert(trait_id, canonical_trait_ty);
 
         if let Some(Def::Impl(impl_def)) = self.ctx.defs.get_mut(impl_id.0 as usize) {
             impl_def.assoc_types = assoc_type_ids;
             impl_def.methods = vec![method_def_id];
         }
         self.ctx
+            .impl_index
             .impl_methods_by_name
             .entry(name_id)
             .or_default()

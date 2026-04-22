@@ -294,7 +294,7 @@ fn signatures_for_call(
     ctx: &mut SemaContext<'_>,
     callee: &ast::Expr,
 ) -> Option<Vec<AnalysisSignatureInformation>> {
-    let callee_ty = ctx.node_types.get(&callee.id).copied()?;
+    let callee_ty = ctx.facts.node_types.get(&callee.id).copied()?;
     let normalized = ctx.type_registry.normalize(callee_ty);
     let signature = match ctx.type_registry.get(normalized).clone() {
         TypeKind::FnDef(def_id, args) => function_signature_information(

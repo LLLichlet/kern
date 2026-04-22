@@ -2,7 +2,7 @@ use super::Lowerer;
 use kernc_ast::{Expr, ExprKind};
 use kernc_mast::*;
 use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
-use kernc_utils::SymbolId;
+use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
 mod access;
@@ -13,6 +13,24 @@ mod literal;
 mod ops;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    pub(crate) fn lower_error_kind(
+        &mut self,
+        span: Span,
+        message: impl Into<String>,
+    ) -> MastExprKind {
+        self.ctx.struct_error(span, message).emit();
+        MastExprKind::Trap
+    }
+
+    pub(crate) fn lower_error_expr(
+        &mut self,
+        ty: TypeId,
+        span: Span,
+        message: impl Into<String>,
+    ) -> MastExpr {
+        MastExpr::new(ty, self.lower_error_kind(span, message), span)
+    }
+
     pub(crate) fn lower_expr(
         &mut self,
         expr: &Expr,
@@ -24,11 +42,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let exp_ty = expected_ty.unwrap_or(concrete_ty);
 
         if exp_ty == TypeId::ERROR {
-            self.ctx
-                .emit_ice(expr.span, "Lowering encountered an unresolved ERROR type.");
-            // Abort lowering immediately so corrupted data never reaches LLVM.
-            self.ctx.sess.print_diagnostics();
-            std::process::exit(1);
+            let fallback_ty = if concrete_ty != TypeId::ERROR {
+                concrete_ty
+            } else {
+                TypeId::VOID
+            };
+            return self.lower_error_expr(
+                fallback_ty,
+                expr.span,
+                "cannot lower an expression whose type was left unresolved",
+            );
         }
 
         let mast_kind = match &expr.kind {
@@ -300,6 +323,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn resolve_expr_type(&self, expr: &Expr) -> TypeId {
         let raw_ty = self
             .ctx
+            .facts
             .node_types
             .get(&expr.id)
             .copied()
@@ -311,5 +335,535 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return local_ty;
         }
         raw_ty
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kernc_ast::{PropagateKind, UnaryOperator};
+    use kernc_mono::MonoId;
+    use kernc_sema::SemaContext;
+    use kernc_sema::def::{Def, DefId, UnionDef};
+    use kernc_sema::scope::{SymbolInfo, SymbolKind};
+    use kernc_sema::ty::{AnonymousEnum, AnonymousVariant, BuiltinAnonymousEnumKind};
+    use kernc_utils::{AtomicOrdering, DiagnosticLevel, NodeId, Session, Span};
+
+    #[test]
+    fn lowering_unresolved_error_type_emits_error_and_returns_trap() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let expr = Expr {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ExprKind::Integer(7),
+        };
+        ctx.facts.node_types.insert(expr.id, TypeId::ERROR);
+
+        let lowered = Lowerer::new(&mut ctx).lower_expr(&expr, &HashMap::new(), None);
+
+        assert!(matches!(lowered.kind, MastExprKind::Trap));
+        assert_eq!(lowered.ty, TypeId::VOID);
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "cannot lower an expression whose type was left unresolved"
+        );
+    }
+
+    #[test]
+    fn lowering_meta_of_unresolved_array_infer_emits_error_and_returns_trap() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let operand = Expr {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ExprKind::Identifier(ctx.intern("value")),
+        };
+        let expr = Expr {
+            id: NodeId(1),
+            span: Span::default(),
+            kind: ExprKind::Unary {
+                op: UnaryOperator::MetaOf,
+                operand: Box::new(operand.clone()),
+            },
+        };
+        let array_infer_ty = ctx
+            .type_registry
+            .intern(TypeKind::ArrayInfer { elem: TypeId::U8 });
+        ctx.facts.node_types.insert(operand.id, array_infer_ty);
+        ctx.facts.node_types.insert(expr.id, TypeId::USIZE);
+        let value = ctx.intern("value");
+        let mut lowerer = Lowerer::new(&mut ctx);
+        lowerer
+            .local_types
+            .push(HashMap::from([(value, (array_infer_ty, false))]));
+
+        let lowered = lowerer.lower_expr(&expr, &HashMap::new(), None);
+
+        assert!(matches!(lowered.kind, MastExprKind::Trap));
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "cannot apply `#` to an array with inferred length `[_]T`"
+        );
+    }
+
+    #[test]
+    fn lowering_anon_enum_missing_variant_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let present = ctx.intern("Present");
+        let missing = ctx.intern("Missing");
+        let anon_enum_ty = ctx
+            .type_registry
+            .intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                backing_ty: Some(TypeId::U8),
+                builtin: None,
+                variants: vec![AnonymousVariant {
+                    name: present,
+                    name_span: Span::default(),
+                    payload_ty: None,
+                    explicit_value: None,
+                }],
+            }));
+        let expr = Expr {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ExprKind::Identifier(missing),
+        };
+
+        let lowered = Lowerer::new(&mut ctx).lower_anon_enum_scalar_init(&expr, anon_enum_ty);
+
+        assert!(matches!(lowered, MastExprKind::Trap));
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "anonymous enum variant `Missing` not found during scalar initialization"
+        );
+    }
+
+    #[test]
+    fn lowering_loc_intrinsic_with_wrong_result_type_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let lowered = Lowerer::new(&mut ctx).lower_loc_intrinsic(TypeId::U8, Span::default());
+
+        assert!(matches!(lowered, MastExprKind::Trap));
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "`@loc` must return an anonymous struct containing `file`, `line`, and `col`"
+        );
+    }
+
+    #[test]
+    fn lowering_unresolved_static_trait_dispatch_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let method = ctx.intern("missing");
+        let call_sig = ctx.type_registry.intern(TypeKind::Function {
+            params: vec![TypeId::U8],
+            ret: TypeId::BOOL,
+            is_variadic: false,
+        });
+        let recv = MastExpr::new(TypeId::U8, MastExprKind::Integer(0), Span::default());
+
+        let lowered = Lowerer::new(&mut ctx).lower_resolved_trait_method_call(
+            recv,
+            Vec::new(),
+            TypeId::U8,
+            call::MethodCallSite {
+                field: method,
+                norm_callee: call_sig,
+                expected_self_ty: Some(TypeId::U8),
+                span: Span::default(),
+            },
+        );
+
+        assert!(matches!(lowered.kind, MastExprKind::Trap));
+        assert_eq!(lowered.ty, TypeId::BOOL);
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "cannot resolve a concrete impl for trait method `missing` on exact type `u8` during lowering"
+        );
+    }
+
+    #[test]
+    fn lowering_missing_struct_field_returns_none_instead_of_fabricating_field_zero() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let present = ctx.intern("present");
+        let missing = ctx.intern("missing");
+        let anon_struct_ty = ctx.type_registry.intern(TypeKind::AnonymousStruct(
+            false,
+            vec![kernc_sema::ty::AnonymousField {
+                name: present,
+                ty: TypeId::U8,
+            }],
+        ));
+
+        let field_idx = Lowerer::new(&mut ctx).get_physical_field_index(
+            anon_struct_ty,
+            missing,
+            Span::default(),
+        );
+
+        assert_eq!(field_idx, None);
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "field `missing` not found in anonymous struct"
+        );
+    }
+
+    #[test]
+    fn lowering_invalid_atomic_ordering_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let arg = Expr {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ExprKind::Integer(99),
+        };
+
+        let ordering = Lowerer::new(&mut ctx).atomic_ordering_arg(&arg);
+
+        assert_eq!(ordering, AtomicOrdering::SeqCst);
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "invalid atomic ordering constant `99`"
+        );
+    }
+
+    #[test]
+    fn lowering_non_array_simd_shuffle_indices_emit_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let arg = Expr {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ExprKind::Bool(true),
+        };
+
+        let indices = Lowerer::new(&mut ctx).simd_shuffle_indices_arg(&arg);
+
+        assert!(indices.is_empty());
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "SIMD shuffle indices must be provided as a constant array, found `Bool(true)`"
+        );
+    }
+
+    #[test]
+    fn lowering_break_outside_loop_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let lowered = Lowerer::new(&mut ctx).lower_jump(MastExprKind::Break, Span::default());
+
+        assert!(matches!(lowered, MastExprKind::Trap));
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "`break` or `continue` cannot appear outside a loop"
+        );
+    }
+
+    #[test]
+    fn lowering_return_without_active_function_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let lowered = Lowerer::new(&mut ctx).lower_return(None, &HashMap::new(), Span::default());
+
+        assert!(matches!(lowered, MastExprKind::Return(None)));
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "cannot lower `return` or propagation outside an active function body"
+        );
+    }
+
+    #[test]
+    fn lowering_propagate_non_enum_operand_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let value = ctx.intern("value");
+        let operand = Expr {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ExprKind::Identifier(value),
+        };
+        ctx.facts.node_types.insert(operand.id, TypeId::U8);
+
+        let mut lowerer = Lowerer::new(&mut ctx);
+        lowerer
+            .local_types
+            .push(HashMap::from([(value, (TypeId::U8, false))]));
+        lowerer.current_return_types.push(TypeId::U8);
+
+        let lowered = lowerer.lower_propagate(
+            &operand,
+            PropagateKind::Option,
+            &HashMap::new(),
+            Span::default(),
+        );
+
+        assert!(matches!(lowered, MastExprKind::Trap));
+        assert_eq!(lowerer.ctx.sess.diagnostics.len(), 1);
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].level,
+            DiagnosticLevel::Error
+        );
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].message,
+            "propagation operand must be an enum-like `Option` or `Result` value"
+        );
+    }
+
+    #[test]
+    fn lowering_propagate_kind_mismatch_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let some = ctx.intern("Some");
+        let none = ctx.intern("None");
+        let value = ctx.intern("value");
+        let optional_ty = ctx
+            .type_registry
+            .intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                backing_ty: Some(TypeId::U8),
+                builtin: Some(BuiltinAnonymousEnumKind::Optional),
+                variants: vec![
+                    AnonymousVariant {
+                        name: some,
+                        name_span: Span::default(),
+                        payload_ty: Some(TypeId::I32),
+                        explicit_value: None,
+                    },
+                    AnonymousVariant {
+                        name: none,
+                        name_span: Span::default(),
+                        payload_ty: None,
+                        explicit_value: None,
+                    },
+                ],
+            }));
+        let operand = Expr {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ExprKind::Identifier(value),
+        };
+        ctx.facts.node_types.insert(operand.id, optional_ty);
+
+        let mut lowerer = Lowerer::new(&mut ctx);
+        lowerer
+            .local_types
+            .push(HashMap::from([(value, (optional_ty, false))]));
+        lowerer.current_return_types.push(optional_ty);
+
+        let lowered = lowerer.lower_propagate(
+            &operand,
+            PropagateKind::Result,
+            &HashMap::new(),
+            Span::default(),
+        );
+
+        assert!(matches!(lowered, MastExprKind::Trap));
+        assert_eq!(lowerer.ctx.sess.diagnostics.len(), 1);
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].level,
+            DiagnosticLevel::Error
+        );
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].message,
+            "propagation operator does not match the operand enum kind"
+        );
+    }
+
+    #[test]
+    fn lowering_propagate_missing_success_payload_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let some = ctx.intern("Some");
+        let none = ctx.intern("None");
+        let value = ctx.intern("value");
+        let broken_optional_ty = ctx
+            .type_registry
+            .intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                backing_ty: Some(TypeId::U8),
+                builtin: Some(BuiltinAnonymousEnumKind::Optional),
+                variants: vec![
+                    AnonymousVariant {
+                        name: some,
+                        name_span: Span::default(),
+                        payload_ty: None,
+                        explicit_value: None,
+                    },
+                    AnonymousVariant {
+                        name: none,
+                        name_span: Span::default(),
+                        payload_ty: None,
+                        explicit_value: None,
+                    },
+                ],
+            }));
+        let operand = Expr {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ExprKind::Identifier(value),
+        };
+        ctx.facts.node_types.insert(operand.id, broken_optional_ty);
+
+        let mut lowerer = Lowerer::new(&mut ctx);
+        lowerer
+            .local_types
+            .push(HashMap::from([(value, (broken_optional_ty, false))]));
+        lowerer.current_return_types.push(broken_optional_ty);
+
+        let lowered = lowerer.lower_propagate(
+            &operand,
+            PropagateKind::Option,
+            &HashMap::new(),
+            Span::default(),
+        );
+
+        assert!(matches!(lowered, MastExprKind::Trap));
+        assert_eq!(lowerer.ctx.sess.diagnostics.len(), 1);
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].level,
+            DiagnosticLevel::Error
+        );
+        assert_eq!(
+            lowerer.ctx.sess.diagnostics[0].message,
+            "propagation success branch must carry a payload value"
+        );
+    }
+
+    #[test]
+    fn lowering_missing_payload_union_mapping_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let payload = Lowerer::new(&mut ctx).payload_union_id(MonoId(77), Span::default());
+
+        assert_eq!(payload, None);
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "missing enum payload union mapping during lowering"
+        );
+    }
+
+    #[test]
+    fn lowering_struct_pattern_on_non_struct_def_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let def_id = DefId(ctx.defs.len() as u32);
+        let union_name = ctx.intern("U");
+        let field_name = ctx.intern("field");
+        ctx.defs.push(Def::Union(UnionDef {
+            id: def_id,
+            name: union_name,
+            vis: kernc_ast::Visibility::Private,
+            parent_module: None,
+            is_imported: false,
+            generics: vec![],
+            where_clauses: vec![],
+            fields: vec![],
+            is_extern: false,
+            span: Span::default(),
+            docs: None,
+        }));
+        let union_ty = ctx.type_registry.intern(TypeKind::Def(def_id, vec![]));
+
+        let resolved = Lowerer::new(&mut ctx).resolve_struct_pattern_field(
+            union_ty,
+            field_name,
+            Span::default(),
+        );
+
+        assert_eq!(resolved, None);
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "destructuring pattern expected a struct type"
+        );
+    }
+
+    #[test]
+    fn lowering_module_member_without_def_id_emits_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let module_name = ctx.intern("m");
+        let field_name = ctx.intern("f");
+        let root_scope = ctx.scopes.current_scope_id().unwrap();
+        let mod_scope = ctx.scopes.enter_scope();
+        ctx.scopes
+            .define(
+                field_name,
+                SymbolInfo {
+                    kind: SymbolKind::Function,
+                    node_id: NodeId(99),
+                    type_id: TypeId::ERROR,
+                    def_id: None,
+                    span: Span::default(),
+                    vis: kernc_ast::Visibility::Private,
+                    is_mut: false,
+                },
+            )
+            .unwrap();
+        ctx.scopes.set_current_scope(root_scope);
+        let module_def_id = DefId(ctx.defs.len() as u32);
+        ctx.defs.push(Def::Module(kernc_sema::def::ModuleDef {
+            id: module_def_id,
+            name: module_name,
+            parent: None,
+            is_imported: false,
+            scope_id: mod_scope,
+            dir_path: std::path::PathBuf::new(),
+            file_id: kernc_utils::FileId(0),
+            submodules: HashMap::default(),
+            items: vec![],
+            imports: vec![],
+            is_init: false,
+            docs: None,
+        }));
+        let module_ty = ctx.type_registry.intern(TypeKind::Module(module_def_id));
+        let lhs = Expr {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ExprKind::Identifier(module_name),
+        };
+        ctx.facts.node_types.insert(lhs.id, module_ty);
+
+        let lowered = Lowerer::new(&mut ctx).lower_field_access(
+            &lhs,
+            field_name,
+            &HashMap::new(),
+            Span::default(),
+        );
+
+        assert!(matches!(lowered, MastExprKind::Trap));
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "module member `f` cannot be used as a value because it has no definition backing it"
+        );
     }
 }

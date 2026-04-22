@@ -67,7 +67,7 @@ pub fn emit_package_metadata(
     package_version: Option<&str>,
 ) -> Result<(), String> {
     let _lock = MetadataOutputLock::acquire(output_root)?;
-    let Some(root_id) = ctx.root_module else {
+    let Some(root_id) = ctx.root_module() else {
         return Err("missing root module while emitting kmeta metadata".to_string());
     };
     let Some(root_module) = module_def(ctx, root_id) else {

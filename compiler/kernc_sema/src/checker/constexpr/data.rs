@@ -33,6 +33,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
                     let mut field_ty = self
                         .ctx
+                        .facts
                         .node_types
                         .get(&field.type_node.id)
                         .copied()
@@ -653,6 +654,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
                 let mut payload_ty = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&payload_ast.id)
                     .copied()

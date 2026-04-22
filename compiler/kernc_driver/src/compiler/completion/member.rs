@@ -99,7 +99,13 @@ impl CompilerDriver {
     ) {
         match &expr.kind {
             ast::ExprKind::FieldAccess { lhs, .. } => {
-                if let Some(lhs_ty) = member_query.context().node_types.get(&lhs.id).copied() {
+                if let Some(lhs_ty) = member_query
+                    .context()
+                    .facts
+                    .node_types
+                    .get(&lhs.id)
+                    .copied()
+                {
                     let items = member_query
                         .member_candidates_in_env(Some(module_id), lhs_ty, member_env)
                         .into_iter()

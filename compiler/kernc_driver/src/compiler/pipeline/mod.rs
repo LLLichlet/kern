@@ -1,4 +1,5 @@
 mod compile;
+mod partitioned;
 mod reporting;
 
 use super::codegen_units::{

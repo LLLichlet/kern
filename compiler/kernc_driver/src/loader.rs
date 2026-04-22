@@ -48,8 +48,14 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         collect_docs: bool,
     ) -> Self {
         let mut known_alias_names = FastHashSet::default();
-        let module_alias_names = ctx.module_aliases.keys().cloned().collect::<Vec<_>>();
+        let module_alias_names = ctx
+            .resolution
+            .module_aliases
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
         let interface_alias_names = ctx
+            .resolution
             .module_interface_aliases
             .keys()
             .cloned()
@@ -98,12 +104,12 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
     pub fn load_root(&mut self, root_file: &str, root_name: SymbolId) -> Option<DefId> {
         let path = PathBuf::from(root_file);
         let root_id = self.load_module(path, None, root_name, false);
-        if let (Some(root_id), Some(package_name)) = (root_id, self.ctx.current_package_name) {
-            self.ctx
-                .root_module_package_names
-                .insert(root_id, package_name);
+        if let (Some(root_id), Some(package_name)) =
+            (root_id, self.ctx.resolution.current_package_name)
+        {
+            self.ctx.register_root_module_package(root_id, package_name);
         }
-        self.ctx.root_module = root_id;
+        self.ctx.set_root_module(root_id);
         self.load_referenced_alias_roots(false);
         self.load_referenced_alias_roots(true);
         root_id
@@ -111,9 +117,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn load_referenced_alias_roots(&mut self, imported: bool) {
         let aliases = if imported {
-            self.ctx.module_interface_aliases.clone()
+            self.ctx.resolution.module_interface_aliases.clone()
         } else {
-            self.ctx.module_aliases.clone()
+            self.ctx.resolution.module_aliases.clone()
         };
         if aliases.is_empty() {
             return;
@@ -156,6 +162,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 let alias_package_name = (!imported
                     && self
                         .ctx
+                        .resolution
                         .current_package_name
                         .is_some_and(|package_name| package_name == alias_sym))
                 .then_some(alias_sym);
@@ -163,11 +170,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 if let Some(mod_id) = self.load_module(root.entry_path, None, module_name, imported)
                 {
                     if let Some(package_name) = root.package_name.or(alias_package_name) {
-                        self.ctx
-                            .root_module_package_names
-                            .insert(mod_id, package_name);
+                        self.ctx.register_root_module_package(mod_id, package_name);
                     }
-                    self.ctx.alias_roots.insert(alias_sym, mod_id);
+                    self.ctx.register_alias_root(alias_sym, mod_id);
                 }
                 progressed = true;
             }

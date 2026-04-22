@@ -15,9 +15,15 @@ pub struct ThinLtoOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ThinLtoObject {
+pub enum ThinLtoObjectKind {
     Buffer(Vec<u8>),
     File(PathBuf),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThinLtoObject {
+    pub identifier: String,
+    pub kind: ThinLtoObjectKind,
 }
 
 pub fn run_thin_lto(
@@ -124,6 +130,28 @@ impl ThinLtoSession {
     }
 
     fn object(&self, index: usize) -> Result<ThinLtoObject, String> {
+        let identifier_len = unsafe { kern_thinlto_session_object_identifier_len(self.0, index) };
+        if identifier_len == 0 {
+            return Err(format!(
+                "LLVM ThinLTO returned an empty module identifier for output #{index}"
+            ));
+        }
+        let mut identifier_bytes = vec![0u8; identifier_len];
+        let copied_identifier = unsafe {
+            kern_thinlto_session_copy_object_identifier(
+                self.0,
+                index,
+                identifier_bytes.as_mut_ptr() as *mut c_char,
+                identifier_bytes.len(),
+            )
+        };
+        if copied_identifier == 0 {
+            return Err(format!(
+                "LLVM ThinLTO failed to copy the module identifier for output #{index}"
+            ));
+        }
+        let identifier = String::from_utf8_lossy(&identifier_bytes).into_owned();
+
         if unsafe { kern_thinlto_session_object_is_file(self.0, index) } != 0 {
             let path_len = unsafe { kern_thinlto_session_object_path_len(self.0, index) };
             if path_len == 0 {
@@ -145,9 +173,12 @@ impl ThinLtoSession {
                     "LLVM ThinLTO failed to copy the object-file path for output #{index}"
                 ));
             }
-            return Ok(ThinLtoObject::File(PathBuf::from(
-                String::from_utf8_lossy(&path_bytes).into_owned(),
-            )));
+            return Ok(ThinLtoObject {
+                identifier,
+                kind: ThinLtoObjectKind::File(PathBuf::from(
+                    String::from_utf8_lossy(&path_bytes).into_owned(),
+                )),
+            });
         }
 
         let buffer_len = unsafe { kern_thinlto_session_object_buffer_len(self.0, index) };
@@ -170,7 +201,10 @@ impl ThinLtoSession {
                 "LLVM ThinLTO failed to copy the object buffer for output #{index}"
             ));
         }
-        Ok(ThinLtoObject::Buffer(buffer))
+        Ok(ThinLtoObject {
+            identifier,
+            kind: ThinLtoObjectKind::Buffer(buffer),
+        })
     }
 
     fn run_bool(&self, status: i32, fallback: impl Into<String>) -> Result<(), String> {
@@ -239,6 +273,16 @@ unsafe extern "C" {
     fn kern_thinlto_session_object_is_file(
         session: *const ThinLtoSessionOpaque,
         index: usize,
+    ) -> i32;
+    fn kern_thinlto_session_object_identifier_len(
+        session: *const ThinLtoSessionOpaque,
+        index: usize,
+    ) -> usize;
+    fn kern_thinlto_session_copy_object_identifier(
+        session: *const ThinLtoSessionOpaque,
+        index: usize,
+        dest: *mut c_char,
+        dest_len: usize,
     ) -> i32;
     fn kern_thinlto_session_object_path_len(
         session: *const ThinLtoSessionOpaque,

@@ -90,7 +90,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             return Vec::new();
         }
         let mut timings = self.body_timings.phase_timings();
-        let expr = self.ctx.expr_timing_stats;
+        let expr = self.ctx.analysis.expr_timing_stats;
         timings.extend(
             [
                 ("    expr_bindings", expr.bindings),
@@ -247,7 +247,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 // Snapshot diagnostic state so failed speculative inference can be rolled back.
                 let old_err_cnt = self.ctx.sess.error_count;
                 let old_diag_len = self.ctx.sess.diagnostics.len();
-                let old_node_types = self.ctx.node_types.clone();
+                let old_node_types = self.ctx.facts.node_types.clone();
 
                 // Try to infer the initializer type.
                 self.ctx.scopes.set_current_scope(scope_id);
@@ -292,7 +292,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     // Inference failed; roll back and retry on the next pass.
                     self.ctx.sess.error_count = old_err_cnt;
                     self.ctx.sess.diagnostics.truncate(old_diag_len);
-                    self.ctx.node_types = old_node_types;
+                    self.ctx.facts.node_types = old_node_types;
                 }
             }
         }
@@ -358,7 +358,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                 let old_err_cnt = self.ctx.sess.error_count;
                 let old_diag_len = self.ctx.sess.diagnostics.len();
-                let old_node_types = self.ctx.node_types.clone();
+                let old_node_types = self.ctx.facts.node_types.clone();
                 let init_ty = self.check_global_initializer(scope_id, unsafe { &*global });
 
                 if init_ty != TypeId::ERROR {
@@ -395,7 +395,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 } else {
                     self.ctx.sess.error_count = old_err_cnt;
                     self.ctx.sess.diagnostics.truncate(old_diag_len);
-                    self.ctx.node_types = old_node_types;
+                    self.ctx.facts.node_types = old_node_types;
                 }
             }
         }
@@ -436,7 +436,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn check_body_worklist(&mut self, worklist: &[BodyWorkItem]) -> TypeckBodyTimings {
-        self.ctx.expr_timing_stats = Default::default();
+        self.ctx.analysis.expr_timing_stats = Default::default();
         for &(def_id, parent_scope) in worklist {
             self.ctx.scopes.set_current_scope(parent_scope);
             self.check_item(def_id, parent_scope);
@@ -585,10 +585,11 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         self.bind_generics_into_scope(&f.generics, function_scope);
 
         // Push active bounds from the function's where-clauses into the current context.
-        let prev_bounds_len = self.ctx.active_bounds.len();
+        let prev_bounds_len = self.ctx.analysis.active_bounds.len();
         for clause in &f.where_clauses {
             let target_ty = self.ctx.type_registry.normalize(
                 self.ctx
+                    .facts
                     .node_types
                     .get(&clause.target_ty.id)
                     .copied()
@@ -596,13 +597,13 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             );
             let mut bounds = Vec::new();
             for bound in &clause.bounds {
-                if let Some(&bound_ty) = self.ctx.node_types.get(&bound.id) {
+                if let Some(&bound_ty) = self.ctx.facts.node_types.get(&bound.id) {
                     bounds.push(self.ctx.type_registry.normalize(bound_ty));
                 }
             }
-            self.ctx.active_bounds.push((target_ty, bounds));
+            self.ctx.analysis.active_bounds.push((target_ty, bounds));
         }
-        if self.ctx.active_bounds.len() != prev_bounds_len {
+        if self.ctx.analysis.active_bounds.len() != prev_bounds_len {
             self.ctx.clear_active_bound_caches();
         }
 
@@ -674,7 +675,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             self.body_timings.function_return += return_started.elapsed();
         }
 
-        self.ctx.active_bounds.truncate(prev_bounds_len); // Drop bounds introduced by this function scope.
+        self.ctx.analysis.active_bounds.truncate(prev_bounds_len); // Drop bounds introduced by this function scope.
         self.ctx.clear_active_bound_caches();
         self.ctx.scopes.exit_scope(); // Leave the function scope.
 
@@ -699,6 +700,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 // Resolve the field's expected semantic type.
                 let field_ty = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&field.type_node.id)
                     .copied()
@@ -745,6 +747,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 // Resolve the field's expected semantic type.
                 let field_ty = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&field.type_node.id)
                     .copied()
@@ -812,6 +815,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 .with_hint(format!("prerequisite: `{}`", requirement_str))
                 .with_hint(issue_hint)
                 .with_hint(
+                    "common fix: put the bound on a smaller field/pointee/slice element instead of on the original input type",
+                )
+                .with_hint(
                     "use a prerequisite on smaller pieces of the input, or split the proof through an acyclic helper impl",
                 )
                 .with_span_label(violation.bound_span, issue_label)
@@ -833,6 +839,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     "this impl tries to prove `{}: {}` by assuming the same requirement",
                     target_str, trait_str
                 ))
+                .with_hint("remove the identical prerequisite, or replace it with a strictly smaller helper obligation")
                 .with_hint(
                     "remove the self-referential bound or introduce a different prerequisite trait",
                 )
@@ -902,6 +909,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     chain[1], start_obligation
                 ))
                 .with_hint(
+                    "follow the labeled prerequisites in order: one of them must stop requiring the next edge in the chain",
+                )
+                .with_hint(
                     "remove one edge in the cycle or add an acyclic impl that discharges one prerequisite",
                 )
                 .with_span_label(cycle.start_bound_span, "this prerequisite starts the cycle")
@@ -917,9 +927,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             return;
         }
 
-        let prev_bounds_len = self.ctx.active_bounds.len();
+        let prev_bounds_len = self.ctx.analysis.active_bounds.len();
         let target_ty = self.ctx.type_registry.normalize(
             self.ctx
+                .facts
                 .node_types
                 .get(&i.target_type.id)
                 .copied()
@@ -928,6 +939,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         if let Some(trait_ty_node) = &i.trait_type {
             let trait_ty = self.ctx.type_registry.normalize(
                 self.ctx
+                    .facts
                     .node_types
                     .get(&trait_ty_node.id)
                     .copied()
@@ -940,12 +952,16 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     TypeKind::TraitObject(..)
                 )
             {
-                self.ctx.active_bounds.push((target_ty, vec![trait_ty]));
+                self.ctx
+                    .analysis
+                    .active_bounds
+                    .push((target_ty, vec![trait_ty]));
             }
         }
         for clause in &i.where_clauses {
             let target_ty = self.ctx.type_registry.normalize(
                 self.ctx
+                    .facts
                     .node_types
                     .get(&clause.target_ty.id)
                     .copied()
@@ -953,13 +969,13 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             );
             let mut bounds = Vec::new();
             for bound in &clause.bounds {
-                if let Some(&bound_ty) = self.ctx.node_types.get(&bound.id) {
+                if let Some(&bound_ty) = self.ctx.facts.node_types.get(&bound.id) {
                     bounds.push(self.ctx.type_registry.normalize(bound_ty));
                 }
             }
-            self.ctx.active_bounds.push((target_ty, bounds));
+            self.ctx.analysis.active_bounds.push((target_ty, bounds));
         }
-        if self.ctx.active_bounds.len() != prev_bounds_len {
+        if self.ctx.analysis.active_bounds.len() != prev_bounds_len {
             self.ctx.clear_active_bound_caches();
         }
 
@@ -995,7 +1011,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             }
         }
 
-        self.ctx.active_bounds.truncate(prev_bounds_len);
+        self.ctx.analysis.active_bounds.truncate(prev_bounds_len);
         self.ctx.clear_active_bound_caches();
         self.ctx.scopes.exit_scope();
     }

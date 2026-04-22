@@ -172,10 +172,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let Some(ty) = self.current_return_types.last().copied() {
             Some(ty)
         } else {
-            self.ctx.emit_ice(
-                span,
-                "Kern ICE (Lowering): missing active return type while lowering propagation.",
-            );
+            self.ctx
+                .struct_error(
+                    span,
+                    "cannot lower `return` or propagation outside an active function body",
+                )
+                .emit();
             None
         }
     }

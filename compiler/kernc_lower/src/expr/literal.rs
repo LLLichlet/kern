@@ -10,9 +10,8 @@ use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
-    fn lower_literal_ice(&mut self, span: Span, message: impl Into<String>) -> MastExprKind {
-        self.ctx.emit_ice(span, message);
-        MastExprKind::Trap
+    fn lower_literal_error(&mut self, span: Span, message: impl Into<String>) -> MastExprKind {
+        self.lower_error_kind(span, message)
     }
 
     fn require_enum_def(
@@ -56,13 +55,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         match self.ctx.type_registry.get(norm_ty).clone() {
             TypeKind::AnonymousEnum(enum_def) => Some(enum_def),
             other => {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Kern ICE (Lowering): Expected anonymous enum while trying to {}, found {:?}.",
-                        context, other
-                    ),
-                );
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!(
+                            "cannot lower {} from non-anonymous-enum type `{:?}`",
+                            context, other
+                        ),
+                    )
+                    .emit();
                 None
             }
         }
@@ -72,13 +73,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         match expr.kind {
             ExprKind::Identifier(id) => Some(id),
             _ => {
-                self.ctx.emit_ice(
-                    expr.span,
-                    format!(
-                        "Kern ICE (Lowering): Expected identifier while trying to {}.",
-                        context
-                    ),
-                );
+                self.ctx
+                    .struct_error(
+                        expr.span,
+                        format!("expected identifier while trying to {}", context),
+                    )
+                    .emit();
                 None
             }
         }
@@ -389,9 +389,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         self.lower_union_init(fields, def_id, &u, &gen_args, subst_map)
                     }
                     _ => {
-                        self.lower_literal_ice(
+                        self.lower_literal_error(
                             Span::default(),
-                            "Kern ICE (Lowering): DefId must point to a Struct or Union during structural initialization.",
+                            "cannot perform structural initialization for a definition that is not a struct or union",
                         )
                     }
                 }
@@ -402,16 +402,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             TypeKind::AnonymousUnion(..) => {
                 self.lower_anon_union_init(fields, concrete_ty, subst_map)
             }
-            _ => {
-                self.ctx.emit_ice(
-                    Span::default(),
-                    format!(
-                        "Kern ICE (Lowering): Invalid type for structural initialization: {:?}",
-                        norm
-                    ),
-                );
-                MastExprKind::Trap
-            }
+            _ => self.lower_literal_error(
+                Span::default(),
+                format!(
+                    "cannot perform structural initialization for type `{:?}`",
+                    norm
+                ),
+            ),
         }
     }
 
@@ -446,15 +443,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let payload_id = match &variant_def.payload_type {
             Some(p) => p.id,
             None => {
-                return self.lower_literal_ice(
+                return self.lower_literal_error(
                     init_f.value.span,
-                    "Kern ICE (Lowering): Attempted to initialize payload for a variant without payload.",
+                    "cannot initialize a payload for an enum variant that has no payload",
                 );
             }
         };
 
         let raw_payload_ty = self
             .ctx
+            .facts
             .node_types
             .get(&payload_id)
             .copied()
@@ -491,6 +489,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         for f_def in &s.fields {
             let raw_f_ty = self
                 .ctx
+                .facts
                 .node_types
                 .get(&f_def.type_node.id)
                 .copied()
@@ -544,10 +543,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let field_idx = match u.fields.iter().position(|f| f.name == init_f.name) {
             Some(idx) => idx,
             None => {
-                return self.lower_literal_ice(
+                return self.lower_literal_error(
                     init_f.value.span,
                     format!(
-                        "Kern ICE (Lowering): Field `{}` not found in union.",
+                        "field `{}` not found in union literal",
                         self.ctx.resolve(init_f.name)
                     ),
                 );
@@ -556,6 +555,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let raw_f_ty = self
             .ctx
+            .facts
             .node_types
             .get(&u.fields[field_idx].type_node.id)
             .copied()
@@ -583,9 +583,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             (is_extern, fields)
         } else {
-            return self.lower_literal_ice(
+            return self.lower_literal_error(
                 Span::default(),
-                "Kern ICE (Lowering): Expected anonymous struct during literal lowering.",
+                "cannot lower an anonymous-struct literal for a non-anonymous-struct type",
             );
         };
 
@@ -593,10 +593,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut ast_ordered_exprs = Vec::new();
         for field_def in &anon_fields {
             let Some(init_f) = fields.iter().find(|field| field.name == field_def.name) else {
-                return self.lower_literal_ice(
+                return self.lower_literal_error(
                     Span::default(),
                     format!(
-                        "Kern ICE (Lowering): Missing field `{}` in anonymous struct literal.",
+                        "missing field `{}` in anonymous struct literal",
                         self.ctx.resolve(field_def.name)
                     ),
                 );
@@ -630,9 +630,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             fields
         } else {
-            return self.lower_literal_ice(
+            return self.lower_literal_error(
                 Span::default(),
-                "Kern ICE (Lowering): Expected anonymous union during literal lowering.",
+                "cannot lower an anonymous-union literal for a non-anonymous-union type",
             );
         };
 
@@ -643,10 +643,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .position(|field| field.name == init_f.name)
             .unwrap_or(usize::MAX);
         if field_idx == usize::MAX {
-            return self.lower_literal_ice(
+            return self.lower_literal_error(
                 init_f.span,
                 format!(
-                    "Kern ICE (Lowering): Field `{}` not found in anonymous union.",
+                    "field `{}` not found in anonymous union literal",
                     self.ctx.resolve(init_f.name)
                 ),
             );
@@ -679,9 +679,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mono_id = self.instantiate_anon_enum(norm_ty);
         let init_f = &fields[0];
         let Some(tag_value) = self.anon_enum_tag_value(&enum_def, init_f.name) else {
-            return self.lower_literal_ice(
+            return self.lower_literal_error(
                 init_f.span,
-                "Kern ICE (Lowering): Anonymous enum variant not found during payload lowering.",
+                format!(
+                    "anonymous enum variant `{}` not found during payload initialization",
+                    self.ctx.resolve(init_f.name)
+                ),
             );
         };
 
@@ -690,15 +693,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .iter()
             .find(|variant| variant.name == init_f.name)
         else {
-            return self.lower_literal_ice(
+            return self.lower_literal_error(
                 init_f.span,
-                "Kern ICE (Lowering): Failed to resolve anonymous enum variant during payload lowering.",
+                format!(
+                    "failed to resolve anonymous enum variant `{}` during payload initialization",
+                    self.ctx.resolve(init_f.name)
+                ),
             );
         };
         let Some(payload_ty) = variant.payload_ty else {
-            return self.lower_literal_ice(
+            return self.lower_literal_error(
                 init_f.span,
-                "Kern ICE (Lowering): Attempted to build anonymous enum payload for a payload-less variant.",
+                "cannot initialize a payload for an anonymous enum variant that has no payload",
             );
         };
         let payload = self.lower_expr(&init_f.value, subst_map, Some(payload_ty));
@@ -883,9 +889,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let Some(tag_value) = self.anon_enum_tag_value(&enum_def, variant_name) else {
-            return self.lower_literal_ice(
+            return self.lower_literal_error(
                 inner.span,
-                "Kern ICE (Lowering): Anonymous enum variant not found during scalar lowering.",
+                format!(
+                    "anonymous enum variant `{}` not found during scalar initialization",
+                    self.ctx.resolve(variant_name)
+                ),
             );
         };
 
@@ -988,10 +997,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
         if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(norm_ty).clone() {
             let Some(tag_value) = self.anon_enum_tag_value(&enum_def, variant_name) else {
-                return self.lower_literal_ice(
+                return self.lower_literal_error(
                     Span::default(),
                     format!(
-                        "Kern ICE (Lowering): Variant `{}` not found in anonymous enum literal resolution.",
+                        "anonymous enum variant `{}` not found during literal lowering",
                         self.ctx.resolve(variant_name)
                     ),
                 );
@@ -1021,9 +1030,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let TypeKind::Enum(id, args) = self.ctx.type_registry.get(norm_ty) {
                 (*id, args.clone())
             } else {
-                return self.lower_literal_ice(
+                return self.lower_literal_error(
                     Span::default(),
-                    "Kern ICE (Lowering): Expected Enum type for enum literal.",
+                    "cannot lower an enum literal for a non-enum type",
                 );
             };
 
@@ -1061,14 +1070,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             current_val += 1;
         }
-        self.ctx.emit_ice(
+        self.lower_literal_error(
             Span::default(),
             format!(
-                "Kern ICE (Lowering): Variant `{}` not found in enum literal resolution.",
+                "enum variant `{}` not found during literal lowering",
                 self.ctx.resolve(variant_name)
             ),
-        );
-        MastExprKind::Trap
+        )
     }
 
     fn anon_enum_tag_value(
@@ -1103,13 +1111,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             current_val += 1;
         }
 
-        self.ctx.emit_ice(
-            span,
-            format!(
-                "Kern ICE (Lowering): Variant `{}` not found in enum.",
-                self.ctx.resolve(variant_name)
-            ),
-        );
+        self.ctx
+            .struct_error(
+                span,
+                format!(
+                    "enum variant `{}` not found",
+                    self.ctx.resolve(variant_name)
+                ),
+            )
+            .emit();
         None
     }
 

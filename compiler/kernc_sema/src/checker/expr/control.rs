@@ -391,6 +391,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 for field in &def.fields {
                     let field_ty = self
                         .ctx
+                        .facts
                         .node_types
                         .get(&field.type_node.id)
                         .copied()
@@ -439,6 +440,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 .map(|payload| {
                                     let ty = self
                                         .ctx
+                                        .facts
                                         .node_types
                                         .get(&payload.id)
                                         .copied()

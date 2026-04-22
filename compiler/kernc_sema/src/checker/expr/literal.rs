@@ -468,6 +468,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if let Some(payload_ast) = &payload_ast {
                 let mut payload_ty = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&payload_ast.id)
                     .copied()
@@ -727,6 +728,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 (
                                     field.name,
                                     self.ctx
+                                        .facts
                                         .node_types
                                         .get(&field.type_node.id)
                                         .copied()
@@ -752,6 +754,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 (
                                     field.name,
                                     self.ctx
+                                        .facts
                                         .node_types
                                         .get(&field.type_node.id)
                                         .copied()
@@ -1011,10 +1014,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             let assoc_binding_map = assoc_bindings
                                 .into_iter()
                                 .collect::<kernc_utils::FastHashMap<_, _>>();
-                            crate::query::augment_trait_object_assoc_bindings_from_map(
+                            let elem = crate::query::augment_trait_object_assoc_bindings_from_map(
                                 self.ctx,
                                 elem,
                                 &assoc_binding_map,
+                            );
+                            crate::query::retain_declared_trait_object_assoc_bindings(
+                                self.ctx, elem,
                             )
                         }
                         _ => crate::query::enrich_trait_object_assoc_bindings(
@@ -1033,10 +1039,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             let assoc_binding_map = assoc_bindings
                                 .into_iter()
                                 .collect::<kernc_utils::FastHashMap<_, _>>();
-                            crate::query::augment_trait_object_assoc_bindings_from_map(
+                            let elem = crate::query::augment_trait_object_assoc_bindings_from_map(
                                 self.ctx,
                                 elem,
                                 &assoc_binding_map,
+                            );
+                            crate::query::retain_declared_trait_object_assoc_bindings(
+                                self.ctx, elem,
                             )
                         }
                         _ => crate::query::enrich_trait_object_assoc_bindings(

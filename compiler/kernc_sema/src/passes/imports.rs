@@ -351,7 +351,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         let (mut curr_mod_id, mut curr_scope) = match kind {
             UsePathKind::External => {
                 if let Some(&first_seg) = actual_path.first() {
-                    if let Some(&alias_root_id) = self.ctx.alias_roots.get(&first_seg) {
+                    if let Some(alias_root_id) = self.ctx.alias_root(first_seg) {
                         actual_path = &actual_path[1..];
                         (alias_root_id, self.get_module_scope(alias_root_id))
                     } else {

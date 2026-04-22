@@ -27,25 +27,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
                 kernc_sema::ty::ConstGenericValueKind::Bool(value) => MastExprKind::Bool(value),
             },
-            other => {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Kern ICE (Lowering): unresolved const generic `{}` reached identifier lowering as {:?}.",
-                        self.ctx.resolve(name),
-                        other
-                    ),
-                );
-                MastExprKind::Trap
-            }
+            other => self.lower_error_kind(
+                span,
+                format!(
+                    "cannot lower unresolved const generic `{}` with value {:?}",
+                    self.ctx.resolve(name),
+                    other
+                ),
+            ),
         };
 
         Some(kind)
     }
 
-    fn lower_access_ice(&mut self, span: Span, message: impl Into<String>) -> MastExprKind {
-        self.ctx.emit_ice(span, message);
-        MastExprKind::Trap
+    fn lower_access_error(&mut self, span: Span, message: impl Into<String>) -> MastExprKind {
+        self.lower_error_kind(span, message)
     }
 
     pub(crate) fn lower_identifier(
@@ -162,6 +158,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastExprKind {
         let expr_ty = self
             .ctx
+            .facts
             .node_types
             .get(&lhs.id)
             .copied()
@@ -173,7 +170,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.ctx.type_registry.get(norm_expr),
             TypeKind::FnDef(..) | TypeKind::Function { .. }
         ) {
-            return self.lower_access_ice(
+            return self.lower_access_error(
                 span,
                 format!(
                     "Attempted to access method `{}` without calling it. Bound Methods are not supported in Kern.",
@@ -211,22 +208,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let mod_scope = match &self.ctx.defs[mod_def_id.0 as usize] {
                 Def::Module(m) => m.scope_id,
                 _ => {
-                    return self.lower_access_ice(
+                    self.ctx.emit_ice(
                         span,
                         "Kern ICE (Lowering): Expected Module Def, found something else.",
                     );
+                    return MastExprKind::Trap;
                 }
             };
 
             let target_info = match self.ctx.scopes.resolve_in(mod_scope, field).cloned() {
                 Some(info) => info,
                 None => {
-                    return self.lower_access_ice(
+                    return self.lower_access_error(
                         span,
-                        format!(
-                            "Kern ICE (Lowering): Module field `{}` is undefined. Sema should have caught this.",
-                            self.ctx.resolve(field)
-                        ),
+                        format!("module member `{}` is undefined", self.ctx.resolve(field)),
                     );
                 }
             };
@@ -287,9 +282,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         }
                     } else {
                         let field_name = self.ctx.resolve(field);
-                        return self.lower_access_ice(
+                        return self.lower_access_error(
                             span,
-                            format!("Kern ICE (Lowering): Cross-module constant `{}` could not be inlined, and its global definition was not found. Phase 1 global collection failed.", field_name)
+                            format!(
+                                "cross-module constant `{}` could not be lowered because it has no global definition",
+                                field_name
+                            ),
                         );
                     }
                 }
@@ -299,28 +297,29 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         if let Some(&mono_id) = self.global_map.get(&def_id) {
                             return MastExprKind::GlobalRef(mono_id);
                         }
-                        return self.lower_access_ice(
+                        return self.lower_access_error(
                             span,
                             format!(
-                                "Kern ICE (Lowering): Symbol `{}` found but not instantiated.",
+                                "module member `{}` could not be lowered because no instantiated value was available",
                                 self.ctx.resolve(field)
                             ),
                         );
                     } else {
-                        return self.lower_access_ice(
+                        return self.lower_access_error(
                             span,
                             format!(
-                                "Kern ICE (Lowering): Symbol `{}` lacks a def_id.",
+                                "module member `{}` cannot be used as a value because it has no definition backing it",
                                 self.ctx.resolve(field)
                             ),
                         );
                     }
                 }
                 _ => {
-                    return self.lower_access_ice(
+                    return self.lower_access_error(
                         span,
                         format!(
-                            "Kern ICE (Lowering): Unsupported symbol kind in module: {:?}",
+                            "module member `{}` of kind `{:?}` cannot be used as a runtime value",
+                            self.ctx.resolve(field),
                             target_info.kind
                         ),
                     );
@@ -328,16 +327,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        let field_idx = self.get_physical_field_index(base_ty, field, span);
+        let Some(field_idx) = self.get_physical_field_index(base_ty, field, span) else {
+            return MastExprKind::Trap;
+        };
 
         let struct_id = match self.ctx.type_registry.get(norm_base).clone() {
             TypeKind::Def(def_id, gen_args) => self.instantiate_struct(def_id, &gen_args),
             TypeKind::AnonymousStruct(..) => self.instantiate_anon_struct(norm_base),
             TypeKind::AnonymousUnion(..) => self.instantiate_anon_union(norm_base),
             _ => {
-                return self.lower_access_ice(
+                return self.lower_access_error(
                     span,
-                    format!("Kern ICE (Lowering): Attempted to access field `{}` on an invalid base type: {:?}", self.ctx.resolve(field), norm_base)
+                    format!(
+                        "cannot access field `{}` on base type `{:?}`",
+                        self.ctx.resolve(field),
+                        norm_base
+                    ),
                 );
             }
         };
@@ -368,11 +373,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         struct_ty: TypeId,
         field_name: SymbolId,
         span: Span,
-    ) -> usize {
+    ) -> Option<usize> {
         let norm = self.normalize_concrete_type(struct_ty);
         let cache_key = (norm, field_name);
         if let Some(&field_idx) = self.field_index_cache.get(&cache_key) {
-            return field_idx;
+            return Some(field_idx);
         }
 
         if let TypeKind::Def(def_id, gen_args) = self.ctx.type_registry.get(norm).clone() {
@@ -380,18 +385,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let ast_idx = match s.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
-                        self.ctx.emit_ice(
-                            span,
-                            format!(
-                                "Kern ICE (Lowering): Field `{}` not found in struct",
-                                self.ctx.resolve(field_name)
-                            ),
-                        );
-                        return 0;
+                        self.ctx
+                            .struct_error(
+                                span,
+                                format!(
+                                    "field `{}` not found in struct",
+                                    self.ctx.resolve(field_name)
+                                ),
+                            )
+                            .emit();
+                        return None;
                     }
                 };
                 let (ast_to_physical, _) = self.cached_named_struct_mapping(def_id, &gen_args);
-                let field_idx = ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
+                // A poisoned layout cache must stop lowering here. Reusing field 0 would silently
+                // miscompile the access and turn an internal bug into user-visible memory unsoundness.
+                let Some(field_idx) = ast_to_physical.get(ast_idx).copied() else {
                     self.ctx.emit_ice(
                         span,
                         format!(
@@ -400,21 +409,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             self.ctx.resolve(field_name)
                         ),
                     );
-                    0
-                });
+                    return None;
+                };
                 self.field_index_cache.insert(cache_key, field_idx);
-                return field_idx;
+                return Some(field_idx);
             } else if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] {
                 let field_idx = match u.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
                         self.ctx
-                            .emit_ice(span, "Kern ICE: Field not found in union".to_string());
-                        0
+                            .struct_error(
+                                span,
+                                format!(
+                                    "field `{}` not found in union",
+                                    self.ctx.resolve(field_name)
+                                ),
+                            )
+                            .emit();
+                        return None;
                     }
                 };
                 self.field_index_cache.insert(cache_key, field_idx);
-                return field_idx;
+                return Some(field_idx);
             }
         }
 
@@ -422,17 +438,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.ctx.type_registry.get(norm).clone()
         {
             let Some(ast_idx) = fields.iter().position(|f| f.name == field_name) else {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Kern ICE (Lowering): Field `{}` not found in anonymous struct.",
-                        self.ctx.resolve(field_name)
-                    ),
-                );
-                return 0;
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!(
+                            "field `{}` not found in anonymous struct",
+                            self.ctx.resolve(field_name)
+                        ),
+                    )
+                    .emit();
+                return None;
             };
             let (ast_to_physical, _) = self.cached_anon_struct_mapping(norm, is_extern, fields);
-            let field_idx = ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
+            // Same rule as named structs: never invent a fallback physical slot after cache
+            // corruption, because that would target the wrong field and hide the real compiler bug.
+            let Some(field_idx) = ast_to_physical.get(ast_idx).copied() else {
                 self.ctx.emit_ice(
                     span,
                     format!(
@@ -441,29 +461,39 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         self.ctx.resolve(field_name)
                     ),
                 );
-                0
-            });
+                return None;
+            };
             self.field_index_cache.insert(cache_key, field_idx);
-            return field_idx;
+            return Some(field_idx);
         }
 
         if let TypeKind::AnonymousUnion(_, ref fields) = self.ctx.type_registry.get(norm).clone() {
-            let field_idx = fields
-                .iter()
-                .position(|f| f.name == field_name)
-                .unwrap_or(0);
+            let Some(field_idx) = fields.iter().position(|f| f.name == field_name) else {
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!(
+                            "field `{}` not found in anonymous union",
+                            self.ctx.resolve(field_name)
+                        ),
+                    )
+                    .emit();
+                return None;
+            };
             self.field_index_cache.insert(cache_key, field_idx);
-            return field_idx;
+            return Some(field_idx);
         }
 
-        self.ctx.emit_ice(
-            span,
-            format!(
-                "Kern ICE (Lowering): Failed to compute physical field index for `{}` on type {:?}.",
-                self.ctx.resolve(field_name),
-                self.ctx.type_registry.get(norm)
-            ),
-        );
-        0
+        self.ctx
+            .struct_error(
+                span,
+                format!(
+                    "cannot compute field index for `{}` on type `{:?}`",
+                    self.ctx.resolve(field_name),
+                    self.ctx.type_registry.get(norm)
+                ),
+            )
+            .emit();
+        None
     }
 }

@@ -154,9 +154,9 @@ impl CompilerDriver {
         session: &'a mut Session,
     ) -> SemaContext<'a> {
         let mut ctx = SemaContext::new(session);
-        ctx.module_aliases = self.options.module_aliases.clone();
-        ctx.module_interface_aliases = self.options.module_interface_aliases.clone();
-        ctx.current_package_name = self
+        ctx.resolution.module_aliases = self.options.module_aliases.clone();
+        ctx.resolution.module_interface_aliases = self.options.module_interface_aliases.clone();
+        ctx.resolution.current_package_name = self
             .options
             .metadata_package_name
             .as_deref()

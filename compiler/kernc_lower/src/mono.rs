@@ -149,7 +149,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.placeholder_struct(wrapper_id, name.to_string(), false);
     }
 
-    fn build_generic_subst_map(
+    pub(crate) fn build_generic_subst_map(
         &mut self,
         owner_kind: &str,
         owner_name: &str,
@@ -157,16 +157,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         args: &[GenericArg],
     ) -> Option<HashMap<SymbolId, GenericArg>> {
         if params.len() != args.len() {
-            self.ctx.emit_ice(
-                Span::default(),
-                format!(
-                    "Kern ICE (Lowering): Generics mismatch for {} `{}`. Expected {}, got {}.",
-                    owner_kind,
-                    owner_name,
-                    params.len(),
-                    args.len()
-                ),
-            );
+            self.ctx
+                .struct_error(
+                    Span::default(),
+                    format!(
+                        "generic argument count mismatch for {} `{}`: expected {}, got {}",
+                        owner_kind,
+                        owner_name,
+                        params.len(),
+                        args.len()
+                    ),
+                )
+                .emit();
             return None;
         }
 
@@ -285,6 +287,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 for p in &def.params {
                     let raw_ty = this
                         .ctx
+                        .facts
                         .node_types
                         .get(&p.type_node.id)
                         .copied()
@@ -865,6 +868,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let f = &def.fields[ast_idx];
                 let raw_ty = this
                     .ctx
+                    .facts
                     .node_types
                     .get(&f.type_node.id)
                     .copied()
@@ -1142,6 +1146,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         for f in &def.fields {
             let raw_ty = self
                 .ctx
+                .facts
                 .node_types
                 .get(&f.type_node.id)
                 .copied()
@@ -1234,6 +1239,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let field_ty = if let Some(payload_ast) = &variant.payload_type {
                     let raw_ty = this
                         .ctx
+                        .facts
                         .node_types
                         .get(&payload_ast.id)
                         .copied()
@@ -1280,6 +1286,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let tag_ty = if let Some(bt) = &def.backing_type {
                 let raw_tag_ty = this
                     .ctx
+                    .facts
                     .node_types
                     .get(&bt.id)
                     .copied()
@@ -1336,6 +1343,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let ty = self
             .ctx
+            .facts
             .node_types
             .get(&g.value.id)
             .copied()

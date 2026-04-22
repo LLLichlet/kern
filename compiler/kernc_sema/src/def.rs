@@ -168,6 +168,7 @@ pub struct AssociatedTypeDef {
     pub name: SymbolId,
     pub parent_trait: Option<DefId>,
     pub parent_impl: Option<DefId>,
+    pub implemented_trait_assoc: Option<DefId>,
     pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub bounds: Vec<ast::TypeNode>,

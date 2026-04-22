@@ -805,6 +805,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 name: assoc.name,
                 parent_trait: Some(trait_id),
                 parent_impl: None,
+                implemented_trait_assoc: None,
                 is_imported: self.current_module_imported,
                 generics: assoc.generics.clone(),
                 bounds: assoc.bounds.clone(),
@@ -834,6 +835,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 name: assoc.name,
                 parent_trait: Some(trait_id),
                 parent_impl: None,
+                implemented_trait_assoc: None,
                 is_imported: self.current_module_imported,
                 generics: assoc.generics,
                 bounds: assoc.bounds,
@@ -1149,9 +1151,9 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         decls: &[Decl],
     ) -> Option<DefId> {
         let impl_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.global_impls.push(impl_id);
+        self.ctx.impl_index.global_impls.push(impl_id);
         if trait_type.is_some() {
-            self.ctx.trait_impls.push(impl_id);
+            self.ctx.impl_index.trait_impls.push(impl_id);
         }
         let mut assoc_type_ids = Vec::new();
         let mut method_ids = Vec::new();
@@ -1206,6 +1208,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     name: method_decl.name,
                     parent_trait: None,
                     parent_impl: Some(impl_id),
+                    implemented_trait_assoc: None,
                     is_imported: self.current_module_imported,
                     generics: generics.clone(),
                     bounds: Vec::new(),
@@ -1241,6 +1244,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 continue;
             };
             self.ctx
+                .impl_index
                 .impl_methods_by_name
                 .entry(function.name)
                 .or_default()
@@ -1260,9 +1264,9 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         decls: Vec<Decl>,
     ) -> Option<DefId> {
         let impl_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.global_impls.push(impl_id);
+        self.ctx.impl_index.global_impls.push(impl_id);
         if trait_type.is_some() {
-            self.ctx.trait_impls.push(impl_id);
+            self.ctx.impl_index.trait_impls.push(impl_id);
         }
         let mut assoc_type_ids = Vec::new();
         let mut method_ids = Vec::new();
@@ -1326,6 +1330,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         name,
                         parent_trait: None,
                         parent_impl: Some(impl_id),
+                        implemented_trait_assoc: None,
                         is_imported: self.current_module_imported,
                         generics,
                         bounds: Vec::new(),
@@ -1361,6 +1366,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 continue;
             };
             self.ctx
+                .impl_index
                 .impl_methods_by_name
                 .entry(function.name)
                 .or_default()

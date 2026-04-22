@@ -25,7 +25,7 @@ impl ScopeExportFacts {
         }
 
         let mut root_public_spans_by_def_id = std::collections::HashMap::<DefId, Vec<Span>>::new();
-        if let Some(root_module_id) = ctx.root_module
+        if let Some(root_module_id) = ctx.root_module()
             && let Some(root_scope_id) =
                 ctx.defs
                     .get(root_module_id.0 as usize)

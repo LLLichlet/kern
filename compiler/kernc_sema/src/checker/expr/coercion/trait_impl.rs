@@ -799,52 +799,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         target_trait_ty: TypeId,
         _visited: &mut FastHashSet<DefId>,
     ) -> bool {
-        if self.ctx.active_bounds.is_empty() {
+        if self.ctx.analysis.active_bounds.is_empty() {
             return false;
         }
 
-        let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
-        let source_norm = self.resolve_tv(source_ty);
-        let mut type_map = FastHashMap::default();
-        let mut const_map = FastHashMap::default();
+        let active_bounds_ptr = std::ptr::from_ref(self.ctx.analysis.active_bounds.as_slice());
         // Safety: this helper only reads `active_bounds`; it never resizes or replaces the vec.
-        for (env_target, env_bounds) in unsafe { &*active_bounds_ptr } {
-            type_map.clear();
-            const_map.clear();
-
-            // If the queried source type matches the contextual target type, inspect its bounds.
-            let matched = if *env_target == source_norm {
-                true
-            } else {
-                self.match_available_type_against_requirement(
-                    *env_target,
-                    source_ty,
-                    &mut type_map,
-                    &mut const_map,
-                )
-            };
-            if matched {
-                if type_map.is_empty() && const_map.is_empty() {
-                    for inst_env_bound in env_bounds.iter().copied() {
-                        if self.trait_obligation_matches_available_trait(
-                            inst_env_bound,
-                            target_trait_ty,
-                        ) {
-                            return true;
-                        }
-                    }
-                    continue;
-                }
-
-                for bound in env_bounds.iter().copied() {
-                    let inst_env_bound =
-                        self.substitute_type_with_unification_maps(bound, &type_map, &const_map);
-                    if self
-                        .trait_obligation_matches_available_trait(inst_env_bound, target_trait_ty)
-                    {
-                        return true;
-                    }
-                }
+        for inst_env_bound in
+            crate::query::instantiated_env_trait_bounds(self.ctx, source_ty, unsafe {
+                &*active_bounds_ptr
+            })
+        {
+            if self.trait_obligation_matches_available_trait(inst_env_bound, target_trait_ty) {
+                return true;
             }
         }
         false
@@ -863,46 +830,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         else {
             return false;
         };
-
-        let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impls.as_slice());
-        let mut selected_impl_id: Option<DefId> = None;
-
-        // Safety: this helper only reads the collected impl id list; it never mutates the vec.
-        for impl_id in unsafe { &*trait_impl_ids_ptr }.iter().copied() {
-            if !matches!(self.ctx.defs.get(impl_id.0 as usize), Some(Def::Impl(_))) {
-                continue;
-            }
-
-            {
-                let mut resolver = TypeResolver::new(self.ctx);
-                resolver.ensure_impl_signature_types_resolved(impl_id);
-            }
-
-            if crate::query::resolve_trait_impl_head_obligation(
-                self.ctx,
-                source_ty,
-                trait_def_id,
-                &trait_args,
-                impl_id,
-            )
-            .is_none()
-            {
-                continue;
-            }
-
-            let replace = match selected_impl_id {
-                None => true,
-                Some(current_impl_id) => matches!(
-                    crate::query::compare_impl_specificity(self.ctx, impl_id, current_impl_id),
-                    crate::query::ImplSpecificity::LeftMoreSpecific
-                ),
-            };
-            if replace {
-                selected_impl_id = Some(impl_id);
-            }
-        }
-
-        let Some(selected_impl_id) = selected_impl_id else {
+        let Some((selected_impl_id, _)) = crate::query::select_most_specific_trait_impl_head(
+            self.ctx,
+            source_ty,
+            trait_def_id,
+            &trait_args,
+        ) else {
             return false;
         };
 

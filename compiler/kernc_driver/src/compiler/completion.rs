@@ -390,7 +390,8 @@ impl CompilerDriver {
                 let detail = if let Some(def_id) = info.def_id
                     && let kernc_sema::def::Def::TypeAlias(alias) = &ctx.defs[def_id.0 as usize]
                 {
-                    ctx.node_types
+                    ctx.facts
+                        .node_types
                         .get(&alias.target.id)
                         .copied()
                         .map(|target_ty| format!("type = {}", ctx.ty_to_string(target_ty)))
@@ -399,7 +400,8 @@ impl CompilerDriver {
                         &ctx.defs[def_id.0 as usize]
                     && let Some(target) = assoc.target.as_ref()
                 {
-                    ctx.node_types
+                    ctx.facts
+                        .node_types
                         .get(&target.id)
                         .copied()
                         .map(|target_ty| format!("type = {}", ctx.ty_to_string(target_ty)))
@@ -462,14 +464,14 @@ impl CompilerDriver {
             | kernc_sema::scope::SymbolKind::AssociatedType => {
                 if let Some(def_id) = candidate.def_id
                     && let kernc_sema::def::Def::TypeAlias(alias) = &ctx.defs[def_id.0 as usize]
-                    && let Some(target_ty) = ctx.node_types.get(&alias.target.id).copied()
+                    && let Some(target_ty) = ctx.facts.node_types.get(&alias.target.id).copied()
                 {
                     Some(format!("type = {}", ctx.ty_to_string(target_ty)))
                 } else if let Some(def_id) = candidate.def_id
                     && let kernc_sema::def::Def::AssociatedType(assoc) =
                         &ctx.defs[def_id.0 as usize]
                     && let Some(target) = assoc.target.as_ref()
-                    && let Some(target_ty) = ctx.node_types.get(&target.id).copied()
+                    && let Some(target_ty) = ctx.facts.node_types.get(&target.id).copied()
                 {
                     Some(format!("type = {}", ctx.ty_to_string(target_ty)))
                 } else if candidate.type_id != kernc_sema::ty::TypeId::ERROR {

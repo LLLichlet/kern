@@ -24,6 +24,22 @@ pub struct LayoutEngine<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
+    fn emit_invalid_layout_request(
+        &mut self,
+        span: Span,
+        action: &str,
+        subject: impl Into<String>,
+    ) {
+        let span = if span == Span::default() {
+            Span::default()
+        } else {
+            span
+        };
+        self.ctx
+            .struct_error(span, format!("cannot {} {}", action, subject.into()))
+            .emit();
+    }
+
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
         Self {
             ctx,
@@ -259,11 +275,22 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
 
             TypeKind::TypeVar(_) => {
-                self.ctx.emit_ice(kernc_utils::Span::default(), "Kern ICE (Layout): Attempted to compute memory alignment of an unresolved TypeVar.");
+                self.emit_invalid_layout_request(
+                    request_span,
+                    "compute the alignment of",
+                    "an unresolved inferred type",
+                );
                 1
             }
             _ => {
-                self.ctx.emit_ice(kernc_utils::Span::default(), format!("Kern ICE (Layout): Attempted to compute alignment of an invalid or incomplete type: {:?}", kind));
+                self.emit_invalid_layout_request(
+                    request_span,
+                    "compute the alignment of",
+                    format!(
+                        "an invalid or incomplete type `{}`",
+                        self.type_display(norm)
+                    ),
+                );
                 1
             }
         };
@@ -339,7 +366,11 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 self.compute_type_size_inner(elem, request_span) * len
             }
             TypeKind::ArrayInfer { .. } => {
-                self.ctx.emit_ice(kernc_utils::Span::default(), "Kern ICE (Layout): Cannot compute the size of an array with inferred length `[_]T`. It must be fully resolved.");
+                self.emit_invalid_layout_request(
+                    request_span,
+                    "compute the size of",
+                    "an array with inferred length `[_]T`",
+                );
                 0
             }
 
@@ -448,14 +479,22 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
 
             TypeKind::TypeVar(_) => {
-                self.ctx.emit_ice(
-                    kernc_utils::Span::default(),
-                    "Kern ICE (Layout): Cannot compute the size of an unresolved TypeVar.",
+                self.emit_invalid_layout_request(
+                    request_span,
+                    "compute the size of",
+                    "an unresolved inferred type",
                 );
                 0
             }
             _ => {
-                self.ctx.emit_ice(kernc_utils::Span::default(), format!("Kern ICE (Layout): Cannot compute the size of an invalid or incomplete type: {:?}", kind));
+                self.emit_invalid_layout_request(
+                    request_span,
+                    "compute the size of",
+                    format!(
+                        "an invalid or incomplete type `{}`",
+                        self.type_display(norm)
+                    ),
+                );
                 0
             }
         };
@@ -602,6 +641,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             Def::Enum(a) => {
                 let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
                     self.ctx
+                        .facts
                         .node_types
                         .get(&bt.id)
                         .copied()
@@ -674,6 +714,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 // C-ABI tagged-union layout: `struct { TagType tag; union { ... } payload; }`.
                 let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
                     self.ctx
+                        .facts
                         .node_types
                         .get(&bt.id)
                         .copied()
@@ -745,6 +786,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     ) -> TypeId {
         let mut f_ty = self
             .ctx
+            .facts
             .node_types
             .get(&type_node.id)
             .copied()
@@ -779,21 +821,23 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 Some(len)
             }
             ConstGeneric::Param(symbol, _) => {
-                self.ctx.emit_ice(
+                self.emit_invalid_layout_request(
                     request_span,
+                    "compute the layout of an array whose length depends on",
                     format!(
-                        "Kern ICE (Layout): unresolved const generic `{}` reached layout computation.",
+                        "the unresolved const generic `{}`",
                         self.ctx.resolve(symbol)
                     ),
                 );
                 None
             }
             ConstGeneric::Expr(expr_id) => {
-                self.ctx.emit_ice(
+                self.emit_invalid_layout_request(
                     request_span,
+                    "compute the layout of an array whose length depends on",
                     format!(
-                        "Kern ICE (Layout): unresolved const expression `{:?}` reached layout computation.",
-                        self.ctx.type_registry.const_expr(expr_id)
+                        "the unresolved const expression `{}`",
+                        ConstGeneric::Expr(expr_id)
                     ),
                 );
                 None
@@ -843,15 +887,22 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             .collect::<Vec<_>>();
         cycle_types.push(ty);
 
-        if cycle_types
-            .iter()
-            .any(|cycle_ty| self.ctx.reported_recursive_layout_types.contains(cycle_ty))
-        {
+        if cycle_types.iter().any(|cycle_ty| {
+            self.ctx
+                .analysis
+                .recursive_reports
+                .reported_recursive_layout_types
+                .contains(cycle_ty)
+        }) {
             return;
         }
 
         for cycle_ty in &cycle_types {
-            self.ctx.reported_recursive_layout_types.insert(*cycle_ty);
+            self.ctx
+                .analysis
+                .recursive_reports
+                .reported_recursive_layout_types
+                .insert(*cycle_ty);
         }
 
         let type_name = self.type_display(ty);
@@ -910,5 +961,62 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         }
 
         diag.emit();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LayoutEngine;
+    use crate::SemaContext;
+    use crate::ty::{
+        ConstExprBinaryOp, ConstExprKind, ConstGeneric, ConstGenericValue, ConstGenericValueKind,
+        TypeId, TypeKind,
+    };
+    use kernc_utils::{DiagnosticLevel, Session, Span};
+
+    #[test]
+    fn unresolved_type_var_layout_is_reported_as_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let ty = ctx.type_registry.intern(TypeKind::TypeVar(0));
+
+        let size = LayoutEngine::new(&mut ctx).compute_type_size_at(ty, Span::default());
+
+        assert_eq!(size, 0);
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert_eq!(
+            ctx.sess.diagnostics[0].message,
+            "cannot compute the size of an unresolved inferred type"
+        );
+    }
+
+    #[test]
+    fn unresolved_const_expr_array_len_is_reported_as_error_not_ice() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let symbol = ctx.intern("N");
+        let expr = ctx.type_registry.intern_const_expr(ConstExprKind::Binary {
+            op: ConstExprBinaryOp::Add,
+            lhs: ConstGeneric::Param(symbol, TypeId::USIZE),
+            rhs: ConstGeneric::Value(ConstGenericValue {
+                ty: TypeId::USIZE,
+                kind: ConstGenericValueKind::Int(1),
+            }),
+            ty: TypeId::USIZE,
+        });
+        let ty = ctx.type_registry.intern(TypeKind::Array {
+            elem: TypeId::U8,
+            len: ConstGeneric::Expr(expr),
+        });
+
+        let size = LayoutEngine::new(&mut ctx).compute_type_size_at(ty, Span::default());
+
+        assert_eq!(size, 0);
+        assert_eq!(ctx.sess.diagnostics.len(), 1);
+        assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
+        assert!(ctx.sess.diagnostics[0]
+            .message
+            .starts_with("cannot compute the layout of an array whose length depends on the unresolved const expression `<const-expr:"));
     }
 }

@@ -5,7 +5,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.ctx.resolve(name) == "_"
     }
 
-    pub(super) fn resolve_struct_pattern_field(
+    pub(crate) fn resolve_struct_pattern_field(
         &mut self,
         target_ty: TypeId,
         field_name: SymbolId,
@@ -15,10 +15,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Def(def_id, gen_args) => {
                 let Def::Struct(def) = &self.ctx.defs[def_id.0 as usize] else {
-                    self.ctx.emit_ice(
-                        span,
-                        "Kern ICE (Lowering): expected a struct definition while lowering a destructuring pattern.",
-                    );
+                    self.ctx
+                        .struct_error(span, "destructuring pattern expected a struct type")
+                        .emit();
                     return None;
                 };
 
@@ -28,6 +27,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .position(|field| field.name == field_name)?;
                 let mut field_ty = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&def.fields[ast_idx].type_node.id)
                     .copied()
@@ -41,7 +41,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     field_ty = self.substitute_type_with_map(field_ty, &map);
                 }
 
-                let field_idx = self.get_physical_field_index(target_ty, field_name, span);
+                let field_idx = self.get_physical_field_index(target_ty, field_name, span)?;
                 let struct_id = self.instantiate_struct(def_id, &gen_args);
                 Some((field_ty, struct_id, field_idx))
             }

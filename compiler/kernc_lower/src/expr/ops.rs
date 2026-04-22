@@ -243,6 +243,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         lhs: MastExpr,
         rhs: MastExpr,
+        rhs_trait_arg_ty: TypeId,
         op: ast::BinaryOperator,
         result_ty: TypeId,
         span: Span,
@@ -266,11 +267,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | ast::BinaryOperator::LessOrEqual
             | ast::BinaryOperator::GreaterThan
             | ast::BinaryOperator::GreaterOrEqual => {
-                self.ctx.builtin_trait_ty(trait_name, vec![rhs.ty])
+                // Preserve the trait argument shape chosen by sema. The lowered RHS expression may
+                // already be coerced to an expected type, but static devirtualization still has to
+                // search for the impl that satisfied the original operator proof.
+                self.ctx
+                    .builtin_trait_ty(trait_name, vec![rhs_trait_arg_ty])
             }
             _ => self.ctx.builtin_trait_ty_with_assoc(
                 trait_name,
-                vec![rhs.ty],
+                vec![rhs_trait_arg_ty],
                 vec![("Out", result_ty)],
             ),
         };
@@ -429,21 +434,25 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             // Read the real right-hand type cached by Sema.
             let r_sema_ty = self
                 .ctx
+                .facts
                 .node_types
                 .get(&rhs.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            let r_norm = self.ctx.type_registry.normalize(r_sema_ty);
+            let r_concrete_ty = self.substitute_type_with_map(r_sema_ty, subst_map);
+            let r_norm = self.ctx.type_registry.normalize(r_concrete_ty);
             let is_r_ptr = matches!(
                 self.ctx.type_registry.get(r_norm),
                 TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
             );
 
-            // Pointer arithmetic can legitimately mix pointer and integer operands, so do not force RHS to LHS type.
+            // Reuse sema's finalized RHS type. For overloaded operators this preserves the trait
+            // argument shape that actually proved the operation, while pointer arithmetic still
+            // needs to keep its built-in mixed pointer/integer path uncoerced.
             let expected_r = if is_l_ptr || is_r_ptr {
                 None
             } else {
-                Some(l.ty)
+                Some(r_concrete_ty)
             };
 
             let r = self.lower_expr(rhs, subst_map, expected_r);
@@ -459,7 +468,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
 
             self.measure_phase("            lower_ops_binary_custom", |this| {
-                this.lower_custom_binary_operator(l, r, op, result_ty, span)
+                this.lower_custom_binary_operator(l, r, r_concrete_ty, op, result_ty, span)
             })
         }
     }
@@ -501,8 +510,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         return MastExprKind::Trap;
                     }
                     TypeKind::ArrayInfer { .. } => {
-                        // Reaching lowering with `ArrayInfer` still unresolved is an internal compiler bug.
-                        self.ctx.emit_ice(operand.span, "Kern ICE (Lowering): Array length still inferred during MetaOf lowering.");
+                        self.ctx
+                            .struct_error(
+                                operand.span,
+                                "cannot apply `#` to an array with inferred length `[_]T`",
+                            )
+                            .with_hint(
+                                "use an explicit `[N]T` length or let semantic analysis finish inferring the array before taking `#`",
+                            )
+                            .emit();
                         return MastExprKind::Trap;
                     }
 

@@ -73,24 +73,50 @@ fn find_tool_in_path(name: &str) -> Option<String> {
     None
 }
 
+fn find_tool_in_known_locations(candidates: &[&str]) -> Option<String> {
+    for candidate in candidates {
+        if let Some(path) = find_tool_in_path(candidate) {
+            return Some(path);
+        }
+    }
+
+    if cfg!(windows) {
+        for dir in [r"C:\Program Files\LLVM\bin", r"C:\LLVM-21\bin"] {
+            for candidate in candidates {
+                let path = Path::new(dir).join(candidate);
+                if path.is_file() {
+                    return Some(path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn c_compiler_tool() -> String {
     if let Ok(cc) = std::env::var("CC")
         && !cc.is_empty()
     {
         return cc;
     }
-    find_tool_in_path(if cfg!(windows) { "cc.exe" } else { "cc" })
-        .unwrap_or_else(|| if cfg!(windows) { "cc.exe" } else { "cc" }.to_string())
+    let candidates = if cfg!(windows) {
+        ["cc.exe", "clang.exe", "clang-cl.exe"]
+    } else {
+        ["cc", "clang", "clang-cl"]
+    };
+    find_tool_in_known_locations(&candidates)
+        .unwrap_or_else(|| if cfg!(windows) { "clang.exe" } else { "cc" }.to_string())
 }
 
 fn archive_tool() -> String {
-    find_tool_in_path(if cfg!(windows) {
-        "llvm-ar.exe"
+    let candidates = if cfg!(windows) {
+        ["llvm-ar.exe", "llvm-lib.exe", "ar.exe", "lib.exe"]
     } else {
-        "llvm-ar"
-    })
-    .or_else(|| find_tool_in_path(if cfg!(windows) { "ar.exe" } else { "ar" }))
-    .unwrap_or_else(|| if cfg!(windows) { "ar.exe" } else { "ar" }.to_string())
+        ["llvm-ar", "ar", "llvm-lib", "lib"]
+    };
+    find_tool_in_known_locations(&candidates)
+        .unwrap_or_else(|| if cfg!(windows) { "llvm-ar.exe" } else { "ar" }.to_string())
 }
 
 fn demo_archive_name() -> &'static str {

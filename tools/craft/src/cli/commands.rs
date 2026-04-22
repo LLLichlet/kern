@@ -30,8 +30,8 @@ use super::{Command, InstallSelection, RunSelection};
 
 pub(super) fn run_command(command: Command) -> Result<()> {
     match command {
-        Command::Help => {
-            print!("{}", super::usage());
+        Command::Help { topic, color } => {
+            print!("{}", super::help_text(&topic, color)?);
             Ok(())
         }
         Command::Version => {

@@ -3,6 +3,7 @@ resolver = "3"
 
 members = [
     "compiler/*",
+    "shared/*",
     "tools/*",
 ]
 
@@ -29,6 +30,7 @@ kernc_mir_lower = { path = "compiler/kernc_mir_lower" }
 kernc_lower = { path = "compiler/kernc_lower" }
 kernc_codegen = { path = "compiler/kernc_codegen" }
 kernc_driver = { path = "compiler/kernc_driver" }
+shared_cli = { path = "shared/cli" }
 
 # deps
 llvm-sys = "211.0.0"

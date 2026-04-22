@@ -26,6 +26,7 @@ dependencies = [
  "kernc_sema",
  "kernc_utils",
  "libc",
+ "shared_cli",
  "windows-sys",
 ]
 
@@ -51,6 +52,7 @@ dependencies = [
  "kernc_utils",
  "serde",
  "serde_json",
+ "shared_cli",
 ]
 
 [[package]]
@@ -66,6 +68,7 @@ version = "0.7.0"
 dependencies = [
  "kernc_driver",
  "kernc_utils",
+ "shared_cli",
 ]
 
 [[package]]
@@ -299,6 +302,10 @@ dependencies = [
  "serde_core",
  "zmij",
 ]
+
+[[package]]
+name = "shared_cli"
+version = "0.7.0"
 
 [[package]]
 name = "shlex"

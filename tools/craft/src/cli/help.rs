@@ -1,0 +1,286 @@
+use crate::error::{Error, Result};
+use shared_cli::{ColorChoice, HelpDoc, HelpSection};
+
+use super::{HelpTopic, version_text};
+
+pub(super) fn render_help(topic: &HelpTopic, color: ColorChoice) -> Result<String> {
+    let doc = match topic {
+        HelpTopic::Overview => overview_doc(),
+        HelpTopic::Command(command) => command_doc(command)?,
+    };
+    Ok(doc.render(color))
+}
+
+fn overview_doc() -> HelpDoc {
+    HelpDoc::new(version_text())
+        .summary("Kern package manager, builder, and workspace driver")
+        .usage("craft <command> [OPTIONS]")
+        .usage("craft help <command>")
+        .usage("craft --version")
+        .section(
+            HelpSection::new("Popular Commands")
+                .entry("init", "Create a package in the selected directory")
+                .entry(
+                    "check",
+                    "Validate manifests, scripts, sources, and analysis inputs",
+                )
+                .entry("build", "Compile the selected package graph")
+                .entry("run", "Build and run a selected binary or example target")
+                .entry("test", "Build and run discovered test targets"),
+        )
+        .section(
+            HelpSection::new("Other Commands")
+                .entry("lock", "Write a deterministic Craft.lock")
+                .entry(
+                    "fetch",
+                    "Populate external package sources into .craft cache",
+                )
+                .entry("publish", "Run release-oriented publish readiness checks")
+                .entry("doc", "Render package docs to Markdown")
+                .entry("install", "Build bin targets and install them under a root")
+                .entry(
+                    "uninstall",
+                    "Remove installed bin targets from an install root",
+                ),
+        )
+        .section(
+            HelpSection::new("Common Options")
+                .entry(
+                    "--project-path, -p <PATH>",
+                    "Select the package root, workspace root, or Craft.toml manifest",
+                )
+                .entry("--profile <NAME>", "Build profile: dev or release")
+                .entry(
+                    "--no-default-features",
+                    "Disable the implicit `default` feature",
+                )
+                .entry("--features <A,B>", "Enable a comma-separated feature list")
+                .entry("--verbose, -v", "Print detailed action logs")
+                .entry("--timings", "Print aggregated action timings")
+                .entry("--color <WHEN>", "Output color mode: auto, always, never"),
+        )
+        .example("craft check", "Validate the current package graph")
+        .example(
+            "craft build --project-path incubator/bed --profile release",
+            "Build a package in release mode",
+        )
+        .example(
+            "craft run --example hello_compact",
+            "Run a named example target",
+        )
+        .note("Use `craft help <command>` for command-specific options and examples.")
+}
+
+fn command_doc(command: &str) -> Result<HelpDoc> {
+    let doc = match command {
+        "init" => command_template(
+            "init",
+            "Create a package in the selected directory without adding a parent folder",
+            &["craft init [OPTIONS]"],
+            HelpSection::new("Options")
+                .entry("--project-path, -p <PATH>", "Directory to initialize")
+                .entry("--verbose, -v", "Print detailed action logs")
+                .entry("--timings", "Print aggregated timing information")
+                .entry("--color <WHEN>", "Color mode: auto, always, never"),
+            &[
+                ("craft init", "Initialize the current directory"),
+                (
+                    "craft init --project-path demos/http",
+                    "Initialize another directory",
+                ),
+            ],
+        ),
+        "check" => feature_command_doc(
+            "check",
+            "Validate manifests, scripts, sources, and derived analysis inputs",
+            "craft check [OPTIONS]",
+            &[("craft check", "Validate the current package graph")],
+        ),
+        "lock" => feature_command_doc(
+            "lock",
+            "Write a deterministic Craft.lock for the selected package graph",
+            "craft lock [OPTIONS]",
+            &[(
+                "craft lock --features tls",
+                "Lock with an explicit feature set",
+            )],
+        ),
+        "fetch" => feature_command_doc(
+            "fetch",
+            "Fetch external package sources into the local .craft cache",
+            "craft fetch [OPTIONS]",
+            &[("craft fetch", "Warm the local source cache")],
+        ),
+        "publish" => feature_command_doc(
+            "publish",
+            "Run publish-readiness checks with release-oriented defaults",
+            "craft publish [OPTIONS]",
+            &[(
+                "craft publish",
+                "Validate that the package is publish-ready",
+            )],
+        ),
+        "doc" => feature_command_doc(
+            "doc",
+            "Render package docs to Markdown",
+            "craft doc [OPTIONS]",
+            &[(
+                "craft doc --verbose",
+                "Show generated doc files and actions",
+            )],
+        ),
+        "build" => command_template(
+            "build",
+            "Compile the selected package graph and report the derived action plan",
+            &["craft build [OPTIONS]"],
+            feature_options_section().entry(
+                "--examples",
+                "Include `[example].roots` targets in the build graph",
+            ),
+            &[
+                ("craft build", "Build the current package"),
+                (
+                    "craft build --project-path path/to/pkg --profile release",
+                    "Build another package in release mode",
+                ),
+                (
+                    "craft build --examples --features tls,simd",
+                    "Build examples with explicit features enabled",
+                ),
+            ],
+        ),
+        "install" => command_template(
+            "install",
+            "Build bin targets and copy them into an installation root",
+            &["craft install [OPTIONS]"],
+            feature_options_section()
+                .entry("--bin <NAME>", "Install only the named binary target")
+                .entry(
+                    "--root, -r <PATH>",
+                    "Installation root; binaries land in `PATH/bin`",
+                ),
+            &[
+                ("craft install", "Install all binary targets"),
+                (
+                    "craft install --project-path incubator/bed --bin bed",
+                    "Install one binary from another package",
+                ),
+            ],
+        ),
+        "uninstall" => command_template(
+            "uninstall",
+            "Remove installed bin targets from an installation root",
+            &["craft uninstall [OPTIONS]"],
+            HelpSection::new("Options")
+                .entry(
+                    "--project-path, -p <PATH>",
+                    "Select the package root, workspace root, or Craft.toml manifest",
+                )
+                .entry("--bin <NAME>", "Remove only the named binary target")
+                .entry(
+                    "--root, -r <PATH>",
+                    "Installation root; binaries are removed from `PATH/bin`",
+                )
+                .entry("--verbose, -v", "Print detailed action logs")
+                .entry("--timings", "Print aggregated action timings")
+                .entry("--color <WHEN>", "Color mode: auto, always, never"),
+            &[
+                (
+                    "craft uninstall",
+                    "Remove all installed binaries for the package",
+                ),
+                (
+                    "craft uninstall --bin bed --root ~/.local",
+                    "Remove one installed binary from a custom root",
+                ),
+            ],
+        ),
+        "run" => command_template(
+            "run",
+            "Build and execute a selected binary or example target",
+            &[
+                "craft run [OPTIONS]",
+                "craft run --example <NAME> [OPTIONS]",
+            ],
+            feature_options_section()
+                .entry("--bin <NAME>", "Run the named binary target")
+                .entry("--example <NAME>", "Run the named example target"),
+            &[
+                ("craft run", "Run the default binary target"),
+                ("craft run --bin bed", "Run a named binary target"),
+                (
+                    "craft run --example hello_compact --features tls",
+                    "Run an example with explicit features enabled",
+                ),
+            ],
+        ),
+        "test" => command_template(
+            "test",
+            "Build and execute discovered test targets",
+            &["craft test [OPTIONS]"],
+            feature_options_section(),
+            &[
+                ("craft test", "Run the current package tests"),
+                (
+                    "craft test --project-path workspace/member --features simd",
+                    "Run tests for another package with explicit features",
+                ),
+            ],
+        ),
+        other => {
+            return Err(Error::Usage(format!("unknown help topic `{other}`")));
+        }
+    };
+
+    Ok(doc)
+}
+
+fn command_template(
+    command: &str,
+    summary: &str,
+    usages: &[&str],
+    options: HelpSection,
+    examples: &[(&str, &str)],
+) -> HelpDoc {
+    let mut doc = HelpDoc::new(format!("Craft {} help", command)).summary(summary);
+    for usage in usages {
+        doc = doc.usage(*usage);
+    }
+    doc = doc.section(options);
+    for (command, description) in examples {
+        doc = doc.example(*command, *description);
+    }
+    doc.note("Global flags `--help` and `--version` are accepted anywhere on the command line.")
+}
+
+fn feature_command_doc(
+    command: &str,
+    summary: &str,
+    usage: &str,
+    examples: &[(&str, &str)],
+) -> HelpDoc {
+    command_template(
+        command,
+        summary,
+        &[usage],
+        feature_options_section(),
+        examples,
+    )
+}
+
+fn feature_options_section() -> HelpSection {
+    HelpSection::new("Options")
+        .entry(
+            "--project-path, -p <PATH>",
+            "Select the package root, workspace root, or Craft.toml manifest",
+        )
+        .entry("--profile <NAME>", "Build profile: dev or release")
+        .entry(
+            "--no-default-features",
+            "Disable the implicit `default` feature",
+        )
+        .entry("--features <A,B>", "Enable a comma-separated feature list")
+        .entry("--verbose, -v", "Print detailed action logs")
+        .entry("--timings", "Print aggregated action timings")
+        .entry("--color <WHEN>", "Output color mode: auto, always, never")
+}

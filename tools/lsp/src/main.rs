@@ -1,11 +1,14 @@
 mod analysis;
 mod defaults;
+mod help;
 mod protocol;
 mod server;
 mod transport;
 
 use crate::defaults::default_analysis_compile_options;
+use crate::help::{render_help, version_text};
 use kernc_utils::config::{CompileOptions, LibraryBundle};
+use shared_cli::{ColorChoice, ErrorReport};
 
 #[derive(Debug)]
 enum CliAction {
@@ -18,7 +21,12 @@ fn main() {
     let action = match parse_args(std::env::args().skip(1)) {
         Ok(action) => action,
         Err(message) => {
-            eprintln!("error: {message}");
+            eprint!(
+                "{}",
+                ErrorReport::new("kern-lsp error", message)
+                    .hint("Run `kern-lsp --help` to see the supported options.")
+                    .render(ColorChoice::Auto)
+            );
             std::process::exit(2);
         }
     };
@@ -36,7 +44,10 @@ fn main() {
             });
 
             if let Err(err) = server::run_with_analysis(analysis) {
-                eprintln!("error: {err}");
+                eprint!(
+                    "{}",
+                    ErrorReport::new("kern-lsp error", err.to_string()).render(ColorChoice::Auto)
+                );
                 std::process::exit(1);
             }
         }
@@ -48,6 +59,13 @@ where
     I: IntoIterator<Item = String>,
 {
     let mut options = default_analysis_compile_options();
+    let args: Vec<String> = args.into_iter().collect();
+    if args.first().is_some_and(|arg| arg == "help") {
+        if args.len() > 1 {
+            return Err(format!("unsupported help topic `{}`", args[1]));
+        }
+        return Ok(CliAction::Help);
+    }
 
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -100,7 +118,7 @@ where
             "--version" | "-V" | "-v" => return Ok(CliAction::Version),
             "--no-default-features" => options.craft_default_features = false,
             _ => {
-                return Err(format!("unsupported argument `{arg}`\n\n{}", usage()));
+                return Err(format!("unsupported argument `{arg}`"));
             }
         }
     }
@@ -135,32 +153,7 @@ fn consume_long_option_value(
 }
 
 fn print_usage() {
-    println!("{}", usage());
-}
-
-fn version_text() -> String {
-    format!("Kern Language Server v{}", env!("CARGO_PKG_VERSION"))
-}
-
-fn usage() -> &'static str {
-    concat!(
-        "Kern Language Server v",
-        env!("CARGO_PKG_VERSION"),
-        "\n",
-        "Usage: kern-lsp [OPTIONS]\n",
-        "\n",
-        "Analysis Options:\n",
-        "  --library-bundle <B>       Select official library root aliases for analysis: none, base, std (default: std)\n",
-        "  --features <a,b>           Enable explicit `craft` features for project analysis\n",
-        "  --no-default-features      Disable default `craft` features for project analysis\n",
-        "  --module-path <name=path>  Add a source module alias for analysis\n",
-        "  --module-interface-path <name=path>\n",
-        "                             Add an imported metadata module alias for analysis\n",
-        "\n",
-        "Information:\n",
-        "  -v, -V, --version          Print version information and exit\n",
-        "  -h, --help                 Print this help text and exit\n",
-    )
+    println!("{}", render_help(ColorChoice::Auto));
 }
 
 #[cfg(test)]
@@ -172,6 +165,10 @@ mod tests {
     fn parses_help_and_version_flags() {
         assert!(matches!(
             parse_args(["--help".to_string()]).unwrap(),
+            CliAction::Help
+        ));
+        assert!(matches!(
+            parse_args(["help".to_string()]).unwrap(),
             CliAction::Help
         ));
         assert!(matches!(

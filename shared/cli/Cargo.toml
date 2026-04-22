@@ -1,0 +1,10 @@
+[package]
+name = "shared_cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "shared_cli"
+path = "src/lib.rs"

@@ -12,3 +12,4 @@ path = "src/main.rs"
 [dependencies]
 kernc_utils = { workspace = true }
 kernc_driver = { workspace = true }
+shared_cli = { workspace = true }

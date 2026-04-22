@@ -70,7 +70,10 @@ impl Error {
 
     pub fn hint(&self) -> Option<String> {
         match self {
-            Self::Usage(_) => Some("run `craft help` to see the supported commands and options".to_string()),
+            Self::Usage(_) => Some(
+                "run `craft help` to list commands, or `craft help <command>` for a specific command"
+                    .to_string(),
+            ),
             Self::ManifestNotFound { .. } => Some(
                 "run `craft` inside a package directory, or pass `--project-path path/to/pkg`"
                     .to_string(),
@@ -180,7 +183,9 @@ mod tests {
         assert_eq!(err.exit_code(), 2);
         assert_eq!(
             err.hint().as_deref(),
-            Some("run `craft help` to see the supported commands and options")
+            Some(
+                "run `craft help` to list commands, or `craft help <command>` for a specific command"
+            )
         );
     }
 

@@ -1,9 +1,11 @@
 use crate::elaborate;
 use crate::error::{Error, Result};
+use shared_cli::ColorChoice as HelpColorChoice;
 use std::env;
 use std::path::PathBuf;
 
 mod commands;
+mod help;
 mod policy;
 mod render;
 
@@ -16,7 +18,10 @@ use self::policy::{
 
 #[derive(Debug)]
 pub enum Command {
-    Help,
+    Help {
+        topic: HelpTopic,
+        color: HelpColorChoice,
+    },
     Version,
     Init {
         path: Option<PathBuf>,
@@ -80,6 +85,12 @@ pub enum Command {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HelpTopic {
+    Overview,
+    Command(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunSelection {
     DefaultBin,
     Bin(String),
@@ -115,13 +126,89 @@ pub(super) fn version_text() -> String {
     format!("Craft v{}", env!("CARGO_PKG_VERSION"))
 }
 
+fn help_text(topic: &HelpTopic, color: HelpColorChoice) -> Result<String> {
+    help::render_help(topic, color)
+}
+
+fn usage_text(topic: &HelpTopic) -> String {
+    help::render_help(topic, HelpColorChoice::Never).unwrap_or_else(|_| {
+        help::render_help(&HelpTopic::Overview, HelpColorChoice::Never).unwrap()
+    })
+}
+
+fn known_command(name: &str) -> bool {
+    matches!(
+        name,
+        "init"
+            | "check"
+            | "lock"
+            | "fetch"
+            | "publish"
+            | "doc"
+            | "build"
+            | "install"
+            | "uninstall"
+            | "run"
+            | "test"
+    )
+}
+
+fn parse_help_color(args: &[String]) -> Result<HelpColorChoice> {
+    let mut color = HelpColorChoice::Auto;
+    let mut idx = 0;
+    while idx < args.len() {
+        let arg = &args[idx];
+        if arg == "--no-color" {
+            color = HelpColorChoice::Never;
+            idx += 1;
+            continue;
+        }
+        if arg == "--color" {
+            let Some(value) = args.get(idx + 1) else {
+                return Err(Error::Usage(
+                    "`--color` requires one of: auto, always, never".to_string(),
+                ));
+            };
+            color = match value.as_str() {
+                "auto" => HelpColorChoice::Auto,
+                "always" => HelpColorChoice::Always,
+                "never" => HelpColorChoice::Never,
+                other => {
+                    return Err(Error::Usage(format!(
+                        "unsupported `--color` value `{other}`; expected auto, always, or never"
+                    )));
+                }
+            };
+            idx += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--color=") {
+            color = match value {
+                "auto" => HelpColorChoice::Auto,
+                "always" => HelpColorChoice::Always,
+                "never" => HelpColorChoice::Never,
+                other => {
+                    return Err(Error::Usage(format!(
+                        "unsupported `--color` value `{other}`; expected auto, always, or never"
+                    )));
+                }
+            };
+        }
+        idx += 1;
+    }
+    Ok(color)
+}
+
 fn parse_args<I>(args: I) -> Result<Command>
 where
     I: IntoIterator<Item = String>,
 {
     let args: Vec<String> = args.into_iter().collect();
     let Some((cmd, rest)) = args.split_first() else {
-        return Ok(Command::Help);
+        return Ok(Command::Help {
+            topic: HelpTopic::Overview,
+            color: parse_help_color(&args)?,
+        });
     };
     if cmd == "--version" || cmd == "-V" || (cmd == "-v" && rest.is_empty()) {
         return Ok(Command::Version);
@@ -129,11 +216,35 @@ where
     if rest.iter().any(|arg| arg == "--version" || arg == "-V") {
         return Ok(Command::Version);
     }
-    if cmd == "help" || cmd == "--help" || cmd == "-h" {
-        return Ok(Command::Help);
+    let help_color = parse_help_color(&args)?;
+    if cmd == "help" {
+        return match rest {
+            [] => Ok(Command::Help {
+                topic: HelpTopic::Overview,
+                color: help_color,
+            }),
+            [topic] => Ok(Command::Help {
+                topic: HelpTopic::Command(topic.clone()),
+                color: help_color,
+            }),
+            _ => Err(Error::Usage(
+                "too many help topics provided; use `craft help <command>`".to_string(),
+            )),
+        };
+    }
+    if cmd == "--help" || cmd == "-h" {
+        return Ok(Command::Help {
+            topic: HelpTopic::Overview,
+            color: help_color,
+        });
     }
     if rest.iter().any(|arg| arg == "--help" || arg == "-h") {
-        return Ok(Command::Help);
+        if known_command(cmd) {
+            return Ok(Command::Help {
+                topic: HelpTopic::Command(cmd.clone()),
+                color: help_color,
+            });
+        }
     }
 
     match cmd.as_str() {
@@ -145,7 +256,7 @@ where
             })
         }
         "check" => {
-            let options = parse_command_options(rest, default_option_mode())?;
+            let options = parse_command_options(rest, default_option_mode("check"))?;
             Ok(Command::Check {
                 path: options.path,
                 feature_selection: options.feature_selection,
@@ -153,7 +264,7 @@ where
             })
         }
         "lock" => {
-            let options = parse_command_options(rest, default_option_mode())?;
+            let options = parse_command_options(rest, default_option_mode("lock"))?;
             Ok(Command::Lock {
                 path: options.path,
                 feature_selection: options.feature_selection,
@@ -161,7 +272,7 @@ where
             })
         }
         "fetch" => {
-            let options = parse_command_options(rest, default_option_mode())?;
+            let options = parse_command_options(rest, default_option_mode("fetch"))?;
             Ok(Command::Fetch {
                 path: options.path,
                 feature_selection: options.feature_selection,
@@ -169,7 +280,7 @@ where
             })
         }
         "publish" => {
-            let options = parse_command_options(rest, default_option_mode())?;
+            let options = parse_command_options(rest, default_option_mode("publish"))?;
             let mut feature_selection = options.feature_selection;
             feature_selection.profile = crate::script::ProfileSelection::Release;
             Ok(Command::Publish {
@@ -179,7 +290,7 @@ where
             })
         }
         "doc" => {
-            let options = parse_command_options(rest, default_option_mode())?;
+            let options = parse_command_options(rest, default_option_mode("doc"))?;
             Ok(Command::Doc {
                 path: options.path,
                 feature_selection: options.feature_selection,
@@ -224,7 +335,7 @@ where
             })
         }
         "test" => {
-            let options = parse_command_options(rest, default_option_mode())?;
+            let options = parse_command_options(rest, default_option_mode("test"))?;
             Ok(Command::Test {
                 path: options.path,
                 feature_selection: options.feature_selection,
@@ -232,15 +343,15 @@ where
             })
         }
         _ => Err(Error::Usage(format!(
-            "unsupported command line: {}\n\n{}",
-            args.join(" "),
-            usage()
+            "unsupported command line: {}",
+            args.join(" ")
         ))),
     }
 }
 
 #[derive(Clone, Copy)]
 struct CommandOptionMode {
+    command_name: &'static str,
     allow_feature_selection: bool,
     allow_examples: bool,
     allow_bin_selection: bool,
@@ -260,6 +371,7 @@ struct ParsedCommandOptions {
 
 fn init_option_mode() -> CommandOptionMode {
     CommandOptionMode {
+        command_name: "init",
         allow_feature_selection: false,
         allow_examples: false,
         allow_bin_selection: false,
@@ -268,8 +380,9 @@ fn init_option_mode() -> CommandOptionMode {
     }
 }
 
-fn default_option_mode() -> CommandOptionMode {
+fn default_option_mode(command_name: &'static str) -> CommandOptionMode {
     CommandOptionMode {
+        command_name,
         allow_feature_selection: true,
         allow_examples: false,
         allow_bin_selection: false,
@@ -280,6 +393,7 @@ fn default_option_mode() -> CommandOptionMode {
 
 fn build_option_mode() -> CommandOptionMode {
     CommandOptionMode {
+        command_name: "build",
         allow_feature_selection: true,
         allow_examples: true,
         allow_bin_selection: false,
@@ -290,6 +404,7 @@ fn build_option_mode() -> CommandOptionMode {
 
 fn install_option_mode() -> CommandOptionMode {
     CommandOptionMode {
+        command_name: "install",
         allow_feature_selection: true,
         allow_examples: false,
         allow_bin_selection: true,
@@ -300,6 +415,7 @@ fn install_option_mode() -> CommandOptionMode {
 
 fn uninstall_option_mode() -> CommandOptionMode {
     CommandOptionMode {
+        command_name: "uninstall",
         allow_feature_selection: false,
         allow_examples: false,
         allow_bin_selection: true,
@@ -310,12 +426,18 @@ fn uninstall_option_mode() -> CommandOptionMode {
 
 fn run_option_mode() -> CommandOptionMode {
     CommandOptionMode {
+        command_name: "run",
         allow_feature_selection: true,
         allow_examples: false,
         allow_bin_selection: true,
         allow_example_selection: true,
         allow_install_root: false,
     }
+}
+
+fn mode_usage_text(mode: CommandOptionMode) -> String {
+    let topic = HelpTopic::Command(mode.command_name.to_string());
+    usage_text(&topic)
 }
 
 fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<ParsedCommandOptions> {
@@ -344,7 +466,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_examples {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             include_examples = true;
@@ -355,7 +477,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_bin_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             let Some(value) = args.get(idx + 1) else {
@@ -369,7 +491,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_bin_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `--bin`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             set_named_target(&mut bin_name, value, "--bin")?;
@@ -380,7 +502,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_example_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             let Some(value) = args.get(idx + 1) else {
@@ -396,7 +518,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_example_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `--example`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             set_named_target(&mut example_name, value, "--example")?;
@@ -407,7 +529,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_install_root {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             let Some(value) = args.get(idx + 1) else {
@@ -423,7 +545,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_install_root {
                 return Err(Error::Usage(format!(
                     "unsupported option `--root`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             set_optional_path(&mut install_root, value, "--root")?;
@@ -454,7 +576,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_feature_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             feature_selection.enable_default = false;
@@ -480,7 +602,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_feature_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             let Some(value) = args.get(idx + 1) else {
@@ -496,7 +618,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_feature_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `--profile`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             feature_selection.profile = parse_profile_selection(value)?;
@@ -507,7 +629,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_feature_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             let Some(value) = args.get(idx + 1) else {
@@ -523,7 +645,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             if !mode.allow_feature_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `--features`\n\n{}",
-                    usage()
+                    mode_usage_text(mode)
                 )));
             }
             extend_feature_selection(&mut feature_selection, value)?;
@@ -533,12 +655,12 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
         if arg.starts_with('-') {
             return Err(Error::Usage(format!(
                 "unsupported option `{arg}`\n\n{}",
-                usage()
+                mode_usage_text(mode)
             )));
         }
         return Err(Error::Usage(format!(
             "unexpected positional argument `{arg}`; use `--project-path <PATH>`\n\n{}",
-            usage()
+            mode_usage_text(mode)
         )));
     }
 
@@ -633,65 +755,6 @@ fn extend_feature_selection(selection: &mut elaborate::FeatureSelection, raw: &s
         selection.explicit.insert(feature.to_string());
     }
     Ok(())
-}
-
-fn usage() -> &'static str {
-    concat!(
-        "Craft v",
-        env!("CARGO_PKG_VERSION"),
-        "\n",
-        "Kern package manager and builder\n",
-        "\n",
-        "Usage:\n",
-        "  craft <command> [OPTIONS]\n",
-        "  craft help\n",
-        "  craft --help\n",
-        "  craft --version\n",
-        "\n",
-        "Commands:\n",
-        "  help     Show this help text\n",
-        "  init     Initialize a package in the selected directory without creating a new parent dir\n",
-        "  check    Validate `Craft.toml`, scripts, sources, and derived analysis inputs\n",
-        "  lock     Write a deterministic `Craft.lock` for the current package graph\n",
-        "  fetch    Materialize external package sources into the local `.craft` cache\n",
-        "  publish  Run release-oriented publish readiness checks without uploading anywhere\n",
-        "  doc      Build library metadata and render native package docs to Markdown\n",
-        "  build    Build the selected package graph and print the derived action plan\n",
-        "  install  Build package `bin` targets and copy them into an install root\n",
-        "  uninstall Remove installed package `bin` targets from an install root\n",
-        "  run      Build and run a selected `bin` or `example` target\n",
-        "  test     Build and run all discovered `test` targets\n",
-        "\n",
-        "Options:\n",
-        "  --project-path, -p <PATH> Select the package or workspace root (or `Craft.toml` path)\n",
-        "  --profile <NAME>         Profile selection: dev (default) or release\n",
-        "  --examples               Include `[example].roots` targets when running `craft build`\n",
-        "  --root, -r <PATH>        Install root for `install`/`uninstall` (binaries go under `PATH/bin`)\n",
-        "  --bin <NAME>             Select a named `bin` target for `run`/`install`/`uninstall`\n",
-        "  --example <NAME>         Select a named `example` target when running `craft run`\n",
-        "  --no-default-features    Disable the implicit `default` feature\n",
-        "  --features <FEATURES>    Enable a comma-separated feature list\n",
-        "  --verbose, -v            Print detailed action logs instead of the default compact summary\n",
-        "  --timings                Print aggregated compiler/linker phase timings and cache stats\n",
-        "  --color <WHEN>           Color mode: auto, always, never\n",
-        "  --no-color               Alias for `--color never`\n",
-        "\n",
-        "Information:\n",
-        "  --version, -V           Print version information and exit\n",
-        "  -h, --help              Print this help text and exit\n",
-        "\n",
-        "Examples:\n",
-        "  craft init\n",
-        "  craft check\n",
-        "  craft build --project-path path/to/pkg --profile release\n",
-        "  craft install --project-path incubator/bed\n",
-        "  craft uninstall --project-path incubator/bed\n",
-        "  craft doc --verbose\n",
-        "  craft build --timings\n",
-        "  craft run --features tls,simd\n",
-        "  craft run --example hello_compact\n",
-        "  craft build --verbose --color always\n",
-    )
 }
 
 #[cfg(test)]

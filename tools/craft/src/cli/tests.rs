@@ -1,6 +1,6 @@
 use super::{
-    ColorChoice, Command, InstallSelection, RunSelection, UiOptions, parse_args, run_command,
-    summarize_check_sources, summarize_source_security, validate_check_source_policy,
+    ColorChoice, Command, HelpTopic, InstallSelection, RunSelection, UiOptions, parse_args,
+    run_command, summarize_check_sources, summarize_source_security, validate_check_source_policy,
 };
 use crate::elaborate::FeatureSelection;
 use crate::graph::SourceId;
@@ -236,11 +236,25 @@ fn parses_global_version_flags() {
 fn parses_help_and_version_after_command_options() {
     assert!(matches!(
         parse_args(["build".to_string(), "-v".to_string(), "--help".to_string(),]).unwrap(),
-        Command::Help
+        Command::Help {
+            topic: HelpTopic::Command(ref topic),
+            ..
+        } if topic == "build"
     ));
     assert!(matches!(
         parse_args(["build".to_string(), "--version".to_string()]).unwrap(),
         Command::Version
+    ));
+}
+
+#[test]
+fn parses_explicit_help_topic() {
+    assert!(matches!(
+        parse_args(["help".to_string(), "run".to_string()]).unwrap(),
+        Command::Help {
+            topic: HelpTopic::Command(ref topic),
+            ..
+        } if topic == "run"
     ));
 }
 

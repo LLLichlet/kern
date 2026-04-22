@@ -1,82 +1,56 @@
+mod help;
+
+use help::{HelpTopic, render_help, version_text};
 use kernc_driver::CompilerDriver;
 use kernc_utils::config::{
     AsmDialect, CompileOptions, DriverMode, LibraryBundle, LlvmIrStage, LtoMode, OptLevel,
     RuntimeEntry, TargetMachine, apply_configured_library_aliases, inject_driver_condition_defines,
     validate_compile_options,
 };
+use shared_cli::{ColorChoice, ErrorReport};
 use std::env;
 use std::path::Path;
 use std::process;
 
 fn set_driver_mode(options: &mut CompileOptions, requested: DriverMode, flag: &str) {
     if options.driver_mode != DriverMode::CompileAndLink && options.driver_mode != requested {
-        eprintln!(
-            "Error: `{}` conflicts with a previously selected driver mode.",
+        cli_error(format!(
+            "`{}` conflicts with a previously selected driver mode.",
             flag
-        );
-        process::exit(1);
+        ));
     }
     options.driver_mode = requested;
 }
 
-fn print_usage(program_name: &str) {
-    let version = env!("CARGO_PKG_VERSION");
-
-    println!("Kern Compiler v{}", version);
-    println!("Usage: {} [OPTIONS] [input.rn]\n", program_name);
-
-    println!("Build Options:");
-    println!("  -o <file>            Write output to <file>");
-    println!("  -c                   Emit linker input and skip the final system link step");
-    println!("  --link-only          Skip frontend/codegen and invoke the linker driver only");
-    println!("  --define <key=val>   Define a variable for conditional compilation");
-    println!("  --module-path <name=path>");
-    println!(
-        "                       Map a module name to a physical directory (e.g., --module-path std=./library/std)"
-    );
-    println!("  --module-interface-path <name=path>");
-    println!("                       Map a module name to an imported metadata root");
-    println!("  --metadata-output <dir>");
-    println!("                       Emit a module metadata snapshot directory");
-    println!("  --module-root-name <name>");
-    println!("                       Override the compiled root module name");
-    println!("  -O<0-3>              Set optimization level (default: O0)");
-    println!("  -g / -g0             Enable or disable debug info emission");
-
-    println!("\nTargeting & Codegen:");
-    println!("  --target <T>         Set target triple (e.g. x86_64-unknown-linux-gnu)");
-    println!("  --asm-dialect <D>    Set assembly dialect: auto (default), intel, or att");
-    println!("  --codegen-units <N>  Split code generation into N lowered codegen units");
-    println!("  --lto <M>            Cross-CGU optimization mode: none, full, thin");
-    println!("  --debug-info <b>     Whether to emit debug info: yes, no");
-    println!("  --toolchain-root <d> Prefer toolchain binaries from directory <d>");
-    println!("  --link-driver <cmd>  Set the linker driver command (default: $CC or cc)");
-    println!("  --runtime-entry <m>  Runtime entry contract: none, rt, crt");
-    println!("  --runtime-libc <b>   Whether libc is linked: yes, no");
-    println!("  --library-bundle <b> Library bundle: none, base, std");
-    println!("  --link-input <path>  Add an extra linker input (.o/.a/.so/response file)");
-    println!("  --link-search <dir>  Add a linker search path");
-    println!("  --link-lib <name>    Link against a library");
-    println!("  -L <dir>             Add a linker search path");
-    println!("  -l <name>            Link against a library");
-    println!("  --link-arg <arg>     Pass a raw argument through to the linker driver");
-    println!("  --entry-symbol <s>   Override the default entry symbol used by kernc");
-    println!("  --print-link-command Print the resolved linker command before execution");
-    println!("  --emit-llvm[=S]      Print LLVM IR stage S to stdout (raw by default)");
-    println!("                       S: raw, verified, optimized");
-    println!("  --timings            Print compiler phase timings and cache stats");
-
-    println!("\nInformation:");
-    println!("  -v, --version        Display version information and exit");
-    println!("  -h, --help           Display this help and exit");
+enum CliAction {
+    Run(CompileOptions),
+    Help(HelpTopic),
+    Version,
 }
 
 fn cli_error(message: impl Into<String>) -> ! {
-    eprintln!("Error: {}", message.into());
+    eprint!(
+        "{}",
+        ErrorReport::new("kernc error", message.into()).render(ColorChoice::Auto)
+    );
     process::exit(1);
 }
 
-fn next_option_value(args: &mut env::Args, flag: &str, value_name: &str) -> String {
+fn cli_error_with_hint(message: impl Into<String>, hint: impl Into<String>) -> ! {
+    eprint!(
+        "{}",
+        ErrorReport::new("kernc error", message.into())
+            .hint(hint.into())
+            .render(ColorChoice::Auto)
+    );
+    process::exit(1);
+}
+
+fn next_option_value(
+    args: &mut impl Iterator<Item = String>,
+    flag: &str,
+    value_name: &str,
+) -> String {
     args.next()
         .unwrap_or_else(|| cli_error(format!("Expected {} after `{}`.", value_name, flag)))
 }
@@ -150,7 +124,7 @@ fn parse_key_value(raw: String, flag: &str, expected: &str) -> (String, String) 
 fn consume_short_or_attached_value(
     arg: &str,
     prefix: &str,
-    args: &mut env::Args,
+    args: &mut impl Iterator<Item = String>,
     value_name: &str,
 ) -> Option<String> {
     let value = arg.strip_prefix(prefix)?;
@@ -164,7 +138,7 @@ fn consume_short_or_attached_value(
 fn consume_long_option_value(
     arg: &str,
     flag: &str,
-    args: &mut env::Args,
+    args: &mut impl Iterator<Item = String>,
     value_name: &str,
 ) -> Option<String> {
     if arg == flag {
@@ -173,6 +147,32 @@ fn consume_long_option_value(
 
     let prefix = format!("{flag}=");
     arg.strip_prefix(&prefix).map(|value| value.to_string())
+}
+
+fn default_executable_output_name(input_file: Option<&str>) -> String {
+    let stem = input_file
+        .and_then(|input| Path::new(input).file_stem())
+        .and_then(|s| s.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("a");
+    format!("{stem}{}", std::env::consts::EXE_SUFFIX)
+}
+
+fn apply_cli_runtime_defaults(
+    options: &mut CompileOptions,
+    user_selected_runtime_entry: bool,
+    user_selected_library_bundle: bool,
+) {
+    if options.driver_mode != DriverMode::CompileAndLink {
+        return;
+    }
+
+    if !user_selected_runtime_entry {
+        options.runtime_entry = RuntimeEntry::Rt;
+    }
+    if !user_selected_library_bundle {
+        options.library_bundle = LibraryBundle::Std;
+    }
 }
 
 fn set_default_output_file(options: &mut CompileOptions) {
@@ -190,8 +190,11 @@ fn set_default_output_file(options: &mut CompileOptions) {
                 .unwrap_or("a.out");
             options.output_file = format!("{}.o", stem);
         }
+        DriverMode::CompileAndLink => {
+            options.output_file = default_executable_output_name(options.input_file.as_deref());
+        }
         _ => {
-            options.output_file = "a.out".to_string();
+            options.output_file = format!("a{}", std::env::consts::EXE_SUFFIX);
         }
     }
 }
@@ -202,25 +205,83 @@ fn validate_mode_inputs(
     positional_source: &Option<String>,
 ) {
     if options.driver_mode.needs_source_input() && positional_source.is_none() {
-        eprintln!("Error: No input file specified.");
-        print_usage(program_name);
-        process::exit(1);
+        cli_error_with_hint(
+            "No input file specified.",
+            format!(
+                "Run `{program_name} --help` for the common view or `{program_name} help all` for the full option reference."
+            ),
+        );
     }
 
     if options.driver_mode == DriverMode::LinkOnly && positional_source.is_some() {
-        eprintln!("Error: `--link-only` does not accept a source input.");
-        eprintln!("Hint: Pass object files, archives, or shared libraries via `--link-input`.");
-        process::exit(1);
+        cli_error_with_hint(
+            "`--link-only` does not accept a source input.",
+            "Pass object files, archives, or shared libraries via `--link-input`.",
+        );
     }
 
     validate_compile_options(options).unwrap_or_else(|err| cli_error(err));
 }
 
-fn parse_args() -> CompileOptions {
+fn parse_help_request(args: &[String]) -> Option<CliAction> {
+    let Some(first) = args.first() else {
+        return None;
+    };
+    if args.iter().any(|arg| arg == "--help=all") {
+        return Some(CliAction::Help(HelpTopic::All));
+    }
+    if first == "help" {
+        return match args.get(1).map(String::as_str) {
+            None => Some(CliAction::Help(HelpTopic::Overview)),
+            Some("all") => Some(CliAction::Help(HelpTopic::All)),
+            Some(other) => {
+                cli_error_with_hint(
+                    format!("Unknown help topic `{other}`. Expected `all` or no topic."),
+                    "Run `kernc help all` for the full option reference.",
+                );
+            }
+        };
+    }
+    if first == "--help" || first == "-h" || args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        return Some(CliAction::Help(HelpTopic::Overview));
+    }
+    None
+}
+
+fn parse_version_request(args: &[String]) -> Option<CliAction> {
+    let Some(first) = args.first() else {
+        return None;
+    };
+    if first == "--version" || first == "-V" || (first == "-v" && args.len() == 1) {
+        return Some(CliAction::Version);
+    }
+    if args
+        .iter()
+        .skip(1)
+        .any(|arg| arg == "--version" || arg == "-V")
+    {
+        return Some(CliAction::Version);
+    }
+    None
+}
+
+fn parse_args() -> CliAction {
     let mut args = env::args();
     let program_name = args.next().unwrap_or_else(|| "kernc".to_string());
+    let raw_args: Vec<String> = args.collect();
+
+    if let Some(action) = parse_version_request(&raw_args) {
+        return action;
+    }
+    if let Some(action) = parse_help_request(&raw_args) {
+        return action;
+    }
+    let mut args = raw_args.into_iter();
 
     let mut options = CompileOptions::default();
+    options.output_file.clear();
+    let mut user_selected_runtime_entry = false;
+    let mut user_selected_library_bundle = false;
 
     // Read environment variables before parsing CLI arguments.
     if let Ok(toolchain_root) = env::var("KERN_TOOLCHAIN_ROOT")
@@ -287,6 +348,7 @@ fn parse_args() -> CompileOptions {
             continue;
         }
         if let Some(value) = consume_long_option_value(&arg, "--runtime-entry", &mut args, "mode") {
+            user_selected_runtime_entry = true;
             options.runtime_entry = parse_runtime_entry(&value);
             continue;
         }
@@ -303,6 +365,7 @@ fn parse_args() -> CompileOptions {
         if let Some(value) =
             consume_long_option_value(&arg, "--library-bundle", &mut args, "bundle")
         {
+            user_selected_library_bundle = true;
             options.library_bundle = parse_library_bundle(&value);
             continue;
         }
@@ -350,14 +413,6 @@ fn parse_args() -> CompileOptions {
         }
 
         match arg.as_str() {
-            "-h" | "--help" => {
-                print_usage(&program_name);
-                process::exit(0);
-            }
-            "-v" | "--version" => {
-                println!("kernc version {}", env!("CARGO_PKG_VERSION"));
-                process::exit(0);
-            }
             "-o" => options.output_file = next_option_value(&mut args, "-o", "file name"),
             "-c" => set_driver_mode(&mut options, DriverMode::CompileOnly, "-c"),
             "--link-only" => set_driver_mode(&mut options, DriverMode::LinkOnly, "--link-only"),
@@ -396,18 +451,121 @@ fn parse_args() -> CompileOptions {
 
     validate_mode_inputs(&program_name, &options, &positional_source);
     options.input_file = positional_source;
+    apply_cli_runtime_defaults(
+        &mut options,
+        user_selected_runtime_entry,
+        user_selected_library_bundle,
+    );
     set_default_output_file(&mut options);
     inject_driver_condition_defines(&mut options);
     apply_configured_library_aliases(&mut options);
 
-    options
+    CliAction::Run(options)
 }
 
 fn main() {
-    let options = parse_args();
-    let driver = CompilerDriver::new(options);
+    match parse_args() {
+        CliAction::Run(options) => {
+            let driver = CompilerDriver::new(options);
+            if !driver.compile() {
+                process::exit(1);
+            }
+        }
+        CliAction::Help(topic) => {
+            print!("{}", render_help("kernc", topic, ColorChoice::Auto));
+        }
+        CliAction::Version => {
+            println!("{}", version_text());
+        }
+    }
+}
 
-    if !driver.compile() {
-        process::exit(1);
+#[cfg(test)]
+mod tests {
+    use super::{
+        CliAction, apply_cli_runtime_defaults, default_executable_output_name, parse_help_request,
+        parse_version_request, set_default_output_file,
+    };
+    use crate::help::HelpTopic;
+    use kernc_utils::config::{CompileOptions, DriverMode, LibraryBundle, RuntimeEntry};
+
+    #[test]
+    fn parses_overview_help_requests() {
+        assert!(matches!(
+            parse_help_request(&["--help".to_string()]),
+            Some(CliAction::Help(HelpTopic::Overview))
+        ));
+        assert!(matches!(
+            parse_help_request(&["hello.rn".to_string(), "--help".to_string()]),
+            Some(CliAction::Help(HelpTopic::Overview))
+        ));
+    }
+
+    #[test]
+    fn parses_full_help_topic() {
+        assert!(matches!(
+            parse_help_request(&["help".to_string(), "all".to_string()]),
+            Some(CliAction::Help(HelpTopic::All))
+        ));
+        assert!(matches!(
+            parse_help_request(&["--help=all".to_string()]),
+            Some(CliAction::Help(HelpTopic::All))
+        ));
+    }
+
+    #[test]
+    fn parses_version_requests() {
+        assert!(matches!(
+            parse_version_request(&["--version".to_string()]),
+            Some(CliAction::Version)
+        ));
+        assert!(matches!(
+            parse_version_request(&["-V".to_string()]),
+            Some(CliAction::Version)
+        ));
+    }
+
+    #[test]
+    fn applies_direct_build_runtime_defaults_only_when_unspecified() {
+        let mut options = CompileOptions {
+            driver_mode: DriverMode::CompileAndLink,
+            ..CompileOptions::default()
+        };
+
+        apply_cli_runtime_defaults(&mut options, false, false);
+        assert_eq!(options.runtime_entry, RuntimeEntry::Rt);
+        assert_eq!(options.library_bundle, LibraryBundle::Std);
+
+        apply_cli_runtime_defaults(&mut options, true, true);
+        assert_eq!(options.runtime_entry, RuntimeEntry::Rt);
+        assert_eq!(options.library_bundle, LibraryBundle::Std);
+
+        let mut compile_only = CompileOptions {
+            driver_mode: DriverMode::CompileOnly,
+            ..CompileOptions::default()
+        };
+        apply_cli_runtime_defaults(&mut compile_only, false, false);
+        assert_eq!(compile_only.runtime_entry, RuntimeEntry::None);
+        assert_eq!(compile_only.library_bundle, LibraryBundle::None);
+    }
+
+    #[test]
+    fn defaults_linked_output_name_to_source_stem() {
+        assert_eq!(
+            default_executable_output_name(Some("examples/hello_world.rn")),
+            format!("hello_world{}", std::env::consts::EXE_SUFFIX)
+        );
+
+        let mut options = CompileOptions {
+            input_file: Some("examples/hello_world.rn".to_string()),
+            output_file: String::new(),
+            driver_mode: DriverMode::CompileAndLink,
+            ..CompileOptions::default()
+        };
+        set_default_output_file(&mut options);
+        assert_eq!(
+            options.output_file,
+            format!("hello_world{}", std::env::consts::EXE_SUFFIX)
+        );
     }
 }

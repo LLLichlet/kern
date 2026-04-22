@@ -104,7 +104,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 let mod_ty = self.ctx.type_registry.intern(TypeKind::Module(mod_def_id));
-                self.ctx.node_types.insert(lhs.id, mod_ty);
+                self.ctx.facts.node_types.insert(lhs.id, mod_ty);
                 self.ctx
                     .record_identifier_reference(*field_span, target_info.span);
                 if target_info.kind == SymbolKind::Module {
@@ -118,7 +118,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             _ => return None,
         };
 
-        self.ctx.node_types.insert(expr.id, ty);
+        self.ctx.facts.node_types.insert(expr.id, ty);
         Some(ty)
     }
 
@@ -298,6 +298,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let payload_ty = variant.payload_type.as_ref().map(|payload_ast| {
                     let payload_ty = self
                         .ctx
+                        .facts
                         .node_types
                         .get(&payload_ast.id)
                         .copied()
@@ -330,6 +331,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     for field in &def.fields {
                         let field_ty = self
                             .ctx
+                            .facts
                             .node_types
                             .get(&field.type_node.id)
                             .copied()
@@ -674,6 +676,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             {
                 let resolved_ty = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&alias_def.target.id)
                     .copied()
@@ -696,7 +699,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             if let Some(g_expr_ptr) = global_expr_ptr {
                 let g_expr = unsafe { &*g_expr_ptr };
-                if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
+                if let Some(&actual_ty) = self.ctx.facts.node_types.get(&g_expr.id) {
                     return actual_ty;
                 }
                 let prev_scope = self.ctx.scopes.current_scope_id();
@@ -1271,7 +1274,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             // Safety: expression storage inside semantic defs is immutable during
                             // type checking; borrowing via raw pointer avoids cloning large ASTs.
                             let g_expr = unsafe { &*g_expr };
-                            if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
+                            if let Some(&actual_ty) = self.ctx.facts.node_types.get(&g_expr.id) {
                                 actual_ty
                             } else {
                                 let prev_scope = self.ctx.scopes.current_scope_id();
@@ -1295,7 +1298,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 };
 
                 let mod_ty = self.ctx.type_registry.intern(TypeKind::Module(mod_def_id));
-                self.ctx.node_types.insert(lhs.id, mod_ty);
+                self.ctx.facts.node_types.insert(lhs.id, mod_ty);
                 self.ctx
                     .record_identifier_reference(field_span, definition_span);
                 self.record_expr_timing(started, |stats, elapsed| {
@@ -1337,7 +1340,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx
                 .record_identifier_reference(field_span, resolution.candidate.definition_span);
             if let Some(owner_trait_ty) = resolution.owner_trait_ty {
-                self.ctx.trait_method_owners.insert(expr_id, owner_trait_ty);
+                self.ctx.set_trait_method_owner(expr_id, owner_trait_ty);
             }
             self.record_expr_timing(started, |stats, elapsed| {
                 stats.access_field_member_query += elapsed;
@@ -1381,11 +1384,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> Option<crate::query::MemberResolution> {
         let lhs_ty = self.resolve_tv(lhs_ty);
-        let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
+        let active_bounds_ptr = std::ptr::from_ref(self.ctx.analysis.active_bounds.as_slice());
         let current_module_id = self.cached_current_module_id();
         let mut query = MemberQuery::new(self.ctx);
         // Safety: member queries only read active generic bounds. The query may mutate other
-        // semantic state, but it does not resize or replace `ctx.active_bounds`.
+        // semantic state, but it does not resize or replace `ctx.analysis.active_bounds`.
         let env = unsafe { MemberQueryEnv::from_active_bounds(&*active_bounds_ptr) };
         query.resolve_named_member(current_module_id, lhs_ty, field, &env, span)
     }

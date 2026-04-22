@@ -233,7 +233,7 @@ fn main() i32 {
     map.for_each(.[order, gpa](key: i32, _: i32) void {
         let _ = order.push_char(gpa, (key as u8) + b'0');
     });
-    if (!order.eq("1234")) {
+    if (order != "1234") {
         return 5;
     }
 
@@ -419,7 +419,7 @@ fn main() i32 {
             let _ = ordered.push_char(gpa, (key as u8) + b'0');
         }
     });
-    if (count != 37 or !ordered.eq("23456789")) {
+    if (count != 37 or ordered != "23456789") {
         return 14;
     }
 

@@ -173,3 +173,54 @@ fn main() i32 {
         stderr
     );
 }
+
+#[test]
+fn non_decreasing_impl_does_not_trigger_unrelated_cycle_diagnostic() {
+    let output = compile_source(
+        r#"
+type Marker = trait {};
+type Need = trait {};
+
+type Wrap[T] = struct {
+    inner: T,
+};
+
+impl[T] T : Marker
+    where T: Need,
+{}
+
+impl[T] T : Need
+    where Wrap[T]: Need,
+          T: Marker,
+{}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("impl prerequisite is not structurally bounded by the impl head"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Wrap[T]: Need"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("impl requirement participates in a cyclic proof"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}

@@ -58,18 +58,6 @@ impl[T] *List[T] {
 impl[T] *List[T]
     where T: Eq[T],
 {
-    /// Compares the list contents against a slice for equality.
-    pub fn eq(other: []T) bool {
-        let items = self.as_slice();
-        if (#items != #other) return false;
-        for (let mut i = usize.{0}; i < #items; i += 1) {
-            if (items.[i] != other.[i]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     /// Returns `true` when the list begins with `prefix`.
     pub fn starts_with(prefix: []T) bool {
         return self.as_slice().starts_with(prefix);

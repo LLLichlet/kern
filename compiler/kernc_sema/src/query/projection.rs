@@ -30,6 +30,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             .collect::<FastHashMap<_, _>>();
         let substituted = crate::checker::substitute_associated_types(
             &mut self.ctx.type_registry,
+            &self.ctx.defs,
             ty,
             &assoc_binding_map,
         );
@@ -46,11 +47,25 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         let kind = self.ctx.type_registry.get(ty).clone();
         match kind {
             TypeKind::Primitive(_)
-            | TypeKind::Simd { .. }
             | TypeKind::Error
             | TypeKind::Module(_)
             | TypeKind::TypeVar(_)
             | TypeKind::Param(_) => ty,
+            // Trait method signatures and assoc targets are rewritten structurally. SIMD element
+            // types therefore must stay in the walk even if surface syntax usually spells them as
+            // builtin names like `i32x4`.
+            TypeKind::Simd { elem, lanes } => {
+                let new_elem = self.project_unbound_trait_assoc_types(
+                    elem,
+                    receiver_ty,
+                    trait_def_id,
+                    trait_args,
+                );
+                self.ctx.type_registry.intern(TypeKind::Simd {
+                    elem: new_elem,
+                    lanes,
+                })
+            }
             TypeKind::Associated(assoc_def_id, assoc_args) => {
                 let new_assoc_args = assoc_args
                     .into_iter()
@@ -474,6 +489,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         if generics.is_empty() || args.is_empty() {
             return self
                 .ctx
+                .facts
                 .node_types
                 .get(&node_id)
                 .copied()
@@ -481,12 +497,19 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         let cache_key = (node_id, args.to_vec());
-        if let Some(&field_ty) = self.ctx.field_type_subst_cache.get(&cache_key) {
+        if let Some(&field_ty) = self
+            .ctx
+            .analysis
+            .query_caches
+            .field_type_subst_cache
+            .get(&cache_key)
+        {
             return field_ty;
         }
 
         let mut field_ty = self
             .ctx
+            .facts
             .node_types
             .get(&node_id)
             .copied()
@@ -500,7 +523,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
         let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
         field_ty = subst.substitute(field_ty);
-        self.ctx.field_type_subst_cache.insert(cache_key, field_ty);
+        self.ctx
+            .analysis
+            .query_caches
+            .field_type_subst_cache
+            .insert(cache_key, field_ty);
 
         field_ty
     }

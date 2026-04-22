@@ -277,6 +277,82 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_duplicate_associated_type_definitions_in_trait() {
+    let output = compile_source(
+        r#"
+type Factory = trait {
+    type Out;
+    type Out;
+};
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("the associated type `Out` is defined multiple times"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("defined only once in the same trait or impl"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_duplicate_associated_type_definitions_in_impl() {
+    let output = compile_source(
+        r#"
+type Factory = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: Factory {
+    type Out = i32;
+    type Out = i64;
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("the associated type `Out` is defined multiple times"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("defined only once in the same trait or impl"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_ambiguous_inherited_trait_methods_from_same_parent_trait_in_generic_bound_lookup() {
     let output = compile_source(
         r#"
@@ -767,6 +843,42 @@ fn main() i32 {
     if ("lang" == text) {
         return 4;
     }
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_slice_array_eq_operator_impls() {
+    let output = build_and_run(
+        "kernc_slice_array_eq_operator_impls",
+        r#"
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+
+    if (!(slice == [4]i32.{1, 2, 3, 4})) {
+        return 1;
+    }
+    if (!([4]i32.{1, 2, 3, 4} == slice)) {
+        return 2;
+    }
+    if (slice != [4]i32.{1, 2, 3, 4}) {
+        return 3;
+    }
+    if (slice == [3]i32.{1, 2, 3}) {
+        return 4;
+    }
+
     return 0;
 }
 "#,

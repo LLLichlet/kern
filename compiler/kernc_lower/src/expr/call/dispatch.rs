@@ -15,6 +15,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let raw_callee_ty = self
             .ctx
+            .facts
             .node_types
             .get(&callee.id)
             .copied()
@@ -104,12 +105,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             inner_ty = elem;
         }
 
-        let owner_trait_ty = self
-            .ctx
-            .trait_method_owners
-            .get(&callee_id)
-            .copied()
-            .unwrap_or(inner_ty);
+        let owner_trait_ty = self.ctx.trait_method_owner(callee_id).unwrap_or(inner_ty);
         let owner_trait_ty = self.substitute_type_with_map(owner_trait_ty, subst_map);
         let owner_trait_ty = kernc_sema::query::retain_declared_trait_object_assoc_bindings(
             self.ctx,
@@ -209,9 +205,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             let method_ids_ptr = self
                 .ctx
+                .impl_index
                 .impl_methods_by_name
                 .get(&call.field)
-                .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()));
+                .map(|method_ids: &Vec<DefId>| std::ptr::from_ref(method_ids.as_slice()));
 
             if let Some(method_ids_ptr) = method_ids_ptr {
                 self.measure_phase("              lower_call_bound_impl_lookup", |this| {
@@ -242,7 +239,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 .defs
                                 .get(impl_id.0 as usize)
                                 .and_then(|def| match def {
-                                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                                    Def::Impl(impl_def) => Some(std::ptr::from_ref(&impl_def)),
                                     _ => None,
                                 })
                         else {
@@ -254,9 +251,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         let mut matched_receiver_ty = None;
                         let mut candidate_impl_args = None;
                         for search_ty in receiver_search_tys.iter().copied() {
-                            if let Some(args) = MemberQuery::new(this.ctx)
-                                .resolve_impl_applicability_for_type(search_ty, impl_id)
-                            {
+                            let args = if owner_trait_filter {
+                                // Some impl generics are fixed only by the trait obligation, not
+                                // by the receiver shape alone. Use the fully recovered owner trait
+                                // when we have it so lowering can still devirtualize inherited
+                                // generic methods after monomorphization.
+                                kernc_sema::query::resolve_trait_impl_obligation(
+                                    this.ctx,
+                                    search_ty,
+                                    owner_trait_norm,
+                                    impl_id,
+                                )
+                            } else {
+                                MemberQuery::new(this.ctx)
+                                    .resolve_impl_applicability_for_type(search_ty, impl_id)
+                            };
+                            if let Some(args) = args {
                                 matched_receiver_ty = Some(search_ty);
                                 candidate_impl_args = Some(args);
                                 break;
@@ -265,23 +275,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         let Some(matched_receiver_ty) = matched_receiver_ty else {
                             continue;
                         };
-                        let Some(mut candidate_impl_args) = candidate_impl_args else {
+                        let Some(candidate_impl_args) = candidate_impl_args else {
                             continue;
                         };
-
-                        if owner_trait_filter {
-                            let Some(resolved_args) =
-                                kernc_sema::query::resolve_trait_impl_obligation(
-                                    this.ctx,
-                                    matched_receiver_ty,
-                                    owner_trait_norm,
-                                    impl_id,
-                                )
-                            else {
-                                continue;
-                            };
-                            candidate_impl_args = resolved_args;
-                        }
 
                         let replace = match best_match.as_ref() {
                             None => true,
@@ -365,14 +361,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             } else {
                 let type_name = self.ctx.ty_to_string(norm_base);
                 let field_name = self.ctx.resolve(call.field);
-                self.ctx.emit_ice(
+                self.lower_error_expr(
+                    default_ret_ty,
                     call.span,
                     format!(
-                        "Kern ICE (Lowering): failed to devirtualize static trait method `{}` for exact type `{}`.",
+                        "cannot resolve a concrete impl for trait method `{}` on exact type `{}` during lowering",
                         field_name, type_name
                     ),
-                );
-                MastExpr::new(TypeId::ERROR, MastExprKind::Trap, call.span)
+                )
             }
         }
     }
@@ -526,20 +522,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let recv_trait_norm = self.ctx.type_registry.normalize(call.recv_trait_ty);
         let owner_trait_norm = self.ctx.type_registry.normalize(call.owner_trait_ty);
 
-        let owner_vtable_ptr = if self.trait_object_satisfies_required(recv_trait_norm, owner_trait_norm) {
+        let owner_vtable_ptr = if self
+            .trait_object_satisfies_required(recv_trait_norm, owner_trait_norm)
+        {
             vtable_ptr
         } else {
             let Some(super_slot) = self.vtable_supertrait_slot(recv_trait_norm, owner_trait_norm)
             else {
-                self.ctx.emit_ice(
+                return self.lower_error_kind(
                     call.span,
                     format!(
-                        "Kern ICE (Lowering): trait `{}` is not a supertrait of `{}` during dynamic dispatch.",
+                        "cannot dynamically dispatch through trait `{}` because it is not a supertrait of `{}`",
                         self.ctx.ty_to_string(owner_trait_norm),
                         self.ctx.ty_to_string(recv_trait_norm)
                     ),
                 );
-                return MastExprKind::Trap;
             };
 
             let super_vtable_raw = MastExpr::new(
@@ -566,15 +563,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let Some(vtable_idx) = self.direct_trait_method_slot(owner_trait_norm, call.field) else {
-            self.ctx.emit_ice(
+            return self.lower_error_kind(
                 call.span,
                 format!(
-                    "Kern ICE (Lowering): method `{}` not found in owner trait `{}`.",
+                    "trait method `{}` not found in owner trait `{}` during dynamic dispatch",
                     self.ctx.resolve(call.field),
                     self.ctx.ty_to_string(owner_trait_norm),
                 ),
             );
-            return MastExprKind::Trap;
         };
 
         // Load the function pointer from the vtable slot.
@@ -602,11 +598,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             (*ret, *is_variadic, params.clone())
         } else {
-            self.ctx.emit_ice(
+            return self.lower_error_kind(
                 call.span,
-                "Kern ICE (Lowering): Callee type of dynamic method dispatch is not a Function.",
+                "cannot lower dynamic method dispatch because the recovered callee type is not a function",
             );
-            return MastExprKind::Trap;
         };
 
         if !patched_params.is_empty() {
@@ -762,14 +757,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             (params, ret)
         } else {
             let actual_ty_str = self.ctx.ty_to_string(closure_interface_ty);
-            self.ctx.emit_ice(
+            return self.lower_error_kind(
                 span,
                 format!(
-                    "Kern ICE (Lowering): Expected `ClosureInterface`, found `{}`.",
+                    "cannot lower closure call because callee does not have a closure interface type; found `{}`",
                     actual_ty_str
                 ),
             );
-            return MastExprKind::Trap;
         };
 
         let mut patched_params = params.clone();

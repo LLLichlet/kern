@@ -124,18 +124,6 @@ impl[T] []T {
 impl[T] []T
     where T: Eq[T],
 {
-    /// Compares the slice contents against another slice for equality.
-    #[inline]
-    pub fn eq(other: []T) bool {
-        if (#self != #other) return false;
-        for (let mut i = usize.{0}; i < #self; i += 1) {
-            if (self.[i] != other.[i]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     /// Returns `true` when the slice begins with `prefix`.
     #[inline]
     pub fn starts_with(prefix: []T) bool {
@@ -214,6 +202,63 @@ impl[T] []T
             return .None;
         }
         return .{ Some: self.[0 .. #self - #suffix] };
+    }
+}
+
+impl[T] []T : Eq[[]T]
+    where T: Eq[T],
+{
+    /// Gives ordinary slices a real trait-based equality path.
+    pub fn eq(other: []T) bool {
+        if (#self != #other) {
+            return false;
+        }
+
+        for (let mut i = usize.{0}; i < #self; i += 1) {
+            if (self.[i] != other.[i]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
+
+impl[T, N: usize] []T : Eq[[N]T]
+    where T: Eq[T],
+{
+    /// Allows `[]T == [N]T` without reviving historical inherent `eq` methods.
+    pub fn eq(other: [N]T) bool {
+        if (#self != N) {
+            return false;
+        }
+
+        for (let mut i = usize.{0}; i < N; i += 1) {
+            if (self.[i] != other.[i]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
+
+impl[T, N: usize] [N]T : Eq[[]T]
+    where T: Eq[T],
+{
+    /// Keeps equality symmetric for array/slice comparisons.
+    pub fn eq(other: []T) bool {
+        if (N != #other) {
+            return false;
+        }
+
+        for (let mut i = usize.{0}; i < N; i += 1) {
+            if (self.[i] != other.[i]) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
 

@@ -1,6 +1,6 @@
 // Inspired by projection/proof selection bugs: a global impl must not supply
 // an associated type result when its own where-clause is unsatisfied.
-// stderr: cannot resolve associated type projection
+// stderr: cannot normalize associated type projection
 
 type Need = trait {};
 

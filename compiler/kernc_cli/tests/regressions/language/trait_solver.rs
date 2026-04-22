@@ -346,6 +346,7 @@ fn main() i32 {
     assert!(
         stderr.contains("type does not satisfy trait bounds")
             || stderr.contains("cannot resolve associated type projection")
+            || stderr.contains("cannot normalize associated type projection")
             || stderr.contains("mismatched types"),
         "unexpected stderr:\n{}",
         stderr
@@ -1107,6 +1108,49 @@ fn main() i32 {
     );
     assert!(
         !stderr.contains("no field or method named `make` found"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn direct_self_referential_impl_does_not_trigger_unrelated_cycle_diagnostic() {
+    let output = compile_source(
+        r#"
+type Marker = trait {};
+type Need = trait {};
+
+impl[T] T : Marker
+    where T: Need,
+{}
+
+impl[T] T : Need
+    where T: Need,
+          T: Marker,
+{}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("impl cannot require itself in its own where-clause"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(stderr.contains("T: Need"), "unexpected stderr:\n{}", stderr);
+    assert!(
+        !stderr.contains("impl requirement participates in a cyclic proof"),
         "unexpected stderr:\n{}",
         stderr
     );

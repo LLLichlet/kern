@@ -29,6 +29,7 @@
 use crate::SemaContext;
 use crate::checker::{ExprChecker, Substituter};
 use crate::def::{Def, DefId, ImplDef};
+use crate::passes::TypeResolver;
 use crate::scope::SymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast as ast;
@@ -77,7 +78,8 @@ impl<'a> MemberQueryEnv<'a> {
     ) {
         for clause in where_clauses {
             let target_ty = ctx.type_registry.normalize(
-                ctx.node_types
+                ctx.facts
+                    .node_types
                     .get(&clause.target_ty.id)
                     .copied()
                     .unwrap_or(TypeId::ERROR),
@@ -86,7 +88,8 @@ impl<'a> MemberQueryEnv<'a> {
                 .bounds
                 .iter()
                 .filter_map(|bound| {
-                    ctx.node_types
+                    ctx.facts
+                        .node_types
                         .get(&bound.id)
                         .copied()
                         .map(|bound_ty| ctx.type_registry.normalize(bound_ty))
@@ -113,7 +116,7 @@ impl<'a> MemberQueryEnv<'a> {
     }
 
     fn is_current_active_bounds(&self, ctx: &SemaContext<'_>) -> bool {
-        let current_bounds = ctx.active_bounds.as_slice();
+        let current_bounds = ctx.analysis.active_bounds.as_slice();
         matches!(
             &self.active_bounds,
             Cow::Borrowed(bounds)
@@ -121,6 +124,58 @@ impl<'a> MemberQueryEnv<'a> {
                     && std::ptr::eq(bounds.as_ptr(), current_bounds.as_ptr())
         )
     }
+}
+
+pub(crate) fn instantiated_env_trait_bounds(
+    ctx: &mut SemaContext<'_>,
+    search_ty: TypeId,
+    env_bounds: &[(TypeId, Vec<TypeId>)],
+) -> Vec<TypeId> {
+    if env_bounds.is_empty() {
+        return Vec::new();
+    }
+
+    let mut checker = ExprChecker::new(ctx, None);
+    let search_norm = checker.resolve_tv(search_ty);
+    let mut type_map = FastHashMap::default();
+    let mut const_map = FastHashMap::default();
+    let mut matches = Vec::new();
+
+    for (env_target, bound_tys) in env_bounds {
+        type_map.clear();
+        const_map.clear();
+
+        let matched = if *env_target == search_norm {
+            true
+        } else {
+            checker.match_available_type_against_requirement(
+                *env_target,
+                search_ty,
+                &mut type_map,
+                &mut const_map,
+            )
+        };
+        if !matched {
+            continue;
+        }
+
+        for &bound_ty in bound_tys {
+            let inst_bound = if type_map.is_empty() && const_map.is_empty() {
+                bound_ty
+            } else {
+                checker.substitute_type_with_unification_maps(bound_ty, &type_map, &const_map)
+            };
+            let inst_bound_norm = checker.resolve_tv(inst_bound);
+            if matches!(
+                checker.ctx.type_registry.get(inst_bound_norm),
+                TypeKind::TraitObject(..)
+            ) {
+                matches.push(inst_bound_norm);
+            }
+        }
+    }
+
+    matches
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +189,12 @@ pub enum ImplSpecificity {
     LeftMoreSpecific,
     RightMoreSpecific,
     Ambiguous,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ApplicableTraitImplHeadCandidate {
+    pub(crate) impl_id: DefId,
+    pub(crate) impl_args: Vec<crate::ty::GenericArg>,
 }
 
 pub struct MemberQuery<'a, 'ctx> {
@@ -277,6 +338,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         if can_use_cache
             && let Some(cached) = self
                 .ctx
+                .analysis
+                .query_caches
                 .member_resolution_query_cache
                 .get(&cache_key)
                 .cloned()
@@ -360,6 +423,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     ) {
         if enabled && resolution.candidate.type_id != TypeId::ERROR {
             self.ctx
+                .analysis
+                .query_caches
                 .member_resolution_query_cache
                 .insert(key, resolution.clone());
         }
@@ -500,12 +565,17 @@ pub(crate) fn instantiate_impl_trait_ty(
     impl_id: DefId,
     impl_args: &[crate::ty::GenericArg],
 ) -> Option<TypeId> {
+    if !impl_generic_args_fully_resolved(impl_args) {
+        return None;
+    }
+
     let impl_def = ctx.defs.get(impl_id.0 as usize).and_then(|def| match def {
         Def::Impl(impl_def) => Some(impl_def.clone()),
         _ => None,
     })?;
     let impl_trait_node = impl_def.trait_type.as_ref()?;
     let impl_trait_ty = ctx
+        .facts
         .node_types
         .get(&impl_trait_node.id)
         .copied()
@@ -536,29 +606,66 @@ pub(crate) fn select_most_specific_trait_impl_head(
     trait_def_id: DefId,
     trait_args: &[crate::ty::GenericArg],
 ) -> Option<(DefId, Vec<crate::ty::GenericArg>)> {
-    let trait_impl_ids = ctx.trait_impls.clone();
-    let mut selected: Option<(DefId, Vec<crate::ty::GenericArg>)> = None;
+    let mut candidates = collect_specificity_maximal_trait_impl_head_candidates(
+        ctx,
+        receiver_ty,
+        trait_def_id,
+        trait_args,
+    );
+    // Query clients use this helper to continue proof search, inject associated bindings, or pick
+    // method owners. Returning an arbitrary impl on ambiguity would fabricate solver facts in
+    // erroneous code before coherence diagnostics have a chance to fire.
+    if candidates.len() != 1 {
+        return None;
+    }
+
+    let candidate = candidates.pop().expect("length checked above");
+    Some((candidate.impl_id, candidate.impl_args))
+}
+
+pub(crate) fn collect_specificity_maximal_trait_impl_head_candidates(
+    ctx: &mut SemaContext<'_>,
+    receiver_ty: TypeId,
+    trait_def_id: DefId,
+    trait_args: &[crate::ty::GenericArg],
+) -> Vec<ApplicableTraitImplHeadCandidate> {
+    // Snapshot the impl list so candidate matching can resolve signatures and compare
+    // specificity without keeping a borrow of the index alive across recursive queries.
+    let trait_impl_ids = ctx.trait_impl_ids().to_vec();
+    let mut applicable = Vec::new();
 
     for impl_id in trait_impl_ids {
+        {
+            let mut resolver = TypeResolver::new(ctx);
+            resolver.ensure_impl_signature_types_resolved(impl_id);
+        }
+
         let Some(impl_args) =
             resolve_trait_impl_head_obligation(ctx, receiver_ty, trait_def_id, trait_args, impl_id)
         else {
             continue;
         };
 
-        let replace = match selected {
-            None => true,
-            Some((selected_impl_id, _)) => matches!(
-                compare_impl_specificity(ctx, impl_id, selected_impl_id),
-                ImplSpecificity::LeftMoreSpecific
-            ),
-        };
-        if replace {
-            selected = Some((impl_id, impl_args));
-        }
+        applicable.push(ApplicableTraitImplHeadCandidate { impl_id, impl_args });
     }
 
-    selected
+    // Keep every undominated candidate. Valid coherent code should usually leave a single impl,
+    // but retaining incomparable survivors lets callers distinguish "no proof" from "proof would
+    // be ambiguous if we kept going".
+    applicable
+        .iter()
+        .enumerate()
+        .filter(|(index, candidate)| {
+            !applicable.iter().enumerate().any(|(other_index, other)| {
+                other_index != *index
+                    && matches!(
+                        compare_impl_specificity(ctx, other.impl_id, candidate.impl_id),
+                        ImplSpecificity::LeftMoreSpecific
+                    )
+            })
+        })
+        .map(|(_, candidate)| candidate.clone())
+        .collect()
 }
 
 pub(crate) fn augment_trait_object_assoc_bindings_from_map(
@@ -578,11 +685,13 @@ pub(crate) fn augment_trait_object_assoc_bindings_from_map(
     // intermediate traits that declare no assoc types of their own. Otherwise
     // multi-hop chains like `Leaf -> Mid -> Base` lose `Base::Assoc` before the
     // next recursive step can see it.
-    merged.extend(
-        assoc_binding_map
-            .iter()
-            .map(|(assoc_id, assoc_ty)| (*assoc_id, *assoc_ty)),
-    );
+    //
+    // However, bindings already written on the current trait view are more specific than the
+    // inherited fallback map. Traversal should therefore fill missing assoc equalities, not
+    // overwrite explicit ones on the edge we are currently following.
+    for (&assoc_id, &assoc_ty) in assoc_binding_map {
+        merged.entry(assoc_id).or_insert(assoc_ty);
+    }
 
     let mut merged = merged.into_iter().collect::<Vec<_>>();
     merged.sort_by_key(|(assoc_id, _)| assoc_id.0);
@@ -755,6 +864,7 @@ fn trait_object_view_from_hierarchy_inner(
         .map(|(param, arg)| (param.name, *arg))
         .collect::<FastHashMap<_, _>>();
     let assoc_binding_map = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
+    let mut found_view = None;
 
     for super_ty in trait_def.resolved_supertraits {
         let substituted = if trait_arg_map.is_empty() {
@@ -765,9 +875,18 @@ fn trait_object_view_from_hierarchy_inner(
         };
         let substituted = crate::checker::substitute_associated_types(
             &mut ctx.type_registry,
+            &ctx.defs,
             substituted,
             &assoc_binding_map,
         );
+        // This walk returns the first matching target view. That is only sound
+        // because trait objects reaching this point must already come from a
+        // coherent impl proof: two distinct paths to the same `(trait, args)`
+        // head are expected to agree on every surviving associated binding.
+        //
+        // Historical sema bugs have violated that invariant before. Refuse to
+        // pick one path silently if two inherited views disagree on the target
+        // trait's declared assoc bindings.
         let enriched =
             augment_trait_object_assoc_bindings_from_map(ctx, substituted, &assoc_binding_map);
         if let Some(found) = trait_object_view_from_hierarchy_inner(
@@ -777,11 +896,23 @@ fn trait_object_view_from_hierarchy_inner(
             target_trait_args,
             visited,
         ) {
-            return Some(found);
+            if let Some(existing) = found_view {
+                if !target_trait_views_equivalent(ctx, existing, found) {
+                    return None;
+                }
+            } else {
+                found_view = Some(found);
+            }
         }
     }
 
-    None
+    found_view
+}
+
+fn target_trait_views_equivalent(ctx: &mut SemaContext<'_>, left: TypeId, right: TypeId) -> bool {
+    let left = retain_declared_trait_object_assoc_bindings(ctx, left);
+    let right = retain_declared_trait_object_assoc_bindings(ctx, right);
+    ctx.type_registry.normalize(left) == ctx.type_registry.normalize(right)
 }
 
 fn collect_trait_hierarchy_assoc_bindings(
@@ -808,7 +939,12 @@ fn collect_trait_hierarchy_assoc_bindings(
         && let TypeKind::TraitObject(_, _, impl_assoc_bindings) =
             ctx.type_registry.get(inst_trait_ty).clone()
     {
-        assoc_binding_map.extend(impl_assoc_bindings);
+        // The receiver may already carry explicit assoc equalities that are more specific than
+        // whatever the selected impl would infer for the same head. Enrichment should therefore
+        // complete missing bindings, not overwrite the ones written on the current trait view.
+        for (assoc_id, assoc_ty) in impl_assoc_bindings {
+            assoc_binding_map.entry(assoc_id).or_insert(assoc_ty);
+        }
     }
 
     let Some(Def::Trait(trait_def)) = ctx.defs.get(trait_def_id.0 as usize).cloned() else {
@@ -830,6 +966,7 @@ fn collect_trait_hierarchy_assoc_bindings(
         };
         let substituted = crate::checker::substitute_associated_types(
             &mut ctx.type_registry,
+            &ctx.defs,
             substituted,
             assoc_binding_map,
         );
@@ -875,12 +1012,14 @@ fn resolve_trait_impl_obligation_inner(
 
     let impl_target_ty = checker
         .ctx
+        .facts
         .node_types
         .get(&impl_def.target_type.id)
         .copied()
         .unwrap_or(TypeId::ERROR);
     let impl_trait_ty = checker
         .ctx
+        .facts
         .node_types
         .get(&impl_trait_node.id)
         .copied()
@@ -945,6 +1084,14 @@ fn resolve_trait_impl_obligation_inner(
         })
         .collect();
 
+    // A proof candidate is only usable once every impl generic has been determined from the head
+    // match and any validated where-clause obligations. Leaving an impl-local generic as
+    // `ERROR`/`ConstGeneric::Error` would let unconstrained impl parameters masquerade as a real
+    // proof.
+    if !impl_generic_args_fully_resolved(&resolved_args) {
+        return None;
+    }
+
     if ignore_target_assoc_bindings {
         return Some(resolved_args);
     }
@@ -1008,6 +1155,7 @@ fn impl_head_signature(
         _ => None,
     })?;
     let target_ty = ctx
+        .facts
         .node_types
         .get(&impl_def.target_type.id)
         .copied()
@@ -1015,7 +1163,7 @@ fn impl_head_signature(
     let trait_ty = impl_def
         .trait_type
         .as_ref()
-        .and_then(|trait_ty| ctx.node_types.get(&trait_ty.id).copied());
+        .and_then(|trait_ty| ctx.facts.node_types.get(&trait_ty.id).copied());
     let trait_ty = trait_ty.map(|trait_ty| erase_trait_assoc_bindings(ctx, trait_ty));
 
     if target_ty == TypeId::ERROR || matches!(trait_ty, Some(TypeId::ERROR)) {
@@ -1023,6 +1171,13 @@ fn impl_head_signature(
     }
 
     Some((impl_def, target_ty, trait_ty))
+}
+
+pub(crate) fn impl_generic_args_fully_resolved(args: &[crate::ty::GenericArg]) -> bool {
+    args.iter().all(|arg| match *arg {
+        crate::ty::GenericArg::Type(ty) => ty != TypeId::ERROR,
+        crate::ty::GenericArg::Const(value) => value != crate::ty::ConstGeneric::Error,
+    })
 }
 
 pub(crate) fn erase_trait_assoc_bindings(ctx: &mut SemaContext<'_>, ty: TypeId) -> TypeId {
@@ -1070,6 +1225,7 @@ fn freshen_impl_head_types(
             ast::GenericParamKind::Const { ty } => {
                 let const_ty = checker
                     .ctx
+                    .facts
                     .node_types
                     .get(&ty.id)
                     .copied()
@@ -1104,6 +1260,7 @@ pub(crate) fn impl_bounds_satisfied(
     for clause in where_clauses {
         let original_target = checker
             .ctx
+            .facts
             .node_types
             .get(&clause.target_ty.id)
             .copied()
@@ -1114,6 +1271,7 @@ pub(crate) fn impl_bounds_satisfied(
         for bound_ast in &clause.bounds {
             let original_bound = checker
                 .ctx
+                .facts
                 .node_types
                 .get(&bound_ast.id)
                 .copied()
@@ -1144,4 +1302,741 @@ fn push_member_candidate(candidates: &mut Vec<MemberCandidate>, candidate: Membe
         candidates.remove(index);
     }
     candidates.push(candidate);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::def::{AssociatedTypeDef, Def, DefId, FunctionDef, ImplDef, TraitDef};
+    use kernc_ast::Visibility;
+    use kernc_utils::Session;
+
+    #[test]
+    fn augment_trait_object_assoc_bindings_preserves_local_binding() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (trait_id, assoc_id) = add_trait_with_assoc(&mut ctx, "Base", "Out");
+
+        let local_trait_ty = ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_id,
+            vec![],
+            vec![(assoc_id, TypeId::I64)],
+        ));
+        let inherited = FastHashMap::from_iter([(assoc_id, TypeId::I32)]);
+
+        let augmented =
+            augment_trait_object_assoc_bindings_from_map(&mut ctx, local_trait_ty, &inherited);
+
+        let TypeKind::TraitObject(_, _, assoc_bindings) = ctx.type_registry.get(augmented).clone()
+        else {
+            panic!("expected trait object");
+        };
+        assert_eq!(assoc_bindings, vec![(assoc_id, TypeId::I64)]);
+    }
+
+    #[test]
+    fn augment_trait_object_assoc_bindings_adds_missing_binding() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (trait_id, assoc_id) = add_trait_with_assoc(&mut ctx, "Base", "Out");
+
+        let bare_trait_ty =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(trait_id, vec![], Vec::new()));
+        let inherited = FastHashMap::from_iter([(assoc_id, TypeId::I32)]);
+
+        let augmented =
+            augment_trait_object_assoc_bindings_from_map(&mut ctx, bare_trait_ty, &inherited);
+
+        let TypeKind::TraitObject(_, _, assoc_bindings) = ctx.type_registry.get(augmented).clone()
+        else {
+            panic!("expected trait object");
+        };
+        assert_eq!(assoc_bindings, vec![(assoc_id, TypeId::I32)]);
+    }
+
+    #[test]
+    fn bound_trait_lookup_instantiates_matched_env_target() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (trait_id, assoc_id) = add_trait_with_assoc(&mut ctx, "Base", "Out");
+        let wrap_id = DefId(400);
+        let param_t = ctx.intern("T");
+        let param_ty = ctx.type_registry.intern(TypeKind::Param(param_t));
+
+        let env_target = ctx.type_registry.intern(TypeKind::Def(
+            wrap_id,
+            vec![crate::ty::GenericArg::Type(param_ty)],
+        ));
+        let env_bound = ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_id,
+            vec![],
+            vec![(assoc_id, param_ty)],
+        ));
+        let search_ty = ctx.type_registry.intern(TypeKind::Def(
+            wrap_id,
+            vec![crate::ty::GenericArg::Type(TypeId::I32)],
+        ));
+        let env = MemberQueryEnv::from_active_bounds_owned(&[(env_target, vec![env_bound])]);
+
+        let mut query = MemberQuery::new(&mut ctx);
+        let mut matches = Vec::new();
+        query.for_each_matching_bound_trait_object(search_ty, &env, |_, bound_norm| {
+            matches.push(bound_norm);
+            false
+        });
+
+        assert_eq!(matches.len(), 1);
+        let TypeKind::TraitObject(_, _, assoc_bindings) =
+            query.context().type_registry.get(matches[0]).clone()
+        else {
+            panic!("expected trait object");
+        };
+        assert_eq!(assoc_bindings, vec![(assoc_id, TypeId::I32)]);
+    }
+
+    #[test]
+    fn trait_object_view_from_hierarchy_keeps_assoc_binding_through_coherent_diamond() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (base_id, assoc_id) = add_trait_with_assoc(&mut ctx, "Base", "Out");
+        let left_id = add_trait(&mut ctx, "Left");
+        let right_id = add_trait(&mut ctx, "Right");
+        let leaf_id = add_trait(&mut ctx, "Leaf");
+
+        let base_i64 = ctx.type_registry.intern(TypeKind::TraitObject(
+            base_id,
+            vec![],
+            vec![(assoc_id, TypeId::I64)],
+        ));
+        let bare_left =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(left_id, vec![], Vec::new()));
+        let bare_right =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(right_id, vec![], Vec::new()));
+
+        set_resolved_supertraits(&mut ctx, left_id, vec![base_i64]);
+        set_resolved_supertraits(&mut ctx, right_id, vec![base_i64]);
+        set_resolved_supertraits(&mut ctx, leaf_id, vec![bare_left, bare_right]);
+
+        let leaf_ty = ctx
+            .type_registry
+            .intern(TypeKind::TraitObject(leaf_id, vec![], Vec::new()));
+        let found = trait_object_view_from_hierarchy(&mut ctx, leaf_ty, base_id, &[])
+            .expect("expected Base view through diamond");
+
+        let TypeKind::TraitObject(found_def_id, found_args, assoc_bindings) =
+            ctx.type_registry.get(found).clone()
+        else {
+            panic!("expected trait object");
+        };
+        assert_eq!(found_def_id, base_id);
+        assert!(found_args.is_empty());
+        assert_eq!(assoc_bindings, vec![(assoc_id, TypeId::I64)]);
+    }
+
+    #[test]
+    fn trait_object_view_from_hierarchy_rejects_conflicting_assoc_binding_diamond() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (base_id, assoc_id) = add_trait_with_assoc(&mut ctx, "Base", "Out");
+        let left_id = add_trait(&mut ctx, "Left");
+        let right_id = add_trait(&mut ctx, "Right");
+        let leaf_id = add_trait(&mut ctx, "Leaf");
+
+        let base_i32 = ctx.type_registry.intern(TypeKind::TraitObject(
+            base_id,
+            vec![],
+            vec![(assoc_id, TypeId::I32)],
+        ));
+        let base_bool = ctx.type_registry.intern(TypeKind::TraitObject(
+            base_id,
+            vec![],
+            vec![(assoc_id, TypeId::BOOL)],
+        ));
+        let bare_left =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(left_id, vec![], Vec::new()));
+        let bare_right =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(right_id, vec![], Vec::new()));
+
+        set_resolved_supertraits(&mut ctx, left_id, vec![base_i32]);
+        set_resolved_supertraits(&mut ctx, right_id, vec![base_bool]);
+        set_resolved_supertraits(&mut ctx, leaf_id, vec![bare_left, bare_right]);
+
+        let leaf_ty = ctx
+            .type_registry
+            .intern(TypeKind::TraitObject(leaf_id, vec![], Vec::new()));
+
+        assert!(trait_object_view_from_hierarchy(&mut ctx, leaf_ty, base_id, &[]).is_none());
+        assert!(
+            trait_object_assoc_from_hierarchy(&mut ctx, leaf_ty, base_id, &[], assoc_id).is_none()
+        );
+    }
+
+    #[test]
+    fn declared_trait_object_view_drops_inherited_assoc_bindings() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (base_id, base_assoc_id) = add_trait_with_assoc(&mut ctx, "Base", "Out");
+        let (derived_id, derived_assoc_id) = add_trait_with_assoc(&mut ctx, "Derived", "Item");
+
+        let bare_base =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(base_id, vec![], Vec::new()));
+        set_resolved_supertraits(&mut ctx, derived_id, vec![bare_base]);
+
+        let derived_ty = ctx.type_registry.intern(TypeKind::TraitObject(
+            derived_id,
+            vec![],
+            vec![
+                (base_assoc_id, TypeId::I32),
+                (derived_assoc_id, TypeId::I64),
+            ],
+        ));
+        let declared =
+            declared_trait_object_view_from_hierarchy(&mut ctx, derived_ty, derived_id, &[])
+                .expect("expected declared Derived view");
+
+        let TypeKind::TraitObject(found_def_id, found_args, assoc_bindings) =
+            ctx.type_registry.get(declared).clone()
+        else {
+            panic!("expected trait object");
+        };
+        assert_eq!(found_def_id, derived_id);
+        assert!(found_args.is_empty());
+        assert_eq!(assoc_bindings, vec![(derived_assoc_id, TypeId::I64)]);
+    }
+
+    #[test]
+    fn select_most_specific_trait_impl_head_rejects_ambiguous_overlap() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let trait_id = add_trait(&mut ctx, "Ambiguous");
+        let param_t = ctx.intern("T");
+        let generic_target_ty = ctx.type_registry.intern(TypeKind::Param(param_t));
+        let generics = [kernc_ast::GenericParam {
+            name: param_t,
+            span: Span::default(),
+            kind: kernc_ast::GenericParamKind::Type,
+        }];
+
+        add_trait_impl(&mut ctx, &generics, generic_target_ty, trait_id, Vec::new());
+        add_trait_impl(&mut ctx, &generics, generic_target_ty, trait_id, Vec::new());
+
+        assert_eq!(
+            select_most_specific_trait_impl_head(&mut ctx, TypeId::I32, trait_id, &[]),
+            None
+        );
+    }
+
+    #[test]
+    fn enrich_trait_object_assoc_bindings_skips_ambiguous_impl_heads() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (trait_id, assoc_id) = add_trait_with_assoc(&mut ctx, "Base", "Out");
+        let param_t = ctx.intern("T");
+        let generic_target_ty = ctx.type_registry.intern(TypeKind::Param(param_t));
+        let generics = [kernc_ast::GenericParam {
+            name: param_t,
+            span: Span::default(),
+            kind: kernc_ast::GenericParamKind::Type,
+        }];
+
+        add_trait_impl(
+            &mut ctx,
+            &generics,
+            generic_target_ty,
+            trait_id,
+            vec![(assoc_id, TypeId::I32)],
+        );
+        add_trait_impl(
+            &mut ctx,
+            &generics,
+            generic_target_ty,
+            trait_id,
+            vec![(assoc_id, TypeId::BOOL)],
+        );
+
+        let bare_trait_ty =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(trait_id, vec![], Vec::new()));
+        let enriched = enrich_trait_object_assoc_bindings(&mut ctx, TypeId::I32, bare_trait_ty);
+
+        let TypeKind::TraitObject(_, _, assoc_bindings) = ctx.type_registry.get(enriched).clone()
+        else {
+            panic!("expected trait object");
+        };
+        assert!(assoc_bindings.is_empty());
+    }
+
+    #[test]
+    fn enrich_trait_object_assoc_bindings_preserves_explicit_head_binding() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (trait_id, assoc_id) = add_trait_with_assoc(&mut ctx, "Base", "Out");
+
+        add_trait_impl(
+            &mut ctx,
+            &[],
+            TypeId::I32,
+            trait_id,
+            vec![(assoc_id, TypeId::BOOL)],
+        );
+
+        let explicit_trait_ty = ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_id,
+            vec![],
+            vec![(assoc_id, TypeId::I64)],
+        ));
+        let enriched = enrich_trait_object_assoc_bindings(&mut ctx, TypeId::I32, explicit_trait_ty);
+
+        let TypeKind::TraitObject(_, _, assoc_bindings) = ctx.type_registry.get(enriched).clone()
+        else {
+            panic!("expected trait object");
+        };
+        assert_eq!(assoc_bindings, vec![(assoc_id, TypeId::I64)]);
+    }
+
+    #[test]
+    fn ambiguous_impl_method_reports_clear_diagnostic() {
+        let mut session = Session::new();
+        let resolution_type = {
+            let mut ctx = SemaContext::new(&mut session);
+            let method_name = ctx.intern("run");
+            let param_t = ctx.intern("T");
+            let generic_target_ty = ctx.type_registry.intern(TypeKind::Param(param_t));
+            let generics = [kernc_ast::GenericParam {
+                name: param_t,
+                span: Span::default(),
+                kind: kernc_ast::GenericParamKind::Type,
+            }];
+
+            add_inherent_impl_with_method(&mut ctx, &generics, generic_target_ty, method_name);
+            add_inherent_impl_with_method(&mut ctx, &generics, generic_target_ty, method_name);
+
+            let mut query = MemberQuery::new(&mut ctx);
+            let resolution = query.resolve_named_member(
+                None,
+                TypeId::I32,
+                method_name,
+                &MemberQueryEnv::default(),
+                Span::default(),
+            );
+
+            resolution
+                .expect("expected ambiguity candidate")
+                .candidate
+                .type_id
+        };
+
+        assert_eq!(resolution_type, TypeId::ERROR);
+
+        let diag = session.diagnostics.last().expect("expected diagnostic");
+        assert_eq!(diag.message, "ambiguous impl method `run`");
+        assert!(
+            diag.hints
+                .iter()
+                .any(|hint| hint.contains("equally specific impl methods"))
+        );
+        assert!(
+            diag.hints
+                .iter()
+                .any(|hint| hint.contains("conflicting impl heads"))
+        );
+    }
+
+    #[test]
+    fn ambiguous_builtin_eq_method_suggests_operator_syntax() {
+        let mut session = Session::new();
+        let resolution_type = {
+            let mut ctx = SemaContext::new(&mut session);
+            crate::BuiltinInjector::new(&mut ctx).inject();
+            let eq_trait_id = ctx.builtin_def("Eq").expect("expected builtin Eq trait");
+            let method_name = ctx.intern("eq");
+
+            add_trait_impl_with_method(
+                &mut ctx,
+                &[],
+                TypeId::I32,
+                eq_trait_id,
+                vec![crate::ty::wrap_type_arg(TypeId::BOOL)],
+                method_name,
+            );
+            add_trait_impl_with_method(
+                &mut ctx,
+                &[],
+                TypeId::I32,
+                eq_trait_id,
+                vec![crate::ty::wrap_type_arg(TypeId::I64)],
+                method_name,
+            );
+
+            let mut query = MemberQuery::new(&mut ctx);
+            let resolution = query.resolve_named_member(
+                None,
+                TypeId::I32,
+                method_name,
+                &MemberQueryEnv::default(),
+                Span::default(),
+            );
+
+            resolution
+                .expect("expected ambiguity candidate")
+                .candidate
+                .type_id
+        };
+
+        assert_eq!(resolution_type, TypeId::ERROR);
+
+        let diag = session.diagnostics.last().expect("expected diagnostic");
+        assert_eq!(diag.message, "ambiguous impl method `eq`");
+        assert!(diag.hints.iter().any(|hint| {
+            hint.contains("builtin operator trait methods still use ordinary member lookup")
+        }));
+        assert!(
+            diag.hints
+                .iter()
+                .any(|hint| { hint.contains("write `lhs == rhs` instead of `lhs.eq(rhs)`") })
+        );
+    }
+
+    #[test]
+    fn inherited_method_lookup_deduplicates_same_owner_reached_through_richer_views() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (top_id, top_assoc_id) = add_trait_with_assoc(&mut ctx, "Top", "Aux");
+        let base_id = add_trait_with_method(&mut ctx, "Base", "get");
+        let left_id = add_trait(&mut ctx, "Left");
+        let right_id = add_trait(&mut ctx, "Right");
+        let leaf_id = add_trait(&mut ctx, "Leaf");
+
+        let bare_top = ctx
+            .type_registry
+            .intern(TypeKind::TraitObject(top_id, vec![], Vec::new()));
+        set_resolved_supertraits(&mut ctx, base_id, vec![bare_top]);
+
+        let base_with_i32_aux = ctx.type_registry.intern(TypeKind::TraitObject(
+            base_id,
+            vec![],
+            vec![(top_assoc_id, TypeId::I32)],
+        ));
+        let base_with_bool_aux = ctx.type_registry.intern(TypeKind::TraitObject(
+            base_id,
+            vec![],
+            vec![(top_assoc_id, TypeId::BOOL)],
+        ));
+        let bare_left =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(left_id, vec![], Vec::new()));
+        let bare_right =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(right_id, vec![], Vec::new()));
+
+        set_resolved_supertraits(&mut ctx, left_id, vec![base_with_i32_aux]);
+        set_resolved_supertraits(&mut ctx, right_id, vec![base_with_bool_aux]);
+        set_resolved_supertraits(&mut ctx, leaf_id, vec![bare_left, bare_right]);
+
+        let leaf_ty = ctx
+            .type_registry
+            .intern(TypeKind::TraitObject(leaf_id, vec![], Vec::new()));
+        let method_name = ctx.intern("get");
+
+        let mut query = MemberQuery::new(&mut ctx);
+        let resolution = query.resolve_named_member(
+            None,
+            leaf_ty,
+            method_name,
+            &MemberQueryEnv::default(),
+            Span::default(),
+        );
+
+        assert!(resolution.is_some());
+        assert!(session.diagnostics.is_empty());
+    }
+
+    fn add_trait(ctx: &mut SemaContext<'_>, trait_name: &str) -> DefId {
+        let trait_id_value = DefId(ctx.defs.len() as u32);
+        let trait_name = ctx.intern(trait_name);
+        ctx.add_def(Def::Trait(TraitDef {
+            id: trait_id_value,
+            name: trait_name,
+            vis: Visibility::Private,
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            supertraits: Vec::new(),
+            resolved_supertraits: Vec::new(),
+            assoc_types: Vec::new(),
+            methods: Vec::new(),
+            resolved_methods: Vec::new(),
+            span: Span::default(),
+            is_builtin: false,
+            docs: None,
+        }))
+    }
+
+    fn set_resolved_supertraits(
+        ctx: &mut SemaContext<'_>,
+        trait_id: DefId,
+        resolved_supertraits: Vec<TypeId>,
+    ) {
+        let Def::Trait(trait_def) = &mut ctx.defs[trait_id.0 as usize] else {
+            panic!("expected trait");
+        };
+        trait_def.resolved_supertraits = resolved_supertraits;
+    }
+
+    fn add_trait_with_method(
+        ctx: &mut SemaContext<'_>,
+        trait_name: &str,
+        method_name: &str,
+    ) -> DefId {
+        let trait_id = add_trait(ctx, trait_name);
+        let method_name = ctx.intern(method_name);
+        let method_ty = ctx.type_registry.intern(TypeKind::Function {
+            params: Vec::new(),
+            ret: TypeId::I32,
+            is_variadic: false,
+        });
+        let type_node_id = ctx.next_node_id();
+
+        let Def::Trait(trait_def) = &mut ctx.defs[trait_id.0 as usize] else {
+            panic!("expected trait");
+        };
+        trait_def.methods.push(kernc_ast::StructFieldDef {
+            name: method_name,
+            name_span: Span::default(),
+            is_pub: false,
+            docs: None,
+            type_node: kernc_ast::TypeNode {
+                id: type_node_id,
+                kind: kernc_ast::TypeKind::Infer,
+                span: Span::default(),
+            },
+            default_value: None,
+            span: Span::default(),
+        });
+        trait_def.resolved_methods.push((method_name, method_ty));
+        trait_id
+    }
+
+    fn add_trait_with_assoc(
+        ctx: &mut SemaContext<'_>,
+        trait_name: &str,
+        assoc_name: &str,
+    ) -> (DefId, DefId) {
+        let trait_id = add_trait(ctx, trait_name);
+        let assoc_id_value = DefId(ctx.defs.len() as u32);
+        let assoc_name = ctx.intern(assoc_name);
+        let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
+            id: assoc_id_value,
+            name: assoc_name,
+            parent_trait: Some(trait_id),
+            parent_impl: None,
+            implemented_trait_assoc: None,
+            is_imported: false,
+            generics: Vec::new(),
+            bounds: Vec::new(),
+            where_clauses: Vec::new(),
+            target: None,
+            resolved_bounds: Vec::new(),
+            span: Span::default(),
+            docs: None,
+        }));
+
+        if let Def::Trait(trait_def) = &mut ctx.defs[trait_id.0 as usize] {
+            trait_def.assoc_types.push(assoc_id);
+        }
+
+        (trait_id, assoc_id)
+    }
+
+    fn add_trait_impl(
+        ctx: &mut SemaContext<'_>,
+        generics: &[kernc_ast::GenericParam],
+        target_ty: TypeId,
+        trait_id: DefId,
+        assoc_bindings: Vec<(DefId, TypeId)>,
+    ) -> DefId {
+        let target_node_id = ctx.next_node_id();
+        let trait_node_id = ctx.next_node_id();
+        let impl_id_value = DefId(ctx.defs.len() as u32);
+        let impl_id = ctx.add_def(Def::Impl(ImplDef {
+            id: impl_id_value,
+            parent_module: None,
+            is_imported: false,
+            generics: generics.to_vec(),
+            where_clauses: Vec::new(),
+            target_type: kernc_ast::TypeNode {
+                id: target_node_id,
+                kind: kernc_ast::TypeKind::Infer,
+                span: Span::default(),
+            },
+            trait_type: Some(kernc_ast::TypeNode {
+                id: trait_node_id,
+                kind: kernc_ast::TypeKind::Infer,
+                span: Span::default(),
+            }),
+            assoc_types: Vec::new(),
+            methods: Vec::new(),
+            span: Span::default(),
+        }));
+
+        let trait_ty =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(trait_id, Vec::new(), assoc_bindings));
+        ctx.facts.node_types.insert(target_node_id, target_ty);
+        ctx.facts.node_types.insert(trait_node_id, trait_ty);
+        ctx.impl_index.trait_impls.push(impl_id);
+        impl_id
+    }
+
+    fn add_trait_impl_with_method(
+        ctx: &mut SemaContext<'_>,
+        generics: &[kernc_ast::GenericParam],
+        target_ty: TypeId,
+        trait_id: DefId,
+        trait_args: Vec<crate::ty::GenericArg>,
+        method_name: SymbolId,
+    ) -> DefId {
+        let target_node_id = ctx.next_node_id();
+        let trait_node_id = ctx.next_node_id();
+        let impl_id_value = DefId(ctx.defs.len() as u32);
+        let impl_id = ctx.add_def(Def::Impl(ImplDef {
+            id: impl_id_value,
+            parent_module: None,
+            is_imported: false,
+            generics: generics.to_vec(),
+            where_clauses: Vec::new(),
+            target_type: kernc_ast::TypeNode {
+                id: target_node_id,
+                kind: kernc_ast::TypeKind::Infer,
+                span: Span::default(),
+            },
+            trait_type: Some(kernc_ast::TypeNode {
+                id: trait_node_id,
+                kind: kernc_ast::TypeKind::Infer,
+                span: Span::default(),
+            }),
+            assoc_types: Vec::new(),
+            methods: Vec::new(),
+            span: Span::default(),
+        }));
+
+        let trait_ty =
+            ctx.type_registry
+                .intern(TypeKind::TraitObject(trait_id, trait_args, Vec::new()));
+        ctx.facts.node_types.insert(target_node_id, target_ty);
+        ctx.facts.node_types.insert(trait_node_id, trait_ty);
+        ctx.impl_index.trait_impls.push(impl_id);
+
+        let method_id_value = DefId(ctx.defs.len() as u32);
+        let ret_node_id = ctx.next_node_id();
+        let method_id = ctx.add_def(Def::Function(FunctionDef {
+            id: method_id_value,
+            name: method_name,
+            name_span: Span::default(),
+            vis: Visibility::Private,
+            parent: Some(impl_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: kernc_ast::TypeNode {
+                id: ret_node_id,
+                kind: kernc_ast::TypeKind::Infer,
+                span: Span::default(),
+            },
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: None,
+            attributes: Vec::new(),
+        }));
+
+        let Def::Impl(impl_def) = &mut ctx.defs[impl_id.0 as usize] else {
+            panic!("expected impl");
+        };
+        impl_def.methods.push(method_id);
+        ctx.impl_index
+            .impl_methods_by_name
+            .entry(method_name)
+            .or_default()
+            .push(method_id);
+        impl_id
+    }
+
+    fn add_inherent_impl_with_method(
+        ctx: &mut SemaContext<'_>,
+        generics: &[kernc_ast::GenericParam],
+        target_ty: TypeId,
+        method_name: SymbolId,
+    ) -> DefId {
+        let target_node_id = ctx.next_node_id();
+        let impl_id_value = DefId(ctx.defs.len() as u32);
+        let impl_id = ctx.add_def(Def::Impl(ImplDef {
+            id: impl_id_value,
+            parent_module: None,
+            is_imported: false,
+            generics: generics.to_vec(),
+            where_clauses: Vec::new(),
+            target_type: kernc_ast::TypeNode {
+                id: target_node_id,
+                kind: kernc_ast::TypeKind::Infer,
+                span: Span::default(),
+            },
+            trait_type: None,
+            assoc_types: Vec::new(),
+            methods: Vec::new(),
+            span: Span::default(),
+        }));
+        ctx.facts.node_types.insert(target_node_id, target_ty);
+        ctx.impl_index.global_impls.push(impl_id);
+
+        let method_id_value = DefId(ctx.defs.len() as u32);
+        let ret_node_id = ctx.next_node_id();
+        let method_id = ctx.add_def(Def::Function(FunctionDef {
+            id: method_id_value,
+            name: method_name,
+            name_span: Span::default(),
+            vis: Visibility::Private,
+            parent: Some(impl_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: kernc_ast::TypeNode {
+                id: ret_node_id,
+                kind: kernc_ast::TypeKind::Infer,
+                span: Span::default(),
+            },
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: None,
+            attributes: Vec::new(),
+        }));
+
+        let Def::Impl(impl_def) = &mut ctx.defs[impl_id.0 as usize] else {
+            panic!("expected impl");
+        };
+        impl_def.methods.push(method_id);
+        ctx.impl_index
+            .impl_methods_by_name
+            .entry(method_name)
+            .or_default()
+            .push(method_id);
+        impl_id
+    }
 }

@@ -1,4 +1,4 @@
-// stderr: cannot resolve associated type projection `*Base[4].Base[4].Out`
+// stderr: cannot normalize associated type projection `*Base[4].Base[4].Out`
 
 type Base[N: usize] = trait {
     type Out;

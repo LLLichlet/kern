@@ -24,12 +24,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         callee: &Expr,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     ) -> Option<(NodeId, SymbolId, MastExpr)> {
-        let ExprKind::FieldAccess { lhs, field, .. } = &callee.kind else {
+        let (method_target, owner_node_id) = match &callee.kind {
+            ExprKind::FieldAccess { .. } => (callee, callee.id),
+            ExprKind::GenericInstantiation { target, .. } => match &target.kind {
+                ExprKind::FieldAccess { .. } => (target.as_ref(), callee.id),
+                _ => return None,
+            },
+            _ => return None,
+        };
+
+        let ExprKind::FieldAccess { lhs, field, .. } = &method_target.kind else {
             return None;
         };
 
         let lhs_ty = self
             .ctx
+            .facts
             .node_types
             .get(&lhs.id)
             .copied()
@@ -41,6 +51,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let callee_ty = self
             .ctx
+            .facts
             .node_types
             .get(&callee.id)
             .copied()
@@ -53,7 +64,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return None;
         }
 
-        Some((callee.id, *field, self.lower_expr(lhs, subst_map, None)))
+        Some((owner_node_id, *field, self.lower_expr(lhs, subst_map, None)))
     }
 
     pub(super) fn asm_config_fields<'b>(

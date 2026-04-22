@@ -436,6 +436,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             };
             let substituted = crate::checker::substitute_associated_types(
                 &mut self.ctx.type_registry,
+                &self.ctx.defs,
                 substituted,
                 &assoc_binding_map,
             );
@@ -525,7 +526,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return raw_sig;
         }
 
-        if let Some(&cached_sig) = self.ctx.call_signature_instantiation_cache.get(&callee_ty) {
+        if let Some(&cached_sig) = self
+            .ctx
+            .analysis
+            .query_caches
+            .call_signature_instantiation_cache
+            .get(&callee_ty)
+        {
             return cached_sig;
         }
 
@@ -541,6 +548,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             subst.substitute(raw_sig)
         };
         self.ctx
+            .analysis
+            .query_caches
             .call_signature_instantiation_cache
             .insert(callee_ty, sig_ty);
         sig_ty
@@ -823,10 +832,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         (norm_callee, None, None)
     }
 
+    pub(super) fn method_callee_field_access<'b>(&self, callee: &'b Expr) -> Option<&'b Expr> {
+        match &callee.kind {
+            ExprKind::FieldAccess { .. } => Some(callee),
+            ExprKind::GenericInstantiation { target, .. } => match &target.kind {
+                ExprKind::FieldAccess { .. } => Some(target),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub(crate) fn resolve_method_context(&self, callee: &Expr) -> (bool, TypeId) {
-        if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
+        if let Some(method_target) = self.method_callee_field_access(callee)
+            && let ExprKind::FieldAccess { lhs, .. } = &method_target.kind
+        {
             let callee_node_ty = self
                 .ctx
+                .facts
                 .node_types
                 .get(&callee.id)
                 .copied()
@@ -834,6 +857,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             let lhs_node_ty = self
                 .ctx
+                .facts
                 .node_types
                 .get(&lhs.id)
                 .copied()
@@ -1096,6 +1120,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         for clause in where_clauses {
             let original_target = self
                 .ctx
+                .facts
                 .node_types
                 .get(&clause.target_ty.id)
                 .copied()
@@ -1108,6 +1133,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             for bound_ast in &clause.bounds {
                 let original_bound = self
                     .ctx
+                    .facts
                     .node_types
                     .get(&bound_ast.id)
                     .copied()

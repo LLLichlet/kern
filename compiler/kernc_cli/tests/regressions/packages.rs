@@ -704,7 +704,7 @@ fn main() i32 {
     };
     text2..&.deinit(gpa);
 
-    if (!text.&.eq("kern-lang")) {
+    if (text.& != "kern-lang") {
         return 3;
     }
 

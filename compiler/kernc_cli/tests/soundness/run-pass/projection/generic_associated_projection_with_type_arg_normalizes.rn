@@ -1,0 +1,21 @@
+// class: projection-normalization
+// source: a concrete projection through a generic associated type must substitute the assoc args before normalizing
+// exit: 0
+
+type Mapper = trait {
+    type Apply[T];
+};
+
+type Id = struct {};
+
+impl Id: Mapper {
+    type Apply[T] = T;
+}
+
+fn lift(value: Id.Mapper.Apply[i32]) Id.Mapper.Apply[i32] {
+    return value;
+}
+
+fn main() i32 {
+    return lift(7) - 7;
+}

@@ -42,6 +42,40 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_duplicate_generic_parameters() {
+    let output = compile_source(
+        r#"
+fn identity[T, T](value: T) T {
+    return value;
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("the generic parameter `T` is defined multiple times"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("defined only once in the same generic parameter list"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn parses_casts_after_prefix_unary_operators() {
     let output = build_and_run_source(
         r#"

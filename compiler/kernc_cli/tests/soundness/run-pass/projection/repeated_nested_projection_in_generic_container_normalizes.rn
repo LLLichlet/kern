@@ -1,0 +1,37 @@
+// class: projection-normalization
+// source: repeated nested concrete projections inside a generic container should normalize without tripping cycle bookkeeping
+// exit: 0
+
+type Step = trait {
+    type Mid;
+};
+
+type Finish = trait {
+    type Out;
+};
+
+type Pair[T] = struct {
+    left: T,
+    right: T,
+};
+
+type Shell = struct {};
+type X = struct {};
+
+impl X: Step {
+    type Mid = Shell;
+}
+
+impl Shell: Finish {
+    type Out = i32;
+}
+
+fn sum(pair: Pair[X.Step.Mid.Finish.Out]) i32 {
+    return pair.left + pair.right;
+}
+
+fn main() i32 {
+    let pair = Pair[X.Step.Mid.Finish.Out].{ left: 7, right: 9 };
+    let size = @sizeOf[Pair[X.Step.Mid.Finish.Out]]();
+    return if (sum(pair) == 16 and size == 8) { 0 } else { 1 };
+}

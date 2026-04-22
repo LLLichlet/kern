@@ -87,7 +87,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             generic_args.to_vec(),
             member_name,
         );
-        if let Some(cached) = self.ctx.named_field_query_cache.get(&cache_key).cloned() {
+        if let Some(cached) = self
+            .ctx
+            .analysis
+            .query_caches
+            .named_field_query_cache
+            .get(&cache_key)
+            .cloned()
+        {
             return cached;
         }
 
@@ -106,7 +113,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         .iter()
                         .find(|field| field.name == member_name)
                     else {
-                        self.ctx.named_field_query_cache.insert(cache_key, None);
+                        self.ctx
+                            .analysis
+                            .query_caches
+                            .named_field_query_cache
+                            .insert(cache_key, None);
                         return None;
                     };
                     if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
@@ -146,6 +157,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         is_mut: false,
                     };
                     self.ctx
+                        .analysis
+                        .query_caches
                         .named_field_query_cache
                         .insert(cache_key, Some(candidate.clone()));
                     Some(candidate)
@@ -156,7 +169,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         .iter()
                         .find(|field| field.name == member_name)
                     else {
-                        self.ctx.named_field_query_cache.insert(cache_key, None);
+                        self.ctx
+                            .analysis
+                            .query_caches
+                            .named_field_query_cache
+                            .insert(cache_key, None);
                         return None;
                     };
                     if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
@@ -196,6 +213,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         is_mut: false,
                     };
                     self.ctx
+                        .analysis
+                        .query_caches
                         .named_field_query_cache
                         .insert(cache_key, Some(candidate.clone()));
                     Some(candidate)
@@ -225,12 +244,18 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             Some(access_span),
         ) {
             if let Some(started) = started {
-                self.ctx.expr_timing_stats.access_field_query_trait_object += started.elapsed();
+                self.ctx
+                    .analysis
+                    .expr_timing_stats
+                    .access_field_query_trait_object += started.elapsed();
             }
             return Some(resolution);
         }
         if let Some(started) = started {
-            self.ctx.expr_timing_stats.access_field_query_trait_object += started.elapsed();
+            self.ctx
+                .analysis
+                .expr_timing_stats
+                .access_field_query_trait_object += started.elapsed();
         }
 
         let started = self.ctx.collects_timings().then(Instant::now);
@@ -248,7 +273,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             )
         {
             if let Some(started) = started {
-                self.ctx.expr_timing_stats.access_field_query_named_type += started.elapsed();
+                self.ctx
+                    .analysis
+                    .expr_timing_stats
+                    .access_field_query_named_type += started.elapsed();
             }
             return Some(MemberResolution {
                 candidate,
@@ -256,7 +284,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             });
         }
         if let Some(started) = started {
-            self.ctx.expr_timing_stats.access_field_query_named_type += started.elapsed();
+            self.ctx
+                .analysis
+                .expr_timing_stats
+                .access_field_query_named_type += started.elapsed();
         }
 
         if let TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) =
@@ -281,23 +312,23 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             self.resolve_bound_member(search_norm, receiver_ty, member_name, env, access_span)
         {
             if let Some(started) = started {
-                self.ctx.expr_timing_stats.access_field_query_bound += started.elapsed();
+                self.ctx.analysis.expr_timing_stats.access_field_query_bound += started.elapsed();
             }
             return Some(resolution);
         }
         if let Some(started) = started {
-            self.ctx.expr_timing_stats.access_field_query_bound += started.elapsed();
+            self.ctx.analysis.expr_timing_stats.access_field_query_bound += started.elapsed();
         }
 
         let started = self.ctx.collects_timings().then(Instant::now);
         let resolution = self
-            .resolve_named_impl_method(search_norm, member_name)
+            .resolve_named_impl_method(search_norm, member_name, Some(access_span))
             .map(|candidate| MemberResolution {
                 candidate,
                 owner_trait_ty: None,
             });
         if let Some(started) = started {
-            self.ctx.expr_timing_stats.access_field_query_impl += started.elapsed();
+            self.ctx.analysis.expr_timing_stats.access_field_query_impl += started.elapsed();
         }
         if resolution.is_some() {
             return resolution;

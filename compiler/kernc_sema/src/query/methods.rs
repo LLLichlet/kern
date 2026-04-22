@@ -1,7 +1,41 @@
 use super::*;
 use crate::ty::GenericArg;
 
+#[derive(Debug, Clone)]
+struct ApplicableImplMethodCandidate {
+    impl_id: DefId,
+    method_id: DefId,
+    method_span: Span,
+    impl_args: Vec<GenericArg>,
+}
+
+#[derive(Clone, Copy)]
+enum BuiltinOperatorMethodShape {
+    Binary(&'static str),
+    UnaryPrefix(&'static str),
+}
+
 impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
+    fn same_inherited_method_resolution(
+        &self,
+        left: &MemberResolution,
+        right: &MemberResolution,
+    ) -> bool {
+        left.candidate.name == right.candidate.name
+            && left.candidate.kind == right.candidate.kind
+            && left.candidate.def_id == right.candidate.def_id
+            && left.candidate.definition_span == right.candidate.definition_span
+            && left.candidate.is_mut == right.candidate.is_mut
+            && self.ctx.type_registry.normalize(left.candidate.type_id)
+                == self.ctx.type_registry.normalize(right.candidate.type_id)
+            && left
+                .owner_trait_ty
+                .map(|ty| self.ctx.type_registry.normalize(ty))
+                == right
+                    .owner_trait_ty
+                    .map(|ty| self.ctx.type_registry.normalize(ty))
+    }
+
     pub(super) fn collect_bound_method_candidates(
         &mut self,
         search_norm: TypeId,
@@ -63,7 +97,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return false;
         }
 
-        let current_bounds = self.ctx.active_bounds.as_slice();
+        let current_bounds = self.ctx.analysis.active_bounds.as_slice();
         let can_use_cache = matches!(
             &env.active_bounds,
             Cow::Borrowed(bounds)
@@ -72,8 +106,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         );
 
         if can_use_cache
-            && let Some(cached_matches) =
-                self.ctx.bound_trait_match_cache.get(&search_norm).cloned()
+            && let Some(cached_matches) = self
+                .ctx
+                .analysis
+                .query_caches
+                .bound_trait_match_cache
+                .get(&search_norm)
+                .cloned()
         {
             for bound_norm in cached_matches {
                 if visit(self, bound_norm) {
@@ -88,31 +127,31 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         } else {
             None
         };
-        for (env_target, bound_tys) in env.active_bounds() {
-            if *env_target != search_norm {
-                continue;
-            }
+        let matched_trait_bounds =
+            crate::query::instantiated_env_trait_bounds(self.ctx, search_norm, env.active_bounds());
 
-            for bound_ty in bound_tys.iter().copied() {
-                if matches!(
-                    self.ctx.type_registry.get(bound_ty),
-                    TypeKind::TraitObject(..)
-                ) {
-                    if let Some(bounds) = matched_bounds.as_mut() {
-                        bounds.push(bound_ty);
-                    }
-                    if visit(self, bound_ty) {
-                        if let Some(bounds) = matched_bounds {
-                            self.ctx.bound_trait_match_cache.insert(search_norm, bounds);
-                        }
-                        return true;
-                    }
+        for bound_norm in matched_trait_bounds {
+            if let Some(bounds) = matched_bounds.as_mut() {
+                bounds.push(bound_norm);
+            }
+            if visit(self, bound_norm) {
+                if let Some(bounds) = matched_bounds {
+                    self.ctx
+                        .analysis
+                        .query_caches
+                        .bound_trait_match_cache
+                        .insert(search_norm, bounds);
                 }
+                return true;
             }
         }
 
         if let Some(bounds) = matched_bounds {
-            self.ctx.bound_trait_match_cache.insert(search_norm, bounds);
+            self.ctx
+                .analysis
+                .query_caches
+                .bound_trait_match_cache
+                .insert(search_norm, bounds);
         }
 
         false
@@ -123,9 +162,9 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_norm: TypeId,
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        let impl_count = self.ctx.global_impls.len();
+        let impl_count = self.ctx.impl_index.global_impls.len();
         for impl_index in 0..impl_count {
-            let impl_id = self.ctx.global_impls[impl_index];
+            let impl_id = self.ctx.impl_index.global_impls[impl_index];
             let Some(impl_ptr) = self
                 .ctx
                 .defs
@@ -172,74 +211,292 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         receiver_norm: TypeId,
         member_name: SymbolId,
+        diagnostic_span: Option<Span>,
     ) -> Option<MemberCandidate> {
         let receiver_norm = self.ctx.type_registry.normalize(receiver_norm);
         let cache_key = (receiver_norm, member_name);
-        if let Some(cached) = self.ctx.impl_method_query_cache.get(&cache_key).cloned() {
+        if let Some(cached) = self
+            .ctx
+            .analysis
+            .query_caches
+            .impl_method_query_cache
+            .get(&cache_key)
+            .cloned()
+        {
             return cached;
         }
 
-        let method_ids_ptr = self
-            .ctx
-            .impl_methods_by_name
-            .get(&member_name)
-            .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()))?;
-
-        // Safety: method-name indexes are immutable during member lookup.
-        let method_ids = unsafe { &*method_ids_ptr };
-        let mut best_match: Option<(DefId, DefId, Span, Vec<GenericArg>)> = None;
-        for &method_id in method_ids {
-            let Some((impl_id, function_name_span)) = self
-                .ctx
-                .defs
-                .get(method_id.0 as usize)
-                .and_then(|def| match def {
-                    Def::Function(function) => {
-                        function.parent.map(|parent| (parent, function.name_span))
-                    }
-                    _ => None,
-                })
-            else {
-                continue;
-            };
-
-            let Some(resolved_impl_args) = self.resolve_impl_applicability(receiver_norm, impl_id)
-            else {
-                continue;
-            };
-
-            let replace = match best_match.as_ref() {
-                None => true,
-                Some((best_impl_id, ..)) => matches!(
-                    super::compare_impl_specificity(self.ctx, impl_id, *best_impl_id),
-                    super::ImplSpecificity::LeftMoreSpecific
-                ),
-            };
-            if replace {
-                best_match = Some((impl_id, method_id, function_name_span, resolved_impl_args));
+        let candidates =
+            self.collect_specificity_maximal_impl_method_candidates(receiver_norm, member_name)?;
+        if candidates.len() > 1 {
+            if let Some(span) = diagnostic_span {
+                self.emit_ambiguous_impl_method_diagnostic(
+                    span,
+                    receiver_norm,
+                    member_name,
+                    &candidates,
+                );
             }
+
+            let first = &candidates[0];
+            return Some(MemberCandidate {
+                name: member_name,
+                kind: SymbolKind::Function,
+                type_id: TypeId::ERROR,
+                def_id: Some(first.method_id),
+                definition_span: first.method_span,
+                is_mut: false,
+            });
         }
 
-        if let Some((_, method_id, function_name_span, resolved_impl_args)) = best_match {
+        if let Some(ApplicableImplMethodCandidate {
+            method_id,
+            method_span,
+            impl_args,
+            ..
+        }) = candidates.into_iter().next()
+        {
             let candidate = MemberCandidate {
                 name: member_name,
                 kind: SymbolKind::Function,
                 type_id: self
                     .ctx
                     .type_registry
-                    .intern(TypeKind::FnDef(method_id, resolved_impl_args)),
+                    .intern(TypeKind::FnDef(method_id, impl_args)),
                 def_id: Some(method_id),
-                definition_span: function_name_span,
+                definition_span: method_span,
                 is_mut: false,
             };
-            self.ctx
-                .impl_method_query_cache
-                .insert(cache_key, Some(candidate.clone()));
+            if candidate.type_id != TypeId::ERROR {
+                self.ctx
+                    .analysis
+                    .query_caches
+                    .impl_method_query_cache
+                    .insert(cache_key, Some(candidate.clone()));
+            }
             return Some(candidate);
         }
 
-        self.ctx.impl_method_query_cache.insert(cache_key, None);
+        self.ctx
+            .analysis
+            .query_caches
+            .impl_method_query_cache
+            .insert(cache_key, None);
         None
+    }
+
+    fn collect_specificity_maximal_impl_method_candidates(
+        &mut self,
+        receiver_norm: TypeId,
+        member_name: SymbolId,
+    ) -> Option<Vec<ApplicableImplMethodCandidate>> {
+        let method_ids_ptr = self
+            .ctx
+            .impl_index
+            .impl_methods_by_name
+            .get(&member_name)
+            .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()))?;
+
+        // Safety: method-name indexes are immutable during member lookup.
+        let method_ids = unsafe { &*method_ids_ptr };
+        let mut applicable = Vec::new();
+        for &method_id in method_ids {
+            let Some((impl_id, method_span)) =
+                self.ctx
+                    .defs
+                    .get(method_id.0 as usize)
+                    .and_then(|def| match def {
+                        Def::Function(function) => {
+                            function.parent.map(|parent| (parent, function.name_span))
+                        }
+                        _ => None,
+                    })
+            else {
+                continue;
+            };
+
+            let Some(impl_args) = self.resolve_impl_applicability(receiver_norm, impl_id) else {
+                continue;
+            };
+
+            applicable.push(ApplicableImplMethodCandidate {
+                impl_id,
+                method_id,
+                method_span,
+                impl_args,
+            });
+        }
+
+        if applicable.is_empty() {
+            return None;
+        }
+
+        Some(
+            applicable
+                .iter()
+                .enumerate()
+                .filter(|(index, candidate)| {
+                    !applicable.iter().enumerate().any(|(other_index, other)| {
+                        other_index != *index
+                            && matches!(
+                                super::compare_impl_specificity(
+                                    self.ctx,
+                                    other.impl_id,
+                                    candidate.impl_id,
+                                ),
+                                super::ImplSpecificity::LeftMoreSpecific
+                            )
+                    })
+                })
+                .map(|(_, candidate)| candidate.clone())
+                .collect(),
+        )
+    }
+
+    fn emit_ambiguous_impl_method_diagnostic(
+        &mut self,
+        span: Span,
+        receiver_ty: TypeId,
+        member_name: SymbolId,
+        candidates: &[ApplicableImplMethodCandidate],
+    ) {
+        let member_name_str = self.ctx.resolve(member_name).to_string();
+        let receiver_ty_str = self.ctx.ty_to_string(receiver_ty);
+        let impl_heads = candidates
+            .iter()
+            .filter_map(|candidate| self.describe_impl_head(candidate.impl_id))
+            .collect::<Vec<_>>();
+        let candidate_spans = candidates
+            .iter()
+            .take(2)
+            .filter_map(
+                |candidate| match self.ctx.defs.get(candidate.impl_id.0 as usize) {
+                    Some(Def::Impl(impl_def)) => Some(impl_def.span),
+                    _ => None,
+                },
+            )
+            .collect::<Vec<_>>();
+        let builtin_operator_hints = self.builtin_operator_method_hints(member_name, candidates);
+        let mut diagnostic = self
+            .ctx
+            .struct_error(span, format!("ambiguous impl method `{}`", member_name_str));
+        diagnostic = diagnostic.with_hint(format!(
+            "multiple equally specific impl methods named `{}` apply to receiver type `{}`",
+            member_name_str, receiver_ty_str
+        ));
+        diagnostic = diagnostic.with_hint(
+            "remove the overlap or make one impl head strictly more specific so method lookup has a unique result",
+        );
+        diagnostic = diagnostic.with_hint(
+            "Kern method lookup resolves by receiver type and method name before argument typing; same-name methods on the same receiver do not overload by parameter type",
+        );
+        diagnostic = diagnostic.with_hint(
+            "if these methods were meant to express different operations, prefer distinct names or an operator/helper with explicit dispatch",
+        );
+        if let Some(hints) = builtin_operator_hints {
+            for hint in hints {
+                diagnostic = diagnostic.with_hint(hint);
+            }
+        }
+        if !impl_heads.is_empty() {
+            diagnostic =
+                diagnostic.with_hint(format!("conflicting impl heads: {}", impl_heads.join(", ")));
+        }
+        for candidate_span in candidate_spans {
+            diagnostic = diagnostic
+                .with_span_label(candidate_span, "equally specific impl method applies here");
+        }
+        diagnostic.emit();
+    }
+
+    fn builtin_operator_method_hints(
+        &mut self,
+        member_name: SymbolId,
+        candidates: &[ApplicableImplMethodCandidate],
+    ) -> Option<[String; 2]> {
+        let trait_name = self.common_builtin_trait_name(candidates)?;
+        let member_name_str = self.ctx.resolve(member_name);
+        let Some(shape) = builtin_operator_method_shape(&trait_name, member_name_str) else {
+            return None;
+        };
+
+        let syntax_hint = match shape {
+            BuiltinOperatorMethodShape::Binary(op) => format!(
+                "if you meant builtin `{}`, write `lhs {} rhs` instead of `lhs.{}(rhs)`",
+                trait_name, op, member_name_str
+            ),
+            BuiltinOperatorMethodShape::UnaryPrefix(op) => format!(
+                "if you meant builtin `{}`, write `{}value` instead of `value.{}()`",
+                trait_name, op, member_name_str
+            ),
+        };
+
+        Some([
+            "builtin operator trait methods still use ordinary member lookup; they do not gain parameter-based overload resolution".to_string(),
+            syntax_hint,
+        ])
+    }
+
+    fn common_builtin_trait_name(
+        &mut self,
+        candidates: &[ApplicableImplMethodCandidate],
+    ) -> Option<String> {
+        let mut common = None;
+
+        for candidate in candidates {
+            let Def::Impl(impl_def) = self.ctx.defs.get(candidate.impl_id.0 as usize)? else {
+                return None;
+            };
+            let trait_ty_node = impl_def.trait_type.as_ref()?;
+            let trait_ty = self.ctx.normalized_node_type_or_error(trait_ty_node.id);
+            let TypeKind::TraitObject(trait_def_id, ..) =
+                self.ctx.type_registry.get(trait_ty).clone()
+            else {
+                return None;
+            };
+            let Def::Trait(trait_def) = self.ctx.defs.get(trait_def_id.0 as usize)? else {
+                return None;
+            };
+            if !trait_def.is_builtin {
+                return None;
+            }
+            let trait_name = self.ctx.resolve(trait_def.name).to_string();
+            match common {
+                Some(ref existing) if existing != &trait_name => return None,
+                Some(_) => {}
+                None => common = Some(trait_name),
+            }
+        }
+
+        common
+    }
+
+    fn describe_impl_head(&mut self, impl_id: DefId) -> Option<String> {
+        let Def::Impl(impl_def) = self.ctx.defs.get(impl_id.0 as usize)?.clone() else {
+            return None;
+        };
+        let target_ty = self
+            .ctx
+            .normalized_node_type_or_error(impl_def.target_type.id);
+        if target_ty == TypeId::ERROR {
+            return None;
+        }
+
+        match impl_def.trait_type {
+            Some(trait_ty_node) => {
+                let trait_ty = self.ctx.normalized_node_type_or_error(trait_ty_node.id);
+                if trait_ty == TypeId::ERROR {
+                    None
+                } else {
+                    Some(format!(
+                        "`{}: {}`",
+                        self.ctx.ty_to_string(target_ty),
+                        self.ctx.ty_to_string(trait_ty)
+                    ))
+                }
+            }
+            None => Some(format!("`impl {}`", self.ctx.ty_to_string(target_ty))),
+        }
     }
 
     pub(super) fn resolve_named_invalid_impl_method(
@@ -249,6 +506,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     ) -> Option<MemberCandidate> {
         let method_ids_ptr = self
             .ctx
+            .impl_index
             .impl_methods_by_name
             .get(&member_name)
             .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()))?;
@@ -296,6 +554,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
             let impl_target_ty = self
                 .ctx
+                .facts
                 .node_types
                 .get(&impl_def.target_type.id)
                 .copied()
@@ -331,7 +590,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         impl_id: DefId,
     ) -> Option<Vec<crate::ty::GenericArg>> {
         let cache_key = (receiver_norm, impl_id);
-        if let Some(cached) = self.ctx.impl_applicability_cache.get(&cache_key).cloned() {
+        if let Some(cached) = self
+            .ctx
+            .analysis
+            .query_caches
+            .impl_applicability_cache
+            .get(&cache_key)
+            .cloned()
+        {
             return cached;
         }
 
@@ -347,13 +613,19 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         _ => None,
                     })
             else {
-                checker.ctx.impl_applicability_cache.insert(cache_key, None);
+                checker
+                    .ctx
+                    .analysis
+                    .query_caches
+                    .impl_applicability_cache
+                    .insert(cache_key, None);
                 return None;
             };
 
             let impl_def = unsafe { &*impl_ptr };
             let impl_target_ty = checker
                 .ctx
+                .facts
                 .node_types
                 .get(&impl_def.target_type.id)
                 .copied()
@@ -395,28 +667,37 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 ) {
                     None
                 } else {
-                    Some(
-                        impl_def
-                            .generics
-                            .iter()
-                            .map(|param| match &param.kind {
-                                ast::GenericParamKind::Type => GenericArg::Type(
-                                    type_map.get(&param.name).copied().unwrap_or(TypeId::ERROR),
-                                ),
-                                ast::GenericParamKind::Const { .. } => GenericArg::Const(
-                                    const_map
-                                        .get(&param.name)
-                                        .copied()
-                                        .unwrap_or(crate::ty::ConstGeneric::Error),
-                                ),
-                            })
-                            .collect::<Vec<_>>(),
-                    )
+                    let resolved_args = impl_def
+                        .generics
+                        .iter()
+                        .map(|param| match &param.kind {
+                            ast::GenericParamKind::Type => GenericArg::Type(
+                                type_map.get(&param.name).copied().unwrap_or(TypeId::ERROR),
+                            ),
+                            ast::GenericParamKind::Const { .. } => GenericArg::Const(
+                                const_map
+                                    .get(&param.name)
+                                    .copied()
+                                    .unwrap_or(crate::ty::ConstGeneric::Error),
+                            ),
+                        })
+                        .collect::<Vec<_>>();
+
+                    // Method lookup must reject impls whose local generics were never solved from
+                    // the receiver match. Otherwise `impl[T] X: Trait` would incorrectly expose
+                    // `Trait` methods on `X` even though no concrete proof exists.
+                    if crate::query::impl_generic_args_fully_resolved(&resolved_args) {
+                        Some(resolved_args)
+                    } else {
+                        None
+                    }
                 }
             }
         };
 
         self.ctx
+            .analysis
+            .query_caches
             .impl_applicability_cache
             .insert(cache_key, resolved_args.clone());
         resolved_args
@@ -460,7 +741,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         };
 
         let cache_key = (trait_object_ty, member_name, receiver_ty);
-        if let Some(cached) = self.ctx.trait_method_query_cache.get(&cache_key).cloned() {
+        if let Some(cached) = self
+            .ctx
+            .analysis
+            .query_caches
+            .trait_method_query_cache
+            .get(&cache_key)
+            .cloned()
+        {
             return Some(cached);
         }
 
@@ -478,6 +766,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         );
         if let Some(resolution) = resolution.clone() {
             self.ctx
+                .analysis
+                .query_caches
                 .trait_method_query_cache
                 .insert(cache_key, resolution);
         }
@@ -584,6 +874,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let substituted = subst.substitute(super_ty);
                 crate::checker::substitute_associated_types(
                     &mut self.ctx.type_registry,
+                    &self.ctx.defs,
                     substituted,
                     &assoc_binding_map,
                 )
@@ -592,6 +883,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             } else {
                 crate::checker::substitute_associated_types(
                     &mut self.ctx.type_registry,
+                    &self.ctx.defs,
                     super_ty,
                     &assoc_binding_map,
                 )
@@ -737,6 +1029,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 let substituted = subst.substitute(super_ty);
                 crate::checker::substitute_associated_types(
                     &mut self.ctx.type_registry,
+                    &self.ctx.defs,
                     substituted,
                     &assoc_binding_map,
                 )
@@ -745,6 +1038,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             } else {
                 crate::checker::substitute_associated_types(
                     &mut self.ctx.type_registry,
+                    &self.ctx.defs,
                     super_ty,
                     &assoc_binding_map,
                 )
@@ -780,6 +1074,18 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             }
         }
 
+        let mut unique_matches = Vec::new();
+        for resolution in matches {
+            if unique_matches
+                .iter()
+                .any(|existing| self.same_inherited_method_resolution(existing, &resolution))
+            {
+                continue;
+            }
+            unique_matches.push(resolution);
+        }
+        let matches = unique_matches;
+
         if matches.len() > 1 {
             if let Some(span) = diagnostic_span {
                 let owners = matches
@@ -805,5 +1111,32 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         matches.into_iter().next()
+    }
+}
+
+fn builtin_operator_method_shape(
+    trait_name: &str,
+    method_name: &str,
+) -> Option<BuiltinOperatorMethodShape> {
+    match (trait_name, method_name) {
+        ("Eq", "eq") => Some(BuiltinOperatorMethodShape::Binary("==")),
+        ("Lt", "lt") => Some(BuiltinOperatorMethodShape::Binary("<")),
+        ("Le", "le") => Some(BuiltinOperatorMethodShape::Binary("<=")),
+        ("Gt", "gt") => Some(BuiltinOperatorMethodShape::Binary(">")),
+        ("Ge", "ge") => Some(BuiltinOperatorMethodShape::Binary(">=")),
+        ("Add", "add") => Some(BuiltinOperatorMethodShape::Binary("+")),
+        ("Sub", "sub") => Some(BuiltinOperatorMethodShape::Binary("-")),
+        ("Mul", "mul") => Some(BuiltinOperatorMethodShape::Binary("*")),
+        ("Div", "div") => Some(BuiltinOperatorMethodShape::Binary("/")),
+        ("Rem", "rem") => Some(BuiltinOperatorMethodShape::Binary("%")),
+        ("BitAnd", "bit_and") => Some(BuiltinOperatorMethodShape::Binary("&")),
+        ("BitOr", "bit_or") => Some(BuiltinOperatorMethodShape::Binary("|")),
+        ("BitXor", "bit_xor") => Some(BuiltinOperatorMethodShape::Binary("^")),
+        ("Shl", "shl") => Some(BuiltinOperatorMethodShape::Binary("<<")),
+        ("Shr", "shr") => Some(BuiltinOperatorMethodShape::Binary(">>")),
+        ("Neg", "neg") => Some(BuiltinOperatorMethodShape::UnaryPrefix("-")),
+        ("Not", "not") => Some(BuiltinOperatorMethodShape::UnaryPrefix("!")),
+        ("BitNot", "bit_not") => Some(BuiltinOperatorMethodShape::UnaryPrefix("~")),
+        _ => None,
     }
 }

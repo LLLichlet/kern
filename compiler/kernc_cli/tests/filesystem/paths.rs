@@ -10,33 +10,33 @@ fn main() i32 {
     let path = "/tmp/kern/archive.tar";
 
     if (!fs.file_name(path).is_some_and(.[](name: []u8) bool {
-        return name.eq("archive.tar");
+        return name == "archive.tar";
     })) {
         return 1;
     }
     if (!fs.parent(path).is_some_and(.[](dir: []u8) bool {
-        return dir.eq("/tmp/kern");
+        return dir == "/tmp/kern";
     })) {
         return 2;
     }
     if (!fs.extension(path).is_some_and(.[](ext: []u8) bool {
-        return ext.eq("tar");
+        return ext == "tar";
     })) {
         return 3;
     }
     if (!fs.file_stem(path).is_some_and(.[](stem: []u8) bool {
-        return stem.eq("archive");
+        return stem == "archive";
     })) {
         return 4;
     }
 
     if (!fs.parent("/tmp/kern/").is_some_and(.[](dir: []u8) bool {
-        return dir.eq("/tmp");
+        return dir == "/tmp";
     })) {
         return 5;
     }
     if (!fs.parent("/tmp").is_some_and(.[](dir: []u8) bool {
-        return dir.eq("/");
+        return dir == "/";
     })) {
         return 6;
     }
@@ -51,7 +51,7 @@ fn main() i32 {
     }
 
     if (!fs.file_stem(".gitignore").is_some_and(.[](stem: []u8) bool {
-        return stem.eq(".gitignore");
+        return stem == ".gitignore";
     })) {
         return 10;
     }
@@ -59,7 +59,7 @@ fn main() i32 {
         return 11;
     }
     if (!fs.file_stem("config.").is_some_and(.[](stem: []u8) bool {
-        return stem.eq("config");
+        return stem == "config";
     })) {
         return 12;
     }
@@ -97,7 +97,7 @@ fn main() i32 {
         .{ Err: _ } => return 1,
     };
     defer joined..&.deinit(gpa);
-    if (!joined.&.eq("/tmp/kern/src/main.rn")) {
+    if (joined.& != "/tmp/kern/src/main.rn") {
         return 2;
     }
 
@@ -106,7 +106,7 @@ fn main() i32 {
         .{ Err: _ } => return 3,
     };
     defer bare..&.deinit(gpa);
-    if (!bare.&.eq("note.txt")) {
+    if (bare.& != "note.txt") {
         return 4;
     }
 
@@ -115,7 +115,7 @@ fn main() i32 {
         .{ Err: _ } => return 5,
     };
     defer rooted..&.deinit(gpa);
-    if (!rooted.&.eq("/etc/passwd")) {
+    if (rooted.& != "/etc/passwd") {
         return 6;
     }
 
@@ -124,7 +124,7 @@ fn main() i32 {
         .{ Err: _ } => return 7,
     };
     defer normalized..&.deinit(gpa);
-    if (!normalized.&.eq("/tmp/kern/out/file.txt")) {
+    if (normalized.& != "/tmp/kern/out/file.txt") {
         return 8;
     }
 
@@ -133,7 +133,7 @@ fn main() i32 {
         .{ Err: _ } => return 9,
     };
     defer relative..&.deinit(gpa);
-    if (!relative.&.eq("alpha/gamma")) {
+    if (relative.& != "alpha/gamma") {
         return 10;
     }
 
@@ -142,7 +142,7 @@ fn main() i32 {
         .{ Err: _ } => return 11,
     };
     defer escaped..&.deinit(gpa);
-    if (!escaped.&.eq("../../beta")) {
+    if (escaped.& != "../../beta") {
         return 12;
     }
 
@@ -151,7 +151,7 @@ fn main() i32 {
         .{ Err: _ } => return 13,
     };
     defer root..&.deinit(gpa);
-    if (!root.&.eq("/")) {
+    if (root.& != "/") {
         return 14;
     }
 
@@ -160,7 +160,7 @@ fn main() i32 {
         .{ Err: _ } => return 15,
     };
     defer empty..&.deinit(gpa);
-    if (!empty.&.eq(".")) {
+    if (empty.& != ".") {
         return 16;
     }
 
@@ -194,7 +194,7 @@ fn main() i32 {
         .{ Err: _ } => return 1,
     };
     defer renamed..&.deinit(gpa);
-    if (!renamed.&.eq("/tmp/kern/lib.rn")) {
+    if (renamed.& != "/tmp/kern/lib.rn") {
         return 2;
     }
 
@@ -203,7 +203,7 @@ fn main() i32 {
         .{ Err: _ } => return 3,
     };
     defer reext..&.deinit(gpa);
-    if (!reext.&.eq("/tmp/kern/main.ll")) {
+    if (reext.& != "/tmp/kern/main.ll") {
         return 4;
     }
 
@@ -212,7 +212,7 @@ fn main() i32 {
         .{ Err: _ } => return 5,
     };
     defer stripped..&.deinit(gpa);
-    if (!stripped.&.eq("archive")) {
+    if (stripped.& != "archive") {
         return 6;
     }
 
@@ -221,7 +221,7 @@ fn main() i32 {
         .{ Err: _ } => return 7,
     };
     defer hidden..&.deinit(gpa);
-    if (!hidden.&.eq(".gitignore.txt")) {
+    if (hidden.& != ".gitignore.txt") {
         return 8;
     }
 
@@ -230,7 +230,7 @@ fn main() i32 {
         .{ Err: _ } => return 9,
     };
     defer rooted..&.deinit(gpa);
-    if (!rooted.&.eq("/boot")) {
+    if (rooted.& != "/boot") {
         return 10;
     }
 
@@ -269,7 +269,7 @@ fn main() i32 {
     let gpa = GPA.{ backing: page }..&;
 
     if (!fs.parent("C:\\kern\\src\\main.rn").is_some_and(.[](dir: []u8) bool {
-        return dir.eq("C:\\kern\\src");
+        return dir == "C:\\kern\\src";
     })) {
         return 1;
     }
@@ -277,7 +277,7 @@ fn main() i32 {
         return 2;
     }
     if (!fs.file_name("C:\\kern\\main.rn").is_some_and(.[](name: []u8) bool {
-        return name.eq("main.rn");
+        return name == "main.rn";
     })) {
         return 3;
     }
@@ -287,7 +287,7 @@ fn main() i32 {
         .{ Err: _ } => return 4,
     };
     defer joined..&.deinit(gpa);
-    if (!joined.&.eq("C:\\kern\\src\\main.rn")) {
+    if (joined.& != "C:\\kern\\src\\main.rn") {
         return 5;
     }
 
@@ -296,7 +296,7 @@ fn main() i32 {
         .{ Err: _ } => return 6,
     };
     defer forward..&.deinit(gpa);
-    if (!forward.&.eq("C:/kern/src/main.rn")) {
+    if (forward.& != "C:/kern/src/main.rn") {
         return 7;
     }
 
@@ -305,7 +305,7 @@ fn main() i32 {
         .{ Err: _ } => return 8,
     };
     defer rooted..&.deinit(gpa);
-    if (!rooted.&.eq("D:\\other\\out.rn")) {
+    if (rooted.& != "D:\\other\\out.rn") {
         return 9;
     }
 
@@ -314,7 +314,7 @@ fn main() i32 {
         .{ Err: _ } => return 10,
     };
     defer normalized..&.deinit(gpa);
-    if (!normalized.&.eq("C:\\kern\\out\\file.txt")) {
+    if (normalized.& != "C:\\kern\\out\\file.txt") {
         return 11;
     }
 
@@ -323,7 +323,7 @@ fn main() i32 {
         .{ Err: _ } => return 12,
     };
     defer forward_normalized..&.deinit(gpa);
-    if (!forward_normalized.&.eq("C:/kern/out/file.txt")) {
+    if (forward_normalized.& != "C:/kern/out/file.txt") {
         return 13;
     }
 
@@ -332,7 +332,7 @@ fn main() i32 {
         .{ Err: _ } => return 14,
     };
     defer unc_joined..&.deinit(gpa);
-    if (!unc_joined.&.eq("\\\\server\\share\\dir\\main.rn")) {
+    if (unc_joined.& != "\\\\server\\share\\dir\\main.rn") {
         return 15;
     }
 
@@ -341,12 +341,12 @@ fn main() i32 {
         .{ Err: _ } => return 16,
     };
     defer unc..&.deinit(gpa);
-    if (!unc.&.eq("\\\\server\\share\\out\\file.txt")) {
+    if (unc.& != "\\\\server\\share\\out\\file.txt") {
         return 17;
     }
 
     if (!fs.parent("\\\\server\\share\\out\\file.txt").is_some_and(.[](dir: []u8) bool {
-        return dir.eq("\\\\server\\share\\out");
+        return dir == "\\\\server\\share\\out";
     })) {
         return 18;
     }
@@ -408,7 +408,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 4,
     }};
     defer text..&.deinit(gpa);
-    if (!text.&.eq("unicode-ok")) {{
+    if (text.& != "unicode-ok") {{
         return 5;
     }}
 
@@ -416,7 +416,7 @@ fn main() i32 {{
     let visited = match (fs.read_dir(gpa, "{root_path}", .[
         hits = hits..&
     ](entry: fs.DirEntry) bool {{
-        if (entry.name.eq("{expected_name}")) {{
+        if (entry.name == "{expected_name}") {{
             hits.* += 1;
         }}
         return true;

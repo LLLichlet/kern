@@ -156,11 +156,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let touched_expr_nodes = self.touched_expr_nodes.clone();
         for node_id in touched_expr_nodes {
-            let Some(existing_ty) = self.ctx.node_types.get(&node_id).copied() else {
+            let Some(existing_ty) = self.ctx.facts.node_types.get(&node_id).copied() else {
                 continue;
             };
             let rewritten = self.materialize_numeric_defaults_in_type(existing_ty);
-            self.ctx.node_types.insert(node_id, rewritten);
+            self.ctx.facts.node_types.insert(node_id, rewritten);
         }
 
         let touched_bindings = self.touched_bindings.clone();
@@ -684,7 +684,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         record: impl FnOnce(&mut crate::context::ExprTimingStats, Duration),
     ) {
         if let Some(started) = started {
-            record(&mut self.ctx.expr_timing_stats, started.elapsed());
+            record(&mut self.ctx.analysis.expr_timing_stats, started.elapsed());
         }
     }
 
@@ -1342,6 +1342,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                 }
                 let ty = self.check_generic_instantiation(target, args, expr.span);
+                if let Some(owner_trait_ty) = self.ctx.trait_method_owner(target.id) {
+                    self.ctx.set_trait_method_owner(expr.id, owner_trait_ty);
+                }
                 self.record_expr_timing(started, |stats, elapsed| {
                     stats.call += elapsed;
                     stats.call_generic_instantiation += elapsed;
@@ -1476,7 +1479,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         let ty = self.maybe_constrain_by_expected_type(ty, expected_ty);
-        self.ctx.node_types.insert(expr.id, ty);
+        self.ctx.facts.node_types.insert(expr.id, ty);
         self.touched_expr_nodes.push(expr.id);
         ty
     }
@@ -1643,7 +1646,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         // Overwrite the cached node type with the freshly resolved result.
-        self.ctx.node_types.insert(ty_node.id, ty_id);
+        self.ctx.facts.node_types.insert(ty_node.id, ty_id);
         self.record_expr_timing(started, |stats, elapsed| stats.dynamic_typeof += elapsed);
         ty_id
     }

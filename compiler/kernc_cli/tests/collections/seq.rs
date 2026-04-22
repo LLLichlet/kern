@@ -84,7 +84,7 @@ fn main() i32 {
     }
 
     let data = list.as_slice();
-    if (!data.eq([6]i32.{1, 9, 3, 1, 9, 3})) {
+    if (data != [6]i32.{1, 9, 3, 1, 9, 3}) {
         return 8;
     }
     if (!data.starts_with([3]i32.{1, 9, 3})) {
@@ -114,7 +114,7 @@ fn main() i32 {
     let view = list.as_mut_slice();
     view.[1] = 8;
     list.truncate(4);
-    if (!list.as_slice().eq([4]i32.{1, 8, 3, 1})) {
+    if (list.as_slice() != [4]i32.{1, 8, 3, 1}) {
         return 16;
     }
     if (!list.first().is_some_and(.[](value: i32) bool { return value == 1; })) {
@@ -154,19 +154,19 @@ fn main() i32 {
         .{ Some: tail } => tail,
         .None => return 27,
     };
-    if (!stripped_prefix.eq([2]i32.{3, 1})) {
+    if (stripped_prefix != [2]i32.{3, 1}) {
         return 28;
     }
     let stripped_suffix = match (list.strip_suffix([2]i32.{3, 1})) {
         .{ Some: head } => head,
         .None => return 29,
     };
-    if (!stripped_suffix.eq([2]i32.{1, 8})) {
+    if (stripped_suffix != [2]i32.{1, 8}) {
         return 30;
     }
 
     list.reverse();
-    if (!list.as_slice().eq([4]i32.{1, 3, 8, 1})) {
+    if (list.as_slice() != [4]i32.{1, 3, 8, 1}) {
         return 31;
     }
 
@@ -178,7 +178,7 @@ fn main() i32 {
     if (kept != 4) {
         return 32;
     }
-    if (!list.as_slice().eq([2]i32.{3, 8})) {
+    if (list.as_slice() != [2]i32.{3, 8}) {
         return 33;
     }
     if (!list.shrink_to_fit(gpa)) {
@@ -269,14 +269,14 @@ fn main() i32 {
         .{ Some: tail } => tail,
         .None => return 56,
     };
-    if (!stripped_text_prefix.eq("lang")) {
+    if (stripped_text_prefix != "lang") {
         return 57;
     }
     let stripped_text_suffix = match (text.strip_suffix("-lang")) {
         .{ Some: head } => head,
         .None => return 58,
     };
-    if (!stripped_text_suffix.eq("kern")) {
+    if (stripped_text_suffix != "kern") {
         return 59;
     }
 
@@ -291,17 +291,17 @@ fn main() i32 {
     if (!shaped.insert_str(gpa, 5, "std")) {
         return 62;
     }
-    if (!shaped.eq("kern_std-lang")) {
+    if (shaped != "kern_std-lang") {
         return 63;
     }
     shaped.truncate(9);
-    if (!shaped.eq("kern_std-")) {
+    if (shaped != "kern_std-") {
         return 64;
     }
     shaped.retain_bytes(.[](byte: u8) bool {
         return byte != b'_';
     });
-    if (!shaped.eq("kernstd-")) {
+    if (shaped != "kernstd-") {
         return 65;
     }
 
@@ -315,7 +315,7 @@ fn main() i32 {
         return 67;
     }
     scratch_bytes.reverse();
-    if (!scratch.eq("ebcda")) {
+    if (scratch != "ebcda") {
         return 68;
     }
 
@@ -323,7 +323,7 @@ fn main() i32 {
     if (!text.push_str(gpa, snapshot)) {
         return 69;
     }
-    if (!text.eq("kern-langkern-lang")) {
+    if (text != "kern-langkern-lang") {
         return 70;
     }
     let last_dash = match (text.rfind_byte(b'-')) {
@@ -356,7 +356,7 @@ fn main() i32 {
     if (!text.push_string(gpa, extra)) {
         return 78;
     }
-    if (!text.eq("kern-langkern-lang!")) {
+    if (text != "kern-langkern-lang!") {
         return 79;
     }
     if (!text.as_bytes().ends_with("!")) {
@@ -370,36 +370,36 @@ fn main() i32 {
     if (popped != b'!') {
         return 82;
     }
-    if (!text.eq("kern-langkern-lang")) {
+    if (text != "kern-langkern-lang") {
         return 83;
     }
 
     text.reverse_bytes();
-    if (!text.eq("gnal-nrekgnal-nrek")) {
+    if (text != "gnal-nrekgnal-nrek") {
         return 84;
     }
     text.reverse_bytes();
-    if (!text.eq("kern-langkern-lang")) {
+    if (text != "kern-langkern-lang") {
         return 85;
     }
 
     let padded = " \t kern \r\n";
-    if (!trim_ascii_start(padded).eq("kern \r\n")) {
+    if (trim_ascii_start(padded) != "kern \r\n") {
         return 86;
     }
-    if (!trim_ascii_end(padded).eq(" \t kern")) {
+    if (trim_ascii_end(padded) != " \t kern") {
         return 87;
     }
-    if (!trim_ascii(padded).eq("kern")) {
+    if (trim_ascii(padded) != "kern") {
         return 88;
     }
-    if (!padded.trim_ascii_start().eq("kern \r\n")) {
+    if (padded.trim_ascii_start() != "kern \r\n") {
         return 89;
     }
-    if (!padded.trim_ascii_end().eq(" \t kern")) {
+    if (padded.trim_ascii_end() != " \t kern") {
         return 90;
     }
-    if (!padded.trim_ascii().eq("kern")) {
+    if (padded.trim_ascii() != "kern") {
         return 91;
     }
     let space_index = match (padded.find_byte(b'k')) {
@@ -415,13 +415,13 @@ fn main() i32 {
     if (!spaced.push_str(gpa, "  hi\t")) {
         return 94;
     }
-    if (!spaced.trim_ascii().eq("hi")) {
+    if (spaced.trim_ascii() != "hi") {
         return 95;
     }
 
     let spaced_bytes = spaced.as_mut_bytes();
     spaced_bytes.[2] = b'!';
-    if (!spaced.eq("  !i\t")) {
+    if (spaced != "  !i\t") {
         return 96;
     }
 
@@ -471,14 +471,14 @@ fn main() i32 {
     let mut bytes = [4]i32.{0, 0, 0, 0};
     let writable = bytes..[0 .. 4];
     writable.fill(3);
-    if (!bytes.[0 .. 4].eq([4]i32.{3, 3, 3, 3})) {
+    if (bytes.[0 .. 4] != [4]i32.{3, 3, 3, 3}) {
         return 3;
     }
 
     if (!writable.copy_from(base_view)) {
         return 4;
     }
-    if (!bytes.[0 .. 4].eq(base_view)) {
+    if (bytes.[0 .. 4] != base_view) {
         return 5;
     }
 
@@ -487,14 +487,14 @@ fn main() i32 {
     if (!overlap.copy_from(source)) {
         return 6;
     }
-    if (!bytes.[0 .. 4].eq([4]i32.{1, 1, 2, 3})) {
+    if (bytes.[0 .. 4] != [4]i32.{1, 1, 2, 3}) {
         return 7;
     }
 
     writable.for_each_mut(.[](value: *mut i32) void {
         value.* += 1;
     });
-    if (!bytes.[0 .. 4].eq([4]i32.{2, 2, 3, 4})) {
+    if (bytes.[0 .. 4] != [4]i32.{2, 2, 3, 4}) {
         return 8;
     }
 
@@ -503,7 +503,7 @@ fn main() i32 {
     if (!lhs.swap_with_slice(rhs)) {
         return 9;
     }
-    if (!bytes.[0 .. 4].eq([4]i32.{3, 4, 2, 2})) {
+    if (bytes.[0 .. 4] != [4]i32.{3, 4, 2, 2}) {
         return 10;
     }
 
@@ -531,12 +531,12 @@ fn main() i32 {
     list.for_each_mut(.[](value: *mut i32) void {
         value.* *= 2;
     });
-    if (!list.as_slice().eq([4]i32.{2, 4, 6, 8})) {
+    if (list.as_slice() != [4]i32.{2, 4, 6, 8}) {
         return 14;
     }
 
     list.fill(7);
-    if (!list.as_slice().eq([4]i32.{7, 7, 7, 7})) {
+    if (list.as_slice() != [4]i32.{7, 7, 7, 7}) {
         return 15;
     }
 
@@ -548,31 +548,31 @@ fn main() i32 {
     if (!list.extend_from_list(gpa, extra)) {
         return 17;
     }
-    if (!list.as_slice().eq([6]i32.{7, 7, 7, 7, 9, 10})) {
+    if (list.as_slice() != [6]i32.{7, 7, 7, 7, 9, 10}) {
         return 18;
     }
     if (!list.resize(gpa, 8, 5)) {
         return 19;
     }
-    if (!list.as_slice().eq([8]i32.{7, 7, 7, 7, 9, 10, 5, 5})) {
+    if (list.as_slice() != [8]i32.{7, 7, 7, 7, 9, 10, 5, 5}) {
         return 20;
     }
     if (!list.resize(gpa, 3, 0)) {
         return 21;
     }
-    if (!list.as_slice().eq([3]i32.{7, 7, 7})) {
+    if (list.as_slice() != [3]i32.{7, 7, 7}) {
         return 22;
     }
     if (!list.clone_from(gpa, [4]i32.{4, 3, 2, 1})) {
         return 23;
     }
-    if (!list.as_slice().eq([4]i32.{4, 3, 2, 1})) {
+    if (list.as_slice() != [4]i32.{4, 3, 2, 1}) {
         return 24;
     }
     if (!list.append_repeat(gpa, 6, 2)) {
         return 25;
     }
-    if (!list.as_slice().eq([6]i32.{4, 3, 2, 1, 6, 6})) {
+    if (list.as_slice() != [6]i32.{4, 3, 2, 1, 6, 6}) {
         return 26;
     }
 
@@ -580,7 +580,7 @@ fn main() i32 {
     if (!list.insert_slice(gpa, 2, middle)) {
         return 27;
     }
-    if (!list.as_slice().eq([8]i32.{4, 3, 3, 2, 2, 1, 6, 6})) {
+    if (list.as_slice() != [8]i32.{4, 3, 3, 2, 2, 1, 6, 6}) {
         return 28;
     }
 
@@ -588,7 +588,7 @@ fn main() i32 {
         value.* *= 10;
         return value.* >= 30;
     });
-    if (!list.as_slice().eq([5]i32.{40, 30, 30, 60, 60})) {
+    if (list.as_slice() != [5]i32.{40, 30, 30, 60, 60}) {
         return 29;
     }
 
@@ -599,7 +599,7 @@ fn main() i32 {
     if (swapped != 30) {
         return 31;
     }
-    if (!list.as_slice().eq([4]i32.{40, 60, 30, 60})) {
+    if (list.as_slice() != [4]i32.{40, 60, 30, 60}) {
         return 32;
     }
 
@@ -611,7 +611,7 @@ fn main() i32 {
     if (!text.push_repeat(gpa, b'!', 3)) {
         return 34;
     }
-    if (!text.eq("kern!!!")) {
+    if (text != "kern!!!") {
         return 35;
     }
 

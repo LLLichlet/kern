@@ -80,7 +80,7 @@ fn main() i32 {{
     }};
     defer text..&.deinit(gpa);
 
-    if (!text.&.eq("abc123")) {{
+    if (text.& != "abc123") {{
         return 4;
     }}
 
@@ -149,7 +149,7 @@ fn main() i32 {{
     }};
     defer text..&.deinit(gpa);
 
-    if (!text.&.eq("kern-fs")) {{
+    if (text.& != "kern-fs") {{
         return 7;
     }}
     match (reader..&.close()) {{
@@ -246,7 +246,7 @@ fn main() i32 {{
     }};
     defer text..&.deinit(gpa);
 
-    if (!text.&.eq("Zbcd")) {{
+    if (text.& != "Zbcd") {{
         return 12;
     }}
 
@@ -327,7 +327,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 7,
     }};
     defer text..&.deinit(gpa);
-    if (!text.&.eq("rename-me")) {{
+    if (text.& != "rename-me") {{
         return 8;
     }}
 
@@ -436,7 +436,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 8,
     }};
     defer text..&.deinit(gpa);
-    if (!text.&.eq("kern-lang")) {{
+    if (text.& != "kern-lang") {{
         return 9;
     }}
 
@@ -465,7 +465,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 14,
     }};
     defer text2..&.deinit(gpa);
-    if (!text2.&.eq("kern")) {{
+    if (text2.& != "kern") {{
         return 15;
     }}
 

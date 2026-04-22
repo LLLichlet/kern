@@ -428,7 +428,7 @@ root = "src/lib.rn"
 use base.coll;
 
 pub fn is_truthy(value: []u8) bool {
-return value.eq("true");
+return value == "true";
 }
 "#,
     )

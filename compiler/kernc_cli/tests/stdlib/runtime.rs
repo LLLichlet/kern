@@ -14,6 +14,50 @@ fn nm_defines_global_symbol(symbols: &str, expected: &str) -> bool {
     })
 }
 
+#[test]
+fn direct_source_build_defaults_to_std_rt_and_source_stem_output() {
+    let temp_dir = unique_temp_path("kernc_direct_defaults", "dir");
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let source = repo_root().join("examples/hello_world.rn");
+    let expected_output = temp_dir.join(format!("hello_world{}", std::env::consts::EXE_SUFFIX));
+    let source_arg = source.to_string_lossy().into_owned();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_kernc"))
+        .current_dir(&temp_dir)
+        .arg(source_arg.as_str())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        expected_output.exists(),
+        "expected executable at {}",
+        expected_output.display()
+    );
+
+    let run_output = Command::new(&expected_output).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "default binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&run_output.stdout).contains("hello, world!"),
+        "unexpected stdout:\n{}",
+        String::from_utf8_lossy(&run_output.stdout)
+    );
+
+    let _ = fs::remove_file(&expected_output);
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
 fn compile_cross_target_std_object(prefix: &str, target: &str) -> std::process::Output {
     // Keep cfg-gated std/runtime codepaths compiled even on non-native CI hosts.
     compile_source_with_args(
@@ -148,10 +192,10 @@ extern fn bridge_impl(args: [][]u8) i32 {
 
     let first = args.[0];
     let second = args.[1];
-    if (!first.eq("alpha")) {
+    if (first != "alpha") {
         return 2;
     }
-    if (!second.eq("beta gamma")) {
+    if (second != "beta gamma") {
         return 3;
     }
     return 0;
@@ -397,14 +441,14 @@ fn main(argc: i32, argv: **u8) i32 {
         .{ Some: arg } => arg,
         .None => return 3,
     };
-    if (!second.eq("alpha")) {
+    if (second != "alpha") {
         return 3;
     }
     let third = match (args.get(2)) {
         .{ Some: arg } => arg,
         .None => return 4,
     };
-    if (!third.eq("beta gamma")) {
+    if (third != "beta gamma") {
         return 4;
     }
     return 0;
@@ -739,21 +783,21 @@ fn main(argc: i32, argv: **u8) i32 {
         .{ Some: arg } => arg,
         .None => return 2,
     };
-    if (!plain.eq("plain")) {
+    if (plain != "plain") {
         return 2;
     }
     let spaced = match (args.get(2)) {
         .{ Some: arg } => arg,
         .None => return 3,
     };
-    if (!spaced.eq("two words")) {
+    if (spaced != "two words") {
         return 3;
     }
     let quoted = match (args.get(3)) {
         .{ Some: arg } => arg,
         .None => return 4,
     };
-    if (!quoted.eq("quote\"value")) {
+    if (quoted != "quote\"value") {
         return 4;
     }
     return 0;
@@ -799,21 +843,21 @@ fn main(argc: i32, argv: **u8) i32 {
         .{ Some: arg } => arg,
         .None => return 2,
     };
-    if (!first.eq("\u{6D4B}\u{8BD5}")) {
+    if (first != "\u{6D4B}\u{8BD5}") {
         return 2;
     }
     let second = match (args.get(2)) {
         .{ Some: arg } => arg,
         .None => return 3,
     };
-    if (!second.eq("\u{7A7A} \u{767D}")) {
+    if (second != "\u{7A7A} \u{767D}") {
         return 3;
     }
     let third = match (args.get(3)) {
         .{ Some: arg } => arg,
         .None => return 4,
     };
-    if (!third.eq("emoji-\u{1F642}")) {
+    if (third != "emoji-\u{1F642}") {
         return 4;
     }
     return 0;
@@ -902,7 +946,7 @@ fn main() i32 {
     };
     defer found..&.deinit(gpa);
 
-    if (!found.&.eq("alpha-beta")) {
+    if (found.& != "alpha-beta") {
         return 2;
     }
 
@@ -915,7 +959,7 @@ fn main() i32 {
         .None => return 4,
     };
     defer fallback..&.deinit(gpa);
-    if (!fallback.&.eq("fallback")) {
+    if (fallback.& != "fallback") {
         return 5;
     }
 
@@ -930,8 +974,8 @@ fn main() i32 {
 
     let mut saw_target = false;
     let visited = env.visit(.[saw_target = saw_target..&](entry: env.Var) bool {
-        if (entry.name.eq("KERN_STD_ENV_TEST")) {
-            if (!entry.value.eq("alpha-beta")) {
+        if (entry.name == "KERN_STD_ENV_TEST") {
+            if (entry.value != "alpha-beta") {
                 return false;
             }
             saw_target.* = true;

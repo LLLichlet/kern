@@ -1,0 +1,20 @@
+// source: impl-local generics that cannot be solved from the impl head must not count as a global proof
+// stderr: type does not satisfy trait bounds
+// stderr: required bound: `X: Marker`
+
+type Marker = trait {};
+
+type X = struct {};
+
+impl[T] X: Marker {}
+
+fn need[T](value: T) i32
+    where T: Marker,
+{
+    let _ = value;
+    return 0;
+}
+
+fn main() i32 {
+    return need(X.{});
+}

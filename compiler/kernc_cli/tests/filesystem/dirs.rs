@@ -206,7 +206,7 @@ fn main() i32 {{
     }};
     defer text..&.deinit(gpa);
 
-    if (!text.&.eq("nested")) {{
+    if (text.& != "nested") {{
         return 10;
     }}
 
@@ -279,19 +279,19 @@ fn main() i32 {{
         saw_b_file = saw_b_file..&
     ](entry: fs.DirEntry) bool {{
         total.* += 1;
-        if (entry.name.eq("alpha")) {{
+        if (entry.name == "alpha") {{
             if (!entry.is_dir()) {{
                 return false;
             }}
             saw_alpha_dir.* = true;
         }}
-        if (entry.name.eq("a.txt")) {{
+        if (entry.name == "a.txt") {{
             if (!entry.is_file()) {{
                 return false;
             }}
             saw_a_file.* = true;
         }}
-        if (entry.name.eq("b.txt")) {{
+        if (entry.name == "b.txt") {{
             if (!entry.is_file()) {{
                 return false;
             }}
@@ -473,25 +473,25 @@ fn main() i32 {{
         saw_root_file = saw_root_file..&,
         saw_beta_file = saw_beta_file..&
     ](path: []u8, entry: fs.DirEntry, depth: usize) bool {{
-        if (path.eq("{alpha_path}")) {{
+        if (path == "{alpha_path}") {{
             if (!entry.is_dir() or depth != 1) {{
                 return false;
             }}
             saw_alpha.* = true;
         }}
-        if (path.eq("{root_file_path}")) {{
+        if (path == "{root_file_path}") {{
             if (!entry.is_file() or depth != 1) {{
                 return false;
             }}
             saw_root_file.* = true;
         }}
-        if (path.eq("{beta_path}")) {{
+        if (path == "{beta_path}") {{
             if (!entry.is_dir() or depth != 2) {{
                 return false;
             }}
             saw_beta.* = true;
         }}
-        if (path.eq("{beta_file_path}")) {{
+        if (path == "{beta_file_path}") {{
             if (!entry.is_file() or depth != 3) {{
                 return false;
             }}

@@ -31,7 +31,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if let ExprKind::Identifier(sym) = &callee.kind
             && self.ctx.resolve(*sym) == "@asm"
         {
-            self.ctx.node_types.insert(callee.id, TypeId::VOID);
+            self.ctx.facts.node_types.insert(callee.id, TypeId::VOID);
             return self.check_asm_call(args, span);
         }
 
@@ -68,7 +68,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         });
 
         if let Some(fixed_ty) = inferred_callee_ty {
-            self.ctx.node_types.insert(callee.id, fixed_ty);
+            self.ctx.facts.node_types.insert(callee.id, fixed_ty);
         }
 
         if sig_ty == TypeId::ERROR {
@@ -113,9 +113,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let expected_self = params[0];
             self.check_method_receiver(expected_self, receiver_ty, callee);
             if receiver_ty != expected_self
-                && let ExprKind::FieldAccess { lhs, .. } = &callee.kind
+                && let Some(method_target) = self.method_callee_field_access(callee)
+                && let ExprKind::FieldAccess { lhs, .. } = &method_target.kind
             {
-                self.ctx.node_types.insert(lhs.id, expected_self);
+                self.ctx.facts.node_types.insert(lhs.id, expected_self);
             }
         }
 
@@ -316,7 +317,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         self.ctx.scopes.exit_scope();
-        self.ctx.node_types.insert(node_id, closure_state_ty);
+        self.ctx.facts.node_types.insert(node_id, closure_state_ty);
 
         closure_state_ty
     }

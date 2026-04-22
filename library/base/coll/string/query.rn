@@ -1,15 +1,8 @@
-use base.coll.bytes_eq;
 use base.cmp.{Comparable, Ord, Ordering};
 use base.hash.{Hash, hash_bytes};
 use ..String;
 
 impl *String {
-    /// Compares the string contents against a byte slice.
-    #[inline]
-    pub fn eq(other: []u8) bool {
-        return bytes_eq(self.as_str(), other);
-    }
-
     /// Returns `true` when the string begins with `prefix`.
     #[inline]
     pub fn starts_with(prefix: []u8) bool {

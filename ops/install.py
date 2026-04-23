@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.error
 import urllib.request
 import zipfile
@@ -96,7 +97,6 @@ def install_release(args: InstallReleaseArgs) -> int:
     )
 
     install_root = Path(args.dest).expanduser() if args.dest else _default_install_root(host.is_windows)
-    install_root.mkdir(parents=True, exist_ok=True)
     install_bin = install_root / "bin"
 
     archive_path: Path
@@ -317,17 +317,44 @@ def _verify_bundled_toolchain_component_starts(
 
 def copy_sdk_contents(sdk_root: Path, install_root: Path) -> None:
     info(f"=> Installing SDK into {install_root}...")
-    for child in sdk_root.iterdir():
-        destination = install_root / child.name
-        if destination.exists():
-            if destination.is_dir():
-                shutil.rmtree(destination)
-            else:
-                destination.unlink()
-        if child.is_dir():
-            shutil.copytree(child, destination)
+    install_root = install_root.resolve() if install_root.exists() else install_root.absolute()
+    install_parent = install_root.parent
+    install_name = install_root.name
+    install_parent.mkdir(parents=True, exist_ok=True)
+    staging_root = Path(tempfile.mkdtemp(prefix=f".{install_name}.installing-", dir=install_parent))
+    backup_root = install_parent / f".{install_name}.previous-{os.getpid()}"
+    if backup_root.exists():
+        if backup_root.is_dir():
+            shutil.rmtree(backup_root)
         else:
-            shutil.copy2(child, destination)
+            backup_root.unlink()
+
+    moved_existing = False
+    try:
+        for child in sdk_root.iterdir():
+            destination = staging_root / child.name
+            if child.is_dir():
+                shutil.copytree(child, destination)
+            else:
+                shutil.copy2(child, destination)
+
+        if install_root.exists():
+            install_root.rename(backup_root)
+            moved_existing = True
+        staging_root.rename(install_root)
+    except OSError as err:
+        if moved_existing and backup_root.exists() and not install_root.exists():
+            backup_root.rename(install_root)
+        raise OpsError(f"failed to replace existing installation at `{install_root}`: {err}") from err
+    finally:
+        if staging_root.exists():
+            shutil.rmtree(staging_root, ignore_errors=True)
+
+    if backup_root.exists():
+        if backup_root.is_dir():
+            shutil.rmtree(backup_root)
+        else:
+            backup_root.unlink()
 
 
 def verify_binary(binary_path: Path, install_root: Path, target: str) -> None:

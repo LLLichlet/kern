@@ -181,16 +181,36 @@ copy_sdk_contents() {
     install_root="$2"
 
     info "=> Installing SDK into $install_root..."
-    mkdir -p "$install_root"
+    install_parent="$(dirname "$install_root")"
+    install_name="$(basename "$install_root")"
+    staging_root="$install_parent/.${install_name}.installing.$$"
+    backup_root="$install_parent/.${install_name}.previous.$$"
 
+    mkdir -p "$install_parent"
+    rm -rf "$staging_root" "$backup_root"
+    mkdir -p "$staging_root"
     for child in "$sdk_root"/*; do
-        name="$(basename "$child")"
-        destination="$install_root/$name"
-        if [ -e "$destination" ]; then
-            rm -rf "$destination"
+        if ! cp -R "$child" "$staging_root/"; then
+            rm -rf "$staging_root"
+            fail "failed to stage SDK contents for installation"
         fi
-        cp -R "$child" "$install_root/"
     done
+
+    if [ -e "$install_root" ]; then
+        if ! mv "$install_root" "$backup_root"; then
+            rm -rf "$staging_root"
+            fail "failed to move existing installation at \`$install_root\` aside"
+        fi
+    fi
+
+    if ! mv "$staging_root" "$install_root"; then
+        if [ -e "$backup_root" ]; then
+            mv "$backup_root" "$install_root"
+        fi
+        fail "failed to replace existing installation at \`$install_root\`"
+    fi
+
+    rm -rf "$backup_root"
 }
 
 verify_binary() {

@@ -307,14 +307,38 @@ function Verify-WindowsToolchainComponentStarts([string]$SdkRoot, [string]$Compo
 
 function Copy-SdkContents([string]$SdkRoot, [string]$InstallRoot) {
     Info "=> Installing SDK into $InstallRoot..."
-    New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
+    $resolvedInstallRoot = [System.IO.Path]::GetFullPath($InstallRoot)
+    $installParent = Split-Path -Parent $resolvedInstallRoot
+    $installName = Split-Path -Leaf $resolvedInstallRoot
+    $stagingRoot = Join-Path $installParent (".$installName.installing." + [guid]::NewGuid().ToString("N"))
+    $backupRoot = Join-Path $installParent (".$installName.previous." + [guid]::NewGuid().ToString("N"))
 
-    foreach ($child in Get-ChildItem -Path $SdkRoot) {
-        $destination = Join-Path $InstallRoot $child.Name
-        if (Test-Path $destination) {
-            Remove-Item -Recurse -Force $destination
+    New-Item -ItemType Directory -Force -Path $installParent | Out-Null
+    Remove-Item -Recurse -Force $stagingRoot, $backupRoot -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
+
+    try {
+        foreach ($child in Get-ChildItem -Path $SdkRoot) {
+            Copy-Item -Recurse -Force $child.FullName -Destination $stagingRoot
         }
-        Copy-Item -Recurse -Force $child.FullName -Destination $InstallRoot
+
+        if (Test-Path $resolvedInstallRoot) {
+            Move-Item -Force $resolvedInstallRoot $backupRoot
+        }
+
+        try {
+            Move-Item -Force $stagingRoot $resolvedInstallRoot
+        } catch {
+            if (Test-Path $backupRoot) {
+                Move-Item -Force $backupRoot $resolvedInstallRoot
+            }
+            throw
+        }
+
+        Remove-Item -Recurse -Force $backupRoot -ErrorAction SilentlyContinue
+    } catch {
+        Remove-Item -Recurse -Force $stagingRoot -ErrorAction SilentlyContinue
+        Fail "failed to replace existing installation at ``$resolvedInstallRoot``: $($_.Exception.Message)"
     }
 }
 

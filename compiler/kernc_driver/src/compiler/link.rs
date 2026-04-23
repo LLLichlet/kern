@@ -359,34 +359,37 @@ impl CompilerDriver {
             return;
         }
 
-        let Some(toolchain_root) = resolved_toolchain_root(&self.options) else {
-            return;
-        };
+        if let Some(toolchain_root) = resolved_toolchain_root(&self.options) {
+            let runtime_dirs = [toolchain_root.join("lib"), toolchain_root.join("lib64")]
+                .into_iter()
+                .filter(|path| path.is_dir())
+                .collect::<Vec<_>>();
 
-        let runtime_dirs = [toolchain_root.join("lib"), toolchain_root.join("lib64")]
-            .into_iter()
-            .filter(|path| path.is_dir())
-            .collect::<Vec<_>>();
-        if runtime_dirs.is_empty() {
-            return;
+            if !runtime_dirs.is_empty() {
+                let var_name = if target.is_darwin {
+                    "DYLD_LIBRARY_PATH"
+                } else {
+                    "LD_LIBRARY_PATH"
+                };
+
+                let mut entries = runtime_dirs
+                    .iter()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect::<Vec<_>>();
+                if let Ok(existing) = env::var(var_name)
+                    && !existing.is_empty()
+                {
+                    entries.push(existing);
+                }
+                cmd.env(var_name, entries.join(":"));
+            }
         }
 
-        let var_name = if target.is_darwin {
-            "DYLD_LIBRARY_PATH"
-        } else {
-            "LD_LIBRARY_PATH"
-        };
-
-        let mut entries = runtime_dirs
-            .iter()
-            .map(|path| path.to_string_lossy().to_string())
-            .collect::<Vec<_>>();
-        if let Ok(existing) = env::var(var_name)
-            && !existing.is_empty()
+        if target.is_darwin
+            && let Some(sdkroot) = resolved_macos_sdkroot()
         {
-            entries.push(existing);
+            cmd.env("SDKROOT", sdkroot);
         }
-        cmd.env(var_name, entries.join(":"));
     }
 
     fn apply_runtime_contract(&self, cmd: &mut Command, is_windows: bool, is_darwin: bool) {
@@ -971,6 +974,25 @@ fn parse_darwin_deployment_target_major(version: &str) -> Option<u16> {
     version.trim().split('.').next()?.parse().ok()
 }
 
+fn resolved_macos_sdkroot() -> Option<String> {
+    if let Ok(existing) = env::var("SDKROOT")
+        && !existing.trim().is_empty()
+    {
+        return Some(existing);
+    }
+
+    let output = Command::new("xcrun")
+        .arg("--show-sdk-path")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let sdkroot = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!sdkroot.is_empty()).then_some(sdkroot)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1196,6 +1218,49 @@ mod tests {
             value.starts_with(&format!("{}:", lib_dir.to_string_lossy()))
                 || value == lib_dir.to_string_lossy()
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn controlled_toolchain_roots_export_macos_sdkroot() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_link_controlled_sdkroot_env_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin_dir = root.join("bin");
+        let lib_dir = root.join("lib");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&lib_dir).unwrap();
+        fs::write(bin_dir.join("clang"), "").unwrap();
+        fs::write(bin_dir.join("ld64.lld"), "").unwrap();
+
+        let output = root.join("main.out");
+        let driver = CompilerDriver::new(CompileOptions {
+            output_file: output.to_string_lossy().to_string(),
+            target: kernc_utils::config::TargetMachine::new("x86_64-apple-darwin").unwrap(),
+            toolchain_root: Some(root.to_string_lossy().to_string()),
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+
+        if !target.is_darwin {
+            let _ = fs::remove_dir_all(&root);
+            return;
+        }
+
+        let Some(expected) = resolved_macos_sdkroot() else {
+            let _ = fs::remove_dir_all(&root);
+            return;
+        };
+
+        let cmd = driver.build_link_command(&[], &target);
+        let value = command_env(&cmd, "SDKROOT").expect("expected SDKROOT for Darwin link env");
+        assert_eq!(value, expected);
 
         let _ = fs::remove_dir_all(&root);
     }

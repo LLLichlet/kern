@@ -137,7 +137,43 @@ validate_sdk_root() {
         [ -f "$sdk_root/bin/$binary" ] || fail "SDK binary \`$binary\` is missing from \`$sdk_root\`"
     done
 
+    [ -f "$sdk_root/lib/kern/craft/init.rn" ] || fail "SDK craft script modules are missing"
     [ -d "$sdk_root/toolchain/host/bin" ] || fail "SDK toolchain layout is incomplete"
+
+    verify_toolchain_component "$sdk_root/toolchain/host/bin/clang" "$expected_target"
+    case "$expected_target" in
+        *linux-gnu)
+            verify_toolchain_component "$sdk_root/toolchain/host/bin/ld.lld" "$expected_target"
+            ;;
+        *apple-darwin)
+            verify_toolchain_component "$sdk_root/toolchain/host/bin/ld64.lld" "$expected_target"
+            ;;
+    esac
+}
+
+verify_toolchain_component() {
+    tool_path="$1"
+    target="$2"
+    [ -f "$tool_path" ] || fail "SDK bundled runtime tool \`$tool_path\` is missing"
+
+    if output="$("$tool_path" --version 2>&1)"; then
+        info "=> Verified $(basename "$tool_path"): $output"
+        return 0
+    fi
+
+    case "$target" in
+        *linux-gnu)
+            output="$output
+The bundled Linux runtime tool did not start. The SDK archive is missing a required shared-library dependency."
+            ;;
+        *apple-darwin)
+            output="$output
+The bundled macOS runtime tool did not start. The SDK archive likely has a broken dylib load command or missing bundled dylib."
+            ;;
+    esac
+
+    fail "failed to start bundled runtime tool \`$tool_path\`:
+$output"
 }
 
 copy_sdk_contents() {

@@ -35,7 +35,7 @@ Official Linux/macOS release archives must satisfy all of the following:
 - package only host-native targets that the build machine actually matches
 - label the archive with that real host target
 - package binaries that were built for that same host target
-- bundle the validated host LLVM/Clang toolchain under `toolchain/host/`
+- bundle a runtime-complete host LLVM/Clang subset under `toolchain/host/`
 - verify `kernc`, `craft`, and `kern-lsp` start successfully after installation
 - avoid promising that current Unix archives are fully static
 - avoid promising that one Unix archive runs on every distro or every historical
@@ -43,7 +43,11 @@ Official Linux/macOS release archives must satisfy all of the following:
 
 This policy exists because current Unix host-tool binaries still inherit runtime
 dependencies from the Rust + C++ host stack, while the SDK now also carries a
-bundled LLVM/Clang toolchain for compile/link stability.
+bundled runtime-complete LLVM/Clang subset for compile/link stability.
+
+The full LLVM development prefix remains a separate concern and continues to
+live in the standalone `package-toolchain` artifact rather than the default
+end-user SDK.
 
 Today that means a clean user machine can still fail because of:
 

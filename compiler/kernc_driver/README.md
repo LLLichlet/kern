@@ -98,31 +98,21 @@ frontend and staged semantic caches stay shared as long as the analysis-shaping
 options remain the same. This is the contract used by both `craft` and
 `kern-lsp`.
 
-## Why `Flow` Still Lives In `kernc_driver`
+## `kernc_driver` vs `kernc_flow`
 
-`Flow` is intentionally treated as a first-class layer, but it is not split into
-`kernc_flow` yet.
+`Flow` now lives in the dedicated [`kernc_flow`](../kernc_flow/README.md)
+crate, while `kernc_driver` still owns the orchestration around it.
 
-That is deliberate.
+The split is:
 
-Right now `Flow` is tightly coupled to:
+- `kernc_flow`: shared `Flow` data structures and lowering-hint containers
+- `kernc_driver`: `Flow` construction, staged analysis, warning emission,
+  reachability, and reuse/incremental policy
 
-- semantic ownership and definition lookup
-- driver-level incremental staging
-- warning emission and analysis artifact shaping
-- reachability-driven lowering decisions
-
-Splitting it too early would mostly move files across crates while preserving the
-same dependencies, which adds ceremony without improving the design.
-
-The current threshold for extracting a separate crate is higher:
-
-- `Flow` has a stable public contract independent of driver staging
-- multiple crates need to build or consume `Flow` directly
-- the split removes real dependency pressure instead of renaming it
-
-Until then, keeping `Flow` inside `kernc_driver` keeps the architecture honest:
-analysis stays explicit, close to the incremental engine, and easy to evolve.
+This keeps the reusable `Flow` surface in its own crate without pretending that
+analysis orchestration became backend-agnostic. The driver still decides when
+`Flow` is built, which facts are surfaced to CLI/LSP, and how those facts feed
+lowering and warnings.
 
 ## Current Direction
 

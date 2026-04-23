@@ -295,7 +295,7 @@ def _prepare_dist_dir(
     for text_file in ("README.md", "LICENSE"):
         shutil.copy2(root / text_file, dist_dir / text_file)
 
-    if host.archive_target.endswith(("linux-gnu", "windows-msvc")):
+    if host.archive_target.endswith(("linux-gnu", "windows-msvc", "apple-darwin")):
         bundled_component_records = _bundle_sdk_runtime_toolchain(
             dist_dir,
             host,
@@ -525,12 +525,11 @@ def _bundle_sdk_runtime_toolchain(
     )
 
     runtime_tools = _sdk_runtime_tool_paths(host, bundled_toolchain)
-    copied_tools: list[Path] = []
+    copied_tools: dict[str, Path] = {}
     for component, source in runtime_tools.items():
         destination = bin_dir / source.name
         shutil.copy2(source, destination)
-        _verify_sdk_runtime_tool_starts(host, component, destination)
-        copied_tools.append(destination)
+        copied_tools[component] = destination
         records[component] = ArtifactRecord(
             path=destination.relative_to(dist_dir).as_posix(),
             kind="file",
@@ -541,13 +540,27 @@ def _bundle_sdk_runtime_toolchain(
     runtime_libs: set[Path] = set()
     if host.archive_target.endswith("linux-gnu"):
         runtime_libs = _linux_collect_bundled_runtime_libs(
-            roots=copied_tools,
+            roots=list(copied_tools.values()),
             bundled_prefix=bundled_toolchain.prefix,
         )
+    elif host.archive_target.endswith("apple-darwin"):
+        runtime_libs = _macos_collect_runtime_libs(roots=list(runtime_tools.values()))
     for library in sorted(runtime_libs):
         destination = lib_dir / library.name
         if not destination.exists():
             shutil.copy2(library, destination)
+
+    if host.archive_target.endswith("apple-darwin") and any(lib_dir.iterdir()):
+        _rewrite_macos_toolchain_load_commands(
+            host_root,
+            original_libdirs={
+                bundled_toolchain.libdir,
+                *(path.parent.resolve() for path in runtime_libs),
+            },
+        )
+
+    for component, path in copied_tools.items():
+        _verify_sdk_runtime_tool_starts(host, component, path)
 
     if any(lib_dir.iterdir()):
         records["runtime_lib_dir"] = ArtifactRecord(
@@ -582,9 +595,6 @@ def _bundle_sdk_runtime_toolchain(
 
 
 def _verify_sdk_runtime_tool_starts(host: HostTarget, component: str, path: Path) -> None:
-    if not host.archive_target.endswith("windows-msvc"):
-        return
-
     if component == "llvm_lib":
         probe_output = path.parent / "__kern_llvm_lib_probe.lib"
         try:
@@ -601,7 +611,7 @@ def _verify_sdk_runtime_tool_starts(host: HostTarget, component: str, path: Path
     ensure(
         completed.returncode == 0,
         (
-            f"bundled Windows runtime tool `{path}` failed to start while packaging; "
+            f"bundled runtime tool `{path}` failed to start while packaging; "
             "the SDK runtime subset is missing a required dependency"
         ),
     )
@@ -725,27 +735,58 @@ def _macos_collect_external_runtime_libs(
         visited.add(current)
 
         for dependency in _macos_load_dependencies(current):
-            dependency_path = Path(dependency)
-            if not dependency_path.is_absolute() or not dependency_path.is_file():
-                continue
-            resolved = dependency_path.resolve()
-            if resolved.is_relative_to(bundled_prefix):
+            for dependency_path in _macos_dependency_candidates(current, dependency):
+                if not dependency_path.is_file():
+                    continue
+                resolved = dependency_path.resolve()
+                if resolved.is_relative_to(bundled_prefix):
+                    queued.append(resolved)
+                    continue
+                if _is_macos_system_library(resolved):
+                    continue
+                # Preserve both the original load-command path and the fully
+                # resolved file. Homebrew commonly records dylib dependencies
+                # through `/usr/local/opt/...` symlinks while the real payload
+                # lives under `/usr/local/Cellar/...`. Packaging only the resolved
+                # filename misses compatibility aliases like `libzstd.1.dylib`,
+                # which later prevents load-command rewriting from matching the
+                # original dependency spelling during verification.
+                external_libs.add(dependency_path)
+                external_libs.add(resolved)
                 queued.append(resolved)
-                continue
-            if _is_macos_system_library(resolved):
-                continue
-            # Preserve both the original load-command path and the fully
-            # resolved file. Homebrew commonly records dylib dependencies
-            # through `/usr/local/opt/...` symlinks while the real payload
-            # lives under `/usr/local/Cellar/...`. Packaging only the resolved
-            # filename misses compatibility aliases like `libzstd.1.dylib`,
-            # which later prevents load-command rewriting from matching the
-            # original dependency spelling during verification.
-            external_libs.add(dependency_path)
-            external_libs.add(resolved)
-            queued.append(resolved)
 
     return external_libs
+
+
+def _macos_collect_runtime_libs(*, roots: list[Path]) -> set[Path]:
+    require_tool("otool")
+
+    queued = [path.resolve() for path in roots if path.is_file()]
+    visited: set[Path] = set()
+    bundled_libs: set[Path] = set()
+
+    while queued:
+        current = queued.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+
+        for dependency in _macos_load_dependencies(current):
+            for dependency_path in _macos_dependency_candidates(current, dependency):
+                if not dependency_path.is_file():
+                    continue
+                if _is_macos_system_library(dependency_path):
+                    continue
+
+                resolved = dependency_path.resolve()
+                if _is_macos_system_library(resolved):
+                    continue
+
+                bundled_libs.add(dependency_path)
+                bundled_libs.add(resolved)
+                queued.append(resolved)
+
+    return bundled_libs
 
 
 def _is_macos_system_library(path: Path) -> bool:
@@ -815,6 +856,49 @@ def _macos_load_dependencies(path: Path) -> list[str]:
         dependency, _, _ = stripped.partition(" (compatibility version")
         dependencies.append(dependency.strip())
     return dependencies
+
+
+def _macos_dependency_candidates(path: Path, dependency: str) -> list[Path]:
+    if dependency.startswith("/"):
+        return [Path(dependency)]
+
+    if dependency.startswith("@loader_path/"):
+        return [path.parent / dependency.removeprefix("@loader_path/")]
+
+    if dependency.startswith("@executable_path/"):
+        return [path.parent / dependency.removeprefix("@executable_path/")]
+
+    if dependency.startswith("@rpath/"):
+        suffix = dependency.removeprefix("@rpath/")
+        return [rpath / suffix for rpath in _macos_load_rpaths(path)]
+
+    return []
+
+
+def _macos_load_rpaths(path: Path) -> list[Path]:
+    completed = run_capture(["otool", "-l", str(path)])
+    ensure(completed.returncode == 0, f"failed to inspect Mach-O rpaths for `{path}`")
+
+    rpaths: list[Path] = []
+    expect_path = False
+    for line in (completed.stdout or "").splitlines():
+        stripped = line.strip()
+        if stripped == "cmd LC_RPATH":
+            expect_path = True
+            continue
+        if not expect_path or not stripped.startswith("path "):
+            continue
+
+        raw_path = stripped.split(" (offset", 1)[0].removeprefix("path ").strip()
+        expect_path = False
+        if raw_path.startswith("@loader_path/"):
+            rpaths.append((path.parent / raw_path.removeprefix("@loader_path/")).resolve())
+        elif raw_path.startswith("@executable_path/"):
+            rpaths.append((path.parent / raw_path.removeprefix("@executable_path/")).resolve())
+        elif raw_path.startswith("/"):
+            rpaths.append(Path(raw_path).resolve())
+
+    return rpaths
 
 
 def _macos_local_dylib_reference(path: Path, dylib_name: str, *, lib_dir: Path) -> str:

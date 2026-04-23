@@ -213,11 +213,10 @@ def _validate_manifest_toolchain(sdk_root: Path, manifest: dict[str, object]) ->
         ensure(isinstance(entry, dict), f"SDK manifest component `{component}` is invalid")
         _validate_component_record(sdk_root, component, entry)
 
-    if host_target.endswith("windows-msvc"):
-        for component in required:
-            entry = components[component]
-            assert isinstance(entry, dict)
-            _verify_windows_toolchain_component_starts(sdk_root, component, entry)
+    for component in required:
+        entry = components[component]
+        assert isinstance(entry, dict)
+        _verify_bundled_toolchain_component_starts(sdk_root, component, entry, host_target)
 
 
 def _validate_component_record(sdk_root: Path, component: str, entry: dict[str, object]) -> None:
@@ -257,10 +256,11 @@ def _validate_component_record(sdk_root: Path, component: str, entry: dict[str, 
         )
 
 
-def _verify_windows_toolchain_component_starts(
+def _verify_bundled_toolchain_component_starts(
     sdk_root: Path,
     component: str,
     entry: dict[str, object],
+    host_target: str,
 ) -> None:
     relative_path = entry.get("path")
     ensure(
@@ -294,8 +294,23 @@ def _verify_windows_toolchain_component_starts(
         return
 
     output = (completed.stdout or "") + (completed.stderr or "")
+    if host_target.endswith("linux-gnu"):
+        output += (
+            "\nThe bundled Linux runtime tool did not start. "
+            "The SDK archive is missing a required shared-library dependency."
+        )
+    elif host_target.endswith("apple-darwin"):
+        output += (
+            "\nThe bundled macOS runtime tool did not start. "
+            "The SDK archive likely has a broken dylib load command or missing bundled dylib."
+        )
+    else:
+        output += (
+            "\nThe bundled Windows runtime tool did not start. "
+            "The SDK archive is missing a required runtime dependency."
+        )
     raise OpsError(
-        f"SDK bundled Windows runtime component `{component}` failed to start at `{target}`:\n"
+        f"SDK bundled runtime component `{component}` failed to start at `{target}`:\n"
         f"{output.strip()}"
     )
 

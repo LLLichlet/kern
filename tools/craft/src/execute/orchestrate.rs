@@ -250,6 +250,9 @@ pub(super) fn build_with_command(
         if let Some(progress) = &progress {
             progress.set_detail(format!("compile parallel batch ({} jobs)", jobs.len()));
         }
+        let _progress_suspend = progress
+            .as_ref()
+            .map(|progress| progress.suspend_terminal());
         for result in build_parallel_target_compile_jobs(
             command,
             &jobs,
@@ -323,6 +326,9 @@ pub(super) fn build_with_command(
             parallel_jobs.len()
         ));
     }
+    let _progress_suspend = progress
+        .as_ref()
+        .map(|progress| progress.suspend_terminal());
     for result in build_parallel_target_link_jobs(
         command,
         &parallel_jobs,

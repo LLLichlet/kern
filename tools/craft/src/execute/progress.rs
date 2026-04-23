@@ -78,12 +78,18 @@ pub struct ProgressReporter {
 }
 
 #[derive(Debug)]
+pub(crate) struct ProgressSuspendGuard {
+    state: Arc<ProgressState>,
+}
+
+#[derive(Debug)]
 struct ProgressState {
     plan: ExecutionProgressPlan,
     phase: AtomicU8,
     staged_done: AtomicUsize,
     compile_done: AtomicUsize,
     link_done: AtomicUsize,
+    suspended: AtomicUsize,
     started_at: Instant,
     detail: Mutex<String>,
 }
@@ -97,6 +103,7 @@ impl ProgressReporter {
                 staged_done: AtomicUsize::new(0),
                 compile_done: AtomicUsize::new(0),
                 link_done: AtomicUsize::new(0),
+                suspended: AtomicUsize::new(0),
                 started_at: Instant::now(),
                 detail: Mutex::new(String::new()),
             }),
@@ -133,5 +140,22 @@ impl ProgressReporter {
 
     pub(crate) fn set_detail(&self, detail: impl Into<String>) {
         *self.state.detail.lock().unwrap() = detail.into();
+    }
+
+    pub(crate) fn suspend_terminal(&self) -> ProgressSuspendGuard {
+        self.state.suspended.fetch_add(1, Ordering::Relaxed);
+        ProgressSuspendGuard {
+            state: self.state.clone(),
+        }
+    }
+
+    pub(crate) fn terminal_suspended(&self) -> bool {
+        self.state.suspended.load(Ordering::Relaxed) != 0
+    }
+}
+
+impl Drop for ProgressSuspendGuard {
+    fn drop(&mut self) {
+        self.state.suspended.fetch_sub(1, Ordering::Relaxed);
     }
 }

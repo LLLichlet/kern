@@ -166,11 +166,19 @@ impl ProgressDisplay {
             let mut last_len = 0usize;
             let mut last_line = String::new();
             loop {
-                let snapshot = worker_reporter.snapshot();
-                let line = render_progress_line(command, snapshot, progress_line_columns());
-                if line != last_line {
-                    write_progress_line(&line, &mut last_len);
-                    last_line = line;
+                if worker_reporter.terminal_suspended() {
+                    if last_len != 0 {
+                        clear_progress_line(last_len);
+                        last_len = 0;
+                        last_line.clear();
+                    }
+                } else {
+                    let snapshot = worker_reporter.snapshot();
+                    let line = render_progress_line(command, snapshot, progress_line_columns());
+                    if line != last_line {
+                        write_progress_line(&line, &mut last_len);
+                        last_line = line;
+                    }
                 }
                 if worker_stop.load(Ordering::Relaxed) {
                     break;

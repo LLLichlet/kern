@@ -540,7 +540,7 @@ def _bundle_sdk_runtime_toolchain(
     runtime_libs: set[Path] = set()
     if host.archive_target.endswith("linux-gnu"):
         runtime_libs = _linux_collect_bundled_runtime_libs(
-            roots=list(copied_tools.values()),
+            roots=list(runtime_tools.values()),
             bundled_prefix=bundled_toolchain.prefix,
         )
     elif host.archive_target.endswith("apple-darwin"):
@@ -653,7 +653,7 @@ def _linux_collect_bundled_runtime_libs(
         visited.add(current)
 
         for dependency in _linux_load_dependencies(current):
-            if not dependency.is_relative_to(bundled_prefix):
+            if not _is_linux_bundled_runtime_lib(dependency, bundled_prefix):
                 continue
             if dependency in bundled_libs:
                 continue
@@ -661,6 +661,12 @@ def _linux_collect_bundled_runtime_libs(
             queued.append(dependency)
 
     return bundled_libs
+
+
+def _is_linux_bundled_runtime_lib(dependency: Path, bundled_prefix: Path) -> bool:
+    if dependency.is_relative_to(bundled_prefix):
+        return True
+    return dependency.name.startswith(("libLLVM", "libclang", "libLTO"))
 
 
 def _linux_load_dependencies(path: Path) -> list[Path]:

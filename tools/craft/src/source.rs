@@ -6,7 +6,7 @@ use crate::manifest::{Manifest, ResourceSpec};
 use crate::resolver::{ExternalPackageId, ResolvedGraph};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchSummary {
@@ -536,32 +536,27 @@ fn git_selector_from_parts(
 }
 
 fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<()> {
-    let output = Command::new("git")
+    let status = Command::new("git")
         .args(args)
         .current_dir(cwd)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
         .map_err(|err| Error::Execution(format!("failed to run git: {err}")))?;
 
-    if output.status.success() {
+    if status.success() {
         return Ok(());
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let detail = if !stderr.trim().is_empty() {
-        stderr.trim().to_string()
-    } else if !stdout.trim().is_empty() {
-        stdout.trim().to_string()
-    } else {
-        format!("git exited with status {}", output.status)
-    };
-    Err(Error::Execution(detail))
+    Err(Error::Execution(format!("git exited with status {status}")))
 }
 
 fn git_output<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<String> {
     let output = Command::new("git")
         .args(args)
         .current_dir(cwd)
+        .stdin(Stdio::null())
         .output()
         .map_err(|err| Error::Execution(format!("failed to run git: {err}")))?;
 

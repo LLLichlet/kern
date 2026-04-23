@@ -217,6 +217,24 @@ fn parses_short_project_path_alias() {
 }
 
 #[test]
+fn parses_clean_with_project_path() {
+    let cmd = parse_args([
+        "clean".to_string(),
+        "--project-path".to_string(),
+        "demo".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Clean { path, ui } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert_eq!(ui, UiOptions::default());
+        }
+        other => panic!("expected clean command, got {other:?}"),
+    }
+}
+
+#[test]
 fn parses_global_version_flags() {
     assert!(matches!(
         parse_args(["--version".to_string()]).unwrap(),
@@ -850,6 +868,29 @@ fn check_command_waits_for_workspace_lock() {
     holder.join().unwrap();
     let waited = waiter.join().unwrap();
     assert!(waited >= Duration::from_millis(150));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn clean_command_removes_derived_craft_state() {
+    let root = temp_dir("craft-cli-clean");
+    write_minimal_bin_package(&root);
+    fs::create_dir_all(root.join(".craft/build/dev")).unwrap();
+    fs::create_dir_all(root.join(".craft/resources/pkg/resource")).unwrap();
+    fs::write(root.join(".craft/analysis.toml"), "derived = true\n").unwrap();
+    fs::write(root.join(".craft/build/dev/artifact"), "artifact\n").unwrap();
+
+    run_command(Command::Clean {
+        path: Some(root.clone()),
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+
+    assert!(!root.join(".craft/build").exists());
+    assert!(!root.join(".craft/resources").exists());
+    assert!(!root.join(".craft/analysis.toml").exists());
+    assert!(root.join(".craft/lock").is_dir());
 
     let _ = fs::remove_dir_all(root);
 }

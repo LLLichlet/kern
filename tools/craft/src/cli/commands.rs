@@ -39,6 +39,7 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             Ok(())
         }
         Command::Init { path, ui } => run_init(path, ui),
+        Command::Clean { path, ui } => run_clean(path, ui),
         Command::Check {
             path,
             feature_selection,
@@ -120,6 +121,37 @@ fn run_init(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
         );
     }
     render.ok("package initialized");
+
+    Ok(())
+}
+
+fn run_clean(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
+    let render = Renderer::new(ui);
+    let manifest_path = discover::resolve_project_manifest_path(path.as_deref())?;
+    let manifest = Manifest::load(&manifest_path)?;
+    manifest.validate(&manifest_path)?;
+    let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let craft_dir = workspace_root.join(".craft");
+    let feature_selection = elaborate::FeatureSelection::default();
+
+    render.header_with_path("clean", &manifest, &manifest_path, &feature_selection);
+    if !craft_dir.exists() {
+        render.summary("removed", "0 entry(s)");
+        render.ok("nothing to clean");
+        return Ok(());
+    }
+    if !craft_dir.is_dir() {
+        return Err(Error::Execution(format!(
+            "cannot clean `{}` because it is not a directory",
+            craft_dir.display()
+        )));
+    }
+
+    let _workspace_lock = WorkspaceOperationLock::acquire(workspace_root, "clean")?;
+    let removed = clean_craft_dir(&craft_dir)?;
+    render.summary("root", craft_dir.display());
+    render.summary("removed", format!("{removed} entry(s)"));
+    render.ok("clean completed");
 
     Ok(())
 }
@@ -994,6 +1026,26 @@ impl InitPlan {
             self.example_roots.len()
         )
     }
+}
+
+fn clean_craft_dir(craft_dir: &Path) -> Result<usize> {
+    let mut removed = 0;
+    for entry in fs::read_dir(craft_dir).map_err(|err| Error::from_io(craft_dir, err))? {
+        let entry = entry.map_err(Error::from_io_plain)?;
+        let path = entry.path();
+        if entry.file_name() == "lock" {
+            continue;
+        }
+
+        let file_type = entry.file_type().map_err(Error::from_io_plain)?;
+        if file_type.is_dir() {
+            fs::remove_dir_all(&path).map_err(|err| Error::from_io(&path, err))?;
+        } else {
+            fs::remove_file(&path).map_err(|err| Error::from_io(&path, err))?;
+        }
+        removed += 1;
+    }
+    Ok(removed)
 }
 
 fn resolve_init_root(path: Option<&Path>) -> Result<PathBuf> {

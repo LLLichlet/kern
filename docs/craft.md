@@ -26,6 +26,7 @@ craft check
 craft build
 craft run
 craft test
+craft clean
 ```
 
 Common target-selection variants are:
@@ -36,12 +37,15 @@ craft build --profile release
 craft build --examples
 craft run --bin my-tool
 craft run --example smoke
+craft clean --project-path path/to/workspace
 ```
 
 The practical split is:
 
 - use `craft` when the question is "which package or target should be built?"
 - use `kernc` when the question is "what exact compile or link command should happen?"
+- use `craft clean` when derived `.craft/` build, fetch, staging, or analysis
+  state should be removed without deleting project sources.
 
 ## Freestanding Kernel Package
 

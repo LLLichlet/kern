@@ -20,6 +20,7 @@ fn overview_doc() -> HelpDoc {
         .section(
             HelpSection::new("Popular Commands")
                 .entry("init", "Create a package in the selected directory")
+                .entry("clean", "Remove derived .craft state for a package")
                 .entry(
                     "check",
                     "Validate manifests, scripts, sources, and analysis inputs",
@@ -95,6 +96,26 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
             "Validate manifests, scripts, sources, and derived analysis inputs",
             "craft check [OPTIONS]",
             &[("craft check", "Validate the current package graph")],
+        ),
+        "clean" => command_template(
+            "clean",
+            "Remove derived .craft build, cache, and analysis state for the selected package",
+            &["craft clean [OPTIONS]"],
+            HelpSection::new("Options")
+                .entry(
+                    "--project-path, -p <PATH>",
+                    "Select the package root, workspace root, or Craft.toml manifest",
+                )
+                .entry("--verbose, -v", "Print detailed action logs")
+                .entry("--timings", "Print aggregated timing information")
+                .entry("--color <WHEN>", "Color mode: auto, always, never"),
+            &[
+                ("craft clean", "Clean the current package .craft state"),
+                (
+                    "craft clean --project-path incubator/json",
+                    "Clean another package",
+                ),
+            ],
         ),
         "lock" => feature_command_doc(
             "lock",

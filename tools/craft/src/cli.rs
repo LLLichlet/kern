@@ -27,6 +27,10 @@ pub enum Command {
         path: Option<PathBuf>,
         ui: UiOptions,
     },
+    Clean {
+        path: Option<PathBuf>,
+        ui: UiOptions,
+    },
     Check {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
@@ -140,6 +144,7 @@ fn known_command(name: &str) -> bool {
     matches!(
         name,
         "init"
+            | "clean"
             | "check"
             | "lock"
             | "fetch"
@@ -251,6 +256,13 @@ where
         "init" => {
             let options = parse_command_options(rest, init_option_mode())?;
             Ok(Command::Init {
+                path: options.path,
+                ui: options.ui,
+            })
+        }
+        "clean" => {
+            let options = parse_command_options(rest, clean_option_mode())?;
+            Ok(Command::Clean {
                 path: options.path,
                 ui: options.ui,
             })
@@ -372,6 +384,17 @@ struct ParsedCommandOptions {
 fn init_option_mode() -> CommandOptionMode {
     CommandOptionMode {
         command_name: "init",
+        allow_feature_selection: false,
+        allow_examples: false,
+        allow_bin_selection: false,
+        allow_example_selection: false,
+        allow_install_root: false,
+    }
+}
+
+fn clean_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        command_name: "clean",
         allow_feature_selection: false,
         allow_examples: false,
         allow_bin_selection: false,

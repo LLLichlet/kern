@@ -1,404 +1,531 @@
-# Windows SDK Slimming TODO
+# macOS SDK Slimming TODO
 
 ## Context
 
-Linux side has already been tightened so the end-user SDK no longer bundles a
-full LLVM development prefix just to run installed tools.
+Linux and Windows default SDK packaging have now been tightened so an end-user
+install no longer bundles a full LLVM development prefix just to run installed
+tools.
 
-The same cleanup now needs to be done on Windows.
+The same cleanup should be completed for macOS.
 
-The key rule is:
+The key rule remains:
 
 - end-user SDK: smallest runtime-complete package that lets installed `kernc`,
   `craft`, and `kern-lsp` run correctly
 - source-build / repo-dev environment: separate concern; users cloning the repo
-  can configure host LLVM/MSVC themselves and should not force that payload into
-  `%USERPROFILE%\\.kern`
+  can configure host LLVM/Homebrew/Xcode tools themselves and should not force
+  that payload into `~/.kern`
+- standalone toolchain archive: the artifact that preserves a full
+  source-build-oriented LLVM development prefix
 
-This work should be validated on a real Windows machine, not by `wine`.
+Validate this work on real macOS hosts, not through emulation or cross-packaging.
+Both official macOS host labels matter:
 
-## Main Goal
+- `x86_64-apple-darwin`
+- `aarch64-apple-darwin`
 
-Shrink the default Windows SDK significantly without breaking:
+## Status From Previous Platforms
 
-- `install.ps1`
-- `kernc --version`
-- `craft --version`
-- `kern-lsp --version`
-- direct `kernc hello_world.rn`
-- `craft build`
-- `craft run`
-- Windows runtime entry / CRT modes currently covered by tests
+### Linux
 
-## Current Model To Revisit
+Linux default SDK packaging already uses a runtime-complete subset instead of a
+full LLVM development prefix.
 
-Today the SDK packaging path still conflates two use cases:
+### Windows
 
-- user install of a ready-to-run toolchain
-- source-build-friendly LLVM development prefix
+Windows was completed in commit:
 
-Current packaging behavior to inspect:
+```text
+a65e6d2 perf(sdk): slim windows end-user toolchain
+```
 
-- [ops/release.py](./ops/release.py)
-- [ops/common.py](./ops/common.py)
-- [ops/install.py](./ops/install.py)
-- [compiler/kernc_driver/src/compiler/link.rs](./compiler/kernc_driver/src/compiler/link.rs)
-- [install.ps1](./install.ps1)
-- [docs/windows-distribution.md](./docs/windows-distribution.md)
+Measured Windows result:
 
-On Linux, the large waste came from bundling:
+- baseline SDK zip: `1460.08 MiB`
+- minimized SDK zip: `125.54 MiB`
+- reduction: `1334.54 MiB`
+- reduction percent: `91.4%`
 
-- full LLVM `bin/`
-- full LLVM `lib/`
-- full LLVM `include/`
-- full `clang resource dir`
-
-Windows likely has the same structural problem, plus DLL/runtime details.
-
-## Working Assumption
-
-For the current end-user SDK, Windows likely needs only a runtime subset around:
+The measured Windows runtime tool set is:
 
 - `clang.exe`
 - `lld-link.exe`
 - `llvm-lib.exe`
-- any DLLs those tools actually require at runtime
-- any files those tools require for Kern's current use as a link driver
 
-Likely **not** required for the default end-user SDK unless proven otherwise:
+Windows explicitly does not bundle these in the default SDK:
 
 - `clang++.exe`
 - `llvm-ar.exe`
 - `llvm-config.exe`
 - full LLVM `include/`
 - full LLVM `lib/`
-- full `clang resource dir`
+- Clang resource dir
+
+The standalone Windows `package-toolchain` artifact still preserves the full
+development prefix.
+
+## Main Goal
+
+Shrink the default macOS SDK significantly without breaking:
+
+- `install.sh`
+- `python -m ops install`
+- `kernc --version`
+- `craft --version`
+- `kern-lsp --version`
+- direct `kernc hello_world.rn`
+- `craft build`
+- `craft run`
+- macOS runtime entry modes currently covered by tests
+- ThinLTO/LTO paths that rely on `ld64.lld` when configured
+
+## Current Model To Inspect
+
+The files most likely involved are:
+
+- [ops/release.py](./ops/release.py)
+- [ops/common.py](./ops/common.py)
+- [ops/install.py](./ops/install.py)
+- [install.sh](./install.sh)
+- [compiler/kernc_driver/src/compiler/link.rs](./compiler/kernc_driver/src/compiler/link.rs)
+- [manifest/ci-toolchains.json](./manifest/ci-toolchains.json)
+- [docs/unix-distribution.md](./docs/unix-distribution.md)
+- [docs/sdk-rebuild-plan.md](./docs/sdk-rebuild-plan.md)
+- [README.md](./README.md)
+
+The current code already has runtime-subset SDK packaging for Linux and Windows.
+macOS still needs a real measurement pass before changing behavior because Mach-O
+load commands, Homebrew paths, `install_name_tool`, and codesigning make the risk
+different from Linux.
+
+## Working Assumption
+
+For the current end-user SDK, macOS likely needs only a runtime subset around:
+
+- `clang`
+- `ld64.lld`
+- dynamic libraries required by those tools at runtime
+- rewritten Mach-O load commands so bundled tools and bundled dylibs are
+  relocatable inside the installed SDK
+- possibly codesigning after load-command rewrites
+
+Likely not required for the default end-user SDK unless proven otherwise:
+
+- `clang++`
+- `llvm-ar`
+- `llvm-config`
+- full LLVM `include/`
+- full LLVM `lib/`
+- full Clang resource dir
 - extra LLVM utilities unrelated to Kern's current installed-user path
 
-Important: do not assume these are removable without measurement. Prove it.
+Do not assume these are removable without measurement. Prove the runtime set on
+the macOS host where packaging is performed.
 
-## Required Outcome
+## Step 1: Pull And Establish Baseline
 
-At the end of this task, there should be a clear Windows packaging split:
+On the macOS machine:
 
-- default SDK archive = end-user runtime-complete package
-- standalone toolchain archive / repo environment = full source-build-oriented toolchain
-
-## Step 1: Measure The Current Windows Baseline
-
-On the Windows machine:
-
-1. Pull latest changes.
-2. Build or reuse current release binaries.
-3. Package a baseline SDK archive.
-4. Record exact sizes before changing anything.
-
-Suggested commands:
-
-```powershell
-git pull
-py -3 -m ops release package --version v0.7.0-win-baseline
-Get-Item .\kern-v0.7.0-win-baseline-x86_64-windows-msvc.zip | Select-Object Name,Length
+```bash
+git pull --ff-only
+python3 -m ops release package --version v0.7.0-macos-baseline
+ls -lh kern-v0.7.0-macos-baseline-*.tar.gz
 ```
 
-Also unpack it and measure the top-level contributors:
+Unpack and measure:
 
-```powershell
-Expand-Archive .\kern-v0.7.0-win-baseline-x86_64-windows-msvc.zip -DestinationPath .\tmp\win-baseline -Force
-Get-ChildItem .\tmp\win-baseline\kern-v0.7.0-win-baseline-x86_64-windows-msvc -Force
+```bash
+rm -rf tmp/macos-baseline
+mkdir -p tmp/macos-baseline
+tar -xzf kern-v0.7.0-macos-baseline-*.tar.gz -C tmp/macos-baseline
+du -sh tmp/macos-baseline/kern-v0.7.0-macos-baseline-*/bin
+du -sh tmp/macos-baseline/kern-v0.7.0-macos-baseline-*/lib/kern
+du -sh tmp/macos-baseline/kern-v0.7.0-macos-baseline-*/toolchain/host/bin
+du -sh tmp/macos-baseline/kern-v0.7.0-macos-baseline-*/toolchain/host/lib
+du -sh tmp/macos-baseline/kern-v0.7.0-macos-baseline-*/toolchain/host/include
+du -sh tmp/macos-baseline/kern-v0.7.0-macos-baseline-*/toolchain/host/sysroot
+du -sh tmp/macos-baseline/kern-v0.7.0-macos-baseline-*/toolchain/host/lib/clang 2>/dev/null || true
 ```
 
-Then specifically measure:
+Record exact numbers before changing code.
 
-- `bin/`
-- `lib/kern/`
-- `toolchain/host/bin`
-- `toolchain/host/lib`
-- `toolchain/host/include`
-- `toolchain/host/sysroot`
-
-Write the numbers down in a scratch note before changing code.
-
-## Step 2: Identify The Real Runtime Tool Set
-
-Determine which Windows LLVM tools are actually used by installed Kern tools.
+## Step 2: Identify macOS Runtime Tool Usage
 
 Start from code:
 
 - [compiler/kernc_driver/src/compiler/link.rs](./compiler/kernc_driver/src/compiler/link.rs)
 - [ops/common.py](./ops/common.py)
+- [ops/release.py](./ops/release.py)
 - [manifest/ci-toolchains.json](./manifest/ci-toolchains.json)
 
 Questions to answer:
 
-1. Is `clang.exe` still required as the driver for the link path?
-2. When does `lld-link.exe` get used?
-3. When does `llvm-lib.exe` get used?
-4. Is `clang++.exe` needed for the installed-user path at all?
-5. Is `llvm-ar.exe` needed for installed-user workflows, or only for tests / future `cc` work?
-6. Is `llvm-config.exe` needed at runtime, or only for source builds and packaging?
-7. Is `clang resource dir` actually touched by current Windows `kernc` link flows?
+1. Is `clang` still required as the driver for the installed-user link path?
+2. When does `ld64.lld` get used?
+3. Is `llvm-ar` needed for installed-user workflows, or only for tests/source
+   builds/future `cc` work?
+4. Is `clang++` needed at runtime at all?
+5. Is `llvm-config` needed at runtime, or only for source builds and packaging?
+6. Is the Clang resource dir touched by current macOS `kernc` link flows?
+7. Do current macOS flows rely on Apple system `ld`, Xcode CLT tools, or SDK
+   paths outside the bundled LLVM subset?
 
-You are not trying to predict future `kernc cc` yet. This task is about the
-current installed-user path.
+This task is about current installed-user flows, not future `kernc cc` support.
 
-## Step 3: Inspect Windows Runtime Dependencies
-
-The Linux cleanup succeeded because the runtime set was tiny. On Windows, the
-main risk is hidden DLL dependencies.
+## Step 3: Inspect Mach-O Runtime Dependencies
 
 For each candidate tool:
 
-- `clang.exe`
-- `lld-link.exe`
-- `llvm-lib.exe`
-- maybe `clang++.exe` if still under consideration
+- `clang`
+- `ld64.lld`
+- maybe `llvm-ar` if relocatable/static archive paths prove it is needed
+- maybe `clang++` only if a current installed-user path proves it is needed
 
-find what runtime files they actually need.
+inspect load commands:
 
-Do this empirically:
-
-1. Copy only the candidate `.exe` files into a temp directory.
-2. Try running `--version`.
-3. Add DLLs until they start reliably.
-4. Record the minimal passing set.
-
-Example scratch workflow:
-
-```powershell
-$tmp = Join-Path $env:TEMP "kern-win-min-toolchain"
-Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path "$tmp\bin" | Out-Null
-Copy-Item "C:\Path\To\LLVM\bin\clang.exe" "$tmp\bin\"
-Copy-Item "C:\Path\To\LLVM\bin\lld-link.exe" "$tmp\bin\"
-Copy-Item "C:\Path\To\LLVM\bin\llvm-lib.exe" "$tmp\bin\"
-& "$tmp\bin\clang.exe" --version
+```bash
+otool -L "$(llvm-config --bindir)/clang"
+otool -L "$(llvm-config --bindir)/ld64.lld" 2>/dev/null || true
 ```
 
-If startup fails, inspect what DLLs are missing and add only those.
+If `ld64.lld` is provided outside the main LLVM prefix, locate it through the
+existing Homebrew fallback logic and inspect that binary too.
 
-Do not assume the whole LLVM `bin/` directory is needed just because some DLLs
-live there.
+Classify each dependency:
 
-## Step 4: Validate Minimal Toolchain Against Kern
+- macOS system library: do not bundle
+- dependency under the selected LLVM/Homebrew prefix: bundle only if needed
+- dependency under another Homebrew prefix such as `libxml2`, `zstd`, or
+  similar: bundle only if the tool will not run without it
 
-After finding a candidate minimal Windows runtime toolchain directory, validate
-it against actual Kern flows before changing packaging.
+Important: copying a dylib is not enough. If a copied tool records absolute
+Homebrew load-command paths, the packaged SDK must rewrite those paths to
+`@loader_path`-relative references and codesign modified Mach-O files when
+needed.
 
-Use `--toolchain-root` to force Kern onto the candidate directory.
+## Step 4: Build A Candidate Minimal macOS Toolchain
 
-Prepare a minimal test source:
+Create a scratch toolchain root:
 
-```powershell
-@'
+```bash
+MIN_TOOLCHAIN_ROOT="$(pwd)/tmp/macos-min-toolchain"
+rm -rf "$MIN_TOOLCHAIN_ROOT"
+mkdir -p "$MIN_TOOLCHAIN_ROOT/bin" "$MIN_TOOLCHAIN_ROOT/lib"
+
+cp "$(llvm-config --bindir)/clang" "$MIN_TOOLCHAIN_ROOT/bin/"
+# Adjust this if ld64.lld comes from a separate Homebrew formula.
+cp "$(dirname "$(command -v ld64.lld)")/ld64.lld" "$MIN_TOOLCHAIN_ROOT/bin/"
+```
+
+Add only required dylibs discovered from `otool -L`.
+
+Rewrite load commands if needed:
+
+```bash
+otool -L "$MIN_TOOLCHAIN_ROOT/bin/clang"
+otool -L "$MIN_TOOLCHAIN_ROOT/bin/ld64.lld"
+```
+
+Use `install_name_tool -change` for copied non-system dylibs that still point at
+absolute paths. Re-sign modified files if macOS refuses to execute them:
+
+```bash
+codesign --force --sign - "$MIN_TOOLCHAIN_ROOT/bin/clang"
+codesign --force --sign - "$MIN_TOOLCHAIN_ROOT/bin/ld64.lld"
+```
+
+Then check startup from the isolated directory:
+
+```bash
+"$MIN_TOOLCHAIN_ROOT/bin/clang" --version
+"$MIN_TOOLCHAIN_ROOT/bin/ld64.lld" --version
+```
+
+Do not copy the full Homebrew or LLVM `bin/` directory just to make startup pass.
+
+## Step 5: Validate Minimal Toolchain Against Kern
+
+Prepare a minimal source:
+
+```bash
+mkdir -p tmp
+cat > tmp/hello_world.rn <<'EOF'
 fn main() i32 {
     return 0;
 }
-'@ | Set-Content .\tmp\hello_world.rn
+EOF
 ```
 
-Validation commands:
+Validate direct compile and run:
 
-```powershell
-cargo run -q -p kernc_cli -- --toolchain-root <MIN_TOOLCHAIN_ROOT> .\tmp\hello_world.rn -o .\tmp\hello_world.exe
-.\tmp\hello_world.exe
+```bash
+cargo run -q -p kernc_cli -- --toolchain-root "$MIN_TOOLCHAIN_ROOT" tmp/hello_world.rn -o tmp/hello_world
+./tmp/hello_world
 ```
 
-Then also validate:
+Also validate:
 
 - direct source build defaults
 - `--runtime-entry rt`
 - `-c`
-- `--link-only` if relevant
+- `--link-only` only with a complete set of required runtime/link inputs
 - one `craft build`
 - one `craft run`
 
+For `craft`, prefer environment injection because current `craft` does not expose
+a direct `--toolchain-root` flag:
+
+```bash
+export KERN_TOOLCHAIN_ROOT="$MIN_TOOLCHAIN_ROOT"
+rm -rf tmp/hello
+mkdir -p tmp/hello
+(
+  cd tmp/hello
+  cargo run -q -p craft -- init
+  cargo run -q -p craft -- build
+  cargo run -q -p craft -- run
+)
+```
+
 If something breaks, identify whether the missing part is:
 
-- another `.exe`
-- a DLL
-- a library file
-- a resource dir
+- another executable
+- a dylib
+- a resource directory
+- a system SDK / Xcode CLT dependency
 - a driver assumption in `link.rs`
+- a Mach-O load-command rewrite problem
+- a codesigning problem
 
-## Step 5: Change Packaging Logic
+## Step 6: Change Packaging Logic
 
-Once the runtime-complete set is proven, update packaging so the default
-Windows SDK follows the same principle as Linux.
+Once the runtime-complete set is proven, update packaging so the default macOS
+SDK follows the same runtime-only principle as Linux and Windows.
 
 Likely files to edit:
 
 - [ops/release.py](./ops/release.py)
 - [ops/common.py](./ops/common.py)
 - [ops/install.py](./ops/install.py)
+- [install.sh](./install.sh)
 
-What to change:
+Expected changes:
 
-1. Introduce a Windows runtime-subset bundling path for the SDK archive.
-2. Stop copying full LLVM `bindir/libdir/includedir` into the default SDK.
+1. Route `*-apple-darwin` default SDK packaging through a macOS runtime-subset
+   bundling path.
+2. Stop copying full LLVM `bindir/libdir/includedir` into the default macOS SDK.
 3. Copy only:
    - required runtime executables
-   - required runtime DLLs / support files
+   - required runtime dylibs
    - only proven-required resource directories
-4. Keep the standalone `package-toolchain` artifact as the place that preserves
-   the full development prefix.
-5. Adjust `sdk.json` generation so the SDK manifest reflects the reduced
-   runtime-only toolchain contract.
+4. Rewrite Mach-O load commands for copied non-system dylibs.
+5. Codesign modified Mach-O files when required.
+6. Keep standalone `package-toolchain` as the full development-prefix artifact.
+7. Ensure `sdk.json` describes the runtime-only toolchain contract accurately.
 
 Important:
 
-- do not break the standalone toolchain artifact
-- do not break CI assumptions that intentionally validate the full toolchain archive
+- do not break Linux and Windows runtime-subset packaging
+- do not break standalone `package-toolchain`
+- do not break CI assumptions that intentionally validate full toolchain archives
 
-## Step 6: Adjust Installer Validation
-
-The installer currently validates more than the end-user SDK should guarantee.
+## Step 7: Adjust Installer Validation
 
 Review:
 
-- [install.ps1](./install.ps1)
+- [install.sh](./install.sh)
 - [ops/install.py](./ops/install.py)
 
-Update validation so the installed SDK checks only the runtime-complete subset.
-
-The installer should verify:
+Installer validation should verify:
 
 - SDK manifest exists
 - host target matches
 - `kernc`, `craft`, `kern-lsp` exist
 - required bundled runtime toolchain components exist
-- those tools actually start
+- required bundled runtime toolchain components actually start
+- installed `kernc`, `craft`, and `kern-lsp` start
 
-The installer should **not** require a full LLVM development prefix for a user
-install.
+Installer validation should not require:
 
-## Step 7: Re-run Real Packaging And Measure Improvement
+- full LLVM `include/`
+- full LLVM `lib/`
+- `llvm-config`
+- full Clang resource dir
+- a source-build-ready LLVM development prefix
+
+For macOS, startup validation must catch broken dylib load commands. A tool that
+exists but cannot start is a packaging failure.
+
+## Step 8: Re-run Packaging And Measure Improvement
 
 After code changes:
 
-```powershell
-py -3 -m ops release package --version v0.7.0-win-minsdk
-Get-Item .\kern-v0.7.0-win-minsdk-x86_64-windows-msvc.zip | Select-Object Name,Length
+```bash
+python3 -m ops release package --version v0.7.0-macos-minsdk
+ls -lh kern-v0.7.0-macos-minsdk-*.tar.gz
 ```
 
-Then compare directly against the baseline from Step 1.
+Unpack and compare:
+
+```bash
+rm -rf tmp/macos-minsdk
+mkdir -p tmp/macos-minsdk
+tar -xzf kern-v0.7.0-macos-minsdk-*.tar.gz -C tmp/macos-minsdk
+du -sh tmp/macos-minsdk/kern-v0.7.0-macos-minsdk-*/bin
+du -sh tmp/macos-minsdk/kern-v0.7.0-macos-minsdk-*/lib/kern
+du -sh tmp/macos-minsdk/kern-v0.7.0-macos-minsdk-*/toolchain/host/bin
+du -sh tmp/macos-minsdk/kern-v0.7.0-macos-minsdk-*/toolchain/host/lib
+du -sh tmp/macos-minsdk/kern-v0.7.0-macos-minsdk-*/toolchain/host/include 2>/dev/null || true
+du -sh tmp/macos-minsdk/kern-v0.7.0-macos-minsdk-*/toolchain/host/lib/clang 2>/dev/null || true
+```
 
 Report:
 
-- baseline zip size
-- new zip size
+- baseline archive size
+- new archive size
 - absolute reduction
 - percentage reduction
+- runtime tools included
+- runtime dylibs included
+- whether Clang resource dir is included or omitted, with proof
 
-Also inspect unpacked contents to ensure the shrink came from toolchain cleanup,
-not from accidentally dropping required Kern assets.
-
-## Step 8: Full End-User Validation On Real Windows
+## Step 9: Full End-User Validation On Real macOS
 
 Do not stop at packaging.
 
-Validate the user path end-to-end:
+Validate the user path end-to-end from a local archive:
 
-1. Remove any old install.
-2. Install from local archive with `install.ps1 -Archive`.
-3. Ensure the installed tools start.
-4. Compile and run a minimal program.
-5. Build and run a minimal `craft` package.
-
-Suggested flow:
-
-```powershell
-Remove-Item $env:USERPROFILE\.kern -Recurse -Force -ErrorAction SilentlyContinue
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.0-win-minsdk-x86_64-windows-msvc.zip
-$env:USERPROFILE\.kern\bin\kernc.exe --version
-$env:USERPROFILE\.kern\bin\craft.exe --version
-$env:USERPROFILE\.kern\bin\kern-lsp.exe --version
+```bash
+rm -rf "$HOME/.kern"
+./install.sh --archive ./kern-v0.7.0-macos-minsdk-*.tar.gz
+"$HOME/.kern/bin/kernc" --version
+"$HOME/.kern/bin/craft" --version
+"$HOME/.kern/bin/kern-lsp" --version
 ```
 
 Then compile:
 
-```powershell
-$env:USERPROFILE\.kern\bin\kernc.exe .\tmp\hello_world.rn -o .\tmp\hello_world.exe
-.\tmp\hello_world.exe
+```bash
+"$HOME/.kern/bin/kernc" tmp/hello_world.rn -o tmp/hello_world
+./tmp/hello_world
 ```
 
 Then test `craft`:
 
-```powershell
-New-Item -ItemType Directory -Force -Path .\tmp\hello | Out-Null
-Push-Location .\tmp\hello
-& $env:USERPROFILE\.kern\bin\craft.exe init --name hello
-& $env:USERPROFILE\.kern\bin\craft.exe build
-& $env:USERPROFILE\.kern\bin\craft.exe run
-Pop-Location
+```bash
+rm -rf tmp/hello-installed
+mkdir -p tmp/hello-installed
+(
+  cd tmp/hello-installed
+  "$HOME/.kern/bin/craft" init
+  "$HOME/.kern/bin/craft" build
+  "$HOME/.kern/bin/craft" run
+)
 ```
 
-## Step 9: Regression Tests To Run
+Also validate `python3 -m ops install` from the same local archive:
+
+```bash
+python3 -m ops install --archive ./kern-v0.7.0-macos-minsdk-*.tar.gz --dest ./tmp/kern-install-macos --no-path
+./tmp/kern-install-macos/bin/kernc --version
+./tmp/kern-install-macos/bin/craft --version
+./tmp/kern-install-macos/bin/kern-lsp --version
+```
+
+## Step 10: Standalone Toolchain Artifact Validation
+
+Confirm `package-toolchain` still preserves the full development prefix:
+
+```bash
+python3 -m ops release package-toolchain --version llvm-21.1.8-macos-fullcheck
+rm -rf tmp/macos-toolchain-fullcheck
+mkdir -p tmp/macos-toolchain-fullcheck
+tar -xzf kern-toolchain-llvm-21.1.8-macos-fullcheck-*.tar.gz -C tmp/macos-toolchain-fullcheck
+du -sh tmp/macos-toolchain-fullcheck/kern-toolchain-llvm-21.1.8-macos-fullcheck-*/toolchain/host/bin
+du -sh tmp/macos-toolchain-fullcheck/kern-toolchain-llvm-21.1.8-macos-fullcheck-*/toolchain/host/lib
+du -sh tmp/macos-toolchain-fullcheck/kern-toolchain-llvm-21.1.8-macos-fullcheck-*/toolchain/host/include
+```
+
+Inspect `manifest/toolchain.json` and confirm it still records:
+
+- `include_dir`
+- `llvm_config`
+- `clang_resource_dir` when available
+- full development-prefix layout
+
+## Step 11: Regression Tests To Run
 
 At minimum, rerun:
 
-```powershell
+```bash
 cargo test -q -p kernc_driver
 cargo test -q -p kernc_cli --test stdlib
 cargo test -q -p craft
 ```
 
-If time permits, run full workspace tests on Windows after the packaging change.
+If time permits, run:
 
-## Step 10: Update Documentation
+```bash
+cargo test --workspace
+```
 
-Once Windows is confirmed:
+If macOS-specific linking behavior changes, add or adjust targeted tests rather
+than relying only on packaging smoke tests.
+
+## Step 12: Documentation Updates
+
+Once macOS is confirmed, update:
 
 - [README.md](./README.md)
-- [docs/windows-distribution.md](./docs/windows-distribution.md)
+- [docs/unix-distribution.md](./docs/unix-distribution.md)
 - [docs/sdk-rebuild-plan.md](./docs/sdk-rebuild-plan.md)
 
 Documentation should clearly state:
 
-- default SDK is runtime-complete, not a full LLVM dev prefix
+- default SDK is runtime-complete, not a full LLVM development prefix
+- Linux, Windows, and macOS now follow the same user-SDK principle
 - full dev-oriented toolchain remains available separately
-- source builds from Git clone are expected to configure the host environment
-  directly
+- source builds from Git clone are expected to configure host LLVM/Xcode/Homebrew
+  environment directly
 
 ## Acceptance Criteria
 
 This task is done only if all of the following are true:
 
-1. The default Windows SDK archive is materially smaller than before.
-2. `install.ps1` still works from a local archive.
-3. Installed `kernc`, `craft`, and `kern-lsp` all start successfully.
-4. `kernc hello_world.rn -o hello_world.exe` succeeds on the installed SDK.
-5. `craft build` and `craft run` succeed on the installed SDK.
-6. The standalone toolchain artifact still preserves the full development prefix.
-7. Manifest and installer semantics no longer assume the user SDK is a source-build environment.
+1. The default macOS SDK archive is materially smaller than before.
+2. `install.sh` works from a local archive.
+3. `python3 -m ops install` works from a local archive.
+4. Installed `kernc`, `craft`, and `kern-lsp` all start successfully.
+5. Installed `kernc hello_world.rn -o hello_world` succeeds.
+6. The resulting `hello_world` binary runs.
+7. Installed `craft build` and `craft run` succeed.
+8. The standalone toolchain artifact still preserves the full development prefix.
+9. Manifest and installer semantics no longer assume the user SDK is a
+   source-build environment.
+10. The final implementation does not regress Linux or Windows SDK packaging.
 
 ## Nice-To-Have Follow-Ups
 
-These are not required to finish this task, but note them if discovered:
+These are not required to finish macOS SDK slimming, but note them if discovered:
 
-- determine whether Windows can also drop `clang resource dir`
-- determine whether `clang++.exe` can be removed from the standalone SDK path
-- add a packaging-time smoke test that validates the minimal SDK archive before release
-- add a manifest distinction between `runtime-toolchain` and `dev-toolchain`
-- later, if `kernc cc` lands, reevaluate which Clang resources become runtime-required
-
-## Files Likely To Change
-
-- [ops/release.py](./ops/release.py)
-- [ops/common.py](./ops/common.py)
-- [ops/install.py](./ops/install.py)
-- [install.ps1](./install.ps1)
-- [compiler/kernc_driver/src/compiler/link.rs](./compiler/kernc_driver/src/compiler/link.rs)
-- [README.md](./README.md)
-- [docs/windows-distribution.md](./docs/windows-distribution.md)
-- [docs/sdk-rebuild-plan.md](./docs/sdk-rebuild-plan.md)
+- add a packaging-time smoke test that validates each minimal SDK archive before
+  release
+- add an explicit manifest distinction between `runtime-toolchain` and
+  `dev-toolchain`
+- record per-platform runtime tool sets in docs or manifest policy
+- later, if `kernc cc` lands, reevaluate which Clang resources become
+  runtime-required
+- consider whether standalone toolchain artifacts can also be trimmed in a
+  separate task without losing source-build utility
 
 ## Final Reminder
 
-Do not optimize for "matching the old SDK layout".
+Do not optimize for matching the old SDK layout.
 
 Optimize for:
 
 - smallest user download that still works
-- clear separation between installed-user runtime and repo-development environment
-- explicit proof for every bundled Windows component
+- clear separation between installed-user runtime and repo-development
+  environment
+- explicit proof for every bundled macOS component
+- preserving the standalone development toolchain artifact

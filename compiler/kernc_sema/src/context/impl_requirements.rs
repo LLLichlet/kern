@@ -255,7 +255,15 @@ impl<'a> SemaContext<'a> {
     ) -> Vec<ApplicableImplRequirementCandidate> {
         // Snapshot the impl list before the recursive walk so later queries may borrow `self`
         // without fighting an outstanding borrow of the index.
-        let trait_impl_ids = self.trait_impl_ids().to_vec();
+        let target_trait_head_ty = crate::query::erase_trait_assoc_bindings(self, target_trait_ty);
+        let TypeKind::TraitObject(target_trait_def_id, _, _) = self
+            .type_registry
+            .get(self.type_registry.normalize(target_trait_head_ty))
+            .clone()
+        else {
+            return Vec::new();
+        };
+        let trait_impl_ids = self.trait_impl_ids_for_trait(target_trait_def_id);
         let mut applicable = Vec::new();
 
         for candidate_impl_id in trait_impl_ids {

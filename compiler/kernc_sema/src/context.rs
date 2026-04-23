@@ -27,6 +27,7 @@ use semantic_index::SemanticIndexState;
 type NamedFieldQueryKey = (Option<DefId>, DefId, Vec<GenericArg>, SymbolId);
 type NamedFieldQueryValue = Option<crate::query::MemberCandidate>;
 type MemberResolutionQueryKey = (Option<DefId>, TypeId, SymbolId);
+type GenericBoundsCheckKey = (DefId, Vec<GenericArg>);
 
 #[derive(Clone, Default)]
 pub(crate) struct SemaQueryCacheState {
@@ -44,6 +45,7 @@ pub(crate) struct SemaQueryCacheState {
     pub(crate) impl_requirement_cycle_cache: FastHashMap<DefId, Option<ImplRequirementCycle>>,
     pub(crate) impl_paterson_boundedness_cache:
         FastHashMap<DefId, Option<NonDecreasingImplRequirement>>,
+    pub(crate) generic_bounds_success_cache: FastHashSet<GenericBoundsCheckKey>,
     pub(crate) named_field_query_cache: FastHashMap<NamedFieldQueryKey, NamedFieldQueryValue>,
     pub(crate) member_resolution_query_cache:
         FastHashMap<MemberResolutionQueryKey, crate::query::MemberResolution>,
@@ -59,6 +61,7 @@ impl SemaQueryCacheState {
         self.impl_applicability_cache.clear();
         self.impl_requirement_cycle_cache.clear();
         self.impl_paterson_boundedness_cache.clear();
+        self.generic_bounds_success_cache.clear();
         self.named_field_query_cache.clear();
         self.member_resolution_query_cache.clear();
     }
@@ -67,6 +70,7 @@ impl SemaQueryCacheState {
         self.bound_trait_match_cache.clear();
         self.impl_applicability_cache.clear();
         self.impl_method_query_cache.clear();
+        self.generic_bounds_success_cache.clear();
         self.member_resolution_query_cache.clear();
     }
 }
@@ -91,6 +95,7 @@ pub struct SemaAnalysisState {
 pub struct SemaImplIndexState {
     pub global_impls: Vec<DefId>,
     pub trait_impls: Vec<DefId>,
+    pub trait_impls_by_trait_key: FastHashMap<String, Vec<DefId>>,
     pub impl_methods_by_name: FastHashMap<SymbolId, Vec<DefId>>,
 }
 
@@ -365,6 +370,72 @@ impl<'a> SemaContext<'a> {
 
     pub fn trait_impl_ids(&self) -> &[DefId] {
         &self.impl_index.trait_impls
+    }
+
+    pub(crate) fn trait_def_lookup_key(&self, trait_def_id: DefId) -> Option<String> {
+        let trait_name = match self.defs.get(trait_def_id.0 as usize) {
+            Some(Def::Trait(trait_def)) => self.resolve(trait_def.name).to_string(),
+            _ => return None,
+        };
+
+        let mut components = vec![trait_name];
+        let mut current_module = self.def_parent_module(trait_def_id);
+
+        while let Some(module_id) = current_module {
+            let Def::Module(module_def) = &self.defs[module_id.0 as usize] else {
+                break;
+            };
+            if module_def.parent.is_none()
+                && let Some(package_name) = self.root_module_package_name(module_id)
+            {
+                components.push(self.resolve(package_name).to_string());
+            } else {
+                components.push(self.resolve(module_def.name).to_string());
+            }
+            current_module = module_def.parent;
+        }
+
+        components.reverse();
+        Some(components.join("."))
+    }
+
+    pub fn trait_impl_ids_for_trait(&self, trait_def_id: DefId) -> Vec<DefId> {
+        if self.impl_index.trait_impls_by_trait_key.is_empty() {
+            return self.impl_index.trait_impls.clone();
+        }
+
+        let Some(trait_key) = self.trait_def_lookup_key(trait_def_id) else {
+            return Vec::new();
+        };
+        if let Some(impl_ids) = self.impl_index.trait_impls_by_trait_key.get(&trait_key) {
+            return impl_ids.clone();
+        }
+
+        self.impl_index
+            .trait_impls
+            .iter()
+            .copied()
+            .filter(|impl_id| {
+                let Some(Def::Impl(impl_def)) = self.defs.get(impl_id.0 as usize) else {
+                    return false;
+                };
+                let Some(trait_ty) = impl_def
+                    .trait_type
+                    .as_ref()
+                    .and_then(|trait_ty| self.facts.node_types.get(&trait_ty.id).copied())
+                else {
+                    return false;
+                };
+                let TypeKind::TraitObject(candidate_trait_def_id, _, _) = self
+                    .type_registry
+                    .get(self.type_registry.normalize(trait_ty))
+                else {
+                    return false;
+                };
+                self.trait_def_lookup_key(*candidate_trait_def_id)
+                    .is_some_and(|candidate_key| candidate_key == trait_key)
+            })
+            .collect()
     }
 
     /// Inject CLI-provided module aliases such as `std` into the root scope.

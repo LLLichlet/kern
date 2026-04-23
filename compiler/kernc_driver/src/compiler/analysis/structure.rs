@@ -811,9 +811,19 @@ impl CompilerDriver {
         }) {
             return None;
         }
-        if !measure_body_phase(&mut phase_timings, "  structure_type_resolution", || {
-            self.run_type_resolution_phase(&mut ctx, collect_docs)
-        }) {
+        let mut type_resolution_phase_timings = Vec::new();
+        let type_resolution_started = std::time::Instant::now();
+        let type_resolution_ok = self.run_type_resolution_phase_with_timings(
+            &mut ctx,
+            collect_docs,
+            Some(&mut type_resolution_phase_timings),
+        );
+        phase_timings.push(PhaseTiming {
+            name: "  structure_type_resolution",
+            duration: type_resolution_started.elapsed(),
+        });
+        phase_timings.extend(type_resolution_phase_timings);
+        if !type_resolution_ok {
             return None;
         }
 
@@ -1111,13 +1121,33 @@ impl CompilerDriver {
         ctx: &mut SemaContext<'a>,
         lint_docs_enabled: bool,
     ) -> bool {
+        self.run_type_resolution_phase_with_timings(ctx, lint_docs_enabled, None)
+    }
+
+    pub(super) fn run_type_resolution_phase_with_timings<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        lint_docs_enabled: bool,
+        phase_timings: Option<&mut Vec<PhaseTiming>>,
+    ) -> bool {
         let mut type_resolver = TypeResolver::new(ctx);
         type_resolver.resolve_all();
+        let type_resolution_timings = type_resolver.phase_timings();
         if !Self::report_diagnostics_if_errors(type_resolver.context()) {
             return false;
         }
 
         let ctx = type_resolver.into_context();
+        if let Some(phase_timings) = phase_timings {
+            phase_timings.extend(
+                type_resolution_timings
+                    .into_iter()
+                    .map(|timing| PhaseTiming {
+                        name: timing.name,
+                        duration: timing.duration,
+                    }),
+            );
+        }
         if !self.configure_program_entry(ctx) {
             return false;
         }

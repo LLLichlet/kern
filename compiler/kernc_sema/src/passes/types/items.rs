@@ -1,16 +1,34 @@
 use super::*;
 
+use kernc_utils::FastHashMap;
+
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     /// Run the full type-resolution pass in two stages.
     pub fn resolve_all(&mut self) {
         let module_ids = self.collect_module_ids();
-        self.resolve_module_pass(&module_ids, true);
-        self.resolve_module_pass(&module_ids, false);
-        self.validate_supertrait_graph();
-        self.validate_trait_impl_orphans();
-        self.validate_trait_impl_coherence();
-        self.validate_trait_impl_supertrait_contracts();
-        self.validate_impl_associated_type_targets();
+        self.measure_phase(
+            |timings, duration| timings.resolve_alias_items += duration,
+            |this| this.resolve_module_pass(&module_ids, true),
+        );
+        self.measure_phase(
+            |timings, duration| timings.resolve_non_alias_items += duration,
+            |this| {
+                this.resolve_module_pass(&module_ids, false);
+                this.rebuild_trait_impl_index_by_trait();
+            },
+        );
+        self.measure_phase(
+            |timings, duration| timings.validate_supertrait_graph += duration,
+            |this| this.validate_supertrait_graph(),
+        );
+        self.measure_phase(
+            |timings, duration| timings.validate_trait_impl_coherence += duration,
+            |this| this.validate_trait_impl_coherence(),
+        );
+        self.measure_phase(
+            |timings, duration| timings.validate_impl_associated_type_targets += duration,
+            |this| this.validate_impl_associated_type_targets(),
+        );
     }
 
     fn collect_module_ids(&self) -> Vec<DefId> {
@@ -25,6 +43,41 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
             })
             .collect()
+    }
+
+    fn rebuild_trait_impl_index_by_trait(&mut self) {
+        let trait_impl_ids = self.ctx.impl_index.trait_impls.clone();
+        let mut grouped = FastHashMap::default();
+
+        for impl_id in trait_impl_ids {
+            self.ensure_impl_signature_types_resolved(impl_id);
+
+            let Some(Def::Impl(impl_def)) = self.ctx.defs.get(impl_id.0 as usize) else {
+                continue;
+            };
+            let Some(trait_ty) = impl_def
+                .trait_type
+                .as_ref()
+                .and_then(|trait_ty| self.ctx.facts.node_types.get(&trait_ty.id).copied())
+            else {
+                continue;
+            };
+            let trait_ty = self.ctx.type_registry.normalize(trait_ty);
+            let TypeKind::TraitObject(trait_def_id, _, _) =
+                self.ctx.type_registry.get(trait_ty).clone()
+            else {
+                continue;
+            };
+            let Some(trait_key) = self.ctx.trait_def_lookup_key(trait_def_id) else {
+                continue;
+            };
+            grouped
+                .entry(trait_key)
+                .or_insert_with(Vec::new)
+                .push(impl_id);
+        }
+
+        self.ctx.impl_index.trait_impls_by_trait_key = grouped;
     }
 
     fn resolve_module_pass(&mut self, module_ids: &[DefId], aliases_only: bool) {
@@ -265,6 +318,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 .facts
                 .node_types
                 .insert(trait_ty.id, canonical_trait_ty);
+        }
+        if let Some(resolved_trait_ty) = canonical_trait_ty {
+            self.validate_trait_impl_orphan(i, target_ty_id, resolved_trait_ty);
+            self.validate_trait_impl_supertrait_contracts_for_impl(
+                i,
+                target_ty_id,
+                resolved_trait_ty,
+            );
         }
 
         for &method_id in &i.methods {

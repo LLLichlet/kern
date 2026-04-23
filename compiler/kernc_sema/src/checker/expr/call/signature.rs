@@ -7,6 +7,39 @@ use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::{FastHashMap, FastHashSet, Span, SymbolId};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn generic_bounds_success_cache_key(
+        &mut self,
+        def_id: DefId,
+        arg_values: &[GenericArg],
+    ) -> Option<(DefId, Vec<GenericArg>)> {
+        if !self.ctx.analysis.active_bounds.is_empty() {
+            return None;
+        }
+
+        // Bound satisfaction can depend on the caller's active where-bounds. Only cache fully
+        // ground instantiations so we do not reuse an env-dependent success in a weaker context.
+        let mut canonical_args = Vec::with_capacity(arg_values.len());
+        for arg in arg_values.iter().copied() {
+            match arg {
+                GenericArg::Type(ty) => {
+                    let ty = self.resolve_tv(ty);
+                    if self.type_contains_unresolved_params(ty) {
+                        return None;
+                    }
+                    canonical_args.push(GenericArg::Type(ty));
+                }
+                GenericArg::Const(value) => {
+                    let value = self.ctx.type_registry.fold_const_generic(value);
+                    if self.ctx.type_registry.const_generic_contains_params(value) {
+                        return None;
+                    }
+                    canonical_args.push(GenericArg::Const(value));
+                }
+            }
+        }
+        Some((def_id, canonical_args))
+    }
+
     fn substitute_known_const_generic(
         &mut self,
         value: ConstGeneric,
@@ -1084,6 +1117,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         generics: &[ast::GenericParam],
         arg_values: &[GenericArg],
     ) {
+        let cache_key = self.generic_bounds_success_cache_key(def_id, arg_values);
+        if let Some(key) = cache_key.as_ref()
+            && self
+                .ctx
+                .analysis
+                .query_caches
+                .generic_bounds_success_cache
+                .contains(key)
+        {
+            return;
+        }
+
         let has_where_clauses = match &self.ctx.defs[def_id.0 as usize] {
             Def::Function(f) => !f.where_clauses.is_empty(),
             Def::Struct(s) => !s.where_clauses.is_empty(),
@@ -1117,6 +1162,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
+        let mut all_bounds_satisfied = true;
         for clause in where_clauses {
             let original_target = self
                 .ctx
@@ -1147,6 +1193,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     && sub_bound != TypeId::ERROR
                     && !self.check_trait_impl(sub_target, sub_bound)
                 {
+                    all_bounds_satisfied = false;
                     let req_str = self.ctx.ty_to_string(sub_bound);
                     let act_str = self.ctx.ty_to_string(sub_target);
                     self.ctx
@@ -1155,6 +1202,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                 }
             }
+        }
+
+        if all_bounds_satisfied && let Some(key) = cache_key {
+            self.ctx
+                .analysis
+                .query_caches
+                .generic_bounds_success_cache
+                .insert(key);
         }
     }
 }

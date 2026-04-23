@@ -631,7 +631,7 @@ pub(crate) fn collect_specificity_maximal_trait_impl_head_candidates(
 ) -> Vec<ApplicableTraitImplHeadCandidate> {
     // Snapshot the impl list so candidate matching can resolve signatures and compare
     // specificity without keeping a borrow of the index alive across recursive queries.
-    let trait_impl_ids = ctx.trait_impl_ids().to_vec();
+    let trait_impl_ids = ctx.trait_impl_ids_for_trait(trait_def_id);
     let mut applicable = Vec::new();
 
     for impl_id in trait_impl_ids {

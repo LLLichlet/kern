@@ -721,7 +721,7 @@ impl<'a> SemaContext<'a> {
     ) -> Vec<ApplicableProjectionCandidate> {
         // Snapshot the impl list so we can resolve signatures and compare specificity during the
         // scan without holding a borrow of the index across recursive queries.
-        let trait_impls = self.trait_impl_ids().to_vec();
+        let trait_impls = self.trait_impl_ids_for_trait(trait_def_id);
         let mut applicable = Vec::new();
 
         for impl_id in trait_impls {

@@ -2,152 +2,34 @@ use super::*;
 use kernc_utils::FastHashMap;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
-    pub(super) fn validate_trait_impl_supertrait_contracts(&mut self) {
-        let trait_impl_ids = self.ctx.impl_index.trait_impls.clone();
-        for impl_id in trait_impl_ids {
-            let Some(impl_def) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| {
-                if let Def::Impl(impl_def) = def {
-                    Some(impl_def.clone())
-                } else {
-                    None
-                }
-            }) else {
-                continue;
-            };
-
-            let Some(trait_ty_node) = &impl_def.trait_type else {
-                continue;
-            };
-
-            let resolved_target = self.ctx.type_registry.normalize(
-                self.ctx
-                    .facts
-                    .node_types
-                    .get(&impl_def.target_type.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
-            let resolved_trait = self.ctx.type_registry.normalize(
-                self.ctx
-                    .facts
-                    .node_types
-                    .get(&trait_ty_node.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
-            if resolved_target == TypeId::ERROR || resolved_trait == TypeId::ERROR {
-                continue;
-            }
-
-            let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
-                self.ctx.type_registry.get(resolved_trait).clone()
-            else {
-                continue;
-            };
-            let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned()
-            else {
-                continue;
-            };
-            if trait_def.resolved_supertraits.is_empty() {
-                continue;
-            }
-
-            let trait_name = self.ctx.resolve(trait_def.name).to_string();
-            let trait_arg_map = trait_def
-                .generics
-                .iter()
-                .zip(trait_args.iter())
-                .map(|(param, arg)| (param.name, *arg))
-                .collect::<FastHashMap<_, _>>();
-            let assoc_binding_map = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
-
-            let prev_bounds_len = self.push_impl_context_where_bounds(&impl_def);
-            for super_ty in trait_def.resolved_supertraits {
-                let instantiated_super = if trait_arg_map.is_empty() {
-                    super_ty
-                } else {
-                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
-                    subst.substitute(super_ty)
-                };
-                let instantiated_super = crate::checker::substitute_associated_types(
-                    &mut self.ctx.type_registry,
-                    &self.ctx.defs,
-                    instantiated_super,
-                    &assoc_binding_map,
-                );
-                let instantiated_super = crate::query::augment_trait_object_assoc_bindings_from_map(
-                    self.ctx,
-                    instantiated_super,
-                    &assoc_binding_map,
-                );
-                // Traversal needs inherited assoc bindings to flow through intermediate traits, but
-                // the proof we check here must be phrased as the supertrait actually declares it.
-                // Otherwise a richer child-trait head can leak extra assoc equalities onto the
-                // parent and make an otherwise valid `impl T: Child` fail `impl T: Parent`.
-                let instantiated_super = crate::query::retain_declared_trait_object_assoc_bindings(
-                    self.ctx,
-                    instantiated_super,
-                );
-                let instantiated_super = self.ctx.type_registry.normalize(instantiated_super);
-                if instantiated_super == TypeId::ERROR {
-                    continue;
-                }
-
-                let super_ok = {
-                    let mut checker = ExprChecker::new(self.ctx, None);
-                    checker.check_trait_impl(resolved_target, instantiated_super)
-                };
-                if super_ok {
-                    continue;
-                }
-
-                let target_str = self.ctx.ty_to_string(resolved_target);
-                let super_str = self.ctx.ty_to_string(instantiated_super);
-                self.ctx
-                    .struct_error(
-                        impl_def.span,
-                        format!(
-                            "impl of trait `{}` is missing a required supertrait proof",
-                            trait_name
-                        ),
-                    )
-                    .with_span_label(
-                        impl_def.span,
-                        "this impl does not prove the declared supertrait contract",
-                    )
-                    .with_hint(format!("required bound: `{}: {}`", target_str, super_str))
-                    .with_hint(
-                        "every trait impl must also establish each declared supertrait for the same target",
-                    )
-                    .emit();
-            }
-            self.ctx.analysis.active_bounds.truncate(prev_bounds_len);
-            self.ctx.clear_active_bound_caches();
-        }
-    }
-
     pub(super) fn validate_trait_impl_coherence(&mut self) {
-        let trait_impl_ids = self.ctx.impl_index.trait_impls.clone();
-        for (index, left_impl_id) in trait_impl_ids.iter().copied().enumerate() {
-            for right_impl_id in trait_impl_ids.iter().copied().skip(index + 1) {
-                let Some(overlap) = self.overlapping_trait_impl_pair(left_impl_id, right_impl_id)
-                else {
-                    continue;
-                };
-                if matches!(
-                    crate::query::compare_impl_specificity(self.ctx, left_impl_id, right_impl_id),
-                    crate::query::ImplSpecificity::LeftMoreSpecific
-                        | crate::query::ImplSpecificity::RightMoreSpecific
-                ) {
-                    continue;
-                }
+        let trait_impl_groups = self.ctx.impl_index.trait_impls_by_trait_key.clone();
+        for trait_impl_ids in trait_impl_groups.into_values() {
+            for (index, left_impl_id) in trait_impl_ids.iter().copied().enumerate() {
+                for right_impl_id in trait_impl_ids.iter().copied().skip(index + 1) {
+                    let Some(overlap) =
+                        self.overlapping_trait_impl_pair(left_impl_id, right_impl_id)
+                    else {
+                        continue;
+                    };
+                    if matches!(
+                        crate::query::compare_impl_specificity(
+                            self.ctx,
+                            left_impl_id,
+                            right_impl_id
+                        ),
+                        crate::query::ImplSpecificity::LeftMoreSpecific
+                            | crate::query::ImplSpecificity::RightMoreSpecific
+                    ) {
+                        continue;
+                    }
 
-                let left_target = self.ctx.ty_to_string(overlap.left_target_ty);
-                let left_trait = self.ctx.ty_to_string(overlap.left_trait_ty);
-                let right_target = self.ctx.ty_to_string(overlap.right_target_ty);
-                let right_trait = self.ctx.ty_to_string(overlap.right_trait_ty);
+                    let left_target = self.ctx.ty_to_string(overlap.left_target_ty);
+                    let left_trait = self.ctx.ty_to_string(overlap.left_trait_ty);
+                    let right_target = self.ctx.ty_to_string(overlap.right_target_ty);
+                    let right_trait = self.ctx.ty_to_string(overlap.right_trait_ty);
 
-                self.ctx
+                    self.ctx
                     .struct_error(
                         overlap.right_span,
                         format!(
@@ -167,71 +49,143 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         format!("second impl head: `{} : {}`", right_target, right_trait),
                     )
                     .emit();
+                }
             }
         }
     }
 
-    pub(super) fn validate_trait_impl_orphans(&mut self) {
-        let trait_impl_ids = self.ctx.impl_index.trait_impls.clone();
-        for impl_id in trait_impl_ids {
-            let Some(impl_def) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| {
-                if let Def::Impl(impl_def) = def {
-                    Some(impl_def.clone())
-                } else {
-                    None
-                }
-            }) else {
-                continue;
+    pub(super) fn validate_trait_impl_supertrait_contracts_for_impl(
+        &mut self,
+        impl_def: &ImplDef,
+        resolved_target: TypeId,
+        resolved_trait: TypeId,
+    ) {
+        if resolved_target == TypeId::ERROR || resolved_trait == TypeId::ERROR {
+            return;
+        }
+
+        let resolved_target = self.ctx.type_registry.normalize(resolved_target);
+        let resolved_trait = self.ctx.type_registry.normalize(resolved_trait);
+        let TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) =
+            self.ctx.type_registry.get(resolved_trait).clone()
+        else {
+            return;
+        };
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned()
+        else {
+            return;
+        };
+        if trait_def.resolved_supertraits.is_empty() {
+            return;
+        }
+
+        let trait_name = self.ctx.resolve(trait_def.name).to_string();
+        let trait_arg_map = trait_def
+            .generics
+            .iter()
+            .zip(trait_args.iter())
+            .map(|(param, arg)| (param.name, *arg))
+            .collect::<FastHashMap<_, _>>();
+        let assoc_binding_map = assoc_bindings.into_iter().collect::<FastHashMap<_, _>>();
+
+        let prev_bounds_len = self.push_impl_context_where_bounds(impl_def);
+        for super_ty in trait_def.resolved_supertraits {
+            let instantiated_super = if trait_arg_map.is_empty() {
+                super_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+                subst.substitute(super_ty)
             };
-
-            if impl_def.is_imported || impl_def.parent_module.is_none() {
+            let instantiated_super = crate::checker::substitute_associated_types(
+                &mut self.ctx.type_registry,
+                &self.ctx.defs,
+                instantiated_super,
+                &assoc_binding_map,
+            );
+            let instantiated_super = crate::query::augment_trait_object_assoc_bindings_from_map(
+                self.ctx,
+                instantiated_super,
+                &assoc_binding_map,
+            );
+            // Traversal needs inherited assoc bindings to flow through intermediate traits, but
+            // the proof we check here must be phrased as the supertrait actually declares it.
+            // Otherwise a richer child-trait head can leak extra assoc equalities onto the
+            // parent and make an otherwise valid `impl T: Child` fail `impl T: Parent`.
+            let instantiated_super = crate::query::retain_declared_trait_object_assoc_bindings(
+                self.ctx,
+                instantiated_super,
+            );
+            let instantiated_super = self.ctx.type_registry.normalize(instantiated_super);
+            if instantiated_super == TypeId::ERROR {
                 continue;
             }
 
-            let Some(trait_ty_node) = &impl_def.trait_type else {
-                continue;
+            let super_ok = {
+                let mut checker = ExprChecker::new(self.ctx, None);
+                checker.check_trait_impl(resolved_target, instantiated_super)
             };
-
-            let target_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&impl_def.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            let trait_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&trait_ty_node.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-
-            if target_ty == TypeId::ERROR || trait_ty == TypeId::ERROR {
+            if super_ok {
                 continue;
             }
 
-            if self.trait_impl_is_orphan_legal(impl_id, target_ty, trait_ty) {
-                continue;
-            }
-
+            let target_str = self.ctx.ty_to_string(resolved_target);
+            let super_str = self.ctx.ty_to_string(instantiated_super);
             self.ctx
                 .struct_error(
                     impl_def.span,
                     format!(
-                        "orphan trait impls are not allowed for `{}` and `{}`",
-                        self.ctx.ty_to_string(target_ty),
-                        self.ctx.ty_to_string(trait_ty)
+                        "impl of trait `{}` is missing a required supertrait proof",
+                        trait_name
                     ),
                 )
-                .with_hint(
-                    "when the trait comes from another package or module root, the impl target must be anchored by a local type (directly or through builtin pointer/slice/array wrappers)",
+                .with_span_label(
+                    impl_def.span,
+                    "this impl does not prove the declared supertrait contract",
                 )
+                .with_hint(format!("required bound: `{}: {}`", target_str, super_str))
                 .with_hint(
-                    "this prevents downstream packages from creating competing global proofs for the same foreign trait and foreign type family",
+                    "every trait impl must also establish each declared supertrait for the same target",
                 )
                 .emit();
         }
+        self.ctx.analysis.active_bounds.truncate(prev_bounds_len);
+        self.ctx.clear_active_bound_caches();
+    }
+
+    pub(super) fn validate_trait_impl_orphan(
+        &mut self,
+        impl_def: &ImplDef,
+        target_ty: TypeId,
+        trait_ty: TypeId,
+    ) {
+        if impl_def.is_imported || impl_def.parent_module.is_none() {
+            return;
+        }
+
+        if target_ty == TypeId::ERROR || trait_ty == TypeId::ERROR {
+            return;
+        }
+
+        if self.trait_impl_is_orphan_legal(impl_def.id, target_ty, trait_ty) {
+            return;
+        }
+
+        self.ctx
+            .struct_error(
+                impl_def.span,
+                format!(
+                    "orphan trait impls are not allowed for `{}` and `{}`",
+                    self.ctx.ty_to_string(target_ty),
+                    self.ctx.ty_to_string(trait_ty)
+                ),
+            )
+            .with_hint(
+                "when the trait comes from another package or module root, the impl target must be anchored by a local type (directly or through builtin pointer/slice/array wrappers)",
+            )
+            .with_hint(
+                "this prevents downstream packages from creating competing global proofs for the same foreign trait and foreign type family",
+            )
+            .emit();
     }
 
     pub(super) fn validate_impl_associated_type_targets(&mut self) {

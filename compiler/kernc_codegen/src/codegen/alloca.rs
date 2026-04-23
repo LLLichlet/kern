@@ -52,7 +52,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         name: &str,
     ) -> PointerValue<'ctx> {
         self.record_alloca_site(name);
-        let builder = self.context.create_builder();
 
         let Some(current_block) = self.current_insert_block("entry alloca") else {
             return self.context.ptr_type(Default::default()).const_zero();
@@ -80,11 +79,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
 
         match entry_block.get_first_instruction() {
-            Some(first_instr) => builder.position_before(&first_instr),
-            None => builder.position_at_end(entry_block),
+            Some(first_instr) => self.alloca_builder.position_before(&first_instr),
+            None => self.alloca_builder.position_at_end(entry_block),
         }
 
-        builder.build_alloca(llvm_ty, name).unwrap()
+        self.alloca_builder
+            .build_alloca(llvm_ty, self.llvm_name(name))
+            .unwrap()
     }
 
     pub(crate) fn current_function_for_simd_memory(

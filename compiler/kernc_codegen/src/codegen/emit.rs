@@ -435,7 +435,9 @@ fn llvm_raw_opt_level(opt_level: OptLevel) -> LLVMCodeGenOptLevel {
 
 fn llvm_module_pass_pipeline(opt_level: OptLevel) -> Option<CString> {
     let pipeline = match opt_level {
-        OptLevel::O0 => return None,
+        // Even at `-O0`, a tiny amount of SSA cleanup keeps raw IR from overwhelming
+        // LLVM's instruction selector with trivially promotable stack traffic.
+        OptLevel::O0 => "mem2reg",
         OptLevel::O1 => "always-inline,default<O1>",
         OptLevel::O2 => "always-inline,default<O2>",
         OptLevel::O3 => "always-inline,default<O3>",

@@ -115,6 +115,7 @@ pub struct EmitObjectReport {
 pub struct CodeGenerator<'ctx, 'a> {
     context: &'ctx LlvmContext,
     builder: Builder<'ctx>,
+    alloca_builder: Builder<'ctx>,
     module: LlvmModule<'ctx>,
 
     sess: &'a mut Session,
@@ -146,6 +147,7 @@ pub struct CodeGenerator<'ctx, 'a> {
     anon_union_map: HashMap<TypeId, MonoId>,
     anon_enum_map: HashMap<TypeId, MonoId>,
     split_sections_for_gc: bool,
+    preserve_llvm_value_names: bool,
     debug_info_enabled: bool,
     debug_info_is_optimized: bool,
     debug_info: Option<DebugInfoState<'ctx>>,
@@ -314,9 +316,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         type_registry: &'a TypeRegistry,
         split_sections_for_gc: bool,
     ) -> Self {
+        let preserve_llvm_value_names = sess.preserve_llvm_value_names;
         Self {
             context,
             builder: context.create_builder(),
+            alloca_builder: context.create_builder(),
             module: context.create_module(module_name),
             sess,
             type_registry,
@@ -341,9 +345,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             anon_union_map: HashMap::new(),
             anon_enum_map: HashMap::new(),
             split_sections_for_gc,
+            preserve_llvm_value_names,
             debug_info_enabled: false,
             debug_info_is_optimized: false,
             debug_info: None,
+        }
+    }
+
+    pub(crate) fn llvm_name<'b>(&self, preferred: &'b str) -> &'b str {
+        if self.preserve_llvm_value_names {
+            preferred
+        } else {
+            ""
         }
     }
 

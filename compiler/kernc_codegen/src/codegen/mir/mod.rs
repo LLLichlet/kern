@@ -72,19 +72,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         self.set_function_debug_location(function);
 
-        let entry_block = self.context.append_basic_block(llvm_func, "entry");
+        let entry_block = self
+            .context
+            .append_basic_block(llvm_func, self.llvm_name("entry"));
         self.builder.position_at_end(entry_block);
 
         let mut next_param_index = 0usize;
         for local in &body.locals {
-            let local_name = self.resolve_symbol(local.name).to_string();
             let prefix = match local.kind {
                 kernc_mir::MirLocalKind::Param => "arg",
                 kernc_mir::MirLocalKind::Let => "let",
             };
             let local_llvm_ty = self.get_llvm_type(local.ty);
+            let alloca_name = self.preserve_llvm_value_names.then(|| {
+                let local_name = self.resolve_symbol(local.name).to_string();
+                format!("{prefix}_{local_name}")
+            });
             let alloca =
-                self.create_entry_block_alloca(local_llvm_ty, &format!("{prefix}_{local_name}"));
+                self.create_entry_block_alloca(local_llvm_ty, alloca_name.as_deref().unwrap_or(""));
             self.mir_locals.insert(local.id, alloca);
 
             let arg_no = matches!(local.kind, kernc_mir::MirLocalKind::Param)
@@ -110,10 +115,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         let mut llvm_blocks = HashMap::new();
         for block in &body.blocks {
+            let block_name = self
+                .preserve_llvm_value_names
+                .then(|| format!("mir_bb{}", block.id.0));
             llvm_blocks.insert(
                 block.id,
                 self.context
-                    .append_basic_block(llvm_func, &format!("mir_bb{}", block.id.0)),
+                    .append_basic_block(llvm_func, block_name.as_deref().unwrap_or("")),
             );
         }
 

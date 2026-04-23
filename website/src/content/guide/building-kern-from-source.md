@@ -78,6 +78,50 @@ If you want to use those binaries repeatedly during local development, either:
 - call them by full path from `target/release/`
 - or add `target/release/` to your shell `PATH`
 
+That is the right path while the repository checkout stays on disk.
+
+If you want to build from a clone, install the resulting toolchain into the
+normal Kern home, and then delete the clone directory, package a local SDK
+archive first instead of relying on `target/release/` directly.
+
+## Install A Local SDK From The Clone
+
+For a local self-built install that survives deleting the checkout, use the
+repository packaging and install entrypoints.
+
+On Linux or macOS:
+
+```bash
+cargo build --release
+python3 -m ops release package --version v0.7.0-local --target <host-target>
+python3 -m ops install --archive ./kern-v0.7.0-local-<host-target>.tar.gz --no-path
+```
+
+or:
+
+```bash
+./install.sh --archive ./kern-v0.7.0-local-<host-target>.tar.gz --no-path
+```
+
+On Windows:
+
+```powershell
+cargo build --release
+py -3 -m ops release package --version v0.7.0-local --target x86_64-windows-msvc
+py -3 -m ops install --archive .\kern-v0.7.0-local-x86_64-windows-msvc.zip --no-path
+```
+
+or:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.0-local-x86_64-windows-msvc.zip
+```
+
+That produces the same installed SDK layout the normal release installer uses:
+
+- `~/.kern` on Unix
+- `%USERPROFILE%\.kern` on Windows
+
 ## Windows Note
 
 For local development on Windows, plain Cargo release builds are fine:

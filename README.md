@@ -262,6 +262,9 @@ cargo build --release
 
 This produces `kernc`, `craft`, and `kern-lsp` in `target/release/`.
 
+That direct `target/release/` workflow is the right choice for local Kern
+development while the repository checkout remains on disk.
+
 On Windows, the command above is fine for local development, but it is **not**
 the authoritative release-packaging path. A plain `cargo build --release` on
 `x86_64-pc-windows-msvc` may produce host tools that still require the VC++
@@ -291,6 +294,47 @@ For Linux and macOS, the current Unix packaging script is intentionally
 host-native. The archive label must match the machine actually building the
 release, because the script packages from the host's `target/release/` output
 rather than pretending to do generic cross-target host-tool packaging.
+
+## Install A Local Build From A Clone
+
+If you want to clone the repository, build the host tools once, install them
+into the normal Kern home, and then delete the clone directory, do **not** rely
+on `target/release/` directly.
+
+Instead, build a local SDK archive from the clone and install that archive just
+like a release:
+
+**Linux / macOS:**
+
+```bash
+cargo build --release
+python3 -m ops release package --version v0.7.0-local --target <host-target>
+python3 -m ops install --archive ./kern-v0.7.0-local-<host-target>.tar.gz --no-path
+```
+
+or:
+
+```bash
+./install.sh --archive ./kern-v0.7.0-local-<host-target>.tar.gz --no-path
+```
+
+**Windows:**
+
+```powershell
+cargo build --release
+py -3 -m ops release package --version v0.7.0-local --target x86_64-windows-msvc
+py -3 -m ops install --archive .\kern-v0.7.0-local-x86_64-windows-msvc.zip --no-path
+```
+
+or:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.0-local-x86_64-windows-msvc.zip
+```
+
+That path installs into the normal Kern home layout (`~/.kern` on Unix,
+`%USERPROFILE%\.kern` on Windows), carries the expected library/runtime
+payload, and remains usable after the source checkout is removed.
 
 ## Documentation
 

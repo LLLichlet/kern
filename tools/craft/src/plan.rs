@@ -386,7 +386,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 publish = false
 
 [lib]
@@ -412,7 +412,7 @@ limine = { path = "vendor/limine" }
         let plan =
             PackagePlan::from_manifest(Path::new("Craft.toml"), &package_id(), &manifest).unwrap();
 
-        assert_eq!(plan.kern, "0.7.0");
+        assert_eq!(plan.kern, "0.7.1");
         assert_eq!(plan.manifest_path, Path::new("Craft.toml"));
         assert_eq!(plan.publish, Some(false));
         assert_eq!(
@@ -451,7 +451,7 @@ limine = { path = "vendor/limine" }
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 "#,
             Path::new("Craft.toml"),
         )
@@ -496,7 +496,7 @@ kern = "0.7.0"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [dependencies]
 log = { path = "../log", version = "1" }

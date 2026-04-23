@@ -18,7 +18,7 @@ guide:
 [package]
 name = "buildrn-guide"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 publish = false
 
 [runtime]

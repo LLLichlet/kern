@@ -93,28 +93,28 @@ On Linux or macOS:
 
 ```bash
 cargo build --release
-python3 -m ops release package --version v0.7.0-local --target <host-target>
-python3 -m ops install --archive ./kern-v0.7.0-local-<host-target>.tar.gz --no-path
+python3 -m ops release package --version v0.7.1-local --target <host-target>
+python3 -m ops install --archive ./kern-v0.7.1-local-<host-target>.tar.gz --no-path
 ```
 
 or:
 
 ```bash
-./install.sh --archive ./kern-v0.7.0-local-<host-target>.tar.gz --no-path
+./install.sh --archive ./kern-v0.7.1-local-<host-target>.tar.gz --no-path
 ```
 
 On Windows:
 
 ```powershell
 cargo build --release
-py -3 -m ops release package --version v0.7.0-local --target x86_64-windows-msvc
-py -3 -m ops install --archive .\kern-v0.7.0-local-x86_64-windows-msvc.zip --no-path
+py -3 -m ops release package --version v0.7.1-local --target x86_64-windows-msvc
+py -3 -m ops install --archive .\kern-v0.7.1-local-x86_64-windows-msvc.zip --no-path
 ```
 
 or:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.0-local-x86_64-windows-msvc.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.1-local-x86_64-windows-msvc.zip
 ```
 
 That produces the same installed SDK layout the normal release installer uses:
@@ -143,7 +143,7 @@ cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
 Or use the repository packaging entrypoint:
 
 ```powershell
-py -3 -m ops release package --version v0.7.0 --target x86_64-windows-msvc
+py -3 -m ops release package --version v0.7.1 --target x86_64-windows-msvc
 ```
 
 ## Troubleshooting

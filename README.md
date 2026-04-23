@@ -2,7 +2,7 @@
 
 ![Kern logo](./logo.svg)
 
-> **Status:** v0.7.0 (Experimental)
+> **Status:** v0.7.1 (Experimental)
 > *High Abstraction, Low Policy.*
 
 Kern is a systems-level programming language explicitly designed for operating system kernels, embedded firmware, and high-performance infrastructure.
@@ -67,7 +67,7 @@ startup without libc unless a project opts into libc/CRT explicitly.
 
 Before 1.0, Kern does not preserve historical syntax baggage or compatibility shims just because an older spelling once existed. When the language or toolchain is cleaned up, the current form becomes the only supported form across the repository.
 
-## A Taste of Kern (v0.7.0)
+## A Taste of Kern (v0.7.1)
 
 Kern elegantly combines low-level hardware control with high-level expression. The following example demonstrates explicit storage mutability, structured inline assembly, exhaustive pattern matching, and the elided initialization syntax.
 
@@ -126,7 +126,7 @@ extern fn start() ! {
 
 ## Current Status
 
-The current repository state targets **`v0.7.0`**.
+The current repository state targets **`v0.7.1`**.
 
 The shipped toolchain surface is:
 
@@ -203,13 +203,13 @@ once and reuse the archive, use the offline archive path instead:
 3. Open PowerShell in that directory and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.0-x86_64-windows-msvc.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.1-x86_64-windows-msvc.zip
 ```
 
 If you renamed the zip, pass the version explicitly:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.0 -Archive .\kern.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.1 -Archive .\kern.zip
 ```
 
 The user-facing installers are native scripts:
@@ -283,7 +283,7 @@ cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
 The Python packaging entrypoint already applies this policy on Windows:
 
 ```powershell
-py -3 -m ops release package --version v0.7.0 --target x86_64-windows-msvc
+py -3 -m ops release package --version v0.7.1 --target x86_64-windows-msvc
 ```
 
 One more Windows-specific footgun: the release archive label is
@@ -308,28 +308,28 @@ like a release:
 
 ```bash
 cargo build --release
-python3 -m ops release package --version v0.7.0-local --target <host-target>
-python3 -m ops install --archive ./kern-v0.7.0-local-<host-target>.tar.gz --no-path
+python3 -m ops release package --version v0.7.1-local --target <host-target>
+python3 -m ops install --archive ./kern-v0.7.1-local-<host-target>.tar.gz --no-path
 ```
 
 or:
 
 ```bash
-./install.sh --archive ./kern-v0.7.0-local-<host-target>.tar.gz --no-path
+./install.sh --archive ./kern-v0.7.1-local-<host-target>.tar.gz --no-path
 ```
 
 **Windows:**
 
 ```powershell
 cargo build --release
-py -3 -m ops release package --version v0.7.0-local --target x86_64-windows-msvc
-py -3 -m ops install --archive .\kern-v0.7.0-local-x86_64-windows-msvc.zip --no-path
+py -3 -m ops release package --version v0.7.1-local --target x86_64-windows-msvc
+py -3 -m ops install --archive .\kern-v0.7.1-local-x86_64-windows-msvc.zip --no-path
 ```
 
 or:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.0-local-x86_64-windows-msvc.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.1-local-x86_64-windows-msvc.zip
 ```
 
 That path installs into the normal Kern home layout (`~/.kern` on Unix,

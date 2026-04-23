@@ -138,7 +138,7 @@ members = ["compiler/*", "tools/demo"]
 [package]
 name = "compiler-demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 "#,
         )
         .unwrap();
@@ -148,7 +148,7 @@ kern = "0.7.0"
 [package]
 name = "tools-demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 "#,
         )
         .unwrap();

@@ -35,11 +35,11 @@ const unixInstall = `curl -sSf https://raw.githubusercontent.com/softfault/kern/
 const windowsInstall = `powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"`;
 
 const unixOffline = `curl -fsSLO https://raw.githubusercontent.com/softfault/kern/main/install.sh
-bash install.sh --archive ./kern-v0.7.0-x86_64-linux-gnu.tar.gz`;
+bash install.sh --archive ./kern-v0.7.1-x86_64-linux-gnu.tar.gz`;
 
-const windowsOffline = `powershell -ExecutionPolicy Bypass -File .\\install.ps1 -Archive .\\kern-v0.7.0-x86_64-windows-msvc.zip`;
+const windowsOffline = `powershell -ExecutionPolicy Bypass -File .\\install.ps1 -Archive .\\kern-v0.7.1-x86_64-windows-msvc.zip`;
 
-const windowsOfflineRenamed = `powershell -ExecutionPolicy Bypass -File .\\install.ps1 -Version v0.7.0 -Archive .\\kern.zip`;
+const windowsOfflineRenamed = `powershell -ExecutionPolicy Bypass -File .\\install.ps1 -Version v0.7.1 -Archive .\\kern.zip`;
 
 const verifyCommands = `kernc --version
 craft --version

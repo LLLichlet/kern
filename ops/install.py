@@ -42,7 +42,7 @@ else:
 
 
 DEFAULT_GITHUB_REPO = "softfault/kern"
-DEFAULT_VERSION = "v0.7.0"
+DEFAULT_VERSION = "v0.7.1"
 
 
 @dataclass(frozen=True)

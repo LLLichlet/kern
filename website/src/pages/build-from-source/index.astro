@@ -38,11 +38,11 @@ const windowsRelease = `cargo build --release --target x86_64-pc-windows-msvc -p
 cargo build --release --target x86_64-pc-windows-msvc -p craft
 cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
 
-py -3 -m ops release package --version v0.7.0 --target x86_64-windows-msvc`;
+py -3 -m ops release package --version v0.7.1 --target x86_64-windows-msvc`;
 
-const unixRelease = `python3 -m ops release package --version v0.7.0 --target x86_64-linux-gnu
-python3 -m ops release package --version v0.7.0 --target x86_64-apple-darwin
-python3 -m ops release package --version v0.7.0 --target aarch64-apple-darwin`;
+const unixRelease = `python3 -m ops release package --version v0.7.1 --target x86_64-linux-gnu
+python3 -m ops release package --version v0.7.1 --target x86_64-apple-darwin
+python3 -m ops release package --version v0.7.1 --target aarch64-apple-darwin`;
 ---
 
 <BaseLayout

@@ -1,6 +1,6 @@
 # Runtime And Library Architecture
 
-This document defines the runtime and library split used by the current 0.7.0 toolchain.
+This document defines the runtime and library split used by the current 0.7.1 toolchain.
 
 This document describes the current split that keeps Kern freestanding by
 default while making hosted startup, toolchain-owned startup, libc usage, and

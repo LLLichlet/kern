@@ -10,7 +10,7 @@ fn builds_and_runs_hosted_package_with_generated_source_from_build_script() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -70,7 +70,7 @@ fn builds_and_runs_hosted_package_with_copied_generated_source_from_build_script
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -131,7 +131,7 @@ fn removing_generated_helper_file_causes_rebuild_failure_instead_of_stale_succes
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -244,7 +244,7 @@ fn builds_and_runs_hosted_package_with_post_link_artifact_stage_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -321,7 +321,7 @@ fn removes_stale_artifact_outputs_when_build_script_plan_changes() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -444,7 +444,7 @@ fn stale_artifact_cleanup_preserves_kept_directory_output_cache_hits() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -558,7 +558,7 @@ fn directory_stage_rebuilds_when_source_adds_empty_subdirectory() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -652,7 +652,7 @@ fn post_link_directory_stage_rejects_symlink_entries() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -718,7 +718,7 @@ fn builds_and_runs_hosted_package_with_post_link_directory_stage_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -807,7 +807,7 @@ fn builds_and_runs_hosted_package_with_copied_primary_artifact_in_stage_tree() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "demo"
@@ -894,7 +894,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "app"
@@ -924,7 +924,7 @@ b.define_string("tool_path", b.tool_path("codegen", "codegen"));
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "codegen"
@@ -997,7 +997,7 @@ fn builds_and_runs_hosted_package_with_explicit_staged_dependencies() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "app"
@@ -1061,7 +1061,7 @@ fn builds_and_runs_hosted_package_with_generated_source_from_external_host_tool(
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "app"
@@ -1090,7 +1090,7 @@ b.set_source_root(generated);
 [package]
 name = "codegen"
 version = "1"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "codegen"
@@ -1167,7 +1167,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "app"
@@ -1198,7 +1198,7 @@ b.depend(note, bundle);
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "artifact-note"
@@ -1290,7 +1290,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "app"
@@ -1327,7 +1327,7 @@ b.depend(note, bundle);
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "artifact-note"
@@ -1423,7 +1423,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "app"
@@ -1452,7 +1452,7 @@ let _ = b.stage_artifact_file_from_tool("tool", "artifact-note", "notes/build.tx
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [[bin]]
 name = "artifact-note"
@@ -1533,7 +1533,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 
 [runtime]
 entry = "rt"

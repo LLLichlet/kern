@@ -42,7 +42,7 @@ The library member is ordinary:
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 publish = false
 
 [lib]
@@ -62,7 +62,7 @@ declares `bin`, `test`, and `example` targets explicitly:
 [package]
 name = "workspace-app"
 version = "0.1.0"
-kern = "0.7.0"
+kern = "0.7.1"
 publish = false
 
 [[bin]]

@@ -86,7 +86,7 @@ Current SDK archives populate:
 - `toolchain/host/lib`
 - `toolchain/host/sysroot`
 
-The packaged host LLVM/Clang toolchain now lives under `toolchain/host/`, but
+The packaged host LLVM/Clang runtime now lives under `toolchain/host/`, but
 that does not mean every installed SDK should carry a full relocatable LLVM
 development prefix.
 
@@ -95,6 +95,12 @@ installed `kernc` / `craft` / `kern-lsp` run correctly. Full LLVM headers,
 `llvm-config`, and other source-build-oriented development assets belong in
 repository-managed environments or standalone toolchain artifacts, not in the
 default user install path.
+
+On Windows, the default SDK currently bundles only the measured installed-user
+runtime set: `clang.exe`, `lld-link.exe`, and `llvm-lib.exe`. The standalone
+`package-toolchain` archive remains the artifact that preserves the full LLVM
+development prefix, including `include`, `lib`, `llvm-config`, and the Clang
+resource directory.
 
 Platform sysroots remain host responsibilities unless Kern explicitly vendors
 them later.
@@ -163,6 +169,8 @@ Phase 2 is mostly in place:
 - published toolchain releases now emit sha256 sidecars and a structured
   release manifest, and target-mode CI resolves archive checksums from those
   published artifacts instead of accepting unchecked downloads
+- Windows default SDK packaging now uses the same runtime-complete principle as
+  Linux instead of bundling the full LLVM development prefix
 
 ### Next Work
 

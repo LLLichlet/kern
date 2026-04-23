@@ -901,7 +901,18 @@ extern fn start() void {
     ExitProcess(0);
 }
 "#,
-        &["--entry-symbol", "mainCRTStartup", "-l", "kernel32"],
+        &[
+            "--runtime-entry",
+            "none",
+            "--runtime-libc",
+            "no",
+            "--library-bundle",
+            "none",
+            "--entry-symbol",
+            "mainCRTStartup",
+            "-l",
+            "kernel32",
+        ],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();

@@ -295,7 +295,7 @@ def _prepare_dist_dir(
     for text_file in ("README.md", "LICENSE"):
         shutil.copy2(root / text_file, dist_dir / text_file)
 
-    if host.archive_target.endswith("linux-gnu"):
+    if host.archive_target.endswith(("linux-gnu", "windows-msvc")):
         bundled_component_records = _bundle_sdk_runtime_toolchain(
             dist_dir,
             host,
@@ -529,6 +529,7 @@ def _bundle_sdk_runtime_toolchain(
     for component, source in runtime_tools.items():
         destination = bin_dir / source.name
         shutil.copy2(source, destination)
+        _verify_sdk_runtime_tool_starts(host, component, destination)
         copied_tools.append(destination)
         records[component] = ArtifactRecord(
             path=destination.relative_to(dist_dir).as_posix(),
@@ -537,10 +538,12 @@ def _bundle_sdk_runtime_toolchain(
             size=file_size(destination),
         )
 
-    runtime_libs = _linux_collect_bundled_runtime_libs(
-        roots=copied_tools,
-        bundled_prefix=bundled_toolchain.prefix,
-    )
+    runtime_libs: set[Path] = set()
+    if host.archive_target.endswith("linux-gnu"):
+        runtime_libs = _linux_collect_bundled_runtime_libs(
+            roots=copied_tools,
+            bundled_prefix=bundled_toolchain.prefix,
+        )
     for library in sorted(runtime_libs):
         destination = lib_dir / library.name
         if not destination.exists():
@@ -566,7 +569,7 @@ def _bundle_sdk_runtime_toolchain(
                 f"- Bundled runtime tools: {', '.join(sorted(path.name for path in runtime_tools.values()))}",
                 "",
                 "This is intentionally smaller than the standalone toolchain artifact.",
-                "Linux end-user SDKs omit the Clang resource dir because Kern only uses Clang as a linker driver here.",
+                "End-user SDKs omit the Clang resource dir because Kern only uses Clang as a linker driver here.",
                 "Headers, llvm-config, and the full LLVM development prefix are not part of the end-user SDK.",
                 "Clone the repository and configure the host environment directly for source builds.",
                 "",
@@ -576,6 +579,32 @@ def _bundle_sdk_runtime_toolchain(
     )
 
     return records
+
+
+def _verify_sdk_runtime_tool_starts(host: HostTarget, component: str, path: Path) -> None:
+    if not host.archive_target.endswith("windows-msvc"):
+        return
+
+    if component == "llvm_lib":
+        probe_output = path.parent / "__kern_llvm_lib_probe.lib"
+        try:
+            completed = run_capture(
+                [str(path), "/llvmlibempty", f"/out:{probe_output}"],
+                cwd=path.parent,
+            )
+        finally:
+            if probe_output.exists():
+                probe_output.unlink()
+    else:
+        completed = run_capture([str(path), "--version"], cwd=path.parent)
+
+    ensure(
+        completed.returncode == 0,
+        (
+            f"bundled Windows runtime tool `{path}` failed to start while packaging; "
+            "the SDK runtime subset is missing a required dependency"
+        ),
+    )
 
 
 def _sdk_runtime_tool_paths(

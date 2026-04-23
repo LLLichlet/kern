@@ -213,6 +213,12 @@ def _validate_manifest_toolchain(sdk_root: Path, manifest: dict[str, object]) ->
         ensure(isinstance(entry, dict), f"SDK manifest component `{component}` is invalid")
         _validate_component_record(sdk_root, component, entry)
 
+    if host_target.endswith("windows-msvc"):
+        for component in required:
+            entry = components[component]
+            assert isinstance(entry, dict)
+            _verify_windows_toolchain_component_starts(sdk_root, component, entry)
+
 
 def _validate_component_record(sdk_root: Path, component: str, entry: dict[str, object]) -> None:
     relative_path = entry.get("path")
@@ -249,6 +255,49 @@ def _validate_component_record(sdk_root: Path, component: str, entry: dict[str, 
             actual_sha == expected_sha,
             f"SDK bundled component `{component}` checksum mismatch at `{target}`",
         )
+
+
+def _verify_windows_toolchain_component_starts(
+    sdk_root: Path,
+    component: str,
+    entry: dict[str, object],
+) -> None:
+    relative_path = entry.get("path")
+    ensure(
+        isinstance(relative_path, str) and relative_path,
+        f"SDK manifest component `{component}` has no path",
+    )
+    target = sdk_root / relative_path
+    ensure(target.is_file(), f"SDK bundled component `{component}` is missing at `{target}`")
+
+    if component == "llvm_lib":
+        temp_root = make_temp_dir("kern-llvm-lib-probe-")
+        try:
+            probe_output = temp_root / "empty.lib"
+            completed = subprocess.run(
+                [str(target), "/llvmlibempty", f"/out:{probe_output}"],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
+    else:
+        completed = subprocess.run(
+            [str(target), "--version"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+
+    if completed.returncode == 0:
+        return
+
+    output = (completed.stdout or "") + (completed.stderr or "")
+    raise OpsError(
+        f"SDK bundled Windows runtime component `{component}` failed to start at `{target}`:\n"
+        f"{output.strip()}"
+    )
 
 
 def copy_sdk_contents(sdk_root: Path, install_root: Path) -> None:

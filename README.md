@@ -191,10 +191,12 @@ curl -sSf https://raw.githubusercontent.com/softfault/kern/main/install.sh | bas
 powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
-On Windows, the first install downloads the bundled LLVM/Clang host toolchain
-inside the SDK archive. On slower links, or on machines where Defender scans
-large archives aggressively, that can take several minutes. If you would rather
-download once and reuse the archive, use the offline archive path instead:
+On Windows, the first install downloads the bundled LLVM/Clang runtime tools
+needed by installed Kern commands. The default SDK is intentionally not a full
+LLVM development prefix: it carries the runtime-complete linker surface used by
+`kernc` and `craft`, while the full source-build-oriented toolchain is published
+as a separate `kern-toolchain-llvm-*` artifact. If you would rather download
+once and reuse the archive, use the offline archive path instead:
 
 1. Download `install.ps1` and the matching Windows release zip from GitHub Releases.
 2. Put them in the same directory, or note the full path to the zip.

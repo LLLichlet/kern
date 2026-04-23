@@ -35,7 +35,7 @@ Official Windows release archives must satisfy all of the following:
 - build the host tools for the real Cargo target triple `x86_64-pc-windows-msvc`
 - label the release archive as `x86_64-windows-msvc`
 - package binaries from `target/x86_64-pc-windows-msvc/release/`
-- bundle the validated host LLVM/Clang toolchain under `toolchain/host/`
+- bundle the validated host LLVM/Clang runtime tools under `toolchain/host/`
 - build the host tools with `-C target-feature=+crt-static`
 
 This policy exists because a plain Rust/MSVC release build can depend on:
@@ -46,7 +46,8 @@ This policy exists because a plain Rust/MSVC release build can depend on:
 
 That dependency set is not suitable for an official Windows archive because a
 clean user machine may fail before the tool even starts. The SDK should carry
-its own host LLVM/Clang toolchain instead of expecting users to provision it.
+the host LLVM/Clang runtime tools Kern needs instead of expecting users to
+provision them.
 
 In practice:
 
@@ -126,6 +127,17 @@ The script currently enforces the important Windows-specific rules:
 - it enables static CRT for Windows host-tool release builds
 - it packages binaries from the real target output directory, not from
   `target/release/`
+- it packages the default SDK with the minimal runtime LLVM/Clang tool set:
+  `clang.exe`, `lld-link.exe`, and `llvm-lib.exe`
+- it leaves full LLVM development assets in the standalone
+  `package-toolchain` artifact, not in the default user SDK
+
+The default SDK deliberately omits source-build assets such as `clang++.exe`,
+`llvm-ar.exe`, `llvm-config.exe`, LLVM headers, LLVM libraries, and the Clang
+resource directory unless a future installed-user flow proves one of those
+files is required. The current Windows installed-user path uses Clang as a
+linker driver, `lld-link.exe` as the MSVC linker backend, and `llvm-lib.exe` for
+Windows archive/relocatable-link operations.
 
 ## Installation Model
 
@@ -150,8 +162,9 @@ to the user PATH.
 This means the quality of the release archive matters directly. If the archive
 itself is wrong, the installer will still install the wrong thing.
 
-The current Windows SDK archive is intentionally heavy because it includes the
-bundled host LLVM/Clang toolchain. That means installer UX matters:
+The current Windows SDK archive includes only the bundled LLVM/Clang runtime
+tools needed by installed Kern commands. It should stay much smaller than the
+standalone development toolchain archive. Installer UX still matters:
 
 - prefer `curl.exe` or another large-file-capable Windows transport over
   defaulting straight to `Invoke-WebRequest`

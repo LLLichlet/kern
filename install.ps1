@@ -114,7 +114,7 @@ function Download-WithWebRequest([string]$Url, [string]$Destination) {
 function Download-ReleaseArchive([string]$Repo, [string]$ResolvedVersion, [string]$ArchiveName, [string]$Destination) {
     $url = "https://github.com/$Repo/releases/download/$ResolvedVersion/$ArchiveName"
     Info "=> Downloading Kern $ResolvedVersion..."
-    Info "=> The Windows SDK archive includes the bundled LLVM/Clang host toolchain, so a first install can take several minutes."
+    Info "=> The Windows SDK archive includes the bundled LLVM/Clang runtime tools needed by Kern."
 
     try {
         $downloaded = (Download-WithCurl $url $Destination)
@@ -178,6 +178,131 @@ function Validate-SdkRoot([string]$SdkRoot, [string]$ExpectedTarget) {
     if (-not (Test-Path $toolchainBin -PathType Container)) {
         Fail "SDK toolchain layout is incomplete"
     }
+
+    Validate-ManifestToolchain $SdkRoot $manifest
+}
+
+function Get-JsonPropertyValue([object]$Object, [string]$Name) {
+    if ($null -eq $Object) {
+        return $null
+    }
+
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return $null
+    }
+
+    return $property.Value
+}
+
+function Validate-ManifestToolchain([string]$SdkRoot, [object]$Manifest) {
+    $toolchain = Get-JsonPropertyValue $Manifest "toolchain"
+    if ($null -eq $toolchain) {
+        Fail "SDK manifest is missing the ``toolchain`` section"
+    }
+
+    $components = Get-JsonPropertyValue $toolchain "components"
+    if ($null -eq $components) {
+        Fail "SDK manifest toolchain components are invalid"
+    }
+
+    $bundled = [bool](Get-JsonPropertyValue $toolchain "bundled")
+    if (-not $bundled) {
+        return
+    }
+
+    $required = @("clang", "lld")
+    if ($Manifest.host_target -like "*windows-msvc") {
+        $required += "llvm_lib"
+    }
+
+    foreach ($component in $required) {
+        $entry = Get-JsonPropertyValue $components $component
+        if ($null -eq $entry) {
+            Fail "SDK manifest is missing bundled component ``$component``"
+        }
+    }
+
+    foreach ($property in $components.PSObject.Properties) {
+        Validate-ComponentRecord $SdkRoot $property.Name $property.Value
+    }
+
+    if ($Manifest.host_target -like "*windows-msvc") {
+        foreach ($component in $required) {
+            $entry = Get-JsonPropertyValue $components $component
+            Verify-WindowsToolchainComponentStarts $SdkRoot $component $entry
+        }
+    }
+}
+
+function Validate-ComponentRecord([string]$SdkRoot, [string]$Component, [object]$Entry) {
+    $relativePath = Get-JsonPropertyValue $Entry "path"
+    if (-not $relativePath) {
+        Fail "SDK manifest component ``$Component`` has no path"
+    }
+
+    $kind = Get-JsonPropertyValue $Entry "kind"
+    if (-not $kind) {
+        $kind = "file"
+    }
+
+    $target = Join-Path $SdkRoot $relativePath
+    if ($kind -eq "directory") {
+        if (-not (Test-Path $target -PathType Container)) {
+            Fail "SDK bundled component ``$Component`` is missing at ``$target``"
+        }
+        return
+    }
+
+    if (-not (Test-Path $target -PathType Leaf)) {
+        Fail "SDK bundled component ``$Component`` is missing at ``$target``"
+    }
+
+    $expectedSize = Get-JsonPropertyValue $Entry "size"
+    if ($null -ne $expectedSize) {
+        $actualSize = (Get-Item -LiteralPath $target).Length
+        if ([Int64]$expectedSize -ne $actualSize) {
+            Fail "SDK bundled component ``$Component`` size mismatch at ``$target``"
+        }
+    }
+
+    $expectedSha = Get-JsonPropertyValue $Entry "sha256"
+    if ($expectedSha) {
+        $actualSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash.ToLowerInvariant()
+        if ($actualSha -ne ([string]$expectedSha).ToLowerInvariant()) {
+            Fail "SDK bundled component ``$Component`` checksum mismatch at ``$target``"
+        }
+    }
+}
+
+function Verify-WindowsToolchainComponentStarts([string]$SdkRoot, [string]$Component, [object]$Entry) {
+    $relativePath = Get-JsonPropertyValue $Entry "path"
+    $target = Join-Path $SdkRoot $relativePath
+    if (-not (Test-Path $target -PathType Leaf)) {
+        Fail "SDK bundled component ``$Component`` is missing at ``$target``"
+    }
+
+    if ($Component -eq "llvm_lib") {
+        $probeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("kern-llvm-lib-probe-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+        try {
+            $probeOutput = Join-Path $probeDir "empty.lib"
+            $output = & $target /llvmlibempty "/out:$probeOutput" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                return
+            }
+        } finally {
+            Remove-Item -Recurse -Force $probeDir -ErrorAction SilentlyContinue
+        }
+    } else {
+        $output = & $target --version 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+    }
+
+    $message = ($output | Out-String).Trim()
+    Fail "SDK bundled Windows runtime component ``$Component`` failed to start at ``$target``:`n$message"
 }
 
 function Copy-SdkContents([string]$SdkRoot, [string]$InstallRoot) {
@@ -200,7 +325,8 @@ function Verify-Binary([string]$BinaryPath, [string]$ResolvedTarget) {
 
     $output = & $BinaryPath --version 2>&1
     if ($LASTEXITCODE -eq 0) {
-        Info "=> Verified $([System.IO.Path]::GetFileName($BinaryPath)): $($output | Out-String).Trim()"
+        $versionText = ($output | Out-String).Trim()
+        Info "=> Verified $([System.IO.Path]::GetFileName($BinaryPath)): $versionText"
         return
     }
 

@@ -203,6 +203,7 @@ impl CompilerDriver {
         let cc_compiler = self.resolve_linker_driver(target.is_windows);
         let mut cmd = Command::new(&cc_compiler);
         self.apply_controlled_toolchain_driver_options(&mut cmd, target, &cc_compiler);
+        self.apply_controlled_toolchain_runtime_env(&mut cmd, target);
         for input in extra_inputs {
             Self::push_link_input_arg(&mut cmd, input, target.is_windows);
         }
@@ -349,7 +350,43 @@ impl CompilerDriver {
         } else {
             cmd.arg("-o").arg(output_path);
         }
+        self.apply_controlled_toolchain_runtime_env(&mut cmd, target);
         cmd
+    }
+
+    fn apply_controlled_toolchain_runtime_env(&self, cmd: &mut Command, target: &LinkTarget) {
+        if target.is_windows {
+            return;
+        }
+
+        let Some(toolchain_root) = resolved_toolchain_root(&self.options) else {
+            return;
+        };
+
+        let runtime_dirs = [toolchain_root.join("lib"), toolchain_root.join("lib64")]
+            .into_iter()
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>();
+        if runtime_dirs.is_empty() {
+            return;
+        }
+
+        let var_name = if target.is_darwin {
+            "DYLD_LIBRARY_PATH"
+        } else {
+            "LD_LIBRARY_PATH"
+        };
+
+        let mut entries = runtime_dirs
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        if let Ok(existing) = env::var(var_name)
+            && !existing.is_empty()
+        {
+            entries.push(existing);
+        }
+        cmd.env(var_name, entries.join(":"));
     }
 
     fn apply_runtime_contract(&self, cmd: &mut Command, is_windows: bool, is_darwin: bool) {
@@ -945,6 +982,15 @@ mod tests {
             .collect()
     }
 
+    fn command_env(cmd: &Command, key: &str) -> Option<String> {
+        cmd.get_envs().find_map(|(name, value)| {
+            if name.to_string_lossy() != key {
+                return None;
+            }
+            value.map(|value| value.to_string_lossy().to_string())
+        })
+    }
+
     #[test]
     fn thin_lto_links_add_cache_dir_by_default() {
         let root = std::env::temp_dir().join(format!(
@@ -1105,6 +1151,51 @@ mod tests {
                 .any(|arg| arg == &format!("-B{}", bin_dir.display()))
         );
         assert!(args.iter().any(|arg| arg == "-fuse-ld=lld"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn controlled_toolchain_roots_export_runtime_library_search_path() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_link_controlled_runtime_env_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin_dir = root.join("bin");
+        let lib_dir = root.join("lib");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&lib_dir).unwrap();
+        fs::write(bin_dir.join("clang"), "").unwrap();
+        fs::write(bin_dir.join("ld.lld"), "").unwrap();
+
+        let output = root.join("main.out");
+        let driver = CompilerDriver::new(CompileOptions {
+            output_file: output.to_string_lossy().to_string(),
+            toolchain_root: Some(root.to_string_lossy().to_string()),
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+
+        if target.is_windows {
+            let _ = fs::remove_dir_all(&root);
+            return;
+        }
+
+        let cmd = driver.build_link_command(&[], &target);
+        let env_key = if target.is_darwin {
+            "DYLD_LIBRARY_PATH"
+        } else {
+            "LD_LIBRARY_PATH"
+        };
+        let value = command_env(&cmd, env_key).expect("expected runtime library search path");
+        assert!(
+            value.starts_with(&format!("{}:", lib_dir.to_string_lossy()))
+                || value == lib_dir.to_string_lossy()
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

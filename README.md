@@ -141,6 +141,10 @@ The project is still experimental, but the repository documentation now describe
 
 The easiest way to install Kern is via our official installation scripts. This will automatically download and install the pre-compiled toolchain (`kernc`, `craft`, `kern-lsp`, and the standard library) to your local environment (`~/.kern` on Unix, `%USERPROFILE%\.kern` on Windows).
 
+The installed SDK is meant to be the smallest runtime-complete host toolchain
+that lets those shipped tools run. It is not intended to double as a full LLVM
+development prefix for building Kern itself from a Git checkout.
+
 Current official host-tool release artifacts are produced for these bounded
 baselines:
 

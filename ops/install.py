@@ -200,19 +200,18 @@ def _validate_manifest_toolchain(sdk_root: Path, manifest: dict[str, object]) ->
     if not bundled:
         return
 
-    required = ["clang", "clangxx", "lld", "llvm_ar", "llvm_config", "lib_dir", "include_dir"]
+    required = ["clang", "lld"]
     host_target = str(manifest.get("host_target", ""))
     if host_target.endswith("windows-msvc"):
-        required.append("llvm_lib")
+        required.extend(["llvm_lib"])
 
     for component in required:
         entry = components.get(component)
         ensure(isinstance(entry, dict), f"SDK manifest is missing bundled component `{component}`")
-        _validate_component_record(sdk_root, component, entry)
 
-    resource_entry = components.get("clang_resource_dir")
-    if isinstance(resource_entry, dict):
-        _validate_component_record(sdk_root, "clang_resource_dir", resource_entry)
+    for component, entry in components.items():
+        ensure(isinstance(entry, dict), f"SDK manifest component `{component}` is invalid")
+        _validate_component_record(sdk_root, component, entry)
 
 
 def _validate_component_record(sdk_root: Path, component: str, entry: dict[str, object]) -> None:

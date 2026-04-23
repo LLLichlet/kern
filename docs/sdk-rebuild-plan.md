@@ -86,7 +86,16 @@ Current SDK archives populate:
 - `toolchain/host/lib`
 - `toolchain/host/sysroot`
 
-The packaged host LLVM/Clang toolchain now lives under `toolchain/host/`.
+The packaged host LLVM/Clang toolchain now lives under `toolchain/host/`, but
+that does not mean every installed SDK should carry a full relocatable LLVM
+development prefix.
+
+End-user SDK archives should prefer the smallest host-tool runtime that lets
+installed `kernc` / `craft` / `kern-lsp` run correctly. Full LLVM headers,
+`llvm-config`, and other source-build-oriented development assets belong in
+repository-managed environments or standalone toolchain artifacts, not in the
+default user install path.
+
 Platform sysroots remain host responsibilities unless Kern explicitly vendors
 them later.
 

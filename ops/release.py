@@ -27,6 +27,7 @@ from .common import (
     resolve_bundled_toolchain,
     run,
     run_capture,
+    sha256_directory,
     sha256_file,
     sdk_manifest,
     toolchain_manifest,
@@ -294,7 +295,14 @@ def _prepare_dist_dir(
     for text_file in ("README.md", "LICENSE"):
         shutil.copy2(root / text_file, dist_dir / text_file)
 
-    bundled_component_records = _bundle_host_toolchain(dist_dir, host, bundled_toolchain)
+    if host.archive_target.endswith("linux-gnu"):
+        bundled_component_records = _bundle_sdk_runtime_toolchain(
+            dist_dir,
+            host,
+            bundled_toolchain,
+        )
+    else:
+        bundled_component_records = _bundle_host_toolchain(dist_dir, host, bundled_toolchain)
 
     write_json(
         dist_dir / "manifest" / "sdk.json",
@@ -499,6 +507,153 @@ def _bundle_host_toolchain(
         )
 
     return records
+
+
+def _bundle_sdk_runtime_toolchain(
+    dist_dir: Path,
+    host: HostTarget,
+    bundled_toolchain: BundledToolchain,
+) -> dict[str, ArtifactRecord]:
+    host_root = dist_dir / "toolchain" / "host"
+    bin_dir = host_root / "bin"
+    lib_dir = host_root / "lib"
+    records: dict[str, ArtifactRecord] = {}
+
+    info(
+        "Bundling runtime host toolchain subset "
+        f"{bundled_toolchain.version} from {bundled_toolchain.source_label}: {bundled_toolchain.prefix}"
+    )
+
+    runtime_tools = _sdk_runtime_tool_paths(host, bundled_toolchain)
+    copied_tools: list[Path] = []
+    for component, source in runtime_tools.items():
+        destination = bin_dir / source.name
+        shutil.copy2(source, destination)
+        copied_tools.append(destination)
+        records[component] = ArtifactRecord(
+            path=destination.relative_to(dist_dir).as_posix(),
+            kind="file",
+            sha256=sha256_file(destination),
+            size=file_size(destination),
+        )
+
+    runtime_libs = _linux_collect_bundled_runtime_libs(
+        roots=copied_tools,
+        bundled_prefix=bundled_toolchain.prefix,
+    )
+    for library in sorted(runtime_libs):
+        destination = lib_dir / library.name
+        if not destination.exists():
+            shutil.copy2(library, destination)
+
+    if any(lib_dir.iterdir()):
+        records["runtime_lib_dir"] = ArtifactRecord(
+            path=lib_dir.relative_to(dist_dir).as_posix(),
+            kind="directory",
+            sha256=sha256_directory(lib_dir),
+            size=None,
+        )
+
+    (dist_dir / "toolchain" / "README.md").write_text(
+        "\n".join(
+            [
+                "# Bundled Host Toolchain",
+                "",
+                "This SDK bundles the minimal host LLVM/Clang runtime needed by installed Kern tools.",
+                "",
+                f"- Source: {bundled_toolchain.source_label}",
+                f"- Version: {bundled_toolchain.version}",
+                f"- Bundled runtime tools: {', '.join(sorted(path.name for path in runtime_tools.values()))}",
+                "",
+                "This is intentionally smaller than the standalone toolchain artifact.",
+                "Linux end-user SDKs omit the Clang resource dir because Kern only uses Clang as a linker driver here.",
+                "Headers, llvm-config, and the full LLVM development prefix are not part of the end-user SDK.",
+                "Clone the repository and configure the host environment directly for source builds.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    return records
+
+
+def _sdk_runtime_tool_paths(
+    host: HostTarget,
+    bundled_toolchain: BundledToolchain,
+) -> dict[str, Path]:
+    if host.archive_target.endswith("windows-msvc"):
+        component_names = ("clang", "lld", "llvm_lib")
+    else:
+        component_names = ("clang", "lld")
+
+    runtime_tools: dict[str, Path] = {}
+    for component in component_names:
+        tool = bundled_toolchain.tools.get(component)
+        ensure(tool is not None, f"bundled toolchain is missing runtime component `{component}`")
+        runtime_tools[component] = tool
+    return runtime_tools
+
+
+def _linux_collect_bundled_runtime_libs(
+    *,
+    roots: list[Path],
+    bundled_prefix: Path,
+) -> set[Path]:
+    require_tool("ldd")
+
+    queued = [path.resolve() for path in roots if path.is_file()]
+    visited: set[Path] = set()
+    bundled_libs: set[Path] = set()
+    bundled_prefix = bundled_prefix.resolve()
+
+    while queued:
+        current = queued.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+
+        for dependency in _linux_load_dependencies(current):
+            if not dependency.is_relative_to(bundled_prefix):
+                continue
+            if dependency in bundled_libs:
+                continue
+            bundled_libs.add(dependency)
+            queued.append(dependency)
+
+    return bundled_libs
+
+
+def _linux_load_dependencies(path: Path) -> list[Path]:
+    completed = run_capture(["ldd", str(path)])
+    ensure(completed.returncode == 0, f"failed to inspect ELF dependencies for `{path}`")
+
+    dependencies: list[Path] = []
+    for line in (completed.stdout or "").splitlines():
+        stripped = line.strip()
+        if (
+            not stripped
+            or "statically linked" in stripped
+            or "not a dynamic executable" in stripped
+            or stripped.startswith("linux-vdso")
+        ):
+            continue
+
+        candidate = ""
+        if "=>" in stripped:
+            _, rhs = stripped.split("=>", 1)
+            candidate = rhs.strip().split(" ", 1)[0]
+        else:
+            candidate = stripped.split(" ", 1)[0]
+
+        if not candidate.startswith("/"):
+            continue
+
+        dependency = Path(candidate)
+        if dependency.is_file():
+            dependencies.append(dependency.resolve())
+
+    return dependencies
 
 
 def _external_tool_runtime_libdirs(tool_path: Path) -> list[Path]:

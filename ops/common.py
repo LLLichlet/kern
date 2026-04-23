@@ -205,6 +205,7 @@ def sdk_manifest(
                 }
                 for name, record in bundled_component_records.items()
             }
+            preserves_dev_prefix = "include_dir" in bundled_component_records and "llvm_config" in bundled_component_records
         else:
             components = {
                 name: {
@@ -224,12 +225,27 @@ def sdk_manifest(
                 "path": _bundled_component_path(bundled_toolchain, bundled_toolchain.includedir),
                 "kind": "directory",
             }
-        layout = toolchain_layout_paths(bundled_toolchain)
-        toolchain_notes = [
-            "The SDK bundles the host LLVM/Clang toolchain used for release validation.",
-            "The bundled toolchain preserves a relocatable LLVM development prefix for source builds.",
-            "Host OS SDK/libc components may still be required by the platform linker/runtime.",
-        ]
+            preserves_dev_prefix = True
+        if preserves_dev_prefix:
+            layout = toolchain_layout_paths(bundled_toolchain)
+            toolchain_notes = [
+                "The SDK bundles the host LLVM/Clang toolchain used for release validation.",
+                "The bundled toolchain preserves a relocatable LLVM development prefix for source builds.",
+                "Host OS SDK/libc components may still be required by the platform linker/runtime.",
+            ]
+        else:
+            layout = {
+                "root": "toolchain",
+                "host_root": "toolchain/host",
+                "bin_dir": "toolchain/host/bin",
+                "lib_dir": "toolchain/host/lib",
+                "sysroot_dir": "toolchain/host/sysroot",
+            }
+            toolchain_notes = [
+                "The SDK bundles the minimal host LLVM/Clang runtime needed by installed Kern tools.",
+                "The full LLVM development prefix is intentionally not part of the end-user SDK.",
+                "Clone the repository and configure the host environment directly for source builds.",
+            ]
 
     return {
         "schema_version": 1,

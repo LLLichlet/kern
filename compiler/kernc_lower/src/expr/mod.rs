@@ -82,15 +82,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             })
                         }
                         _ => {
-                            let kind = this.measure_phase("          lower_ident_value", |this| {
-                                this.lower_identifier(expr.id, *name, subst_map)
-                            });
+                            let lowered_ident =
+                                this.measure_phase("          lower_ident_value", |this| {
+                                    this.lower_identifier_with_locality(expr.id, *name, subst_map)
+                                });
+                            let kind = lowered_ident.kind;
 
                             // Ordinary variables still need closure-capture safety checks.
                             if let MastExprKind::Var(v) = kind
-                                && !this.measure_phase("          lower_ident_capture_check", |this| {
-                                    this.has_local_binding(v)
-                                })
+                                && !lowered_ident.is_local_binding
                             {
                                 let var_str = this.ctx.resolve(v).to_string();
                                 this.ctx.struct_error(expr.span, "closures cannot capture environmental variables in Kern")
@@ -480,6 +480,7 @@ mod tests {
                 field: method,
                 norm_callee: call_sig,
                 expected_self_ty: Some(TypeId::U8),
+                default_ret_ty: TypeId::BOOL,
                 span: Span::default(),
             },
         );

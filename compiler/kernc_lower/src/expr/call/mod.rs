@@ -28,6 +28,7 @@ pub(crate) struct MethodCallSite {
     pub(crate) field: SymbolId,
     pub(crate) norm_callee: TypeId,
     pub(crate) expected_self_ty: Option<TypeId>,
+    pub(crate) default_ret_ty: TypeId,
     pub(crate) span: Span,
 }
 
@@ -142,18 +143,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         Some(self.ctx.resolve(func.name).to_string())
     }
 
-    fn builtin_trait_name(&mut self, trait_ty: TypeId) -> Option<String> {
+    fn is_builtin_trait_named(&mut self, trait_ty: TypeId, expected_name: &str) -> bool {
         let norm = self.ctx.type_registry.normalize(trait_ty);
         let TypeKind::TraitObject(def_id, _, _) = self.ctx.type_registry.get(norm).clone() else {
-            return None;
+            return false;
         };
         let Def::Trait(trait_def) = &self.ctx.defs[def_id.0 as usize] else {
-            return None;
+            return false;
         };
-        if !trait_def.is_builtin {
-            return None;
-        }
-        Some(self.ctx.resolve(trait_def.name).to_string())
+        trait_def.is_builtin && self.ctx.resolve(trait_def.name) == expected_name
     }
 
     fn is_pure_enum_value_type(&mut self, ty: TypeId) -> bool {

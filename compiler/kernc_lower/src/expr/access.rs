@@ -9,6 +9,16 @@ use kernc_sema::scope::SymbolKind;
 use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
+pub(crate) struct LoweredIdentifier {
+    pub(crate) kind: MastExprKind,
+    pub(crate) is_local_binding: bool,
+}
+
+enum LocalResolvedValue {
+    Value(MastExpr),
+    Binding,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn lower_const_generic_identifier(
         &mut self,
@@ -44,34 +54,61 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.lower_error_kind(span, message)
     }
 
-    pub(crate) fn lower_identifier(
+    fn local_value_or_binding(&self, name: SymbolId) -> Option<LocalResolvedValue> {
+        for scope_idx in (0..self.local_types.len()).rev() {
+            if let Some(value) = self
+                .local_value_forwardings
+                .get(scope_idx)
+                .and_then(|scope| scope.get(&name))
+                .cloned()
+            {
+                return Some(LocalResolvedValue::Value(value));
+            }
+
+            if self.local_types[scope_idx].contains_key(&name) {
+                return Some(LocalResolvedValue::Binding);
+            }
+        }
+
+        None
+    }
+
+    pub(crate) fn lower_identifier_with_locality(
         &mut self,
         expr_id: kernc_utils::NodeId,
         name: SymbolId,
         subst_map: &HashMap<SymbolId, GenericArg>,
-    ) -> MastExprKind {
+    ) -> LoweredIdentifier {
         let name = self.measure_phase("          lower_ident_copy_source", |this| {
             this.identifier_copy_source(expr_id).unwrap_or(name)
         });
         let name = self.measure_phase("          lower_ident_forward_local", |this| {
             this.resolve_forwarded_local(name)
         });
-        if let Some(value) = self.measure_phase("          lower_ident_forward_value", |this| {
-            this.forwarded_local_value(name)
-        }) {
-            return value.kind;
-        }
-
-        if self.measure_phase("          lower_ident_has_local", |this| {
-            this.has_local_binding(name)
-        }) {
-            return MastExprKind::Var(name);
+        if let Some(local_value) = self
+            .measure_phase("          lower_ident_local_lookup", |this| {
+                this.local_value_or_binding(name)
+            })
+        {
+            return match local_value {
+                LocalResolvedValue::Value(value) => LoweredIdentifier {
+                    kind: value.kind,
+                    is_local_binding: false,
+                },
+                LocalResolvedValue::Binding => LoweredIdentifier {
+                    kind: MastExprKind::Var(name),
+                    is_local_binding: true,
+                },
+            };
         }
 
         if let Some(kind) = self.measure_phase("          lower_ident_const_param", |this| {
             this.lower_const_generic_identifier(name, subst_map, Span::default())
         }) {
-            return kind;
+            return LoweredIdentifier {
+                kind,
+                is_local_binding: false,
+            };
         }
 
         let resolved_info = self.measure_phase("          lower_ident_scope_resolve", |this| {
@@ -118,7 +155,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 lowered_kind
             })
         {
-            return kind;
+            return LoweredIdentifier {
+                kind,
+                is_local_binding: false,
+            };
         }
 
         // First check whether this resolves to a top-level global.
@@ -130,7 +170,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 this.global_map.get(&def_id).copied()
             })
         {
-            return MastExprKind::GlobalRef(mono_id);
+            return LoweredIdentifier {
+                kind: MastExprKind::GlobalRef(mono_id),
+                is_local_binding: false,
+            };
         }
 
         // Then check for a local-scope static.
@@ -142,11 +185,27 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             None
         }) {
-            return MastExprKind::GlobalRef(mono_id);
+            return LoweredIdentifier {
+                kind: MastExprKind::GlobalRef(mono_id),
+                is_local_binding: false,
+            };
         }
 
         // Function references were already intercepted in `mod.rs`, so this must be a normal local binding.
-        MastExprKind::Var(name)
+        LoweredIdentifier {
+            kind: MastExprKind::Var(name),
+            is_local_binding: false,
+        }
+    }
+
+    pub(crate) fn lower_identifier(
+        &mut self,
+        expr_id: kernc_utils::NodeId,
+        name: SymbolId,
+        subst_map: &HashMap<SymbolId, GenericArg>,
+    ) -> MastExprKind {
+        self.lower_identifier_with_locality(expr_id, name, subst_map)
+            .kind
     }
 
     pub(crate) fn lower_field_access(

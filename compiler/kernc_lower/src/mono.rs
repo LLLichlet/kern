@@ -257,9 +257,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         id: MonoId,
         request_span: Span,
     ) -> MonoId {
-        let def = if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
-            f.clone()
-        } else {
+        let Some(def_ptr) = self
+            .ctx
+            .defs
+            .get(def_id.0 as usize)
+            .and_then(|def| match def {
+                Def::Function(function) => Some(std::ptr::from_ref(function)),
+                _ => None,
+            })
+        else {
             self.ctx.emit_ice(
                 Span::default(),
                 format!("Kern ICE (Lowering): DefId {} is not a Function!", def_id.0),
@@ -267,31 +273,47 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.placeholder_function(id, format!("__ice_fn_{}", id.0));
             return id;
         };
+        // Safety: lowering reads semantic definition storage but does not mutate or reorder
+        // `ctx.defs`, so the raw pointer stays valid for the duration of this instantiation.
+        let fn_name = unsafe { self.ctx.resolve((*def_ptr).name).to_string() };
 
-        let fn_name = self.ctx.resolve(def.name).to_string();
         let Some((subst_map, mangled_name, mast_params, conc_ret)) =
             self.measure_phase("    lower_fn_signature", |this| {
+                let def = unsafe { &*def_ptr };
                 let subst_map =
                     this.build_generic_subst_map("function", &fn_name, &def.generics, args)?;
                 let mangled_name = this.ctx.get_export_name_for_generic_args(def_id, args);
 
-                let raw_ret = def.resolved_sig.map_or(TypeId::VOID, |sig| {
-                    if let TypeKind::Function { ret, .. } = this.ctx.type_registry.get(sig) {
-                        *ret
-                    } else {
-                        TypeId::VOID
-                    }
-                });
+                let (raw_sig_params, raw_ret) = def
+                    .resolved_sig
+                    .and_then(|sig| match this.ctx.type_registry.get(sig).clone() {
+                        TypeKind::Function { params, ret, .. } => Some((params, ret)),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| (Vec::new(), TypeId::VOID));
+                let use_resolved_sig_params = raw_sig_params.len() == def.params.len();
+                if def.resolved_sig.is_some() && !use_resolved_sig_params {
+                    this.ctx.emit_ice(
+                        def.name_span,
+                        format!(
+                            "Kern ICE (Lowering): resolved signature for function `{}` contains {} parameters, but the AST definition contains {}.",
+                            fn_name,
+                            raw_sig_params.len(),
+                            def.params.len()
+                        ),
+                    );
+                }
 
-                let mut mast_params = Vec::new();
-                for p in &def.params {
-                    let raw_ty = this
-                        .ctx
-                        .facts
-                        .node_types
-                        .get(&p.type_node.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
+                let mut mast_params = Vec::with_capacity(def.params.len());
+                for (idx, p) in def.params.iter().enumerate() {
+                    let raw_ty = raw_sig_params.get(idx).copied().filter(|_| use_resolved_sig_params).unwrap_or_else(|| {
+                        this.ctx
+                            .facts
+                            .node_types
+                            .get(&p.type_node.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR)
+                    });
                     let conc_ty = this.substitute_type_with_map(raw_ty, &subst_map);
                     this.track_pure_enum_repr_in_type(conc_ty);
                     mast_params.push(MastParam {
@@ -369,6 +391,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         });
 
         let body = self.measure_phase("    lower_fn_body", |this| {
+            let def = unsafe { &*def_ptr };
             if this.function_requires_runtime_body(&def) {
                 let prev_scope = this.ctx.scopes.current_scope_id();
                 let saved_owner = this.current_owner_def_id.replace(def_id);
@@ -409,9 +432,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             this.local_statics = saved_local_statics;
         });
 
-        let uses_odr_linkage = !def.generics.is_empty() && body.is_some() && !def.is_extern;
+        let uses_odr_linkage = {
+            let def = unsafe { &*def_ptr };
+            !def.generics.is_empty() && body.is_some() && !def.is_extern
+        };
 
         self.measure_phase("    lower_fn_finalize", |this| {
+            let def = unsafe { &*def_ptr };
             let mast_fn = MastFunction {
                 id,
                 name: mangled_name,

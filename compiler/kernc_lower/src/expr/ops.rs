@@ -300,6 +300,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 field: method_name,
                 norm_callee: callee_ty,
                 expected_self_ty: Some(expected_self_ty),
+                default_ret_ty: result_ty,
                 span,
             },
         );
@@ -357,6 +358,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 field: method_name,
                 norm_callee: callee_ty,
                 expected_self_ty: Some(expected_self_ty),
+                default_ret_ty: result_ty,
                 span,
             },
         )

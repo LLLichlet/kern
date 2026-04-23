@@ -1,6 +1,115 @@
 use super::*;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn resolve_bound_impl_method_target(
+        &mut self,
+        receiver_ty: TypeId,
+        owner_trait_ty: TypeId,
+        field: SymbolId,
+    ) -> Option<(DefId, Option<TypeId>, Vec<kernc_sema::ty::GenericArg>)> {
+        let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
+        let owner_trait_norm = self.ctx.type_registry.normalize(owner_trait_ty);
+        let cache_key = (receiver_norm, owner_trait_norm, field);
+        if let Some(cached) = self.bound_impl_method_cache.get(&cache_key) {
+            return cached.clone();
+        }
+
+        let owner_trait_filter = !self.type_contains_generic_placeholders(owner_trait_ty)
+            && matches!(
+                self.ctx.type_registry.get(owner_trait_norm),
+                TypeKind::TraitObject(..)
+            );
+        let receiver_search_tys = self.receiver_search_types(receiver_norm);
+        let method_ids_ptr = self
+            .ctx
+            .impl_index
+            .impl_methods_by_name
+            .get(&field)
+            .map(|method_ids: &Vec<DefId>| std::ptr::from_ref(method_ids.as_slice()));
+
+        let mut resolved = None;
+        if let Some(method_ids_ptr) = method_ids_ptr {
+            // Safety: lowering only reads the method-name index; semantic impl indexes stay
+            // immutable during this pass.
+            let method_ids = unsafe { &*method_ids_ptr };
+            let mut best_match: Option<(
+                DefId,
+                DefId,
+                Option<TypeId>,
+                Vec<kernc_sema::ty::GenericArg>,
+            )> = None;
+            for &method_id in method_ids {
+                let Some(impl_id) =
+                    self.ctx
+                        .defs
+                        .get(method_id.0 as usize)
+                        .and_then(|def| match def {
+                            Def::Function(function) => function.parent,
+                            _ => None,
+                        })
+                else {
+                    continue;
+                };
+
+                let mut matched_receiver_ty = None;
+                let mut candidate_impl_args = None;
+                for search_ty in receiver_search_tys.iter().copied() {
+                    let args = if owner_trait_filter {
+                        kernc_sema::query::resolve_trait_impl_obligation(
+                            self.ctx,
+                            search_ty,
+                            owner_trait_norm,
+                            impl_id,
+                        )
+                    } else {
+                        MemberQuery::new(self.ctx)
+                            .resolve_impl_applicability_for_type(search_ty, impl_id)
+                    };
+                    if let Some(args) = args {
+                        matched_receiver_ty = Some(search_ty);
+                        candidate_impl_args = Some(args);
+                        break;
+                    }
+                }
+                let Some(matched_receiver_ty) = matched_receiver_ty else {
+                    continue;
+                };
+                let Some(candidate_impl_args) = candidate_impl_args else {
+                    continue;
+                };
+
+                let replace = match best_match.as_ref() {
+                    None => true,
+                    Some((selected_impl_id, ..)) => matches!(
+                        kernc_sema::query::compare_impl_specificity(
+                            self.ctx,
+                            impl_id,
+                            *selected_impl_id,
+                        ),
+                        kernc_sema::query::ImplSpecificity::LeftMoreSpecific
+                    ),
+                };
+                if replace {
+                    best_match = Some((
+                        impl_id,
+                        method_id,
+                        Some(matched_receiver_ty),
+                        candidate_impl_args,
+                    ));
+                }
+            }
+
+            resolved =
+                best_match.map(|(_, method_id, matched_receiver_ty, candidate_impl_args)| {
+                    (method_id, matched_receiver_ty, candidate_impl_args)
+                });
+        }
+
+        self.bound_impl_method_cache
+            .insert(cache_key, resolved.clone());
+        resolved
+    }
+
     pub(crate) fn lower_call(
         &mut self,
         callee: &Expr,
@@ -74,6 +183,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         field,
                         norm_callee,
                         expected_self_ty: expected_param_tys.first().copied(),
+                        default_ret_ty: result_ty,
                         span,
                     },
                 )
@@ -129,20 +239,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             inner_ty = elem;
         }
-        let default_ret_ty = self
-            .fn_like_signature(call.norm_callee, call.span)
-            .map(|(_, ret_ty)| ret_ty)
-            .unwrap_or(TypeId::ERROR);
-
-        let field_name = self.ctx.resolve(call.field).to_string();
-        if field_name == "eq"
-            && self.builtin_trait_name(owner_trait_ty).as_deref() == Some("Eq")
+        if call.field == self.ctx.intern("eq")
+            && self.is_builtin_trait_named(owner_trait_ty, "Eq")
             && arg_masts.len() == 1
             && self.is_pure_enum_value_type(recv.ty)
             && arg_masts[0].ty == recv.ty
         {
             return MastExpr::new(
-                default_ret_ty,
+                call.default_ret_ty,
                 MastExprKind::Binary {
                     op: ast::BinaryOperator::Equal,
                     lhs: Box::new(recv),
@@ -172,7 +276,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     },
                 )
             });
-            MastExpr::new(default_ret_ty, kind, call.span)
+            MastExpr::new(call.default_ret_ty, kind, call.span)
         } else if !stale_static_callee
             && let TypeKind::FnDef(method_id, generics) =
                 self.ctx.type_registry.get(call.norm_callee).clone()
@@ -183,134 +287,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 arg_masts.insert(0, recv.clone());
                 if let Some(kind) = self.lower_builtin_operator_intrinsic(method_id, &mut arg_masts)
                 {
-                    return MastExpr::new(default_ret_ty, kind, call.span);
+                    return MastExpr::new(call.default_ret_ty, kind, call.span);
                 }
             }
             let kind = self.measure_phase("              lower_call_static_dispatch", |this| {
                 this.lower_static_method_dispatch(recv, arg_masts, method_id, &generics, call)
             });
-            MastExpr::new(default_ret_ty, kind, call.span)
+            MastExpr::new(call.default_ret_ty, kind, call.span)
         } else {
             // A plain `TypeKind::Function` here means Sema only knew a generic bound.
             // After monomorphization, find the concrete impl globally.
-            let mut target_func_id = None;
-            let mut resolved_impl_args = Vec::new();
-            let mut resolved_self_ty = None;
-            let owner_trait_norm = self.ctx.type_registry.normalize(owner_trait_ty);
-            let owner_trait_filter = !self.type_contains_generic_placeholders(owner_trait_ty)
-                && matches!(
-                    self.ctx.type_registry.get(owner_trait_norm),
-                    TypeKind::TraitObject(..)
-                );
-
-            let method_ids_ptr = self
-                .ctx
-                .impl_index
-                .impl_methods_by_name
-                .get(&call.field)
-                .map(|method_ids: &Vec<DefId>| std::ptr::from_ref(method_ids.as_slice()));
-
-            if let Some(method_ids_ptr) = method_ids_ptr {
-                self.measure_phase("              lower_call_bound_impl_lookup", |this| {
-                    // Safety: method-name indexes are immutable while lowering reads semantic defs.
-                    let method_ids = unsafe { &*method_ids_ptr };
-                    let receiver_search_tys = this.receiver_search_types(norm_base);
-                    let mut best_match: Option<(
-                        DefId,
-                        DefId,
-                        Option<TypeId>,
-                        Vec<kernc_sema::ty::GenericArg>,
-                    )> = None;
-                    for &method_id in method_ids {
-                        let Some(impl_id) =
-                            this.ctx
-                                .defs
-                                .get(method_id.0 as usize)
-                                .and_then(|def| match def {
-                                    Def::Function(function) => function.parent,
-                                    _ => None,
-                                })
-                        else {
-                            continue;
-                        };
-
-                        let Some(impl_ptr) =
-                            this.ctx
-                                .defs
-                                .get(impl_id.0 as usize)
-                                .and_then(|def| match def {
-                                    Def::Impl(impl_def) => Some(std::ptr::from_ref(&impl_def)),
-                                    _ => None,
-                                })
-                        else {
-                            continue;
-                        };
-
-                        // Safety: lowering only reads semantic definition storage.
-                        let _impl_def = unsafe { &*impl_ptr };
-                        let mut matched_receiver_ty = None;
-                        let mut candidate_impl_args = None;
-                        for search_ty in receiver_search_tys.iter().copied() {
-                            let args = if owner_trait_filter {
-                                // Some impl generics are fixed only by the trait obligation, not
-                                // by the receiver shape alone. Use the fully recovered owner trait
-                                // when we have it so lowering can still devirtualize inherited
-                                // generic methods after monomorphization.
-                                kernc_sema::query::resolve_trait_impl_obligation(
-                                    this.ctx,
-                                    search_ty,
-                                    owner_trait_norm,
-                                    impl_id,
-                                )
-                            } else {
-                                MemberQuery::new(this.ctx)
-                                    .resolve_impl_applicability_for_type(search_ty, impl_id)
-                            };
-                            if let Some(args) = args {
-                                matched_receiver_ty = Some(search_ty);
-                                candidate_impl_args = Some(args);
-                                break;
-                            }
-                        }
-                        let Some(matched_receiver_ty) = matched_receiver_ty else {
-                            continue;
-                        };
-                        let Some(candidate_impl_args) = candidate_impl_args else {
-                            continue;
-                        };
-
-                        let replace = match best_match.as_ref() {
-                            None => true,
-                            Some((selected_impl_id, ..)) => matches!(
-                                kernc_sema::query::compare_impl_specificity(
-                                    this.ctx,
-                                    impl_id,
-                                    *selected_impl_id,
-                                ),
-                                kernc_sema::query::ImplSpecificity::LeftMoreSpecific
-                            ),
-                        };
-                        if replace {
-                            best_match = Some((
-                                impl_id,
-                                method_id,
-                                Some(matched_receiver_ty),
-                                candidate_impl_args,
-                            ));
-                        }
-                    }
-
-                    if let Some((_, method_id, matched_receiver_ty, candidate_impl_args)) =
-                        best_match
-                    {
-                        resolved_impl_args = candidate_impl_args;
-                        resolved_self_ty = matched_receiver_ty;
-                        target_func_id = Some(method_id);
-                    }
+            let resolved_impl_target = self
+                .measure_phase("              lower_call_bound_impl_lookup", |this| {
+                    this.resolve_bound_impl_method_target(norm_base, owner_trait_ty, call.field)
                 });
-            }
 
-            if let Some(func_id) = target_func_id {
+            if let Some((func_id, resolved_self_ty, resolved_impl_args)) = resolved_impl_target {
                 let mut final_recv = recv;
 
                 // Normalize pointer-type differences for LLVM by inserting a bitcast after safe downgrades.
@@ -335,7 +327,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     if let Some(kind) =
                         self.lower_builtin_operator_intrinsic(func_id, &mut arg_masts)
                     {
-                        return MastExpr::new(default_ret_ty, kind, call.span);
+                        return MastExpr::new(call.default_ret_ty, kind, call.span);
                     }
                 }
 
@@ -348,7 +340,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let ret_ty = self
                     .fn_like_signature(callee_ty, call.span)
                     .map(|(_, ret_ty)| ret_ty)
-                    .unwrap_or(default_ret_ty);
+                    .unwrap_or(call.default_ret_ty);
                 let func_ref = MastExpr::new(callee_ty, MastExprKind::FuncRef(mono_id), call.span);
                 MastExpr::new(
                     ret_ty,
@@ -362,7 +354,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let type_name = self.ctx.ty_to_string(norm_base);
                 let field_name = self.ctx.resolve(call.field);
                 self.lower_error_expr(
-                    default_ret_ty,
+                    call.default_ret_ty,
                     call.span,
                     format!(
                         "cannot resolve a concrete impl for trait method `{}` on exact type `{}` during lowering",
@@ -685,7 +677,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn get_callee_expected_params(&mut self, norm_callee: TypeId) -> Vec<TypeId> {
-        match self.ctx.type_registry.get(norm_callee).clone() {
+        if let Some(params) = self.callee_expected_params_cache.get(&norm_callee) {
+            return params.clone();
+        }
+
+        let params = match self.ctx.type_registry.get(norm_callee).clone() {
             TypeKind::Function { params, .. } => params,
             TypeKind::FnDef(def_id, gen_args) => {
                 if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
@@ -699,10 +695,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             Vec::new()
                         };
 
-                        let all_generic_params = f.generics.clone();
-
                         let mut sig_subst_map = HashMap::new();
-                        for (idx, param) in all_generic_params.iter().enumerate() {
+                        for (idx, param) in f.generics.iter().enumerate() {
                             if idx < gen_args.len() {
                                 sig_subst_map.insert(param.name, gen_args[idx]);
                             }
@@ -720,7 +714,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
             _ => Vec::new(),
-        }
+        };
+
+        self.callee_expected_params_cache
+            .insert(norm_callee, params.clone());
+        params
     }
 
     pub(crate) fn lower_closure_call(

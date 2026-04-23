@@ -93,6 +93,10 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) local_statics: Vec<HashMap<SymbolId, MonoId>>,
     pub(crate) loop_frames: Vec<usize>,
     pub(crate) field_index_cache: HashMap<(TypeId, SymbolId), usize>,
+    pub(crate) bound_impl_method_cache:
+        HashMap<(TypeId, TypeId, SymbolId), Option<(DefId, Option<TypeId>, Vec<GenericArg>)>>,
+    pub(crate) callee_expected_params_cache: HashMap<TypeId, Vec<TypeId>>,
+    pub(crate) callable_signature_cache: HashMap<TypeId, (Vec<TypeId>, TypeId)>,
     pub(crate) named_struct_layout_cache: HashMap<NamedStructLayoutKey, StructLayoutMapping>,
     pub(crate) anon_struct_layout_cache: HashMap<TypeId, (Vec<usize>, Vec<usize>)>,
     pub(crate) adt_union_map: HashMap<MonoId, MonoId>,
@@ -156,6 +160,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             local_statics: Vec::new(),
             loop_frames: Vec::new(),
             field_index_cache: HashMap::new(),
+            bound_impl_method_cache: HashMap::new(),
+            callee_expected_params_cache: HashMap::new(),
+            callable_signature_cache: HashMap::new(),
             named_struct_layout_cache: HashMap::new(),
             anon_struct_layout_cache: HashMap::new(),
             adt_union_map: HashMap::new(),
@@ -373,8 +380,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     pub(crate) fn resolve_forwarded_local(&self, name: SymbolId) -> SymbolId {
         let mut current = name;
-        let mut visited = HashSet::new();
-        while visited.insert(current) {
+        let max_hops = self
+            .local_forwardings
+            .iter()
+            .map(HashMap::len)
+            .sum::<usize>()
+            .saturating_add(1);
+
+        for _ in 0..max_hops {
             let Some(next) = self
                 .local_forwardings
                 .iter()
@@ -388,33 +401,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         current
     }
 
-    pub(crate) fn forwarded_local_value(&self, name: SymbolId) -> Option<MastExpr> {
-        for scope_idx in (0..self.local_value_forwardings.len()).rev() {
-            if let Some(value) = self.local_value_forwardings[scope_idx].get(&name).cloned() {
-                return Some(value);
-            }
-
-            if self
-                .local_types
-                .get(scope_idx)
-                .is_some_and(|scope| scope.contains_key(&name))
-            {
-                return None;
-            }
-        }
-
-        None
-    }
-
     pub(crate) fn local_binding(&self, name: SymbolId) -> Option<(TypeId, bool)> {
         self.local_types
             .iter()
             .rev()
             .find_map(|scope| scope.get(&name).copied())
-    }
-
-    pub(crate) fn has_local_binding(&self, name: SymbolId) -> bool {
-        self.local_binding(name).is_some()
     }
 
     pub(crate) fn cached_named_struct_mapping(

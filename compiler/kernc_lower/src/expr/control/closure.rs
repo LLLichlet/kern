@@ -7,7 +7,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> Option<(Vec<TypeId>, TypeId)> {
         let norm = self.ctx.type_registry.normalize(fn_like_ty);
-        match self.ctx.type_registry.get(norm).clone() {
+        if let Some(signature) = self.callable_signature_cache.get(&norm) {
+            return Some(signature.clone());
+        }
+        let signature = match self.ctx.type_registry.get(norm).clone() {
             TypeKind::Function {
                 params,
                 ret,
@@ -17,8 +20,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 is_variadic: true, ..
             } => None,
             TypeKind::FnDef(def_id, fn_args) => {
-                let def = self.ctx.defs[def_id.0 as usize].clone();
-                let Def::Function(fn_def) = def else {
+                let Some(fn_def) = self
+                    .ctx
+                    .defs
+                    .get(def_id.0 as usize)
+                    .and_then(|def| match def {
+                        Def::Function(fn_def) => Some(fn_def),
+                        _ => None,
+                    })
+                else {
                     self.ctx.emit_ice(
                         span,
                         format!(
@@ -58,23 +68,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
 
                 if fn_def.generics.is_empty() {
-                    return Some((params, ret));
-                }
+                    Some((params, ret))
+                } else {
+                    let mut subst_map = HashMap::new();
+                    for (param, arg) in fn_def.generics.iter().zip(fn_args.iter().copied()) {
+                        subst_map.insert(param.name, arg);
+                    }
 
-                let mut subst_map = HashMap::new();
-                for (param, arg) in fn_def.generics.iter().zip(fn_args.iter().copied()) {
-                    subst_map.insert(param.name, arg);
+                    let inst_params = params
+                        .into_iter()
+                        .map(|param| self.substitute_type_with_map(param, &subst_map))
+                        .collect();
+                    let inst_ret = self.substitute_type_with_map(ret, &subst_map);
+                    Some((inst_params, inst_ret))
                 }
-
-                let inst_params = params
-                    .into_iter()
-                    .map(|param| self.substitute_type_with_map(param, &subst_map))
-                    .collect();
-                let inst_ret = self.substitute_type_with_map(ret, &subst_map);
-                Some((inst_params, inst_ret))
             }
             _ => None,
+        };
+        if let Some(signature) = signature.as_ref() {
+            self.callable_signature_cache
+                .insert(norm, signature.clone());
         }
+        signature
     }
 
     pub(crate) fn get_or_create_fn_closure_adapter(

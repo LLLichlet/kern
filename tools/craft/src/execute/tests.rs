@@ -974,7 +974,18 @@ fn relinks_when_project_local_link_search_directory_appears() {
 
     let root = temp_dir("craft-link-search-dir-appears");
     let native_dir = root.join("native");
+    let fallback_dir = root.join("fallback");
     fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(&fallback_dir).unwrap();
+    create_named_static_library_with_source(
+        &fallback_dir,
+        "craftappears",
+        r#"
+int craft_appears_value(void) {
+    return 1;
+}
+"#,
+    );
     fs::write(
         root.join("Craft.toml"),
         r#"
@@ -1000,7 +1011,8 @@ use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
     b.link_search("native");
-    b.link_system_lib("m");
+    b.link_search("fallback");
+    b.link_system_lib("craftappears");
 }
 "#,
     )
@@ -1009,11 +1021,11 @@ pub fn build(b: *mut builder.Builder) void {
         root.join("src/main.rn"),
         r#"
 extern {
-    fn cos(x: f64) f64;
+    fn craft_appears_value() i32;
 }
 
 fn main() i32 {
-    if (cos(0.0) != 1.0) {
+    if (craft_appears_value() != 1) {
         return 1;
     }
     return 0;
@@ -1049,11 +1061,10 @@ fn main() i32 {
     fs::create_dir_all(&native_dir).unwrap();
     create_named_static_library_with_source(
         &native_dir,
-        "m",
+        "craftappears",
         r#"
-double cos(double x) {
-    (void)x;
-    return 123.0;
+int craft_appears_value(void) {
+    return 123;
 }
 "#,
     );

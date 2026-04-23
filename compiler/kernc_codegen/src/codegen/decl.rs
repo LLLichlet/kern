@@ -213,7 +213,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MirConst::Integer { ty, value } => {
                 let llvm_ty = self.get_llvm_type(*ty);
                 if llvm_ty.is_pointer_type() {
-                    (*value == 0).then(|| llvm_ty.into_pointer_type().const_null().into())
+                    let pointer_ty = llvm_ty.into_pointer_type();
+                    if *value == 0 {
+                        Some(pointer_ty.const_null().into())
+                    } else {
+                        let int_ty = self
+                            .context
+                            .custom_width_int_type((self.sess.target.pointer_size * 8) as u32);
+                        Some(
+                            pointer_ty
+                                .const_int_to_ptr(int_ty.const_u128(*value))
+                                .into(),
+                        )
+                    }
                 } else {
                     Some(llvm_ty.into_int_type().const_u128(*value).into())
                 }

@@ -32,6 +32,10 @@ pub(super) fn lower_static_init(expr: &MastExpr) -> LowerResult<MirStaticInit> {
                 .collect::<LowerResult<Vec<_>>>()?,
         }),
         MastExprKind::AddressOf(inner) => lower_static_address_of(expr.ty, inner, expr.span),
+        MastExprKind::Cast {
+            kind: MastCastKind::IntToPtr,
+            operand,
+        } => lower_static_int_to_ptr_cast(expr.ty, operand, expr.span),
         MastExprKind::ConstructFatPointer { data_ptr, meta } => Ok(MirStaticInit::FatPointer {
             ty: expr.ty,
             data_ptr: Box::new(lower_static_init(data_ptr)?),
@@ -140,6 +144,23 @@ pub(super) fn lower_static_init(expr: &MastExpr) -> LowerResult<MirStaticInit> {
                     MastExprKind::IndexAccess { .. } => "index access",
                 }
             ),
+        )),
+    }
+}
+
+fn lower_static_int_to_ptr_cast(
+    ty: TypeId,
+    operand: &MastExpr,
+    span: Span,
+) -> LowerResult<MirStaticInit> {
+    match &operand.kind {
+        MastExprKind::Integer(value) => Ok(MirStaticInit::Const(MirConst::Integer {
+            ty,
+            value: *value,
+        })),
+        _ => Err(MirLowerError::new(
+            span,
+            "global initializer `integer-to-pointer cast` is not representable as MIR static init",
         )),
     }
 }

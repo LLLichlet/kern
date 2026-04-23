@@ -1,15 +1,16 @@
 use llvm_sys::LLVMAttributeFunctionIndex;
 use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstInt,
-    LLVMConstIntOfArbitraryPrecision, LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull,
-    LLVMConstReal, LLVMConstVector, LLVMCountParams, LLVMCountStructElementTypes, LLVMFunctionType,
-    LLVMGetAllocatedType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator, LLVMGetElementType,
-    LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
-    LLVMGetInstructionOpcode, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
-    LLVMGetParam, LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
-    LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct, LLVMSetAlignment,
-    LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
-    LLVMSetVolatile, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
+    LLVMConstIntOfArbitraryPrecision, LLVMConstIntToPtr, LLVMConstNamedStruct, LLVMConstNull,
+    LLVMConstPointerNull, LLVMConstReal, LLVMConstVector, LLVMCountParams,
+    LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent,
+    LLVMGetBasicBlockTerminator, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
+    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetIntTypeWidth,
+    LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam, LLVMGetReturnType,
+    LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGlobalGetValueType, LLVMIsAInstruction,
+    LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
+    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVolatile, LLVMStructGetTypeAtIndex,
+    LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -387,6 +388,10 @@ impl<'ctx> PointerType<'ctx> {
 
     pub fn const_null(self) -> PointerValue<'ctx> {
         PointerValue::new(unsafe { LLVMConstPointerNull(self.as_type_ref()) })
+    }
+
+    pub fn const_int_to_ptr(self, value: IntValue<'ctx>) -> PointerValue<'ctx> {
+        PointerValue::new(unsafe { LLVMConstIntToPtr(value.as_value_ref(), self.as_type_ref()) })
     }
 
     pub fn get_undef(self) -> PointerValue<'ctx> {

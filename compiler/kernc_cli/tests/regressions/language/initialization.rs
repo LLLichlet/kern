@@ -370,6 +370,45 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_integer_to_pointer_casts_in_static_initializer() {
+    let output = build_and_run_source(
+        r#"
+type FramebufferResponse = struct {
+    count: u64,
+};
+
+type FramebufferRequest = struct {
+    response: *FramebufferResponse,
+    mmio: *u8,
+};
+
+static REQUEST = FramebufferRequest.{
+    response: 0 as *FramebufferResponse,
+    mmio: 0x1000 as *u8,
+};
+
+fn main() i32 {
+    if (REQUEST.response != (0 as *FramebufferResponse)) {
+        return 1;
+    }
+    if (REQUEST.mmio != (0x1000 as *u8)) {
+        return 2;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "integer-to-pointer cast static initializer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_result_type_in_pointer_static_initializer_without_panicking() {
     let output = compile_source(
         r#"

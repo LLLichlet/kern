@@ -981,10 +981,7 @@ fn resolved_macos_sdkroot() -> Option<String> {
         return Some(existing);
     }
 
-    let output = Command::new("xcrun")
-        .arg("--show-sdk-path")
-        .output()
-        .ok()?;
+    let output = Command::new("xcrun").arg("--show-sdk-path").output().ok()?;
     if !output.status.success() {
         return None;
     }

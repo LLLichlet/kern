@@ -22,8 +22,7 @@ The current implementation covers:
 - `craft.rn` discovery and pre-lock normalization scaffolding
 - normalized package-plan snapshots for declared targets
 - `workspace = true` dependency inheritance
-- deterministic canonical `Craft.lock` writing via `craft lock`
-- `Craft.lock` loading, validation, and stale/current status reporting via `craft check`
+- automatic deterministic canonical `Craft.lock` synchronization during package-graph commands
 - release-oriented publish readiness checks via `craft publish`
 - build-plan derivation from normalized package targets and resolved dependencies
 - package-level `build.rn` discovery, validation, and per-target link-plan orchestration for execution-sensitive adaptation
@@ -39,7 +38,6 @@ The current implementation covers:
 The current command surface is:
 
 - `craft check`
-- `craft lock`
 - `craft fetch`
 - `craft publish`
 - `craft build`
@@ -59,9 +57,9 @@ edges:
 Derived tool state stays under `.craft/`, and `craft` maintains a root
 `.gitignore` entry for `.craft/` next to `Craft.toml`.
 
-`craft publish` is also local-only. It checks for a current canonical
-`Craft.lock` plus required package metadata, but it does not upload anywhere or
-rewrite the lockfile implicitly.
+`craft publish` is also local-only. It checks required package metadata and
+auto-synchronizes `Craft.lock` as part of the normal command flow, but it does
+not upload anywhere.
 
 `craft install` defaults to the active Kern home (`KERN_HOME` or `~/.kern`) and
 copies selected package binaries into `bin/`. `craft uninstall` removes those

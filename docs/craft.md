@@ -359,10 +359,8 @@ anywhere, talk to a registry, or rewrite dependency state.
 The current rules are:
 
 - `craft publish` always evaluates release-mode publish readiness
-- `craft publish` requires a current canonical `Craft.lock`
-- if the lock is missing or stale, `craft publish` fails and tells the
-  user to run `craft lock`
-- `craft publish` does not silently create or refresh `Craft.lock`
+- `craft publish` auto-synchronizes the canonical `Craft.lock`
+- if the lockfile changes, `craft publish` reports that synchronized state as part of the command result
 
 Required package metadata for a publishable package is:
 
@@ -875,8 +873,9 @@ The current command surface is intentionally narrow:
 
 - `craft help`
 - `craft check`
-- `craft lock`
 - `craft fetch`
+- `craft publish`
+- `craft doc`
 - `craft build`
 - `craft install`
 - `craft uninstall`
@@ -885,11 +884,12 @@ The current command surface is intentionally narrow:
 
 Current behavior:
 
-- `check` loads the package graph, evaluates scripts, derives the build plan, materializes staged inputs, and runs semantic analysis for every selected compile unit without codegen or final linking
-- `lock` writes a deterministic canonical `Craft.lock`
+- `check` loads the package graph, auto-synchronizes `Craft.lock`, evaluates scripts, derives the build plan, materializes staged inputs, and runs semantic analysis for every selected compile unit without codegen or final linking
 - `fetch` materializes both external package sources and declared package resources into the local cache
   - package source backends are explicit package paths or git repositories
   - resource source backends are explicit package-relative paths or git repositories
+- `publish` auto-synchronizes `Craft.lock` and runs release-oriented metadata and source-policy checks without uploading anywhere
+- `doc` builds the selected package graph and renders Markdown package docs under `.craft/docs`
 - `build` executes the selected build plan
 - `install` builds selected package `bin` targets and copies them into the active install root's `bin/` directory
 - `uninstall` removes installed package `bin` targets from that same install root
@@ -912,7 +912,7 @@ When `craft` launches a runtime target for `run` or `test`, it also injects:
 - resolved source roots (`package`, `absolute`, or `build_output`)
 - unit-bound `compile_inputs` and `artifact_outputs`
 - link directives
-- lockfile freshness
+- lockfile synchronization result
 
 That audit output is part of the design, not decoration.
 

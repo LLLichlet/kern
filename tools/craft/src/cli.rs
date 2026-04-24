@@ -36,11 +36,6 @@ pub enum Command {
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
     },
-    Lock {
-        path: Option<PathBuf>,
-        feature_selection: elaborate::FeatureSelection,
-        ui: UiOptions,
-    },
     Fetch {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
@@ -146,7 +141,6 @@ fn known_command(name: &str) -> bool {
         "init"
             | "clean"
             | "check"
-            | "lock"
             | "fetch"
             | "publish"
             | "doc"
@@ -270,14 +264,6 @@ where
         "check" => {
             let options = parse_command_options(rest, default_option_mode("check"))?;
             Ok(Command::Check {
-                path: options.path,
-                feature_selection: options.feature_selection,
-                ui: options.ui,
-            })
-        }
-        "lock" => {
-            let options = parse_command_options(rest, default_option_mode("lock"))?;
-            Ok(Command::Lock {
                 path: options.path,
                 feature_selection: options.feature_selection,
                 ui: options.ui,

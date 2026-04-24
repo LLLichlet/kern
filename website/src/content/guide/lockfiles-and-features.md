@@ -43,11 +43,11 @@ craft check --verbose --no-default-features --features full --project-path /tmp/
 
 ## `Craft.lock` Stayed Stable
 
-The same package was then locked twice:
+The same package was then checked twice:
 
 ```bash
-craft lock --project-path /tmp/kern-site-lockfeat-vZ1Vxn
-craft lock --no-default-features --features full --project-path /tmp/kern-site-lockfeat-vZ1Vxn
+craft check --project-path /tmp/kern-site-lockfeat-vZ1Vxn
+craft check --no-default-features --features full --project-path /tmp/kern-site-lockfeat-vZ1Vxn
 ```
 
 Both runs produced the same `Craft.lock` hash:
@@ -56,7 +56,7 @@ Both runs produced the same `Craft.lock` hash:
 85a12c56169686f156777f65af0e721d159e89c47cac12bd46a9db1d0b7b6842
 ```
 
-The second run reported the lockfile as unchanged.
+The second run reported the lockfile as current.
 
 That is exactly the model the current docs describe:
 
@@ -102,7 +102,7 @@ So feature names are not free-form toggles. They must exist in the manifest.
 - use `[features]` to declare the feature vocabulary explicitly
 - use `--features ...` and `--no-default-features` to choose an execution
   configuration
-- use `craft lock` to maintain the canonical resolved graph snapshot
+- use ordinary package-graph commands such as `craft check`, `craft build`, or `craft publish` to keep the canonical resolved graph snapshot synchronized
 
 That separation is one of the reasons the toolchain stays understandable: lock
 state is shared and stable, while feature selection stays a deliberate

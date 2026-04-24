@@ -908,7 +908,7 @@ root = "src/lib.rn"
             &manifest,
             &[],
             false,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &FeatureSelection::default(),
         )
         .unwrap();
@@ -1127,7 +1127,7 @@ root = "src/lib.rn"
             &manifest,
             &[],
             false,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &FeatureSelection::default(),
         )
         .unwrap();
@@ -1175,7 +1175,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
             &manifest,
             &[],
             false,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &FeatureSelection::default(),
         )
         .unwrap();

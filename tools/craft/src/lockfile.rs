@@ -1,6 +1,8 @@
 mod build;
+#[cfg(test)]
 mod parse;
 mod render;
+#[cfg(test)]
 mod validate;
 
 use crate::elaborate::ElaborationPlan;
@@ -76,13 +78,6 @@ pub struct LockedPackageTarget {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LockStatus {
-    Missing,
-    Current,
-    Stale,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LockWriteResult {
     Created,
     Updated,
@@ -95,10 +90,12 @@ pub fn sync_lockfile(
 ) -> Result<(PathBuf, LockWriteResult)> {
     let lock_path = elaboration.resolved_graph.workspace_root.join("Craft.lock");
     let expected = Lockfile::from_elaboration(manifest_path, elaboration)?;
+    let rendered = expected.render();
 
     if lock_path.is_file() {
-        let actual = Lockfile::load(&lock_path)?;
-        if actual == expected {
+        let actual =
+            fs::read_to_string(&lock_path).map_err(|err| Error::from_io(&lock_path, err))?;
+        if actual == rendered {
             return Ok((lock_path, LockWriteResult::Unchanged));
         }
     }
@@ -109,26 +106,12 @@ pub fn sync_lockfile(
         LockWriteResult::Created
     };
 
-    local_state::write_file_atomic(&lock_path, expected.render())?;
+    local_state::write_file_atomic(&lock_path, rendered)?;
     Ok((lock_path, result))
 }
 
-pub fn lock_status(manifest_path: &Path, elaboration: &ElaborationPlan) -> Result<LockStatus> {
-    let lock_path = elaboration.resolved_graph.workspace_root.join("Craft.lock");
-    if !lock_path.is_file() {
-        return Ok(LockStatus::Missing);
-    }
-
-    let actual = Lockfile::load(&lock_path)?;
-    let expected = Lockfile::from_elaboration(manifest_path, elaboration)?;
-    if actual == expected {
-        Ok(LockStatus::Current)
-    } else {
-        Ok(LockStatus::Stale)
-    }
-}
-
 impl Lockfile {
+    #[cfg(test)]
     pub fn load(path: &Path) -> Result<Self> {
         let source = fs::read_to_string(path).map_err(|err| Error::from_io(path, err))?;
         let lockfile = Self::parse(&source, path)?;
@@ -139,7 +122,7 @@ impl Lockfile {
 
 #[cfg(test)]
 mod tests {
-    use super::{LockStatus, LockWriteResult, Lockfile, lock_status, sync_lockfile};
+    use super::{LockWriteResult, Lockfile, sync_lockfile};
     use crate::elaborate::plan;
     use crate::manifest::Manifest;
     use crate::workspace::load_members;
@@ -231,7 +214,7 @@ kern = "0.7.1"
             &root_manifest,
             &members,
             true,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &crate::elaborate::FeatureSelection::default(),
         )
         .unwrap();
@@ -305,7 +288,7 @@ shared = { workspace = true }
             &root_manifest,
             &members,
             true,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &crate::elaborate::FeatureSelection::default(),
         )
         .unwrap();
@@ -351,7 +334,7 @@ kern = "0.7.1"
             &root_manifest,
             &members,
             true,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &crate::elaborate::FeatureSelection::default(),
         )
         .unwrap();
@@ -397,7 +380,7 @@ kern = "0.7.1"
             &root_manifest,
             &members,
             true,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &crate::elaborate::FeatureSelection::default(),
         )
         .unwrap();
@@ -426,7 +409,7 @@ kern = "0.7.1"
             &root_manifest,
             &members,
             true,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &crate::elaborate::FeatureSelection::default(),
         )
         .unwrap();
@@ -437,7 +420,57 @@ kern = "0.7.1"
     }
 
     #[test]
-    fn lockfile_status_tracks_git_source_identity_changes() {
+    fn sync_lockfile_overwrites_invalid_existing_contents() {
+        let root = temp_dir("craft-lockfile-invalid-sync");
+        let app_dir = root.join("app");
+        fs::create_dir_all(&app_dir).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["app"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.1"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("Craft.lock"), "not valid lockfile\n").unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let root_manifest = Manifest::load(&manifest_path).unwrap();
+        let members = load_members(&manifest_path, &root_manifest).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Check,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let (lock_path, result) = sync_lockfile(&manifest_path, &elaboration).unwrap();
+        assert_eq!(result, LockWriteResult::Updated);
+        let loaded = Lockfile::load(&lock_path).unwrap();
+        assert_eq!(
+            loaded.packages[0].id,
+            "app 0.1.0 workspace-member:app".to_string()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sync_lockfile_updates_when_git_source_identity_changes() {
         let root = temp_dir("craft-lockfile-source-identity");
         let app_dir = root.join("app");
         fs::create_dir_all(&app_dir).unwrap();
@@ -475,16 +508,13 @@ shared = { workspace = true }
             &root_manifest,
             &members,
             true,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &crate::elaborate::FeatureSelection::default(),
         )
         .unwrap();
 
-        let _ = sync_lockfile(&manifest_path, &elaboration).unwrap();
-        assert_eq!(
-            lock_status(&manifest_path, &elaboration).unwrap(),
-            LockStatus::Current
-        );
+        let (_, created) = sync_lockfile(&manifest_path, &elaboration).unwrap();
+        assert_eq!(created, LockWriteResult::Created);
 
         fs::write(
             root.join("Craft.toml"),
@@ -505,129 +535,13 @@ shared = { git = "https://example.com/shared.git", rev = "abc123", version = "2"
             &root_manifest,
             &members,
             true,
-            crate::script::ScriptCommand::Lock,
-            &crate::elaborate::FeatureSelection::default(),
-        )
-        .unwrap();
-        assert_eq!(
-            lock_status(&manifest_path, &elaboration).unwrap(),
-            LockStatus::Stale
-        );
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn reports_current_and_stale_lockfile_status() {
-        let root = temp_dir("craft-lockfile-status");
-        let app_dir = root.join("app");
-        fs::create_dir_all(&app_dir).unwrap();
-
-        fs::write(
-            root.join("Craft.toml"),
-            r#"
-[workspace]
-members = ["app"]
-"#,
-        )
-        .unwrap();
-        fs::write(
-            app_dir.join("Craft.toml"),
-            r#"
-[package]
-name = "app"
-version = "0.1.0"
-kern = "0.7.1"
-"#,
-        )
-        .unwrap();
-        fs::write(
-            app_dir.join("craft.rn"),
-            r#"
-use craft.plan;
-
-pub fn craft(p: *mut plan.Plan) void {{
-    p.define_string("pkg", p.package.name);
-}}
-"#,
-        )
-        .unwrap();
-
-        let manifest_path = root.join("Craft.toml");
-        let root_manifest = Manifest::load(&manifest_path).unwrap();
-        let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &root_manifest,
-            &members,
-            true,
-            crate::script::ScriptCommand::Lock,
+            crate::script::ScriptCommand::Check,
             &crate::elaborate::FeatureSelection::default(),
         )
         .unwrap();
 
-        assert_eq!(
-            lock_status(&manifest_path, &elaboration).unwrap(),
-            LockStatus::Missing
-        );
-
-        let _ = sync_lockfile(&manifest_path, &elaboration).unwrap();
-        assert_eq!(
-            lock_status(&manifest_path, &elaboration).unwrap(),
-            LockStatus::Current
-        );
-
-        fs::write(
-            app_dir.join("craft.rn"),
-            r#"
-use craft.plan;
-
-pub fn craft(p: *mut plan.Plan) void {
-    p.define_string("pkg", p.package.version);
-}
-"#,
-        )
-        .unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &root_manifest,
-            &members,
-            true,
-            crate::script::ScriptCommand::Lock,
-            &crate::elaborate::FeatureSelection::default(),
-        )
-        .unwrap();
-        assert_eq!(
-            lock_status(&manifest_path, &elaboration).unwrap(),
-            LockStatus::Stale
-        );
-
-        fs::write(
-            app_dir.join("Craft.toml"),
-            r#"
-[package]
-name = "app"
-version = "0.2.0"
-kern = "0.7.1"
-"#,
-        )
-        .unwrap();
-
-        let root_manifest = Manifest::load(&manifest_path).unwrap();
-        let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &root_manifest,
-            &members,
-            true,
-            crate::script::ScriptCommand::Lock,
-            &crate::elaborate::FeatureSelection::default(),
-        )
-        .unwrap();
-        assert_eq!(
-            lock_status(&manifest_path, &elaboration).unwrap(),
-            LockStatus::Stale
-        );
+        let (_, updated) = sync_lockfile(&manifest_path, &elaboration).unwrap();
+        assert_eq!(updated, LockWriteResult::Updated);
 
         let _ = fs::remove_dir_all(root);
     }

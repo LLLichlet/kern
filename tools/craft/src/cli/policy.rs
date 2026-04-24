@@ -1,6 +1,5 @@
 use crate::elaborate;
 use crate::error::{Error, Result};
-use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::workspace;
 use std::collections::{BTreeMap, BTreeSet};
@@ -233,21 +232,6 @@ pub(super) fn validate_check_source_policy(
             "release source policy rejected: {}",
             summary.release_blockers().join(", ")
         ),
-    })
-}
-
-pub(super) fn validate_publish_lock_status(
-    manifest_path: &Path,
-    lock_status: lockfile::LockStatus,
-) -> Result<()> {
-    if lock_status == lockfile::LockStatus::Current {
-        return Ok(());
-    }
-
-    Err(Error::Validation {
-        path: manifest_path.to_path_buf(),
-        message: "publish requires a current canonical `Craft.lock`; run `craft lock` first"
-            .to_string(),
     })
 }
 

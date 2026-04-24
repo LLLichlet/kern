@@ -31,7 +31,6 @@ fn overview_doc() -> HelpDoc {
         )
         .section(
             HelpSection::new("Other Commands")
-                .entry("lock", "Write a deterministic Craft.lock")
                 .entry(
                     "fetch",
                     "Populate external package sources into .craft cache",
@@ -116,15 +115,6 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
                     "Clean another package",
                 ),
             ],
-        ),
-        "lock" => feature_command_doc(
-            "lock",
-            "Write a deterministic Craft.lock for the selected package graph",
-            "craft lock [OPTIONS]",
-            &[(
-                "craft lock --features tls",
-                "Lock with an explicit feature set",
-            )],
         ),
         "fetch" => feature_command_doc(
             "fetch",

@@ -97,11 +97,6 @@ impl Error {
                         .to_string(),
                 )
             }
-            Self::Validation { message, .. }
-                if message.starts_with("publish requires a current canonical `Craft.lock`") =>
-            {
-                Some("run `craft lock` before `craft publish`".to_string())
-            }
             _ => None,
         }
     }

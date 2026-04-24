@@ -31,11 +31,10 @@ const DEPENDENCY_KIND_DEV_TAG: i128 = 1;
 const DEPENDENCY_KIND_BUILD_TAG: i128 = 2;
 
 const SCRIPT_COMMAND_CHECK_TAG: i128 = 0;
-const SCRIPT_COMMAND_LOCK_TAG: i128 = 1;
-const SCRIPT_COMMAND_FETCH_TAG: i128 = 2;
-const SCRIPT_COMMAND_BUILD_TAG: i128 = 3;
-const SCRIPT_COMMAND_RUN_TAG: i128 = 4;
-const SCRIPT_COMMAND_TEST_TAG: i128 = 5;
+const SCRIPT_COMMAND_FETCH_TAG: i128 = 1;
+const SCRIPT_COMMAND_BUILD_TAG: i128 = 2;
+const SCRIPT_COMMAND_RUN_TAG: i128 = 3;
+const SCRIPT_COMMAND_TEST_TAG: i128 = 4;
 
 const TARGET_KIND_LIB_TAG: i128 = 0;
 const TARGET_KIND_BIN_TAG: i128 = 1;
@@ -184,7 +183,6 @@ impl ProfileSelection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptCommand {
     Check,
-    Lock,
     Fetch,
     Build,
     Run,
@@ -702,7 +700,6 @@ impl ScriptCommand {
     fn tag(self) -> i128 {
         match self {
             Self::Check => SCRIPT_COMMAND_CHECK_TAG,
-            Self::Lock => SCRIPT_COMMAND_LOCK_TAG,
             Self::Fetch => SCRIPT_COMMAND_FETCH_TAG,
             Self::Build => SCRIPT_COMMAND_BUILD_TAG,
             Self::Run => SCRIPT_COMMAND_RUN_TAG,

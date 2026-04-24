@@ -138,6 +138,74 @@ return 0;
 }
 
 #[test]
+fn incremental_build_recovers_from_invalid_compile_output_lock_file() {
+    let root = temp_dir("craft-exec-invalid-compile-lock");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.1"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+fn main() i32 {
+return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.compile_actions, 1);
+    assert_eq!(first.link_actions, 1);
+
+    let compile_action = action_plan.compile_actions.first().unwrap();
+    let lock_path = compile_action.object_path.parent().unwrap().join(format!(
+        ".{}.craft.lock",
+        compile_action
+            .object_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+    ));
+    fs::write(&lock_path, "operation=compile\n").unwrap();
+    thread::sleep(Duration::from_millis(350));
+
+    let rebuilt = build(&build_plan, &action_plan).unwrap();
+    assert!(compile_action.object_path.is_file());
+    assert!(!lock_path.exists());
+    assert!(
+        rebuilt.action_cache_stats.compile_hits + rebuilt.action_cache_stats.compile_misses > 0
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn incremental_build_skips_unchanged_actions() {
     let root = temp_dir("craft-exec-incremental-skip");
     fs::create_dir_all(root.join("src")).unwrap();
@@ -194,6 +262,128 @@ return 0;
     assert_eq!(second.action_cache_stats.link_misses, 0);
     assert!(second.action_cache_stats.compile_hits > 0);
     assert_eq!(second.action_cache_stats.link_hits, 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn incremental_build_recovers_from_corrupted_action_state_files() {
+    let root = temp_dir("craft-exec-incremental-corrupt-state");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.1"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+fn main() i32 {
+return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.compile_actions, 1);
+    assert_eq!(first.link_actions, 1);
+
+    let compile_action = action_plan.compile_actions.first().unwrap();
+    let link_action = action_plan.link_actions.first().unwrap();
+    let compile_state = crate::build_state::action_state_path(&compile_action.object_path);
+    let link_state = crate::build_state::action_state_path(&link_action.artifact_path);
+
+    fs::write(&compile_state, "not valid build state\n").unwrap();
+    fs::write(&link_state, "also not valid build state\n").unwrap();
+
+    let rebuilt = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(rebuilt.compile_actions, 1);
+    assert_eq!(rebuilt.link_actions, 1);
+    assert!(rebuilt.action_cache_stats.compile_misses > 0);
+    assert_eq!(rebuilt.action_cache_stats.link_misses, 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn incremental_build_recovers_when_primary_object_is_missing() {
+    let root = temp_dir("craft-exec-incremental-missing-object");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.1"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+fn main() i32 {
+return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.compile_actions, 1);
+    assert_eq!(first.link_actions, 1);
+
+    let compile_action = action_plan.compile_actions.first().unwrap();
+    let link_action = action_plan.link_actions.first().unwrap();
+    fs::remove_file(&compile_action.object_path).unwrap();
+
+    let rebuilt = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(rebuilt.compile_actions, 1);
+    assert!(rebuilt.action_cache_stats.compile_misses > 0);
+    assert!(compile_action.object_path.is_file());
+    assert!(link_action.artifact_path.is_file());
 
     let _ = fs::remove_dir_all(root);
 }

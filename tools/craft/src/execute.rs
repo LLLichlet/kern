@@ -418,6 +418,8 @@ fn build_compile_action_if_needed(
         &report,
         fingerprint,
     )?;
+    #[cfg(test)]
+    crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_COMPILE_STATE_WRITE);
 
     execution_summary.record_compile_cache_miss();
     execution_summary.compile_actions += 1;
@@ -482,6 +484,8 @@ fn build_link_action_if_needed(
         &state_inputs,
         std::slice::from_ref(&action.artifact_path),
     )?;
+    #[cfg(test)]
+    crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_LINK_STATE_WRITE);
     execution_summary.record_link_cache_miss();
     execution_summary.link_actions += 1;
     execution_summary.record_action(

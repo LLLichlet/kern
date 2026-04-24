@@ -317,6 +317,9 @@ fn execute_staged_action(
         }
     }
 
+    #[cfg(test)]
+    crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_STAGED_OUTPUT_WRITE);
+
     build_state::record_action_state(
         &output_path,
         fingerprint,

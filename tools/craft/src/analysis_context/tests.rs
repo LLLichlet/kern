@@ -162,3 +162,34 @@ root = \"src/main.rn\"
             .is_none()
     );
 }
+
+#[test]
+fn invalid_rendered_analysis_context_is_ignored() {
+    let root = temp_dir("craft-analysis-context-invalid");
+    fs::create_dir_all(root.join(".craft")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"0.7.1\"
+
+[[bin]]
+name = \"app\"
+root = \"src/main.rn\"
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join(".craft").join("analysis.toml"),
+        "version = nope\n",
+    )
+    .unwrap();
+
+    assert!(
+        load_current_analysis_context(&root.join("Craft.toml"), &root)
+            .unwrap()
+            .is_none()
+    );
+}

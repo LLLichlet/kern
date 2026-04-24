@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const LOCK_WAIT_REPORT_DELAY: Duration = Duration::from_secs(1);
 const LOCK_WAIT_REPORT_INTERVAL: Duration = Duration::from_secs(5);
+const INVALID_LOCK_METADATA_GRACE: Duration = Duration::from_millis(250);
 
 pub(crate) struct WorkspaceOperationLock {
     path: PathBuf,
@@ -161,12 +162,16 @@ fn sanitize_lock_component(value: &str) -> String {
 }
 
 fn reclaim_stale_lock(path: &Path) -> Result<bool> {
-    let Some(owner) = read_lock_owner(path)? else {
-        return Ok(false);
-    };
-
-    if lock_owner_is_alive(owner) {
-        return Ok(false);
+    match read_lock_owner(path)? {
+        Some(owner) => {
+            if lock_owner_is_alive(owner) {
+                return Ok(false);
+            }
+        }
+        None if !invalid_lock_metadata_is_stale(path)? => {
+            return Ok(false);
+        }
+        None => {}
     }
 
     match fs::remove_file(path) {
@@ -174,6 +179,19 @@ fn reclaim_stale_lock(path: &Path) -> Result<bool> {
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(true),
         Err(err) => Err(Error::from_io(path, err)),
     }
+}
+
+fn invalid_lock_metadata_is_stale(path: &Path) -> Result<bool> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(true),
+        Err(err) => return Err(Error::from_io(path, err)),
+    };
+    let modified = metadata.modified().map_err(Error::from_io_plain)?;
+    let age = SystemTime::now()
+        .duration_since(modified)
+        .unwrap_or_default();
+    Ok(age >= INVALID_LOCK_METADATA_GRACE)
 }
 
 fn read_lock_owner(path: &Path) -> Result<Option<LockOwner>> {
@@ -316,11 +334,12 @@ fn process_exists(pid: u32) -> bool {
 mod tests {
     #[cfg(target_os = "linux")]
     use super::read_process_start_ticks;
+    use super::{
+        INVALID_LOCK_METADATA_GRACE, OutputOperationLock, WorkspaceOperationLock, output_lock_path,
+        workspace_lock_path,
+    };
     #[cfg(windows)]
     use super::{LockOwner, lock_owner_is_alive};
-    use super::{
-        OutputOperationLock, WorkspaceOperationLock, output_lock_path, workspace_lock_path,
-    };
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc;
@@ -358,6 +377,21 @@ mod tests {
         let lock_path = workspace_lock_path(&root);
         fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
         fs::write(&lock_path, "pid=999999\noperation=test\n").unwrap();
+
+        let _lock = WorkspaceOperationLock::acquire(&root, "build").unwrap();
+        let contents = fs::read_to_string(&lock_path).unwrap();
+        assert!(contents.contains(&format!("pid={}", std::process::id())));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reclaims_workspace_lock_with_invalid_metadata_after_grace_period() {
+        let root = temp_dir("craft-workspace-lock-invalid");
+        let lock_path = workspace_lock_path(&root);
+        fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+        fs::write(&lock_path, "operation=build\n").unwrap();
+        thread::sleep(INVALID_LOCK_METADATA_GRACE + Duration::from_millis(50));
 
         let _lock = WorkspaceOperationLock::acquire(&root, "build").unwrap();
         let contents = fs::read_to_string(&lock_path).unwrap();
@@ -461,6 +495,22 @@ mod tests {
         worker.join().unwrap();
         waiter.join().unwrap();
         acquired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reclaims_output_lock_with_invalid_metadata_after_grace_period() {
+        let root = temp_dir("craft-output-lock-invalid");
+        let output = root.join("build").join("demo.o");
+        let lock_path = output_lock_path(&output);
+        fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+        fs::write(&lock_path, "operation=compile\n").unwrap();
+        thread::sleep(INVALID_LOCK_METADATA_GRACE + Duration::from_millis(50));
+
+        let _lock = OutputOperationLock::acquire(&output, "compile").unwrap();
+        let contents = fs::read_to_string(&lock_path).unwrap();
+        assert!(contents.contains(&format!("pid={}", std::process::id())));
 
         let _ = fs::remove_dir_all(root);
     }

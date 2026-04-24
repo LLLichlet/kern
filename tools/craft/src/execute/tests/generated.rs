@@ -234,6 +234,198 @@ b.set_source_root(main);
 }
 
 #[test]
+fn rebuild_restores_missing_generated_helper_file_without_cleaning_craft_dir() {
+    let root = temp_dir("craft-exec-missing-generated-helper");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.1"
+
+[[bin]]
+name = "demo"
+root = "src/placeholder.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src").join("placeholder.rn"),
+        "fn main() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let main = b.emit_generated(
+    "src/main.rn",
+    "mod helper;\nfn main() i32 { return helper.answer(); }\n"
+);
+let _ = b.emit_generated(
+    "src/helper.rn",
+    "pub/ fn answer() i32 { return 0; }\n"
+);
+b.set_source_root(main);
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let compile_action = action_plan
+        .compile_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "demo" && action.target_kind == crate::plan::TargetKind::Bin
+        })
+        .unwrap();
+    let link_action = action_plan
+        .link_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "demo" && action.target_kind == crate::plan::TargetKind::Bin
+        })
+        .unwrap();
+    let helper_path = compile_action
+        .generated_root_path
+        .join("src")
+        .join("helper.rn");
+    let helper_state = crate::build_state::action_state_path(&helper_path);
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.compile_actions, 1);
+    assert_eq!(first.link_actions, 1);
+    assert!(helper_path.is_file());
+    assert!(helper_state.is_file());
+    assert!(link_action.artifact_path.is_file());
+
+    fs::remove_file(&helper_path).unwrap();
+    fs::remove_file(&helper_state).unwrap();
+
+    let rebuilt = build(&build_plan, &action_plan).unwrap();
+    assert!(helper_path.is_file());
+    assert!(helper_state.is_file());
+    assert!(link_action.artifact_path.is_file());
+    assert!(rebuilt.action_cache_stats.staged_misses >= 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn rebuild_recovers_from_corrupted_generated_helper_state_without_cleaning_craft_dir() {
+    let root = temp_dir("craft-exec-corrupt-generated-helper-state");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.1"
+
+[[bin]]
+name = "demo"
+root = "src/placeholder.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src").join("placeholder.rn"),
+        "fn main() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let main = b.emit_generated(
+    "src/main.rn",
+    "mod helper;\nfn main() i32 { return helper.answer(); }\n"
+);
+let _ = b.emit_generated(
+    "src/helper.rn",
+    "pub/ fn answer() i32 { return 0; }\n"
+);
+b.set_source_root(main);
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let compile_action = action_plan
+        .compile_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "demo" && action.target_kind == crate::plan::TargetKind::Bin
+        })
+        .unwrap();
+    let link_action = action_plan
+        .link_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "demo" && action.target_kind == crate::plan::TargetKind::Bin
+        })
+        .unwrap();
+    let helper_path = compile_action
+        .generated_root_path
+        .join("src")
+        .join("helper.rn");
+    let helper_state = crate::build_state::action_state_path(&helper_path);
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.compile_actions, 1);
+    assert_eq!(first.link_actions, 1);
+    assert!(helper_path.is_file());
+    assert!(helper_state.is_file());
+
+    fs::write(&helper_state, "not valid build state\n").unwrap();
+
+    let rebuilt = build(&build_plan, &action_plan).unwrap();
+    assert!(helper_path.is_file());
+    assert!(helper_state.is_file());
+    assert!(link_action.artifact_path.is_file());
+    assert!(rebuilt.action_cache_stats.staged_misses >= 1);
+    assert_ne!(
+        fs::read_to_string(&helper_state).unwrap(),
+        "not valid build state\n"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn builds_and_runs_hosted_package_with_post_link_artifact_stage_outputs() {
     let root = temp_dir("craft-exec-post-link-stage");
     fs::create_dir_all(root.join("src")).unwrap();

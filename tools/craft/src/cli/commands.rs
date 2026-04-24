@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use super::policy::{
     publish_summary, summarize_check_sources, summarize_source_security,
-    validate_check_source_policy, validate_publish_lock_status, validate_publish_metadata,
+    validate_check_source_policy, validate_publish_metadata,
 };
 use super::render::{
     Renderer, Tone, format_unit_label, format_yes_no, print_compile_actions,
@@ -45,11 +45,6 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             feature_selection,
             ui,
         } => run_check(path, feature_selection, ui),
-        Command::Lock {
-            path,
-            feature_selection,
-            ui,
-        } => run_lock(path, feature_selection, ui),
         Command::Fetch {
             path,
             feature_selection,
@@ -162,13 +157,12 @@ fn run_check(
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_locked_package_graph(
+    let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Check,
         &feature_selection,
         "check",
     )?;
-    let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.elaboration)?;
     let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Check)?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
@@ -281,10 +275,10 @@ fn run_check(
     }
     render.summary(
         "lockfile",
-        match lock_status {
-            lockfile::LockStatus::Missing => "missing",
-            lockfile::LockStatus::Current => "current",
-            lockfile::LockStatus::Stale => "stale",
+        match loaded.lockfile_write_result {
+            lockfile::LockWriteResult::Created => "created",
+            lockfile::LockWriteResult::Updated => "updated",
+            lockfile::LockWriteResult::Unchanged => "current",
         },
     );
     if render.is_verbose() && build_plan.generated_file_count() > 0 {
@@ -310,6 +304,8 @@ fn run_check(
         &build_plan,
         &feature_selection,
     );
+    #[cfg(test)]
+    crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_ANALYSIS_CONTEXT_SYNC);
     let mut progress = render.progress("check", compile_execution_progress_plan(&action_plan));
     let execution = execute::check_with_progress(
         &build_plan,
@@ -326,65 +322,13 @@ fn run_check(
     Ok(())
 }
 
-fn run_lock(
-    path: Option<PathBuf>,
-    feature_selection: elaborate::FeatureSelection,
-    ui: super::UiOptions,
-) -> Result<()> {
-    let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_locked_package_graph(
-        path.as_deref(),
-        crate::script::ScriptCommand::Lock,
-        &feature_selection,
-        "lock",
-    )?;
-    let (lock_path, lock_result) =
-        lockfile::sync_lockfile(&loaded.manifest_path, &loaded.elaboration)?;
-    let edge_count = loaded
-        .elaboration
-        .package_graph
-        .packages
-        .iter()
-        .map(|pkg| pkg.dependencies.len())
-        .sum::<usize>();
-
-    render.header_with_path(
-        "lock",
-        &loaded.manifest,
-        &loaded.manifest_path,
-        &feature_selection,
-    );
-    let status = match lock_result {
-        lockfile::LockWriteResult::Created => "created",
-        lockfile::LockWriteResult::Updated => "updated",
-        lockfile::LockWriteResult::Unchanged => "unchanged",
-    };
-    render.summary("lockfile", format!("{status} at {}", lock_path.display()));
-    render.summary(
-        "graph",
-        format!(
-            "{} package(s), {} edge(s), {} external package(s)",
-            loaded.elaboration.package_graph.packages.len(),
-            edge_count,
-            loaded.elaboration.resolved_graph.external_packages.len()
-        ),
-    );
-    render.ok(match lock_result {
-        lockfile::LockWriteResult::Created => "lockfile created",
-        lockfile::LockWriteResult::Updated => "lockfile updated",
-        lockfile::LockWriteResult::Unchanged => "lockfile already current",
-    });
-
-    Ok(())
-}
-
 fn run_fetch(
     path: Option<PathBuf>,
     feature_selection: elaborate::FeatureSelection,
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_locked_package_graph(
+    let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Fetch,
         &feature_selection,
@@ -435,14 +379,12 @@ fn run_publish(
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_locked_package_graph(
+    let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
-        crate::script::ScriptCommand::Lock,
+        crate::script::ScriptCommand::Check,
         &feature_selection,
         "publish",
     )?;
-    let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.elaboration)?;
-    validate_publish_lock_status(&loaded.manifest_path, lock_status)?;
     let summary = publish_summary(
         &loaded.manifest_path,
         &loaded.manifest,
@@ -464,7 +406,14 @@ fn run_publish(
             summary.blocked.len()
         ),
     );
-    render.summary("lockfile", "current (release)");
+    render.summary(
+        "lockfile",
+        match loaded.lockfile_write_result {
+            lockfile::LockWriteResult::Created => "created (release)",
+            lockfile::LockWriteResult::Updated => "updated (release)",
+            lockfile::LockWriteResult::Unchanged => "current (release)",
+        },
+    );
     if render.is_verbose() {
         for package in &summary.ready {
             render.meta(
@@ -490,7 +439,7 @@ fn run_build(
     include_examples: bool,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_locked_package_graph(
+    let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Build,
         &feature_selection,
@@ -577,7 +526,7 @@ fn run_install(
     root: Option<PathBuf>,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_locked_package_graph(
+    let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Build,
         &feature_selection,
@@ -663,7 +612,7 @@ fn run_doc(
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_locked_package_graph(
+    let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Build,
         &feature_selection,
@@ -752,7 +701,7 @@ fn run_uninstall(
 ) -> Result<()> {
     let render = Renderer::new(ui);
     let feature_selection = elaborate::FeatureSelection::default();
-    let (loaded, _workspace_lock) = load_locked_package_graph(
+    let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Build,
         &feature_selection,
@@ -826,7 +775,7 @@ fn run_target(
     selection: RunSelection,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_locked_package_graph(
+    let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Run,
         &feature_selection,
@@ -901,7 +850,7 @@ fn run_tests(
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_locked_package_graph(
+    let (loaded, _workspace_lock) = load_package_graph(
         path.as_deref(),
         crate::script::ScriptCommand::Test,
         &feature_selection,
@@ -1448,9 +1397,10 @@ struct LoadedPackageGraph {
     workspace_members: Vec<workspace::WorkspaceMember>,
     elaboration: elaborate::ElaborationPlan,
     selected_package_id: Option<graph::PackageId>,
+    lockfile_write_result: lockfile::LockWriteResult,
 }
 
-fn load_locked_package_graph(
+fn load_package_graph(
     path: Option<&Path>,
     command: crate::script::ScriptCommand,
     feature_selection: &elaborate::FeatureSelection,
@@ -1465,6 +1415,8 @@ fn load_locked_package_graph(
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
     let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let workspace_lock = WorkspaceOperationLock::acquire(workspace_root, operation)?;
+    #[cfg(test)]
+    crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_WORKSPACE_LOCK);
     let elaboration = elaborate::plan(
         &manifest_path,
         &manifest,
@@ -1473,6 +1425,7 @@ fn load_locked_package_graph(
         command,
         feature_selection,
     )?;
+    let (_, lockfile_write_result) = lockfile::sync_lockfile(&manifest_path, &elaboration)?;
     let selected_package_id = selected_manifest_path
         .as_ref()
         .filter(|selected| **selected != manifest_path)
@@ -1491,6 +1444,7 @@ fn load_locked_package_graph(
             workspace_members,
             elaboration,
             selected_package_id,
+            lockfile_write_result,
         },
         workspace_lock,
     ))

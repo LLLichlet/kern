@@ -21,3 +21,6 @@ mod script;
 mod sdk;
 mod source;
 mod target_defaults;
+
+#[cfg(test)]
+mod test_support;

@@ -7,8 +7,13 @@ use crate::graph::SourceId;
 use crate::manifest::{Manifest, ReleaseSourcePolicy};
 use crate::operation_lock::WorkspaceOperationLock;
 use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph};
+use crate::test_support::{
+    FAILPOINT_AFTER_ANALYSIS_CONTEXT_SYNC, FAILPOINT_AFTER_COMPILE_STATE_WRITE,
+    FAILPOINT_AFTER_LINK_STATE_WRITE, FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
+};
 use std::fs;
 use std::path::PathBuf;
+use std::process::{Child, Command as ProcessCommand};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -147,6 +152,163 @@ roots = ["tests/smoke.rn"]
     member.join("Craft.toml")
 }
 
+fn write_invalid_workspace_lock(root: &std::path::Path) {
+    let lock_path = root.join(".craft").join("lock").join("workspace.lock");
+    fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+    fs::write(&lock_path, "operation=build\n").unwrap();
+    thread::sleep(Duration::from_millis(350));
+}
+
+fn run_command_with_timeout(command: Command, timeout: Duration) {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let result = run_command(command);
+        tx.send(result).unwrap();
+    });
+    rx.recv_timeout(timeout)
+        .unwrap_or_else(|_| panic!("command did not finish within {:?}", timeout))
+        .unwrap();
+}
+
+fn wait_for_path(path: &std::path::Path, timeout: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if path.exists() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!(
+        "path `{}` did not appear within {:?}",
+        path.display(),
+        timeout
+    );
+}
+
+#[derive(Clone, Copy, Debug)]
+enum KillRecoveryMode {
+    Build,
+    Check,
+    Run,
+    Test,
+}
+
+fn spawn_command_subprocess_with_failpoint(
+    root: &std::path::Path,
+    mode: KillRecoveryMode,
+    failpoint: &str,
+    ready_path: &std::path::Path,
+) -> Child {
+    let current_exe = std::env::current_exe().unwrap();
+    ProcessCommand::new(current_exe)
+        .arg("--ignored")
+        .arg("--exact")
+        .arg("cli::tests::subprocess_runs_command_until_killed")
+        .arg("--nocapture")
+        .env("CRAFT_TEST_SUBPROCESS_MODE", format!("{mode:?}"))
+        .env(
+            "CRAFT_TEST_SUBPROCESS_PROJECT_PATH",
+            root.join("Craft.toml"),
+        )
+        .env("CRAFT_TEST_FAILPOINT", failpoint)
+        .env("CRAFT_TEST_FAILPOINT_READY_FILE", ready_path)
+        .spawn()
+        .unwrap()
+}
+
+fn command_for_mode(root: &std::path::Path, mode: KillRecoveryMode) -> Command {
+    match mode {
+        KillRecoveryMode::Build => Command::Build {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            include_examples: false,
+        },
+        KillRecoveryMode::Check => Command::Check {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+        },
+        KillRecoveryMode::Run => Command::Run {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            selection: RunSelection::DefaultBin,
+        },
+        KillRecoveryMode::Test => Command::Test {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+        },
+    }
+}
+
+fn write_generated_build_script_package(root: &std::path::Path) {
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.1"
+
+[[bin]]
+name = "demo"
+root = "src/placeholder.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/placeholder.rn"),
+        "fn main() i32 { return 1; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let main = b.emit_generated(
+    "src/main.rn",
+    "mod helper;\nfn main() i32 { return helper.answer(); }\n"
+);
+let _ = b.emit_generated(
+    "src/helper.rn",
+    "pub/ fn answer() i32 { return 0; }\n"
+);
+b.set_source_root(main);
+}
+"#,
+    )
+    .unwrap();
+}
+
+fn run_kill_recovery_case(
+    root: &std::path::Path,
+    mode: KillRecoveryMode,
+    failpoint: &str,
+    timeout: Duration,
+) {
+    let ready_path = root.join(".craft-failpoint-ready");
+    let mut child = spawn_command_subprocess_with_failpoint(root, mode, failpoint, &ready_path);
+    wait_for_path(&ready_path, Duration::from_secs(10));
+    child.kill().unwrap();
+    let _ = child.wait().unwrap();
+
+    assert!(root.join(".craft/lock/workspace.lock").exists());
+
+    run_command_with_timeout(command_for_mode(root, mode), timeout);
+    run_command_with_timeout(command_for_mode(root, mode), timeout);
+
+    assert!(!root.join(".craft/lock/workspace.lock").exists());
+}
+
+fn demo_executable_name() -> String {
+    format!("demo{}", std::env::consts::EXE_SUFFIX)
+}
+
 #[test]
 fn parses_check_with_path_and_feature_options() {
     let cmd = parse_args([
@@ -277,23 +439,9 @@ fn parses_explicit_help_topic() {
 }
 
 #[test]
-fn parses_lock_with_inline_feature_option() {
-    let cmd = parse_args(["lock".to_string(), "--features=ssl".to_string()]).unwrap();
-
-    match cmd {
-        Command::Lock {
-            path,
-            feature_selection,
-            ui,
-        } => {
-            assert!(path.is_none());
-            assert!(feature_selection.enable_default);
-            assert_eq!(feature_selection.explicit.len(), 1);
-            assert!(feature_selection.explicit.contains("ssl"));
-            assert_eq!(ui, UiOptions::default());
-        }
-        other => panic!("expected lock command, got {other:?}"),
-    }
+fn rejects_removed_lock_command() {
+    let err = parse_args(["lock".to_string(), "--features=ssl".to_string()]).unwrap_err();
+    assert!(err.to_string().contains("unsupported command line"));
 }
 
 #[test]
@@ -934,6 +1082,281 @@ fn build_command_waits_for_workspace_lock() {
 }
 
 #[test]
+fn check_command_recovers_from_invalid_workspace_lock() {
+    let root = temp_dir("craft-cli-check-invalid-workspace-lock");
+    write_minimal_bin_package(&root);
+    write_invalid_workspace_lock(&root);
+
+    run_command_with_timeout(
+        Command::Check {
+            path: Some(root.clone()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+        },
+        Duration::from_secs(10),
+    );
+
+    assert!(!root.join(".craft/lock/workspace.lock").exists());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_command_recovers_from_invalid_workspace_lock() {
+    let root = temp_dir("craft-cli-build-invalid-workspace-lock");
+    write_minimal_bin_package(&root);
+    write_invalid_workspace_lock(&root);
+
+    run_command_with_timeout(
+        Command::Build {
+            path: Some(root.clone()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            include_examples: false,
+        },
+        Duration::from_secs(10),
+    );
+
+    assert!(!root.join(".craft/lock/workspace.lock").exists());
+    assert!(
+        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+            .join(demo_executable_name())
+            .is_file()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_command_recovers_after_killed_process_leaves_partial_generated_state() {
+    let root = temp_dir("craft-cli-kill-recovery");
+    write_generated_build_script_package(&root);
+    run_kill_recovery_case(
+        &root,
+        KillRecoveryMode::Build,
+        FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
+        Duration::from_secs(10),
+    );
+    assert!(
+        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
+            .join("main.rn")
+            .exists()
+    );
+    assert!(
+        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
+            .join("main.rn")
+            .is_file()
+    );
+    assert!(
+        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
+            .join("helper.rn")
+            .is_file()
+    );
+    assert!(
+        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+            .join(demo_executable_name())
+            .is_file()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_command_recovers_after_killed_process_leaves_partial_compile_state() {
+    let root = temp_dir("craft-cli-kill-recovery-compile-state");
+    write_minimal_bin_package(&root);
+
+    run_kill_recovery_case(
+        &root,
+        KillRecoveryMode::Build,
+        FAILPOINT_AFTER_COMPILE_STATE_WRITE,
+        Duration::from_secs(10),
+    );
+
+    assert!(
+        root.join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+            .join("demo.o")
+            .is_file()
+    );
+    assert!(
+        root.join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+            .join(".demo.o.craft-state")
+            .is_file()
+    );
+    assert!(
+        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+            .join(demo_executable_name())
+            .is_file()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_command_recovers_after_killed_process_leaves_partial_link_state() {
+    let root = temp_dir("craft-cli-kill-recovery-link-state");
+    write_minimal_bin_package(&root);
+
+    run_kill_recovery_case(
+        &root,
+        KillRecoveryMode::Build,
+        FAILPOINT_AFTER_LINK_STATE_WRITE,
+        Duration::from_secs(10),
+    );
+
+    assert!(
+        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+            .join(demo_executable_name())
+            .is_file()
+    );
+    assert!(
+        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+            .join(format!(".{}.craft-state", demo_executable_name()))
+            .is_file()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn check_command_recovers_after_killed_process_leaves_partial_generated_state() {
+    let root = temp_dir("craft-cli-check-kill-recovery-generated");
+    write_generated_build_script_package(&root);
+
+    run_kill_recovery_case(
+        &root,
+        KillRecoveryMode::Check,
+        FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
+        Duration::from_secs(10),
+    );
+
+    assert!(
+        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
+            .join("main.rn")
+            .is_file()
+    );
+    assert!(
+        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
+            .join("helper.rn")
+            .is_file()
+    );
+    assert!(root.join(".craft/analysis.toml").is_file());
+    assert!(
+        !root
+            .join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+            .join("demo.o")
+            .exists()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn check_command_recovers_after_killed_process_leaves_partial_analysis_context() {
+    let root = temp_dir("craft-cli-check-kill-recovery-analysis");
+    write_generated_build_script_package(&root);
+
+    run_kill_recovery_case(
+        &root,
+        KillRecoveryMode::Check,
+        FAILPOINT_AFTER_ANALYSIS_CONTEXT_SYNC,
+        Duration::from_secs(10),
+    );
+
+    assert!(root.join(".craft/analysis.toml").is_file());
+    assert!(
+        root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
+            .join("main.rn")
+            .is_file()
+    );
+    assert!(
+        !root
+            .join(".craft/build/dev/target/obj/demo-0.1.0/bin")
+            .join("demo.o")
+            .exists()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn run_command_recovers_after_killed_process_leaves_partial_link_state() {
+    let root = temp_dir("craft-cli-run-kill-recovery-link-state");
+    write_minimal_bin_package(&root);
+
+    run_kill_recovery_case(
+        &root,
+        KillRecoveryMode::Run,
+        FAILPOINT_AFTER_LINK_STATE_WRITE,
+        Duration::from_secs(10),
+    );
+
+    assert!(
+        root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+            .join(demo_executable_name())
+            .is_file()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn test_command_recovers_after_killed_process_leaves_partial_link_state() {
+    let root = temp_dir("craft-cli-test-kill-recovery-link-state");
+    write_bin_and_test_package(&root);
+
+    run_kill_recovery_case(
+        &root,
+        KillRecoveryMode::Test,
+        FAILPOINT_AFTER_LINK_STATE_WRITE,
+        Duration::from_secs(10),
+    );
+
+    let test_out_dir = root.join(".craft/build/dev/target/out/demo-0.1.0/test");
+    assert!(test_out_dir.is_dir());
+    assert!(
+        fs::read_dir(&test_out_dir)
+            .unwrap()
+            .any(|entry| entry.unwrap().path().is_file())
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+#[ignore]
+fn subprocess_runs_command_until_killed() {
+    let Ok(mode) = std::env::var("CRAFT_TEST_SUBPROCESS_MODE") else {
+        return;
+    };
+
+    let root = PathBuf::from(std::env::var("CRAFT_TEST_SUBPROCESS_PROJECT_PATH").unwrap());
+    match mode.as_str() {
+        "Build" => run_command(command_for_mode(
+            root.parent().unwrap(),
+            KillRecoveryMode::Build,
+        ))
+        .unwrap(),
+        "Check" => run_command(command_for_mode(
+            root.parent().unwrap(),
+            KillRecoveryMode::Check,
+        ))
+        .unwrap(),
+        "Run" => run_command(command_for_mode(
+            root.parent().unwrap(),
+            KillRecoveryMode::Run,
+        ))
+        .unwrap(),
+        "Test" => run_command(command_for_mode(
+            root.parent().unwrap(),
+            KillRecoveryMode::Test,
+        ))
+        .unwrap(),
+        other => panic!("unexpected subprocess mode `{other}`"),
+    }
+}
+
+#[test]
 fn test_command_waits_for_workspace_root_lock_for_member_paths() {
     let root = temp_dir("craft-cli-test-workspace-lock");
     let member = write_workspace_with_member_test_package(&root);
@@ -1282,7 +1705,48 @@ root = "src/main.rn"
 }
 
 #[test]
-fn publish_requires_current_release_lock_and_metadata() {
+fn build_auto_syncs_lockfile_and_rebuilds_without_clean() {
+    let root = temp_dir("craft-cli-build-lock-autosync");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.1"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+    run_command(Command::Build {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        include_examples: false,
+    })
+    .unwrap();
+
+    assert!(root.join("Craft.lock").is_file());
+
+    run_command(Command::Build {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        include_examples: false,
+    })
+    .unwrap();
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn publish_auto_syncs_release_lock_and_checks_metadata() {
     let root = temp_dir("craft-cli-publish");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
@@ -1307,19 +1771,7 @@ root = "src/main.rn"
     fs::write(root.join("README.md"), "# demo\n").unwrap();
     fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 
-    let err = run_command(Command::Publish {
-        path: Some(root.clone()),
-        feature_selection: FeatureSelection {
-            profile: crate::script::ProfileSelection::Release,
-            ..Default::default()
-        },
-        ui: UiOptions::default(),
-    })
-    .unwrap_err();
-    assert!(err.to_string().contains("craft lock"));
-    assert!(!root.join("Craft.lock").exists());
-
-    run_command(Command::Lock {
+    run_command(Command::Publish {
         path: Some(root.clone()),
         feature_selection: FeatureSelection {
             profile: crate::script::ProfileSelection::Release,
@@ -1328,6 +1780,8 @@ root = "src/main.rn"
         ui: UiOptions::default(),
     })
     .unwrap();
+
+    assert!(root.join("Craft.lock").exists());
 
     run_command(Command::Publish {
         path: Some(root.clone()),
@@ -1379,16 +1833,6 @@ root = "src/main.rn"
     .unwrap();
     fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 
-    run_command(Command::Lock {
-        path: Some(root.clone()),
-        feature_selection: FeatureSelection {
-            profile: crate::script::ProfileSelection::Release,
-            ..Default::default()
-        },
-        ui: UiOptions::default(),
-    })
-    .unwrap();
-
     run_command(Command::Publish {
         path: Some(root.clone()),
         feature_selection: FeatureSelection {
@@ -1398,6 +1842,8 @@ root = "src/main.rn"
         ui: UiOptions::default(),
     })
     .unwrap();
+
+    assert!(root.join("Craft.lock").exists());
 
     let _ = fs::remove_dir_all(root);
 }

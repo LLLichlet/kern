@@ -136,7 +136,10 @@ pub fn load_current_analysis_context(
     }
 
     let source = fs::read_to_string(&path).map_err(|err| Error::from_io(&path, err))?;
-    let context = AnalysisContext::parse(&source, &path)?;
+    let context = match AnalysisContext::parse(&source, &path) {
+        Ok(context) => context,
+        Err(_) => return Ok(None),
+    };
     if !context.is_current(manifest_path, workspace_root)? {
         return Ok(None);
     }

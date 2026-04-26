@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 impl AnalysisEngine {
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<DocumentSymbol>, String> {
@@ -290,13 +291,10 @@ impl AnalysisEngine {
         };
         let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
 
-        let resolved = self.resolve_analysis(uri)?;
-        let dirty_documents = self.dirty_documents_snapshot();
-        let analysis_key =
-            AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
+        let context = self.resolve_analysis_context(uri)?;
         let target_path = normalize_path(&target_doc.path);
         let token_key = SemanticTokensCacheKey {
-            analysis: analysis_key,
+            analysis: context.cache_key.clone(),
             target_path: target_path.clone(),
             document_version: target_doc.version,
         };
@@ -304,10 +302,7 @@ impl AnalysisEngine {
             return Ok(tokens.clone());
         }
 
-        let artifact = match self.analyze_artifact(uri) {
-            Ok(artifact) => artifact,
-            Err(_) => return Ok(semantic::lexical_semantic_tokens(&file)),
-        };
+        let artifact = self.analyze_artifact_for_context(&context);
         let tokens = semantic::semantic_tokens(&artifact, &file, &target_path);
         self.semantic_tokens_cache
             .borrow_mut()

@@ -29,6 +29,7 @@ impl AnalysisEngine {
                 text: doc.text,
             },
         );
+        self.invalidate_open_path_index();
         self.invalidate_dirty_document_snapshot();
         self.invalidate_render_caches();
 
@@ -91,6 +92,7 @@ impl AnalysisEngine {
             .remove(&params.text_document.uri)
             .map(|doc| doc.is_dirty)
             .unwrap_or(false);
+        self.invalidate_open_path_index();
         self.invalidate_dirty_document_snapshot();
         self.invalidate_render_caches();
         DocumentSyncAction::Immediate(AnalysisOutcome {

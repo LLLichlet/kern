@@ -93,6 +93,70 @@ fn analysis_reuses_driver_for_repeated_requests_on_same_document() {
 }
 
 #[test]
+fn open_path_index_reuses_on_text_changes_and_invalidates_on_open_close() {
+    let mut analysis = AnalysisEngine::default();
+    let uri = temp_file_uri("open_path_index", "fn main() void {}\n");
+    let path = uri_to_file_path(&uri).unwrap();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: "fn main() void {}\n".to_string(),
+        },
+    });
+
+    let initial_index = analysis.open_uri_by_normalized_path();
+    assert_eq!(initial_index.get(&normalize_path(&path)), Some(&uri));
+    assert!(analysis.analysis_path_exists(&path));
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "fn main() void {}\nfn helper() void {}\n".to_string(),
+        }],
+    });
+
+    let changed_index = analysis.open_uri_by_normalized_path();
+    assert!(std::rc::Rc::ptr_eq(&initial_index, &changed_index));
+
+    let sibling_uri = temp_file_uri("open_path_index_sibling", "fn sibling() void {}\n");
+    let sibling_path = uri_to_file_path(&sibling_uri).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: sibling_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: "fn sibling() void {}\n".to_string(),
+        },
+    });
+
+    let sibling_index = analysis.open_uri_by_normalized_path();
+    assert!(!std::rc::Rc::ptr_eq(&changed_index, &sibling_index));
+    assert_eq!(
+        sibling_index.get(&normalize_path(&sibling_path)),
+        Some(&sibling_uri)
+    );
+
+    let _ = analysis.close_document(DidCloseTextDocumentParams {
+        text_document: crate::protocol::TextDocumentIdentifier { uri: uri.clone() },
+    });
+
+    let closed_index = analysis.open_uri_by_normalized_path();
+    assert!(!std::rc::Rc::ptr_eq(&sibling_index, &closed_index));
+    assert!(!closed_index.contains_key(&normalize_path(&path)));
+    assert_eq!(
+        closed_index.get(&normalize_path(&sibling_path)),
+        Some(&sibling_uri)
+    );
+}
+
+#[test]
 fn incremental_sync_inserts_text() {
     let mut analysis = AnalysisEngine::default();
     let uri = temp_file_uri("incremental_insert", "let value = 1;");

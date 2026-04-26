@@ -50,7 +50,7 @@ use kernc_utils::config::{
 };
 use kernc_utils::{Session, SourceFile, Span};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -106,6 +106,13 @@ enum RenameBehavior {
     ExpandPatternPun { field_name: String },
 }
 
+struct AnalysisRequestContext {
+    resolved: ResolvedAnalysis,
+    dirty_documents: DirtyDocumentsSnapshot,
+    cache_key: AnalysisCacheKey,
+    driver: Rc<CompilerDriver>,
+}
+
 pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
@@ -117,6 +124,7 @@ pub struct AnalysisEngine {
     artifact_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisArtifact>>>,
     semantic_tokens_cache: RefCell<BTreeMap<SemanticTokensCacheKey, SemanticTokens>>,
     dirty_documents_snapshot: RefCell<Option<Rc<DirtyDocumentsSnapshot>>>,
+    open_uri_by_path: RefCell<Option<Rc<BTreeMap<PathBuf, String>>>>,
 }
 
 impl Default for AnalysisEngine {
@@ -138,6 +146,7 @@ impl AnalysisEngine {
             artifact_cache: RefCell::new(BTreeMap::new()),
             semantic_tokens_cache: RefCell::new(BTreeMap::new()),
             dirty_documents_snapshot: RefCell::new(None),
+            open_uri_by_path: RefCell::new(None),
         }
     }
 
@@ -182,13 +191,13 @@ impl AnalysisEngine {
         &self,
         target_uri: &str,
     ) -> Result<Option<AnalysisOutcome>, String> {
-        let resolved = self.resolve_analysis(target_uri)?;
+        let context = self.resolve_analysis_context(target_uri)?;
         let dirty_documents = self.dirty_documents_snapshot();
         if dirty_documents.len() != 1 {
             return Ok(None);
         }
 
-        let clean_key = AnalysisCacheKey::clean(&resolved);
+        let clean_key = AnalysisCacheKey::clean(&context.resolved);
         let Some(clean_structure) = self.structure_cache.borrow().get(&clean_key).cloned() else {
             return Ok(None);
         };
@@ -212,8 +221,8 @@ impl AnalysisEngine {
         }
         let mut bundles_by_uri = diagnostics_from_session(&clean_artifact.session, &self.documents);
 
-        let (parsed, driver) = self.parse_modules(target_uri)?;
-        let Some(report) = driver.analyze_report_with_function_body_reuse(
+        let parsed = self.parse_modules_for_context(&context)?;
+        let Some(report) = context.driver.analyze_report_with_function_body_reuse(
             &clean_artifact,
             &clean_structure,
             &parsed,
@@ -273,21 +282,21 @@ impl AnalysisEngine {
         &self,
         target_uri: &str,
     ) -> Result<Option<kernc_driver::AnalysisReport>, String> {
-        let resolved = self.resolve_analysis(target_uri)?;
-        let dirty_documents = self.dirty_documents_snapshot();
-        if dirty_documents.is_clean() {
+        let context = self.resolve_analysis_context(target_uri)?;
+        if context.dirty_documents.is_clean() {
             return Ok(None);
         }
 
-        let clean_key = AnalysisCacheKey::clean(&resolved);
+        let clean_key = AnalysisCacheKey::clean(&context.resolved);
         let Some(clean_structure) = self.structure_cache.borrow().get(&clean_key).cloned() else {
             return Ok(None);
         };
 
-        let (parsed, driver) = self.parse_modules(target_uri)?;
-        Ok(driver
+        let parsed = self.parse_modules_for_context(&context)?;
+        Ok(context
+            .driver
             .analyze_report_from_structure_and_parsed(&clean_structure, &parsed)
-            .filter(|_| !dirty_documents.is_clean()))
+            .filter(|_| !context.dirty_documents.is_clean()))
     }
 
     #[cfg(test)]
@@ -322,114 +331,137 @@ impl AnalysisEngine {
         snapshot
     }
 
-    fn uri_by_normalized_path(&self) -> BTreeMap<PathBuf, String> {
-        self.documents
-            .iter()
-            .map(|(uri, doc)| (normalize_path(&doc.path), uri.clone()))
-            .collect()
+    fn open_uri_by_normalized_path(&self) -> Rc<BTreeMap<PathBuf, String>> {
+        if let Some(uri_by_path) = self.open_uri_by_path.borrow().as_ref() {
+            return Rc::clone(uri_by_path);
+        }
+
+        let uri_by_path = Rc::new(
+            self.documents
+                .iter()
+                .map(|(uri, doc)| (normalize_path(&doc.path), uri.clone()))
+                .collect(),
+        );
+        self.open_uri_by_path
+            .borrow_mut()
+            .replace(Rc::clone(&uri_by_path));
+        uri_by_path
+    }
+
+    fn uri_by_normalized_path(&self) -> Rc<BTreeMap<PathBuf, String>> {
+        self.open_uri_by_normalized_path()
     }
 
     fn analyze_artifact(&self, target_uri: &str) -> Result<Rc<AnalysisArtifact>, String> {
-        let resolved = self.resolve_analysis(target_uri)?;
-        let dirty_documents = self
-            .dirty_documents_snapshot()
-            .remap_for(&resolved.source_path_aliases);
-        let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
-        if let Some(artifact) = self.artifact_cache.borrow().get(&cache_key) {
-            return Ok(Rc::clone(artifact));
+        let context = self.resolve_analysis_context(target_uri)?;
+        Ok(self.analyze_artifact_for_context(&context))
+    }
+
+    fn analyze_artifact_for_context(
+        &self,
+        context: &AnalysisRequestContext,
+    ) -> Rc<AnalysisArtifact> {
+        if let Some(artifact) = self.artifact_cache.borrow().get(&context.cache_key) {
+            return Rc::clone(artifact);
         }
 
-        let driver = self.driver_for_resolved(&resolved);
-        let structure = if let Some(structure) = self.structure_cache.borrow().get(&cache_key) {
-            Some(Rc::clone(structure))
-        } else {
-            driver
-                .analyze_structure(
-                    &resolved.input_file.to_string_lossy(),
-                    &dirty_documents.overrides,
-                )
-                .map(Rc::new)
-        };
-        self.prune_cache_family_for_insert(&cache_key);
+        let structure =
+            if let Some(structure) = self.structure_cache.borrow().get(&context.cache_key) {
+                Some(Rc::clone(structure))
+            } else {
+                context
+                    .driver
+                    .analyze_structure(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &context.dirty_documents.overrides,
+                    )
+                    .map(Rc::new)
+            };
+        self.prune_cache_family_for_insert(&context.cache_key);
         if let Some(structure) = &structure {
             self.structure_cache
                 .borrow_mut()
-                .insert(cache_key.clone(), Rc::clone(structure));
+                .insert(context.cache_key.clone(), Rc::clone(structure));
         }
 
         let artifact = Rc::new(if let Some(structure) = structure {
-            driver.analyze_artifact_from_structure(&structure)
+            context.driver.analyze_artifact_from_structure(&structure)
         } else {
-            driver.analyze_artifact(
-                &resolved.input_file.to_string_lossy(),
-                &dirty_documents.overrides,
+            context.driver.analyze_artifact(
+                &context.resolved.input_file.to_string_lossy(),
+                &context.dirty_documents.overrides,
             )
         });
         self.artifact_cache
             .borrow_mut()
-            .insert(cache_key, Rc::clone(&artifact));
-        Ok(artifact)
+            .insert(context.cache_key.clone(), Rc::clone(&artifact));
+        artifact
     }
 
     fn analyze_surface_artifact(
         &self,
         target_uri: &str,
     ) -> Result<Rc<AnalysisSurfaceArtifact>, String> {
-        let resolved = self.resolve_analysis(target_uri)?;
-        let dirty_documents = self
-            .dirty_documents_snapshot()
-            .remap_for(&resolved.source_path_aliases);
-        let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
-        if let Some(surface) = self.surface_cache.borrow().get(&cache_key) {
+        let context = self.resolve_analysis_context(target_uri)?;
+        if let Some(surface) = self.surface_cache.borrow().get(&context.cache_key) {
             return Ok(Rc::clone(surface));
         }
 
-        let driver = self.driver_for_resolved(&resolved);
-        let Some(surface) = driver
+        let Some(surface) = context
+            .driver
             .analyze_surface(
-                &resolved.input_file.to_string_lossy(),
-                &dirty_documents.overrides,
+                &context.resolved.input_file.to_string_lossy(),
+                &context.dirty_documents.overrides,
             )
             .map(Rc::new)
         else {
             return Err("surface analysis failed".to_string());
         };
-        self.prune_cache_family_for_insert(&cache_key);
+        self.prune_cache_family_for_insert(&context.cache_key);
         self.surface_cache
             .borrow_mut()
-            .insert(cache_key, Rc::clone(&surface));
+            .insert(context.cache_key.clone(), Rc::clone(&surface));
         Ok(surface)
     }
 
-    fn parse_modules(
+    fn parse_modules_for_context(
         &self,
-        target_uri: &str,
-    ) -> Result<(Rc<ParsedModuleArtifact>, Rc<CompilerDriver>), String> {
+        context: &AnalysisRequestContext,
+    ) -> Result<Rc<ParsedModuleArtifact>, String> {
+        if let Some(parsed) = self.parse_cache.borrow().get(&context.cache_key) {
+            return Ok(Rc::clone(parsed));
+        }
+
+        let Some(parsed) = context
+            .driver
+            .parse_modules(
+                &context.resolved.input_file.to_string_lossy(),
+                &context.dirty_documents.overrides,
+            )
+            .map(Rc::new)
+        else {
+            return Err("parse analysis failed".to_string());
+        };
+        self.prune_cache_family_for_insert(&context.cache_key);
+        self.parse_cache
+            .borrow_mut()
+            .insert(context.cache_key.clone(), Rc::clone(&parsed));
+        Ok(parsed)
+    }
+
+    fn resolve_analysis_context(&self, target_uri: &str) -> Result<AnalysisRequestContext, String> {
         let resolved = self.resolve_analysis(target_uri)?;
         let dirty_documents = self
             .dirty_documents_snapshot()
             .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
         let driver = self.driver_for_resolved(&resolved);
-
-        if let Some(parsed) = self.parse_cache.borrow().get(&cache_key) {
-            return Ok((Rc::clone(parsed), driver));
-        }
-
-        let Some(parsed) = driver
-            .parse_modules(
-                &resolved.input_file.to_string_lossy(),
-                &dirty_documents.overrides,
-            )
-            .map(Rc::new)
-        else {
-            return Err("parse analysis failed".to_string());
-        };
-        self.prune_cache_family_for_insert(&cache_key);
-        self.parse_cache
-            .borrow_mut()
-            .insert(cache_key, Rc::clone(&parsed));
-        Ok((parsed, driver))
+        Ok(AnalysisRequestContext {
+            resolved,
+            dirty_documents,
+            cache_key,
+            driver,
+        })
     }
 
     fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> Rc<CompilerDriver> {
@@ -502,10 +534,7 @@ impl AnalysisEngine {
 
     fn analysis_path_exists(&self, path: &Path) -> bool {
         let normalized = normalize_path(path);
-        self.documents
-            .values()
-            .any(|doc| normalize_path(&doc.path) == normalized)
-            || path.is_file()
+        self.open_uri_by_normalized_path().contains_key(&normalized) || path.is_file()
     }
 
     fn retain_publishable_bundles(
@@ -520,11 +549,7 @@ impl AnalysisEngine {
         let workspace_root = self
             .project_for_path(&target_doc.path)
             .map(|project| normalize_path(project.workspace_root()));
-        let open_paths = self
-            .documents
-            .values()
-            .map(|doc| normalize_path(&doc.path))
-            .collect::<BTreeSet<_>>();
+        let open_uri_by_path = self.open_uri_by_normalized_path();
 
         bundles_by_uri.retain(|uri, _| {
             if uri == target_uri {
@@ -535,7 +560,7 @@ impl AnalysisEngine {
             };
             let normalized = normalize_path(&path);
             normalized == target_path
-                || open_paths.contains(&normalized)
+                || open_uri_by_path.contains_key(&normalized)
                 || workspace_root
                     .as_ref()
                     .is_some_and(|root| normalized.starts_with(root))
@@ -551,6 +576,10 @@ impl AnalysisEngine {
 
     fn invalidate_dirty_document_snapshot(&self) {
         self.dirty_documents_snapshot.borrow_mut().take();
+    }
+
+    fn invalidate_open_path_index(&self) {
+        self.open_uri_by_path.borrow_mut().take();
     }
 
     fn invalidate_render_caches(&self) {

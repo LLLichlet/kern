@@ -15,6 +15,9 @@ fn collect_control_facts_expr(
     summary: &mut AnalysisFlowSummary,
 ) {
     match &expr.kind {
+        ast::ExprKind::Grouped { expr: inner } => {
+            collect_control_facts_expr(inner, regions, summary)
+        }
         ast::ExprKind::Let {
             init, else_clause, ..
         } => {

@@ -315,6 +315,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::ByteChar(c) => Ok(ConstValue::Int(*c as i128)),
             ExprKind::String(s) => Ok(ConstValue::String(s.clone())),
             ExprKind::Undef => Ok(ConstValue::Undef),
+            ExprKind::Grouped { expr: inner } => self.eval_inner(inner, depth + 1),
 
             // === 2. Arithmetic and logical operators ===
             ExprKind::Binary { lhs, op, rhs } => self.eval_binary(lhs, *op, rhs, depth, expr.span),

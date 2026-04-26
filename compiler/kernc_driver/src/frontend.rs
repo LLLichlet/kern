@@ -706,6 +706,7 @@ impl CachedAstRebinder<'_> {
                 self.rebind_expr(rhs);
             }
             ast::ExprKind::Unary { operand, .. } => self.rebind_expr(operand),
+            ast::ExprKind::Grouped { expr: inner } => self.rebind_expr(inner),
             ast::ExprKind::FieldAccess {
                 lhs,
                 field,
@@ -1372,6 +1373,7 @@ mod tests {
             ast::ExprKind::Unary { operand, .. } | ast::ExprKind::Defer { expr: operand } => {
                 collect_identifier_symbols(operand, visit)
             }
+            ast::ExprKind::Grouped { expr: inner } => collect_identifier_symbols(inner, visit),
             ast::ExprKind::FieldAccess { lhs, .. } => collect_identifier_symbols(lhs, visit),
             ast::ExprKind::IndexAccess { lhs, index, .. } => {
                 collect_identifier_symbols(lhs, visit);

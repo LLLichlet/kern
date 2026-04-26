@@ -20,6 +20,7 @@ struct ResolvedPatternField {
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn resolve_namespace_expr(&mut self, expr: &Expr) -> Option<TypeId> {
         let ty = match &expr.kind {
+            ast::ExprKind::Grouped { expr: inner } => self.resolve_namespace_expr(inner)?,
             ast::ExprKind::TypeNode(type_node) => self.evaluate_dynamic_typeof(type_node),
             ast::ExprKind::Identifier(name) => {
                 let info = self.ctx.scopes.resolve(*name)?.clone();
@@ -1376,6 +1377,46 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         TypeId::ERROR
     }
 
+    pub(crate) fn check_method_member_access(
+        &mut self,
+        expr_id: NodeId,
+        lhs: &Expr,
+        field: SymbolId,
+        field_span: Span,
+        span: Span,
+    ) -> Option<TypeId> {
+        let lhs_ty = self
+            .resolve_type_namespace_expr(lhs)
+            .unwrap_or_else(|| self.check_expr(lhs, None));
+        if lhs_ty == TypeId::ERROR {
+            return Some(TypeId::ERROR);
+        }
+
+        let base_norm = self.get_base_type(lhs_ty);
+        if matches!(self.ctx.type_registry.get(base_norm), TypeKind::Module(..)) {
+            return None;
+        }
+
+        let started = self.timing_start();
+        let resolution = self.try_find_method_silent(lhs_ty, field, span);
+        self.record_expr_timing(started, |stats, elapsed| {
+            stats.access_field_member_query += elapsed;
+        });
+
+        let resolution = resolution?;
+        self.ctx
+            .record_identifier_reference(field_span, resolution.candidate.definition_span);
+        if let Some(owner_trait_ty) = resolution.owner_trait_ty {
+            self.ctx.set_trait_method_owner(expr_id, owner_trait_ty);
+        }
+        self.ctx
+            .facts
+            .node_types
+            .insert(expr_id, resolution.candidate.type_id);
+        self.touched_expr_nodes.push(expr_id);
+        Some(resolution.candidate.type_id)
+    }
+
     /// Resolve a field or method without emitting diagnostics on failure.
     fn try_find_field_or_method_silent(
         &mut self,
@@ -1391,6 +1432,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // semantic state, but it does not resize or replace `ctx.analysis.active_bounds`.
         let env = unsafe { MemberQueryEnv::from_active_bounds(&*active_bounds_ptr) };
         query.resolve_named_member(current_module_id, lhs_ty, field, &env, span)
+    }
+
+    pub(crate) fn try_find_method_silent(
+        &mut self,
+        lhs_ty: TypeId,
+        field: SymbolId,
+        span: Span,
+    ) -> Option<crate::query::MemberResolution> {
+        let lhs_ty = self.resolve_tv(lhs_ty);
+        let active_bounds_ptr = std::ptr::from_ref(self.ctx.analysis.active_bounds.as_slice());
+        let mut query = MemberQuery::new(self.ctx);
+        // Safety: member queries only read active generic bounds. The query may mutate other
+        // semantic state, but it does not resize or replace `ctx.analysis.active_bounds`.
+        let env = unsafe { MemberQueryEnv::from_active_bounds(&*active_bounds_ptr) };
+        query.resolve_named_method(lhs_ty, field, &env, span)
     }
 
     pub(crate) fn check_slice_op(

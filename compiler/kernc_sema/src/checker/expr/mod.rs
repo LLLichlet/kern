@@ -1201,6 +1201,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             ExprKind::TypeNode(type_node) => self.reject_type_node_value_expr(type_node),
             ExprKind::SelfValue => self.check_self_value(expr.span),
+            ExprKind::Grouped { expr: inner } => self.check_expr(inner, expected_ty),
 
             // === 3. Declarations and bindings ===
             ExprKind::Let {

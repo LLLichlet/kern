@@ -166,6 +166,7 @@ impl<'a> FlowCfgBuilder<'a> {
         loop_ctx: Option<LoopContext>,
     ) -> Vec<PendingEdge> {
         match &expr.kind {
+            ast::ExprKind::Grouped { expr: inner } => self.lower_expr(inner, incoming, loop_ctx),
             ast::ExprKind::Let {
                 pattern,
                 init,
@@ -656,6 +657,9 @@ fn collect_local_binding_uses_in_expr(
         ast::ExprKind::Static { init, .. } => {
             collect_local_binding_uses_in_expr(init, reference_to_binding, uses);
         }
+        ast::ExprKind::Grouped { expr: inner } => {
+            collect_local_binding_uses_in_expr(inner, reference_to_binding, uses);
+        }
         ast::ExprKind::AnchoredPath { .. } => {}
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             collect_local_binding_uses_in_expr(lhs, reference_to_binding, uses);
@@ -817,6 +821,7 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
         | ast::ExprKind::SelfValue
         | ast::ExprKind::Undef
         | ast::ExprKind::Infer => {}
+        ast::ExprKind::Grouped { expr: inner } => accumulate_expr_effects(inner, effects),
         ast::ExprKind::Unary { op, operand } => {
             if matches!(op, ast::UnaryOperator::PointerDeRef) {
                 effects.has_memory_read = true;

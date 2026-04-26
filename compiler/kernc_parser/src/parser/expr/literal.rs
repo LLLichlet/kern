@@ -185,10 +185,15 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_grouped_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        let mut expr = self.parse_expression(Precedence::Lowest)?;
+        let expr = self.parse_expression(Precedence::Lowest)?;
         let rparen = self.expect(TokenType::RParen)?;
-        expr.span = start_span.to(rparen.span);
-        Ok(expr)
+        Ok(Expr {
+            id: self.new_id(),
+            span: start_span.to(rparen.span),
+            kind: ExprKind::Grouped {
+                expr: Box::new(expr),
+            },
+        })
     }
 
     pub(super) fn parse_return_expr(&mut self, span: Span) -> ParseResult<Expr> {

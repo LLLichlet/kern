@@ -771,6 +771,7 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
             normalize_expr_for_body_only_comparison(rhs);
         }
         ast::ExprKind::Unary { operand, .. } => normalize_expr_for_body_only_comparison(operand),
+        ast::ExprKind::Grouped { expr: inner } => normalize_expr_for_body_only_comparison(inner),
         ast::ExprKind::FieldAccess { lhs, .. } => normalize_expr_for_body_only_comparison(lhs),
         ast::ExprKind::IndexAccess { lhs, index, .. } => {
             normalize_expr_for_body_only_comparison(lhs);

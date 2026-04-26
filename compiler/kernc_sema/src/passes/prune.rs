@@ -280,6 +280,8 @@ impl<'a> ConditionEvaluator<'a> {
                 }
             }
 
+            ExprKind::Grouped { expr: inner } => self.eval_inner(inner),
+
             ExprKind::Binary { lhs, op, rhs } => {
                 let left = self.eval_inner(lhs)?;
                 // Support short-circuit evaluation for `and` and `or`.

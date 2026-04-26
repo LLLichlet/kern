@@ -47,6 +47,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::Static { init, .. } => {
                 self.resolve_expr(init, scope);
             }
+            ast::ExprKind::Grouped { expr: inner } => {
+                self.resolve_expr(inner, scope);
+            }
             ast::ExprKind::As { lhs, target } => {
                 self.resolve_expr(lhs, scope);
                 self.resolve_type(target, scope);

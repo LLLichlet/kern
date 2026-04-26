@@ -147,6 +147,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .measure_phase("        lower_expr_ops", |this| {
                     this.lower_unary(*op, operand, subst_map, concrete_ty, expr.span)
                 }),
+            ExprKind::Grouped { expr: inner } => {
+                return self.measure_phase("        lower_expr_grouped", |this| {
+                    let lowered = this.lower_expr(inner, subst_map, expected_ty);
+                    this.apply_implicit_cast(lowered.kind, lowered.ty, exp_ty, expr.span)
+                });
+            }
 
             ExprKind::Call { callee, args } => {
                 let call_expr = self.measure_phase("        lower_expr_call", |this| {

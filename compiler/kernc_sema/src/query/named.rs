@@ -224,40 +224,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
     }
 
-    pub(super) fn resolve_named_member_in_type(
+    pub(super) fn resolve_named_field_in_type(
         &mut self,
         current_module_id: Option<DefId>,
         search_norm: TypeId,
-        receiver_ty: TypeId,
         member_name: SymbolId,
-        env: &MemberQueryEnv,
         access_span: Span,
     ) -> Option<MemberResolution> {
-        let started = self.ctx.collects_timings().then(Instant::now);
-        if matches!(
-            self.ctx.type_registry.get(search_norm),
-            TypeKind::TraitObject(..)
-        ) && let Some(resolution) = self.resolve_trait_object_method_named(
-            search_norm,
-            member_name,
-            receiver_ty,
-            Some(access_span),
-        ) {
-            if let Some(started) = started {
-                self.ctx
-                    .analysis
-                    .expr_timing_stats
-                    .access_field_query_trait_object += started.elapsed();
-            }
-            return Some(resolution);
-        }
-        if let Some(started) = started {
-            self.ctx
-                .analysis
-                .expr_timing_stats
-                .access_field_query_trait_object += started.elapsed();
-        }
-
         let started = self.ctx.collects_timings().then(Instant::now);
         let named_type = match self.ctx.type_registry.get(search_norm) {
             TypeKind::Def(def_id, generic_args) => Some((*def_id, generic_args.to_vec())),
@@ -305,6 +278,42 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 },
                 owner_trait_ty: None,
             });
+        }
+
+        None
+    }
+
+    pub(super) fn resolve_named_method_in_type(
+        &mut self,
+        search_norm: TypeId,
+        receiver_ty: TypeId,
+        member_name: SymbolId,
+        env: &MemberQueryEnv,
+        access_span: Span,
+    ) -> Option<MemberResolution> {
+        let started = self.ctx.collects_timings().then(Instant::now);
+        if matches!(
+            self.ctx.type_registry.get(search_norm),
+            TypeKind::TraitObject(..)
+        ) && let Some(resolution) = self.resolve_trait_object_method_named(
+            search_norm,
+            member_name,
+            receiver_ty,
+            Some(access_span),
+        ) {
+            if let Some(started) = started {
+                self.ctx
+                    .analysis
+                    .expr_timing_stats
+                    .access_field_query_trait_object += started.elapsed();
+            }
+            return Some(resolution);
+        }
+        if let Some(started) = started {
+            self.ctx
+                .analysis
+                .expr_timing_stats
+                .access_field_query_trait_object += started.elapsed();
         }
 
         let started = self.ctx.collects_timings().then(Instant::now);

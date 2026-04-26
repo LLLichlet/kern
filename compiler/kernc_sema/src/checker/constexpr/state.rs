@@ -271,6 +271,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub(super) fn expr_is_type_namespace(&mut self, expr: &Expr) -> bool {
         match &expr.kind {
             ExprKind::TypeNode(_) => true,
+            ExprKind::Grouped { expr: inner } => self.expr_is_type_namespace(inner),
             ExprKind::Identifier(name) => self
                 .resolve_symbol_info(*name)
                 .map(|info| Self::symbol_is_type_namespace(info.kind))

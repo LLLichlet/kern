@@ -361,15 +361,43 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
         let search_types = self.search_types(receiver_ty);
         for search_norm in search_types.iter() {
-            if let Some(resolution) = self.resolve_named_member_in_type(
+            if let Some(resolution) = self.resolve_named_field_in_type(
                 current_module_id,
+                search_norm,
+                member_name,
+                access_span,
+            ) {
+                self.cache_member_resolution(cache_key, can_use_cache, &resolution);
+                return Some(resolution);
+            }
+        }
+
+        if let Some(resolution) =
+            self.resolve_named_method(receiver_ty, member_name, env, access_span)
+        {
+            self.cache_member_resolution(cache_key, can_use_cache, &resolution);
+            return Some(resolution);
+        }
+
+        None
+    }
+
+    pub fn resolve_named_method(
+        &mut self,
+        receiver_ty: TypeId,
+        member_name: SymbolId,
+        env: &MemberQueryEnv<'_>,
+        access_span: Span,
+    ) -> Option<MemberResolution> {
+        let search_types = self.search_types(receiver_ty);
+        for search_norm in search_types.iter() {
+            if let Some(resolution) = self.resolve_named_method_in_type(
                 search_norm,
                 receiver_ty,
                 member_name,
                 env,
                 access_span,
             ) {
-                self.cache_member_resolution(cache_key, can_use_cache, &resolution);
                 return Some(resolution);
             }
         }

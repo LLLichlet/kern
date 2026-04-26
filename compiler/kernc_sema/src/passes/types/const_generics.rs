@@ -545,6 +545,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     || self.expr_references_const_param(rhs, env_scope)
             }
             ast::ExprKind::Unary { operand, .. }
+            | ast::ExprKind::Grouped { expr: operand }
             | ast::ExprKind::FieldAccess { lhs: operand, .. }
             | ast::ExprKind::Return(Some(operand))
             | ast::ExprKind::Defer { expr: operand }

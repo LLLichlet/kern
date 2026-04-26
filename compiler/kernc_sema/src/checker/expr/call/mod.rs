@@ -36,7 +36,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let callee_ty = self.with_uninstantiated_generic_function_items_allowed(|this| {
-            this.check_expr(callee, None)
+            this.check_method_callee_expr(callee)
+                .unwrap_or_else(|| this.check_expr(callee, None))
         });
         let norm_callee = self.resolve_tv(callee_ty);
 
@@ -75,6 +76,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
+        let grouped_field_method_hint = self.grouped_field_method_call_hint(callee);
+
         let (params_ptr, ret, is_variadic) = match self.ctx.type_registry.get(sig_ty) {
             TypeKind::Function {
                 params,
@@ -89,19 +92,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     (std::ptr::from_ref(params.as_slice()), *ret, false)
                 } else {
                     let callee_str = self.ctx.ty_to_string(callee_ty);
-                    self.ctx
+                    let mut diag = self
+                        .ctx
                         .struct_error(callee.span, "expression is not callable")
-                        .with_hint(format!("type is `{}`", callee_str))
-                        .emit();
+                        .with_hint(format!("type is `{}`", callee_str));
+                    if let Some(hint) = &grouped_field_method_hint {
+                        diag = diag.with_hint(hint.clone());
+                    }
+                    diag.emit();
                     return TypeId::ERROR;
                 }
             }
             _ => {
                 let callee_str = self.ctx.ty_to_string(callee_ty);
-                self.ctx
+                let mut diag = self
+                    .ctx
                     .struct_error(callee.span, "expression is not callable")
-                    .with_hint(format!("type is `{}`", callee_str))
-                    .emit();
+                    .with_hint(format!("type is `{}`", callee_str));
+                if let Some(hint) = &grouped_field_method_hint {
+                    diag = diag.with_hint(hint.clone());
+                }
+                diag.emit();
                 return TypeId::ERROR;
             }
         };
@@ -180,6 +191,36 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             });
         }
         final_ret
+    }
+
+    fn check_method_callee_expr(&mut self, callee: &Expr) -> Option<TypeId> {
+        let ExprKind::FieldAccess {
+            lhs,
+            field,
+            field_span,
+        } = &callee.kind
+        else {
+            return None;
+        };
+
+        self.check_method_member_access(callee.id, lhs, *field, *field_span, callee.span)
+    }
+
+    fn grouped_field_method_call_hint(&mut self, callee: &Expr) -> Option<String> {
+        let ExprKind::Grouped { expr: inner } = &callee.kind else {
+            return None;
+        };
+        let ExprKind::FieldAccess { lhs, field, .. } = &inner.kind else {
+            return None;
+        };
+
+        let lhs_ty = self.ctx.facts.node_types.get(&lhs.id).copied()?;
+        self.try_find_method_silent(lhs_ty, *field, callee.span)?;
+        Some(format!(
+            "remove the parentheses to call method `{}()`; keep `(expr.{})()` to call a callable field explicitly",
+            self.ctx.resolve(*field),
+            self.ctx.resolve(*field)
+        ))
     }
 
     pub(crate) fn check_closure(

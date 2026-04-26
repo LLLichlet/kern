@@ -762,6 +762,7 @@ impl<'a> Parser<'a> {
     /// This is used for the left-hand side of constructs such as `Type.{...}`.
     pub fn expr_to_type(&mut self, expr: Expr) -> ParseResult<TypeNode> {
         match expr.kind {
+            ExprKind::Grouped { expr: inner } => self.expr_to_type(*inner),
             ExprKind::TypeNode(type_node) => Ok(*type_node),
             ExprKind::Identifier(id) => Ok(TypeNode {
                 id: self.new_id(),

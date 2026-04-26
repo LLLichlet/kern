@@ -109,6 +109,18 @@ fn assignment_operator_from_token(token: TokenType) -> AssignmentOperator {
     }
 }
 
+fn expr_can_prefix_data_init_type(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Grouped { expr: inner } => expr_can_prefix_data_init_type(inner),
+        ExprKind::Identifier(_)
+        | ExprKind::AnchoredPath { .. }
+        | ExprKind::TypeNode(_)
+        | ExprKind::FieldAccess { .. }
+        | ExprKind::GenericInstantiation { .. } => true,
+        _ => false,
+    }
+}
+
 impl<'a> Parser<'a> {
     pub fn parse_binding_pattern(&mut self) -> ParseResult<BindingPattern> {
         let mut is_mut = false;
@@ -149,14 +161,7 @@ impl<'a> Parser<'a> {
             let next_tag = self.peek().tag;
 
             if next_tag == TokenType::DotLBrace {
-                let is_type_prefix = matches!(
-                    left.kind,
-                    ExprKind::Identifier(_)
-                        | ExprKind::TypeNode(_)
-                        | ExprKind::FieldAccess { .. }
-                        | ExprKind::GenericInstantiation { .. }
-                );
-                if !is_type_prefix {
+                if !expr_can_prefix_data_init_type(&left) {
                     break;
                 }
             }

@@ -1181,6 +1181,111 @@ fn main() i32 {
 }
 
 #[test]
+fn member_lookup_keeps_same_named_fields_and_methods_distinct() {
+    let output = build_and_run_source(
+        r#"
+type Counter = struct {
+    len: i32,
+};
+
+impl Counter {
+    pub fn len() i32 {
+        return self.len + 10;
+    }
+}
+
+fn main() i32 {
+    let counter = Counter.{ len: 5 };
+    return counter.len + counter.len();
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(20),
+        "same-name field/method regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn method_call_syntax_prefers_methods_but_parenthesized_field_calls_still_work() {
+    let output = build_and_run_source(
+        r#"
+fn forty() i32 {
+    return 40;
+}
+
+type Slot = struct {
+    len: *Fn() i32,
+};
+
+impl Slot {
+    pub fn len() i32 {
+        return 7;
+    }
+}
+
+fn main() i32 {
+    let slot = Slot.{ len: forty };
+    return slot.len() + (slot.len)();
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(47),
+        "method/function-field call disambiguation regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn parenthesized_non_callable_field_call_suggests_method_call_syntax() {
+    let output = compile_source(
+        r#"
+type Counter = struct {
+    len: i32,
+};
+
+impl Counter {
+    pub fn len() i32 {
+        return 7;
+    }
+}
+
+fn main() i32 {
+    let counter = Counter.{ len: 5 };
+    return (counter.len)();
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expression is not callable"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("remove the parentheses to call method `len()`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn lowers_void_aggregate_initializers_without_ice() {
     let output = build_and_run_source(
         r#"

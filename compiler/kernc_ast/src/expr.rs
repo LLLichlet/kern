@@ -67,6 +67,9 @@ pub enum ExprKind {
         op: UnaryOperator,
         operand: Box<Expr>,
     },
+    Grouped {
+        expr: Box<Expr>,
+    },
 
     // --- Access ---
     FieldAccess {

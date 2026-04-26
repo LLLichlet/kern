@@ -348,6 +348,7 @@ fn collect_owner_exprs<'a>(
         }
         ast::ExprKind::Static { init, .. } => collect_owner_exprs(init, exprs),
         ast::ExprKind::AnchoredPath { .. } => {}
+        ast::ExprKind::Grouped { expr: inner } => collect_owner_exprs(inner, exprs),
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             collect_owner_exprs(lhs, exprs);
             collect_owner_exprs(rhs, exprs);
@@ -496,6 +497,9 @@ fn collect_simple_binding_let_expr_ids(
             }
         }
         ast::ExprKind::Static { init, .. } => collect_simple_binding_let_expr_ids(init, expr_ids),
+        ast::ExprKind::Grouped { expr: inner } => {
+            collect_simple_binding_let_expr_ids(inner, expr_ids);
+        }
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             collect_simple_binding_let_expr_ids(lhs, expr_ids);
             collect_simple_binding_let_expr_ids(rhs, expr_ids);
@@ -651,6 +655,7 @@ fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
         | ast::ExprKind::SelfValue
         | ast::ExprKind::Undef
         | ast::ExprKind::Infer => true,
+        ast::ExprKind::Grouped { expr: inner } => expr_is_strictly_pure(ctx, inner),
         ast::ExprKind::Unary { op, operand } => {
             !matches!(
                 op,

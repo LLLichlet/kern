@@ -570,6 +570,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             ast::ExprKind::Unary { operand, .. } => {
                 Self::collect_expr_alias_references(operand, alias_names, referenced);
             }
+            ast::ExprKind::Grouped { expr: inner } => {
+                Self::collect_expr_alias_references(inner, alias_names, referenced);
+            }
             ast::ExprKind::FieldAccess { lhs, .. } => {
                 Self::collect_expr_alias_references(lhs, alias_names, referenced);
             }

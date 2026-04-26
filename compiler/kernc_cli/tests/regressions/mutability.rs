@@ -497,6 +497,215 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_immutable_trait_object_from_mut_only_pointer_impl() {
+    let output = compile_source(
+        r#"
+type Base = trait {
+    set: fn(i32) void,
+    get: fn() i32,
+};
+
+type Cell = struct {
+    value: i32,
+};
+
+impl *mut Cell : Base {
+    pub fn set(value: i32) void {
+        self.value = value;
+    }
+
+    pub fn get() i32 {
+        return self.value;
+    }
+}
+
+fn main() i32 {
+    let mut cell = Cell.{ value: 1 };
+    let obj = *Base.{ cell..& };
+    obj.set(42);
+    return cell.value;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("the provided pointer type does not implement the target trait"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn accepts_immutable_trait_object_from_mut_pointer_when_shared_impl_exists() {
+    let output = build_and_run_source(
+        r#"
+type Base = trait {
+    get: fn() i32,
+};
+
+type Cell = struct {
+    value: i32,
+};
+
+impl *Cell : Base {
+    pub fn get() i32 {
+        return self.value;
+    }
+}
+
+fn main() i32 {
+    let mut cell = Cell.{ value: 7 };
+    let obj = *Base.{ cell..& };
+    return obj.get() - 7;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn accepts_mutable_trait_object_from_mut_pointer_impl() {
+    let output = build_and_run_source(
+        r#"
+type Base = trait {
+    set: fn(i32) void,
+    get: fn() i32,
+};
+
+type Cell = struct {
+    value: i32,
+};
+
+impl *mut Cell : Base {
+    pub fn set(value: i32) void {
+        self.value = value;
+    }
+
+    pub fn get() i32 {
+        return self.value;
+    }
+}
+
+fn main() i32 {
+    let mut cell = Cell.{ value: 1 };
+    let obj = *mut Base.{ cell..& };
+    obj.set(42);
+    return cell.value - obj.get();
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_implicit_immutable_trait_object_from_mut_only_pointer_impl() {
+    let output = compile_source(
+        r#"
+type Base = trait {
+    set: fn(i32) void,
+    get: fn() i32,
+};
+
+type Cell = struct {
+    value: i32,
+};
+
+impl *mut Cell : Base {
+    pub fn set(value: i32) void {
+        self.value = value;
+    }
+
+    pub fn get() i32 {
+        return self.value;
+    }
+}
+
+fn use_base(obj: *Base) void {
+    obj.set(42);
+}
+
+fn main() i32 {
+    let mut cell = Cell.{ value: 1 };
+    use_base(cell..&);
+    return cell.value;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types")
+            || stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn accepts_implicit_immutable_trait_object_from_mut_pointer_when_shared_impl_exists() {
+    let output = build_and_run_source(
+        r#"
+type Base = trait {
+    get: fn() i32,
+};
+
+type Cell = struct {
+    value: i32,
+};
+
+impl *Cell : Base {
+    pub fn get() i32 {
+        return self.value;
+    }
+}
+
+fn use_base(obj: *Base) i32 {
+    return obj.get();
+}
+
+fn main() i32 {
+    let mut cell = Cell.{ value: 9 };
+    return use_base(cell..&) - 9;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_coercing_let_mut_trait_object_handle_to_mutable_trait_object() {
     let output = compile_source(
         r#"

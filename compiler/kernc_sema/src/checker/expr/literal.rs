@@ -991,6 +991,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let inner_elem_norm = self.resolve_tv(inner_elem_ty);
+        let proof_receiver_ty = if !is_mut_expected && is_inner_ptr_mut {
+            match self.ctx.type_registry.get(inner_ty_id).clone() {
+                TypeKind::Pointer { elem, .. } => {
+                    self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: false,
+                        elem,
+                    })
+                }
+                TypeKind::VolatilePtr { elem, .. } => {
+                    self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                        is_mut: false,
+                        elem,
+                    })
+                }
+                _ => inner_ty_id,
+            }
+        } else {
+            inner_ty_id
+        };
 
         // 3. Support trait-object upcasts.
         if matches!(
@@ -1055,7 +1074,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 4. Verify method obligations on the target trait.
-        if !self.check_trait_impl(inner_ty_id, trait_norm) {
+        if !self.check_trait_impl(proof_receiver_ty, trait_norm) {
             self.ctx
                 .struct_error(
                     span,
@@ -1068,15 +1087,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 5. Return the constructed fat-pointer type.
         match self.ctx.type_registry.get(expected_ptr_ty).clone() {
             TypeKind::Pointer { is_mut, elem } => {
-                let elem =
-                    crate::query::enrich_trait_object_assoc_bindings(self.ctx, inner_ty_id, elem);
+                let elem = crate::query::enrich_trait_object_assoc_bindings(
+                    self.ctx,
+                    proof_receiver_ty,
+                    elem,
+                );
                 self.ctx
                     .type_registry
                     .intern(TypeKind::Pointer { is_mut, elem })
             }
             TypeKind::VolatilePtr { is_mut, elem } => {
-                let elem =
-                    crate::query::enrich_trait_object_assoc_bindings(self.ctx, inner_ty_id, elem);
+                let elem = crate::query::enrich_trait_object_assoc_bindings(
+                    self.ctx,
+                    proof_receiver_ty,
+                    elem,
+                );
                 self.ctx
                     .type_registry
                     .intern(TypeKind::VolatilePtr { is_mut, elem })

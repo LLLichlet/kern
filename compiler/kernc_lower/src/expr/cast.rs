@@ -170,7 +170,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         // 2. Implicit thin-pointer-to-trait-object packing.
-        if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
+        if let TypeKind::Pointer {
+            is_mut: e_mut,
+            elem: e_inner,
+        } = exp_kind
+        {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm)
                 && let Some(actual_elem_norm) = conc_trait_object_elem
@@ -211,7 +215,58 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     );
                 }
 
-                let vtable_id = self.get_or_create_vtable(concrete_ty, concrete_ty, e_inner_norm);
+                let (data_ptr_expr, data_ptr_ty) = if !e_mut {
+                    match conc_kind {
+                        TypeKind::Pointer { is_mut: true, elem } => {
+                            let shared_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                                is_mut: false,
+                                elem,
+                            });
+                            (
+                                MastExpr::new(
+                                    shared_ptr_ty,
+                                    MastExprKind::Cast {
+                                        kind: MastCastKind::Bitcast,
+                                        operand: Box::new(MastExpr::new(
+                                            concrete_ty,
+                                            mast_kind,
+                                            span,
+                                        )),
+                                    },
+                                    span,
+                                ),
+                                shared_ptr_ty,
+                            )
+                        }
+                        TypeKind::VolatilePtr { is_mut: true, elem } => {
+                            let shared_ptr_ty =
+                                self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                                    is_mut: false,
+                                    elem,
+                                });
+                            (
+                                MastExpr::new(
+                                    shared_ptr_ty,
+                                    MastExprKind::Cast {
+                                        kind: MastCastKind::Bitcast,
+                                        operand: Box::new(MastExpr::new(
+                                            concrete_ty,
+                                            mast_kind,
+                                            span,
+                                        )),
+                                    },
+                                    span,
+                                ),
+                                shared_ptr_ty,
+                            )
+                        }
+                        _ => (MastExpr::new(concrete_ty, mast_kind, span), concrete_ty),
+                    }
+                } else {
+                    (MastExpr::new(concrete_ty, mast_kind, span), concrete_ty)
+                };
+
+                let vtable_id = self.get_or_create_vtable(data_ptr_ty, data_ptr_ty, e_inner_norm);
                 let Some(meta_expr) = self.vtable_global_meta_expr(vtable_id, span) else {
                     return MastExpr::new(exp_ty, MastExprKind::Trap, span);
                 };
@@ -219,7 +274,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 return MastExpr::new(
                     exp_ty,
                     MastExprKind::ConstructFatPointer {
-                        data_ptr: Box::new(MastExpr::new(concrete_ty, mast_kind, span)),
+                        data_ptr: Box::new(data_ptr_expr),
                         meta: Box::new(meta_expr),
                     },
                     span,

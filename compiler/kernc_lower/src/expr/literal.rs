@@ -974,6 +974,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .kind;
         }
 
+        let target_is_mut = matches!(
+            self.ctx
+                .type_registry
+                .get(self.ctx.type_registry.normalize(target_ptr_ty)),
+            TypeKind::Pointer { is_mut: true, .. } | TypeKind::VolatilePtr { is_mut: true, .. }
+        );
+
         let (data_ptr_expr, data_ptr_ty, receiver_ty) = if l_is_fat_pointer_value {
             let boxed_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                 is_mut: false,
@@ -988,6 +995,46 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 boxed_ptr_ty,
                 l.ty,
             )
+        } else if !target_is_mut {
+            match self.ctx.type_registry.get(l_norm).clone() {
+                TypeKind::Pointer { is_mut: true, elem } => {
+                    let shared_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: false,
+                        elem,
+                    });
+                    (
+                        MastExpr::new(
+                            shared_ptr_ty,
+                            MastExprKind::Cast {
+                                kind: MastCastKind::Bitcast,
+                                operand: Box::new(l.clone()),
+                            },
+                            span,
+                        ),
+                        shared_ptr_ty,
+                        shared_ptr_ty,
+                    )
+                }
+                TypeKind::VolatilePtr { is_mut: true, elem } => {
+                    let shared_ptr_ty = self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                        is_mut: false,
+                        elem,
+                    });
+                    (
+                        MastExpr::new(
+                            shared_ptr_ty,
+                            MastExprKind::Cast {
+                                kind: MastCastKind::Bitcast,
+                                operand: Box::new(l.clone()),
+                            },
+                            span,
+                        ),
+                        shared_ptr_ty,
+                        shared_ptr_ty,
+                    )
+                }
+                _ => (l.clone(), l.ty, l.ty),
+            }
         } else {
             (l.clone(), l.ty, l.ty)
         };

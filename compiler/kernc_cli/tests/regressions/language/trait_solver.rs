@@ -590,6 +590,140 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_open_projection_methods_from_associated_type_bounds() {
+    let output = build_and_run_source(
+        r#"
+type Score = trait {
+    score: fn() i32,
+};
+
+type Factory[T] = trait {
+    type Item: Score;
+    make: fn() Item,
+};
+
+type DefaultItem[T] = struct {
+    value: i32,
+};
+
+impl[T] DefaultItem[T]: Score {
+    fn score() i32 {
+        return self.value;
+    }
+}
+
+type SpecialItem = struct {
+    value: i32,
+};
+
+impl SpecialItem: Score {
+    fn score() i32 {
+        return self.value + 10;
+    }
+}
+
+type Maker[T] = struct {
+    value: i32,
+};
+
+impl[T] Maker[T]: Factory[T] {
+    type Item = DefaultItem[T];
+
+    fn make() Item {
+        return DefaultItem[T].{ value: self.value };
+    }
+}
+
+impl Maker[i32]: Factory[i32] {
+    type Item = SpecialItem;
+
+    fn make() Item {
+        return SpecialItem.{ value: self.value };
+    }
+}
+
+fn use_factory[F, T](factory: F) i32
+    where F: Factory[T],
+{
+    return factory.make().score();
+}
+
+fn main() i32 {
+    return use_factory[Maker[i32], i32](Maker[i32].{ value: 7 }) - 17;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn accepts_open_projection_trait_proof_from_associated_type_bounds() {
+    let output = build_and_run_source(
+        r#"
+type Score = trait {
+    score: fn() i32,
+};
+
+type Factory[T] = trait {
+    type Item: Score;
+    make: fn() Item,
+};
+
+type Item[T] = struct {
+    value: i32,
+};
+
+impl[T] Item[T]: Score {
+    fn score() i32 {
+        return self.value;
+    }
+}
+
+type Maker[T] = struct {
+    value: i32,
+};
+
+impl[T] Maker[T]: Factory[T] {
+    type Item = Item[T];
+
+    fn make() Item {
+        return Item[T].{ value: self.value };
+    }
+}
+
+fn require_score[S](value: S) i32
+    where S: Score,
+{
+    return value.score();
+}
+
+fn use_factory[F, T](factory: F) i32
+    where F: Factory[T],
+{
+    return require_score[F.Factory[T].Item](factory.make());
+}
+
+fn main() i32 {
+    return use_factory[Maker[i32], i32](Maker[i32].{ value: 19 }) - 19;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_blanket_supertrait_fake_refl_assoc_forgery() {
     let output = compile_source(
         r#"
@@ -648,6 +782,125 @@ fn main() i32 {
         stderr.contains("mismatched types")
             || stderr.contains("type does not satisfy trait bounds")
             || stderr.contains("missing a required supertrait proof"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_blanket_supertrait_assoc_binding_fake_refl_forgery() {
+    let output = compile_source(
+        r#"
+type TypeIs[T] = trait {
+    type Is;
+};
+
+type Lift[T]: TypeIs[T, Is = T] = trait {};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+impl[S, T] S: Lift[T] {}
+
+type FakeProof[L, R] = struct {};
+
+impl[L, R] FakeProof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+fn rewrite[R, RW](value: RW.TypeIs[R].Is) R
+    where RW: Lift[R],
+{
+    return value;
+}
+
+fn cast[L, R](value: L) R {
+    return rewrite[R, FakeProof[L, R]](value);
+}
+
+fn seed() i32 {
+    return 11;
+}
+
+fn forge[R]() R {
+    return cast[fn() i32, R](seed);
+}
+
+fn main() i32 {
+    let forged = forge[fn(i32, i32) i32]();
+    return forged(100, 200) - 11;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type does not satisfy trait bounds")
+            || stderr.contains("missing a required supertrait proof")
+            || stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_const_generic_blanket_supertrait_fake_refl_assoc_forgery() {
+    let output = compile_source(
+        r#"
+type TypeFor[N: usize] = trait {
+    type Is;
+};
+
+type Lift[N: usize]: TypeFor[N] = trait {};
+
+impl[S, N: usize] S: TypeFor[N] {
+    type Is = fn() i32;
+}
+
+impl[S, N: usize] S: Lift[N] {}
+
+type FakeProof[N: usize] = struct {};
+
+impl[N: usize] FakeProof[N]: TypeFor[N] {
+    type Is = fn(i32) i32;
+}
+
+fn rewrite[N: usize, RW](value: RW.TypeFor[N].Is) fn() i32
+    where RW: Lift[N],
+{
+    return value;
+}
+
+fn id(value: i32) i32 {
+    return value;
+}
+
+fn main() i32 {
+    let forged = rewrite[4, FakeProof[4]](id);
+    return forged() - 4;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types")
+            || stderr.contains("type does not satisfy trait bounds"),
         "unexpected stderr:\n{}",
         stderr
     );

@@ -1,0 +1,37 @@
+// The fake-reflection hole is not limited to type parameters: a const-generic
+// trait argument must not let an open projection reuse a shadowable blanket
+// associated-type result.
+// stderr: mismatched types
+
+type TypeFor[N: usize] = trait {
+    type Is;
+};
+
+type Lift[N: usize]: TypeFor[N] = trait {};
+
+impl[S, N: usize] S: TypeFor[N] {
+    type Is = fn() i32;
+}
+
+impl[S, N: usize] S: Lift[N] {}
+
+type FakeProof[N: usize] = struct {};
+
+impl[N: usize] FakeProof[N]: TypeFor[N] {
+    type Is = fn(i32) i32;
+}
+
+fn rewrite[N: usize, RW](value: RW.TypeFor[N].Is) fn() i32
+    where RW: Lift[N],
+{
+    return value;
+}
+
+fn id(value: i32) i32 {
+    return value;
+}
+
+fn main() i32 {
+    let forged = rewrite[4, FakeProof[4]](id);
+    return forged() - 4;
+}

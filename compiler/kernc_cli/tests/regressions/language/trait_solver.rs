@@ -246,6 +246,62 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_false_concrete_where_clause_with_assoc_binding() {
+    let output = compile_source(
+        r#"
+type TypeIs[T] = trait {
+    type Is;
+};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+type FakeProof[L, R] = struct {};
+
+impl[L, R] FakeProof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+fn cast(value: FakeProof[fn() i32, fn(i32) i32].TypeIs[fn(i32) i32].Is) fn(i32) i32
+    where FakeProof[fn() i32, fn(i32) i32]: TypeIs[fn(i32) i32, Is = fn(i32) i32],
+{
+    return value;
+}
+
+fn no_args() i32 {
+    return 7;
+}
+
+fn main() i32 {
+    let forged = cast(no_args);
+    return forged(123) - 7;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("concrete where-clause is not satisfied")
+            || stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("FakeProof[fn() i32, fn(i32) i32]: TypeIs[fn(i32) i32, Is = fn(i32) i32]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_overlapping_trait_impls_with_conflicting_associated_type_proofs() {
     let output = compile_source(
         r#"

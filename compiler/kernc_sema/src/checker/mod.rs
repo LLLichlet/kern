@@ -10,7 +10,7 @@ use crate::context::SemaContext;
 use crate::def::{Def, DefId, FunctionDef, GlobalDef, ImplDef};
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::semantic::SemanticSymbolKind;
-use crate::ty::{TypeId, TypeKind};
+use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
 use kernc_ast::{self as ast, Visibility};
 use kernc_utils::Span;
 use std::time::{Duration, Instant};
@@ -551,6 +551,163 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     //          Item Checkers
     // ==========================================
 
+    fn push_valid_where_clause_bounds(&mut self, where_clauses: &[ast::WhereClause]) {
+        for clause in where_clauses {
+            let target_ty = self.ctx.type_registry.normalize(
+                self.ctx
+                    .facts
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
+            if target_ty == TypeId::ERROR {
+                continue;
+            }
+
+            let mut bounds = Vec::new();
+            for bound in &clause.bounds {
+                let bound_ty = self.ctx.type_registry.normalize(
+                    self.ctx
+                        .facts
+                        .node_types
+                        .get(&bound.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR),
+                );
+                if bound_ty == TypeId::ERROR
+                    || !matches!(
+                        self.ctx.type_registry.get(bound_ty),
+                        TypeKind::TraitObject(..)
+                    )
+                {
+                    continue;
+                }
+
+                if !self.where_bound_may_contain_params(target_ty, bound_ty)
+                    && !self.concrete_where_bound_is_satisfied(target_ty, bound_ty)
+                {
+                    let target_str = self.ctx.ty_to_string(target_ty);
+                    let bound_str = self.ctx.ty_to_string(bound_ty);
+                    self.ctx
+                        .struct_error(bound.span, "concrete where-clause is not satisfied")
+                        .with_hint(format!("required bound: `{}: {}`", target_str, bound_str))
+                        .with_hint(
+                            "generic where-clauses are assumptions, but fully concrete bounds must be proven by an actual impl",
+                        )
+                        .emit();
+                    continue;
+                }
+
+                bounds.push(bound_ty);
+            }
+
+            if !bounds.is_empty() {
+                self.ctx.analysis.active_bounds.push((target_ty, bounds));
+            }
+        }
+    }
+
+    fn concrete_where_bound_is_satisfied(&mut self, target_ty: TypeId, bound_ty: TypeId) -> bool {
+        let mut checker = ExprChecker::new(self.ctx, None);
+        checker.check_trait_impl(target_ty, bound_ty)
+    }
+
+    fn where_bound_may_contain_params(&mut self, target_ty: TypeId, bound_ty: TypeId) -> bool {
+        self.type_contains_params_or_vars(target_ty) || self.type_contains_params_or_vars(bound_ty)
+    }
+
+    fn type_contains_params_or_vars(&mut self, ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Param(_) | TypeKind::TypeVar(_) | TypeKind::Error => true,
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::Alias(_, elem)
+            | TypeKind::ArrayInfer { elem }
+            | TypeKind::AnonymousEnumPayload(elem)
+            | TypeKind::Simd { elem, .. } => self.type_contains_params_or_vars(elem),
+            TypeKind::Array { elem, len } => {
+                self.type_contains_params_or_vars(elem)
+                    || self.const_generic_contains_params_or_vars(len)
+            }
+            TypeKind::Def(_, args)
+            | TypeKind::Enum(_, args)
+            | TypeKind::EnumPayload(_, args)
+            | TypeKind::Associated(_, args)
+            | TypeKind::FnDef(_, args) => args
+                .into_iter()
+                .any(|arg| self.generic_arg_contains_params_or_vars(arg)),
+            TypeKind::TraitObject(_, args, assoc_bindings) => {
+                args.into_iter()
+                    .any(|arg| self.generic_arg_contains_params_or_vars(arg))
+                    || assoc_bindings
+                        .into_iter()
+                        .any(|(_, ty)| self.type_contains_params_or_vars(ty))
+            }
+            TypeKind::Projection {
+                target,
+                trait_args,
+                assoc_args,
+                ..
+            } => {
+                self.type_contains_params_or_vars(target)
+                    || trait_args
+                        .into_iter()
+                        .any(|arg| self.generic_arg_contains_params_or_vars(arg))
+                    || assoc_args
+                        .into_iter()
+                        .any(|arg| self.generic_arg_contains_params_or_vars(arg))
+            }
+            TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
+                params
+                    .into_iter()
+                    .any(|param| self.type_contains_params_or_vars(param))
+                    || self.type_contains_params_or_vars(ret)
+            }
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => {
+                captures
+                    .into_iter()
+                    .any(|capture| self.type_contains_params_or_vars(capture))
+                    || params
+                        .into_iter()
+                        .any(|param| self.type_contains_params_or_vars(param))
+                    || self.type_contains_params_or_vars(ret)
+            }
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields
+                .into_iter()
+                .any(|field| self.type_contains_params_or_vars(field.ty)),
+            TypeKind::AnonymousEnum(enum_def) => {
+                enum_def
+                    .backing_ty
+                    .is_some_and(|ty| self.type_contains_params_or_vars(ty))
+                    || enum_def.variants.into_iter().any(|variant| {
+                        variant
+                            .payload_ty
+                            .is_some_and(|payload_ty| self.type_contains_params_or_vars(payload_ty))
+                    })
+            }
+            TypeKind::Primitive(_) | TypeKind::Module(_) => false,
+        }
+    }
+
+    fn generic_arg_contains_params_or_vars(&mut self, arg: GenericArg) -> bool {
+        match arg {
+            GenericArg::Type(ty) => self.type_contains_params_or_vars(ty),
+            GenericArg::Const(value) => self.const_generic_contains_params_or_vars(value),
+        }
+    }
+
+    fn const_generic_contains_params_or_vars(&mut self, value: ConstGeneric) -> bool {
+        self.ctx.type_registry.const_generic_contains_params(value)
+    }
+
     fn check_function(&mut self, f: &FunctionDef, parent_scope: ScopeId, kind: FunctionBodyKind) {
         let collect_timings = self.ctx.collects_timings();
         let function_started = collect_timings.then(Instant::now);
@@ -584,25 +741,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         let function_scope = self.ctx.scopes.enter_scope();
         self.bind_generics_into_scope(&f.generics, function_scope);
 
-        // Push active bounds from the function's where-clauses into the current context.
         let prev_bounds_len = self.ctx.analysis.active_bounds.len();
-        for clause in &f.where_clauses {
-            let target_ty = self.ctx.type_registry.normalize(
-                self.ctx
-                    .facts
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
-            let mut bounds = Vec::new();
-            for bound in &clause.bounds {
-                if let Some(&bound_ty) = self.ctx.facts.node_types.get(&bound.id) {
-                    bounds.push(self.ctx.type_registry.normalize(bound_ty));
-                }
-            }
-            self.ctx.analysis.active_bounds.push((target_ty, bounds));
-        }
+        self.push_valid_where_clause_bounds(&f.where_clauses);
         if self.ctx.analysis.active_bounds.len() != prev_bounds_len {
             self.ctx.clear_active_bound_caches();
         }
@@ -958,23 +1098,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     .push((target_ty, vec![trait_ty]));
             }
         }
-        for clause in &i.where_clauses {
-            let target_ty = self.ctx.type_registry.normalize(
-                self.ctx
-                    .facts
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
-            let mut bounds = Vec::new();
-            for bound in &clause.bounds {
-                if let Some(&bound_ty) = self.ctx.facts.node_types.get(&bound.id) {
-                    bounds.push(self.ctx.type_registry.normalize(bound_ty));
-                }
-            }
-            self.ctx.analysis.active_bounds.push((target_ty, bounds));
-        }
+        self.push_valid_where_clause_bounds(&i.where_clauses);
         if self.ctx.analysis.active_bounds.len() != prev_bounds_len {
             self.ctx.clear_active_bound_caches();
         }

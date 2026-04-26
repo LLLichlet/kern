@@ -302,6 +302,209 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_false_concrete_where_clause_with_const_assoc_binding() {
+    let output = compile_source(
+        r#"
+type HasOut[N: usize] = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: HasOut[1] {
+    type Out = fn() i32;
+}
+
+fn cast(value: X.HasOut[1].Out) fn(i32) i32
+    where X: HasOut[1, Out = fn(i32) i32],
+{
+    return value;
+}
+
+fn no_args() i32 {
+    return 7;
+}
+
+fn main() i32 {
+    let forged = cast(no_args);
+    return forged(123) - 7;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("concrete where-clause is not satisfied")
+            || stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("X: HasOut[1, Out = fn(i32) i32]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_impl_missing_supertrait_assoc_binding_contract() {
+    let output = compile_source(
+        r#"
+type Base[T] = trait {
+    type Out;
+};
+
+type Derived[T]: Base[T, Out = fn() i32] = trait {};
+
+type X = struct {};
+
+impl X: Derived[fn(i32) i32] {}
+
+fn cast(value: X.Base[fn(i32) i32].Out) fn(i32) i32
+    where X: Base[fn(i32) i32, Out = fn(i32) i32],
+{
+    return value;
+}
+
+fn no_args() i32 {
+    return 7;
+}
+
+fn main() i32 {
+    let forged = cast(no_args);
+    return forged(123) - 7;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("impl of trait `Derived` is missing a required supertrait proof"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("X: Base[fn(i32) i32, Out = fn() i32]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_method_lookup_through_false_concrete_where_clause() {
+    let output = compile_source(
+        r#"
+type Callable = trait {
+    type Arg;
+    call: fn(Arg) i32,
+};
+
+type F = struct {};
+
+impl F: Callable {
+    type Arg = fn() i32;
+
+    fn call(arg: Arg) i32 {
+        return arg();
+    }
+}
+
+fn use_callable(value: F, arg: fn(i32) i32) i32
+    where F: Callable[Arg = fn(i32) i32],
+{
+    return value.call(arg);
+}
+
+fn id(x: i32) i32 {
+    return x;
+}
+
+fn main() i32 {
+    return use_callable(F.{}, id) - 123;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("concrete where-clause is not satisfied")
+            || stderr.contains("type does not satisfy trait bounds")
+            || stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_projection_normalization_through_false_concrete_where_clause() {
+    let output = compile_source(
+        r#"
+type HasOut = trait {
+    type Out;
+};
+
+type X = struct {};
+
+impl X: HasOut {
+    type Out = fn() i32;
+}
+
+fn cast(value: X.HasOut.Out) fn(i32) i32
+    where X: HasOut[Out = fn(i32) i32],
+{
+    return value;
+}
+
+fn no_args() i32 {
+    return 7;
+}
+
+fn main() i32 {
+    let forged = cast(no_args);
+    return forged(123) - 7;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("concrete where-clause is not satisfied")
+            || stderr.contains("type does not satisfy trait bounds")
+            || stderr.contains("mismatched types"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_overlapping_trait_impls_with_conflicting_associated_type_proofs() {
     let output = compile_source(
         r#"

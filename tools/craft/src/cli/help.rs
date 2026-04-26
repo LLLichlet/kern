@@ -165,7 +165,7 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
             "Build bin targets and copy them into an installation root",
             &["craft install [OPTIONS]"],
             feature_options_section()
-                .entry("--bin <NAME>", "Install only the named binary target")
+                .entry("--bin, -b <NAME>", "Install only the named binary target")
                 .entry(
                     "--root, -r <PATH>",
                     "Installation root; binaries land in `PATH/bin`",
@@ -187,7 +187,7 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
                     "--project-path, -p <PATH>",
                     "Select the package root, workspace root, or Craft.toml manifest",
                 )
-                .entry("--bin <NAME>", "Remove only the named binary target")
+                .entry("--bin, -b <NAME>", "Remove only the named binary target")
                 .entry(
                     "--root, -r <PATH>",
                     "Installation root; binaries are removed from `PATH/bin`",
@@ -210,15 +210,20 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
             "run",
             "Build and execute a selected binary or example target",
             &[
-                "craft run [OPTIONS]",
-                "craft run --example <NAME> [OPTIONS]",
+                "craft run [OPTIONS] [-- <ARGS>...]",
+                "craft run --example <NAME> [OPTIONS] [-- <ARGS>...]",
             ],
             feature_options_section()
-                .entry("--bin <NAME>", "Run the named binary target")
-                .entry("--example <NAME>", "Run the named example target"),
+                .entry("--bin, -b <NAME>", "Run the named binary target")
+                .entry("--example <NAME>", "Run the named example target")
+                .entry("-- <ARGS>...", "Pass remaining arguments to the target"),
             &[
                 ("craft run", "Run the default binary target"),
                 ("craft run --bin bed", "Run a named binary target"),
+                (
+                    "craft run -- --help",
+                    "Pass option-like arguments to the program",
+                ),
                 (
                     "craft run --example hello_compact --features tls",
                     "Run an example with explicit features enabled",
@@ -228,10 +233,14 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
         "test" => command_template(
             "test",
             "Build and execute discovered test targets",
-            &["craft test [OPTIONS]"],
-            feature_options_section(),
+            &["craft test [OPTIONS] [-- <ARGS>...]"],
+            feature_options_section().entry(
+                "-- <ARGS>...",
+                "Pass remaining arguments to each test target",
+            ),
             &[
                 ("craft test", "Run the current package tests"),
+                ("craft test -- smoke", "Pass arguments to each test binary"),
                 (
                     "craft test --project-path workspace/member --features simd",
                     "Run tests for another package with explicit features",

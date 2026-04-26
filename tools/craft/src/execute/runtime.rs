@@ -30,7 +30,7 @@ pub fn run(
         crate::script::ScriptCommand::Run,
         None,
     )?;
-    run_built(build_plan, action_plan, unit, build)
+    run_built(build_plan, action_plan, unit, build, &[])
 }
 
 pub fn run_built(
@@ -38,10 +38,11 @@ pub fn run_built(
     action_plan: &ActionPlan,
     unit: &BuildUnit,
     build: super::ExecutionSummary,
+    args: &[String],
 ) -> Result<RunSummary> {
     let action = find_link_action(action_plan, unit)?;
     let executable_path = resolve_invocation_path(&action.artifact_path)?;
-    let status = runtime_command(&executable_path, action, &build_plan.workspace_root)
+    let status = runtime_command(&executable_path, action, &build_plan.workspace_root, args)
         .status()
         .map_err(Error::from_io_plain)?;
     if !status.success() {
@@ -70,7 +71,7 @@ pub fn test(
         crate::script::ScriptCommand::Test,
         None,
     )?;
-    test_built(build_plan, action_plan, units, build)
+    test_built(build_plan, action_plan, units, build, &[])
 }
 
 pub fn test_built(
@@ -78,12 +79,13 @@ pub fn test_built(
     action_plan: &ActionPlan,
     units: &[&BuildUnit],
     build: super::ExecutionSummary,
+    args: &[String],
 ) -> Result<TestSummary> {
     let mut executed = 0;
     for unit in units {
         let action = find_link_action(action_plan, unit)?;
         let executable_path = resolve_invocation_path(&action.artifact_path)?;
-        let status = runtime_command(&executable_path, action, &build_plan.workspace_root)
+        let status = runtime_command(&executable_path, action, &build_plan.workspace_root, args)
             .status()
             .map_err(Error::from_io_plain)?;
         if !status.success() {
@@ -99,8 +101,14 @@ pub fn test_built(
     Ok(TestSummary { executed, build })
 }
 
-fn runtime_command(executable_path: &Path, action: &LinkAction, workspace_root: &Path) -> Command {
+fn runtime_command(
+    executable_path: &Path,
+    action: &LinkAction,
+    workspace_root: &Path,
+    args: &[String],
+) -> Command {
     let mut command = Command::new(executable_path);
+    command.args(args);
     command.current_dir(&action.package_root_path);
     command.env("CRAFT_WORKSPACE_ROOT", workspace_root);
     command.env("CRAFT_PACKAGE_ROOT", &action.package_root_path);

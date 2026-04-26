@@ -84,12 +84,14 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             feature_selection,
             ui,
             selection,
-        } => run_target(path, feature_selection, ui, selection),
+            runtime_args,
+        } => run_target(path, feature_selection, ui, selection, runtime_args),
         Command::Test {
             path,
             feature_selection,
             ui,
-        } => run_tests(path, feature_selection, ui),
+            runtime_args,
+        } => run_tests(path, feature_selection, ui, runtime_args),
     }
 }
 
@@ -773,6 +775,7 @@ fn run_target(
     feature_selection: elaborate::FeatureSelection,
     ui: super::UiOptions,
     selection: RunSelection,
+    runtime_args: Vec<String>,
 ) -> Result<()> {
     let render = Renderer::new(ui);
     let (loaded, _workspace_lock) = load_package_graph(
@@ -834,7 +837,7 @@ fn run_target(
     if let Some(progress) = progress.as_mut() {
         progress.finish();
     }
-    let execution = execute::run_built(&build_plan, &action_plan, run_unit, build?)?;
+    let execution = execute::run_built(&build_plan, &action_plan, run_unit, build?, &runtime_args)?;
     render_execution_timings(&render, &execution.build);
     render.ok(format!(
         "run completed ({})",
@@ -848,6 +851,7 @@ fn run_tests(
     path: Option<PathBuf>,
     feature_selection: elaborate::FeatureSelection,
     ui: super::UiOptions,
+    runtime_args: Vec<String>,
 ) -> Result<()> {
     let render = Renderer::new(ui);
     let (loaded, _workspace_lock) = load_package_graph(
@@ -915,7 +919,7 @@ fn run_tests(
     if let Some(progress) = progress.as_mut() {
         progress.finish();
     }
-    let execution = execute::test_built(&build_plan, &action_plan, &tests, build?)?;
+    let execution = execute::test_built(&build_plan, &action_plan, &tests, build?, &runtime_args)?;
     render_execution_timings(&render, &execution.build);
     render.ok(format!(
         "test run completed ({} executed)",

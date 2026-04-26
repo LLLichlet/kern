@@ -36,7 +36,7 @@ fn write_minimal_bin_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "demo"
@@ -45,6 +45,73 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+}
+
+fn arg_check_source(first: &str, second: &str) -> String {
+    format!(
+        r#"
+use std.proc;
+
+fn main(argc: i32, argv: **u8) i32 {{
+    let args = proc.args(argc, argv);
+    if (args.len() != 3) {{
+        return 1;
+    }}
+    let first = match (args.get(1)) {{
+        .{{ Some: arg }} => arg,
+        .None => return 2,
+    }};
+    if (first != "{first}") {{
+        return 3;
+    }}
+    let second = match (args.get(2)) {{
+        .{{ Some: arg }} => arg,
+        .None => return 4,
+    }};
+    if (second != "{second}") {{
+        return 5;
+    }}
+    return 0;
+}}
+"#
+    )
+}
+
+fn write_arg_check_bin_package(root: &std::path::Path, first: &str, second: &str) {
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.2"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), arg_check_source(first, second)).unwrap();
+}
+
+fn write_arg_check_test_package(root: &std::path::Path, first: &str, second: &str) {
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.2"
+
+[test]
+roots = ["tests/smoke.rn"]
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("tests/smoke.rn"), arg_check_source(first, second)).unwrap();
 }
 
 fn write_bin_and_test_package(root: &std::path::Path) {
@@ -56,7 +123,7 @@ fn write_bin_and_test_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "demo"
@@ -80,7 +147,7 @@ fn write_bin_and_example_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "demo"
@@ -107,7 +174,7 @@ fn write_multi_bin_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "demo"
@@ -137,7 +204,7 @@ fn write_workspace_with_member_test_package(root: &std::path::Path) -> PathBuf {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [test]
 roots = ["tests/smoke.rn"]
@@ -233,11 +300,13 @@ fn command_for_mode(root: &std::path::Path, mode: KillRecoveryMode) -> Command {
             feature_selection: FeatureSelection::default(),
             ui: UiOptions::default(),
             selection: RunSelection::DefaultBin,
+            runtime_args: Vec::new(),
         },
         KillRecoveryMode::Test => Command::Test {
             path: Some(root.to_path_buf()),
             feature_selection: FeatureSelection::default(),
             ui: UiOptions::default(),
+            runtime_args: Vec::new(),
         },
     }
 }
@@ -250,7 +319,7 @@ fn write_generated_build_script_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "demo"
@@ -587,6 +656,40 @@ fn parses_short_install_root_alias() {
 }
 
 #[test]
+fn parses_short_bin_alias_for_install() {
+    let cmd = parse_args([
+        "install".to_string(),
+        "-b".to_string(),
+        "helper".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Install { selection, .. } => {
+            assert_eq!(selection, InstallSelection::Bin("helper".to_string()));
+        }
+        other => panic!("expected install command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_short_bin_alias_for_uninstall() {
+    let cmd = parse_args([
+        "uninstall".to_string(),
+        "-b".to_string(),
+        "helper".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Uninstall { selection, .. } => {
+            assert_eq!(selection, InstallSelection::Bin("helper".to_string()));
+        }
+        other => panic!("expected uninstall command, got {other:?}"),
+    }
+}
+
+#[test]
 fn parses_fetch_with_path() {
     let cmd = parse_args(["fetch".to_string(), "--project-path=demo".to_string()]).unwrap();
 
@@ -668,12 +771,45 @@ fn parses_run_with_path() {
             feature_selection,
             ui,
             selection,
+            runtime_args,
         } => {
             assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
             assert!(feature_selection.enable_default);
             assert!(feature_selection.explicit.is_empty());
             assert_eq!(ui, UiOptions::default());
             assert_eq!(selection, RunSelection::DefaultBin);
+            assert!(runtime_args.is_empty());
+        }
+        other => panic!("expected run command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_run_passthrough_args_after_separator() {
+    let cmd = parse_args([
+        "run".to_string(),
+        "-p".to_string(),
+        "demo".to_string(),
+        "--".to_string(),
+        "--help".to_string(),
+        "--color=never".to_string(),
+        "plain".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Run {
+            path, runtime_args, ..
+        } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert_eq!(
+                runtime_args,
+                vec![
+                    "--help".to_string(),
+                    "--color=never".to_string(),
+                    "plain".to_string()
+                ]
+            );
         }
         other => panic!("expected run command, got {other:?}"),
     }
@@ -697,6 +833,18 @@ fn parses_run_example_selector() {
 }
 
 #[test]
+fn parses_short_bin_alias_for_run() {
+    let cmd = parse_args(["run".to_string(), "-b".to_string(), "helper".to_string()]).unwrap();
+
+    match cmd {
+        Command::Run { selection, .. } => {
+            assert_eq!(selection, RunSelection::Bin("helper".to_string()));
+        }
+        other => panic!("expected run command, got {other:?}"),
+    }
+}
+
+#[test]
 fn parses_test_with_inline_feature_option() {
     let cmd = parse_args(["test".to_string(), "--features=simd".to_string()]).unwrap();
 
@@ -705,12 +853,41 @@ fn parses_test_with_inline_feature_option() {
             path,
             feature_selection,
             ui,
+            runtime_args,
         } => {
             assert!(path.is_none());
             assert!(feature_selection.enable_default);
             assert_eq!(feature_selection.explicit.len(), 1);
             assert!(feature_selection.explicit.contains("simd"));
             assert_eq!(ui, UiOptions::default());
+            assert!(runtime_args.is_empty());
+        }
+        other => panic!("expected test command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_test_passthrough_args_after_separator() {
+    let cmd = parse_args([
+        "test".to_string(),
+        "--features=simd".to_string(),
+        "--".to_string(),
+        "--filter".to_string(),
+        "smoke".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Test {
+            feature_selection,
+            runtime_args,
+            ..
+        } => {
+            assert!(feature_selection.explicit.contains("simd"));
+            assert_eq!(
+                runtime_args,
+                vec!["--filter".to_string(), "smoke".to_string()]
+            );
         }
         other => panic!("expected test command, got {other:?}"),
     }
@@ -818,6 +995,13 @@ fn rejects_examples_flag_for_non_build_commands() {
 }
 
 #[test]
+fn rejects_passthrough_separator_for_non_runtime_commands() {
+    let err =
+        parse_args(["build".to_string(), "--".to_string(), "--flag".to_string()]).unwrap_err();
+    assert!(err.to_string().contains("only accepted by `craft run`"));
+}
+
+#[test]
 fn rejects_multiple_run_target_selectors() {
     let err = parse_args([
         "run".to_string(),
@@ -908,7 +1092,7 @@ fn summarize_source_security_respects_allowlists_and_warn_mode() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [craft]
 release-source-policy = "warn"
@@ -1375,6 +1559,7 @@ fn test_command_waits_for_workspace_root_lock_for_member_paths() {
             path: Some(member),
             feature_selection: FeatureSelection::default(),
             ui: UiOptions::default(),
+            runtime_args: Vec::new(),
         })
         .unwrap();
         start.elapsed()
@@ -1520,6 +1705,7 @@ fn run_command_can_execute_selected_example() {
         feature_selection: FeatureSelection::default(),
         ui: UiOptions::default(),
         selection: RunSelection::Example("sample".to_string()),
+        runtime_args: Vec::new(),
     })
     .unwrap();
 
@@ -1534,6 +1720,39 @@ fn run_command_can_execute_selected_example() {
             .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
             .exists()
     );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn run_command_passes_runtime_args_to_bin() {
+    let root = temp_dir("craft-cli-run-args");
+    write_arg_check_bin_package(&root, "--version", "two words");
+
+    run_command(Command::Run {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        selection: RunSelection::DefaultBin,
+        runtime_args: vec!["--version".to_string(), "two words".to_string()],
+    })
+    .unwrap();
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn test_command_passes_runtime_args_to_test_targets() {
+    let root = temp_dir("craft-cli-test-args");
+    write_arg_check_test_package(&root, "--filter", "smoke");
+
+    run_command(Command::Test {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        runtime_args: vec!["--filter".to_string(), "smoke".to_string()],
+    })
+    .unwrap();
 
     let _ = fs::remove_dir_all(root);
 }
@@ -1611,7 +1830,7 @@ fn build_command_uses_workspace_root_outputs_for_member_paths() {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "member"
@@ -1651,7 +1870,7 @@ fn build_command_member_path_does_not_build_workspace_root_package() {
 [package]
 name = "rootpkg"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "rootpkg"
@@ -1669,7 +1888,7 @@ members = ["member"]
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "member"
@@ -1712,7 +1931,7 @@ fn build_auto_syncs_lockfile_and_rebuilds_without_clean() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "demo"
@@ -1753,7 +1972,7 @@ fn publish_auto_syncs_release_lock_and_checks_metadata() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 description = "Demo package"
 license = "MIT"
 authors = ["Demo <demo@example.com>"]
@@ -1821,7 +2040,7 @@ repository = "https://example.com/workspace"
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [[bin]]
 name = "member"

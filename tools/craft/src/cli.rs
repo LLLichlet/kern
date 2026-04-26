@@ -75,11 +75,13 @@ pub enum Command {
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
         selection: RunSelection,
+        runtime_args: Vec<String>,
     },
     Test {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
+        runtime_args: Vec<String>,
     },
 }
 
@@ -203,19 +205,24 @@ where
     I: IntoIterator<Item = String>,
 {
     let args: Vec<String> = args.into_iter().collect();
+    let cli_args = args_before_separator(&args);
     let Some((cmd, rest)) = args.split_first() else {
         return Ok(Command::Help {
             topic: HelpTopic::Overview,
-            color: parse_help_color(&args)?,
+            color: parse_help_color(cli_args)?,
         });
     };
     if cmd == "--version" || cmd == "-V" || (cmd == "-v" && rest.is_empty()) {
         return Ok(Command::Version);
     }
-    if rest.iter().any(|arg| arg == "--version" || arg == "-V") {
+    let rest_cli_args = args_before_separator(rest);
+    if rest_cli_args
+        .iter()
+        .any(|arg| arg == "--version" || arg == "-V")
+    {
         return Ok(Command::Version);
     }
-    let help_color = parse_help_color(&args)?;
+    let help_color = parse_help_color(cli_args)?;
     if cmd == "help" {
         return match rest {
             [] => Ok(Command::Help {
@@ -237,7 +244,10 @@ where
             color: help_color,
         });
     }
-    if rest.iter().any(|arg| arg == "--help" || arg == "-h") {
+    if rest_cli_args
+        .iter()
+        .any(|arg| arg == "--help" || arg == "-h")
+    {
         if known_command(cmd) {
             return Ok(Command::Help {
                 topic: HelpTopic::Command(cmd.clone()),
@@ -330,14 +340,16 @@ where
                 feature_selection: options.feature_selection,
                 ui: options.ui,
                 selection: parse_run_selection(options.bin_name, options.example_name)?,
+                runtime_args: options.runtime_args,
             })
         }
         "test" => {
-            let options = parse_command_options(rest, default_option_mode("test"))?;
+            let options = parse_command_options(rest, test_option_mode())?;
             Ok(Command::Test {
                 path: options.path,
                 feature_selection: options.feature_selection,
                 ui: options.ui,
+                runtime_args: options.runtime_args,
             })
         }
         _ => Err(Error::Usage(format!(
@@ -355,6 +367,7 @@ struct CommandOptionMode {
     allow_bin_selection: bool,
     allow_example_selection: bool,
     allow_install_root: bool,
+    allow_runtime_args: bool,
 }
 
 struct ParsedCommandOptions {
@@ -365,6 +378,7 @@ struct ParsedCommandOptions {
     bin_name: Option<String>,
     example_name: Option<String>,
     install_root: Option<PathBuf>,
+    runtime_args: Vec<String>,
 }
 
 fn init_option_mode() -> CommandOptionMode {
@@ -375,6 +389,7 @@ fn init_option_mode() -> CommandOptionMode {
         allow_bin_selection: false,
         allow_example_selection: false,
         allow_install_root: false,
+        allow_runtime_args: false,
     }
 }
 
@@ -386,6 +401,7 @@ fn clean_option_mode() -> CommandOptionMode {
         allow_bin_selection: false,
         allow_example_selection: false,
         allow_install_root: false,
+        allow_runtime_args: false,
     }
 }
 
@@ -397,6 +413,7 @@ fn default_option_mode(command_name: &'static str) -> CommandOptionMode {
         allow_bin_selection: false,
         allow_example_selection: false,
         allow_install_root: false,
+        allow_runtime_args: false,
     }
 }
 
@@ -408,6 +425,7 @@ fn build_option_mode() -> CommandOptionMode {
         allow_bin_selection: false,
         allow_example_selection: false,
         allow_install_root: false,
+        allow_runtime_args: false,
     }
 }
 
@@ -419,6 +437,7 @@ fn install_option_mode() -> CommandOptionMode {
         allow_bin_selection: true,
         allow_example_selection: false,
         allow_install_root: true,
+        allow_runtime_args: false,
     }
 }
 
@@ -430,6 +449,7 @@ fn uninstall_option_mode() -> CommandOptionMode {
         allow_bin_selection: true,
         allow_example_selection: false,
         allow_install_root: true,
+        allow_runtime_args: false,
     }
 }
 
@@ -441,6 +461,19 @@ fn run_option_mode() -> CommandOptionMode {
         allow_bin_selection: true,
         allow_example_selection: true,
         allow_install_root: false,
+        allow_runtime_args: true,
+    }
+}
+
+fn test_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        command_name: "test",
+        allow_feature_selection: true,
+        allow_examples: false,
+        allow_bin_selection: false,
+        allow_example_selection: false,
+        allow_install_root: false,
+        allow_runtime_args: true,
     }
 }
 
@@ -457,10 +490,21 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
     let mut bin_name: Option<String> = None;
     let mut example_name: Option<String> = None;
     let mut install_root: Option<PathBuf> = None;
+    let mut runtime_args = Vec::new();
     let mut idx = 0;
 
     while idx < args.len() {
         let arg = &args[idx];
+        if arg == "--" {
+            if !mode.allow_runtime_args {
+                return Err(Error::Usage(format!(
+                    "`--` is only accepted by `craft run` and `craft test`\n\n{}",
+                    mode_usage_text(mode)
+                )));
+            }
+            runtime_args.extend_from_slice(&args[idx + 1..]);
+            break;
+        }
         if arg == "--verbose" || arg == "-v" {
             ui.verbose = true;
             idx += 1;
@@ -482,7 +526,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             idx += 1;
             continue;
         }
-        if arg == "--bin" {
+        if arg == "--bin" || arg == "-b" {
             if !mode.allow_bin_selection {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
@@ -681,7 +725,16 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
         bin_name,
         example_name,
         install_root,
+        runtime_args,
     })
+}
+
+fn args_before_separator(args: &[String]) -> &[String] {
+    let end = args
+        .iter()
+        .position(|arg| arg == "--")
+        .unwrap_or(args.len());
+    &args[..end]
 }
 
 fn parse_run_selection(

@@ -121,8 +121,11 @@ runs:
       shell: powershell
       run: |
         $cachePath = "$env:GITHUB_WORKSPACE\.vcpkg-cache"
+        $libCachePath = "$env:GITHUB_WORKSPACE\.vcpkg-lib-cache"
         New-Item -ItemType Directory -Force -Path $cachePath | Out-Null
+        New-Item -ItemType Directory -Force -Path $libCachePath | Out-Null
         echo "VCPKG_DEFAULT_BINARY_CACHE=$cachePath" >> $env:GITHUB_ENV
+        echo "KERN_CI_WINDOWS_LIBXML2_CACHE=$libCachePath" >> $env:GITHUB_ENV
 
     - name: Cache vcpkg Binary Artifacts (Windows)
       if: runner.os == 'Windows' && env.KERN_CI_WINDOWS_VCPKG_PACKAGE != ''
@@ -131,11 +134,79 @@ runs:
         path: ${{ github.workspace }}\.vcpkg-cache
         key: ${{ runner.os }}-${{ env.KERN_CI_WINDOWS_VCPKG_CACHE_KEY }}
 
+    - name: Cache libxml2 Library (Windows)
+      if: runner.os == 'Windows' && env.KERN_CI_WINDOWS_VCPKG_PACKAGE != ''
+      uses: actions/cache@v5
+      with:
+        path: ${{ github.workspace }}\.vcpkg-lib-cache
+        key: ${{ runner.os }}-${{ env.KERN_CI_WINDOWS_VCPKG_CACHE_KEY }}-lib
+
     - name: Install libxml2 via vcpkg (Windows)
       if: runner.os == 'Windows' && env.KERN_CI_WINDOWS_VCPKG_PACKAGE != ''
       shell: powershell
       run: |
-        vcpkg install $env:KERN_CI_WINDOWS_VCPKG_PACKAGE "--binarysource=clear;files,$env:VCPKG_DEFAULT_BINARY_CACHE,readwrite"
+        $ErrorActionPreference = "Stop"
         $vcpkgLib = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib\libxml2.lib"
         $llvmLib = "$env:KERN_CI_INSTALL_DIR\lib\libxml2s.lib"
-        Copy-Item $vcpkgLib -Destination $llvmLib -Force
+        $cachedLib = Join-Path $env:KERN_CI_WINDOWS_LIBXML2_CACHE "libxml2.lib"
+
+        function Restore-Libxml2FromBinaryCache {
+          param(
+            [string] $CacheRoot,
+            [string] $Destination
+          )
+
+          if (-not (Test-Path $CacheRoot)) {
+            return $false
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archives = Get-ChildItem -Path $CacheRoot -Recurse -File -Include *.zip, *.nupkg -ErrorAction SilentlyContinue
+          foreach ($archive in $archives) {
+            try {
+              $zip = [System.IO.Compression.ZipFile]::OpenRead($archive.FullName)
+              try {
+                $entry = $null
+                foreach ($candidate in $zip.Entries) {
+                  $entryName = $candidate.FullName -replace '\\', '/'
+                  if ($entryName -match '(^|/)lib/libxml2\.lib$') {
+                    $entry = $candidate
+                    break
+                  }
+                }
+                if ($null -ne $entry) {
+                  New-Item -ItemType Directory -Force -Path (Split-Path $Destination) | Out-Null
+                  [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $Destination, $true)
+                  Write-Host "Restored libxml2.lib from vcpkg binary cache archive $($archive.FullName)"
+                  return $true
+                }
+              } finally {
+                $zip.Dispose()
+              }
+            } catch {
+              Write-Host "Skipping unreadable vcpkg cache archive $($archive.FullName): $($_.Exception.Message)"
+            }
+          }
+
+          return $false
+        }
+
+        if (-not (Test-Path $cachedLib)) {
+          $restored = Restore-Libxml2FromBinaryCache -CacheRoot $env:VCPKG_DEFAULT_BINARY_CACHE -Destination $cachedLib
+          if (-not $restored) {
+            vcpkg install $env:KERN_CI_WINDOWS_VCPKG_PACKAGE "--binarysource=clear;files,$env:VCPKG_DEFAULT_BINARY_CACHE,readwrite"
+            if ($LASTEXITCODE -ne 0) {
+              throw "vcpkg install failed with exit code $LASTEXITCODE"
+            }
+            if (-not (Test-Path $vcpkgLib)) {
+              throw "vcpkg install completed but expected library was not found: $vcpkgLib"
+            }
+            New-Item -ItemType Directory -Force -Path (Split-Path $cachedLib) | Out-Null
+            Copy-Item $vcpkgLib -Destination $cachedLib -Force
+          }
+        }
+
+        if (-not (Test-Path $cachedLib)) {
+          throw "libxml2.lib was not available after vcpkg setup: $cachedLib"
+        }
+        Copy-Item $cachedLib -Destination $llvmLib -Force

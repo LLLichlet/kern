@@ -917,6 +917,8 @@ fn trait_object_view_from_hierarchy_inner(
         // trait's declared assoc bindings.
         let enriched =
             augment_trait_object_assoc_bindings_from_map(ctx, substituted, &assoc_binding_map);
+        let enriched = ctx.normalize_concrete_type(enriched);
+        let enriched = ctx.type_registry.normalize(enriched);
         if let Some(found) = trait_object_view_from_hierarchy_inner(
             ctx,
             enriched,
@@ -940,7 +942,11 @@ fn trait_object_view_from_hierarchy_inner(
 fn target_trait_views_equivalent(ctx: &mut SemaContext<'_>, left: TypeId, right: TypeId) -> bool {
     let left = retain_declared_trait_object_assoc_bindings(ctx, left);
     let right = retain_declared_trait_object_assoc_bindings(ctx, right);
-    ctx.type_registry.normalize(left) == ctx.type_registry.normalize(right)
+    let left = ctx.normalize_concrete_type(left);
+    let left = ctx.type_registry.normalize(left);
+    let right = ctx.normalize_concrete_type(right);
+    let right = ctx.type_registry.normalize(right);
+    left == right
 }
 
 fn collect_trait_hierarchy_assoc_bindings(
@@ -950,6 +956,7 @@ fn collect_trait_hierarchy_assoc_bindings(
     assoc_binding_map: &mut FastHashMap<DefId, TypeId>,
     visited: &mut FastHashSet<TypeId>,
 ) {
+    let trait_ty = ctx.normalize_concrete_type(trait_ty);
     let trait_ty = ctx.type_registry.normalize(trait_ty);
     if !visited.insert(trait_ty) {
         return;
@@ -1000,6 +1007,8 @@ fn collect_trait_hierarchy_assoc_bindings(
         );
         let enriched =
             augment_trait_object_assoc_bindings_from_map(ctx, substituted, assoc_binding_map);
+        let enriched = ctx.normalize_concrete_type(enriched);
+        let enriched = ctx.type_registry.normalize(enriched);
         collect_trait_hierarchy_assoc_bindings(
             ctx,
             receiver_ty,

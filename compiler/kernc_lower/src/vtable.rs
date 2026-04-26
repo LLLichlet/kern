@@ -13,8 +13,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         available_trait_ty: TypeId,
         required_trait_ty: TypeId,
     ) -> bool {
-        let available_norm = self.ctx.type_registry.normalize(available_trait_ty);
-        let required_norm = self.ctx.type_registry.normalize(required_trait_ty);
+        let available_norm = self.ctx.normalize_concrete_type(available_trait_ty);
+        let available_norm = self.ctx.type_registry.normalize(available_norm);
+        let required_norm = self.ctx.normalize_concrete_type(required_trait_ty);
+        let required_norm = self.ctx.type_registry.normalize(required_norm);
 
         let (
             TypeKind::TraitObject(available_def_id, available_args, available_assoc_bindings),
@@ -77,7 +79,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn collect_transitive_supertraits(&mut self, trait_ty: TypeId) -> Vec<TypeId> {
-        let root_trait_ty = self.ctx.type_registry.normalize(trait_ty);
+        let root_trait_ty = self.ctx.normalize_concrete_type(trait_ty);
+        let root_trait_ty = self.ctx.type_registry.normalize(root_trait_ty);
         let mut supertraits = Vec::new();
         let mut visited = HashSet::new();
         self.collect_transitive_supertraits_inner(root_trait_ty, &mut visited, &mut supertraits);
@@ -164,7 +167,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             );
             let inst_super_ty = self
                 .augment_trait_object_assoc_bindings_from_map(inst_super_ty, &assoc_binding_map);
-            let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
+            let inst_super_norm = self.ctx.normalize_concrete_type(inst_super_ty);
+            let inst_super_norm = self.ctx.type_registry.normalize(inst_super_norm);
             if visited.insert(inst_super_norm) {
                 supertraits.push(inst_super_norm);
                 self.collect_transitive_supertraits_inner(inst_super_norm, visited, supertraits);
@@ -177,7 +181,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         trait_ty: TypeId,
         target_trait_ty: TypeId,
     ) -> Option<usize> {
-        let target_norm = self.ctx.type_registry.normalize(target_trait_ty);
+        let target_norm = self.ctx.normalize_concrete_type(target_trait_ty);
+        let target_norm = self.ctx.type_registry.normalize(target_norm);
         self.collect_transitive_supertraits(trait_ty)
             .iter()
             .position(|&super_ty| self.trait_object_satisfies_required(super_ty, target_norm))
@@ -188,8 +193,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         source_trait_ty: TypeId,
         target_trait_ty: TypeId,
     ) -> bool {
-        let source_norm = self.ctx.type_registry.normalize(source_trait_ty);
-        let target_norm = self.ctx.type_registry.normalize(target_trait_ty);
+        let source_norm = self.ctx.normalize_concrete_type(source_trait_ty);
+        let source_norm = self.ctx.type_registry.normalize(source_norm);
+        let target_norm = self.ctx.normalize_concrete_type(target_trait_ty);
+        let target_norm = self.ctx.type_registry.normalize(target_norm);
         self.trait_object_satisfies_required(source_norm, target_norm)
             || self
                 .vtable_supertrait_slot(source_norm, target_norm)
@@ -201,7 +208,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         trait_ty: TypeId,
         method_name: SymbolId,
     ) -> Option<usize> {
-        let trait_norm = self.ctx.type_registry.normalize(trait_ty);
+        let trait_norm = self.ctx.normalize_concrete_type(trait_ty);
+        let trait_norm = self.ctx.type_registry.normalize(trait_norm);
         let TypeKind::TraitObject(trait_def_id, _, _) =
             self.ctx.type_registry.get(trait_norm).clone()
         else {
@@ -227,7 +235,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MonoId {
         let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
         let norm_receiver = self.ctx.type_registry.normalize(receiver_ty);
-        let norm_trait = self.ctx.type_registry.normalize(trait_ty);
+        let norm_trait = self.ctx.normalize_concrete_type(trait_ty);
+        let norm_trait = self.ctx.type_registry.normalize(norm_trait);
         let key = (norm_data_ptr, norm_receiver, norm_trait);
         if let Some(&id) = self.vtable_cache.get(&key) {
             return id;
@@ -305,7 +314,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> Option<(ImplDef, Vec<kernc_sema::ty::GenericArg>)> {
         let norm_receiver = self.ctx.type_registry.normalize(receiver_ty);
         let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
-        let target_trait_norm = self.ctx.type_registry.normalize(target_trait_ty);
+        let target_trait_norm = self.ctx.normalize_concrete_type(target_trait_ty);
+        let target_trait_norm = self.ctx.type_registry.normalize(target_trait_norm);
         let target_trait_id = match self.ctx.type_registry.get(target_trait_norm) {
             TypeKind::TraitObject(id, _, _) => *id,
             _ => return None,

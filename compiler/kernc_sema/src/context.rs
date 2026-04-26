@@ -43,8 +43,10 @@ pub(crate) struct SemaQueryCacheState {
     pub(crate) impl_applicability_cache:
         FastHashMap<(TypeId, DefId), Option<Vec<crate::ty::GenericArg>>>,
     pub(crate) impl_requirement_cycle_cache: FastHashMap<DefId, Option<ImplRequirementCycle>>,
+    pub(crate) active_impl_requirement_cycle_queries: FastHashSet<DefId>,
     pub(crate) impl_paterson_boundedness_cache:
         FastHashMap<DefId, Option<NonDecreasingImplRequirement>>,
+    pub(crate) active_impl_paterson_boundedness_queries: FastHashSet<DefId>,
     pub(crate) generic_bounds_success_cache: FastHashSet<GenericBoundsCheckKey>,
     pub(crate) named_field_query_cache: FastHashMap<NamedFieldQueryKey, NamedFieldQueryValue>,
     pub(crate) member_resolution_query_cache:
@@ -60,7 +62,9 @@ impl SemaQueryCacheState {
         self.bound_trait_match_cache.clear();
         self.impl_applicability_cache.clear();
         self.impl_requirement_cycle_cache.clear();
+        self.active_impl_requirement_cycle_queries.clear();
         self.impl_paterson_boundedness_cache.clear();
+        self.active_impl_paterson_boundedness_queries.clear();
         self.generic_bounds_success_cache.clear();
         self.named_field_query_cache.clear();
         self.member_resolution_query_cache.clear();

@@ -968,6 +968,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 inst_super_ty,
                 &assoc_binding_map,
             );
+            let inst_super_norm = self.ctx.normalize_concrete_type(inst_super_norm);
+            let inst_super_norm = self.ctx.type_registry.normalize(inst_super_norm);
 
             let super_trait = match self.ctx.type_registry.get(inst_super_norm) {
                 TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => Some((
@@ -1123,6 +1125,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 inst_super_ty,
                 &assoc_binding_map,
             );
+            let inst_super_norm = self.ctx.normalize_concrete_type(inst_super_norm);
+            let inst_super_norm = self.ctx.type_registry.normalize(inst_super_norm);
 
             let super_trait = match self.ctx.type_registry.get(inst_super_norm) {
                 TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => Some((

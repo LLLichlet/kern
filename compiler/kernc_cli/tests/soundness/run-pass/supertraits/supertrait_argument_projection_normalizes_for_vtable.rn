@@ -1,0 +1,46 @@
+// exit: 0
+
+type Base[T] = trait {
+    get: fn() T,
+};
+
+type HasOut = trait {
+    type Out;
+};
+
+type Derived[T]: HasOut + Base[T.HasOut.Out] = trait {
+    tag: fn() i32,
+};
+
+type X = struct {};
+
+impl *X: HasOut {
+    type Out = i32;
+}
+
+impl *X: Base[i32] {
+    fn get() i32 {
+        return 5;
+    }
+}
+
+impl *X: Derived[*X] {
+    fn tag() i32 {
+        return 7;
+    }
+}
+
+fn via_inherited_method(d: *Derived[*X]) i32 {
+    return d.get();
+}
+
+fn via_explicit_upcast(d: *Derived[*X]) i32 {
+    let base = *Base[i32].{ d };
+    return base.get();
+}
+
+fn main() i32 {
+    let x = X.{};
+    let d = *Derived[*X].{ x.& };
+    return via_inherited_method(d) + via_explicit_upcast(d) + d.tag() - 17;
+}

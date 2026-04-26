@@ -111,8 +111,22 @@ impl<'a> SemaContext<'a> {
         {
             return cached;
         }
+        if !self
+            .analysis
+            .query_caches
+            .active_impl_requirement_cycle_queries
+            .insert(impl_id)
+        {
+            // A nested proof/projection query can ask about the impl currently being checked.
+            // Let the outer traversal finish the actual cycle diagnosis instead of recursing.
+            return None;
+        }
 
         let cycle = self.compute_indirect_impl_requirement_cycle(impl_id);
+        self.analysis
+            .query_caches
+            .active_impl_requirement_cycle_queries
+            .remove(&impl_id);
         self.analysis
             .query_caches
             .impl_requirement_cycle_cache
@@ -516,6 +530,7 @@ impl<'a> SemaContext<'a> {
                 self,
                 substituted_supertrait,
             );
+            let substituted_supertrait = self.normalize_concrete_type(substituted_supertrait);
             let substituted_supertrait = self.type_registry.normalize(substituted_supertrait);
             if !matches!(
                 self.type_registry.get(substituted_supertrait),
@@ -563,8 +578,22 @@ impl<'a> SemaContext<'a> {
         {
             return cached;
         }
+        if !self
+            .analysis
+            .query_caches
+            .active_impl_paterson_boundedness_queries
+            .insert(impl_id)
+        {
+            // Boundedness is a local admissibility filter for recursive proof search. Re-entry
+            // should not become its own overflow before the outer query reaches a verdict.
+            return None;
+        }
 
         let violation = self.compute_non_decreasing_impl_requirement(impl_id);
+        self.analysis
+            .query_caches
+            .active_impl_paterson_boundedness_queries
+            .remove(&impl_id);
         self.analysis
             .query_caches
             .impl_paterson_boundedness_cache

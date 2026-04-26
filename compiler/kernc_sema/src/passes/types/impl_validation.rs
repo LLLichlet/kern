@@ -115,6 +115,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 self.ctx,
                 instantiated_super,
             );
+            let instantiated_super = self.ctx.normalize_concrete_type(instantiated_super);
             let instantiated_super = self.ctx.type_registry.normalize(instantiated_super);
             if instantiated_super == TypeId::ERROR {
                 continue;

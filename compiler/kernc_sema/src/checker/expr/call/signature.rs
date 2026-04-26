@@ -478,6 +478,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 substituted,
                 &assoc_binding_map,
             );
+            let enriched = self.ctx.normalize_concrete_type(enriched);
+            let enriched = self.ctx.type_registry.normalize(enriched);
             self.collect_trait_object_hierarchy_candidates(
                 enriched,
                 target_trait_def_id,

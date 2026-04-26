@@ -1029,9 +1029,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 elem,
                                 &assoc_binding_map,
                             );
-                            crate::query::retain_declared_trait_object_assoc_bindings(
+                            let elem = crate::query::retain_declared_trait_object_assoc_bindings(
                                 self.ctx, elem,
-                            )
+                            );
+                            self.ctx.normalize_concrete_type(elem)
                         }
                         _ => crate::query::enrich_trait_object_assoc_bindings(
                             self.ctx,
@@ -1054,9 +1055,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 elem,
                                 &assoc_binding_map,
                             );
-                            crate::query::retain_declared_trait_object_assoc_bindings(
+                            let elem = crate::query::retain_declared_trait_object_assoc_bindings(
                                 self.ctx, elem,
-                            )
+                            );
+                            self.ctx.normalize_concrete_type(elem)
                         }
                         _ => crate::query::enrich_trait_object_assoc_bindings(
                             self.ctx,

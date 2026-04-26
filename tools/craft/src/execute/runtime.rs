@@ -3,6 +3,8 @@ use crate::build_plan::{ActionPlan, BuildPlan, BuildUnit, LinkAction};
 use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(test)]
+use std::process::Stdio;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunSummary {
@@ -102,8 +104,19 @@ fn runtime_command(executable_path: &Path, action: &LinkAction, workspace_root: 
     command.current_dir(&action.package_root_path);
     command.env("CRAFT_WORKSPACE_ROOT", workspace_root);
     command.env("CRAFT_PACKAGE_ROOT", &action.package_root_path);
+    configure_runtime_stdio_for_tests(&mut command);
     command
 }
+
+#[cfg(test)]
+fn configure_runtime_stdio_for_tests(command: &mut Command) {
+    if std::env::var_os("CRAFT_TEST_INHERIT_RUNTIME_OUTPUT").is_none() {
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+    }
+}
+
+#[cfg(not(test))]
+fn configure_runtime_stdio_for_tests(_command: &mut Command) {}
 
 fn find_link_action<'a>(action_plan: &'a ActionPlan, unit: &BuildUnit) -> Result<&'a LinkAction> {
     action_plan

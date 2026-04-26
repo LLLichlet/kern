@@ -20,6 +20,7 @@ pub(super) struct Renderer {
     timings: bool,
     color_enabled: bool,
     terminal_output: bool,
+    quiet: bool,
 }
 
 pub(super) struct ProgressDisplay {
@@ -48,7 +49,8 @@ impl Renderer {
     const LABEL_WIDTH: usize = 10;
 
     pub(super) fn new(ui: UiOptions) -> Self {
-        let terminal_output = std::io::stderr().is_terminal();
+        let quiet = test_ui_output_is_suppressed();
+        let terminal_output = !quiet && std::io::stderr().is_terminal();
         let color_enabled = match ui.color {
             ColorChoice::Always => true,
             ColorChoice::Never => false,
@@ -60,6 +62,7 @@ impl Renderer {
             timings: ui.timings,
             color_enabled,
             terminal_output,
+            quiet,
         }
     }
 
@@ -70,6 +73,9 @@ impl Renderer {
         manifest_path: &std::path::Path,
         feature_selection: &elaborate::FeatureSelection,
     ) {
+        if self.quiet {
+            return;
+        }
         let marker = self.paint(Tone::Accent, "==>");
         let command = self.paint(Tone::Accent, command);
         println!("{marker} {command} {}", format_package_label(manifest));
@@ -80,6 +86,9 @@ impl Renderer {
     }
 
     pub(super) fn meta(&self, label: &str, value: impl Display) {
+        if self.quiet {
+            return;
+        }
         let label = self.paint(
             Tone::Muted,
             &format!("{label:<width$}", width = Self::LABEL_WIDTH),
@@ -88,6 +97,9 @@ impl Renderer {
     }
 
     pub(super) fn summary(&self, label: &str, value: impl Display) {
+        if self.quiet {
+            return;
+        }
         let label = self.paint(
             Tone::Muted,
             &format!("{label:<width$}", width = Self::LABEL_WIDTH),
@@ -96,7 +108,7 @@ impl Renderer {
     }
 
     pub(super) fn section(&self, name: &str) {
-        if !self.verbose {
+        if self.quiet || !self.verbose {
             return;
         }
         let marker = self.paint(Tone::Muted, "--");
@@ -111,7 +123,7 @@ impl Renderer {
         subject: impl Display,
         detail: impl Display,
     ) {
-        if !self.verbose {
+        if self.quiet || !self.verbose {
             return;
         }
         let kind = self.paint(tone, &format!("{kind:<8}"));
@@ -119,6 +131,9 @@ impl Renderer {
     }
 
     pub(super) fn ok(&self, message: impl Display) {
+        if self.quiet {
+            return;
+        }
         println!("{} {message}", self.paint(Tone::Ok, "[ok]"));
     }
 
@@ -131,7 +146,7 @@ impl Renderer {
         command: &'static str,
         plan: execute::ExecutionProgressPlan,
     ) -> Option<ProgressDisplay> {
-        if self.verbose || !self.terminal_output || plan.is_empty() {
+        if self.quiet || self.verbose || !self.terminal_output || plan.is_empty() {
             return None;
         }
 
@@ -154,6 +169,16 @@ impl Renderer {
         };
         format!("\x1b[{code}m{text}\x1b[0m")
     }
+}
+
+#[cfg(test)]
+fn test_ui_output_is_suppressed() -> bool {
+    std::env::var_os("CRAFT_TEST_SHOW_UI").is_none()
+}
+
+#[cfg(not(test))]
+fn test_ui_output_is_suppressed() -> bool {
+    false
 }
 
 impl ProgressDisplay {

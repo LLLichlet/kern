@@ -201,7 +201,6 @@ fn spawn_command_subprocess_with_failpoint(
 ) -> Child {
     let current_exe = std::env::current_exe().unwrap();
     ProcessCommand::new(current_exe)
-        .arg("--ignored")
         .arg("--exact")
         .arg("cli::tests::subprocess_runs_command_until_killed")
         .arg("--nocapture")
@@ -1324,7 +1323,6 @@ fn test_command_recovers_after_killed_process_leaves_partial_link_state() {
 }
 
 #[test]
-#[ignore]
 fn subprocess_runs_command_until_killed() {
     let Ok(mode) = std::env::var("CRAFT_TEST_SUBPROCESS_MODE") else {
         return;

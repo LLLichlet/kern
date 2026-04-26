@@ -708,20 +708,124 @@ type Node = struct {
     color: Color,
     left: Leaf,
     right: Leaf,
+    weight: i32,
 };
 
 fn classify(tree: Tree) i32 {
     return match (tree) {
         .E => 0,
-        Tree.{ T: Node.{ color: Color.R, left: Leaf.E, right: Leaf.E } } => 1,
+        Tree.{ T: Node.{ color: Color.R, left: Leaf.E, right: Leaf.E, weight: 9 } } => 1,
         _ => 2,
     };
 }
 
 fn main() i32 {
-    let hit = classify(Tree.{ T: Node.{ color: Color.R, left: Leaf.E, right: Leaf.E } });
-    let miss = classify(Tree.{ T: Node.{ color: Color.B, left: Leaf.E, right: Leaf.E } });
-    return classify(Tree.E) + hit + miss - 3;
+    let hit = classify(Tree.{ T: Node.{ color: Color.R, left: Leaf.E, right: Leaf.E, weight: 9 } });
+    let miss_color = classify(Tree.{ T: Node.{ color: Color.B, left: Leaf.E, right: Leaf.E, weight: 9 } });
+    let miss_int = classify(Tree.{ T: Node.{ color: Color.R, left: Leaf.E, right: Leaf.E, weight: 10 } });
+    return classify(Tree.E) + hit + miss_color + miss_int - 5;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn lowers_scalar_enum_payload_value_pattern_structurally() {
+    let output = build_and_run_source(
+        r#"
+type Slot = enum {
+    Empty,
+    Count: i32,
+};
+
+fn classify(slot: Slot) i32 {
+    return match (slot) {
+        .Empty => 0,
+        Slot.{ Count: 7 } => 1,
+        _ => 2,
+    };
+}
+
+fn main() i32 {
+    return classify(Slot.Empty) + classify(Slot.{ Count: 7 }) + classify(Slot.{ Count: 8 }) - 3;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn lowers_struct_value_pattern_scalar_fields_structurally() {
+    let output = build_and_run_source(
+        r#"
+type Pair = struct {
+    left: i32,
+    right: i32,
+};
+
+fn classify(pair: Pair) i32 {
+    return match (pair) {
+        Pair.{ left: 1, right: 2 } => 5,
+        _ => 9,
+    };
+}
+
+fn main() i32 {
+    return classify(Pair.{ left: 1, right: 2 })
+        + classify(Pair.{ left: 1, right: 3 })
+        - 14;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn lowers_nested_enum_payload_value_pattern_structurally() {
+    let output = build_and_run_source(
+        r#"
+type Maybe = enum {
+    None,
+    Some: i32,
+};
+
+type Holder = struct {
+    item: Maybe,
+    flag: bool,
+};
+
+fn classify(holder: Holder) i32 {
+    return match (holder) {
+        Holder.{ item: Maybe.{ Some: 7 }, flag: true } => 3,
+        Holder.{ item: .None, flag: false } => 4,
+        _ => 9,
+    };
+}
+
+fn main() i32 {
+    return classify(Holder.{ item: Maybe.{ Some: 7 }, flag: true })
+        + classify(Holder.{ item: Maybe.{ Some: 8 }, flag: true })
+        + classify(Holder.{ item: Maybe.None, flag: false })
+        - 16;
 }
 "#,
     );

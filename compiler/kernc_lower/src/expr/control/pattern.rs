@@ -170,7 +170,45 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     Some(cond)
                 }
             }
+            _ if self.value_pattern_can_use_builtin_equality(target_ty) => {
+                let value_expr = self.lower_expr(value, subst_map, Some(target_ty));
+                Some(MastExpr::new(
+                    TypeId::BOOL,
+                    MastExprKind::Binary {
+                        op: ast::BinaryOperator::Equal,
+                        lhs: Box::new(target_expr.clone()),
+                        rhs: Box::new(value_expr),
+                    },
+                    span,
+                ))
+            }
             _ => None,
+        }
+    }
+
+    fn value_pattern_can_use_builtin_equality(&mut self, target_ty: TypeId) -> bool {
+        let norm = self.normalize_concrete_type(target_ty);
+        if norm == TypeId::BOOL
+            || self.ctx.type_registry.is_integer(norm)
+            || self.ctx.type_registry.is_float(norm)
+        {
+            return true;
+        }
+
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Enum(def_id, _) => {
+                let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
+                    return false;
+                };
+                def.variants
+                    .iter()
+                    .all(|variant| variant.payload_type.is_none())
+            }
+            TypeKind::AnonymousEnum(def) => def
+                .variants
+                .iter()
+                .all(|variant| variant.payload_ty.is_none()),
+            _ => false,
         }
     }
 

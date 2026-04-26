@@ -56,7 +56,7 @@ For a minimal freestanding package, keep startup ownership explicit in
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [runtime]
 entry = "none"
@@ -325,7 +325,7 @@ Example:
 [package]
 name = "http"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 publish = false
 
 [runtime]

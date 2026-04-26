@@ -138,7 +138,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [dependencies]
 log = { git = "https://example.com/log.git", tag = "v1" }
@@ -151,7 +151,7 @@ log = { git = "https://example.com/log.git", tag = "v1" }
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [dependencies]
 log = { git = "https://example.com/log.git", tag = "v1" }
@@ -199,7 +199,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 
 [dependencies]
 util = { path = "../util" }
@@ -213,7 +213,7 @@ log = { git = "https://example.com/log.git", branch = "main" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.1"
+kern = "0.7.2"
 "#,
         )
         .unwrap();

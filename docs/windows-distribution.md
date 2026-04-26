@@ -1,7 +1,7 @@
 # Windows Distribution Guide
 
 This document describes the Windows host-tool distribution policy for the
-current 0.7.1 toolchain.
+current 0.7.2 toolchain.
 
 It keeps three concerns separate:
 
@@ -116,7 +116,7 @@ The repository Python operations entry point is the canonical Windows packaging
 entry point:
 
 ```powershell
-py -3 -m ops release package --version v0.7.1 --target x86_64-windows-msvc
+py -3 -m ops release package --version v0.7.2 --target x86_64-windows-msvc
 ```
 
 The script currently enforces the important Windows-specific rules:
@@ -176,14 +176,14 @@ standalone development toolchain archive. Installer UX still matters:
 The offline-install path should be documented concretely. A correct example is:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.1-x86_64-windows-msvc.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Archive .\kern-v0.7.2-x86_64-windows-msvc.zip
 ```
 
 If the archive filename no longer contains the release tag, users should pass
 the version explicitly:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.1 -Archive .\kern.zip
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.7.2 -Archive .\kern.zip
 ```
 
 The Python `ops` entrypoints remain valid for CI and repository engineering,

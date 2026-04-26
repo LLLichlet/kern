@@ -65,7 +65,7 @@ fn resolves_workspace_local_library_aliases_for_analysis() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -82,7 +82,7 @@ util = { path = \"../util\" }
 [package]
 name = \"util\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -128,7 +128,7 @@ fn bin_analysis_maps_current_package_name_to_local_library_root() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -174,7 +174,7 @@ fn resolves_external_path_dependency_aliases_for_analysis() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -191,7 +191,7 @@ util = { path = \"../deps/util\" }
 [package]
 name = \"util\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -229,7 +229,7 @@ fn library_analysis_keeps_lib_runtime_defaults_even_with_runtime_section() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [runtime]
 entry = \"rt\"
@@ -266,7 +266,7 @@ fn test_analysis_applies_runtime_section_to_tests() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [runtime]
 entry = \"rt\"
@@ -306,7 +306,7 @@ fn prefers_exact_named_target_root_over_library_root() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -352,7 +352,7 @@ fn prefers_named_target_module_directory_over_library_root() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -409,7 +409,7 @@ fn resolves_package_craft_script_with_sdk_alias_even_when_library_exists() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -462,7 +462,7 @@ fn resolves_workspace_craft_script_with_sdk_alias() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [[bin]]
 name = \"app\"
@@ -504,7 +504,7 @@ fn resolve_for_file_applies_build_cfg_and_define_values() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [features]
 experimental = []
@@ -562,7 +562,7 @@ fn resolve_for_file_prefers_persisted_analysis_context_without_explicit_features
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [features]
 experimental = []
@@ -636,7 +636,7 @@ fn resolve_for_generated_source_root_uses_analysis_unit_matching() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [[bin]]
 name = \"app\"
@@ -719,7 +719,7 @@ fn resolve_for_copied_template_source_uses_generated_unit_root() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [[bin]]
 name = \"app\"
@@ -798,7 +798,7 @@ fn explicit_feature_selection_overrides_persisted_analysis_context() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 
 [features]
 experimental = []
@@ -859,7 +859,7 @@ fn resolve_project_manifest_path_handles_nonexistent_generated_descendant() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.1\"
+kern = \"0.7.2\"
 ",
     )
     .unwrap();

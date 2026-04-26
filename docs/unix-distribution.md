@@ -1,7 +1,7 @@
 # Unix Distribution Guide
 
 This document describes the Linux and macOS host-tool distribution policy for
-the current 0.7.1 toolchain.
+the current 0.7.2 toolchain.
 
 It keeps three concerns separate:
 
@@ -142,15 +142,15 @@ distribution compatibility.
 For release-quality host-native Unix archives:
 
 ```bash
-python3 -m ops release package --version v0.7.1 --target <host-target>
+python3 -m ops release package --version v0.7.2 --target <host-target>
 ```
 
 Examples:
 
 ```bash
-python3 -m ops release package --version v0.7.1 --target x86_64-linux-gnu
-python3 -m ops release package --version v0.7.1 --target x86_64-apple-darwin
-python3 -m ops release package --version v0.7.1 --target aarch64-apple-darwin
+python3 -m ops release package --version v0.7.2 --target x86_64-linux-gnu
+python3 -m ops release package --version v0.7.2 --target x86_64-apple-darwin
+python3 -m ops release package --version v0.7.2 --target aarch64-apple-darwin
 ```
 
 The important policy point is that `<host-target>` is a host label, not a free
@@ -163,7 +163,7 @@ The repository Python operations entry point is the canonical packaging entry
 point:
 
 ```bash
-python3 -m ops release package --version v0.7.1 --target <host-target>
+python3 -m ops release package --version v0.7.2 --target <host-target>
 ```
 
 The script should enforce the important Unix-specific rules:

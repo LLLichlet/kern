@@ -384,7 +384,7 @@ mod tests {
         let manifest_path = root.join("Craft.toml");
         fs::write(
             &manifest_path,
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nkern = \"0.7.1\"\n",
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nkern = \"0.7.2\"\n",
         )
         .unwrap();
         let source_path = root.join("src/main.rn");

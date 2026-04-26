@@ -289,6 +289,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         assoc_def_id: DefId,
         assoc_args: &[crate::ty::GenericArg],
     ) -> Option<TypeId> {
+        if self.type_contains_unresolved_params(target_ty)
+            || trait_args
+                .iter()
+                .copied()
+                .any(|arg| self.generic_arg_contains_unresolved_params(arg))
+            || assoc_args
+                .iter()
+                .copied()
+                .any(|arg| self.generic_arg_contains_unresolved_params(arg))
+        {
+            return None;
+        }
+
         let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.impl_index.trait_impls.as_slice());
         let mut selected: Option<(DefId, TypeId)> = None;
 
@@ -351,6 +364,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         selected.map(|(_, assoc_ty)| assoc_ty)
+    }
+
+    fn generic_arg_contains_unresolved_params(&mut self, arg: crate::ty::GenericArg) -> bool {
+        match arg {
+            crate::ty::GenericArg::Type(ty) => self.type_contains_unresolved_params(ty),
+            crate::ty::GenericArg::Const(value) => {
+                self.ctx.type_registry.const_generic_contains_params(value)
+            }
+        }
     }
 
     pub(crate) fn constrain_numeric_type_var(&mut self, vid: u32, candidates: u16) -> bool {

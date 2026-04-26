@@ -329,6 +329,15 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             self.ctx.analysis.expr_timing_stats.access_field_query_bound += started.elapsed();
         }
 
+        if let Some(resolution) = self.resolve_projection_assoc_bound_method(
+            search_norm,
+            receiver_ty,
+            member_name,
+            access_span,
+        ) {
+            return Some(resolution);
+        }
+
         let started = self.ctx.collects_timings().then(Instant::now);
         let resolution = self
             .resolve_named_impl_method(search_norm, member_name, Some(access_span))

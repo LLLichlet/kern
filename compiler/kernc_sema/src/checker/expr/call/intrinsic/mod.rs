@@ -80,7 +80,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub(super) fn type_contains_unresolved_params(&mut self, ty: TypeId) -> bool {
+    pub(crate) fn type_contains_unresolved_params(&mut self, ty: TypeId) -> bool {
         let norm = self.ctx.type_registry.normalize(ty);
         match self.ctx.type_registry.get(norm).clone() {
             TypeKind::Param(_) | TypeKind::TypeVar(_) => true,

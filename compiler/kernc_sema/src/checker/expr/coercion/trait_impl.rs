@@ -784,7 +784,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        // === 2. Fall back to globally collected impl blocks ===
+        // === 2. Associated type declarations can constrain the projection itself.
+        if self.check_projection_assoc_type_bounds(source_ty, target_trait_ty, visited) {
+            return true;
+        }
+
+        // === 3. Fall back to globally collected impl blocks ===
         if self.check_trait_impl_in_global_impls(source_ty, target_trait_ty, visited) {
             return true;
         }
@@ -814,6 +819,69 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return true;
             }
         }
+        false
+    }
+
+    fn check_projection_assoc_type_bounds(
+        &mut self,
+        source_ty: TypeId,
+        target_trait_ty: TypeId,
+        _visited: &mut FastHashSet<DefId>,
+    ) -> bool {
+        let source_norm = self.resolve_tv(source_ty);
+        let TypeKind::Projection {
+            target,
+            trait_def_id,
+            trait_args,
+            assoc_def_id,
+            assoc_args,
+        } = self.ctx.type_registry.get(source_norm).clone()
+        else {
+            return false;
+        };
+
+        let owner_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def_id,
+            trait_args.clone(),
+            Vec::new(),
+        ));
+        if !self.check_trait_impl(target, owner_trait_ty) {
+            return false;
+        }
+
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned()
+        else {
+            return false;
+        };
+        let Some(Def::AssociatedType(assoc_def)) =
+            self.ctx.defs.get(assoc_def_id.0 as usize).cloned()
+        else {
+            return false;
+        };
+        if assoc_def.parent_trait != Some(trait_def_id) {
+            return false;
+        }
+
+        let mut subst_map = FastHashMap::default();
+        for (param, arg) in trait_def.generics.iter().zip(trait_args.iter().copied()) {
+            subst_map.insert(param.name, arg);
+        }
+        for (param, arg) in assoc_def.generics.iter().zip(assoc_args.iter().copied()) {
+            subst_map.insert(param.name, arg);
+        }
+
+        for bound_ty in assoc_def.resolved_bounds {
+            let instantiated_bound = if subst_map.is_empty() {
+                bound_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                subst.substitute(bound_ty)
+            };
+            if self.trait_obligation_matches_available_trait(instantiated_bound, target_trait_ty) {
+                return true;
+            }
+        }
+
         false
     }
 

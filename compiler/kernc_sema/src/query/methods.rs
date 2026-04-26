@@ -87,6 +87,81 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         resolution
     }
 
+    pub(super) fn resolve_projection_assoc_bound_method(
+        &mut self,
+        search_norm: TypeId,
+        receiver_ty: TypeId,
+        member_name: SymbolId,
+        access_span: Span,
+    ) -> Option<MemberResolution> {
+        let TypeKind::Projection {
+            target,
+            trait_def_id,
+            trait_args,
+            assoc_def_id,
+            assoc_args,
+        } = self.ctx.type_registry.get(search_norm).clone()
+        else {
+            return None;
+        };
+
+        let owner_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+            trait_def_id,
+            trait_args.clone(),
+            Vec::new(),
+        ));
+        if !ExprChecker::new(self.ctx, None).check_trait_impl(target, owner_trait_ty) {
+            return None;
+        }
+
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned()
+        else {
+            return None;
+        };
+        let Some(Def::AssociatedType(assoc_def)) =
+            self.ctx.defs.get(assoc_def_id.0 as usize).cloned()
+        else {
+            return None;
+        };
+        if assoc_def.parent_trait != Some(trait_def_id) {
+            return None;
+        }
+
+        let mut subst_map = FastHashMap::default();
+        for (param, arg) in trait_def.generics.iter().zip(trait_args.iter().copied()) {
+            subst_map.insert(param.name, arg);
+        }
+        for (param, arg) in assoc_def.generics.iter().zip(assoc_args.iter().copied()) {
+            subst_map.insert(param.name, arg);
+        }
+
+        for bound_ty in assoc_def.resolved_bounds {
+            let bound_ty = if subst_map.is_empty() {
+                bound_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                subst.substitute(bound_ty)
+            };
+            let bound_ty = self.ctx.type_registry.normalize(bound_ty);
+            if !matches!(
+                self.ctx.type_registry.get(bound_ty),
+                TypeKind::TraitObject(..)
+            ) {
+                continue;
+            }
+            if let Some(resolution) = self.resolve_trait_object_method_named(
+                bound_ty,
+                member_name,
+                receiver_ty,
+                Some(access_span),
+            ) {
+                return Some(resolution);
+            }
+        }
+
+        None
+    }
+
     pub(super) fn for_each_matching_bound_trait_object(
         &mut self,
         search_norm: TypeId,

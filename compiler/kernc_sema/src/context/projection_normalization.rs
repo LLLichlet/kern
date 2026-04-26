@@ -634,12 +634,16 @@ impl<'a> SemaContext<'a> {
                 ));
             }
 
-            let candidates = self.collect_specificity_maximal_projection_candidates(
-                target_norm,
-                trait_def_id,
-                &trait_args,
-                assoc_def_id,
-            );
+            let candidates = if self.projection_is_fully_concrete(ty) {
+                self.collect_specificity_maximal_projection_candidates(
+                    target_norm,
+                    trait_def_id,
+                    &trait_args,
+                    assoc_def_id,
+                )
+            } else {
+                Vec::new()
+            };
             let Some(candidate) = candidates.first().copied() else {
                 // Only a fully concrete projection becomes a hard error here. Generic projections
                 // are allowed to survive until later substitution or obligation solving provides

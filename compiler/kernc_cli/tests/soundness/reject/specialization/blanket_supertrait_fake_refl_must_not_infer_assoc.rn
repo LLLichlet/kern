@@ -1,0 +1,45 @@
+// A blanket supertrait impl can be validated through a blanket parent proof,
+// but open generic projection must not reuse that blanket parent's associated
+// type equality after a more-specific impl can shadow it at instantiation.
+// stderr: mismatched types
+
+type TypeIs[T] = trait {
+    type Is;
+};
+
+type Lift[T]: TypeIs[T] = trait {};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+impl[S, T] S: Lift[T] {}
+
+type FakeProof[L, R] = struct {};
+
+impl[L, R] FakeProof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+fn rewrite[R, RW](value: RW.TypeIs[R].Is) R
+    where RW: Lift[R],
+{
+    return value;
+}
+
+fn cast[L, R](value: L) R {
+    return rewrite[R, FakeProof[L, R]](value);
+}
+
+fn seed() i32 {
+    return 11;
+}
+
+fn forge[R]() R {
+    return cast[fn() i32, R](seed);
+}
+
+fn main() i32 {
+    let forged = forge[fn(i32, i32) i32]();
+    return forged(100, 200) - 11;
+}

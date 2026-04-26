@@ -505,6 +505,155 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_open_generic_projection_from_blanket_impl_assoc_equality() {
+    let output = compile_source(
+        r#"
+type TypeIs[T] = trait {
+    type Is;
+};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+type FakeProof[L, R] = struct {};
+
+impl[L, R] FakeProof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+fn rewrite[R, RW](value: RW.TypeIs[R].Is) R {
+    return value;
+}
+
+fn cast[L, R](value: L) R {
+    return rewrite[R, FakeProof[L, R]](value);
+}
+
+fn seed() i32 {
+    return 11;
+}
+
+fn main() i32 {
+    let forged = cast[fn() i32, fn(i32, i32) i32](seed);
+    return forged(100, 200) - 11;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types")
+            || stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn accepts_open_generic_projection_from_explicit_assoc_equality_bound() {
+    let output = build_and_run_source(
+        r#"
+type TypeIs[T] = trait {
+    type Is;
+};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+fn rewrite[R, RW](value: RW.TypeIs[R].Is) R
+    where RW: TypeIs[R, Is = R],
+{
+    return value;
+}
+
+fn main() i32 {
+    return rewrite[i32, i32](33) - 33;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_blanket_supertrait_fake_refl_assoc_forgery() {
+    let output = compile_source(
+        r#"
+type TypeIs[T] = trait {
+    type Is;
+};
+
+type Lift[T]: TypeIs[T] = trait {};
+
+impl[S, T] S: TypeIs[T] {
+    type Is = T;
+}
+
+impl[S, T] S: Lift[T] {}
+
+type FakeProof[L, R] = struct {};
+
+impl[L, R] FakeProof[L, R]: TypeIs[R] {
+    type Is = L;
+}
+
+fn rewrite[R, RW](value: RW.TypeIs[R].Is) R
+    where RW: Lift[R],
+{
+    return value;
+}
+
+fn cast[L, R](value: L) R {
+    return rewrite[R, FakeProof[L, R]](value);
+}
+
+fn seed() i32 {
+    return 11;
+}
+
+fn forge[R]() R {
+    return cast[fn() i32, R](seed);
+}
+
+fn main() i32 {
+    let forged = forge[fn(i32, i32) i32]();
+    return forged(100, 200) - 11;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types")
+            || stderr.contains("type does not satisfy trait bounds")
+            || stderr.contains("missing a required supertrait proof"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_overlapping_trait_impls_with_conflicting_associated_type_proofs() {
     let output = compile_source(
         r#"

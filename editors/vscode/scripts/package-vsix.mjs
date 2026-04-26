@@ -33,22 +33,6 @@ const out =
 
 cleanServerDirectory();
 runNpm(["run", "compile"], extensionRoot);
-run(
-    process.execPath,
-    [path.join(scriptDir, "stage-server.mjs")],
-    extensionRoot,
-    {
-        KERN_VSCODE_SERVER_PLATFORM: target,
-        ...(args["server-source"]
-            ? {
-                  KERN_VSCODE_SERVER_SOURCE: path.resolve(
-                      extensionRoot,
-                      args["server-source"],
-                  ),
-              }
-            : {}),
-    },
-);
 
 const manifest = await readManifest(extensionRoot);
 const fileNames = listPackFiles();
@@ -148,6 +132,7 @@ function shouldIgnoreRootPath(relativePath, isDirectory) {
         relativePath === ".vscode" ||
         relativePath === "src" ||
         relativePath === "scripts" ||
+        relativePath === "server" ||
         relativePath === "testdata"
     ) {
         return true;
@@ -157,6 +142,7 @@ function shouldIgnoreRootPath(relativePath, isDirectory) {
         relativePath.startsWith(".vscode/") ||
         relativePath.startsWith("src/") ||
         relativePath.startsWith("scripts/") ||
+        relativePath.startsWith("server/") ||
         relativePath.startsWith("testdata/")
     ) {
         return true;

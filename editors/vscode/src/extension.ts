@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import { spawn } from "node:child_process";
 import * as vscode from "vscode";
 import {
@@ -95,6 +96,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (
                 event.affectsConfiguration("kern.server") ||
+                event.affectsConfiguration("kern.toolchain") ||
                 event.affectsConfiguration("kern.project")
             ) {
                 void restartLanguageServer(context, false);
@@ -219,12 +221,19 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
         ...projectAnalysisArgs(kernConfig),
         ...kernConfig.get<string[]>("server.args", []),
     ];
+    const serverEnv = {
+        ...process.env,
+        ...configuredServerEnv(kernConfig),
+    };
     const resolution = resolveServerCommand(
         {
             configuredPath: kernConfig.get<string>("server.path", ""),
+            configuredToolchainPath: kernConfig.get<string>("toolchain.path", ""),
             configuredArgs: serverArgs,
             workspaceRoots: workspaceRoots(),
             extensionPath: context.extensionPath,
+            env: serverEnv,
+            homeDir: os.homedir(),
         },
         fs.existsSync,
     );
@@ -248,10 +257,6 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
     );
     setStatus("starting", "Starting kern-lsp", vscode.LanguageStatusSeverity.Information);
 
-    const serverEnv = {
-        ...process.env,
-        ...configuredServerEnv(kernConfig),
-    };
     const serverOptions: ServerOptions = {
         run: {
             command: server.command,

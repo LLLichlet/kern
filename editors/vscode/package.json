@@ -96,10 +96,15 @@
           "default": "",
           "description": "Path to the craft executable used by the refresh-analysis command. Leave empty to use craft on PATH."
         },
+        "kern.toolchain.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a Kern toolchain root that contains bin/kern-lsp and lib/kern. Leave empty to use PATH, KERN_HOME, or the default ~/.kern install."
+        },
         "kern.server.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the kern-lsp executable. Leave empty to use the bundled server, a workspace build, or PATH."
+          "description": "Path to the kern-lsp executable. Leave empty to use the configured toolchain root, PATH, KERN_HOME, a default install, or a workspace build."
         },
         "kern.server.args": {
           "type": "array",
@@ -149,7 +154,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run sync:icons && npm run compile && npm run stage:server",
+    "vscode:prepublish": "npm run sync:icons && npm run compile",
     "compile": "tsc -p ./ && node ./scripts/build-extension.mjs",
     "watch": "tsc -watch -p ./",
     "check": "tsc -p ./ --noEmit",

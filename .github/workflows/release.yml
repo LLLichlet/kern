@@ -254,7 +254,7 @@ jobs:
         working-directory: editors/vscode
         run: |
           VERSION=${KERN_RELEASE_VERSION#v}
-          npm run package:vsix -- --target ${{ matrix.vsce_target }} --server-source ../../target/release/kern-lsp --out kern-vscode-${VERSION}-${{ matrix.vsce_target }}.vsix
+          npm run package:vsix -- --target ${{ matrix.vsce_target }} --out kern-vscode-${VERSION}-${{ matrix.vsce_target }}.vsix
           echo "VSCODE_ARTIFACT=kern-vscode-${VERSION}-${{ matrix.vsce_target }}.vsix" >> $GITHUB_ENV
 
       - name: Package VS Code Extension (Windows)
@@ -263,7 +263,7 @@ jobs:
         shell: powershell
         run: |
           $VERSION = $env:KERN_RELEASE_VERSION.TrimStart('v')
-          npm run package:vsix -- --target ${{ matrix.vsce_target }} --server-source ..\..\target\${{ matrix.rust_target }}\release\kern-lsp.exe --out kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix
+          npm run package:vsix -- --target ${{ matrix.vsce_target }} --out kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix
           echo "VSCODE_ARTIFACT=kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix" >> $env:GITHUB_ENV
 
       - name: Upload VS Code Extension Artifact

@@ -122,8 +122,8 @@ kern-lsp --library-bundle none --module-path std=./library/std
 ```
 
 The repository also carries a first-party VS Code extension under
-`editors/vscode/` that launches `kern-lsp` directly, including bundled release
-packaging for the language server binary.
+`editors/vscode/` that launches `kern-lsp` from the active Kern toolchain,
+`PATH`, or a local repository build.
 
 ## Dependency Policy
 

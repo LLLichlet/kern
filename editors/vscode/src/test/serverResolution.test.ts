@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import {
-    detectServerPlatform,
     resolveConfiguredServerPath,
     resolveServerCommand,
+    type ResolveServerCommandOptions,
 } from "../serverResolution";
 
 function existsIn(paths: string[]): (candidate: string) => boolean {
@@ -12,17 +12,30 @@ function existsIn(paths: string[]): (candidate: string) => boolean {
     return (candidate) => known.has(candidate);
 }
 
+function options(
+    overrides: Partial<ResolveServerCommandOptions> = {},
+): ResolveServerCommandOptions {
+    return {
+        configuredPath: "",
+        configuredToolchainPath: "",
+        configuredArgs: [],
+        workspaceRoots: [{ fsPath: "/workspace", name: "demo" }],
+        extensionPath: "/extension",
+        env: {},
+        homeDir: "/home/alice",
+        nodePlatform: "linux",
+        nodeArch: "x64",
+        ...overrides,
+    };
+}
+
 test("configured relative path resolves against the first workspace root", () => {
     const serverPath = path.posix.join("/workspace", "bin", "kern-lsp");
     const resolution = resolveServerCommand(
-        {
+        options({
             configuredPath: "bin/kern-lsp",
             configuredArgs: ["--trace"],
-            workspaceRoots: [{ fsPath: "/workspace", name: "demo" }],
-            extensionPath: "/extension",
-            nodePlatform: "linux",
-            nodeArch: "x64",
-        },
+        }),
         existsIn([serverPath]),
     );
 
@@ -36,14 +49,7 @@ test("configured relative path resolves against the first workspace root", () =>
 
 test("configured filesystem path fails without falling back", () => {
     const resolution = resolveServerCommand(
-        {
-            configuredPath: "/missing/kern-lsp",
-            configuredArgs: [],
-            workspaceRoots: [{ fsPath: "/workspace", name: "demo" }],
-            extensionPath: "/extension",
-            nodePlatform: "linux",
-            nodeArch: "x64",
-        },
+        options({ configuredPath: "/missing/kern-lsp" }),
         existsIn([]),
     );
 
@@ -53,62 +59,107 @@ test("configured filesystem path fails without falling back", () => {
     });
 });
 
-test("bundled server wins before workspace binaries", () => {
-    const bundled = "/extension/server/linux-x64/kern-lsp";
-    const workspaceDebug = "/workspace/target/debug/kern-lsp";
+test("configured toolchain root resolves to bin/kern-lsp", () => {
+    const serverPath = "/opt/kern/bin/kern-lsp";
     const resolution = resolveServerCommand(
-        {
-            configuredPath: "",
-            configuredArgs: ["--stdio"],
-            workspaceRoots: [{ fsPath: "/workspace", name: "demo" }],
-            extensionPath: "/extension",
-            nodePlatform: "linux",
-            nodeArch: "x64",
-        },
-        existsIn([bundled, workspaceDebug]),
+        options({ configuredToolchainPath: "/opt/kern" }),
+        existsIn([serverPath]),
     );
 
     assert.deepEqual(resolution, {
         kind: "resolved",
-        command: bundled,
-        args: ["--stdio"],
-        source: "bundled linux-x64",
+        command: serverPath,
+        args: [],
+        source: "configured toolchain",
     });
 });
 
-test("workspace debug build wins before release and PATH", () => {
+test("configured toolchain root fails when kern-lsp is absent", () => {
+    const resolution = resolveServerCommand(
+        options({ configuredToolchainPath: "/opt/kern" }),
+        existsIn([]),
+    );
+
+    assert.deepEqual(resolution, {
+        kind: "error",
+        message: "Configured Kern toolchain does not contain kern-lsp: /opt/kern/bin/kern-lsp",
+    });
+});
+
+test("PATH server wins before installed and workspace candidates", () => {
+    const pathServer = "/repo/kern/target/release/kern-lsp";
+    const installed = "/home/alice/.kern/bin/kern-lsp";
+    const workspaceRelease = "/workspace/target/release/kern-lsp";
+    const resolution = resolveServerCommand(
+        options({
+            configuredArgs: ["--stdio"],
+            env: { PATH: "/repo/kern/target/release:/usr/bin" },
+        }),
+        existsIn([pathServer, installed, workspaceRelease]),
+    );
+
+    assert.deepEqual(resolution, {
+        kind: "resolved",
+        command: pathServer,
+        args: ["--stdio"],
+        source: "PATH",
+    });
+});
+
+test("KERN_HOME install is used when PATH does not contain kern-lsp", () => {
+    const installed = "/sdk/kern/bin/kern-lsp";
+    const resolution = resolveServerCommand(
+        options({
+            env: { PATH: "/usr/bin", KERN_HOME: "/sdk/kern" },
+        }),
+        existsIn([installed]),
+    );
+
+    assert.deepEqual(resolution, {
+        kind: "resolved",
+        command: installed,
+        args: [],
+        source: "installed toolchain",
+    });
+});
+
+test("default home install is used without KERN_HOME", () => {
+    const installed = "/home/alice/.kern/bin/kern-lsp";
+    const resolution = resolveServerCommand(
+        options({ env: { PATH: "/usr/bin" } }),
+        existsIn([installed]),
+    );
+
+    assert.deepEqual(resolution, {
+        kind: "resolved",
+        command: installed,
+        args: [],
+        source: "installed toolchain",
+    });
+});
+
+test("workspace release build wins before debug when no toolchain is found", () => {
     const workspaceDebug = "/workspace/target/debug/kern-lsp";
     const workspaceRelease = "/workspace/target/release/kern-lsp";
     const resolution = resolveServerCommand(
-        {
-            configuredPath: "",
-            configuredArgs: [],
-            workspaceRoots: [{ fsPath: "/workspace", name: "demo" }],
-            extensionPath: "/extension",
-            nodePlatform: "linux",
-            nodeArch: "x64",
-        },
+        options({ env: { PATH: "/usr/bin" } }),
         existsIn([workspaceDebug, workspaceRelease]),
     );
 
     assert.deepEqual(resolution, {
         kind: "resolved",
-        command: workspaceDebug,
+        command: workspaceRelease,
         args: [],
         source: "workspace demo",
     });
 });
 
-test("falls back to PATH when no concrete server is found", () => {
+test("falls back to PATH command when no concrete server is found", () => {
     const resolution = resolveServerCommand(
-        {
-            configuredPath: "",
+        options({
             configuredArgs: ["--library-bundle", "std"],
-            workspaceRoots: [{ fsPath: "/workspace", name: "demo" }],
-            extensionPath: "/extension",
-            nodePlatform: "linux",
-            nodeArch: "x64",
-        },
+            env: { PATH: "/usr/bin" },
+        }),
         existsIn([]),
     );
 
@@ -120,31 +171,26 @@ test("falls back to PATH when no concrete server is found", () => {
     });
 });
 
-test("windows targets use .exe server names", () => {
-    const bundled = "C:\\extension\\server\\win32-x64\\kern-lsp.exe";
+test("windows targets use .exe server names and path separators", () => {
+    const pathServer = "C:\\kern\\bin\\kern-lsp.exe";
     const resolution = resolveServerCommand(
-        {
-            configuredPath: "",
-            configuredArgs: [],
+        options({
             workspaceRoots: [],
             extensionPath: "C:\\extension",
+            env: { Path: "C:\\kern\\bin;C:\\Windows" },
+            homeDir: "C:\\Users\\alice",
             nodePlatform: "win32",
             nodeArch: "x64",
-        },
-        existsIn([bundled]),
+        }),
+        existsIn([pathServer]),
     );
 
     assert.deepEqual(resolution, {
         kind: "resolved",
-        command: bundled,
+        command: pathServer,
         args: [],
-        source: "bundled win32-x64",
+        source: "PATH",
     });
-});
-
-test("platform detection only allows packaged targets", () => {
-    assert.equal(detectServerPlatform("linux", "x64"), "linux-x64");
-    assert.equal(detectServerPlatform("linux", "ppc64"), undefined);
 });
 
 test("relative configured paths stay relative without a workspace", () => {

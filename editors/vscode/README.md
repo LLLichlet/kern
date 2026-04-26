@@ -47,44 +47,38 @@ For manual syntax-highlighting review, open:
 The extension resolves the language server in this order:
 
 1. `kern.server.path`
-2. a bundled `kern-lsp` shipped inside the extension
-3. `target/debug/kern-lsp` or `target/release/kern-lsp` inside the current
+2. `kern.toolchain.path/bin/kern-lsp`
+3. `kern-lsp` found on `PATH`
+4. `KERN_HOME/bin/kern-lsp` or the default `~/.kern/bin/kern-lsp`
+5. `target/release/kern-lsp` or `target/debug/kern-lsp` inside the current
    workspace
-4. `kern-lsp` on `PATH`
+6. the plain `kern-lsp` command as a final spawn attempt
 
-This makes local repository development convenient while still working with a
-separately installed toolchain. Release packages should bundle the matching
-platform `kern-lsp` binary inside the extension so the published `Kern`
-extension is self-contained.
+This keeps the extension tied to the active Kern toolchain instead of a stale
+copy embedded in the VSIX. For normal users, the installer-provided toolchain or
+`PATH` entry is enough. For repository development, putting
+`target/release/` on `PATH` makes the extension use that freshly built server;
+opening the compiler repository can also fall back to the local `target/`
+binary.
 
-## Bundled Server Packaging
+`kern-lsp` resolves the official libraries relative to its own executable:
+installed toolchains use `lib/kern`, while repository builds use the repository
+`library/` directory. This is why the extension avoids launching a bundled
+server by default: editing the standard library should affect the same library
+tree the running language server analyzes.
 
-To stage a platform binary into the extension package:
+## Packaging
 
-```bash
-cargo build -p kern-lsp --release
-cd editors/vscode
-npm run stage:server
-```
-
-By default this copies `../../target/release/kern-lsp` into
-`server/<platform>/`. You can override the source path with
-`KERN_VSCODE_SERVER_SOURCE=/abs/path/to/kern-lsp npm run stage:server`.
-
-To package a platform-specific VSIX after staging the matching server:
+To package a VSIX:
 
 ```bash
-cargo build -p kern-lsp --release
 cd editors/vscode
 npm run package:vsix -- --target linux-x64
 ```
 
-This command packages the bundled extension entrypoint and the staged
-`server/<target>/` binary. The release VSIX does not need to ship runtime
-`node_modules/`.
-
-CI uses the same script and passes `--server-source` explicitly so release
-artifacts always bundle the just-built `kern-lsp`.
+This packages the extension entrypoint, grammar, snippets, icons, and runtime
+JavaScript dependencies. It intentionally excludes `server/` and does not embed
+`kern-lsp` or the official libraries.
 
 ## Icons
 
@@ -111,6 +105,8 @@ assets, so the actual icon file is shipped inside the extension package instead.
 ## Settings
 
 - `kern.server.path`: explicit path to the `kern-lsp` executable
+- `kern.toolchain.path`: explicit Kern toolchain root containing `bin/kern-lsp`
+  and `lib/kern`
 - `kern.server.args`: additional command-line arguments passed to `kern-lsp`
 - `kern.server.env`: extra environment variables injected into the `kern-lsp` process
 - `kern.craft.path`: explicit path to the `craft` executable used by the refresh command
@@ -137,6 +133,6 @@ language server so diagnostics and navigation pick up the new plan immediately.
 ## Release Posture
 
 - Marketplace name: `Kern`
-- Release packaging: bundle the platform-specific `kern-lsp` into each VSIX
-- Local fallback behavior: configured path, bundled server, workspace build, then `PATH`
+- Release packaging: ship editor integration only; use the installed Kern toolchain for `kern-lsp` and libraries
+- Local fallback behavior: configured path, configured toolchain, `PATH`, installed toolchain, workspace build
 - Current release check: `npm run check && npm run package:vsix -- --target <target>`

@@ -219,8 +219,7 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: editors/vscode
         run: |
-          cargo build --release -p kern-lsp
-          npm run package:vsix -- --target linux-x64 --server-source ../../target/release/kern-lsp
+          npm run package:vsix -- --target linux-x64
           python - <<'PY'
           import json
           import sys
@@ -234,11 +233,13 @@ jobs:
               required = {
                   "extension/extension.js",
                   "extension/out/extension.js",
-                  "extension/server/linux-x64/kern-lsp",
               }
               missing = sorted(required - names)
               if missing:
                   raise SystemExit(f"missing VSIX entries: {missing}")
+              embedded_server = sorted(name for name in names if name.startswith("extension/server/"))
+              if embedded_server:
+                  raise SystemExit(f"unexpected embedded server entries: {embedded_server[:10]}")
               leaked = sorted(name for name in names if "node_modules/" in name)
               if leaked:
                   raise SystemExit(f"unexpected node_modules in VSIX: {leaked[:10]}")

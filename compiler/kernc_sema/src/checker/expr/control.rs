@@ -677,6 +677,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
+    fn coverage_has_wildcard_cover(&self, matrix: &[Vec<CoveragePattern>], width: usize) -> bool {
+        // A fully-wildcard row already covers every value in the remaining columns; expanding it
+        // through nested payload and product types only repeats that proof at much higher cost.
+        matrix.iter().any(|row| {
+            row.len() == width
+                && row
+                    .iter()
+                    .all(|pattern| matches!(pattern, CoveragePattern::Wildcard))
+        })
+    }
+
     pub(super) fn coverage_matrix_is_exhaustive(
         &mut self,
         target_ty: TypeId,
@@ -891,6 +902,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return matrix.is_empty();
         }
 
+        if self.coverage_has_wildcard_cover(matrix, tys.len()) {
+            return false;
+        }
+
         let head_ty = self.resolve_tv(tys[0]);
         let Some(head_pattern) = vector.first() else {
             return false;
@@ -954,6 +969,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> Option<Vec<CoverageWitness>> {
         if tys.is_empty() {
             return matrix.is_empty().then(Vec::new);
+        }
+
+        if self.coverage_has_wildcard_cover(matrix, tys.len()) {
+            return None;
         }
 
         let head_ty = self.resolve_tv(tys[0]);

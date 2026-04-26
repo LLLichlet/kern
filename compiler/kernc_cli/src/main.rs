@@ -181,7 +181,7 @@ fn set_default_output_file(options: &mut CompileOptions) {
     }
 
     match options.driver_mode {
-        DriverMode::CompileOnly => {
+        DriverMode::CompileOnly | DriverMode::CcCompile => {
             let stem = options
                 .input_file
                 .as_deref()
@@ -289,8 +289,11 @@ fn parse_args() -> CliAction {
     {
         options.toolchain_root = Some(toolchain_root);
     }
-    if let Ok(cc_env) = env::var("CC") {
+    if let Ok(cc_env) = env::var("CC")
+        && !cc_env.is_empty()
+    {
         options.linker_cmd = cc_env;
+        options.linker_cmd_explicit = true;
     }
 
     let mut positional_source: Option<String> = None;
@@ -334,6 +337,7 @@ fn parse_args() -> CliAction {
         if let Some(value) = consume_long_option_value(&arg, "--link-driver", &mut args, "command")
         {
             options.linker_cmd = value;
+            options.linker_cmd_explicit = true;
             continue;
         }
         if let Some(value) =
@@ -387,6 +391,10 @@ fn parse_args() -> CliAction {
             options.linker_args.push(value);
             continue;
         }
+        if let Some(value) = consume_long_option_value(&arg, "--cc-arg", &mut args, "argument") {
+            options.cc_args.push(value);
+            continue;
+        }
         if let Some(value) = consume_long_option_value(&arg, "--entry-symbol", &mut args, "symbol")
         {
             options.entry_symbol = Some(value);
@@ -415,6 +423,7 @@ fn parse_args() -> CliAction {
         match arg.as_str() {
             "-o" => options.output_file = next_option_value(&mut args, "-o", "file name"),
             "-c" => set_driver_mode(&mut options, DriverMode::CompileOnly, "-c"),
+            "--cc" => set_driver_mode(&mut options, DriverMode::CcCompile, "--cc"),
             "--link-only" => set_driver_mode(&mut options, DriverMode::LinkOnly, "--link-only"),
             "-O0" => options.opt_level = OptLevel::O0,
             "-O1" => options.opt_level = OptLevel::O1,
@@ -567,5 +576,17 @@ mod tests {
             options.output_file,
             format!("hello_world{}", std::env::consts::EXE_SUFFIX)
         );
+    }
+
+    #[test]
+    fn defaults_cc_output_name_to_object_stem() {
+        let mut options = CompileOptions {
+            input_file: Some("native/demo.c".to_string()),
+            output_file: String::new(),
+            driver_mode: DriverMode::CcCompile,
+            ..CompileOptions::default()
+        };
+        set_default_output_file(&mut options);
+        assert_eq!(options.output_file, "demo.o");
     }
 }

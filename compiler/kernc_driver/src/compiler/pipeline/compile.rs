@@ -91,6 +91,23 @@ impl CompilerDriver {
             });
         }
 
+        if self.options.driver_mode == DriverMode::CcCompile {
+            let compiled =
+                Self::measure_phase(&mut phase_timings, "cc_compile", || self.cc_compile_only());
+            return compiled.then(|| {
+                Self::empty_compile_report(
+                    self.options
+                        .input_file
+                        .as_ref()
+                        .map(PathBuf::from)
+                        .into_iter()
+                        .collect(),
+                    phase_timings,
+                    self.cache_stats_since(cache_snapshot),
+                )
+            });
+        }
+
         let Some(input_file) = self.options.input_file.as_deref() else {
             eprintln!("Error: compile mode requires a source input.");
             return None;

@@ -42,6 +42,7 @@ The positional source input is required for compile modes and forbidden in link-
 
 - Default mode: compile the source input and then link the final binary.
 - `-c`: compile only. Emit a linker input artifact and stop before the final system link step.
+- `--cc`: compile a C-family source file to a native object file and stop.
 - `--emit-llvm[=raw|verified|optimized]`: compile only and print LLVM IR to stdout.
 - `--link-only`: skip the frontend and code generation stages and invoke the linker driver using explicit linker inputs.
 
@@ -156,6 +157,18 @@ Inspect LLVM IR after target setup and LLVM optimization passes:
 ```bash
 kernc --emit-llvm=optimized -O2 --runtime-entry rt --library-bundle std examples/hello_world.rn
 ```
+
+Compile a C-family source into an object with the resolved SDK C compiler:
+
+```bash
+kernc --cc native/support.c -o support.o
+```
+
+When the link driver is left at the default `cc`, Kern treats that default as an
+SDK-owned driver slot and resolves it to the active SDK/toolchain `clang`. It
+does not fall back to the host `cc` when SDK clang is missing. Repair the SDK or
+set `KERN_TOOLCHAIN_ROOT`/`--toolchain-root`; use `--link-driver` or `CC` only
+when you intentionally want an external driver.
 
 Link an existing object file:
 
@@ -443,7 +456,8 @@ This split is intentional. Symbol shape belongs to the language and semantic pip
 
 ### Linker Driver
 
-Use `--link-driver <cmd>` to select the linker driver command:
+By default Kern links through the active SDK/toolchain `clang`. Use
+`--link-driver <cmd>` to explicitly select an external linker driver command:
 
 ```bash
 kernc --link-driver clang --runtime-entry rt --library-bundle std app.rn -o app
@@ -550,6 +564,7 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 
 - `-o <file>`: write output to `<file>`
 - `-c`: emit linker input and skip the final system link step
+- `--cc`: compile a C-family source to a native object and skip the Kern frontend
 - `--link-only`: skip frontend/codegen and invoke the linker driver only
 - `--define <key=val>`: define a variable for conditional compilation
 - `--module-path <name=path>`: map a module name to a physical directory
@@ -566,7 +581,7 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 
 ### Linking
 
-- `--link-driver <cmd>`: set the linker driver command
+- `--link-driver <cmd>`: explicitly set an external linker driver command
 - `--runtime-entry <m>`: select `none`, `rt`, or `crt`
 - `--runtime-libc <yes|no>`: control whether libc is linked
 - `--library-bundle <b>`: select `none`, `base`, or `std`
@@ -576,6 +591,7 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 - `-L <dir>`: add a linker search path
 - `-l <name>`: link against a library
 - `--link-arg <arg>`: pass a raw linker argument
+- `--cc-arg <arg>`: pass a raw C compiler argument when using `--cc`
 - `--entry-symbol <symbol>`: set the final linker entry symbol explicitly
 - `--print-link-command`: print the resolved link command
 - `--timings`: print compiler phase timings

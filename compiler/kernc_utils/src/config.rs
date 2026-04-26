@@ -16,6 +16,7 @@ pub enum OptLevel {
 pub enum DriverMode {
     CompileAndLink,
     CompileOnly,
+    CcCompile,
     AnalyzeOnly,
     LinkOnly,
     EmitLlvmIr,
@@ -100,6 +101,7 @@ impl DriverMode {
         match self {
             Self::CompileAndLink => "compile-and-link",
             Self::CompileOnly => "compile-only",
+            Self::CcCompile => "cc-compile",
             Self::AnalyzeOnly => "analyze-only",
             Self::LinkOnly => "link-only",
             Self::EmitLlvmIr => "emit-llvm-ir",
@@ -119,7 +121,7 @@ impl DriverMode {
     }
 
     pub fn emits_linker_input(self) -> bool {
-        matches!(self, DriverMode::CompileOnly)
+        matches!(self, DriverMode::CompileOnly | DriverMode::CcCompile)
     }
 }
 
@@ -302,10 +304,12 @@ pub struct CompileOptions {
     pub asm_dialect: AsmDialect,
     pub toolchain_root: Option<String>,
     pub linker_cmd: String,
+    pub linker_cmd_explicit: bool,
     pub linker_inputs: Vec<String>,
     pub linker_search_paths: Vec<String>,
     pub linker_libraries: Vec<String>,
     pub linker_args: Vec<String>,
+    pub cc_args: Vec<String>,
     pub entry_symbol: Option<String>,
     pub runtime_entry: RuntimeEntry,
     pub runtime_libc: bool,
@@ -343,10 +347,12 @@ impl Default for CompileOptions {
             asm_dialect: AsmDialect::default(),
             toolchain_root: None,
             linker_cmd: "cc".to_string(),
+            linker_cmd_explicit: false,
             linker_inputs: Vec::new(),
             linker_search_paths: Vec::new(),
             linker_libraries: Vec::new(),
             linker_args: Vec::new(),
+            cc_args: Vec::new(),
             entry_symbol: None,
             runtime_entry: RuntimeEntry::None,
             runtime_libc: false,

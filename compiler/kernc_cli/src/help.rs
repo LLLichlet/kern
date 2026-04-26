@@ -23,6 +23,7 @@ fn overview_doc(program_name: &str) -> HelpDoc {
         .summary("Compile Kern source files, emit LLVM IR, or drive the final system link step")
         .usage(format!("{program_name} [OPTIONS] <input.rn>"))
         .usage(format!("{program_name} -c [OPTIONS] <input.rn>"))
+        .usage(format!("{program_name} --cc [OPTIONS] <input.c>"))
         .usage(format!("{program_name} --link-only [OPTIONS]"))
         .usage(format!("{program_name} help all"))
         .section(
@@ -34,6 +35,10 @@ fn overview_doc(program_name: &str) -> HelpDoc {
                 .entry(
                     "-c",
                     "Emit linker input and skip the final system link step",
+                )
+                .entry(
+                    "--cc",
+                    "Compile a C-family source to a native object with the resolved C compiler",
                 )
                 .entry(
                     "--link-only",
@@ -107,6 +112,7 @@ fn all_doc(program_name: &str) -> HelpDoc {
         .summary("Complete option reference for the Kern compiler driver")
         .usage(format!("{program_name} [OPTIONS] <input.rn>"))
         .usage(format!("{program_name} -c [OPTIONS] <input.rn>"))
+        .usage(format!("{program_name} --cc [OPTIONS] <input.c>"))
         .usage(format!("{program_name} --link-only [OPTIONS]"))
         .section(
             HelpSection::new("Build Options")
@@ -114,6 +120,10 @@ fn all_doc(program_name: &str) -> HelpDoc {
                 .entry(
                     "-c",
                     "Emit linker input and skip the final system link step",
+                )
+                .entry(
+                    "--cc",
+                    "Compile a C-family source to a native object with the resolved C compiler",
                 )
                 .entry(
                     "--link-only",
@@ -170,7 +180,10 @@ fn all_doc(program_name: &str) -> HelpDoc {
                     "--toolchain-root <DIR>",
                     "Prefer toolchain binaries under <DIR>",
                 )
-                .entry("--link-driver <CMD>", "Override the linker driver command")
+                .entry(
+                    "--link-driver <CMD>",
+                    "Explicitly use an external linker driver command",
+                )
                 .entry(
                     "--runtime-entry <MODE>",
                     "Runtime entry contract: none, rt, crt\nDefault direct source builds use `rt`",
@@ -188,6 +201,10 @@ fn all_doc(program_name: &str) -> HelpDoc {
                 .entry(
                     "--link-arg <ARG>",
                     "Pass a raw argument through to the linker driver",
+                )
+                .entry(
+                    "--cc-arg <ARG>",
+                    "Pass a raw argument through to `--cc` C-family compilation",
                 )
                 .entry(
                     "--entry-symbol <SYMBOL>",

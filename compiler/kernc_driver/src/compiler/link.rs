@@ -2,7 +2,7 @@ use super::{CompilerDriver, LinkTarget, TempDirGuard, TempFileGuard};
 use kernc_codegen::{
     ThinLtoModule, ThinLtoObject, ThinLtoObjectKind, ThinLtoOptions, run_thin_lto,
 };
-use kernc_utils::config::{RuntimeEntry, runtime_links_libc, runtime_uses_crt_startup};
+use kernc_utils::config::{OptLevel, RuntimeEntry, runtime_links_libc, runtime_uses_crt_startup};
 use kernc_utils::llvm_bitcode::file_has_llvm_bitcode_magic;
 use std::env;
 use std::fs;
@@ -99,7 +99,13 @@ impl CompilerDriver {
         if self.options.report_progress {
             println!("Linking for target: {} ...", target.triple);
         }
-        let mut cmd = self.build_link_command(extra_inputs, target);
+        let mut cmd = match self.build_link_command(extra_inputs, target) {
+            Ok(cmd) => cmd,
+            Err(message) => {
+                eprintln!("Error: {message}");
+                return false;
+            }
+        };
         self.maybe_print_link_command(&cmd);
 
         match cmd.status() {
@@ -115,10 +121,10 @@ impl CompilerDriver {
                 false
             }
             Err(err) => {
-                let cc_compiler = self.resolve_linker_driver(target.is_windows);
                 eprintln!(
                     "Error: Failed to invoke linker (`{}`). Make sure Clang or GCC is in your PATH. ({})",
-                    cc_compiler, err
+                    cmd.get_program().to_string_lossy(),
+                    err
                 );
                 false
             }
@@ -141,7 +147,13 @@ impl CompilerDriver {
         if self.options.report_progress {
             println!("Merging linker inputs for target: {} ...", target.triple);
         }
-        let mut cmd = self.build_relocatable_link_command(inputs, target, output_path);
+        let mut cmd = match self.build_relocatable_link_command(inputs, target, output_path) {
+            Ok(cmd) => cmd,
+            Err(message) => {
+                eprintln!("Error: {message}");
+                return false;
+            }
+        };
         self.maybe_print_link_command(&cmd);
 
         match cmd.status() {
@@ -156,10 +168,10 @@ impl CompilerDriver {
                 false
             }
             Err(err) => {
-                let cc_compiler = self.resolve_linker_driver(target.is_windows);
                 eprintln!(
                     "Error: Failed to invoke relocatable linker (`{}`). Make sure Clang or GCC is in your PATH. ({})",
-                    cc_compiler, err
+                    cmd.get_program().to_string_lossy(),
+                    err
                 );
                 false
             }
@@ -189,18 +201,148 @@ impl CompilerDriver {
         format!("{}.tmp.merge.o", self.options.output_file)
     }
 
-    fn resolve_linker_driver(&self, is_windows: bool) -> String {
-        if self.options.linker_cmd == "cc" {
-            if let Some(clang) = find_llvm_tool(&self.options, "clang", is_windows) {
-                return clang;
+    fn resolve_linker_driver(&self, is_windows: bool) -> Result<String, String> {
+        if self.options.linker_cmd_explicit {
+            if self.options.linker_cmd.is_empty() {
+                return Err(
+                    "explicit linker/C driver command is empty; pass a non-empty --link-driver or CC"
+                        .to_string(),
+                );
             }
-            return "cc".to_string();
+            return Ok(self.options.linker_cmd.clone());
         }
-        self.options.linker_cmd.clone()
+
+        find_llvm_tool(&self.options, "clang", is_windows)
+            .ok_or_else(|| self.missing_default_clang_message(is_windows))
     }
 
-    fn build_link_command(&self, extra_inputs: &[String], target: &LinkTarget) -> Command {
-        let cc_compiler = self.resolve_linker_driver(target.is_windows);
+    fn missing_default_clang_message(&self, is_windows: bool) -> String {
+        let executable = if is_windows { "clang.exe" } else { "clang" };
+        let searched_root = self.default_toolchain_root_hint();
+        format!(
+            "Kern SDK clang was not found. The default `cc` driver is SDK-owned and does not fall back to host `cc`. Searched root: {searched_root}. Install or repair the Kern SDK, set KERN_TOOLCHAIN_ROOT/--toolchain-root to a toolchain containing bin/{executable}, or explicitly configure an external driver with --link-driver/CC."
+        )
+    }
+
+    fn missing_default_llvm_tool_message(&self, tool: &str, is_windows: bool) -> String {
+        let executable = if is_windows {
+            format!("{tool}.exe")
+        } else {
+            tool.to_string()
+        };
+        let searched_root = self.default_toolchain_root_hint();
+        format!(
+            "Kern SDK {executable} was not found. Kern's default toolchain resolution is SDK-owned and does not fall back to host LLVM tools. Searched root: {searched_root}. Install or repair the Kern SDK, or set KERN_TOOLCHAIN_ROOT/--toolchain-root to a toolchain containing bin/{executable}."
+        )
+    }
+
+    fn default_toolchain_root_hint(&self) -> String {
+        if let Some(configured) = &self.options.toolchain_root {
+            let root = PathBuf::from(configured);
+            if root.is_dir() {
+                root.display().to_string()
+            } else {
+                format!("{} (not a directory)", root.display())
+            }
+        } else {
+            resolved_toolchain_root(&self.options)
+                .map(|root| root.display().to_string())
+                .unwrap_or_else(|| "<no active SDK/toolchain root>".to_string())
+        }
+    }
+
+    pub(super) fn cc_compile_only(&self) -> bool {
+        let Some(input_file) = self.options.input_file.as_deref() else {
+            eprintln!("Error: `--cc` requires a C-family source input.");
+            return false;
+        };
+        if self.options.output_file.is_empty() {
+            eprintln!("Error: `--cc` requires an output object path.");
+            return false;
+        }
+
+        let target = self.normalized_target();
+        if let Some(parent) = std::path::Path::new(&self.options.output_file).parent()
+            && !parent.as_os_str().is_empty()
+            && let Err(err) = fs::create_dir_all(parent)
+        {
+            eprintln!(
+                "Error: Failed to create output directory `{}`: {}",
+                parent.display(),
+                err
+            );
+            return false;
+        }
+
+        let mut cmd = match self.build_cc_compile_command(input_file, &target) {
+            Ok(cmd) => cmd,
+            Err(message) => {
+                eprintln!("Error: {message}");
+                return false;
+            }
+        };
+        self.maybe_print_cc_command(&cmd);
+        match cmd.status() {
+            Ok(status) if status.success() => {
+                if self.options.report_progress {
+                    println!(
+                        "Successfully compiled C-family source to `{}`",
+                        self.options.output_file
+                    );
+                }
+                true
+            }
+            Ok(status) => {
+                eprintln!("Error: C compiler failed with exit code {}", status);
+                false
+            }
+            Err(err) => {
+                eprintln!(
+                    "Error: Failed to invoke C compiler (`{}`). Make sure the Kern SDK clang or a C compiler is available. ({})",
+                    cmd.get_program().to_string_lossy(),
+                    err
+                );
+                false
+            }
+        }
+    }
+
+    fn build_cc_compile_command(
+        &self,
+        input_file: &str,
+        target: &LinkTarget,
+    ) -> Result<Command, String> {
+        let cc_compiler = self.resolve_linker_driver(target.is_windows)?;
+        let mut cmd = Command::new(&cc_compiler);
+        self.apply_controlled_toolchain_runtime_env(&mut cmd, target);
+        cmd.arg("-c")
+            .arg(input_file)
+            .arg("-o")
+            .arg(&self.options.output_file);
+
+        if cc_compiler.contains("clang") {
+            cmd.arg(format!("--target={}", target.triple));
+        }
+
+        match self.options.opt_level {
+            OptLevel::O0 => cmd.arg("-O0"),
+            OptLevel::O1 => cmd.arg("-O1"),
+            OptLevel::O2 => cmd.arg("-O2"),
+            OptLevel::O3 => cmd.arg("-O3"),
+        };
+        if self.options.debug_info {
+            cmd.arg("-g");
+        }
+        cmd.args(&self.options.cc_args);
+        Ok(cmd)
+    }
+
+    fn build_link_command(
+        &self,
+        extra_inputs: &[String],
+        target: &LinkTarget,
+    ) -> Result<Command, String> {
+        let cc_compiler = self.resolve_linker_driver(target.is_windows)?;
         let mut cmd = Command::new(&cc_compiler);
         self.apply_controlled_toolchain_driver_options(&mut cmd, target, &cc_compiler);
         self.apply_controlled_toolchain_runtime_env(&mut cmd, target);
@@ -231,7 +373,7 @@ impl CompilerDriver {
         self.apply_thin_lto_cache_options(&mut cmd, target);
         self.apply_dead_strip_options(&mut cmd, target.is_windows, target.is_darwin);
 
-        cmd
+        Ok(cmd)
     }
 
     fn apply_controlled_toolchain_driver_options(
@@ -330,14 +472,13 @@ impl CompilerDriver {
         inputs: &[String],
         target: &LinkTarget,
         output_path: &str,
-    ) -> Command {
+    ) -> Result<Command, String> {
         let mut cmd = if target.is_windows {
-            Command::new(
-                find_llvm_tool(&self.options, "llvm-lib", true)
-                    .unwrap_or_else(|| "llvm-lib".to_string()),
-            )
+            let llvm_lib = find_llvm_tool(&self.options, "llvm-lib", true)
+                .ok_or_else(|| self.missing_default_llvm_tool_message("llvm-lib", true))?;
+            Command::new(llvm_lib)
         } else {
-            let cc_compiler = self.resolve_linker_driver(target.is_windows);
+            let cc_compiler = self.resolve_linker_driver(target.is_windows)?;
             let mut cmd = Command::new(&cc_compiler);
             cmd.arg("-r");
             cmd
@@ -351,7 +492,7 @@ impl CompilerDriver {
             cmd.arg("-o").arg(output_path);
         }
         self.apply_controlled_toolchain_runtime_env(&mut cmd, target);
-        cmd
+        Ok(cmd)
     }
 
     fn apply_controlled_toolchain_runtime_env(&self, cmd: &mut Command, target: &LinkTarget) {
@@ -561,6 +702,12 @@ impl CompilerDriver {
     fn maybe_print_link_command(&self, cmd: &Command) {
         if self.options.print_link_command {
             println!("Link command: {}", self.format_command(cmd));
+        }
+    }
+
+    fn maybe_print_cc_command(&self, cmd: &Command) {
+        if self.options.print_link_command {
+            println!("CC command: {}", self.format_command(cmd));
         }
     }
 
@@ -816,9 +963,7 @@ fn llvm_prefix_dir() -> Option<PathBuf> {
 fn resolved_toolchain_root(options: &kernc_utils::config::CompileOptions) -> Option<PathBuf> {
     if let Some(configured) = &options.toolchain_root {
         let root = PathBuf::from(configured);
-        if root.is_dir() {
-            return Some(root);
-        }
+        return root.is_dir().then_some(root);
     }
     sdk_relative_toolchain_root().or_else(llvm_prefix_dir)
 }
@@ -1025,11 +1170,12 @@ mod tests {
         let driver = CompilerDriver::new(CompileOptions {
             output_file: output.to_string_lossy().to_string(),
             linker_args: vec!["-flto=thin".to_string()],
+            linker_cmd_explicit: true,
             ..CompileOptions::default()
         });
         let target = driver.normalized_target();
 
-        let cmd = driver.build_link_command(&[], &target);
+        let cmd = driver.build_link_command(&[], &target).unwrap();
         let args = command_args(&cmd);
         let cache_dir = format!("{}.thinlto-cache.d", output.to_string_lossy());
 
@@ -1107,11 +1253,12 @@ mod tests {
         let driver = CompilerDriver::new(CompileOptions {
             output_file: output.to_string_lossy().to_string(),
             linker_args: vec!["-flto=thin".to_string(), explicit_flag.clone()],
+            linker_cmd_explicit: true,
             ..CompileOptions::default()
         });
         let target = driver.normalized_target();
 
-        let cmd = driver.build_link_command(&[], &target);
+        let cmd = driver.build_link_command(&[], &target).unwrap();
         let args = command_args(&cmd);
 
         assert_eq!(
@@ -1158,7 +1305,7 @@ mod tests {
             return;
         }
 
-        let cmd = driver.build_link_command(&[], &target);
+        let cmd = driver.build_link_command(&[], &target).unwrap();
         let args = command_args(&cmd);
 
         assert_eq!(
@@ -1170,6 +1317,106 @@ mod tests {
                 .any(|arg| arg == &format!("-B{}", bin_dir.display()))
         );
         assert!(args.iter().any(|arg| arg == "-fuse-ld=lld"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cc_compile_uses_controlled_toolchain_clang_by_default() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_cc_controlled_toolchain_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin_dir = root.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::write(bin_dir.join("clang"), "").unwrap();
+
+        let driver = CompilerDriver::new(CompileOptions {
+            input_file: Some(root.join("demo.c").to_string_lossy().to_string()),
+            output_file: root.join("demo.o").to_string_lossy().to_string(),
+            driver_mode: kernc_utils::config::DriverMode::CcCompile,
+            toolchain_root: Some(root.to_string_lossy().to_string()),
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+        let cmd = driver
+            .build_cc_compile_command(driver.options.input_file.as_deref().unwrap(), &target)
+            .unwrap();
+
+        assert_eq!(
+            cmd.get_program().to_string_lossy(),
+            bin_dir.join("clang").to_string_lossy()
+        );
+        assert!(
+            command_args(&cmd)
+                .iter()
+                .any(|arg| arg == &format!("--target={}", target.triple))
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn default_cc_compile_rejects_missing_sdk_clang() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_cc_missing_sdk_clang_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let driver = CompilerDriver::new(CompileOptions {
+            input_file: Some(root.join("demo.c").to_string_lossy().to_string()),
+            output_file: root.join("demo.o").to_string_lossy().to_string(),
+            driver_mode: kernc_utils::config::DriverMode::CcCompile,
+            toolchain_root: Some(root.to_string_lossy().to_string()),
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+        let err = driver
+            .build_cc_compile_command(driver.options.input_file.as_deref().unwrap(), &target)
+            .unwrap_err();
+
+        assert!(err.contains("Kern SDK clang was not found"));
+        assert!(err.contains("does not fall back to host `cc`"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn explicit_cc_driver_bypasses_default_sdk_clang_requirement() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_cc_explicit_driver_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let driver = CompilerDriver::new(CompileOptions {
+            input_file: Some(root.join("demo.c").to_string_lossy().to_string()),
+            output_file: root.join("demo.o").to_string_lossy().to_string(),
+            driver_mode: kernc_utils::config::DriverMode::CcCompile,
+            toolchain_root: Some(root.to_string_lossy().to_string()),
+            linker_cmd: "cc".to_string(),
+            linker_cmd_explicit: true,
+            ..CompileOptions::default()
+        });
+        let target = driver.normalized_target();
+        let cmd = driver
+            .build_cc_compile_command(driver.options.input_file.as_deref().unwrap(), &target)
+            .unwrap();
+
+        assert_eq!(cmd.get_program().to_string_lossy(), "cc");
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -1204,7 +1451,7 @@ mod tests {
             return;
         }
 
-        let cmd = driver.build_link_command(&[], &target);
+        let cmd = driver.build_link_command(&[], &target).unwrap();
         let env_key = if target.is_darwin {
             "DYLD_LIBRARY_PATH"
         } else {
@@ -1255,7 +1502,7 @@ mod tests {
             return;
         };
 
-        let cmd = driver.build_link_command(&[], &target);
+        let cmd = driver.build_link_command(&[], &target).unwrap();
         let value = command_env(&cmd, "SDKROOT").expect("expected SDKROOT for Darwin link env");
         assert_eq!(value, expected);
 

@@ -366,6 +366,76 @@ fn main() i32 {
     }
 
     #[test]
+    fn parses_generic_enum_variant_match_arm_as_value_pattern() {
+        let source = r#"
+type Mode = enum {
+    Off,
+    On,
+};
+
+type Box[T] = enum {
+    Empty,
+    Full: T,
+};
+
+fn pick(value: Box[Mode]) i32 {
+    return match (value) {
+        Box[Mode].Empty => 1,
+        Box[Mode].{ Full: Mode.On } => 2,
+    };
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[2].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block {
+            stmts,
+            result: None,
+        } = &body.kind
+        else {
+            panic!("expected block body");
+        };
+        let ast::StmtKind::ExprStmt(expr) = &stmts[0].kind else {
+            panic!("expected return statement");
+        };
+        let ast::ExprKind::Return(Some(returned)) = &expr.kind else {
+            panic!("expected return expression");
+        };
+        let ast::ExprKind::Match { arms, .. } = &returned.kind else {
+            panic!("expected match expression");
+        };
+
+        let ast::MatchPatternKind::Value(value) = &arms[0].patterns[0].kind else {
+            panic!("expected generic payloadless variant to parse as a value pattern");
+        };
+        let ast::ExprKind::FieldAccess { lhs, .. } = &value.kind else {
+            panic!("expected variant value field access");
+        };
+        let ast::ExprKind::GenericInstantiation { .. } = &lhs.kind else {
+            panic!("expected generic enum namespace in variant value pattern");
+        };
+
+        let ast::MatchPatternKind::Value(value) = &arms[1].patterns[0].kind else {
+            panic!("expected generic payload variant literal to parse as a value pattern");
+        };
+        let ast::ExprKind::DataInit { type_node, .. } = &value.kind else {
+            panic!("expected typed enum payload value pattern");
+        };
+        assert!(type_node.is_some());
+    }
+
+    #[test]
     fn parses_let_else_arm_block() {
         let source = r#"
 type Result[T, E] = enum {

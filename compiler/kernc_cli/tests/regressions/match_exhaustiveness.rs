@@ -313,6 +313,58 @@ fn main() i32 {
 }
 
 #[test]
+fn grouped_match_value_patterns_remain_structural() {
+    let output = build_and_run_source(
+        r#"
+type Mode = enum {
+    Off,
+    On,
+};
+
+type Box[T] = enum {
+    Empty,
+    Full: T,
+};
+
+fn classify(value: Box[Mode]) i32 {
+    return match (value) {
+        ((Box[Mode].Empty)) => 1,
+        ((Box[Mode].{ Full: (Mode.Off) })) => 2,
+        ((Box[Mode])).{ Full: ((Mode.On)) } => 3,
+    };
+}
+
+fn bucket(value: u8) i32 {
+    return match (value) {
+        (u8.{0}) .. (u8.{2}) => 10,
+        (u8.{2}) ..= (u8.{3}) => 20,
+        _ => 30,
+    };
+}
+
+fn main() i32 {
+    return classify(Box[Mode].Empty)
+        + classify(Box[Mode].{ Full: Mode.Off })
+        + classify(Box[Mode].{ Full: Mode.On })
+        + bucket(u8.{0})
+        + bucket(u8.{1})
+        + bucket(u8.{2})
+        + bucket(u8.{3})
+        + bucket(u8.{4})
+        - 96;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_nested_enum_gap_in_let_else_arm_block() {
     let output = compile_source(
         r#"

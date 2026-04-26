@@ -289,9 +289,6 @@ impl AnalysisEngine {
             return Err("requested semantic tokens for a document that is not open".to_string());
         };
         let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
-        if target_doc.is_dirty {
-            return Ok(semantic::lexical_semantic_tokens(&file));
-        }
 
         let resolved = self.resolve_analysis(uri)?;
         let dirty_documents = self.dirty_documents_snapshot();

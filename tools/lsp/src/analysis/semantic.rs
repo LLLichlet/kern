@@ -338,6 +338,7 @@ fn collect_semantic_token_entries(
             | TokenType::If
             | TokenType::Else
             | TokenType::For
+            | TokenType::While
             | TokenType::Break
             | TokenType::Continue
             | TokenType::Return

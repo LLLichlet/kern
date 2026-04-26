@@ -76,11 +76,12 @@ fn completion_after_block_statements_includes_prior_bindings() {
 }
 
 #[test]
-fn completion_in_for_body_includes_init_bindings() {
+fn completion_in_iterator_for_body_includes_item_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "fn main(limit: i32) void {\n",
-        "    for (let index = 0; index < limit; index += 1) {\n",
+        "use base.coll.Iterator;\n",
+        "fn main(values: []i32) void {\n",
+        "    for (item: values.iter()) {\n",
         "        \n",
         "    }\n",
         "}\n",
@@ -100,15 +101,15 @@ fn completion_in_for_body_includes_init_bindings() {
         .completion(
             &uri,
             Position {
-                line: 2,
+                line: 3,
                 character: 8,
             },
         )
         .unwrap();
     let labels = completion_labels(&items);
 
-    assert!(labels.contains(&"limit".to_string()));
-    assert!(labels.contains(&"index".to_string()));
+    assert!(labels.contains(&"values".to_string()));
+    assert!(labels.contains(&"item".to_string()));
 }
 
 #[test]

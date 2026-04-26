@@ -1049,6 +1049,114 @@ fn hover_on_impl_method_definition_prefers_method_span() {
 }
 
 #[test]
+fn navigation_tracks_impl_methods_spread_across_modules() {
+    let root = unique_temp_dir("navigation_spread_impl_methods");
+    let src = root.join("src");
+    fs::create_dir_all(&src).unwrap();
+
+    fs::write(
+        src.join("init.rn"),
+        concat!(
+            "mod storage;\n",
+            "mod view;\n",
+            "pub type Editor = struct { value: i32 };\n",
+        ),
+    )
+    .unwrap();
+
+    let storage_source = concat!(
+        "use ..Editor;\n",
+        "impl *mut Editor {\n",
+        "    fn buffer_slot_mut() i32 { return self.value; }\n",
+        "    pub fn local_use() i32 { return self.buffer_slot_mut(); }\n",
+        "    pub fn local_use_again() i32 { return self.buffer_slot_mut(); }\n",
+        "}\n",
+    );
+    let storage_path = src.join("storage.rn");
+    fs::write(&storage_path, storage_source).unwrap();
+
+    let view_source = concat!(
+        "use ..Editor;\n",
+        "impl *mut Editor {\n",
+        "    pub fn view_use() i32 { return self.buffer_slot_mut(); }\n",
+        "}\n",
+    );
+    let view_path = src.join("view.rn");
+    fs::write(&view_path, view_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&storage_path).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: storage_source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(
+            &uri,
+            position_of_nth(storage_source, "buffer_slot_mut", 1, 2),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(definition.uri, uri);
+    assert_eq!(
+        definition.range.start,
+        position_of_nth(storage_source, "buffer_slot_mut", 0, 0)
+    );
+
+    let references = analysis
+        .references(
+            &uri,
+            position_of_nth(storage_source, "buffer_slot_mut", 1, 2),
+            true,
+        )
+        .unwrap();
+    let view_uri = file_path_to_uri(&view_path).unwrap();
+    assert_eq!(references.len(), 4, "{references:#?}");
+    assert!(references[..3].iter().all(|location| location.uri == uri));
+    assert_eq!(references[3].uri, view_uri);
+
+    let highlights = analysis
+        .document_highlights(
+            &uri,
+            position_of_nth(storage_source, "buffer_slot_mut", 1, 2),
+        )
+        .unwrap();
+    assert_eq!(highlights.len(), 3);
+
+    let hover = analysis
+        .hover(
+            &uri,
+            position_of_nth(storage_source, "buffer_slot_mut", 1, 2),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(
+        hover.contents.value.contains("fn buffer_slot_mut:"),
+        "{}",
+        hover.contents.value
+    );
+
+    let edit = analysis
+        .rename(
+            &uri,
+            position_of_nth(storage_source, "buffer_slot_mut", 1, 2),
+            "shared_buffer_slot_mut",
+        )
+        .unwrap();
+    assert_eq!(edit.changes.get(&uri).unwrap().len(), 3);
+    assert_eq!(edit.changes.get(&view_uri).unwrap().len(), 1);
+    assert_eq!(
+        edit.changes.get(&view_uri).unwrap()[0].range.start,
+        position_of_nth(view_source, "buffer_slot_mut", 0, 0)
+    );
+}
+
+#[test]
 fn hover_on_destructure_pun_prefers_local_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

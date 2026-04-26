@@ -38,6 +38,48 @@ fn semantic_tokens_for_dirty_documents_fall_back_to_lexical_tokens() {
 }
 
 #[test]
+fn semantic_tokens_for_valid_dirty_documents_keep_semantic_classes() {
+    let mut analysis = AnalysisEngine::default();
+    let clean_source = "fn main() i32 {\n    let value = 1;\n    return value;\n}\n";
+    let dirty_source = "fn main() i32 {\n\n    let value = 1;\n    return value;\n}\n";
+    let uri = temp_file_uri("semantic_tokens_valid_dirty", clean_source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean_source.to_string(),
+        },
+    });
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty_source.to_string(),
+        }],
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+    assert_token(
+        &decoded,
+        position_of_nth(dirty_source, "value", 0, 0),
+        SemanticTokenTypes::VARIABLE,
+        SemanticModifiers::DECLARATION | SemanticModifiers::READONLY,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(dirty_source, "value", 1, 0),
+        SemanticTokenTypes::VARIABLE,
+        SemanticModifiers::READONLY,
+    );
+}
+
+#[test]
 fn semantic_tokens_classify_keywords_types_and_functions() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

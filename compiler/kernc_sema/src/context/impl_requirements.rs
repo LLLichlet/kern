@@ -622,8 +622,29 @@ impl<'a> SemaContext<'a> {
         requirement_target_ty: Option<TypeId>,
         requirement_trait_ty: TypeId,
     ) -> Option<PatersonBoundednessIssue> {
-        // Paterson-style boundedness rejects requirements that introduce either more type
-        // constructors or more occurrences of any parameter than the impl head already has.
+        // If the requirement asks for a proof on a strictly smaller receiver, repeated references
+        // to head parameters in the trait payload do not make the proof grow: the solver must first
+        // move from the outer receiver to one of its pieces. This admits bounds such as
+        // `impl[T] Box[T]: Iter where T: Add[T, Out = T]` without giving special treatment to
+        // builtin operator traits.
+        if let (Some(head_target_ty), Some(requirement_target_ty)) =
+            (head_target_ty, requirement_target_ty)
+        {
+            let head_target = self.paterson_type_measure(head_target_ty);
+            let requirement_target = self.paterson_type_measure(requirement_target_ty);
+            if self.paterson_measure_strictly_decreases(&requirement_target, &head_target) {
+                let payload = self.paterson_trait_payload_measure(requirement_trait_ty);
+                if let Some(issue) = self.compare_decreased_receiver_payload(&head_target, &payload)
+                {
+                    return Some(issue);
+                }
+                return None;
+            }
+        }
+
+        // Without receiver descent, Paterson-style boundedness rejects requirements that introduce
+        // either more type constructors or more occurrences of any parameter than the impl head
+        // already has.
         let head = self.paterson_obligation_measure(head_target_ty, head_trait_ty);
         let requirement =
             self.paterson_obligation_measure(requirement_target_ty, requirement_trait_ty);
@@ -643,6 +664,71 @@ impl<'a> SemaContext<'a> {
             return Some(PatersonBoundednessIssue::ConstructorCount {
                 head: head.constructors,
                 requirement: requirement.constructors,
+            });
+        }
+
+        None
+    }
+
+    fn paterson_type_measure(&self, ty: TypeId) -> PatersonMeasure {
+        let mut measure = PatersonMeasure::default();
+        self.measure_paterson_type(ty, &mut measure);
+        measure
+    }
+
+    fn paterson_trait_payload_measure(&self, trait_ty: TypeId) -> PatersonMeasure {
+        let mut measure = PatersonMeasure::default();
+        self.measure_paterson_trait_payload(trait_ty, &mut measure);
+        measure
+    }
+
+    fn paterson_measure_strictly_decreases(
+        &self,
+        requirement: &PatersonMeasure,
+        head: &PatersonMeasure,
+    ) -> bool {
+        if requirement.constructors > head.constructors {
+            return false;
+        }
+
+        let mut strictly_smaller = requirement.constructors < head.constructors;
+        for (&param, &requirement_count) in &requirement.params {
+            let head_count = head.params.get(&param).copied().unwrap_or(0);
+            if requirement_count > head_count {
+                return false;
+            }
+            strictly_smaller |= requirement_count < head_count;
+        }
+
+        for (&param, &head_count) in &head.params {
+            if head_count > 0 && !requirement.params.contains_key(&param) {
+                strictly_smaller = true;
+            }
+        }
+
+        strictly_smaller
+    }
+
+    fn compare_decreased_receiver_payload(
+        &self,
+        head_target: &PatersonMeasure,
+        payload: &PatersonMeasure,
+    ) -> Option<PatersonBoundednessIssue> {
+        for (&param, &requirement_count) in &payload.params {
+            let head_count = head_target.params.get(&param).copied().unwrap_or(0);
+            if head_count == 0 {
+                return Some(PatersonBoundednessIssue::VariableCount {
+                    param,
+                    head: head_count,
+                    requirement: requirement_count,
+                });
+            }
+        }
+
+        if payload.constructors > head_target.constructors {
+            return Some(PatersonBoundednessIssue::ConstructorCount {
+                head: head_target.constructors,
+                requirement: payload.constructors,
             });
         }
 

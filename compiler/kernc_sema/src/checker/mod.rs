@@ -809,7 +809,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     "impl prerequisite is not structurally bounded by the impl head",
                 )
                 .with_hint(
-                    "termination check: a prerequisite may stay the same size, but it may not grow constructors or duplicate generic parameters",
+                    "termination check: a prerequisite may duplicate head parameters only after moving to a structurally smaller receiver",
                 )
                 .with_hint(format!("impl head: `{}`", head_str))
                 .with_hint(format!("prerequisite: `{}`", requirement_str))

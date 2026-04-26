@@ -111,6 +111,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if self.ctx.type_registry.is_integer(norm)
                 || self.ctx.type_registry.is_float(norm)
                 || self.type_numeric_candidates(norm).is_some()
+                || self.expected_type_satisfies_builtin_marker(exp, "Integer")
+                || self.expected_type_satisfies_builtin_marker(exp, "SignedInteger")
+                || self.expected_type_satisfies_builtin_marker(exp, "UnsignedInteger")
+                || self.expected_type_satisfies_builtin_marker(exp, "Float")
             {
                 return exp;
             }
@@ -129,6 +133,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 || self
                     .type_numeric_candidates(norm)
                     .is_some_and(Self::numeric_candidates_have_floats)
+                || self.expected_type_satisfies_builtin_marker(exp, "Float")
             {
                 return exp;
             }
@@ -137,6 +142,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         self.fresh_numeric_type_var(NumericInferenceKind::FloatLiteral)
+    }
+
+    fn expected_type_satisfies_builtin_marker(&mut self, ty: TypeId, marker_name: &str) -> bool {
+        let Some(marker_id) = self.ctx.builtin_def(marker_name) else {
+            return false;
+        };
+        let marker_ty =
+            self.ctx
+                .type_registry
+                .intern(TypeKind::TraitObject(marker_id, Vec::new(), Vec::new()));
+        self.check_trait_impl(ty, marker_ty)
     }
 
     pub(crate) fn check_data_init_expr(

@@ -127,6 +127,44 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_duplicate_trait_payload_params_after_receiver_descent() {
+    let output = build_and_run_source(
+        r#"
+type Need[A, B] = trait {};
+type Marker = trait {
+    mark: fn() i32,
+};
+
+type Box[T] = struct {
+    value: T,
+};
+
+impl i32 : Need[i32, i32] {}
+
+impl[T] Box[T] : Marker
+    where T: Need[T, T],
+{
+    pub fn mark() i32 {
+        return 23;
+    }
+}
+
+fn main() i32 {
+    let value = Box[i32].{ value: 1 };
+    return value.mark() - 23;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_impl_prerequisite_that_grows_const_generic_structure() {
     let output = compile_source(
         r#"

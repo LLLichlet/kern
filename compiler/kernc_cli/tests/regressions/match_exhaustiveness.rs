@@ -288,7 +288,7 @@ fn classify_alias(mode: Alias) i32 {
 
 fn classify_box(value: Box[Mode]) i32 {
     return match (value) {
-        (Box[Mode].Empty) => 3,
+        Box[Mode].Empty => 3,
         Box[Mode].{ Full: Mode.Off } => 4,
         Box[Mode].{ Full: Mode.On } => 5,
     };

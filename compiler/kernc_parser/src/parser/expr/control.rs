@@ -415,7 +415,7 @@ impl<'a> Parser<'a> {
     fn parse_single_match_pattern(&mut self) -> ParseResult<MatchPattern> {
         let pat_start = self.peek().span;
 
-        if let Some(lead) = self.classify_pattern_lead(false) {
+        if let Some(lead) = self.classify_match_pattern_lead() {
             let pattern = self.parse_pattern_from_lead(pat_start, lead)?;
             return Ok(MatchPattern {
                 span: pattern.span,
@@ -462,6 +462,16 @@ impl<'a> Parser<'a> {
             kind: MatchPatternKind::Value(Box::new(expr.clone())),
             span: expr.span,
         })
+    }
+
+    fn classify_match_pattern_lead(&mut self) -> Option<PatternLead> {
+        match self.stream.peek_tag_nth(0) {
+            TokenType::Identifier if self.looks_like_typed_destructure_pattern() => {
+                Some(PatternLead::Typed)
+            }
+            TokenType::Identifier => None,
+            _ => self.classify_pattern_lead(false),
+        }
     }
 
     fn parse_unit_variant_pattern_after_dot(
@@ -744,6 +754,15 @@ impl<'a> Parser<'a> {
             TokenType::DotLBrace => self.lookahead_destructure_pattern_end(index + 1).is_some(),
             _ => false,
         }
+    }
+
+    fn looks_like_typed_destructure_pattern(&mut self) -> bool {
+        let Some(index) = self.lookahead_type_path_end(0) else {
+            return false;
+        };
+
+        self.stream.peek_tag_nth(index) == TokenType::DotLBrace
+            && self.lookahead_destructure_pattern_end(index + 1).is_some()
     }
 
     pub(super) fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {

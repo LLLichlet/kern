@@ -76,7 +76,7 @@ code or documentation.
 ### 3. Let contextual typing do the routine work
 
 Kern has strong contextual typing, and plain integer literals default to
-`usize`.
+`i32`.
 
 Do not write redundant providers when the type is already fixed by the local
 context:
@@ -95,7 +95,7 @@ the type, do not add qualification only because it is available.
 Keep explicit providers when:
 
 - width or signedness is part of the logic
-- removing the provider would silently change the type to `usize`
+- removing the provider would silently change the type to `i32`
 - the provider materially improves local readability
 
 ### 4. Be explicit when width is part of the meaning

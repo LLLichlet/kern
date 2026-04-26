@@ -87,6 +87,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         value: &Expr,
         target_expr: &MastExpr,
         target_ty: TypeId,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     ) -> Option<MastExpr> {
         let norm_target = self.ctx.type_registry.normalize(target_ty);
         match &value.kind {
@@ -102,6 +103,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ExprKind::EnumLiteral { variant, .. } => self
                 .build_enum_variant_condition(span, target_expr, target_ty, *variant)
                 .map(|(cond, _)| cond),
+            ExprKind::FieldAccess { field, .. }
+                if self.value_pattern_is_qualified_enum_variant(value, target_ty, subst_map) =>
+            {
+                self.build_enum_variant_condition(span, target_expr, target_ty, *field)
+                    .map(|(cond, _)| cond)
+            }
             ExprKind::DataInit {
                 literal: ast::DataLiteralKind::Struct(fields),
                 ..
@@ -134,6 +141,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         &field.value,
                         &payload_expr,
                         payload_ty,
+                        subst_map,
                     )?;
                     Some(self.and_expr(span, tag_cond, inner))
                 } else {
@@ -155,6 +163,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             &field.value,
                             &field_expr,
                             field_ty,
+                            subst_map,
                         )?;
                         cond = self.and_expr(field.span, cond, inner);
                     }
@@ -163,6 +172,33 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             _ => None,
         }
+    }
+
+    fn value_pattern_is_qualified_enum_variant(
+        &mut self,
+        value: &Expr,
+        target_ty: TypeId,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    ) -> bool {
+        let ExprKind::FieldAccess { lhs, .. } = &value.kind else {
+            return false;
+        };
+        let Some(lhs_ty) = self.ctx.facts.node_types.get(&lhs.id).copied() else {
+            return false;
+        };
+        let lhs_ty = self.substitute_type_with_map(lhs_ty, subst_map);
+        let lhs_norm = self.normalize_concrete_type(lhs_ty);
+        let lhs_norm = self.ctx.type_registry.normalize(lhs_norm);
+        let target_norm = self.normalize_concrete_type(target_ty);
+        let target_norm = self.ctx.type_registry.normalize(target_norm);
+
+        if lhs_norm != target_norm {
+            return false;
+        }
+        matches!(
+            self.ctx.type_registry.get(target_norm),
+            TypeKind::Enum(..) | TypeKind::AnonymousEnum(_)
+        )
     }
 
     pub(super) fn collect_pattern_plan(
@@ -678,6 +714,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         value,
                         match_context.target_var_expr,
                         match_context.target_ty,
+                        match_context.subst_map,
                     ) {
                         cond
                     } else {

@@ -685,3 +685,51 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn lowers_enum_payload_value_pattern_structurally() {
+    let output = build_and_run_source(
+        r#"
+type Color = enum {
+    R,
+    B,
+};
+
+type Leaf = enum {
+    E,
+};
+
+type Tree = enum {
+    E,
+    T: Node,
+};
+
+type Node = struct {
+    color: Color,
+    left: Leaf,
+    right: Leaf,
+};
+
+fn classify(tree: Tree) i32 {
+    return match (tree) {
+        .E => 0,
+        Tree.{ T: Node.{ color: Color.R, left: Leaf.E, right: Leaf.E } } => 1,
+        _ => 2,
+    };
+}
+
+fn main() i32 {
+    let hit = classify(Tree.{ T: Node.{ color: Color.R, left: Leaf.E, right: Leaf.E } });
+    let miss = classify(Tree.{ T: Node.{ color: Color.B, left: Leaf.E, right: Leaf.E } });
+    return classify(Tree.E) + hit + miss - 3;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

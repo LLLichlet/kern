@@ -390,6 +390,39 @@ fn main() i32 {
 }
 
 #[test]
+fn hosted_std_io_prints_to_stdout_and_stderr() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_io_print_streams",
+        r#"
+use std.io;
+
+fn main() i32 {
+    io.print("out {}", .{ 1, });
+    io.println(" line {}", .{ 2, });
+    io.eprint("err {}", .{ 3, });
+    io.eprintln(" line {}", .{ 4, });
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std io stream helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    assert_eq!(String::from_utf8_lossy(&run_output.stdout), "out 1 line 2\n");
+    assert_eq!(String::from_utf8_lossy(&run_output.stderr), "err 3 line 4\n");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn test_expect_err_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_expect_err_fail",

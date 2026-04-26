@@ -2,6 +2,7 @@ use ..traits.Writer;
 use ..traits.Printable;
 use ..File;
 use ..stdout;
+use ..stderr;
 
 /// Formats text and placeholders into the given writer.
 ///
@@ -92,6 +93,29 @@ pub/ fn print(fmt: []u8, args: []*Printable) void {
 pub/ fn println(fmt: []u8, args: []*Printable) void {
     let mut out_file = stdout();
     let writer = *mut Writer.{ out_file..& };
+    format_to(writer, fmt, args);
+    let _ = writer.write("\n");
+}
+
+/// Formats into standard error without appending a newline.
+///
+/// Note:
+/// formatting arguments are passed as list literals such as `.{ value }` or
+/// `.{ left, right }`.
+pub/ fn eprint(fmt: []u8, args: []*Printable) void {
+    let mut err_file = stderr();
+    let writer = *mut Writer.{ err_file..& };
+    format_to(writer, fmt, args);
+}
+
+/// Formats into standard error and appends a newline.
+///
+/// Note:
+/// formatting arguments are passed as list literals such as `.{ value }` or
+/// `.{ left, right }`.
+pub/ fn eprintln(fmt: []u8, args: []*Printable) void {
+    let mut err_file = stderr();
+    let writer = *mut Writer.{ err_file..& };
     format_to(writer, fmt, args);
     let _ = writer.write("\n");
 }

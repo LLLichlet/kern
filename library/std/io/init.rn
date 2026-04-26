@@ -10,7 +10,7 @@ mod fmt;
 use std.fs;
 use sys.os;
 
-pub use .fmt.{format_to, print, println};
+pub use .fmt.{format_to, eprint, eprintln, print, println};
 pub use .traits.{Printable, Writer};
 
 /// A writable handle backed by `std.fs.File`.

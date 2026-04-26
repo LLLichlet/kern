@@ -12,17 +12,21 @@ fn contains(text: []u8, needle: []u8) bool {
     if (#needle > #text) {
         return false;
     }
-    for (let mut i = usize.{0}; i + #needle <= #text; i += 1) {
+    let mut i = usize.{0};
+    while (i + #needle <= #text) {
         let mut matched = true;
-        for (let mut j = usize.{0}; j < #needle; j += 1) {
+        let mut j = usize.{0};
+        while (j < #needle) {
             if (text.[i + j] != needle.[j]) {
                 matched = false;
                 break;
             }
+            j += 1;
         }
         if (matched) {
             return true;
         }
+        i += 1;
     }
     return false;
 }
@@ -31,26 +35,32 @@ fn find_index(text: []u8, needle: []u8) usize {
     if (#needle == 0 or #needle > #text) {
         return #text;
     }
-    for (let mut i = usize.{0}; i + #needle <= #text; i += 1) {
+    let mut i = usize.{0};
+    while (i + #needle <= #text) {
         let mut matched = true;
-        for (let mut j = usize.{0}; j < #needle; j += 1) {
+        let mut j = usize.{0};
+        while (j < #needle) {
             if (text.[i + j] != needle.[j]) {
                 matched = false;
                 break;
             }
+            j += 1;
         }
         if (matched) {
             return i;
         }
+        i += 1;
     }
     return #text;
 }
 
 fn find_byte(text: []u8, needle: u8) usize {
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text) {
         if (text.[i] == needle) {
             return i;
         }
+        i += 1;
     }
     return #text;
 }
@@ -58,7 +68,8 @@ fn find_byte(text: []u8, needle: u8) usize {
 fn line_slice(text: []u8, line_index: usize) []u8 {
     let mut start = usize.{0};
     let mut current = usize.{0};
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text) {
         if (current == line_index and text.[i] == b'\n') {
             return text.[start .. i];
         }
@@ -66,6 +77,7 @@ fn line_slice(text: []u8, line_index: usize) []u8 {
             current += 1;
             start = i + 1;
         }
+        i += 1;
     }
     if (current == line_index and start <= #text) {
         return text.[start .. #text];
@@ -74,17 +86,21 @@ fn line_slice(text: []u8, line_index: usize) []u8 {
 }
 
 fn find_line_with(text: []u8, needle: []u8, max_lines: usize) usize {
-    for (let mut line = usize.{0}; line < max_lines; line += 1) {
+    let mut line = usize.{0};
+    while (line < max_lines) {
         if (contains(line_slice(text, line), needle)) {
             return line;
         }
+        line += 1;
     }
     return max_lines;
 }
 
 fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text) {
         state.handle_key(gpa, input.Key.{ Byte: text.[i] });
+        i += 1;
     }
 }
 
@@ -391,8 +407,10 @@ fn check_command_line_viewport_render() void {
 
     test.assert(state.resize(2, 8), "expected resize for render viewport test", .{});
     state.handle_key(gpa, .{ Byte: b':' });
-    for (let mut i = usize.{0}; i < #"abcdefghij"; i += 1) {
+    let mut i = usize.{0};
+    while (i < #"abcdefghij") {
         state.handle_key(gpa, .{ Byte: "abcdefghij".[i] });
+        i += 1;
     }
 
     let frame = String.{}..&;
@@ -648,13 +666,15 @@ fn check_window_and_layout_slots_are_reused() void {
 
     test.assert(state.resize(12, 48), "expected resize for slot reuse test", .{});
 
-    for (let mut i = 0; i < 8; i += 1) {
+    let mut i = 0;
+    while (i < 8) {
         ctrl_w(state, gpa, b's');
         test.eq(state.window_slots(), 2);
         test.eq(state.layout_node_slots(), 3);
         ctrl_w(state, gpa, b'q');
         test.eq(state.window_slots(), 2);
         test.eq(state.layout_node_slots(), 3);
+        i += 1;
     }
 }
 

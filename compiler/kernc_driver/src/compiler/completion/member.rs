@@ -375,39 +375,14 @@ impl CompilerDriver {
                     }
                 }
             }
-            ast::ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
-                if let Some(init) = init {
-                    self.collect_member_completion_items_in_expr(
-                        member_query,
-                        module_id,
-                        init,
-                        member_env,
-                        member_items_by_span,
-                    );
-                }
-                if let Some(cond) = cond {
-                    self.collect_member_completion_items_in_expr(
-                        member_query,
-                        module_id,
-                        cond,
-                        member_env,
-                        member_items_by_span,
-                    );
-                }
-                if let Some(post) = post {
-                    self.collect_member_completion_items_in_expr(
-                        member_query,
-                        module_id,
-                        post,
-                        member_env,
-                        member_items_by_span,
-                    );
-                }
+            ast::ExprKind::While { cond, body } => {
+                self.collect_member_completion_items_in_expr(
+                    member_query,
+                    module_id,
+                    cond,
+                    member_env,
+                    member_items_by_span,
+                );
                 self.collect_member_completion_items_in_expr(
                     member_query,
                     module_id,

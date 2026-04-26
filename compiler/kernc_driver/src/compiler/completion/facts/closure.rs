@@ -193,33 +193,12 @@ fn collect_expr_closure_completion_facts(
                 );
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_expr_closure_completion_facts(
-                    init,
-                    closure_binding_items_by_body_span,
-                    closure_facts_by_span,
-                );
-            }
-            if let Some(cond) = cond {
-                collect_expr_closure_completion_facts(
-                    cond,
-                    closure_binding_items_by_body_span,
-                    closure_facts_by_span,
-                );
-            }
-            if let Some(post) = post {
-                collect_expr_closure_completion_facts(
-                    post,
-                    closure_binding_items_by_body_span,
-                    closure_facts_by_span,
-                );
-            }
+        ast::ExprKind::While { cond, body } => {
+            collect_expr_closure_completion_facts(
+                cond,
+                closure_binding_items_by_body_span,
+                closure_facts_by_span,
+            );
             collect_expr_closure_completion_facts(
                 body,
                 closure_binding_items_by_body_span,

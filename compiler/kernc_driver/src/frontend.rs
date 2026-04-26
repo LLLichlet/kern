@@ -763,21 +763,8 @@ impl CachedAstRebinder<'_> {
                     self.rebind_expr(result);
                 }
             }
-            ast::ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
-                if let Some(init) = init {
-                    self.rebind_expr(init);
-                }
-                if let Some(cond) = cond {
-                    self.rebind_expr(cond);
-                }
-                if let Some(post) = post {
-                    self.rebind_expr(post);
-                }
+            ast::ExprKind::While { cond, body } => {
+                self.rebind_expr(cond);
                 self.rebind_expr(body);
             }
             ast::ExprKind::SliceOp {
@@ -1449,21 +1436,8 @@ mod tests {
                     collect_identifier_symbols(result, visit);
                 }
             }
-            ast::ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
-                if let Some(init) = init {
-                    collect_identifier_symbols(init, visit);
-                }
-                if let Some(cond) = cond {
-                    collect_identifier_symbols(cond, visit);
-                }
-                if let Some(post) = post {
-                    collect_identifier_symbols(post, visit);
-                }
+            ast::ExprKind::While { cond, body } => {
+                collect_identifier_symbols(cond, visit);
                 collect_identifier_symbols(body, visit);
             }
             ast::ExprKind::SliceOp {

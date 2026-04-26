@@ -22,9 +22,9 @@ fn main() i32 {
 }
 
 #[test]
-fn std_bundle_does_not_expose_legacy_std_coll_module() {
+fn std_bundle_does_not_expose_std_coll_module() {
     let output = compile_source_with_args(
-        "kernc_std_legacy_coll_module",
+        "kernc_std_coll_module",
         r#"
 use std.coll.List;
 
@@ -161,7 +161,7 @@ fn main() i32 {
 #[test]
 fn std_bundle_does_not_expose_page_allocator_through_base_alloc() {
     let output = compile_source_with_args(
-        "kernc_base_alloc_page_removed",
+        "kernc_base_alloc_page_unavailable",
         r#"
 use base.mem.alloc.Page;
 

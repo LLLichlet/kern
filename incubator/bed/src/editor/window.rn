@@ -13,10 +13,12 @@ const MIN_WINDOW_COLS = usize.{16};
 impl *mut Editor {
     fn reset_layout_weights() void {
         let nodes = self.layout_nodes..&.as_mut_slice();
-        for (let mut i = usize.{0}; i < #nodes; i += 1) {
+        let mut i = usize.{0};
+        while (i < #nodes) {
             if (nodes.[i].alive) {
                 nodes.[i].weight = 1;
             }
+            i += 1;
         }
     }
 
@@ -177,12 +179,15 @@ impl *mut Editor {
         }
         let keep_index = self.active_window;
         let keep = self.window(keep_index);
-        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
+        let mut index = usize.{0};
+        while (index < self.windows.len) {
             if (index == keep_index or !self.window(index).alive) {
+            index += 1;
                 continue;
             }
             let buffer_index = self.window(index).buffer_index;
             self.release_buffer_slot(alloc, buffer_index);
+            index += 1;
         }
 
         self.windows..&.deinit(alloc);
@@ -277,8 +282,10 @@ impl *mut Editor {
         let .{ Some: first } = self.first_live_window() else return;
         let mut best_index = first;
         let mut best_rect = self.window_rect(first);
-        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
+        let mut index = usize.{0};
+        while (index < self.windows.len) {
             if (!self.window(index).alive or index == first) {
+            index += 1;
                 continue;
             }
             let rect = self.window_rect(index);
@@ -286,6 +293,7 @@ impl *mut Editor {
                 best_index = index;
                 best_rect = rect;
             }
+            index += 1;
         }
         self.activate_window(best_index);
     }
@@ -294,8 +302,10 @@ impl *mut Editor {
         let .{ Some: first } = self.first_live_window() else return;
         let mut best_index = first;
         let mut best_rect = self.window_rect(first);
-        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
+        let mut index = usize.{0};
+        while (index < self.windows.len) {
             if (!self.window(index).alive or index == first) {
+            index += 1;
                 continue;
             }
             let rect = self.window_rect(index);
@@ -307,6 +317,7 @@ impl *mut Editor {
                 best_index = index;
                 best_rect = rect;
             }
+            index += 1;
         }
         self.activate_window(best_index);
     }
@@ -318,27 +329,41 @@ impl *mut Editor {
         let mut best_primary = usize.{0};
         let mut best_secondary = usize.{0};
 
-        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
+        let mut index = usize.{0};
+        while (index < self.windows.len) {
             if (!self.window(index).alive or index == self.active_window) {
+            index += 1;
                 continue;
             }
             let rect = self.window_rect(index);
             let primary = match (axis) {
                 .Rows => {
                     if (forward) {
-                        if (rect.row < active_rect.row + active_rect.rows) continue;
+                        if (rect.row < active_rect.row + active_rect.rows) {
+                index += 1;
+                continue;
+            }
                         rect.row - (active_rect.row + active_rect.rows)
                     } else {
-                        if (rect.row + rect.rows > active_rect.row) continue;
+                        if (rect.row + rect.rows > active_rect.row) {
+                index += 1;
+                continue;
+            }
                         active_rect.row - (rect.row + rect.rows)
                     }
                 },
                 .Cols => {
                     if (forward) {
-                        if (rect.col < active_rect.col + active_rect.cols) continue;
+                        if (rect.col < active_rect.col + active_rect.cols) {
+                index += 1;
+                continue;
+            }
                         rect.col - (active_rect.col + active_rect.cols)
                     } else {
-                        if (rect.col + rect.cols > active_rect.col) continue;
+                        if (rect.col + rect.cols > active_rect.col) {
+                index += 1;
+                continue;
+            }
                         active_rect.col - (rect.col + rect.cols)
                     }
                 },
@@ -364,6 +389,7 @@ impl *mut Editor {
                 best_primary = primary;
                 best_secondary = secondary;
             }
+            index += 1;
         }
 
         if (has_best) {
@@ -471,7 +497,7 @@ impl *mut Editor {
 
     fn adjust_active_window_axis(axis: LayoutAxis, delta: i32) void {
         let mut node_index = self.active_layout_node();
-        for (;;) {
+        while (true) {
             let node = self.layout_node(node_index);
             if (!node.has_parent) {
                 return;

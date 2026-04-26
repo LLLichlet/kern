@@ -539,7 +539,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_removed_inline_always_attribute() {
+fn rejects_unsupported_inline_always_attribute() {
     let source = r#"
 #[inline_always]
 fn hot_add(lhs: i32, rhs: i32) i32 {
@@ -554,7 +554,7 @@ fn main() i32 {
     let output = compile_source(source);
     assert!(
         !output.status.success(),
-        "kernc unexpectedly accepted removed #[inline_always]:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly accepted unsupported #[inline_always]:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -573,7 +573,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_removed_inline_call_attribute_form() {
+fn rejects_unsupported_inline_call_attribute_form() {
     let source = r#"
 #[inline(always)]
 fn hot_add(lhs: i32, rhs: i32) i32 {
@@ -588,7 +588,7 @@ fn main() i32 {
     let output = compile_source(source);
     assert!(
         !output.status.success(),
-        "kernc unexpectedly accepted removed #[inline(...)]:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly accepted unsupported #[inline(...)]:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

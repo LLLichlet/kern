@@ -604,20 +604,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     .as_deref()
                     .is_some_and(|expr| self.expr_references_const_param(expr, env_scope))
             }
-            ast::ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
-                init.as_deref()
-                    .is_some_and(|expr| self.expr_references_const_param(expr, env_scope))
-                    || cond
-                        .as_deref()
-                        .is_some_and(|expr| self.expr_references_const_param(expr, env_scope))
-                    || post
-                        .as_deref()
-                        .is_some_and(|expr| self.expr_references_const_param(expr, env_scope))
+            ast::ExprKind::While { cond, body } => {
+                self.expr_references_const_param(cond, env_scope)
                     || self.expr_references_const_param(body, env_scope)
             }
             ast::ExprKind::SliceOp {

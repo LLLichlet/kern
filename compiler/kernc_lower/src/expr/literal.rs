@@ -346,7 +346,23 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.lower_repeat_init(value, subst_map, concrete_ty, span)
             }
             ast::DataLiteralKind::Scalar(inner) => {
-                self.lower_scalar_init(inner, subst_map, concrete_ty, span)
+                let is_target_array_like = matches!(
+                    norm,
+                    TypeKind::Array { .. }
+                        | TypeKind::ArrayInfer { .. }
+                        | TypeKind::Slice { .. }
+                        | TypeKind::Simd { .. }
+                );
+                if is_target_array_like && !matches!(inner.kind, ExprKind::Undef) {
+                    self.lower_array_init(
+                        std::slice::from_ref(inner.as_ref()),
+                        subst_map,
+                        concrete_ty,
+                        span,
+                    )
+                } else {
+                    self.lower_scalar_init(inner, subst_map, concrete_ty, span)
+                }
             }
         }
     }

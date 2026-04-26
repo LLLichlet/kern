@@ -25,8 +25,8 @@ pub/ fn fail(prefix: []u8, fmt: []u8, args: []*Printable) ! {
 /// low-level code that still wants a formatted diagnostic.
 ///
 /// Note:
-/// formatting arguments are passed as `.{ value, }`. Single-element lists still
-/// require the trailing comma.
+/// formatting arguments are passed as list literals such as `.{ value }` or
+/// `.{ left, right }`.
 pub/ fn panic(fmt: []u8, args: []*Printable) ! {
     fail("panic: ", fmt, args);
 }
@@ -36,8 +36,8 @@ pub/ fn panic(fmt: []u8, args: []*Printable) ! {
 /// This is a lightweight diagnostic channel intended for ad hoc runtime output.
 ///
 /// Note:
-/// formatting arguments are passed as `.{ value, }`. Single-element lists still
-/// require the trailing comma.
+/// formatting arguments are passed as list literals such as `.{ value }` or
+/// `.{ left, right }`.
 pub/ fn log(fmt: []u8, args: []*Printable) void {
     write_line("log: ", fmt, args);
 }
@@ -48,8 +48,8 @@ pub/ fn log(fmt: []u8, args: []*Printable) void {
 /// tooling and humans can distinguish intent.
 ///
 /// Note:
-/// formatting arguments are passed as `.{ value, }`. Single-element lists still
-/// require the trailing comma.
+/// formatting arguments are passed as list literals such as `.{ value }` or
+/// `.{ left, right }`.
 pub/ fn debug(fmt: []u8, args: []*Printable) void {
     write_line("debug: ", fmt, args);
 }

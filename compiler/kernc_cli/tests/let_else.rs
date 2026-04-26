@@ -70,7 +70,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_legacy_let_variant_payload_syntax() {
+fn rejects_unbraced_let_variant_payload_pattern() {
     let output = compile_source(
         r#"
 type Option[T] = enum {
@@ -100,7 +100,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_legacy_match_variant_payload_syntax() {
+fn rejects_unbraced_match_variant_payload_pattern() {
     let output = compile_source(
         r#"
 type Option[T] = enum {

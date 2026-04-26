@@ -86,7 +86,7 @@ pub.. fn first_hit[K, V](root: ?*mut Node[K, V]) ?SearchHit[K, V] {
     let root = root.?;
 
     let mut node = root;
-    for (; !node.is_leaf; ) {
+        while (!node.is_leaf) {
         node = child_at[K, V](node, usize.{0});
     }
     return .{ Some: SearchHit[K, V].{ node: node, index: usize.{0} } };
@@ -100,7 +100,7 @@ pub.. fn last_hit[K, V](root: ?*mut Node[K, V]) ?SearchHit[K, V] {
     let root = root.?;
 
     let mut node = root;
-    for (; !node.is_leaf; ) {
+        while (!node.is_leaf) {
         node = child_at[K, V](node, node.len);
     }
     return .{ Some: SearchHit[K, V].{ node: node, index: node.len - 1 } };
@@ -116,10 +116,10 @@ pub.. fn ceil_hit[K, V](root: ?*mut Node[K, V], key: K) ?SearchHit[K, V]
     let mut node = root;
     let mut found = ?SearchHit[K, V].None;
 
-    for (;;) {
+        while (true) {
         let current = node;
         let mut index = usize.{0};
-        for (; index < current.len; index += 1) {
+                while (index < current.len) {
             let cmp = key_at[K, V](current, index).cmp(key);
             if (cmp >= 0) {
                 found = .{ Some: SearchHit[K, V].{ node: current, index: index } };
@@ -129,6 +129,8 @@ pub.. fn ceil_hit[K, V](root: ?*mut Node[K, V], key: K) ?SearchHit[K, V]
                 node = child_at[K, V](current, index);
                 break;
             }
+
+            index += 1;
         }
 
         if (index == current.len) {
@@ -150,9 +152,9 @@ pub.. fn floor_hit[K, V](root: ?*mut Node[K, V], key: K) ?SearchHit[K, V]
     let mut node = root;
     let mut found = ?SearchHit[K, V].None;
 
-    for (;;) {
+        while (true) {
         let mut index = usize.{0};
-        for (; index < node.len; index += 1) {
+                while (index < node.len) {
             let cmp = key_at[K, V](node, index).cmp(key);
             if (cmp > 0) {
                 break;
@@ -161,6 +163,8 @@ pub.. fn floor_hit[K, V](root: ?*mut Node[K, V], key: K) ?SearchHit[K, V]
             if (cmp == 0) {
                 return found;
             }
+
+            index += 1;
         }
 
         if (node.is_leaf) {

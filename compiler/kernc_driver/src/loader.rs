@@ -633,21 +633,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     Self::collect_expr_alias_references(result, alias_names, referenced);
                 }
             }
-            ast::ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
-                if let Some(init) = init {
-                    Self::collect_expr_alias_references(init, alias_names, referenced);
-                }
-                if let Some(cond) = cond {
-                    Self::collect_expr_alias_references(cond, alias_names, referenced);
-                }
-                if let Some(post) = post {
-                    Self::collect_expr_alias_references(post, alias_names, referenced);
-                }
+            ast::ExprKind::While { cond, body } => {
+                Self::collect_expr_alias_references(cond, alias_names, referenced);
                 Self::collect_expr_alias_references(body, alias_names, referenced);
             }
             ast::ExprKind::SliceOp {

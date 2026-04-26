@@ -125,7 +125,7 @@ fn build_windows_utf8_argv(argc: usize, argv_wide: *mut *mut u16) i32 {
     let mut utf8_argc = usize.{0};
     let mut out_len = usize.{0};
 
-    for (; utf8_argc < argc and utf8_argc < usize.{64}; utf8_argc += usize.{1}) {
+        while (utf8_argc < argc and utf8_argc < usize.{64}) {
         if (out_len >= 32767) {
             break;
         }
@@ -145,6 +145,8 @@ fn build_windows_utf8_argv(argc: usize, argv_wide: *mut *mut u16) i32 {
         WINDOWS_ARG_BUF.[out_len] = 0;
         WINDOWS_ARGV_PTRS.[utf8_argc] = WINDOWS_ARG_BUF.[arg_start]..& as usize;
         out_len += usize.{1};
+
+        utf8_argc += usize.{1};
     }
 
     WINDOWS_ARGV_PTRS.[utf8_argc] = 0;

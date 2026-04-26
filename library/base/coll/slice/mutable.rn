@@ -4,8 +4,14 @@
 //! keep in-place sequence mutation small and explicit.
 
 use base.mem.{layout_of, memmove};
+use base.coll.SliceMutIter;
 
 impl[T] []mut T {
+    /// Returns an iterator over mutable element pointers.
+    pub fn iter() SliceMutIter[T] {
+        return .{ data: self };
+    }
+
     /// Swaps the elements at `lhs` and `rhs`.
     pub fn swap(lhs: usize, rhs: usize) bool {
         if (lhs >= #self or rhs >= #self) {
@@ -27,25 +33,34 @@ impl[T] []mut T {
             return false;
         }
 
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             let tmp = self.[i];
             self.[i] = other.[i];
             other.[i] = tmp;
+
+            i += 1;
         }
         return true;
     }
 
     /// Overwrites every element with `value`.
     pub fn fill(value: T) void {
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             self.[i] = value;
+
+            i += 1;
         }
     }
 
     /// Visits every element mutably.
     pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             visitor(self.[i]..&);
+
+            i += 1;
         }
     }
 
@@ -72,7 +87,7 @@ impl[T] []mut T {
     pub fn reverse() void {
         let mut left = usize.{0};
         let mut right = #self;
-        for (; left < right; ) {
+                while (left < right) {
             right -= 1;
             if (left >= right) {
                 return;

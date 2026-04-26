@@ -152,34 +152,182 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_for_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
         self.expect(TokenType::LParen)?;
-        let init = self.parse_optional_for_clause(TokenType::Semicolon)?;
-        self.expect(TokenType::Semicolon)?;
-        let cond = self.parse_optional_for_clause(TokenType::Semicolon)?;
-        self.expect(TokenType::Semicolon)?;
-        let post = self.parse_optional_for_clause(TokenType::RParen)?;
+        let pattern = self.parse_let_pattern()?;
+        self.expect(TokenType::Colon)?;
+        let iter = self.parse_expression(Precedence::Lowest)?;
         self.expect(TokenType::RParen)?;
 
         let body = self.parse_expression(Precedence::Lowest)?;
+        Ok(self.desugar_for_expr(start_span, pattern, iter, body))
+    }
+
+    pub(super) fn parse_while_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        self.expect(TokenType::LParen)?;
+        let cond = self.parse_expression(Precedence::Lowest)?;
+        self.expect(TokenType::RParen)?;
+        let body = self.parse_expression(Precedence::Lowest)?;
+
         Ok(Expr {
             id: self.new_id(),
             span: start_span.to(body.span),
-            kind: ExprKind::For {
-                init,
-                cond,
-                post,
+            kind: ExprKind::While {
+                cond: Box::new(cond),
                 body: Box::new(body),
             },
         })
     }
 
-    fn parse_optional_for_clause(
+    fn desugar_for_expr(
         &mut self,
-        terminator: TokenType,
-    ) -> ParseResult<Option<Box<Expr>>> {
-        if self.check(terminator) {
-            Ok(None)
-        } else {
-            Ok(Some(Box::new(self.parse_expression(Precedence::Lowest)?)))
+        start_span: Span,
+        pattern: LetPattern,
+        iter: Expr,
+        body: Expr,
+    ) -> Expr {
+        let block_id = self.new_id();
+        let iter_sym = self
+            .session
+            .intern(&format!("\0kern_for_iter_{}", block_id.0));
+        let some_sym = self.session.intern("Some");
+        let next_sym = self.session.intern("next");
+        let iter_span = iter.span;
+        let body_span = body.span;
+
+        let iter_let = Expr {
+            id: self.new_id(),
+            span: iter_span,
+            kind: ExprKind::Let {
+                pattern: LetPattern {
+                    span: iter_span,
+                    pattern: Pattern {
+                        span: iter_span,
+                        kind: PatternKind::Binding(BindingPattern {
+                            name: iter_sym,
+                            name_span: iter_span,
+                            is_mut: true,
+                            span: iter_span,
+                        }),
+                    },
+                },
+                init: Box::new(iter),
+                else_clause: None,
+            },
+        };
+
+        let iter_ident = Expr {
+            id: self.new_id(),
+            span: iter_span,
+            kind: ExprKind::Identifier(iter_sym),
+        };
+        let iter_ref = Expr {
+            id: self.new_id(),
+            span: iter_span,
+            kind: ExprKind::Unary {
+                op: UnaryOperator::MutAddressOf,
+                operand: Box::new(iter_ident),
+            },
+        };
+        let next_member = Expr {
+            id: self.new_id(),
+            span: iter_span,
+            kind: ExprKind::FieldAccess {
+                lhs: Box::new(iter_ref),
+                field: next_sym,
+                field_span: iter_span,
+            },
+        };
+        let next_call = Expr {
+            id: self.new_id(),
+            span: iter_span,
+            kind: ExprKind::Call {
+                callee: Box::new(next_member),
+                args: Vec::new(),
+            },
+        };
+
+        let item_pattern = Pattern {
+            span: pattern.span,
+            kind: PatternKind::Destructure(DestructurePattern {
+                target_type: None,
+                fields: vec![DestructurePatternField {
+                    name: some_sym,
+                    name_span: pattern.span,
+                    pattern: Box::new(pattern.pattern),
+                    span: pattern.span,
+                }],
+            }),
+        };
+        let next_let = Expr {
+            id: self.new_id(),
+            span: start_span.to(iter_span),
+            kind: ExprKind::Let {
+                pattern: LetPattern {
+                    span: item_pattern.span,
+                    pattern: item_pattern,
+                },
+                init: Box::new(next_call),
+                else_clause: Some(LetElseClause::Expr(Box::new(Expr {
+                    id: self.new_id(),
+                    span: start_span,
+                    kind: ExprKind::Break,
+                }))),
+            },
+        };
+
+        let loop_body = Expr {
+            id: self.new_id(),
+            span: iter_span.to(body_span),
+            kind: ExprKind::Block {
+                stmts: vec![
+                    Stmt {
+                        id: self.new_id(),
+                        span: next_let.span,
+                        attributes: Vec::new(),
+                        kind: StmtKind::ExprStmt(next_let),
+                    },
+                    Stmt {
+                        id: self.new_id(),
+                        span: body.span,
+                        attributes: Vec::new(),
+                        kind: StmtKind::ExprStmt(body),
+                    },
+                ],
+                result: None,
+            },
+        };
+        let while_expr = Expr {
+            id: self.new_id(),
+            span: start_span.to(loop_body.span),
+            kind: ExprKind::While {
+                cond: Box::new(Expr {
+                    id: self.new_id(),
+                    span: start_span,
+                    kind: ExprKind::Bool(true),
+                }),
+                body: Box::new(loop_body),
+            },
+        };
+
+        Expr {
+            id: block_id,
+            span: start_span.to(while_expr.span),
+            kind: ExprKind::Block {
+                stmts: vec![
+                    Stmt {
+                        id: self.new_id(),
+                        span: iter_let.span,
+                        attributes: Vec::new(),
+                        kind: StmtKind::ExprStmt(iter_let),
+                    },
+                    Stmt {
+                        id: self.new_id(),
+                        span: while_expr.span,
+                        attributes: Vec::new(),
+                        kind: StmtKind::ExprStmt(while_expr),
+                    },
+                ],
+                result: None,
+            },
         }
     }
 

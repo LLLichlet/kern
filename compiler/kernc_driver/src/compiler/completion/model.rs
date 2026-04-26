@@ -306,35 +306,10 @@ impl CompletionModel {
 
                 true
             }
-            ast::ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
+            ast::ExprKind::While { cond, body } => {
                 let mut loop_visible = visible.clone();
 
-                if let Some(init) = init
-                    && self.collect_in_expr(init, &mut loop_visible, offset)
-                {
-                    *visible = loop_visible;
-                    return true;
-                }
-
-                if let Some(loop_facts) = self.for_facts_by_span.get(&query_span_for_expr(expr)) {
-                    extend_completion_items(&mut loop_visible, &loop_facts.scope_items);
-                }
-
-                if let Some(cond) = cond
-                    && self.collect_in_expr(cond, &mut loop_visible, offset)
-                {
-                    *visible = loop_visible;
-                    return true;
-                }
-
-                if let Some(post) = post
-                    && self.collect_in_expr(post, &mut loop_visible, offset)
-                {
+                if self.collect_in_expr(cond, &mut loop_visible, offset) {
                     *visible = loop_visible;
                     return true;
                 }

@@ -543,10 +543,9 @@ impl<'a> Parser<'a> {
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
 
-        // Left-side global type annotations are intentionally rejected.
         if self.match_token(&[TokenType::Colon]) {
             let err_span = self.stream.prev_span();
-            self.add_error(err_span, "Global variables no longer support left-side type annotations. Use explicit constructors: `static X = Type.{ value };`".to_string());
+            self.add_error(err_span, "Global variables must express their type through the initializer. Use `static X = Type.{ value };`.".to_string());
             let _ = self.parse_type();
         }
 

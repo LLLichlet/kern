@@ -5,20 +5,26 @@ const USIZE_BYTES = @sizeOf[usize]();
 
 #[inline]
 fn eq_byte_range(lhs: *u8, rhs: *u8, len: usize) bool {
-    for (let mut i = usize.{0}; i < len; i += 1) {
+        let mut i = usize.{0};
+    while (i < len) {
         if ((lhs + i).* != (rhs + i).*) {
             return false;
         }
+
+        i += 1;
     }
     return true;
 }
 
 #[inline]
 fn eq_usize_range(lhs: *usize, rhs: *usize, len: usize) bool {
-    for (let mut i = usize.{0}; i < len; i += 1) {
+        let mut i = usize.{0};
+    while (i < len) {
         if ((lhs + i).* != (rhs + i).*) {
             return false;
         }
+
+        i += 1;
     }
     return true;
 }
@@ -84,17 +90,21 @@ impl []u8 : Eq[[]u8] {
 impl []u8 {
     /// Returns the first index of `byte`.
     pub fn find_byte(byte: u8) ?usize {
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             if (self.[i] == byte) {
                 return .{ Some: i };
             }
+
+            i += 1;
         }
         return .None;
     }
 
     /// Returns the last index of `byte`.
     pub fn rfind_byte(byte: u8) ?usize {
-        for (let mut i = #self; i > 0; ) {
+                let mut i = #self;
+        while (i > 0) {
             i -= 1;
             if (self.[i] == byte) {
                 return .{ Some: i };
@@ -110,7 +120,8 @@ impl []u8 {
 
     /// Trims ASCII whitespace from the start of the slice.
     pub fn trim_ascii_start() []u8 {
-        for (let mut start = usize.{0}; start < #self; start += 1) {
+                let mut start = usize.{0};
+        while (start < #self) {
             let b = self.[start];
             if (
                 b != b' ' and
@@ -122,13 +133,16 @@ impl []u8 {
             ) {
                 return self.[start .. #self];
             }
+
+            start += 1;
         }
         return self.[#self .. #self];
     }
 
     /// Trims ASCII whitespace from the end of the slice.
     pub fn trim_ascii_end() []u8 {
-        for (let mut end = #self; end > 0; ) {
+                let mut end = #self;
+        while (end > 0) {
             let b = self.[end - 1];
             if (
                 b != b' ' and

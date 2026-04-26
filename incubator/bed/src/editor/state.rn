@@ -116,8 +116,10 @@ impl *mut ShellOutputEntry {
 
 fn deinit_string_list(alloc: *mut Allocator, items: *mut List[String]) void {
     let slice = items.as_mut_slice();
-    for (let mut i = usize.{0}; i < #slice; i += 1) {
+    let mut i = usize.{0};
+    while (i < #slice) {
         slice.[i]..&.deinit(alloc);
+        i += 1;
     }
     items.deinit(alloc);
 }
@@ -128,8 +130,10 @@ pub.. fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], li
     }
     let remove_count = items.len - limit;
     let slice = items.as_mut_slice();
-    for (let mut i = usize.{0}; i < remove_count; i += 1) {
+    let mut i = usize.{0};
+    while (i < remove_count) {
         slice.[i]..&.deinit(alloc);
+        i += 1;
     }
     let kept = items.len - remove_count;
     if (kept > 0) {
@@ -141,8 +145,10 @@ pub.. fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], li
 
 fn deinit_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry]) void {
     let slice = items.as_mut_slice();
-    for (let mut i = usize.{0}; i < #slice; i += 1) {
+    let mut i = usize.{0};
+    while (i < #slice) {
         slice.[i]..&.deinit(alloc);
+        i += 1;
     }
     items.deinit(alloc);
 }
@@ -153,8 +159,10 @@ pub.. fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutput
     }
     let remove_count = items.len - limit;
     let slice = items.as_mut_slice();
-    for (let mut i = usize.{0}; i < remove_count; i += 1) {
+    let mut i = usize.{0};
+    while (i < remove_count) {
         slice.[i]..&.deinit(alloc);
+        i += 1;
     }
     let kept = items.len - remove_count;
     if (kept > 0) {
@@ -255,10 +263,12 @@ impl *mut Editor {
     /// Releases the full editor state.
     pub fn deinit(alloc: *mut Allocator) void {
         let buffers = self.buffers..&.as_mut_slice();
-        for (let mut i = usize.{0}; i < #buffers; i += 1) {
+        let mut i = usize.{0};
+        while (i < #buffers) {
             if (buffers.[i].ref_count > 0) {
                 buffers.[i].text..&.deinit(alloc);
             }
+            i += 1;
         }
         self.buffers..&.deinit(alloc);
         self.windows..&.deinit(alloc);

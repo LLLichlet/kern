@@ -29,9 +29,9 @@ extern {
     ) Handle;
     pub fn WriteFile(
         hFile: Handle,
-        lpBuffer: *u8, 
-        nNumberOfBytesToWrite: u32, 
-        lpNumberOfBytesWritten: *mut u32, 
+        lpBuffer: *u8,
+        nNumberOfBytesToWrite: u32,
+        lpNumberOfBytesWritten: *mut u32,
         lpOverlapped: *mut void
     ) i32;
     pub fn ReadFile(
@@ -87,7 +87,7 @@ pub fn write_stdout(ptr: *u8, len: usize) usize {
     // `STD_OUTPUT_HANDLE` is `-11`.
     let handle = GetStdHandle(-11);
     let mut written = u32.{0};
-    
+
     // The Win32 API expects a 32-bit length parameter.
     let _ = WriteFile(handle, ptr, len as u32, written..&, null_mut_ptr[void]());
     return written as usize;
@@ -461,7 +461,7 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
 
     let output = String.{}..&;
     let mut chunk = [1024]u8.{undef};
-    for (;;) {
+        while (true) {
         match (read_file(read_pipe, chunk.[0]..&, 1024)) {
             .{ Ok: read } => {
                 if (read == 0) {
@@ -506,7 +506,7 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
 /// Returns the number of UTF-16 code units before the terminating zero.
 pub fn utf16_z_len(str: *u16) usize {
     let mut len = usize.{0};
-    for (;;) {
+        while (true) {
         let current_ptr = str + len;
         if (current_ptr.* == 0) {
             return len;
@@ -723,10 +723,12 @@ fn find_data_file_type(data: *Win32FindDataW) FileType {
 
 fn find_data_name_len(data: *Win32FindDataW) usize {
     let mut len = usize.{0};
-    for (; len < usize.{260}; len += usize.{1}) {
+        while (len < usize.{260}) {
         if (data.cFileName.[len] == 0) {
             return len;
         }
+
+        len += usize.{1};
     }
     return usize.{260};
 }
@@ -756,7 +758,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
     };
 
     let mut total = usize.{0};
-    for (;;) {
+        while (true) {
         let name_len = find_data_name_len(data.&);
         let name = data.cFileName.[0 .. name_len];
         if (!is_dot_entry(name)) {

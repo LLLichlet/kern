@@ -110,9 +110,9 @@ fn lowering_prunes_dead_pure_assignment_statement() {
 }
 
 #[test]
-fn lowering_prunes_dead_pure_assignment_in_for_init_clause() {
+fn lowering_prunes_dead_pure_assignment_before_never_entered_while() {
     let root = std::env::temp_dir().join(format!(
-        "kern_lower_dead_for_init_{}_{}",
+        "kern_lower_dead_while_preassign_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -124,8 +124,8 @@ fn lowering_prunes_dead_pure_assignment_in_for_init_clause() {
     let source = concat!(
         "fn helper(seed: i32) i32 {\n",
         "    let mut value = seed;\n",
-        "    for (value = seed + 1; false; ) {\n",
-        "    }\n",
+        "    value = seed + 1;\n",
+        "    while (false) {}\n",
         "    value = seed + 2;\n",
         "    return value;\n",
         "}\n",
@@ -154,9 +154,9 @@ fn lowering_prunes_dead_pure_assignment_in_for_init_clause() {
 }
 
 #[test]
-fn lowering_prunes_dead_pure_assignment_in_for_post_clause() {
+fn lowering_keeps_assignment_in_while_body() {
     let root = std::env::temp_dir().join(format!(
-        "kern_lower_dead_for_post_{}_{}",
+        "kern_lower_keep_while_body_assign_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -169,8 +169,9 @@ fn lowering_prunes_dead_pure_assignment_in_for_post_clause() {
         "fn helper(limit: usize, seed: i32) i32 {\n",
         "    let mut i = usize.{0};\n",
         "    let mut value = seed;\n",
-        "    for (; i < limit; value = seed + 1) {\n",
+        "    while (i < limit) {\n",
         "        i += usize.{1};\n",
+        "        value = seed + 1;\n",
         "    }\n",
         "    value = seed + 2;\n",
         "    return value;\n",

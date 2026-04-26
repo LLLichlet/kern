@@ -372,72 +372,35 @@ impl<'a> FlowCfgBuilder<'a> {
                     current
                 }
             }
-            ast::ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
-                let mut current = incoming;
-                if let Some(init) = init {
-                    current = self.lower_expr(init, current, loop_ctx);
-                }
-
-                let head = self.add_node(
-                    AnalysisFlowCfgNodeKind::LoopHead,
-                    cond.as_deref().map_or(expr.span, |cond| cond.span),
-                    Some(expr.id),
-                );
+            ast::ExprKind::While { cond, body } => {
+                let head =
+                    self.add_node(AnalysisFlowCfgNodeKind::LoopHead, cond.span, Some(expr.id));
                 self.node_effects[head.index()] = classify_expr_effects(head, expr);
-                self.connect_to_node(current, head);
+                self.connect_to_node(incoming, head);
                 let after_loop = self.add_node(AnalysisFlowCfgNodeKind::Join, expr.span, None);
 
-                let body_in = if let Some(cond) = cond {
-                    let cond_out = self.lower_expr(cond, self.fallthrough(head), loop_ctx);
-                    let branch =
-                        self.add_node(AnalysisFlowCfgNodeKind::Branch, cond.span, Some(expr.id));
-                    self.node_effects[branch.index()] = classify_expr_effects(branch, expr);
-                    self.connect_to_node(cond_out, branch);
-                    self.add_edge(branch, after_loop, AnalysisFlowCfgEdgeKind::FalseBranch);
-                    vec![PendingEdge {
-                        from: branch,
-                        kind: AnalysisFlowCfgEdgeKind::TrueBranch,
-                    }]
-                } else {
-                    self.fallthrough(head)
-                };
+                let cond_out = self.lower_expr(cond, self.fallthrough(head), loop_ctx);
+                let branch =
+                    self.add_node(AnalysisFlowCfgNodeKind::Branch, cond.span, Some(expr.id));
+                self.node_effects[branch.index()] = classify_expr_effects(branch, expr);
+                self.connect_to_node(cond_out, branch);
+                self.add_edge(branch, after_loop, AnalysisFlowCfgEdgeKind::FalseBranch);
+                let body_in = vec![PendingEdge {
+                    from: branch,
+                    kind: AnalysisFlowCfgEdgeKind::TrueBranch,
+                }];
 
-                let continue_target = if let Some(post_expr) = post {
-                    self.add_node(AnalysisFlowCfgNodeKind::LoopLatch, post_expr.span, None)
-                } else {
-                    head
-                };
                 let body_out = self.lower_expr(
                     body,
                     body_in,
                     Some(LoopContext {
                         break_target: after_loop,
-                        continue_target,
+                        continue_target: head,
                     }),
                 );
 
-                if let Some(post_expr) = post {
-                    self.connect_to_node(body_out, continue_target);
-                    let post_out = self.lower_expr(
-                        post_expr,
-                        self.fallthrough(continue_target),
-                        Some(LoopContext {
-                            break_target: after_loop,
-                            continue_target: head,
-                        }),
-                    );
-                    for edge in post_out {
-                        self.add_edge(edge.from, head, AnalysisFlowCfgEdgeKind::LoopBack);
-                    }
-                } else {
-                    for edge in body_out {
-                        self.add_edge(edge.from, head, AnalysisFlowCfgEdgeKind::LoopBack);
-                    }
+                for edge in body_out {
+                    self.add_edge(edge.from, head, AnalysisFlowCfgEdgeKind::LoopBack);
                 }
 
                 if self.incoming_counts[after_loop.index()] > 0 {
@@ -763,21 +726,8 @@ fn collect_local_binding_uses_in_expr(
                 collect_local_binding_uses_in_expr(result, reference_to_binding, uses);
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_local_binding_uses_in_expr(init, reference_to_binding, uses);
-            }
-            if let Some(cond) = cond {
-                collect_local_binding_uses_in_expr(cond, reference_to_binding, uses);
-            }
-            if let Some(post) = post {
-                collect_local_binding_uses_in_expr(post, reference_to_binding, uses);
-            }
+        ast::ExprKind::While { cond, body } => {
+            collect_local_binding_uses_in_expr(cond, reference_to_binding, uses);
             collect_local_binding_uses_in_expr(body, reference_to_binding, uses);
         }
         ast::ExprKind::SliceOp {
@@ -990,22 +940,9 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
                 accumulate_expr_effects(result, effects);
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
+        ast::ExprKind::While { cond, body } => {
             effects.has_control_flow = true;
-            if let Some(init) = init {
-                accumulate_expr_effects(init, effects);
-            }
-            if let Some(cond) = cond {
-                accumulate_expr_effects(cond, effects);
-            }
-            if let Some(post) = post {
-                accumulate_expr_effects(post, effects);
-            }
+            accumulate_expr_effects(cond, effects);
             accumulate_expr_effects(body, effects);
         }
         ast::ExprKind::Defer { expr } => {

@@ -40,11 +40,14 @@ impl[T] *List[T] {
     /// Returns the first mapped value produced by `call_back`.
     pub fn find_map[U](call_back: *Fn(T) ?U) ?U {
         let items = self.as_slice();
-        for (let mut i = usize.{0}; i < #items; i += 1) {
+                let mut i = usize.{0};
+        while (i < #items) {
             match (call_back(items.[i])) {
                 .{ Some: value } => return .{ Some: value },
                 .None => {},
             }
+
+            i += 1;
         }
         return .None;
     }
@@ -96,11 +99,14 @@ impl[T] *List[T]
     pub fn lex_cmp(other: []T) Ordering {
         let items = self.as_slice();
         let shared = if (#items < #other) #items else #other;
-        for (let mut i = usize.{0}; i < shared; i += 1) {
+                let mut i = usize.{0};
+        while (i < shared) {
             let ord = items.[i].cmp(other.[i]);
             if (ord != Ordering.{0}) {
                 return ord;
             }
+
+            i += 1;
         }
 
         if (#items < #other) return Ordering.{-1};

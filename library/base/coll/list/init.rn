@@ -6,6 +6,7 @@
 use base.mem.alloc.{Allocator, Arena};
 use base.mem.{Layout, memmove};
 use base.num.USIZE_MAX;
+use base.coll.{SliceIter, SliceMutIter};
 
 mod query;
 
@@ -74,7 +75,7 @@ impl[T] *mut List[T] {
         }
 
         let mut new_cap = if (self.cap == 0) usize.{8} else self.cap;
-        for (; new_cap < required_cap; ) {
+                while (new_cap < required_cap) {
             if (new_cap > max_alloc_items / 2) {
                 new_cap = required_cap;
                 break;
@@ -154,7 +155,7 @@ impl[T] *mut List[T] {
         }
 
         let mut new_cap = if (self.cap == 0) usize.{8} else self.cap;
-        for (; new_cap < required_cap; ) {
+                while (new_cap < required_cap) {
             if (new_cap > max_alloc_items / 2) {
                 new_cap = required_cap;
                 break;
@@ -608,8 +609,11 @@ impl[T] *mut List[T] {
         }
 
         let start = self.len;
-        for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+        while (i < count) {
             (self.ptr + start + i).* = item;
+
+            i += 1;
         }
         self.len = start + count;
         return true;
@@ -691,25 +695,32 @@ impl[T] *mut List[T] {
 
         if (self.is_zst()) {
             let mut kept = usize.{0};
-            for (let mut i = usize.{0}; i < self.len; i += 1) {
+                        let mut i = usize.{0};
+            while (i < self.len) {
                 if (pred(self.zst_ptr().*)) {
                     kept += 1;
                 }
+
+                i += 1;
             }
             self.len = kept;
             return;
         }
 
         let mut write = usize.{0};
-        for (let mut read = usize.{0}; read < self.len; read += 1) {
+                let mut read = usize.{0};
+        while (read < self.len) {
             let item = (self.ptr + read).*;
             if (!pred(item)) {
+                read += 1;
                 continue;
             }
             if (write != read) {
                 (self.ptr + write).* = item;
             }
             write += 1;
+
+            read += 1;
         }
 
         self.len = write;
@@ -723,25 +734,32 @@ impl[T] *mut List[T] {
 
         if (self.is_zst()) {
             let mut kept = usize.{0};
-            for (let mut i = usize.{0}; i < self.len; i += 1) {
+                        let mut i = usize.{0};
+            while (i < self.len) {
                 if (pred(self.zst_ptr())) {
                     kept += 1;
                 }
+
+                i += 1;
             }
             self.len = kept;
             return;
         }
 
         let mut write = usize.{0};
-        for (let mut read = usize.{0}; read < self.len; read += 1) {
+                let mut read = usize.{0};
+        while (read < self.len) {
             let item_ptr = self.ptr + read;
             if (!pred(item_ptr)) {
+                read += 1;
                 continue;
             }
             if (write != read) {
                 (self.ptr + write).* = item_ptr.*;
             }
             write += 1;
+
+            read += 1;
         }
 
         self.len = write;
@@ -751,12 +769,22 @@ impl[T] *mut List[T] {
     pub fn as_mut_slice() []mut T {
         return self.ptr..[0 .. self.len];
     }
+
+    #[inline]
+    pub fn iter_mut() SliceMutIter[T] {
+        return self.as_mut_slice().iter();
+    }
 }
 
 impl[T] *List[T] {
     #[inline]
     pub fn as_slice() []T {
         return self.ptr.[0 .. self.len];
+    }
+
+    #[inline]
+    pub fn iter() SliceIter[T] {
+        return self.as_slice().iter();
     }
 
     #[inline]

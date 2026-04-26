@@ -392,7 +392,7 @@ fn links_unix_freestanding_program_without_program_main() {
         r#"
 #[export_name("_start")]
 fn kmain() void {
-    for (;;) {}
+    while (true) {}
     @unreachable();
 }
 "#,
@@ -1044,9 +1044,9 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_removed_runtime_provider_flag() {
+fn rejects_unknown_runtime_provider_flag() {
     let output = compile_source_with_args(
-        "kernc_removed_runtime_provider",
+        "kernc_unknown_runtime_provider",
         r#"
 fn main() i32 {
     return 0;
@@ -1064,12 +1064,13 @@ fn main() i32 {
 
     assert!(
         !output.status.success(),
-        "kernc unexpectedly accepted removed runtime-provider flag:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly accepted unknown runtime-provider flag:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("`--runtime-provider` has been removed"),
+        String::from_utf8_lossy(&output.stderr)
+            .contains("Unrecognized option `--runtime-provider`"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );

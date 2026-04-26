@@ -143,21 +143,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         target_ty: TypeId,
         literal: &ast::DataLiteralKind,
-        is_untyped_literal: bool,
         span: Span,
     ) -> TypeId {
         if target_ty == TypeId::ERROR {
             return TypeId::ERROR;
         }
 
-        self.check_data_literal(literal, target_ty, is_untyped_literal, span)
+        self.check_data_literal(literal, target_ty, span)
     }
 
     fn check_data_literal(
         &mut self,
         kind: &ast::DataLiteralKind,
         expected: TypeId,
-        is_untyped_literal: bool,
         span: Span,
     ) -> TypeId {
         let exp_norm = self.resolve_tv(expected);
@@ -265,7 +263,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             ast::DataLiteralKind::Scalar(inner) => {
-                if is_data {
+                let is_target_array_like = matches!(
+                    kind_enum,
+                    TypeKind::Array { .. }
+                        | TypeKind::ArrayInfer { .. }
+                        | TypeKind::Slice { .. }
+                        | TypeKind::Simd { .. }
+                );
+                if is_target_array_like && !matches!(inner.kind, ExprKind::Undef) {
+                    self.check_array_literal(std::slice::from_ref(inner), expected, exp_norm, span)
+                } else if is_data {
                     if let ExprKind::Identifier(variant_name) = &inner.kind {
                         let variant = self.ctx.resolve(*variant_name).to_string();
                         let expected_name = self.ctx.ty_to_string(expected);
@@ -293,7 +300,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                     TypeId::ERROR
                 } else {
-                    self.check_scalar_literal(inner, expected, is_untyped_literal)
+                    self.check_scalar_literal(inner, expected)
                 }
             }
         }
@@ -904,39 +911,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     /// Helper 4: validate scalar construction forms like `.{ 10 }`.
-    fn check_scalar_literal(
-        &mut self,
-        inner: &Expr,
-        expected: TypeId,
-        is_untyped_literal: bool,
-    ) -> TypeId {
-        let expected_norm = self.resolve_tv(expected);
-        let expects_array_like = matches!(
-            self.ctx.type_registry.get(expected_norm),
-            TypeKind::Slice { .. }
-                | TypeKind::Array { .. }
-                | TypeKind::ArrayInfer { .. }
-                | TypeKind::Simd { .. }
-        );
-        if expects_array_like && !matches!(inner.kind, ExprKind::Undef) {
-            let exp_str = self.ctx.ty_to_string(expected);
-            let inner_ty = self.check_expr(inner, None);
-            let act_str = self.ctx.ty_to_string(inner_ty);
-            let syntax_hint = if is_untyped_literal {
-                "if you meant a single-element array literal, write `.{ value, }` with a trailing comma"
-            } else {
-                "if you meant a single-element array literal, write `Type.{ value, }` with a trailing comma"
-            };
-            self.ctx
-                .struct_error(inner.span, "mismatched types")
-                .with_hint(format!("expected `{}`", exp_str))
-                .with_hint(format!("   found `{}`", act_str))
-                .with_hint(syntax_hint)
-                .with_hint("without the comma, Kern parses `.{ value }` as scalar initialization")
-                .emit();
-            return TypeId::ERROR;
-        }
-
+    fn check_scalar_literal(&mut self, inner: &Expr, expected: TypeId) -> TypeId {
         let inner_ty = self.check_expr(inner, Some(expected));
         self.check_coercion(inner, expected, inner_ty);
         expected

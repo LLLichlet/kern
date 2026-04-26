@@ -111,21 +111,8 @@ fn collect_expr_if_completion_facts(
                 collect_expr_if_completion_facts(&arm.body, if_facts_by_span);
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_expr_if_completion_facts(init, if_facts_by_span);
-            }
-            if let Some(cond) = cond {
-                collect_expr_if_completion_facts(cond, if_facts_by_span);
-            }
-            if let Some(post) = post {
-                collect_expr_if_completion_facts(post, if_facts_by_span);
-            }
+        ast::ExprKind::While { cond, body } => {
+            collect_expr_if_completion_facts(cond, if_facts_by_span);
             collect_expr_if_completion_facts(body, if_facts_by_span);
         }
         ast::ExprKind::SliceOp {

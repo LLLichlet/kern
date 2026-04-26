@@ -38,16 +38,19 @@ impl *mut Editor {
     }
 
     fn first_live_window() ?usize {
-        for (let mut i = usize.{0}; i < self.windows.len; i += 1) {
+        let mut i = usize.{0};
+        while (i < self.windows.len) {
             if (self.window(i).alive) {
                 return .{ Some: i };
             }
+            i += 1;
         }
         return .None;
     }
 
     fn last_live_window() ?usize {
-        for (let mut i = self.windows.len; i > 0; ) {
+        let mut i = self.windows.len;
+        while (i > 0) {
             i -= 1;
             if (self.window(i).alive) {
                 return .{ Some: i };
@@ -57,16 +60,19 @@ impl *mut Editor {
     }
 
     fn next_live_window_after(index: usize) ?usize {
-        for (let mut i = index + 1; i < self.windows.len; i += 1) {
+        let mut i = index + 1;
+        while (i < self.windows.len) {
             if (self.window(i).alive) {
                 return .{ Some: i };
             }
+            i += 1;
         }
         return .None;
     }
 
     fn prev_live_window_before(index: usize) ?usize {
-        for (let mut i = index; i > 0; ) {
+        let mut i = index;
+        while (i > 0) {
             i -= 1;
             if (self.window(i).alive) {
                 return .{ Some: i };
@@ -77,28 +83,34 @@ impl *mut Editor {
 
     fn nth_live_window(ordinal: usize) ?usize {
         let mut seen = usize.{0};
-        for (let mut i = usize.{0}; i < self.windows.len; i += 1) {
+        let mut i = usize.{0};
+        while (i < self.windows.len) {
             if (!self.window(i).alive) {
+            i += 1;
                 continue;
             }
             if (seen == ordinal) {
                 return .{ Some: i };
             }
             seen += 1;
+            i += 1;
         }
         return .None;
     }
 
     fn window_ordinal(index: usize) usize {
         let mut ordinal = usize.{0};
-        for (let mut i = usize.{0}; i < self.windows.len; i += 1) {
+        let mut i = usize.{0};
+        while (i < self.windows.len) {
             if (!self.window(i).alive) {
+            i += 1;
                 continue;
             }
             if (i == index) {
                 return ordinal;
             }
             ordinal += 1;
+            i += 1;
         }
         return usize.{0};
     }
@@ -161,12 +173,14 @@ impl *mut Editor {
         // Reuse an empty shared-buffer slot first so window-local `:e` does not
         // leave permanently abandoned holes behind after split churn.
         let slots = self.buffers..&.as_mut_slice();
-        for (let mut i = usize.{0}; i < #slots; i += 1) {
+        let mut i = usize.{0};
+        while (i < #slots) {
             if (slots.[i].ref_count == 0) {
                 slots.[i] = .{ text: text, ref_count: 1 };
                 index_out.* = i;
                 return true;
             }
+            i += 1;
         }
         if (!self.buffers..&.push(alloc, .{ text: text, ref_count: 1 })) {
             return false;
@@ -285,10 +299,12 @@ impl *mut Editor {
             return;
         };
         let mut count = usize.{0};
-        for (let mut i = usize.{0}; i < self.windows.len; i += 1) {
+        let mut i = usize.{0};
+        while (i < self.windows.len) {
             if (self.window(i).alive) {
                 count += 1;
             }
+            i += 1;
         }
         self.window_count = count;
         if (!self.is_live_window(self.active_window)) {

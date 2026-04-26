@@ -7,9 +7,8 @@ pub(super) use self::model::parsed_requires_body_completion;
 
 use self::facts::{
     collect_module_binding_completion_facts, collect_module_block_completion_facts,
-    collect_module_closure_completion_facts, collect_module_for_completion_facts,
-    collect_module_if_completion_facts, collect_module_match_completion_facts,
-    module_surface_decls,
+    collect_module_closure_completion_facts, collect_module_if_completion_facts,
+    collect_module_match_completion_facts, module_surface_decls,
 };
 use self::model::push_completion_item;
 use super::{AnalysisCompletionItem, AnalysisCompletionKind, CompilerDriver};
@@ -48,11 +47,6 @@ pub(super) struct CompletionBlockFacts {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct CompletionForFacts {
-    pub(super) scope_items: Vec<AnalysisCompletionItem>,
-}
-
-#[derive(Debug, Clone)]
 pub(super) struct CompletionMatchArmFacts {
     pub(super) span: kernc_utils::Span,
     pub(super) body_span: kernc_utils::Span,
@@ -87,7 +81,6 @@ pub(super) struct CompletionModel {
     pub(super) function_items_by_span: BTreeMap<kernc_utils::Span, Vec<AnalysisCompletionItem>>,
     pub(super) member_items_by_span: BTreeMap<kernc_utils::Span, Vec<AnalysisCompletionItem>>,
     pub(super) block_facts_by_span: BTreeMap<kernc_utils::Span, CompletionBlockFacts>,
-    pub(super) for_facts_by_span: BTreeMap<kernc_utils::Span, CompletionForFacts>,
     pub(super) match_facts_by_span: BTreeMap<kernc_utils::Span, CompletionMatchFacts>,
     pub(super) closure_facts_by_span: BTreeMap<kernc_utils::Span, CompletionClosureFacts>,
     pub(super) let_else_facts_by_span: BTreeMap<kernc_utils::Span, CompletionLetElseFacts>,
@@ -174,15 +167,6 @@ impl CompilerDriver {
             );
         }
 
-        let mut for_facts_by_span = BTreeMap::new();
-        for (_mod_id, ast) in asts {
-            collect_module_for_completion_facts(
-                ast,
-                &expr_binding_items_by_span,
-                &mut for_facts_by_span,
-            );
-        }
-
         let mut match_facts_by_span = BTreeMap::new();
         for (_mod_id, ast) in asts {
             collect_module_match_completion_facts(
@@ -240,7 +224,6 @@ impl CompilerDriver {
             root_items,
             function_items_by_span,
             block_facts_by_span,
-            for_facts_by_span,
             match_facts_by_span,
             closure_facts_by_span,
             let_else_facts_by_span,

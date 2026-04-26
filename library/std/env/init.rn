@@ -30,8 +30,10 @@ fn split_var(entry: []u8) ?Var {
         start = 1;
     }
 
-    for (let mut i = start; i < #entry; i += 1) {
+        let mut i = start;
+    while (i < #entry) {
         if (entry.[i] != b'=') {
+            i += 1;
             continue;
         }
         return .{
@@ -40,6 +42,8 @@ fn split_var(entry: []u8) ?Var {
                 value: entry.[i + 1 .. #entry],
             },
         };
+
+        i += 1;
     }
 
     return .None;
@@ -108,7 +112,7 @@ fn visit_posix(visitor: *Fn(Var) bool) usize {
     let mut envp = envp_start;
 
     let mut total = usize.{0};
-    for (;;) {
+        while (true) {
         let entry_ptr = envp.*;
         if ((entry_ptr as usize) == 0) {
             return total;
@@ -116,6 +120,7 @@ fn visit_posix(visitor: *Fn(Var) bool) usize {
 
         let entry = entry_ptr.[0 .. abi.cstr.len(entry_ptr)];
         let .{ Some: var } = split_var(entry) else {
+            envp = envp + usize.{1};
             envp = envp + usize.{1};
             continue;
         };
@@ -141,7 +146,7 @@ fn visit_windows(visitor: *Fn(Var) bool) usize {
 
     let mut cursor = block;
     let mut total = usize.{0};
-    for (;;) {
+        while (true) {
         let len = abi.cstr.len(cursor);
         if (len == 0) {
             return total;
@@ -149,6 +154,7 @@ fn visit_windows(visitor: *Fn(Var) bool) usize {
 
         let entry = cursor.[0 .. len];
         let .{ Some: var } = split_var(entry) else {
+            cursor = cursor + len + usize.{1};
             cursor = cursor + len + usize.{1};
             continue;
         };

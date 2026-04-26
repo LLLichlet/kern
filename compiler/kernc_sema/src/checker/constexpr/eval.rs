@@ -474,19 +474,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 else_branch,
             } => self.eval_if(cond, then_branch, else_branch.as_deref(), depth, expr.span),
             ExprKind::Match { target, arms } => self.eval_match(target, arms, depth, expr.span),
-            ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => self.eval_for(
-                init.as_deref(),
-                cond.as_deref(),
-                post.as_deref(),
-                body,
-                depth,
-                expr.span,
-            ),
+            ExprKind::While { cond, body } => self.eval_while(cond, body, depth, expr.span),
             ExprKind::Assign { lhs, op, rhs } => self.eval_assign(lhs, *op, rhs, depth, expr.span),
             ExprKind::Break => self.eval_break(expr.span),
             ExprKind::Continue => self.eval_continue(expr.span),
@@ -1178,11 +1166,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         Ok(value)
     }
 
-    fn eval_for(
+    fn eval_while(
         &mut self,
-        init: Option<&Expr>,
-        cond: Option<&Expr>,
-        post: Option<&Expr>,
+        cond: &Expr,
         body: &Expr,
         depth: usize,
         span: Span,
@@ -1190,14 +1176,6 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         const MAX_CONST_LOOP_ITERATIONS: usize = 100_000;
 
         self.push_local_scope();
-
-        if let Some(init) = init {
-            let _ = self.eval_inner(init, depth + 1)?;
-            if self.return_value.is_some() || self.loop_control.is_some() {
-                self.pop_local_scope();
-                return Ok(ConstValue::Void);
-            }
-        }
 
         self.loop_depth += 1;
         let mut iterations = 0usize;
@@ -1211,31 +1189,29 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         "constant evaluation exceeded the maximum loop iteration count",
                     )
                     .with_hint(
-                        "check for a non-terminating `for` loop in a `const fn` or constant expression",
+                        "check for a non-terminating `while` loop in a `const fn` or constant expression",
                     )
                     .emit();
                 return Err(ConstEvalError);
             }
 
-            if let Some(cond) = cond {
-                match self.eval_inner(cond, depth + 1)? {
-                    ConstValue::Bool(true) => {}
-                    ConstValue::Bool(false) => break,
-                    _ => {
-                        self.loop_depth -= 1;
-                        self.pop_local_scope();
-                        self.ctx
-                            .struct_error(
-                                cond.span,
-                                "for condition must evaluate to a boolean constant",
-                            )
-                            .emit();
-                        return Err(ConstEvalError);
-                    }
+            match self.eval_inner(cond, depth + 1)? {
+                ConstValue::Bool(true) => {}
+                ConstValue::Bool(false) => break,
+                _ => {
+                    self.loop_depth -= 1;
+                    self.pop_local_scope();
+                    self.ctx
+                        .struct_error(
+                            cond.span,
+                            "while condition must evaluate to a boolean constant",
+                        )
+                        .emit();
+                    return Err(ConstEvalError);
                 }
-                if self.return_value.is_some() {
-                    break;
-                }
+            }
+            if self.return_value.is_some() {
+                break;
             }
 
             let _ = self.eval_inner(body, depth + 1)?;
@@ -1246,17 +1222,6 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             match self.loop_control.take() {
                 Some(LoopControl::Break) => break,
                 Some(LoopControl::Continue) | None => {}
-            }
-
-            if let Some(post) = post {
-                let _ = self.eval_inner(post, depth + 1)?;
-                if self.return_value.is_some() {
-                    break;
-                }
-                match self.loop_control.take() {
-                    Some(LoopControl::Break) => break,
-                    Some(LoopControl::Continue) | None => {}
-                }
             }
 
             iterations += 1;

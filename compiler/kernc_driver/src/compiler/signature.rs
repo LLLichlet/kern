@@ -230,21 +230,8 @@ fn collect_call_sites_in_expr(
                 collect_call_sites_in_expr(ctx, file_id, result, call_sites);
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_call_sites_in_expr(ctx, file_id, init, call_sites);
-            }
-            if let Some(cond) = cond {
-                collect_call_sites_in_expr(ctx, file_id, cond, call_sites);
-            }
-            if let Some(post) = post {
-                collect_call_sites_in_expr(ctx, file_id, post, call_sites);
-            }
+        ast::ExprKind::While { cond, body } => {
+            collect_call_sites_in_expr(ctx, file_id, cond, call_sites);
             collect_call_sites_in_expr(ctx, file_id, body, call_sites);
         }
         ast::ExprKind::SliceOp {

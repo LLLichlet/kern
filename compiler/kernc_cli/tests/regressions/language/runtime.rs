@@ -489,34 +489,36 @@ fn main() i32 {
 }
 
 #[test]
-fn hints_about_trailing_comma_for_type_qualified_single_element_array_literal() {
-    let output = compile_source(
+fn compiles_single_element_array_literals_without_trailing_comma() {
+    let output = build_and_run_source(
         r#"
-fn main() i32 {
-    let out = [1]u8.{ 7 };
-    let _ = out;
+static STATIC_ONE = [1]u8.{ 7 };
+
+fn take(values: [1]u8) i32 {
+    if (values.[0] != u8.{ 9 }) {
+        return 1;
+    }
     return 0;
+}
+
+fn main() i32 {
+    let typed = [1]u8.{ 8 };
+    if (STATIC_ONE.[0] != u8.{ 7 }) {
+        return 2;
+    }
+    if (typed.[0] != u8.{ 8 }) {
+        return 3;
+    }
+    return take(.{ 9 });
 }
 "#,
     );
 
     assert!(
-        !output.status.success(),
-        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "single-element array literal binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("write `Type.{ value, }` with a trailing comma"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
-    assert!(
-        stderr.contains("scalar initialization"),
-        "unexpected stderr:\n{}",
-        stderr
     );
 }
 
@@ -893,19 +895,16 @@ fn main() i32 {
 }
 
 #[test]
-fn runs_for_clauses_with_non_void_init_post_and_body() {
+fn runs_while_loop_after_explicit_init_and_post_statements() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
     let mut phase = i32.{0};
 
-    for (
-        { phase += i32.{2}; i32.{99} };
-        phase < i32.{3};
-        { phase += i32.{10}; i32.{88} }
-    ) {
+    phase += i32.{2};
+    while (phase < i32.{3}) {
         phase += i32.{1};
-        i32.{77}
+        phase += i32.{10};
     }
 
     return phase - i32.{13};
@@ -916,6 +915,86 @@ fn main() i32 {
     assert!(
         output.status.success(),
         "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_while_with_break_and_continue() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let mut i = i32.{0};
+    let mut sum = i32.{0};
+
+    while (i < i32.{8}) {
+        i += i32.{1};
+        if (i == i32.{3}) {
+            continue;
+        }
+        if (i == i32.{7}) {
+            break;
+        }
+        sum += i;
+    }
+
+    return sum - i32.{18};
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_iterator_for_over_slice() {
+    let output = build_and_run_source(
+        r#"
+use base.coll.Iterator;
+
+fn main() i32 {
+    let values = [4]i32.{ 2, 4, 6, 8 };
+    let mut sum = i32.{0};
+
+    for (item: values.[0 .. 4].iter()) {
+        sum += item;
+    }
+
+    return sum - i32.{20};
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_malformed_iterator_loop_header() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let values = [3]i32.{ 1, 2, 3 };
+    for (item values.[0 .. 3].iter()) {
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -1026,7 +1105,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_legacy_inline_asm_string_arrays_with_migration_hint() {
+fn rejects_array_inline_asm_templates() {
     let output = compile_source(
         r#"
 fn main() i32 {
@@ -1044,7 +1123,7 @@ fn main() i32 {
 
     assert!(
         !output.status.success(),
-        "kernc unexpectedly accepted legacy @asm array syntax:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly accepted array @asm template syntax:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

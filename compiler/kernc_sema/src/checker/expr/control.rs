@@ -1275,25 +1275,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         TypeId::VOID
     }
 
-    pub(crate) fn check_for(
-        &mut self,
-        init: Option<&Expr>,
-        cond: Option<&Expr>,
-        post: Option<&Expr>,
-        body: &Expr,
-    ) -> TypeId {
+    pub(crate) fn check_while(&mut self, cond: &Expr, body: &Expr) -> TypeId {
         self.ctx.scopes.enter_scope();
-        if let Some(i) = init {
-            let _ = self.check_expr(i, None);
-        }
-        if let Some(c) = cond {
-            let c_ty = self.check_expr(c, Some(TypeId::BOOL));
-            self.check_coercion(c, TypeId::BOOL, c_ty);
-        }
-        if let Some(p) = post {
-            let _ = self.check_expr(p, None);
-        }
-        let _ = self.check_expr(body, None);
+        let c_ty = self.check_expr(cond, Some(TypeId::BOOL));
+        self.check_coercion(cond, TypeId::BOOL, c_ty);
+        let _ = self.check_discarded_expr(body);
         self.ctx.scopes.exit_scope();
         TypeId::VOID
     }

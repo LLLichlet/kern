@@ -30,13 +30,16 @@ pub/ fn path_separator_byte() u8 {
 fn preferred_separator_byte(path: []u8) u8 {
     #[if(os == "windows")]
     {
-        for (let mut i = usize.{0}; i < #path; i += 1) {
+                let mut i = usize.{0};
+        while (i < #path) {
             if (path.[i] == b'\\') {
                 return b'\\';
             }
             if (path.[i] == b'/') {
                 return b'/';
             }
+
+            i += 1;
         }
         return b'\\';
     }
@@ -59,13 +62,15 @@ pub/ fn root_prefix_len(path: []u8) usize {
     {
         if (len >= 2 and is_path_separator(path.[0]) and is_path_separator(path.[1])) {
             let mut index = usize.{2};
-            for (; index < len and !is_path_separator(path.[index]); index += usize.{1}) {}
+                        while (index < len and !is_path_separator(path.[index])) {                index += usize.{1};
+            }
             if (index >= len) {
                 return usize.{2};
             }
 
             index += usize.{1};
-            for (; index < len and !is_path_separator(path.[index]); index += usize.{1}) {}
+                        while (index < len and !is_path_separator(path.[index])) {                index += usize.{1};
+            }
             if (index < len and is_path_separator(path.[index])) {
                 return index + usize.{1};
             }
@@ -96,7 +101,7 @@ pub/ fn root_prefix_len(path: []u8) usize {
 pub/ fn trim_trailing_separators(path: []u8) []u8 {
     let prefix_len = root_prefix_len(path);
     let mut end = #path;
-    for (; end > prefix_len; ) {
+        while (end > prefix_len) {
         if (!is_path_separator(path.[end - 1])) {
             break;
         }
@@ -151,7 +156,8 @@ fn append_path_segment(
 
 fn last_separator(path: []u8) ?usize {
     let prefix_len = root_prefix_len(path);
-    for (let mut index = #path; index > prefix_len; ) {
+        let mut index = #path;
+    while (index > prefix_len) {
         index -= 1;
         if (is_path_separator(path.[index])) {
             return .{ Some: index };
@@ -193,7 +199,8 @@ pub/ fn parent(path: []u8) ?[]u8 {
 pub/ fn extension(path: []u8) ?[]u8 {
     let name = file_name(path).?;
 
-    for (let mut index = #name; index > 0; ) {
+        let mut index = #name;
+    while (index > 0) {
         index -= 1;
         if (name.[index] != b'.') {
             continue;
@@ -211,7 +218,8 @@ pub/ fn extension(path: []u8) ?[]u8 {
 pub/ fn file_stem(path: []u8) ?[]u8 {
     let name = file_name(path).?;
 
-    for (let mut index = #name; index > 0; ) {
+        let mut index = #name;
+    while (index > 0) {
         index -= 1;
         if (name.[index] != b'.') {
             continue;
@@ -271,14 +279,16 @@ pub/ fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
     defer segments.deinit(alloc);
 
     let mut index = prefix_len;
-    for (; index < #path; ) {
-        for (; index < #path and is_path_separator(path.[index]); index += 1) {}
+        while (index < #path) {
+                while (index < #path and is_path_separator(path.[index])) {            index += 1;
+        }
         if (index >= #path) {
             break;
         }
 
         let start = index;
-        for (; index < #path and !is_path_separator(path.[index]); index += 1) {}
+                while (index < #path and !is_path_separator(path.[index])) {            index += 1;
+        }
         let segment = path.[start .. index];
 
         if (segment == ".") {
@@ -321,12 +331,18 @@ pub/ fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
         return .{ Ok: out };
     }
 
-    for (let mut seg_index = usize.{0}; seg_index < segments.len; seg_index += 1) {
-        let .{ Some: segment } = segments.get(seg_index) else continue;
+    let mut seg_index = usize.{0};
+    while (seg_index < segments.len) {
+        let .{ Some: segment } = segments.get(seg_index) else {
+            seg_index += 1;
+            continue;
+        };
         if (!append_path_segment(out..&, alloc, prefix_len, sep, segment)) {
             out..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
         }
+
+        seg_index += 1;
     }
 
     return .{ Ok: out };

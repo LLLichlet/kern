@@ -385,15 +385,18 @@ impl DocumentValue {
     pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntryRef) ?usize {
         let .{ Object: object } = self.value_ptr().* else return .None;
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < object.entries.len; i += 1) {
-            let .{ Some: entry } = object.entries.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < object.entries.len) {
+            let .{ Some: entry } = object.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
+            i += 1;
                 continue;
             }
             if (total < #out) {
                 out.[total] = wrap_document_object_entry_ref(entry);
             }
             total += 1;
+            i += 1;
         }
         return .{ Some: total };
     }
@@ -691,15 +694,18 @@ impl DocumentValueMut {
     pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntry) ?usize {
         let .{ Object: object } = self.value_ptr().* else return .None;
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < object.entries.len; i += 1) {
-            let .{ Some: entry } = object.entries.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < object.entries.len) {
+            let .{ Some: entry } = object.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
+            i += 1;
                 continue;
             }
             if (total < #out) {
                 out.[total] = wrap_document_object_entry(self.state_ptr(), entry);
             }
             total += 1;
+            i += 1;
         }
         return .{ Some: total };
     }
@@ -1034,15 +1040,18 @@ impl IndexedDocumentView {
 
     pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntryRef) usize {
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < self.view_ptr().len(); i += 1) {
-            let .{ Some: entry } = self.view_ptr().get_entry(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.view_ptr().len()) {
+            let .{ Some: entry } = self.view_ptr().get_entry(i) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
+            i += 1;
                 continue;
             }
             if (total < #out) {
                 out.[total] = wrap_document_object_entry_ref(entry);
             }
             total += 1;
+            i += 1;
         }
         return total;
     }

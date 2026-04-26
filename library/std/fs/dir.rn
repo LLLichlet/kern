@@ -119,17 +119,21 @@ pub/ fn create_dir_all(alloc: *mut Allocator, path: []u8) bool!Error {
     let mut index = prefix_len;
     let mut any_created = false;
 
-    for (; index < #trimmed; index += 1) {
+        while (index < #trimmed) {
         if (!is_path_separator(trimmed.[index])) {
+            index += 1;
             continue;
         }
         if (index == 0 or is_path_separator(trimmed.[index - 1])) {
+            index += 1;
             continue;
         }
 
         let partial = trimmed.[0 .. index];
         let created = create_dir_if_missing(alloc, partial).!;
         any_created = any_created or created;
+
+        index += 1;
     }
 
     let created = create_dir_if_missing(alloc, trimmed).!;

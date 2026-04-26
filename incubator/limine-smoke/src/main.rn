@@ -45,19 +45,23 @@ fn serial_can_write() bool {
 }
 
 fn serial_write_byte(byte: u8) void {
-    for (; !serial_can_write(); ) {}
+    while (!serial_can_write()) {}
     outb(COM1, byte);
 }
 
 fn serial_write(text: []u8) void {
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text) {
         serial_write_byte(text.[i]);
+        i += 1;
     }
 }
 
 fn debug_write(text: []u8) void {
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text) {
         outb(DEBUGCON, text.[i]);
+        i += 1;
     }
 }
 
@@ -66,7 +70,7 @@ fn kmain() void {
     debug_write("limine-smoke: kernel booted\r\n");
     serial_init();
     serial_write("limine-smoke: kernel booted\r\n");
-    for (;;) {
+    while (true) {
         hlt();
     }
 }

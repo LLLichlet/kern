@@ -109,7 +109,7 @@ fn main(argc: i32, argv: **u8) i32 {
     }
     ui_active = true;
 
-    for (; !editor_state.should_quit(); ) {
+    while (!editor_state.should_quit()) {
         let size = match (term.stdout_size()) {
             .{ Ok: value } => value,
             .{ Err: _ } => term.Size.{ rows: 24, cols: 80 },

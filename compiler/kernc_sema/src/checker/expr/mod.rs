@@ -1374,8 +1374,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 } else {
                     self.resolve_data_init_target_type(None, expected_ty, expr.span)
                 };
-                let ty =
-                    self.check_data_init_expr(target_ty, literal, type_node.is_none(), expr.span);
+                let ty = self.check_data_init_expr(target_ty, literal, expr.span);
                 self.record_expr_timing(started, |stats, elapsed| stats.aggregate += elapsed);
                 ty
             }
@@ -1427,14 +1426,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 });
                 ty
             }
-            ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
+            ExprKind::While { cond, body } => {
                 let started = self.timing_start();
-                let ty = self.check_for(init.as_deref(), cond.as_deref(), post.as_deref(), body);
+                let ty = self.check_while(cond, body);
                 self.record_expr_timing(started, |stats, elapsed| {
                     stats.control += elapsed;
                     stats.control_for += elapsed;

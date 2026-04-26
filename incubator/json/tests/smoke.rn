@@ -1081,7 +1081,8 @@ fn check_owned_materialization_with_arena_reset() void {
     let mut arena = Arena.{ backing: page };
     defer arena..&.deinit();
 
-    for (let mut round = usize.{0}; round < usize.{2}; round += 1) {
+    let mut round = usize.{0};
+    while (round < usize.{2}) {
         let mut owned = test.expect_ok(value.clone_owned(arena..&));
         test.assert(owned..&.is_object(), "expected arena-owned root object helper", .{});
         test.eq(test.expect_some(owned..&.object_len()), usize.{4});
@@ -1097,6 +1098,7 @@ fn check_owned_materialization_with_arena_reset() void {
             .{}
         );
         arena..&.reset();
+        round += 1;
     }
 }
 
@@ -1183,7 +1185,8 @@ fn check_indexed_object_view_with_arena_reset() void {
     let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
 
-    for (let mut round = usize.{0}; round < usize.{2}; round += 1) {
+    let mut round = usize.{0};
+    while (round < usize.{2}) {
         let owned = test.expect_ok(value.clone_owned(arena))..&;
         let view = test.expect_some(test.expect_ok(owned.build_indexed_object_view(arena)));
         test.eq(view.&.len(), usize.{5});
@@ -1196,6 +1199,7 @@ fn check_indexed_object_view_with_arena_reset() void {
         test.eq(view.&.count_fields("dup"), usize.{2});
         test.eq(test.expect_some(test.expect_ok(test.expect_some(view.&.get_field("a")).u64_value())), u64.{1});
         arena.reset();
+        round += 1;
     }
 }
 

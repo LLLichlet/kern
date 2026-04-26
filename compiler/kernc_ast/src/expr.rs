@@ -18,7 +18,7 @@ impl Expr {
             self.kind,
             ExprKind::If { .. }
                 | ExprKind::Match { .. }
-                | ExprKind::For { .. }
+                | ExprKind::While { .. }
                 | ExprKind::Block { .. }
         )
     }
@@ -115,11 +115,9 @@ pub enum ExprKind {
         result: Option<Box<Expr>>,
     },
 
-    /// `for (init; cond; post) body`
-    For {
-        init: Option<Box<Expr>>,
-        cond: Option<Box<Expr>>,
-        post: Option<Box<Expr>>,
+    /// `while (cond) body`
+    While {
+        cond: Box<Expr>,
         body: Box<Expr>,
     },
 

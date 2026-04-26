@@ -33,12 +33,16 @@ impl *mut Editor {
         let mut col = cursor.col;
         let line = self.active_buffer().line(row);
         if (col < #line and !self.is_space_byte(line.[col])) {
-            for (; col < #line and !self.is_space_byte(line.[col]); col += 1) {}
+            while (col < #line and !self.is_space_byte(line.[col])) {
+                col += 1;
+            }
         }
 
-        for (;;) {
+        while (true) {
             let next_line = self.active_buffer().line(row);
-            for (; col < #next_line and self.is_space_byte(next_line.[col]); col += 1) {}
+            while (col < #next_line and self.is_space_byte(next_line.[col])) {
+                col += 1;
+            }
             if (col < #next_line) {
                 cursor.* = .{ row: row, col: col };
                 return;
@@ -63,7 +67,7 @@ impl *mut Editor {
         let mut row = cursor.row;
         let mut col = cursor.col;
 
-        for (;;) {
+        while (true) {
             if (col > 0) {
                 col -= 1;
                 break;
@@ -80,7 +84,7 @@ impl *mut Editor {
             }
         }
 
-        for (;;) {
+        while (true) {
             let line = self.active_buffer().line(row);
             if (!self.is_space_byte(line.[col])) {
                 break;
@@ -101,7 +105,7 @@ impl *mut Editor {
             col -= 1;
         }
 
-        for (;;) {
+        while (true) {
             if (col == 0) {
                 cursor.* = .{ row: row, col: 0 };
                 return;
@@ -124,12 +128,14 @@ impl *mut Editor {
 
         let mut row = cursor.row;
         let mut col = cursor.col;
-        for (;;) {
+        while (true) {
             let line = self.active_buffer().line(row);
             if (col < #line and !self.is_space_byte(line.[col])) {
                 break;
             }
-            for (; col < #line and self.is_space_byte(line.[col]); col += 1) {}
+            while (col < #line and self.is_space_byte(line.[col])) {
+                col += 1;
+            }
             if (col < #line) {
                 break;
             }
@@ -143,7 +149,9 @@ impl *mut Editor {
         }
 
         let line = self.active_buffer().line(row);
-        for (; col + 1 < #line and !self.is_space_byte(line.[col + 1]); col += 1) {}
+        while (col + 1 < #line and !self.is_space_byte(line.[col + 1])) {
+            col += 1;
+        }
         cursor.* = .{ row: row, col: col };
     }
 
@@ -156,15 +164,21 @@ impl *mut Editor {
 
         let mut row = cursor.row;
         let mut col = cursor.col;
-        for (;;) {
+        while (true) {
             let line = self.active_buffer().line(row);
             if (col < #line) {
                 let class = self.word_class(line.[col]);
                 if (class == 0) {
-                    for (; col < #line and self.word_class(line.[col]) == 0; col += 1) {}
+                    while (col < #line and self.word_class(line.[col]) == 0) {
+                        col += 1;
+                    }
                 } else {
-                    for (; col < #line and self.word_class(line.[col]) == class; col += 1) {}
-                    for (; col < #line and self.word_class(line.[col]) == 0; col += 1) {}
+                    while (col < #line and self.word_class(line.[col]) == class) {
+                        col += 1;
+                    }
+                    while (col < #line and self.word_class(line.[col]) == 0) {
+                        col += 1;
+                    }
                 }
                 if (col < #line) {
                     cursor.* = .{ row: row, col: col };
@@ -193,7 +207,7 @@ impl *mut Editor {
 
         let mut row = cursor.row;
         let mut col = cursor.col;
-        for (;;) {
+        while (true) {
             if (col > 0) {
                 col -= 1;
                 break;
@@ -211,7 +225,7 @@ impl *mut Editor {
             }
         }
 
-        for (;;) {
+        while (true) {
             let line = self.active_buffer().line(row);
             if (self.word_class(line.[col]) != 0) {
                 break;
@@ -235,7 +249,7 @@ impl *mut Editor {
 
         let line = self.active_buffer().line(row);
         let class = self.word_class(line.[col]);
-        for (;;) {
+        while (true) {
             if (col == 0) {
                 cursor.* = .{ row: row, col: 0 };
                 self.remember_preferred_col();
@@ -259,19 +273,25 @@ impl *mut Editor {
 
         let mut row = cursor.row;
         let mut col = cursor.col;
-        for (;;) {
+        while (true) {
             let line = self.active_buffer().line(row);
             if (col < #line and self.word_class(line.[col]) != 0) {
                 let class = self.word_class(line.[col]);
-                for (; col + 1 < #line and self.word_class(line.[col + 1]) == class; col += 1) {}
+                while (col + 1 < #line and self.word_class(line.[col + 1]) == class) {
+                    col += 1;
+                }
                 cursor.* = .{ row: row, col: col };
                 self.remember_preferred_col();
                 return;
             }
-            for (; col < #line and self.word_class(line.[col]) == 0; col += 1) {}
+            while (col < #line and self.word_class(line.[col]) == 0) {
+                col += 1;
+            }
             if (col < #line) {
                 let class = self.word_class(line.[col]);
-                for (; col + 1 < #line and self.word_class(line.[col + 1]) == class; col += 1) {}
+                while (col + 1 < #line and self.word_class(line.[col + 1]) == class) {
+                    col += 1;
+                }
                 cursor.* = .{ row: row, col: col };
                 self.remember_preferred_col();
                 return;
@@ -296,7 +316,7 @@ impl *mut Editor {
 
         let mut row = cursor.row;
         let mut col = cursor.col;
-        for (;;) {
+        while (true) {
             if (col > 0) {
                 col -= 1;
                 break;
@@ -314,7 +334,7 @@ impl *mut Editor {
             }
         }
 
-        for (;;) {
+        while (true) {
             let line = self.active_buffer().line(row);
             if (self.word_class(line.[col]) != 0) {
                 cursor.* = .{ row: row, col: col };
@@ -348,7 +368,7 @@ impl *mut Editor {
 
         let mut row = cursor.row;
         let mut col = cursor.col;
-        for (;;) {
+        while (true) {
             if (col > 0) {
                 col -= 1;
                 break;
@@ -366,7 +386,7 @@ impl *mut Editor {
             }
         }
 
-        for (;;) {
+        while (true) {
             let line = self.active_buffer().line(row);
             if (!self.is_space_byte(line.[col])) {
                 cursor.* = .{ row: row, col: col };
@@ -395,13 +415,16 @@ impl *mut Editor {
         let cursor = self.active_cursor();
         let line = self.active_buffer().line(cursor.row);
         let start = if (cursor.col < #line) cursor.col + 1 else #line;
-        for (let mut i = start; i < #line; i += 1) {
+        let mut i = start;
+        while (i < #line) {
             if (line.[i] != target) {
+            i += 1;
                 continue;
             }
             cursor.col = if (till and i > 0) i - 1 else i;
             self.remember_preferred_col();
             return true;
+            i += 1;
         }
         return false;
     }
@@ -414,7 +437,7 @@ impl *mut Editor {
         }
 
         let mut i = if (cursor.col <= #line) cursor.col - 1 else #line - 1;
-        for (;;) {
+        while (true) {
             if (line.[i] == target) {
                 cursor.col = if (till) i + 1 else i;
                 self.remember_preferred_col();
@@ -449,7 +472,8 @@ impl *mut Editor {
             self.clear_pending_count();
             return;
         }
-        for (let mut i = usize.{0}; i < count; i += 1) {
+        let mut i = usize.{0};
+        while (i < count) {
             let direction = if (reverse) {
                 match (self.last_find.direction) {
                     .Forward => FindDirection.Backward,
@@ -461,15 +485,18 @@ impl *mut Editor {
             if (!self.run_find(direction, self.last_find.till, self.last_find.target, false)) {
                 break;
             }
+            i += 1;
         }
     }
 
     fn line_is_blank(row: usize) bool {
         let line = self.active_buffer().line(row);
-        for (let mut i = usize.{0}; i < #line; i += 1) {
+        let mut i = usize.{0};
+        while (i < #line) {
             if (!self.is_space_byte(line.[i])) {
                 return false;
             }
+            i += 1;
         }
         return true;
     }
@@ -483,9 +510,13 @@ impl *mut Editor {
 
         let mut row = cursor.row;
         if (!self.line_is_blank(row)) {
-            for (; row + 1 < lines and !self.line_is_blank(row); row += 1) {}
+            while (row + 1 < lines and !self.line_is_blank(row)) {
+                row += 1;
+            }
         }
-        for (; row + 1 < lines and self.line_is_blank(row); row += 1) {}
+        while (row + 1 < lines and self.line_is_blank(row)) {
+            row += 1;
+        }
         cursor.row = if (row < lines) row else lines - 1;
         cursor.col = self.first_non_blank_col(cursor.row);
         self.ensure_cursor_visible(self.screen_rows);
@@ -505,8 +536,12 @@ impl *mut Editor {
         }
 
         let mut row = cursor.row - 1;
-        for (; row > 0 and self.line_is_blank(row); row -= 1) {}
-        for (; row > 0 and !self.line_is_blank(row - 1); row -= 1) {}
+        while (row > 0 and self.line_is_blank(row)) {
+            row -= 1;
+        }
+        while (row > 0 and !self.line_is_blank(row - 1)) {
+            row -= 1;
+        }
         cursor.row = row;
         cursor.col = self.first_non_blank_col(row);
         self.ensure_cursor_visible(self.screen_rows);
@@ -545,10 +580,12 @@ impl *mut Editor {
         let forward = self.is_open_delimiter(current);
         let mut depth = 0;
         if (forward) {
-            for (let mut row = cursor.row; row < self.active_buffer().line_count(); row += 1) {
+            let mut row = cursor.row;
+            while (row < self.active_buffer().line_count()) {
                 let text = self.active_buffer().line(row);
                 let start = if (row == cursor.row) cursor.col else usize.{0};
-                for (let mut col = start; col < #text; col += 1) {
+                let mut col = start;
+                while (col < #text) {
                     let byte = text.[col];
                     if (byte == current) {
                         depth += 1;
@@ -562,16 +599,18 @@ impl *mut Editor {
                             return;
                         }
                     }
+                    col += 1;
                 }
+                row += 1;
             }
             return;
         }
 
         let mut row = cursor.row;
-        for (;;) {
+        while (true) {
             let text = self.active_buffer().line(row);
             let mut col = if (row == cursor.row) cursor.col + 1 else #text;
-            for (; col > 0; ) {
+            while (col > 0) {
                 col -= 1;
                 let byte = text.[col];
                 if (byte == current) {

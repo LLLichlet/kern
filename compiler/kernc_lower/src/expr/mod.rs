@@ -212,23 +212,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     this.lower_if(cond, then_branch, else_branch.as_deref(), subst_map, exp_ty)
                 })
             }),
-            ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => self.measure_phase("        lower_expr_control", |this| {
-                this.measure_phase("          lower_expr_control_for", |this| {
-                    this.lower_for(
-                        init.as_deref(),
-                        cond.as_deref(),
-                        post.as_deref(),
-                        body,
-                        subst_map,
-                        expr.span,
-                    )
+            ExprKind::While { cond, body } => {
+                self.measure_phase("        lower_expr_control", |this| {
+                    this.measure_phase("          lower_expr_control_while", |this| {
+                        this.lower_while(cond, body, subst_map, expr.span)
+                    })
                 })
-            }),
+            }
             ExprKind::Match { target, arms } => {
                 self.measure_phase("        lower_expr_control", |this| {
                     this.measure_phase("          lower_expr_control_match", |this| {

@@ -195,7 +195,7 @@ impl<'a> Parser<'a> {
                 self.session
                     .struct_error(
                         self.stream.prev_span(),
-                        "array types no longer accept `mut` after the length",
+                        "unexpected `mut` after array length",
                     )
                     .with_hint("write `[_]T` for an array value type and use `let mut`, `*mut`, or `..[` when you need a mutable storage path")
                     .emit();
@@ -218,7 +218,7 @@ impl<'a> Parser<'a> {
                 self.session
                     .struct_error(
                         self.stream.prev_span(),
-                        "array types no longer accept `mut` after the length",
+                        "unexpected `mut` after array length",
                     )
                     .with_hint("write `[N]T` for an array value type and use `let mut`, `*mut`, or `..[` when you need a mutable storage path")
                     .emit();

@@ -42,6 +42,28 @@ fn main() i32 {
 }
 
 #[test]
+fn arrays_satisfy_trait_based_equality() {
+    let output = build_and_run_hosted(
+        r#"
+use std.test;
+
+fn main() i32 {
+    test.eq([4]i32.{ 1, 2, 3, 4 }, [4]i32.{ 1, 2, 3, 4 });
+    test.not_eq([4]i32.{ 1, 2, 3, 4 }, [4]i32.{ 1, 2, 3, 5 });
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_list_slice_and_string_algorithms() {
     let output = build_and_run_hosted(
         r#"

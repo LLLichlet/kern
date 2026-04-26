@@ -101,21 +101,8 @@ impl<'a> Pruner<'a> {
                     self.prune_expr(&mut arm.body);
                 }
             }
-            ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
-                if let Some(e) = init {
-                    self.prune_expr(e);
-                }
-                if let Some(e) = cond {
-                    self.prune_expr(e);
-                }
-                if let Some(e) = post {
-                    self.prune_expr(e);
-                }
+            ExprKind::While { cond, body } => {
+                self.prune_expr(cond);
                 self.prune_expr(body);
             }
             ExprKind::Closure { body, .. } => self.prune_expr(body),

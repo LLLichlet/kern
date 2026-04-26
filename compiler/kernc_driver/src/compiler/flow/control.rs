@@ -131,26 +131,13 @@ fn collect_control_facts_expr(
                 collect_control_facts_expr(result, regions, summary);
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
+        ast::ExprKind::While { cond, body } => {
             summary.loop_count += 1;
             regions.push(FlowRegionFacts {
                 span: expr.span,
                 kind: AnalysisFlowRegionKind::Loop,
             });
-            if let Some(init) = init {
-                collect_control_facts_expr(init, regions, summary);
-            }
-            if let Some(cond) = cond {
-                collect_control_facts_expr(cond, regions, summary);
-            }
-            if let Some(post) = post {
-                collect_control_facts_expr(post, regions, summary);
-            }
+            collect_control_facts_expr(cond, regions, summary);
             collect_control_facts_expr(body, regions, summary);
         }
         ast::ExprKind::SliceOp {

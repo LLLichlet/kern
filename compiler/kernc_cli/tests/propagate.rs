@@ -65,7 +65,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_legacy_braced_payloadless_builtin_optional_constructor() {
+fn rejects_braced_payloadless_builtin_optional_constructor() {
     let output = compile_source(
         r#"
 fn main() i32 {

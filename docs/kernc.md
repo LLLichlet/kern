@@ -95,7 +95,7 @@ entry contract and export your own entry symbol:
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    for (;;) {}
+    while (true) {}
     @unreachable();
 }
 ```

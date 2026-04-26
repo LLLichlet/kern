@@ -586,7 +586,7 @@ impl Value {
         next += 1;
         let mut current = usize.{0};
 
-        for (;;) {
+        while (true) {
             let item_start = skip_ws(text, next);
             if (item_start >= #text) {
                 return .{ Err: ParseError.UnexpectedEof };
@@ -638,7 +638,7 @@ impl Value {
         }
         next += 1;
 
-        for (;;) {
+        while (true) {
             let field_start = skip_ws(text, next);
             if (field_start >= #text) {
                 return .{ Err: ParseError.UnexpectedEof };
@@ -1209,7 +1209,7 @@ impl Value {
         let .{ Some: mut cursor } = self.array_cursor() else return .{ Ok: .None };
         let mut count = usize.{0};
 
-        for (;;) {
+        while (true) {
             let .{ Ok: item } = cursor..&.next()
                 else {
                     .{ Err: err } => return .{ Err: err },
@@ -1494,7 +1494,7 @@ impl Value {
         let mut found = ?ObjectEntry.None;
         let mut total = usize.{0};
 
-        for (;;) {
+        while (true) {
             let .{ Ok: item } = cursor..&.next()
                 else {
                     .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1769,7 +1769,7 @@ impl Value {
         let .{ Some: mut cursor } = self.object_cursor() else return .{ Ok: .None };
         let mut found = ?ObjectEntry.None;
 
-        for (;;) {
+        while (true) {
             let .{ Ok: item } = cursor..&.next()
                 else {
                     .{ Err: err } => return .{ Err: err },
@@ -1785,7 +1785,7 @@ impl Value {
         let .{ Some: mut cursor } = self.object_cursor() else return .{ Ok: .None };
         let mut total = usize.{0};
 
-        for (;;) {
+        while (true) {
             let .{ Ok: item } = cursor..&.next()
                 else {
                     .{ Err: err } => return .{ Err: err },
@@ -1801,7 +1801,7 @@ impl Value {
         let .{ Some: mut cursor } = self.object_cursor() else return .{ Ok: .None };
         let mut total = usize.{0};
 
-        for (;;) {
+        while (true) {
             let .{ Ok: item } = cursor..&.next()
                 else {
                     .{ Err: err } => return .{ Err: err },
@@ -1829,7 +1829,7 @@ impl Value {
         let .{ Some: mut cursor } = self.object_cursor() else return .{ Ok: .None };
         let mut count = usize.{0};
 
-        for (;;) {
+        while (true) {
             let .{ Ok: item } = cursor..&.next()
                 else {
                     .{ Err: err } => return .{ Err: err },

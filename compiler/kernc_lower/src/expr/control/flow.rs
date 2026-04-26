@@ -95,81 +95,49 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn lower_for(
+    pub(crate) fn lower_while(
         &mut self,
-        init: Option<&Expr>,
-        cond: Option<&Expr>,
-        post: Option<&Expr>,
+        cond: &Expr,
         body: &Expr,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
-        span: Span,
+        _span: Span,
     ) -> MastExprKind {
-        let has_init_scope = init.is_some();
-        if has_init_scope {
-            self.local_types.push(HashMap::new());
-            self.local_forwardings.push(HashMap::new());
-            self.local_value_forwardings.push(HashMap::new());
-        }
-
-        let mut outer_stmts = Vec::new();
-        if let Some(i) = init {
-            match &i.kind {
-                ExprKind::Let {
-                    pattern,
-                    init,
-                    else_clause,
-                } => outer_stmts.extend(self.measure_phase("            lower_for_init", |this| {
-                    this.lower_let_stmts(i, pattern, init, else_clause.as_ref(), subst_map)
-                })),
-                _ => {
-                    if let Some(stmt) = self.measure_phase("            lower_for_init", |this| {
-                        this.lower_optional_stmt_expr(i, subst_map)
-                    }) {
-                        outer_stmts.push(stmt);
-                    }
-                }
-            }
-        }
-
         let mut loop_stmts = Vec::new();
 
-        if let Some(c) = cond {
-            let c_expr = self.measure_phase("            lower_for_cond", |this| {
-                this.lower_expr(c, subst_map, Some(TypeId::BOOL))
-            });
-            let not_c = MastExpr::new(
-                TypeId::BOOL,
-                MastExprKind::Unary {
-                    op: ast::UnaryOperator::LogicalNot,
-                    operand: Box::new(c_expr),
-                },
-                c.span,
-            );
+        let c_expr = self.measure_phase("            lower_while_cond", |this| {
+            this.lower_expr(cond, subst_map, Some(TypeId::BOOL))
+        });
+        let not_c = MastExpr::new(
+            TypeId::BOOL,
+            MastExprKind::Unary {
+                op: ast::UnaryOperator::LogicalNot,
+                operand: Box::new(c_expr),
+            },
+            cond.span,
+        );
 
-            loop_stmts.push(MastStmt::Expr(MastExpr::new(
-                TypeId::VOID,
-                MastExprKind::If {
-                    cond: Box::new(not_c),
-                    then_branch: MastBlock {
-                        stmts: vec![MastStmt::Expr(MastExpr::new(
-                            TypeId::VOID,
-                            MastExprKind::Break,
-                            c.span,
-                        ))],
-                        result: None,
-                        defers: vec![],
-                    },
-                    else_branch: None,
+        loop_stmts.push(MastStmt::Expr(MastExpr::new(
+            TypeId::VOID,
+            MastExprKind::If {
+                cond: Box::new(not_c),
+                then_branch: MastBlock {
+                    stmts: vec![MastStmt::Expr(MastExpr::new(
+                        TypeId::VOID,
+                        MastExprKind::Break,
+                        cond.span,
+                    ))],
+                    result: None,
+                    defers: vec![],
                 },
-                c.span,
-            )));
-        }
+                else_branch: None,
+            },
+            cond.span,
+        )));
 
         // Record the defer-stack height before entering the loop body.
         self.loop_frames.push(self.defer_stack.len());
-        // Lower the loop body without the post expression.
         loop_stmts.push(MastStmt::Expr(
-            self.measure_phase("            lower_for_body", |this| {
+            self.measure_phase("            lower_while_body", |this| {
                 this.lower_expr(body, subst_map, None)
             }),
         ));
@@ -180,44 +148,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             defers: vec![],
         };
 
-        // Lower the post statement separately as the latch block.
-        let latch_block = post.map(|p| {
-            self.measure_phase("            lower_for_post", |this| MastBlock {
-                stmts: this
-                    .lower_optional_stmt_expr(p, subst_map)
-                    .into_iter()
-                    .collect(),
-                result: None,
-                defers: vec![],
-            })
-        });
-
         // Leave the loop body and pop its control-flow boundary.
         self.loop_frames.pop();
 
-        let loop_expr = MastExpr::new(
-            TypeId::VOID,
-            // Handle the newer AST representation.
-            MastExprKind::Loop {
-                body: body_block,
-                latch: latch_block,
-            },
-            span,
-        );
-
-        if has_init_scope {
-            outer_stmts.push(MastStmt::Expr(loop_expr));
-            let block = MastExprKind::Block(MastBlock {
-                stmts: outer_stmts,
-                result: None,
-                defers: vec![],
-            });
-            self.local_types.pop();
-            self.local_forwardings.pop();
-            self.local_value_forwardings.pop();
-            block
-        } else {
-            loop_expr.kind
+        MastExprKind::Loop {
+            body: body_block,
+            latch: None,
         }
     }
 

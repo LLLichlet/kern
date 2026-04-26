@@ -316,7 +316,20 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 self.eval_anon_enum_data_init(&enum_def, literal, depth, expr.span)
             }
             _ => match literal {
-                ast::DataLiteralKind::Scalar(inner) => self.eval_inner(inner, depth + 1),
+                ast::DataLiteralKind::Scalar(inner) => {
+                    let is_target_array_like = matches!(
+                        self.ctx.type_registry.get(norm_target),
+                        TypeKind::Array { .. }
+                            | TypeKind::ArrayInfer { .. }
+                            | TypeKind::Slice { .. }
+                            | TypeKind::Simd { .. }
+                    );
+                    if is_target_array_like && !matches!(inner.kind, ast::ExprKind::Undef) {
+                        Ok(ConstValue::Array(vec![self.eval_inner(inner, depth + 1)?]))
+                    } else {
+                        self.eval_inner(inner, depth + 1)
+                    }
+                }
                 ast::DataLiteralKind::Array(elems) => {
                     let mut arr = Vec::new();
                     for e in elems {

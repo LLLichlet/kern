@@ -791,7 +791,7 @@ fn analysis_artifact_exposes_flow_control_summary() {
         "    if (flag) {\n",
         "        return 1;\n",
         "    }\n",
-        "    for (; flag; flag = false) {\n",
+        "    while (flag) {\n",
         "        if (flag) {\n",
         "            break;\n",
         "        }\n",

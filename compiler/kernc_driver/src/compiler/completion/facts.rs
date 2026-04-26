@@ -3,13 +3,11 @@ use super::*;
 
 mod block;
 mod closure;
-mod for_loop;
 mod if_facts;
 mod match_facts;
 
 pub(super) use self::block::collect_module_block_completion_facts;
 pub(super) use self::closure::collect_module_closure_completion_facts;
-pub(super) use self::for_loop::collect_module_for_completion_facts;
 pub(super) use self::if_facts::collect_module_if_completion_facts;
 pub(super) use self::match_facts::collect_module_match_completion_facts;
 
@@ -315,42 +313,15 @@ fn collect_expr_binding_completion_facts(
                 );
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_expr_binding_completion_facts(
-                    init,
-                    items_by_span,
-                    expr_binding_items_by_span,
-                    match_arm_binding_items_by_span,
-                    closure_binding_items_by_body_span,
-                    let_else_facts_by_span,
-                );
-            }
-            if let Some(cond) = cond {
-                collect_expr_binding_completion_facts(
-                    cond,
-                    items_by_span,
-                    expr_binding_items_by_span,
-                    match_arm_binding_items_by_span,
-                    closure_binding_items_by_body_span,
-                    let_else_facts_by_span,
-                );
-            }
-            if let Some(post) = post {
-                collect_expr_binding_completion_facts(
-                    post,
-                    items_by_span,
-                    expr_binding_items_by_span,
-                    match_arm_binding_items_by_span,
-                    closure_binding_items_by_body_span,
-                    let_else_facts_by_span,
-                );
-            }
+        ast::ExprKind::While { cond, body } => {
+            collect_expr_binding_completion_facts(
+                cond,
+                items_by_span,
+                expr_binding_items_by_span,
+                match_arm_binding_items_by_span,
+                closure_binding_items_by_body_span,
+                let_else_facts_by_span,
+            );
             collect_expr_binding_completion_facts(
                 body,
                 items_by_span,

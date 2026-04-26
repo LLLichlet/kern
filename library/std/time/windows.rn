@@ -56,7 +56,7 @@ pub/ fn sleep_nanos(nanos: u64) void {
         millis += 1;
     }
 
-    for (; millis > (U32_MAX as u64); ) {
+        while (millis > (U32_MAX as u64)) {
         Sleep(U32_MAX);
         millis -= U32_MAX as u64;
     }

@@ -5,10 +5,12 @@
 
 mod list;
 mod map;
+mod iter;
 mod slice;
 mod string;
 mod tree;
 
+pub use .iter.{Iterator, SliceIter, SliceMutIter};
 pub use .list.List;
 pub use .map.Map;
 pub use .slice.{bytes_eq, find_byte, rfind_byte, contains_byte, trim_ascii_start, trim_ascii_end, trim_ascii};

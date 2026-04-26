@@ -114,7 +114,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Let { .. }
             | ExprKind::Static { .. }
             | ExprKind::TypeNode(_)
-            | ExprKind::For { .. }
+            | ExprKind::While { .. }
             | ExprKind::Defer { .. }
             | ExprKind::Break
             | ExprKind::Continue

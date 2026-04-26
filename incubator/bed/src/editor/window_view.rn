@@ -359,11 +359,13 @@ impl *mut Editor {
 
     fn first_non_blank_col(row: usize) usize {
         let line = self.active_buffer().line(row);
-        for (let mut i = usize.{0}; i < #line; i += 1) {
+        let mut i = usize.{0};
+        while (i < #line) {
             let byte = line.[i];
             if (!self.is_space_byte(byte)) {
                 return i;
             }
+            i += 1;
         }
         return 0;
     }

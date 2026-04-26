@@ -1,0 +1,43 @@
+//! Iterator traits and basic iterator state types.
+//!
+//! Iterators are explicit state values. A `for (item: iter)` loop stores the
+//! iterator in a mutable local and repeatedly calls `next`.
+
+pub type Iterator = trait {
+    type Item;
+    next: fn() ?Item,
+};
+
+pub type SliceIter[T] = struct {
+    data: []T,
+    index: usize = 0,
+};
+
+impl[T] *mut SliceIter[T] : Iterator {
+    type Item = T;
+
+    pub fn next() ?Item {
+        if (self.index >= #self.data) return .None;
+
+        let item = self.data.[self.index];
+        self.index += 1;
+        return .{ Some: item };
+    }
+}
+
+pub type SliceMutIter[T] = struct {
+    data: []mut T,
+    index: usize = 0,
+};
+
+impl[T] *mut SliceMutIter[T] : Iterator {
+    type Item = *mut T;
+
+    pub fn next() ?Item {
+        if (self.index >= #self.data) return .None;
+
+        let item = self.data.[self.index]..&;
+        self.index += 1;
+        return .{ Some: item };
+    }
+}

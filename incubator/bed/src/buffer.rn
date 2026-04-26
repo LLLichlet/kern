@@ -66,8 +66,10 @@ pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
 
     let text = storage.&.as_str();
     let mut start = usize.{0};
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text) {
         if (text.[i] != b'\n') {
+        i += 1;
             continue;
         }
         if (!push_line(alloc, buffer.lines..&, text.[start .. i])) {
@@ -75,6 +77,7 @@ pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
             return .{ Err: .OutOfMemory };
         }
         start = i + 1;
+        i += 1;
     }
 
     if (!push_line(alloc, buffer.lines..&, text.[start .. #text])) {
@@ -92,8 +95,10 @@ pub fn from_text(alloc: *mut Allocator, path: []u8, text: []u8) TextBuffer!Error
     }
 
     let mut start = usize.{0};
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text) {
         if (text.[i] != b'\n') {
+        i += 1;
             continue;
         }
         if (!push_line(alloc, buffer.lines..&, text.[start .. i])) {
@@ -101,6 +106,7 @@ pub fn from_text(alloc: *mut Allocator, path: []u8, text: []u8) TextBuffer!Error
             return .{ Err: .OutOfMemory };
         }
         start = i + 1;
+        i += 1;
     }
 
     if (!push_line(alloc, buffer.lines..&, text.[start .. #text])) {
@@ -114,8 +120,10 @@ impl *mut TextBuffer {
     /// Releases every owned line plus the stored path.
     pub fn deinit(alloc: *mut Allocator) void {
         let lines = self.lines..&.as_mut_slice();
-        for (let mut i = usize.{0}; i < #lines; i += 1) {
+        let mut i = usize.{0};
+        while (i < #lines) {
             lines.[i]..&.deinit(alloc);
+            i += 1;
         }
         self.lines..&.deinit(alloc);
         self.path..&.deinit(alloc);
@@ -265,13 +273,15 @@ impl *mut TextBuffer {
         let mut text = String.{};
         defer text..&.deinit(alloc);
 
-        for (let mut i = usize.{0}; i < self.lines.len; i += 1) {
+        let mut i = usize.{0};
+        while (i < self.lines.len) {
             if (!text..&.push_str(alloc, self.line(i))) {
                 return .{ Err: .OutOfMemory };
             }
             if (i + 1 < self.lines.len and !text..&.push_char(alloc, b'\n')) {
                 return .{ Err: .OutOfMemory };
             }
+            i += 1;
         }
 
         let _ = fs.write_all(alloc, self.path.&.as_str(), text.&.as_str())

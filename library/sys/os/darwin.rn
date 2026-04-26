@@ -193,7 +193,7 @@ pub fn invalid_handle() Handle {
 
 fn match_environment_name(entry: *u8, name: *u8) ?*u8 {
     let mut i = usize.{0};
-    for (;;) {
+        while (true) {
         let entry_byte = (entry + i).*;
         let name_byte = (name + i).*;
 
@@ -242,7 +242,7 @@ pub fn find_environment_value(name: *u8) ?*u8 {
     let .{ Some: envp } = environment_entries() else return .None;
     let mut envp = envp;
 
-    for (;;) {
+        while (true) {
         let entry = envp.*;
         if ((entry as usize) == 0) {
             return .None;
@@ -415,7 +415,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
 
     let errno = system_errno();
     let mut total = usize.{0};
-    for (;;) {
+        while (true) {
         errno.* = 0;
         let entry = system_readdir(dir);
         if ((entry as usize) == 0) {

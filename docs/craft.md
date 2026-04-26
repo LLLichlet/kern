@@ -73,7 +73,7 @@ The source file may export `_start` directly:
 ```kern
 #[export_name("_start")]
 fn kmain() void {
-    for (;;) {}
+    while (true) {}
     @unreachable();
 }
 ```

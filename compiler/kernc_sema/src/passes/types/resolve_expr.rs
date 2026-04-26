@@ -144,21 +144,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     self.resolve_expr(&arm.body, scope);
                 }
             }
-            ast::ExprKind::For {
-                init,
-                cond,
-                post,
-                body,
-            } => {
-                if let Some(e) = init {
-                    self.resolve_expr(e, scope);
-                }
-                if let Some(e) = cond {
-                    self.resolve_expr(e, scope);
-                }
-                if let Some(e) = post {
-                    self.resolve_expr(e, scope);
-                }
+            ast::ExprKind::While { cond, body } => {
+                self.resolve_expr(cond, scope);
                 self.resolve_expr(body, scope);
             }
             ast::ExprKind::Closure {

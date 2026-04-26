@@ -4,8 +4,14 @@
 //! keep borrowed sequence queries allocation-free and composable.
 
 use base.cmp.{Ord, Ordering, LESS, EQUAL, GREATER};
+use base.coll.SliceIter;
 
 impl[T] []T {
+    /// Returns an iterator over copied slice elements.
+    pub fn iter() SliceIter[T] {
+        return .{ data: self };
+    }
+
     /// Returns `true` when the slice has no elements.
     pub fn is_empty() bool {
         return #self == 0;
@@ -31,17 +37,21 @@ impl[T] []T {
 
     /// Returns the first index accepted by `pred`.
     pub fn position(pred: *Fn(T) bool) ?usize {
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             if (pred(self.[i])) {
                 return .{ Some: i };
             }
+
+            i += 1;
         }
         return .None;
     }
 
     /// Returns the last index accepted by `pred`.
     pub fn rposition(pred: *Fn(T) bool) ?usize {
-        for (let mut i = #self; i > 0; ) {
+                let mut i = #self;
+        while (i > 0) {
             i -= 1;
             if (pred(self.[i])) {
                 return .{ Some: i };
@@ -57,10 +67,13 @@ impl[T] []T {
 
     /// Returns `true` when every element satisfies `pred`.
     pub fn all(pred: *Fn(T) bool) bool {
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             if (!pred(self.[i])) {
                 return false;
             }
+
+            i += 1;
         }
         return true;
     }
@@ -68,37 +81,49 @@ impl[T] []T {
     /// Counts how many elements satisfy `pred`.
     pub fn count(pred: *Fn(T) bool) usize {
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             if (pred(self.[i])) {
                 total += 1;
             }
+
+            i += 1;
         }
         return total;
     }
 
     /// Visits each element in order.
     pub fn for_each(visitor: *Fn(T) void) void {
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             visitor(self.[i]);
+
+            i += 1;
         }
     }
 
     /// Folds the slice from left to right.
     pub fn fold[U](init: U, step: *Fn(U, T) U) U {
         let mut accum = init;
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             accum = step(accum, self.[i]);
+
+            i += 1;
         }
         return accum;
     }
 
     /// Returns the first mapped value produced by `call_back`.
     pub fn find_map[U](call_back: *Fn(T) ?U) ?U {
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             match (call_back(self.[i])) {
                 .{ Some: value } => return .{ Some: value },
                 .None => {}
             }
+
+            i += 1;
         }
         return .None;
     }
@@ -108,7 +133,7 @@ impl[T] []T {
         let mut left = usize.{0};
         let mut right = #self;
 
-        for (; left < right; ) {
+                while (left < right) {
             let mid = left + (right - left) / 2;
             if (pred(self.[mid])) {
                 left = mid + 1;
@@ -128,10 +153,13 @@ impl[T] []T
     #[inline]
     pub fn starts_with(prefix: []T) bool {
         if (#prefix > #self) return false;
-        for (let mut i = usize.{0}; i < #prefix; i += 1) {
+                let mut i = usize.{0};
+        while (i < #prefix) {
             if (self.[i] != prefix.[i]) {
                 return false;
             }
+
+            i += 1;
         }
         return true;
     }
@@ -141,10 +169,13 @@ impl[T] []T
     pub fn ends_with(suffix: []T) bool {
         if (#suffix > #self) return false;
         let start = #self - #suffix;
-        for (let mut i = usize.{0}; i < #suffix; i += 1) {
+                let mut i = usize.{0};
+        while (i < #suffix) {
             if (self.[start + i] != suffix.[i]) {
                 return false;
             }
+
+            i += 1;
         }
         return true;
     }
@@ -162,22 +193,29 @@ impl[T] []T
 
         let last_start = #self - needle_len;
         let first = needle.[0];
-        for (let mut i = usize.{0}; i <= last_start; i += 1) {
+                let mut i = usize.{0};
+        while (i <= last_start) {
             if (self.[i] != first) {
+                i += 1;
                 continue;
             }
 
             let mut matched = true;
-            for (let mut j = usize.{1}; j < needle_len; j += 1) {
+                        let mut j = usize.{1};
+            while (j < needle_len) {
                 if (self.[i + j] != needle.[j]) {
                     matched = false;
                     break;
                 }
+
+                j += 1;
             }
 
             if (matched) {
                 return .{ Some: i };
             }
+
+            i += 1;
         }
 
         return .None;
@@ -214,10 +252,13 @@ impl[T] []T : Eq[[]T]
             return false;
         }
 
-        for (let mut i = usize.{0}; i < #self; i += 1) {
+                let mut i = usize.{0};
+        while (i < #self) {
             if (self.[i] != other.[i]) {
                 return false;
             }
+
+            i += 1;
         }
 
         return true;
@@ -233,10 +274,13 @@ impl[T, N: usize] []T : Eq[[N]T]
             return false;
         }
 
-        for (let mut i = usize.{0}; i < N; i += 1) {
+                let mut i = usize.{0};
+        while (i < N) {
             if (self.[i] != other.[i]) {
                 return false;
             }
+
+            i += 1;
         }
 
         return true;
@@ -252,10 +296,31 @@ impl[T, N: usize] [N]T : Eq[[]T]
             return false;
         }
 
-        for (let mut i = usize.{0}; i < N; i += 1) {
+                let mut i = usize.{0};
+        while (i < N) {
             if (self.[i] != other.[i]) {
                 return false;
             }
+
+            i += 1;
+        }
+
+        return true;
+    }
+}
+
+impl[T, N: usize] [N]T : Eq[[N]T]
+    where T: Eq[T],
+{
+    /// Gives fixed-size arrays the same trait-based equality path as slices.
+    pub fn eq(other: [N]T) bool {
+                let mut i = usize.{0};
+        while (i < N) {
+            if (self.[i] != other.[i]) {
+                return false;
+            }
+
+            i += 1;
         }
 
         return true;
@@ -268,11 +333,14 @@ impl[T] []T
     /// Performs lexicographic comparison against `other`.
     pub fn lex_cmp(other: []T) Ordering {
         let shared = if (#self < #other) #self else #other;
-        for (let mut i = usize.{0}; i < shared; i += 1) {
+                let mut i = usize.{0};
+        while (i < shared) {
             let ord = self.[i].cmp(other.[i]);
             if (ord != EQUAL) {
                 return ord;
             }
+
+            i += 1;
         }
 
         if (#self < #other) return LESS;
@@ -285,7 +353,7 @@ impl[T] []T
         let mut left = usize.{0};
         let mut right = #self;
 
-        for (; left < right; ) {
+                while (left < right) {
             let mid = left + (right - left) / 2;
             let ord = self.[mid].cmp(target);
             if (ord == LESS) {

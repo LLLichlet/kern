@@ -26,16 +26,19 @@ fn push_shell_arg(out: *mut String, alloc: *mut base.mem.alloc.Allocator, arg: [
     if (!out.push_char(alloc, b'\'')) {
         return false;
     }
-    for (let mut i = usize.{0}; i < #arg; i += 1) {
+    let mut i = usize.{0};
+    while (i < #arg) {
         if (arg.[i] == b'\'') {
             if (!out.push_str(alloc, "'\"'\"'")) {
                 return false;
             }
+        i += 1;
             continue;
         }
         if (!out.push_char(alloc, arg.[i])) {
             return false;
         }
+        i += 1;
     }
     return out.push_char(alloc, b'\'');
 }

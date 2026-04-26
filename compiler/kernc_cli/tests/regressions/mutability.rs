@@ -7,14 +7,17 @@ fn compiles_const_fn_loops_with_assignment_break_and_continue() {
 const fn sum_skip(limit: i32) i32 {
     let mut acc = i32.{0};
 
-    for (let mut i = i32.{0}; i < limit; i += i32.{1}) {
+    let mut i = i32.{0};
+    while (i < limit) {
         if (i == i32.{2}) {
+            i += i32.{1};
             continue;
         }
         if (i == i32.{5}) {
             break;
         }
         acc += i;
+        i += i32.{1};
     }
 
     return acc;

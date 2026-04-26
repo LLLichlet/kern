@@ -61,15 +61,17 @@ symbol.
 In scanner-style code, an empty loop body should still use a real Kern block:
 
 ```kern
-for (; index < #text and is_ws(text.[index]); index += 1) {}
+while (index < #text and is_ws(text.[index])) {
+    index += 1;
+}
 ```
 
 Reserve this mainly for loops whose whole job is to advance until a condition
 fails. Do not generalize the same style to `if (...) {}` by default when a more
 direct expression shape would be clearer.
 
-`for (...);` is not valid Kern syntax and should not appear in repository code
-or documentation.
+`while (...);` is not valid Kern syntax and should not appear in repository
+code or documentation.
 
 ### 3. Let contextual typing do the routine work
 
@@ -81,7 +83,10 @@ context:
 
 ```kern
 let mut i = 0;
-for (; i < #text; i += 1) { ... }
+while (i < #text) {
+    ...
+    i += 1;
+}
 ```
 
 The same rule applies to BNC more broadly: if the receiving site already fixes

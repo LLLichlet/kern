@@ -56,8 +56,10 @@ fn escaped_byte_size(byte: u8) usize {
 
 fn compact_owned_string_size(text: []u8) usize {
     let mut written = usize.{2};
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text) {
         written += escaped_byte_size(text.[i]);
+        i += 1;
     }
     return written;
 }
@@ -104,8 +106,10 @@ fn write_escaped_byte_unchecked(out: []mut u8, offset: usize, byte: u8) usize {
 
 fn write_escaped_string_unchecked(out: []mut u8, offset: usize, text: []u8) usize {
     let mut written = write_byte_unchecked(out, offset, b'"');
-    for (let mut i = usize.{0}; i < #text; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text) {
         written = write_escaped_byte_unchecked(out, written, text.[i]);
+        i += 1;
     }
     return write_byte_unchecked(out, written, b'"');
 }
@@ -117,9 +121,11 @@ fn compact_owned_array_size(array: *OwnedArray) usize {
     }
 
     let mut written = usize.{2} + compact_size_owned(items.[0]);
-    for (let mut i = usize.{1}; i < #items; i += 1) {
+    let mut i = usize.{1};
+    while (i < #items) {
         written += 1;
         written += compact_size_owned(items.[i]);
+        i += 1;
     }
 
     return written;
@@ -137,12 +143,14 @@ fn compact_owned_object_size(object: *OwnedObject) usize {
         compact_owned_string_size(first.key.&.as_str()) +
         compact_size_owned(first.value);
 
-    for (let mut i = usize.{1}; i < #entries; i += 1) {
+    let mut i = usize.{1};
+    while (i < #entries) {
         let entry = entries.[i];
         written += 1;
         written += compact_owned_string_size(entry.key.&.as_str());
         written += 1;
         written += compact_size_owned(entry.value);
+        i += 1;
     }
     return written;
 }
@@ -155,9 +163,11 @@ fn render_owned_array_unchecked(array: *OwnedArray, out: []mut u8, offset: usize
     }
 
     written = render_owned_compact_inner_unchecked(items.[0], out, written);
-    for (let mut i = usize.{1}; i < #items; i += 1) {
+    let mut i = usize.{1};
+    while (i < #items) {
         written = write_byte_unchecked(out, written, b',');
         written = render_owned_compact_inner_unchecked(items.[i], out, written);
+        i += 1;
     }
     return write_byte_unchecked(out, written, b']');
 }
@@ -173,12 +183,14 @@ fn render_owned_object_unchecked(object: *OwnedObject, out: []mut u8, offset: us
     written = write_escaped_string_unchecked(out, written, first.key.&.as_str());
     written = write_byte_unchecked(out, written, b':');
     written = render_owned_compact_inner_unchecked(first.value, out, written);
-    for (let mut i = usize.{1}; i < #entries; i += 1) {
+    let mut i = usize.{1};
+    while (i < #entries) {
         let entry = entries.[i];
         written = write_byte_unchecked(out, written, b',');
         written = write_escaped_string_unchecked(out, written, entry.key.&.as_str());
         written = write_byte_unchecked(out, written, b':');
         written = render_owned_compact_inner_unchecked(entry.value, out, written);
+        i += 1;
     }
     return write_byte_unchecked(out, written, b'}');
 }
@@ -243,7 +255,7 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
             return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
         }
 
-        for (;;) {
+        while (true) {
             let .{ Ok: progress } = measure_compact_inner(text, index2)
                 else {
                     .{ Err: err } => return .{ Err: err },
@@ -277,7 +289,7 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
             return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
         }
 
-        for (;;) {
+        while (true) {
             if (text.[index2] != b'"') {
                 return .{ Err: .{ UnexpectedByte: index2 } };
             }
@@ -388,7 +400,7 @@ fn render_compact_inner_unchecked(
             return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
         }
 
-        for (;;) {
+        while (true) {
             let .{ Ok: progress } = render_compact_inner_unchecked(text, index2, out, written)
                 else {
                     .{ Err: err } => return .{ Err: err },
@@ -424,7 +436,7 @@ fn render_compact_inner_unchecked(
             return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
         }
 
-        for (;;) {
+        while (true) {
             if (text.[index2] != b'"') {
                 return .{ Err: .{ UnexpectedByte: index2 } };
             }

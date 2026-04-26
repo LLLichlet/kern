@@ -207,33 +207,12 @@ fn collect_expr_match_completion_facts(
                 CompletionMatchFacts { arms: arm_facts },
             );
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_expr_match_completion_facts(
-                    init,
-                    match_arm_binding_items_by_span,
-                    match_facts_by_span,
-                );
-            }
-            if let Some(cond) = cond {
-                collect_expr_match_completion_facts(
-                    cond,
-                    match_arm_binding_items_by_span,
-                    match_facts_by_span,
-                );
-            }
-            if let Some(post) = post {
-                collect_expr_match_completion_facts(
-                    post,
-                    match_arm_binding_items_by_span,
-                    match_facts_by_span,
-                );
-            }
+        ast::ExprKind::While { cond, body } => {
+            collect_expr_match_completion_facts(
+                cond,
+                match_arm_binding_items_by_span,
+                match_facts_by_span,
+            );
             collect_expr_match_completion_facts(
                 body,
                 match_arm_binding_items_by_span,

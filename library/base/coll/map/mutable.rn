@@ -56,7 +56,7 @@ impl[K, V] *mut Map[K, V]
 
     fn capacity_for_len(required_len: usize) ?usize {
         let mut target = MIN_CAPACITY;
-        for (; required_len > max_occupied(target); ) {
+                while (required_len > max_occupied(target)) {
             let .{ Some: cap } = self.next_capacity(target) else return .None;
             target = cap;
         }
@@ -128,7 +128,7 @@ impl[K, V] *mut Map[K, V]
         let mut index = (hash as usize) & mask;
         let mut probes = usize.{0};
 
-        for (; probes < capacity; probes += 1) {
+                while (probes < capacity) {
             if (ctrl_at(ctrl, index) != FULL) {
                 let entry = entry_ptr[K, V](entries, index);
                 entry.hash64 = hash;
@@ -138,6 +138,8 @@ impl[K, V] *mut Map[K, V]
                 return true;
             }
             index = (index + 1) & mask;
+
+            probes += 1;
         }
 
         return false;
@@ -148,14 +150,20 @@ impl[K, V] *mut Map[K, V]
         let new_capacity = if (requested_capacity < MIN_CAPACITY) MIN_CAPACITY else requested_capacity;
         let .{ Some: table } = self.alloc_table(alloc, new_capacity) else return false;
 
-        for (let mut i = usize.{0}; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) continue;
+        let mut i = usize.{0};
+        while (i < self.capacity) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                i += 1;
+                continue;
+            }
 
             let entry = entry_ptr[K, V](self.entries, i);
             if (!self.insert_into_raw(table.ctrl, table.entries, table.capacity, entry.hash64, entry.key, entry.value)) {
                 self.free_table(alloc, table.ctrl, table.capacity);
                 return false;
             }
+
+            i += 1;
         }
 
         self.free_table(alloc, self.ctrl, self.capacity);
@@ -201,7 +209,7 @@ impl[K, V] *mut Map[K, V]
         let mut first_deleted = self.capacity;
         let mut probes = usize.{0};
 
-        for (; probes < self.capacity; probes += 1) {
+                while (probes < self.capacity) {
             let state = ctrl_at(self.ctrl, index);
             if (state == EMPTY) {
                 if (first_deleted < self.capacity) {
@@ -213,6 +221,8 @@ impl[K, V] *mut Map[K, V]
                 first_deleted = index;
             }
             index = (index + 1) & mask;
+
+            probes += 1;
         }
 
         if (first_deleted < self.capacity) {
@@ -354,17 +364,22 @@ impl[K, V] *mut Map[K, V]
 
     /// Retains only the entries accepted by `pred`.
     pub fn retain_mut(pred: *Fn(K, *mut V) bool) void {
-        for (let mut i = usize.{0}; i < self.capacity; i += 1) {
+                let mut i = usize.{0};
+        while (i < self.capacity) {
             if (ctrl_at(self.ctrl, i) != FULL) {
+                i += 1;
                 continue;
             }
             let entry = entry_ptr[K, V](self.entries, i);
             if (pred(entry.key, entry.value..&)) {
+                i += 1;
                 continue;
             }
             set_ctrl(self.ctrl, i, DELETED);
             self.len -= 1;
             self.tombstones += 1;
+
+            i += 1;
         }
     }
 
@@ -385,12 +400,15 @@ impl[K, V] *mut Map[K, V]
 
     /// Removes and returns the first value whose key-value pair satisfies `pred`.
     pub fn remove_where(pred: *Fn(K, V) bool) ?V {
-        for (let mut i = usize.{0}; i < self.capacity; i += 1) {
+                let mut i = usize.{0};
+        while (i < self.capacity) {
             if (ctrl_at(self.ctrl, i) != FULL) {
+                i += 1;
                 continue;
             }
             let entry = entry_ptr[K, V](self.entries, i);
             if (!pred(entry.key, entry.value)) {
+                i += 1;
                 continue;
             }
             let removed = entry.value;
@@ -398,23 +416,30 @@ impl[K, V] *mut Map[K, V]
             self.len -= 1;
             self.tombstones += 1;
             return .{ Some: removed };
+
+            i += 1;
         }
         return .None;
     }
 
     /// Retains only the entries accepted by `pred`.
     pub fn retain(pred: *Fn(K, V) bool) void {
-        for (let mut i = usize.{0}; i < self.capacity; i += 1) {
+                let mut i = usize.{0};
+        while (i < self.capacity) {
             if (ctrl_at(self.ctrl, i) != FULL) {
+                i += 1;
                 continue;
             }
             let entry = entry_ptr[K, V](self.entries, i);
             if (pred(entry.key, entry.value)) {
+                i += 1;
                 continue;
             }
             set_ctrl(self.ctrl, i, DELETED);
             self.len -= 1;
             self.tombstones += 1;
+
+            i += 1;
         }
     }
 

@@ -44,12 +44,14 @@ impl *mut Editor {
         let cursor = self.active_cursor();
         let text_buffer = self.active_buffer_mut();
         let spaces = TAB_STOP - (cursor.col % TAB_STOP);
-        for (let mut i = usize.{0}; i < spaces; i += 1) {
+        let mut i = usize.{0};
+        while (i < spaces) {
             if (!text_buffer.insert_byte(alloc, cursor.row, cursor.col, b' ')) {
                 self.set_message(alloc, "insert failed");
                 return;
             }
             cursor.col += 1;
+            i += 1;
         }
         self.remember_preferred_col();
     }
@@ -102,8 +104,10 @@ impl *mut Editor {
                                 return false;
                             }
                             let count = self.consume_count_or_one();
-                            for (let mut i = usize.{0}; i < count; i += 1) {
+                            let mut i = usize.{0};
+                            while (i < count) {
                                 self.move_word_end_backward();
+                                i += 1;
                             }
                             return true;
                         },
@@ -298,10 +302,12 @@ impl *mut Editor {
                 match (key) {
                     .{ Byte: byte } => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             if (!self.run_find(.Forward, false, byte, true)) {
                                 break;
                             }
+                            i += 1;
                         }
                         return true;
                     },
@@ -320,10 +326,12 @@ impl *mut Editor {
                 match (key) {
                     .{ Byte: byte } => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             if (!self.run_find(.Forward, true, byte, true)) {
                                 break;
                             }
+                            i += 1;
                         }
                         return true;
                     },
@@ -342,10 +350,12 @@ impl *mut Editor {
                 match (key) {
                     .{ Byte: byte } => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             if (!self.run_find(.Backward, false, byte, true)) {
                                 break;
                             }
+                            i += 1;
                         }
                         return true;
                     },
@@ -364,10 +374,12 @@ impl *mut Editor {
                 match (key) {
                     .{ Byte: byte } => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             if (!self.run_find(.Backward, true, byte, true)) {
                                 break;
                             }
+                            i += 1;
                         }
                         return true;
                     },
@@ -397,26 +409,34 @@ impl *mut Editor {
         match (key) {
             .CtrlB => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.page_up();
+                    i += 1;
                 }
             },
             .CtrlD => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.half_page_down();
+                    i += 1;
                 }
             },
             .CtrlF => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.page_down();
+                    i += 1;
                 }
             },
             .CtrlU => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.half_page_up();
+                    i += 1;
                 }
             },
             .CtrlW => {
@@ -424,26 +444,34 @@ impl *mut Editor {
             },
             .ArrowLeft => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.move_left();
+                    i += 1;
                 }
             },
             .ArrowRight => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.move_right();
+                    i += 1;
                 }
             },
             .ArrowUp => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.move_up();
+                    i += 1;
                 }
             },
             .ArrowDown => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.move_down();
+                    i += 1;
                 }
             },
             .Home => {
@@ -458,22 +486,28 @@ impl *mut Editor {
                 let cursor = self.active_cursor();
                 let text_buffer = self.active_buffer_mut();
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     let _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
+                    i += 1;
                 }
                 self.clamp_cursor();
                 self.remember_preferred_col();
             },
             .PageUp => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.page_up();
+                    i += 1;
                 }
             },
             .PageDown => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.page_down();
+                    i += 1;
                 }
             },
             .Escape => {
@@ -496,26 +530,34 @@ impl *mut Editor {
                 match (byte) {
                     b'h' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_left();
+                            i += 1;
                         }
                     },
                     b'j' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_down();
+                            i += 1;
                         }
                     },
                     b'k' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_up();
+                            i += 1;
                         }
                     },
                     b'l' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_right();
+                            i += 1;
                         }
                     },
                     b'0' => {
@@ -542,40 +584,52 @@ impl *mut Editor {
                     },
                     b'w' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_word_forward();
+                            i += 1;
                         }
                     },
                     b'b' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_word_backward();
+                            i += 1;
                         }
                     },
                     b'e' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_word_end();
+                            i += 1;
                         }
                     },
                     b'W' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_word_forward_blank();
+                            i += 1;
                         }
                         self.remember_preferred_col();
                     },
                     b'B' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_word_backward_blank();
+                            i += 1;
                         }
                         self.remember_preferred_col();
                     },
                     b'E' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_word_end_blank();
+                            i += 1;
                         }
                         self.remember_preferred_col();
                     },
@@ -624,14 +678,18 @@ impl *mut Editor {
                     },
                     b'{' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_paragraph_backward();
+                            i += 1;
                         }
                     },
                     b'}' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.move_paragraph_forward();
+                            i += 1;
                         }
                     },
                     b'%' => {
@@ -646,8 +704,10 @@ impl *mut Editor {
                         let cursor = self.active_cursor();
                         let text_buffer = self.active_buffer_mut();
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             let _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
+                            i += 1;
                         }
                         self.clamp_cursor();
                         self.remember_preferred_col();
@@ -692,50 +752,66 @@ impl *mut Editor {
         match (key) {
             .CtrlB => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_page_up();
+                    i += 1;
                 }
             },
             .CtrlD => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_half_page_down();
+                    i += 1;
                 }
             },
             .CtrlF => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_page_down();
+                    i += 1;
                 }
             },
             .CtrlU => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_half_page_up();
+                    i += 1;
                 }
             },
             .ArrowLeft => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_move_left();
+                    i += 1;
                 }
             },
             .ArrowRight => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_move_right();
+                    i += 1;
                 }
             },
             .ArrowUp => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_move_up();
+                    i += 1;
                 }
             },
             .ArrowDown => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_move_down();
+                    i += 1;
                 }
             },
             .Home => {
@@ -748,14 +824,18 @@ impl *mut Editor {
             },
             .PageUp => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_page_up();
+                    i += 1;
                 }
             },
             .PageDown => {
                 let count = self.consume_count_or_one();
-                for (let mut i = usize.{0}; i < count; i += 1) {
+                let mut i = usize.{0};
+                while (i < count) {
                     self.output_page_down();
+                    i += 1;
                 }
             },
             .Escape => {
@@ -778,26 +858,34 @@ impl *mut Editor {
                 match (byte) {
                     b'h' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.output_move_left();
+                            i += 1;
                         }
                     },
                     b'j' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.output_move_down();
+                            i += 1;
                         }
                     },
                     b'k' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.output_move_up();
+                            i += 1;
                         }
                     },
                     b'l' => {
                         let count = self.consume_count_or_one();
-                        for (let mut i = usize.{0}; i < count; i += 1) {
+                        let mut i = usize.{0};
+                        while (i < count) {
                             self.output_move_right();
+                            i += 1;
                         }
                     },
                     b'0' => {

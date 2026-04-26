@@ -253,7 +253,7 @@ fn parse_packed_array(
         return .{ Ok: PackedParsedValue.{ index: index, next: next + 1 } };
     }
 
-    for (;;) {
+    while (true) {
         let item_start = skip_ws(text, next);
         let .{ Ok: item } = parse_packed_value_from_start(state, scratch, text, item_start)
             else {
@@ -313,7 +313,7 @@ fn parse_packed_object(
         return .{ Ok: PackedParsedValue.{ index: index, next: next + 1 } };
     }
 
-    for (;;) {
+    while (true) {
         let field_start = skip_ws(text, next);
         if (field_start >= #text) {
             return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
@@ -518,7 +518,8 @@ fn build_root_packed_index(state: *mut PackedDocumentState) void!IndexBuildError
         return .{ Err: IndexBuildError.OutOfMemory };
     }
     let entries = state.object_entries.&.as_slice();
-    for (let mut i = usize.{0}; i < node.data1; i += 1) {
+    let mut i = usize.{0};
+    while (i < node.data1) {
         let entry_index = node.data0 + i;
         let entry = entries.[entry_index];
         let hash = hash_bytes(packed_text_slice(state, entry.key));
@@ -531,6 +532,7 @@ fn build_root_packed_index(state: *mut PackedDocumentState) void!IndexBuildError
             deinit_packed_index(state);
             return .{ Err: IndexBuildError.OutOfMemory };
         }
+        i += 1;
     }
     return .{ Ok: {} };
 }
@@ -705,15 +707,18 @@ impl PackedIndexedObjectView {
 
     pub fn get_field(name: []u8) ?PackedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
-            let .{ Some: entry_index } = bucket.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < bucket.len) {
+            let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
+            i += 1;
                 continue;
             }
             let entry = wrap_packed_entry(self.state_ptr(), entry_index);
             if (entry.key_eq(name)) {
                 return .{ Some: entry };
             }
+            i += 1;
         }
         return .None;
     }
@@ -721,15 +726,18 @@ impl PackedIndexedObjectView {
     pub fn get_last_field(name: []u8) ?PackedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
         let mut found = ?PackedObjectEntry.None;
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
-            let .{ Some: entry_index } = bucket.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < bucket.len) {
+            let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
+            i += 1;
                 continue;
             }
             let entry = wrap_packed_entry(self.state_ptr(), entry_index);
             if (entry.key_eq(name)) {
                 found = .{ Some: entry };
             }
+            i += 1;
         }
         return found;
     }
@@ -737,15 +745,18 @@ impl PackedIndexedObjectView {
     pub fn count_fields(name: []u8) usize {
         let .{ Some: bucket } = self.bucket(name) else return usize.{0};
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
-            let .{ Some: entry_index } = bucket.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < bucket.len) {
+            let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
+            i += 1;
                 continue;
             }
             let entry = wrap_packed_entry(self.state_ptr(), entry_index);
             if (entry.key_eq(name)) {
                 total += 1;
             }
+            i += 1;
         }
         return total;
     }
@@ -753,19 +764,23 @@ impl PackedIndexedObjectView {
     pub fn collect_fields(name: []u8, out: []mut PackedObjectEntry) usize {
         let .{ Some: bucket } = self.bucket(name) else return usize.{0};
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
-            let .{ Some: entry_index } = bucket.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < bucket.len) {
+            let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
+            i += 1;
                 continue;
             }
             let entry = wrap_packed_entry(self.state_ptr(), entry_index);
             if (!entry.key_eq(name)) {
+            i += 1;
                 continue;
             }
             if (total < #out) {
                 out.[total] = entry;
             }
             total += 1;
+            i += 1;
         }
         return total;
     }
@@ -868,19 +883,23 @@ impl PackedIndexedObjectView {
         let .{ Some: bucket } = self.bucket(name) else return .{ Err: .Missing };
         let mut found = PackedValue.{};
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < bucket.len; i += 1) {
-            let .{ Some: entry_index } = bucket.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < bucket.len) {
+            let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
+            i += 1;
                 continue;
             }
             let entry = wrap_packed_entry(self.state_ptr(), entry_index);
             if (!entry.key_eq(name)) {
+            i += 1;
                 continue;
             }
             total += 1;
             if (total == 1) {
                 found = entry.value;
             }
+            i += 1;
         }
         if (total == 0) {
             return .{ Err: .Missing };
@@ -1286,7 +1305,8 @@ impl PackedValue {
         }
         let state = self.state_ptr();
         let entries = state.object_entries.&.as_slice();
-        for (let mut i = usize.{0}; i < node.data1; i += 1) {
+        let mut i = usize.{0};
+        while (i < node.data1) {
             let entry = entries.[node.data0 + i];
             let key = packed_text_slice(state, entry.key);
             if (key == name) {
@@ -1295,6 +1315,7 @@ impl PackedValue {
                     value: wrap_packed_value(state, entry.value),
                 } };
             }
+            i += 1;
         }
         return .None;
     }
@@ -1307,7 +1328,8 @@ impl PackedValue {
         let state = self.state_ptr();
         let entries = state.object_entries.&.as_slice();
         let mut found = ?PackedObjectEntry.None;
-        for (let mut i = usize.{0}; i < node.data1; i += 1) {
+        let mut i = usize.{0};
+        while (i < node.data1) {
             let entry = entries.[node.data0 + i];
             let key = packed_text_slice(state, entry.key);
             if (key == name) {
@@ -1316,6 +1338,7 @@ impl PackedValue {
                     value: wrap_packed_value(state, entry.value),
                 } };
             }
+            i += 1;
         }
         return found;
     }
@@ -1328,11 +1351,13 @@ impl PackedValue {
         let state = self.state_ptr();
         let entries = state.object_entries.&.as_slice();
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < node.data1; i += 1) {
+        let mut i = usize.{0};
+        while (i < node.data1) {
             let entry = entries.[node.data0 + i];
             if (packed_text_slice(state, entry.key) == name) {
                 total += 1;
             }
+            i += 1;
         }
         return .{ Some: total };
     }
@@ -1345,10 +1370,12 @@ impl PackedValue {
         let state = self.state_ptr();
         let entries = state.object_entries.&.as_slice();
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < node.data1; i += 1) {
+        let mut i = usize.{0};
+        while (i < node.data1) {
             let entry = entries.[node.data0 + i];
             let key = packed_text_slice(state, entry.key);
             if (key != name) {
+            i += 1;
                 continue;
             }
             if (total < #out) {
@@ -1358,6 +1385,7 @@ impl PackedValue {
                 };
             }
             total += 1;
+            i += 1;
         }
         return .{ Some: total };
     }

@@ -27,7 +27,7 @@ pub/ fn skip_ws(text: []u8, start: usize) usize {
 
     if (index < len and len >= 8) {
         let limit = len - 8;
-        for (; index <= limit; ) {
+        while (index <= limit) {
             let b0 = text.[index];
             if (b0 != b' ' and b0 != b'\n' and b0 != b'\r' and b0 != b'\t') {
                 return index;
@@ -72,11 +72,12 @@ pub/ fn skip_ws(text: []u8, start: usize) usize {
         }
     }
 
-    for (; index < len; index += 1) {
+    while (index < len) {
         let byte = text.[index];
         if (byte != b' ' and byte != b'\n' and byte != b'\r' and byte != b'\t') {
             break;
         }
+        index += 1;
     }
 
     return index;
@@ -103,7 +104,7 @@ fn scan_digits(text: []u8, start: usize) usize {
 
     if (index < len and len >= 16) {
         let limit = len - 16;
-        for (; index <= limit; ) {
+        while (index <= limit) {
             let chunk = @simdLoad[u8x16](text.[index].&, 1);
             let non_digit_bits = first_non_digit_mask_bits(chunk);
             if (non_digit_bits != 0) {
@@ -114,11 +115,12 @@ fn scan_digits(text: []u8, start: usize) usize {
         }
     }
 
-    for (; index < len; index += 1) {
+    while (index < len) {
         let byte = text.[index];
         if (byte < b'0' or byte > b'9') {
             break;
         }
+        index += 1;
     }
     return index;
 }
@@ -150,7 +152,7 @@ pub/ fn parse_literal(
 
 pub/ fn parse_string_end(text: []u8, start: usize) usize!ParseError {
     let mut index = start + 1;
-    for (; index < #text; ) {
+    while (index < #text) {
         let byte = text.[index];
         if (byte == b'"') {
             return .{ Ok: index + 1 };
@@ -178,10 +180,12 @@ pub/ fn parse_string_end(text: []u8, start: usize) usize!ParseError {
                 if (index + 4 >= #text) {
                     return .{ Err: ParseError.UnexpectedEof };
                 }
-                for (let mut i = index + 1; i < index + 5; i += 1) {
+                let mut i = index + 1;
+                while (i < index + 5) {
                     if (!is_hex_digit(text.[i])) {
                         return .{ Err: .{ InvalidEscape: index - 1 } };
                     }
+                    i += 1;
                 }
                 index += 5;
                 continue;
@@ -261,7 +265,7 @@ fn parse_array_end(text: []u8, start: usize) usize!ParseError {
         return .{ Ok: index + 1 };
     }
 
-    for (;;) {
+    while (true) {
         let .{ Ok: span } = parse_value_span_from_value_start(text, index)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -293,7 +297,7 @@ fn parse_object_end(text: []u8, start: usize) usize!ParseError {
         return .{ Ok: index + 1 };
     }
 
-    for (;;) {
+    while (true) {
         if (text.[index] != b'"') {
             return .{ Err: .{ UnexpectedByte: index } };
         }
@@ -469,13 +473,15 @@ pub/ fn locate_error(text: []u8, err: ParseError) ?ErrorLocation {
 
     let mut line = usize.{1};
     let mut column = usize.{1};
-    for (let mut i = usize.{0}; i < offset; i += 1) {
+    let mut i = usize.{0};
+    while (i < offset) {
         if (text.[i] == b'\n') {
             line += 1;
             column = 1;
         } else {
             column += 1;
         }
+        i += 1;
     }
     return .{ Some: ErrorLocation.{
         offset: offset,

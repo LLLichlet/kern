@@ -278,7 +278,7 @@ impl *mut OwnedValuePool {
 
     fn deinit(alloc: *mut Allocator) void {
         let mut block = self.*.blocks;
-        for (; block.is_some(); ) {
+        while (block.is_some()) {
             let .{ Some: current } = block else break;
             let next = current.next;
             let .{ Some: layout } = owned_value_block_layout(current.capacity) else break;
@@ -415,7 +415,7 @@ fn parse_owned_array_from_start(
     }
     let mut next = start + 1;
 
-    for (;;) {
+    while (true) {
         let item_start = skip_ws(text, next);
         if (item_start >= #text) {
             out..&.deinit(alloc);
@@ -480,7 +480,7 @@ fn parse_owned_array_from_start_in_arena(
     }
     let mut next = start + 1;
 
-    for (;;) {
+    while (true) {
         let item_start = skip_ws(text, next);
         if (item_start >= #text) {
             out..&.deinit(alloc);
@@ -544,7 +544,7 @@ fn parse_owned_object_from_start(
     }
     let mut next = start + 1;
 
-    for (;;) {
+    while (true) {
         let field_start = skip_ws(text, next);
         if (field_start >= #text) {
             out..&.deinit(alloc);
@@ -650,7 +650,7 @@ fn parse_owned_object_from_start_in_arena(
     }
     let mut next = start + 1;
 
-    for (;;) {
+    while (true) {
         let field_start = skip_ws(text, next);
         if (field_start >= #text) {
             out..&.deinit(alloc);
@@ -991,12 +991,15 @@ impl *mut OwnedObjectEntry {
 
 impl *mut OwnedArray {
     pub fn deinit(alloc: *mut Allocator) void {
-        for (let mut i = usize.{0}; i < self.*.items.len; i += 1) {
-            let .{ Some: value } = self.*.items.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.*.items.len) {
+            let .{ Some: value } = self.*.items.&.get(i) else { i += 1; continue; };
             if ((value as usize) == 0) {
+            i += 1;
                 continue;
             }
             deinit_owned_value_contents(alloc, value);
+            i += 1;
         }
         self.*.items..&.deinit(alloc);
         self.*.nodes..&.deinit(alloc);
@@ -1077,9 +1080,11 @@ impl *mut OwnedArray {
 
 impl *mut OwnedObject {
     pub fn deinit(alloc: *mut Allocator) void {
-        for (let mut i = usize.{0}; i < self.*.entries.len; i += 1) {
-            let .{ Some: mut entry } = self.*.entries.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.*.entries.len) {
+            let .{ Some: mut entry } = self.*.entries.&.get(i) else { i += 1; continue; };
             entry..&.deinit(alloc);
+            i += 1;
         }
         self.*.entries..&.deinit(alloc);
         self.*.nodes..&.deinit(alloc);
@@ -1100,11 +1105,13 @@ impl *OwnedObject {
     }
 
     pub fn get_field(name: []u8) ?OwnedObjectEntry {
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
-            let .{ Some: entry } = self.entries.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.entries.len) {
+            let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (entry.key_eq(name)) {
                 return .{ Some: entry };
             }
+            i += 1;
         }
         return .None;
     }
@@ -1116,37 +1123,44 @@ impl *OwnedObject {
 
     pub fn get_last_field(name: []u8) ?OwnedObjectEntry {
         let mut found = ?OwnedObjectEntry.None;
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
-            let .{ Some: entry } = self.entries.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.entries.len) {
+            let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (entry.key_eq(name)) {
                 found = .{ Some: entry };
             }
+            i += 1;
         }
         return found;
     }
 
     pub fn count_fields(name: []u8) usize {
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
-            let .{ Some: entry } = self.entries.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.entries.len) {
+            let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (entry.key_eq(name)) {
                 total += 1;
             }
+            i += 1;
         }
         return total;
     }
 
     pub fn collect_fields(name: []u8, out: []mut OwnedObjectEntry) usize {
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
-            let .{ Some: entry } = self.entries.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.entries.len) {
+            let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
+            i += 1;
                 continue;
             }
             if (total < #out) {
                 out.[total] = entry;
             }
             total += 1;
+            i += 1;
         }
         return total;
     }
@@ -1154,15 +1168,18 @@ impl *OwnedObject {
     pub fn require_value(name: []u8) (*mut OwnedValue)!FieldDecodeError {
         let mut found = (?*mut OwnedValue).None;
         let mut total = usize.{0};
-        for (let mut i = usize.{0}; i < self.entries.len; i += 1) {
-            let .{ Some: entry } = self.entries.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.entries.len) {
+            let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
+            i += 1;
                 continue;
             }
             total += 1;
             if (total == 1) {
                 found = .{ Some: entry.value };
             }
+            i += 1;
         }
         if (total == 0) {
             return .{ Err: .Missing };
@@ -1465,28 +1482,34 @@ impl *mut OwnedObject {
         key: []u8,
         value: OwnedValue,
     ) (*mut OwnedValue)!OwnedBuildError {
-        for (let mut i = usize.{0}; i < self.*.entries.len; i += 1) {
-            let .{ Some: entry } = self.*.entries..&.get_ptr(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.*.entries.len) {
+            let .{ Some: entry } = self.*.entries..&.get_ptr(i) else { i += 1; continue; };
             if (!entry.*.key_eq(key)) {
+            i += 1;
                 continue;
             }
             entry.value.deinit(alloc);
             entry.value.* = value;
             return .{ Ok: entry.value };
+            i += 1;
         }
         return self.append(alloc, key, value);
     }
 
     pub fn remove_field(alloc: *mut Allocator, key: []u8) bool {
-        for (let mut i = usize.{0}; i < self.*.entries.len; i += 1) {
-            let .{ Some: entry } = self.*.entries.&.get(i) else continue;
+        let mut i = usize.{0};
+        while (i < self.*.entries.len) {
+            let .{ Some: entry } = self.*.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(key)) {
+            i += 1;
                 continue;
             }
             let .{ Some: mut removed } = self.*.entries..&.remove(i) else return false;
             deinit_owned_object_entry_contents(alloc, removed..&);
             self.*.nodes..&.free_node(removed.value);
             return true;
+            i += 1;
         }
         return false;
     }

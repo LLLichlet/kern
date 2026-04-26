@@ -50,6 +50,7 @@ pub enum TokenType {
     If,
     Else,
     For,
+    While,
     Break,
     Continue,
     Return,

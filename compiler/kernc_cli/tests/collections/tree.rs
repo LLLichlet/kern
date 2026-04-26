@@ -16,11 +16,12 @@ fn main() i32 {
     let mut lazy_calls = i32.{0};
 
     let mut i = 0;
-    for (; i < 32; i += 1) {
+    while (i < 32) {
         let key = i as i32;
         if (!map.insert(gpa, key, key * 2)) {
             return 1;
         }
+        i += 1;
     }
 
     if (!map.insert(gpa, 7, 99)) {
@@ -368,10 +369,11 @@ fn main() i32 {
     defer map.deinit(gpa);
 
     let mut i = i32.{1};
-    for (; i <= 40; i += 1) {
+    while (i <= 40) {
         if (!map.insert(gpa, i, i * 10)) {
             return 1;
         }
+        i += 1;
     }
 
     let removed_mid = match (map.remove(gpa, 20)) {

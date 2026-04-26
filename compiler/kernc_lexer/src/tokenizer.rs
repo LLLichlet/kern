@@ -758,6 +758,7 @@ fn resolve_keyword(text: &[u8]) -> TokenType {
         b"if" => TokenType::If,
         b"else" => TokenType::Else,
         b"for" => TokenType::For,
+        b"while" => TokenType::While,
         b"break" => TokenType::Break,
         b"continue" => TokenType::Continue,
         b"return" => TokenType::Return,

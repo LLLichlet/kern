@@ -93,7 +93,7 @@ impl *mut Arena : Allocator {
 
     fn release_chain(first: ?*mut Chunk) void {
         let mut chunk = first;
-        for (;;) {
+                while (true) {
             let .{ Some: current } = chunk else return;
             let next = current.next;
             self.backing.free(
@@ -199,7 +199,7 @@ impl *mut Arena : Allocator {
 
         if (current != target) {
             let mut newer_tail = self.current;
-            for (;;) {
+                        while (true) {
                 let .{ Some: tail } = newer_tail else return false;
                 match (tail.next) {
                     .{ Some: next } => {

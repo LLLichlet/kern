@@ -15,11 +15,12 @@ fn main() i32 {
     defer map.deinit(gpa);
 
     let mut i = 0;
-    for (; i < 128; i += 1) {
+    while (i < 128) {
         let key = i as i32;
         if (!map.insert(gpa, key, key * 3)) {
             return 1;
         }
+        i += 1;
     }
 
     if (!map.insert(gpa, 7, 99)) {
@@ -364,11 +365,12 @@ fn main() i32 {
     let mut lazy_calls = i32.{0};
 
     let mut i = 0;
-    for (; i < 6; i += 1) {
+    while (i < 6) {
         let key = i as i32;
         if (!map.insert(gpa, key, key + 10)) {
             return 1;
         }
+        i += 1;
     }
 
     if (map.capacity != 8 or map.len != 6) {

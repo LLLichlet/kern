@@ -609,14 +609,14 @@ let result = match (val) {
 
   * **Exhaustiveness**: Match expressions must be exhaustive. When matching on a `enum` type, `_ =>` is not required if all variants are explicitly matched.
 
-### 7.3 For Loops
+### 7.3 Loops
 
-Only `for` (no `while`, `do-while`).
+Kern has explicit condition loops and iterator loops.
 
 ```kern
-for (let i = 0; i < 10; i += 1) { ... }
-for (; cond ;) { ... }          // while
-for (;;) { ... }                // infinite loop
+while (cond) { ... }
+while (true) { ... }             // infinite loop
+for (item: values.iter()) { ... }
 ```
 
 ### 7.4 Defer
@@ -929,16 +929,8 @@ Coverage in the `else` block is checked against the remaining failure space:
   * an `else` arm that matches no remaining failure space is invalid
 
 This design keeps `let else` narrow and intentional. It is for "bind the good
-case here, handle failures immediately", not for replacing `match`.
-
-The earlier single-arm form:
-
-```kern
-let PAT = EXPR else OTHER_PAT => DIVERGING_EXPR;
-```
-
-is removed. Kern does not preserve this historical special case. Multi-way
-failure handling must use the block form instead.
+case here, handle failures immediately", not for replacing `match`. Multi-way
+failure handling uses the block form.
 
 ## 11. Closures and Anonymous Functions
 

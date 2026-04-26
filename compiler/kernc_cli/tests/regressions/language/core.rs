@@ -268,11 +268,13 @@ fn partition(arr: []mut i32, low: i32, high: i32) i32 {
     let pivot = arr.[high];
     let mut i = low - 1;
 
-    for (let mut j = low; j <= high - 1; j += 1) {
+    let mut j = low;
+    while (j <= high - 1) {
         if (arr.[j] < pivot) {
             i += 1;
             swap(arr.[i]..&, arr.[j]..&);
         }
+        j += 1;
     }
 
     let pivot_idx = i + 1;
@@ -294,10 +296,12 @@ fn main() i32 {
     quick_sort(view, 0, 7);
 
     let expected = [8]i32.{ 1, 3, 7, 8, 23, 28, 29, 57 };
-    for (let mut i = 0; i < 8; i += 1) {
+    let mut i = 0;
+    while (i < 8) {
         if (array.[i] != expected.[i]) {
             return (i as i32) + 1;
         }
+        i += 1;
     }
     return 0;
 }
@@ -313,15 +317,17 @@ fn main() i32 {
 }
 
 #[test]
-fn infers_usize_for_for_loop_counter_from_array_length_comparison() {
+fn infers_usize_for_while_counter_from_array_length_comparison() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
     let data = [4]u8.{ 3, 5, 7, 11 };
     let mut sum = i32.{0};
 
-    for (let mut i = 0; i < #data; i += 1) {
+    let mut i = 0;
+    while (i < #data) {
         sum += data.[i] as i32;
+        i += 1;
     }
 
     return sum - 26;

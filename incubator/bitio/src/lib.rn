@@ -122,8 +122,10 @@ pub fn read_u64_be(text: []u8) u64!BitIoError {
     }
 
     let mut value = u64.{0};
-    for (let mut i = usize.{0}; i < 8; i += 1) {
+    let mut i = usize.{0};
+    while (i < 8) {
         value = (value << 8) | (text.[i] as u64);
+        i += 1;
     }
     return .{ Ok: value };
 }
@@ -134,8 +136,10 @@ pub fn read_u64_le(text: []u8) u64!BitIoError {
     }
 
     let mut value = u64.{0};
-    for (let mut i = usize.{0}; i < 8; i += 1) {
+    let mut i = usize.{0};
+    while (i < 8) {
         value |= (text.[i] as u64) << ((i as u64) * 8);
+        i += 1;
     }
     return .{ Ok: value };
 }
@@ -225,13 +229,15 @@ pub fn xor_mask4(input: []u8, mask: [4]u8, out: []mut u8) usize!BitIoError {
     };
 
     let mut i = usize.{0};
-    for (; i + 16 <= #input; i += 16) {
+    while (i + 16 <= #input) {
         let chunk = @simdLoad[u8x16](input.[i].& as *u8, 1);
         @simdStore(out.[i]..&, chunk ^ mask16, 1);
+        i += 16;
     }
 
-    for (; i < #input; i += 1) {
+    while (i < #input) {
         out.[i] = input.[i] ^ mask.[i % 4];
+        i += 1;
     }
     return .{ Ok: #input };
 }
@@ -293,12 +299,14 @@ impl *mut BitReader {
         let bit_count = validate_bit_count(count).!;
 
         let mut value = u64.{0};
-        for (let mut i = u8.{0}; i < bit_count; i += 1) {
+        let mut i = u8.{0};
+        while (i < bit_count) {
             let bit = self.read_bit().!;
             value <<= u64.{1};
             if (bit) {
                 value |= u64.{1};
             }
+            i += 1;
         }
         return .{ Ok: value };
     }
@@ -361,10 +369,12 @@ impl *mut BitWriter {
     pub fn write_bits(value: u64, count: u8) usize!BitIoError {
         let bit_count = validate_bit_count(count).!;
 
-        for (let mut i = u8.{0}; i < bit_count; i += 1) {
+        let mut i = u8.{0};
+        while (i < bit_count) {
             let shift = bit_count - i - u8.{1};
             let bit = ((value >> (shift as u64)) & 1) != 0;
             let _ = self.write_bit(bit).!;
+            i += 1;
         }
 
         return .{ Ok: self.*.written_bytes() };
@@ -377,10 +387,12 @@ impl *mut BitWriter {
         }
 
         let padded = usize.{8} - extra;
-        for (let mut i = usize.{0}; i < padded; i += 1) {
+        let mut i = usize.{0};
+        while (i < padded) {
             let .{ Ok: _ } = self.write_bit(false) else {
                 .{ Err: _ } => return i,
             };
+            i += 1;
         }
         return padded;
     }

@@ -828,21 +828,8 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
                 normalize_expr_for_body_only_comparison(result);
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                normalize_expr_for_body_only_comparison(init);
-            }
-            if let Some(cond) = cond {
-                normalize_expr_for_body_only_comparison(cond);
-            }
-            if let Some(post) = post {
-                normalize_expr_for_body_only_comparison(post);
-            }
+        ast::ExprKind::While { cond, body } => {
+            normalize_expr_for_body_only_comparison(cond);
             normalize_expr_for_body_only_comparison(body);
         }
         ast::ExprKind::SliceOp {

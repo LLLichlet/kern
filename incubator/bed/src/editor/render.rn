@@ -27,19 +27,23 @@ fn push_truncated(out: *mut String, alloc: *mut Allocator, text: []u8, remaining
 
 fn push_rendered_line(out: *mut String, alloc: *mut Allocator, text: []u8, max_cols: usize) bool {
     let mut used = usize.{0};
-    for (let mut i = usize.{0}; i < #text and used < max_cols; i += 1) {
+    let mut i = usize.{0};
+    while (i < #text and used < max_cols) {
         let byte = text.[i];
         if (byte == b'\t') {
             let mut fill = usize.{4};
             if (max_cols - used < fill) {
                 fill = max_cols - used;
             }
-            for (let mut j = usize.{0}; j < fill; j += 1) {
+            let mut j = usize.{0};
+            while (j < fill) {
                 if (!out.push_char(alloc, b' ')) {
                     return false;
                 }
+                j += 1;
             }
             used += fill;
+        i += 1;
             continue;
         }
 
@@ -48,6 +52,7 @@ fn push_rendered_line(out: *mut String, alloc: *mut Allocator, text: []u8, max_c
             return false;
         }
         used += 1;
+        i += 1;
     }
     return true;
 }
@@ -61,7 +66,8 @@ fn render_buffer_rows(
     cols: usize,
     fill_tilde: bool,
 ) bool {
-    for (let mut screen_row = usize.{0}; screen_row < rows; screen_row += 1) {
+    let mut screen_row = usize.{0};
+    while (screen_row < rows) {
         let row = scroll_row + screen_row;
         if (row < text_buffer.line_count()) {
             if (!push_rendered_line(out, alloc, text_buffer.line(row), cols)) {
@@ -79,6 +85,7 @@ fn render_buffer_rows(
         if (screen_row + 1 < rows and !ansi.new_line(out, alloc)) {
             return false;
         }
+        screen_row += 1;
     }
     return true;
 }
@@ -96,7 +103,7 @@ fn push_i32(out: *mut String, alloc: *mut Allocator, value: i32) bool {
 fn decimal_width(value: usize) usize {
     let mut width = usize.{1};
     let mut current = value;
-    for (; current >= 10; ) {
+    while (current >= 10) {
         current /= 10;
         width += 1;
     }
@@ -111,10 +118,12 @@ fn abs_diff_usize(lhs: usize, rhs: usize) usize {
 }
 
 fn push_spaces(out: *mut String, alloc: *mut Allocator, count: usize) bool {
-    for (let mut i = usize.{0}; i < count; i += 1) {
+    let mut i = usize.{0};
+    while (i < count) {
         if (!out.push_char(alloc, b' ')) {
             return false;
         }
+        i += 1;
     }
     return true;
 }
@@ -442,7 +451,8 @@ impl *mut Editor {
         let mut wrote_editor_lines = false;
         if (editor_rows > 0) {
             let rect = self.editor_area_rect();
-            for (let mut screen_row = usize.{0}; screen_row < editor_rows; screen_row += 1) {
+            let mut screen_row = usize.{0};
+            while (screen_row < editor_rows) {
                 if (!self.render_layout_row(alloc, out, self.layout_root, rect, screen_row)) {
                     return false;
                 }
@@ -453,6 +463,7 @@ impl *mut Editor {
                 if (screen_row + 1 < editor_rows and !ansi.new_line(out, alloc)) {
                     return false;
                 }
+                screen_row += 1;
             }
         }
 

@@ -11,7 +11,8 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
     let fmt_len = #fmt;
     let mut arg_idx = usize.{0};
     let mut last_pos = usize.{0};
-    for (let mut i = usize.{0}; i < fmt_len; ) {
+        let mut i = usize.{0};
+    while (i < fmt_len) {
         if (fmt.[i] == b'{') {
             if (i + usize.{1} < fmt_len) {
                 // Handles the escaped left brace `{{`.
@@ -23,8 +24,9 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     let _ = writer.write("{");
                     i += 2;
                     last_pos = i;
+                    i += usize.{1};
                     continue;
-                } 
+                }
                 // Handles the placeholder `{}`.
                 else if (fmt.[i + 1] == b'}') {
                     if (i > last_pos) {
@@ -39,10 +41,11 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     }
                     i += usize.{2};
                     last_pos = i;
-                    continue; 
+                    i += usize.{1};
+                    continue;
                 }
             }
-        } 
+        }
         // Handles the escaped right brace `}}`.
         else if (fmt.[i] == b'}') {
             if (i + usize.{1} < fmt_len) {
@@ -54,11 +57,12 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     let _ = writer.write("}");
                     i += usize.{2};
                     last_pos = i;
+                    i += usize.{1};
                     continue;
                 }
             }
         }
-        
+
         i += usize.{1};
     }
 
@@ -72,10 +76,10 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
 /// Formats into standard output without appending a newline.
 ///
 /// Note:
-/// formatting arguments are passed as `.{ value, }`. Single-element lists still
-/// require the trailing comma.
+/// formatting arguments are passed as list literals such as `.{ value }` or
+/// `.{ left, right }`.
 pub/ fn print(fmt: []u8, args: []*Printable) void {
-    let mut out_file = stdout(); 
+    let mut out_file = stdout();
     let writer = *mut Writer.{ out_file..& };
     format_to(writer, fmt, args);
 }
@@ -83,8 +87,8 @@ pub/ fn print(fmt: []u8, args: []*Printable) void {
 /// Formats into standard output and appends a newline.
 ///
 /// Note:
-/// formatting arguments are passed as `.{ value, }`. Single-element lists still
-/// require the trailing comma.
+/// formatting arguments are passed as list literals such as `.{ value }` or
+/// `.{ left, right }`.
 pub/ fn println(fmt: []u8, args: []*Printable) void {
     let mut out_file = stdout();
     let writer = *mut Writer.{ out_file..& };

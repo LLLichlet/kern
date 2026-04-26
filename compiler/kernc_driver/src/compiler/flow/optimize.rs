@@ -411,21 +411,8 @@ fn collect_owner_exprs<'a>(
                 collect_owner_exprs(result, exprs);
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_owner_exprs(init, exprs);
-            }
-            if let Some(cond) = cond {
-                collect_owner_exprs(cond, exprs);
-            }
-            if let Some(post) = post {
-                collect_owner_exprs(post, exprs);
-            }
+        ast::ExprKind::While { cond, body } => {
+            collect_owner_exprs(cond, exprs);
             collect_owner_exprs(body, exprs);
         }
         ast::ExprKind::SliceOp {
@@ -578,21 +565,8 @@ fn collect_simple_binding_let_expr_ids(
                 collect_simple_binding_let_expr_ids(result, expr_ids);
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_simple_binding_let_expr_ids(init, expr_ids);
-            }
-            if let Some(cond) = cond {
-                collect_simple_binding_let_expr_ids(cond, expr_ids);
-            }
-            if let Some(post) = post {
-                collect_simple_binding_let_expr_ids(post, expr_ids);
-            }
+        ast::ExprKind::While { cond, body } => {
+            collect_simple_binding_let_expr_ids(cond, expr_ids);
             collect_simple_binding_let_expr_ids(body, expr_ids);
         }
         ast::ExprKind::SliceOp {
@@ -726,7 +700,7 @@ fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
         | ast::ExprKind::If { .. }
         | ast::ExprKind::Match { .. }
         | ast::ExprKind::Block { .. }
-        | ast::ExprKind::For { .. }
+        | ast::ExprKind::While { .. }
         | ast::ExprKind::SliceOp { .. }
         | ast::ExprKind::Defer { .. }
         | ast::ExprKind::Return(_)

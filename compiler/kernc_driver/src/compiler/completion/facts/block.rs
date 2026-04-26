@@ -208,33 +208,12 @@ fn collect_expr_block_completion_facts(
                 );
             }
         }
-        ast::ExprKind::For {
-            init,
-            cond,
-            post,
-            body,
-        } => {
-            if let Some(init) = init {
-                collect_expr_block_completion_facts(
-                    init,
-                    expr_binding_items_by_span,
-                    block_facts_by_span,
-                );
-            }
-            if let Some(cond) = cond {
-                collect_expr_block_completion_facts(
-                    cond,
-                    expr_binding_items_by_span,
-                    block_facts_by_span,
-                );
-            }
-            if let Some(post) = post {
-                collect_expr_block_completion_facts(
-                    post,
-                    expr_binding_items_by_span,
-                    block_facts_by_span,
-                );
-            }
+        ast::ExprKind::While { cond, body } => {
+            collect_expr_block_completion_facts(
+                cond,
+                expr_binding_items_by_span,
+                block_facts_by_span,
+            );
             collect_expr_block_completion_facts(
                 body,
                 expr_binding_items_by_span,

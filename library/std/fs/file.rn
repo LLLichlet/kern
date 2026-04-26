@@ -264,7 +264,7 @@ impl *mut File {
     /// Repeatedly writes until the full buffer has been flushed.
     pub fn write_all(buf: []u8) usize!Error {
         let mut total = usize.{0};
-        for (; total < #buf; ) {
+                while (total < #buf) {
             let written = self.write(buf.[total .. #buf]).!;
             if (written == 0) {
                 return .{ Err: .WriteZero };
@@ -279,7 +279,7 @@ impl *mut File {
         let mut chunk = [1024]u8.{undef};
         let mut total = usize.{0};
 
-        for (;;) {
+                while (true) {
             let read = self.read(chunk..[0 .. 1024]).!;
 
             if (read == 0) {
@@ -313,7 +313,7 @@ impl *mut File {
         let mut out = String.{};
         let mut chunk = [1024]u8.{undef};
 
-        for (;;) {
+                while (true) {
             let .{ Ok: read } = self.read(chunk..[0 .. 1024]) else {
                 .{ Err: err } => {
                     out..&.deinit(alloc);

@@ -119,7 +119,7 @@ extern fn start() ! {
     };
     
     // Infinite loop
-    for (;;) {}
+    while (true) {}
     @unreachable();
 }
 ```

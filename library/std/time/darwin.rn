@@ -60,7 +60,7 @@ pub/ fn sleep_nanos(nanos: u64) void {
     let mut req = nanos_to_timespec(nanos);
     let mut rem = Timespec.{ tv_sec: 0, tv_nsec: 0 };
 
-    for (;;) {
+        while (true) {
         if (system_nanosleep(req..&, rem..&) == 0) {
             return;
         }

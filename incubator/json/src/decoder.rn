@@ -30,10 +30,12 @@ fn decode_hex_quad(raw: []u8, start: usize, slash_index: usize) u32!StringDecode
     }
 
     let mut value = u32.{0};
-    for (let mut i = start; i < start + 4; i += 1) {
+    let mut i = start;
+    while (i < start + 4) {
         let .{ Some: digit } = hex_value(raw.[i])
             else return .{ Err: .{ Parse: .{ InvalidEscape: slash_index } } };
         value = (value << 4) | digit;
+        i += 1;
     }
     return .{ Ok: value };
 }
@@ -108,7 +110,7 @@ fn decode_string_tail_into_unchecked(
     let mut index = start;
     let mut written = initial_written;
 
-    for (; index < end; ) {
+    while (index < end) {
         if (raw.[index] != b'\\') {
             out.[written] = raw.[index];
             written += 1;
@@ -137,7 +139,7 @@ fn decode_string_tail_into_checked(
     let mut index = start;
     let mut written = initial_written;
 
-    for (; index < end; ) {
+    while (index < end) {
         if (raw.[index] != b'\\') {
             if (written >= #out) {
                 return .{ Err: StringDecodeError.BufferTooSmall };
@@ -172,10 +174,11 @@ fn raw_string_content_end(raw: []u8) usize!StringDecodeError {
 
 fn first_raw_escape_index(raw: []u8, end: usize) ?usize {
     let mut index = usize.{1};
-    for (; index < end; index += 1) {
+    while (index < end) {
         if (raw.[index] == b'\\') {
             return .{ Some: index };
         }
+        index += 1;
     }
     return .None;
 }
@@ -269,7 +272,7 @@ fn decoded_parsed_string_size_raw_with_end(
     let mut index = usize.{1};
     let mut written = usize.{0};
 
-    for (; index < end; ) {
+    while (index < end) {
         if (raw.[index] != b'\\') {
             written += 1;
             index += 1;

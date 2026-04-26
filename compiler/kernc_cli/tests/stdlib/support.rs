@@ -488,9 +488,9 @@ fn main() i32 {
 }
 
 #[test]
-fn hints_about_trailing_comma_for_single_print_argument() {
+fn print_accepts_single_argument_list_without_trailing_comma() {
     let output = compile_source_with_args(
-        "kernc_std_print_scalar_hint",
+        "kernc_std_print_single_arg",
         r#"
 use std.io;
 
@@ -503,21 +503,9 @@ fn main() i32 {
     );
 
     assert!(
-        !output.status.success(),
-        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "single print argument failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("write `.{ value, }` with a trailing comma"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
-    assert!(
-        stderr.contains("scalar initialization"),
-        "unexpected stderr:\n{}",
-        stderr
     );
 }

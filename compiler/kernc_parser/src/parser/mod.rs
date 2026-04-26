@@ -398,6 +398,7 @@ impl<'a> Parser<'a> {
                 | TokenType::If
                 | TokenType::Match
                 | TokenType::For
+                | TokenType::While
                 | TokenType::Return => return,
                 _ => {
                     self.advance();

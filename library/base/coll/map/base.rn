@@ -54,8 +54,10 @@ pub.. fn entry_ptr[K, V](entries: *mut Entry[K, V], index: usize) *mut Entry[K, 
 /// the number of occupied entries observed, including the last delivered one.
 pub.. fn visit_full[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, visitor: *Fn(*mut Entry[K, V]) bool) usize {
     let mut total = usize.{0};
-    for (let mut i = usize.{0}; i < capacity; i += 1) {
+        let mut i = usize.{0};
+    while (i < capacity) {
         if (ctrl_at(ctrl, i) != FULL) {
+            i += 1;
             continue;
         }
 
@@ -63,6 +65,8 @@ pub.. fn visit_full[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize,
         if (!visitor(entry_ptr[K, V](entries, i))) {
             return total;
         }
+
+        i += 1;
     }
     return total;
 }
@@ -92,7 +96,7 @@ pub.. fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capaci
     let mut index = (hash as usize) & mask;
     let mut probes = usize.{0};
 
-    for (; probes < capacity; probes += 1) {
+        while (probes < capacity) {
         let state = ctrl_at(ctrl, index);
         if (state == EMPTY) {
             return .None;
@@ -106,6 +110,8 @@ pub.. fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capaci
         }
 
         index = (index + 1) & mask;
+
+        probes += 1;
     }
 
     return .None;

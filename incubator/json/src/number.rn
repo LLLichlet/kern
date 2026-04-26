@@ -44,11 +44,13 @@ fn parse_integer_raw(raw: []u8) ParsedInteger!NumberDecodeError {
         start = 1;
     }
 
-    for (let mut i = start; i < #raw; i += 1) {
+    let mut i = start;
+    while (i < #raw) {
         let byte = raw.[i];
         if (byte == b'.' or byte == b'e' or byte == b'E') {
             return .{ Err: NumberDecodeError.NotInteger };
         }
+        i += 1;
     }
 
     return .{ Ok: .{
@@ -63,7 +65,8 @@ fn parse_unsigned_digits(digits: []u8, limit: u64) u64!NumberDecodeError {
     }
 
     let mut value = u64.{0};
-    for (let mut i = usize.{0}; i < #digits; i += 1) {
+    let mut i = usize.{0};
+    while (i < #digits) {
         let byte = digits.[i];
         if (byte < b'0' or byte > b'9') {
             return .{ Err: .{ Parse: .{ InvalidNumber: i } } };
@@ -79,6 +82,7 @@ fn parse_unsigned_digits(digits: []u8, limit: u64) u64!NumberDecodeError {
             return .{ Err: NumberDecodeError.Overflow };
         }
         value = shifted + digit;
+        i += 1;
     }
 
     return .{ Ok: value };
@@ -255,13 +259,15 @@ fn parse_decimal_exponent(raw: []u8, start: usize) i32!FloatDecodeError {
     }
 
     let mut value = i32.{0};
-    for (; index < #raw; index += 1) {
+    while (index < #raw) {
         let digit = (raw.[index] - b'0') as i32;
         if (value > i32.{1000000}) {
             value = i32.{1000000};
+        index += 1;
             continue;
         }
         value = value * i32.{10} + digit;
+        index += 1;
     }
 
     return .{ Ok: if (negative) -value else value };
@@ -281,7 +287,7 @@ fn scale_pow10_f64(value: f64, exp10: i32) f64!FloatDecodeError {
     let mut out = value;
     let mut bits = if (exp10 < 0) -exp10 else exp10;
     let mut part = usize.{0};
-    for (; bits > 0; ) {
+    while (bits > 0) {
         if ((bits & i32.{1}) != i32.{0}) {
             if (exp10 < 0) {
                 out /= POW10_PARTS.[part];
@@ -323,13 +329,14 @@ pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
     let mut significant_digits = 0;
     let mut exp10 = i32.{0};
 
-    for (; index < #raw; index += 1) {
+    while (index < #raw) {
         let byte = raw.[index];
         if (byte == b'.' or byte == b'e' or byte == b'E') {
             break;
         }
 
         if (significant_digits == 0 and byte == b'0' and significand == u64.{0}) {
+        index += 1;
             continue;
         }
         if (significant_digits < 19) {
@@ -338,11 +345,12 @@ pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
         } else {
             exp10 += 1;
         }
+        index += 1;
     }
 
     if (index < #raw and raw.[index] == b'.') {
         index += 1;
-        for (; index < #raw; index += 1) {
+        while (index < #raw) {
             let byte = raw.[index];
             if (byte == b'e' or byte == b'E') {
                 break;
@@ -350,6 +358,7 @@ pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
 
             if (significant_digits == 0 and byte == b'0' and significand == u64.{0}) {
                 exp10 -= 1;
+            index += 1;
                 continue;
             }
             if (significant_digits < 19) {
@@ -357,6 +366,7 @@ pub/ fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
                 significant_digits += 1;
             }
             exp10 -= 1;
+            index += 1;
         }
     }
 

@@ -163,7 +163,7 @@ impl<'a> Parser<'a> {
 
             let is_manifestly_void = matches!(
                 &left.kind,
-                ExprKind::For { .. }
+                ExprKind::While { .. }
                     | ExprKind::If {
                         else_branch: None,
                         ..
@@ -219,6 +219,7 @@ impl<'a> Parser<'a> {
             TokenType::Match => self.parse_match_expr(span),
             TokenType::LBrace => self.parse_block_expr(span),
             TokenType::For => self.parse_for_expr(span),
+            TokenType::While => self.parse_while_expr(span),
             TokenType::Let | TokenType::Const | TokenType::Static => self.parse_decl_expr(token),
             TokenType::Break => Ok(Expr {
                 id: self.new_id(),

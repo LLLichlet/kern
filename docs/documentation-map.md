@@ -5,7 +5,7 @@ documents should be treated as authoritative for different audiences.
 
 It supports three different jobs:
 
-- public documentation such as the website and language guide
+- public documentation such as the repository README and language guide
 - tool-facing reference material for `kernc`, `craft`, and `kern-lsp`
 - implementation-facing notes for compiler/toolchain maintainers
 
@@ -32,7 +32,7 @@ These are the current public reference documents.
 
 These documents explain how the current compiler/tooling implementation is
 structured internally. They are valuable for maintainers, but they are not the
-primary source for user-facing website/tutorial copy.
+primary source for user-facing guide or tutorial copy.
 
 - [`compiler/kernc_driver/README.md`](../compiler/kernc_driver/README.md): driver staging, `Flow`, incremental behavior, and analysis boundaries
 - [`compiler/kernc_db/README.md`](../compiler/kernc_db/README.md): incremental query engine model
@@ -59,8 +59,8 @@ quoted as if they were current product guarantees.
 
 ## Source Of Truth By Topic
 
-When writing the website, tutorials, or a future "Kern Programming Language
-Guide", prefer these sources:
+When writing tutorials or a future "Kern Programming Language Guide", prefer
+these sources:
 
 - language semantics and syntax: [`docs/design.md`](./design.md)
 - runtime and library layering: [`docs/runtime-architecture.md`](./runtime-architecture.md)
@@ -68,17 +68,3 @@ Guide", prefer these sources:
 - package manager behavior: [`docs/craft.md`](./craft.md)
 - installation and distribution expectations: [`README.md`](../README.md), [`docs/unix-distribution.md`](./unix-distribution.md), and [`docs/windows-distribution.md`](./windows-distribution.md)
 - implementation architecture details: the relevant crate README files under [`compiler/`](../compiler/) and tool README files under [`tools/`](../tools/)
-
-## Website And Guide Notes
-
-For the next documentation layer, the current repository naturally breaks into
-these top-level website/tutorial sections:
-
-- Language: syntax, types, control flow, traits, modules, intrinsics, inline assembly
-- Libraries And Runtime: `base`, `sys`, `rt`, `std`, freestanding vs hosted, libc policy
-- Tooling: `kernc`, `craft`, `kern-lsp`, VS Code extension
-- Compiler Architecture: AST, semantic analysis, `Flow`, MAST, MIR, LLVM/codegen
-- Installation And Distribution: SDK layout, host-tool baselines, Windows/Unix policy
-
-That split matches the current repository structure closely enough that future
-website/tutorial material can grow without fighting the implementation docs.

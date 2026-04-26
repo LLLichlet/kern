@@ -559,6 +559,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 CoverageConstructorKind::EnumVariant(*variant),
                 Vec::new(),
             )),
+            ExprKind::FieldAccess { field, .. }
+                if self.expr_pattern_is_qualified_enum_variant(expr, target_ty) =>
+            {
+                Some(CoveragePattern::Constructor(
+                    CoverageConstructorKind::EnumVariant(*field),
+                    Vec::new(),
+                ))
+            }
             ExprKind::DataInit {
                 literal: kernc_ast::DataLiteralKind::Struct(fields),
                 ..
@@ -598,6 +606,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             _ => None,
         }
+    }
+
+    fn expr_pattern_is_qualified_enum_variant(&mut self, expr: &Expr, target_ty: TypeId) -> bool {
+        let ExprKind::FieldAccess { lhs, .. } = &expr.kind else {
+            return false;
+        };
+        let Some(lhs_ty) = self.ctx.facts.node_types.get(&lhs.id).copied() else {
+            return false;
+        };
+
+        let lhs_resolved = self.resolve_tv(lhs_ty);
+        let target_resolved = self.resolve_tv(target_ty);
+        let lhs_norm = self.ctx.normalize_concrete_type(lhs_resolved);
+        let target_norm = self.ctx.normalize_concrete_type(target_resolved);
+        if lhs_norm != target_norm {
+            return false;
+        }
+
+        matches!(
+            self.ctx.type_registry.get(target_norm),
+            TypeKind::Enum(..) | TypeKind::AnonymousEnum(_)
+        )
     }
 
     fn coverage_lower_match_pattern(

@@ -133,6 +133,59 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_exhaustive_qualified_value_patterns_with_nested_enum_payloads() {
+    let output = build_and_run_source(
+        r#"
+type Bit = enum {
+    Zero,
+    One,
+};
+
+type Leaf = enum {
+    Empty,
+    Full: Bit,
+};
+
+type Node = struct {
+    left: Leaf,
+    right: Leaf,
+};
+
+type Tree = enum {
+    Nil,
+    Branch: Node,
+};
+
+fn classify(tree: Tree) i32 {
+    return match (tree) {
+        Tree.Nil => 0,
+        Tree.{ Branch: Node.{ left: Leaf.Empty, right: Leaf.Empty } } => 1,
+        Tree.{ Branch: Node.{ left: Leaf.Empty, right: Leaf.{ Full: Bit.Zero } } } => 2,
+        Tree.{ Branch: Node.{ left: Leaf.Empty, right: Leaf.{ Full: Bit.One } } } => 3,
+        Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.Zero }, right: Leaf.Empty } } => 4,
+        Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.Zero }, right: Leaf.{ Full: Bit.Zero } } } => 5,
+        Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.Zero }, right: Leaf.{ Full: Bit.One } } } => 6,
+        Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.One }, right: Leaf.Empty } } => 7,
+        Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.One }, right: Leaf.{ Full: Bit.Zero } } } => 8,
+        Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.One }, right: Leaf.{ Full: Bit.One } } } => 9,
+    };
+}
+
+fn main() i32 {
+    return classify(Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.One }, right: Leaf.{ Full: Bit.One } } }) - 9;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_nested_enum_gap_in_let_else_arm_block() {
     let output = compile_source(
         r#"

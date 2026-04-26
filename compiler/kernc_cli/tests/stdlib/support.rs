@@ -415,8 +415,14 @@ fn main() i32 {
         String::from_utf8_lossy(&run_output.stderr)
     );
 
-    assert_eq!(String::from_utf8_lossy(&run_output.stdout), "out 1 line 2\n");
-    assert_eq!(String::from_utf8_lossy(&run_output.stderr), "err 3 line 4\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run_output.stdout),
+        "out 1 line 2\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run_output.stderr),
+        "err 3 line 4\n"
+    );
 
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);

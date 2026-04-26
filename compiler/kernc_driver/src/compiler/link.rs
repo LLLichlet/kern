@@ -212,15 +212,30 @@ impl CompilerDriver {
             return Ok(self.options.linker_cmd.clone());
         }
 
-        find_llvm_tool(&self.options, "clang", is_windows)
-            .ok_or_else(|| self.missing_default_clang_message(is_windows))
+        if let Some(clang) = find_llvm_tool(&self.options, "clang", is_windows) {
+            return Ok(clang);
+        }
+
+        if controlled_toolchain_root(&self.options).is_none()
+            && let Some(host_driver) = find_host_c_driver(is_windows)
+        {
+            return Ok(host_driver);
+        }
+
+        Err(self.missing_default_clang_message(is_windows))
     }
 
     fn missing_default_clang_message(&self, is_windows: bool) -> String {
         let executable = if is_windows { "clang.exe" } else { "clang" };
         let searched_root = self.default_toolchain_root_hint();
+        if controlled_toolchain_root(&self.options).is_none() {
+            return format!(
+                "No active Kern SDK/toolchain root or host C driver was found. Searched root: {searched_root}. Install the Kern SDK, set KERN_TOOLCHAIN_ROOT/--toolchain-root to a toolchain containing bin/{executable}, install host clang/cc for source-checkout development, or explicitly configure an external driver with --link-driver/CC."
+            );
+        }
+
         format!(
-            "Kern SDK clang was not found. The default `cc` driver is SDK-owned and does not fall back to host `cc`. Searched root: {searched_root}. Install or repair the Kern SDK, set KERN_TOOLCHAIN_ROOT/--toolchain-root to a toolchain containing bin/{executable}, or explicitly configure an external driver with --link-driver/CC."
+            "Kern SDK clang was not found. The default `cc` driver is SDK-owned when an SDK/toolchain root is active and does not fall back to host `cc`. Searched root: {searched_root}. Install or repair the Kern SDK, set KERN_TOOLCHAIN_ROOT/--toolchain-root to a toolchain containing bin/{executable}, or explicitly configure an external driver with --link-driver/CC."
         )
     }
 
@@ -961,11 +976,15 @@ fn llvm_prefix_dir() -> Option<PathBuf> {
 }
 
 fn resolved_toolchain_root(options: &kernc_utils::config::CompileOptions) -> Option<PathBuf> {
+    controlled_toolchain_root(options).or_else(llvm_prefix_dir)
+}
+
+fn controlled_toolchain_root(options: &kernc_utils::config::CompileOptions) -> Option<PathBuf> {
     if let Some(configured) = &options.toolchain_root {
         let root = PathBuf::from(configured);
         return root.is_dir().then_some(root);
     }
-    sdk_relative_toolchain_root().or_else(llvm_prefix_dir)
+    sdk_relative_toolchain_root().or_else(default_install_toolchain_root)
 }
 
 fn toolchain_bin_dir(root: &std::path::Path) -> PathBuf {
@@ -979,13 +998,26 @@ fn toolchain_bin_dir(root: &std::path::Path) -> PathBuf {
 fn sdk_relative_toolchain_root() -> Option<PathBuf> {
     let exe_path = env::current_exe().ok()?;
     for ancestor in exe_path.ancestors() {
-        let manifest = ancestor.join("manifest").join("sdk.json");
-        let toolchain_root = ancestor.join("toolchain").join("host");
-        if manifest.is_file() && toolchain_root.is_dir() {
+        if let Some(toolchain_root) = sdk_toolchain_root_from_sdk_root(ancestor) {
             return Some(toolchain_root);
         }
     }
     None
+}
+
+fn default_install_toolchain_root() -> Option<PathBuf> {
+    let home = env::var_os("HOME").map(PathBuf::from)?;
+    default_install_toolchain_root_from_home(&home)
+}
+
+fn default_install_toolchain_root_from_home(home: &std::path::Path) -> Option<PathBuf> {
+    sdk_toolchain_root_from_sdk_root(&home.join(".kern"))
+}
+
+fn sdk_toolchain_root_from_sdk_root(sdk_root: &std::path::Path) -> Option<PathBuf> {
+    let manifest = sdk_root.join("manifest").join("sdk.json");
+    let toolchain_root = sdk_root.join("toolchain").join("host");
+    (manifest.is_file() && toolchain_root.is_dir()).then_some(toolchain_root)
 }
 
 fn find_llvm_tool(
@@ -1017,6 +1049,30 @@ fn find_llvm_tool_in_root(root: &std::path::Path, tool: &str, is_windows: bool) 
     }
 
     find_llvm_tool_in_prefix(root, tool, is_windows)
+}
+
+fn find_host_c_driver(is_windows: bool) -> Option<String> {
+    let names: &[&str] = if is_windows {
+        &["clang.exe", "cc.exe", "gcc.exe"]
+    } else {
+        &["clang", "cc", "gcc"]
+    };
+    names.iter().find_map(|name| find_executable_in_path(name))
+}
+
+fn find_executable_in_path(name: &str) -> Option<String> {
+    let path = env::var_os("PATH")?;
+    find_executable_in_search_path(name, &path)
+}
+
+fn find_executable_in_search_path(name: &str, path: &std::ffi::OsStr) -> Option<String> {
+    for dir in env::split_paths(path) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+    None
 }
 
 fn find_llvm_tool_in_prefix(
@@ -1355,6 +1411,66 @@ mod tests {
             command_args(&cmd)
                 .iter()
                 .any(|arg| arg == &format!("--target={}", target.triple))
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn toolchain_lookup_accepts_default_sdk_install_under_home() {
+        let home = std::env::temp_dir().join(format!(
+            "kern_default_sdk_home_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let sdk_root = home.join(".kern");
+        let manifest_dir = sdk_root.join("manifest");
+        let toolchain_root = sdk_root.join("toolchain").join("host");
+        fs::create_dir_all(&manifest_dir).unwrap();
+        fs::create_dir_all(toolchain_root.join("bin")).unwrap();
+        fs::write(manifest_dir.join("sdk.json"), "{}").unwrap();
+
+        assert_eq!(
+            default_install_toolchain_root_from_home(&home).as_deref(),
+            Some(toolchain_root.as_path())
+        );
+
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn host_c_driver_lookup_prefers_clang_then_cc_then_gcc_from_path() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_host_cc_lookup_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let first = root.join("first");
+        let second = root.join("second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        fs::write(first.join("gcc"), "").unwrap();
+        fs::write(second.join("cc"), "").unwrap();
+        fs::write(second.join("clang"), "").unwrap();
+        let path = std::env::join_paths([first.as_path(), second.as_path()]).unwrap();
+
+        assert_eq!(
+            find_executable_in_search_path("clang", &path).as_deref(),
+            Some(second.join("clang").to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            find_executable_in_search_path("cc", &path).as_deref(),
+            Some(second.join("cc").to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            find_executable_in_search_path("gcc", &path).as_deref(),
+            Some(first.join("gcc").to_string_lossy().as_ref())
         );
 
         let _ = fs::remove_dir_all(&root);

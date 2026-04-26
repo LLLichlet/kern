@@ -438,7 +438,7 @@ fn parses_explicit_help_topic() {
 }
 
 #[test]
-fn rejects_removed_lock_command() {
+fn rejects_unknown_lock_command() {
     let err = parse_args(["lock".to_string(), "--features=ssl".to_string()]).unwrap_err();
     assert!(err.to_string().contains("unsupported command line"));
 }

@@ -245,7 +245,7 @@ bundle = "std"
 }
 
 #[test]
-fn rejects_removed_runtime_provider_key() {
+fn rejects_unknown_runtime_provider_key() {
     let err = Manifest::parse(
         r#"
 [package]
@@ -262,7 +262,7 @@ provider = "toolchain"
 
     assert!(
         err.to_string()
-            .contains("`[runtime].provider` has been removed")
+            .contains("unsupported [runtime] key `provider`")
     );
 }
 
@@ -553,7 +553,7 @@ roots = ["tests/*"]
 }
 
 #[test]
-fn rejects_legacy_array_style_test_targets() {
+fn rejects_array_table_test_targets() {
     let err = Manifest::parse(
         r#"
 [package]
@@ -576,7 +576,7 @@ root = "tests/smoke.rn"
 }
 
 #[test]
-fn rejects_legacy_array_style_example_targets() {
+fn rejects_array_table_example_targets() {
     let err = Manifest::parse(
         r#"
 [package]

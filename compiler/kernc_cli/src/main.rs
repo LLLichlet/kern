@@ -356,11 +356,6 @@ fn parse_args() -> CliAction {
             options.runtime_entry = parse_runtime_entry(&value);
             continue;
         }
-        if consume_long_option_value(&arg, "--runtime-provider", &mut args, "provider").is_some() {
-            cli_error(
-                "`--runtime-provider` has been removed; select `sys`/`rt` implementations via module paths or packages, and use `--runtime-libc` only for libc linkage",
-            );
-        }
         if let Some(value) = consume_long_option_value(&arg, "--runtime-libc", &mut args, "yes|no")
         {
             options.runtime_libc = parse_yes_no(&value, "--runtime-libc");

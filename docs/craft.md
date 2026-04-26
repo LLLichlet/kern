@@ -85,9 +85,43 @@ For a single-package project whose linker script sits next to `Craft.toml`,
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
-    b.link_arg_path("-T", "kernel.ld");
+    b.link_config(.{
+        system_libs: .{},
+        frameworks: .{},
+        search_paths: .{"native"},
+        args: .{"-Wl,--gc-sections"},
+        arg_paths: .{.{ flag: "-T", path: "kernel.ld" }},
+    });
 }
 ```
+
+`build.rn` can also compile small C-family support files with the same C driver
+resolution used by `kernc --cc`. The generated object is staged before Kern
+compilation and added to the current target's final link:
+
+```kern
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    let config = b.stage_generated("native_config.h", "#define KERNEL_BUILD 1\n");
+    let _ = b.cc_config("native/support.c", .{
+        include_dirs: .{"native/include", b.paths.generated_root},
+        defines: .{"KERNEL_TARGET=1"},
+        args: .{"-Wall"},
+        dependencies: .{config},
+    });
+}
+```
+
+The default C driver is SDK-owned: when no C driver is explicitly selected,
+`craft` uses the active Kern SDK/toolchain `clang`. It does not fall back to the
+host `cc` when SDK clang is missing. Set `KERN_TOOLCHAIN_ROOT` to a valid SDK or
+set `CC` only when you intentionally want an external C driver.
+
+`cc_config.dependencies` is for generated headers or other staged pre-compile
+outputs that the C source includes. Package include directories must already
+exist; include directories under `b.paths.generated_root` may be produced by the
+declared staged dependencies.
 
 Then the ordinary workflow stays the same:
 
@@ -749,6 +783,7 @@ This phase split matters:
 The staged action kinds are:
 
 - `WriteFile`
+- `CcCompile`
 - `RunTool`
 - `CopyFile`
 - `CopyDirectory`
@@ -787,10 +822,18 @@ The current `Builder` API includes:
   - define bool/string
   - source-root override
   - source-root binding from explicit outputs
+- link-plan mutation:
+  - `link_config(options)` for structured system libraries, frameworks, search
+    paths, raw args, and `arg_paths: []LinkArgPath`
+  - `link_system_lib(...)`, `link_framework(...)`, `link_search(...)`,
+    `link_arg(...)`, and `link_arg_path(...)` as focused convenience helpers
 - generated source production:
   - `stage_generated(...)` and `emit_generated(...)`
   - `stage_copy_package_file(...)` and `copy_package_file(...)`
   - `stage_copy_output(...)` and `copy_output(...)`
+  - `cc(source, args)` for simple package-local C-family sources
+  - `cc_config(source, options)` for C-family sources with structured
+    `include_dirs`, `defines`, raw `args`, and staged `dependencies`
   - `tool_path(dependency, tool)`
   - `resource_root(name)` and `resource_path(name, relative_path)`
   - `stage_generated_from_tool(dependency, tool, ...)` and `emit_generated_from_tool(dependency, tool, ...)`
@@ -808,6 +851,7 @@ The current `Builder` API includes:
   - `set_source_root_from(output)`
   - `depend(output, dependency)`
 - link directives:
+  - `link_config(...)`
   - `link_system_lib(...)`
   - `link_framework(...)`
   - `link_search(...)`

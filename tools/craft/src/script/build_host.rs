@@ -12,10 +12,17 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct LinkArgPathFields {
+    pub flag: SymbolId,
+    pub path: SymbolId,
+}
+
 pub(super) struct BuildUnitHost<'a> {
     build_nodes: &'a mut Vec<StagedAction>,
     unit: &'a mut BuildUnit,
     script_context: &'a BuildScriptContext,
+    link_arg_path_fields: LinkArgPathFields,
 }
 
 impl<'a> BuildUnitHost<'a> {
@@ -23,11 +30,13 @@ impl<'a> BuildUnitHost<'a> {
         build_nodes: &'a mut Vec<StagedAction>,
         unit: &'a mut BuildUnit,
         script_context: &'a BuildScriptContext,
+        link_arg_path_fields: LinkArgPathFields,
     ) -> Self {
         Self {
             build_nodes,
             unit,
             script_context,
+            link_arg_path_fields,
         }
     }
 
@@ -163,49 +172,81 @@ impl ScriptHost for BuildUnitHost<'_> {
             "__craft_build_link_system_lib" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let name = expect_string(args, 1, "system library name")?;
-                push_unique(&mut self.unit.link.system_libs, name);
+                push_non_empty_unique(
+                    &mut self.unit.link.system_libs,
+                    name,
+                    "system library name",
+                )?;
                 Ok(ConstValue::Void)
             }
             "__craft_build_link_framework" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let name = expect_string(args, 1, "framework name")?;
-                push_unique(&mut self.unit.link.frameworks, name);
+                push_non_empty_unique(&mut self.unit.link.frameworks, name, "framework name")?;
                 Ok(ConstValue::Void)
             }
             "__craft_build_link_search" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let path = expect_string(args, 1, "link search path")?;
-                push_unique(&mut self.unit.link.search_paths, path);
+                push_link_search_path(&mut self.unit.link.search_paths, path)?;
                 Ok(ConstValue::Void)
             }
             "__craft_build_link_arg" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let arg = expect_string(args, 1, "link argument")?;
-                self.unit.link.args.push(arg);
+                push_link_arg(&mut self.unit.link.args, arg)?;
                 Ok(ConstValue::Void)
             }
             "__craft_build_link_arg_path" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let flag = expect_string(args, 1, "link argument flag")?;
-                if flag.trim().is_empty() {
-                    return Err("link argument flag must not be empty".to_string());
-                }
                 let path = expect_string(args, 2, "link argument path")?;
-                let resolved_path = package_or_absolute_path(
+                push_link_arg_path(
+                    &mut self.unit.link.args,
+                    &mut self.unit.link.input_paths,
                     &self.script_context.package_root_path,
-                    &path,
-                    "link argument path",
+                    flag,
+                    path,
                 )?;
-                if !resolved_path.exists() {
-                    return Err(format!(
-                        "link argument path `{}` does not exist",
-                        resolved_path.display()
-                    ));
+                Ok(ConstValue::Void)
+            }
+            "__craft_build_link_config" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let system_libs = expect_string_list(args, 1, "system libraries")?;
+                let frameworks = expect_string_list(args, 2, "frameworks")?;
+                let search_paths = expect_string_list(args, 3, "link search paths")?;
+                let raw_args = expect_string_list(args, 4, "link arguments")?;
+                let arg_paths = expect_link_arg_path_list(
+                    args,
+                    5,
+                    "link argument paths",
+                    self.link_arg_path_fields,
+                )?;
+                for name in system_libs {
+                    push_non_empty_unique(
+                        &mut self.unit.link.system_libs,
+                        name,
+                        "system library name",
+                    )?;
                 }
-                self.unit.link.args.push(flag);
-                let resolved = normalized_path_string(&resolved_path);
-                self.unit.link.args.push(resolved.clone());
-                push_unique(&mut self.unit.link.input_paths, resolved);
+                for name in frameworks {
+                    push_non_empty_unique(&mut self.unit.link.frameworks, name, "framework name")?;
+                }
+                for path in search_paths {
+                    push_link_search_path(&mut self.unit.link.search_paths, path)?;
+                }
+                for arg in raw_args {
+                    push_link_arg(&mut self.unit.link.args, arg)?;
+                }
+                for arg_path in arg_paths {
+                    push_link_arg_path(
+                        &mut self.unit.link.args,
+                        &mut self.unit.link.input_paths,
+                        &self.script_context.package_root_path,
+                        arg_path.flag,
+                        arg_path.path,
+                    )?;
+                }
                 Ok(ConstValue::Void)
             }
             "__craft_build_cfg_bool" => {
@@ -365,6 +406,75 @@ impl ScriptHost for BuildUnitHost<'_> {
                     output.staged_id("generated output")?,
                     dependency_id,
                 )?;
+                Ok(output_value(&output))
+            }
+            "__craft_build_cc" | "__craft_build_cc_config" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let source_relative = expect_string(args, 1, "C source path")?;
+                let (include_dirs, defines, args, dependencies) = if name == "__craft_build_cc" {
+                    (
+                        Vec::new(),
+                        Vec::new(),
+                        expect_string_list(args, 2, "C compiler arguments")?,
+                        Vec::new(),
+                    )
+                } else {
+                    (
+                        expect_string_list(args, 2, "C include directories")?,
+                        expect_string_list(args, 3, "C defines")?,
+                        expect_string_list(args, 4, "C compiler arguments")?,
+                        expect_output_list(args, 5, "C compiler dependencies")?,
+                    )
+                };
+                for dependency in &dependencies {
+                    self.validate_output_handle(dependency, "C compiler dependency")?;
+                }
+                let source_path =
+                    package_input_path(&self.script_context.package_root_path, &source_relative)?;
+                if !source_path.is_file() {
+                    return Err(format!(
+                        "C source file `{}` does not exist",
+                        source_path.display()
+                    ));
+                }
+                let dest_path = cc_output_path(
+                    Path::new(&self.script_context.paths.generated_root),
+                    &source_relative,
+                )?;
+                let source =
+                    relative_display(&self.script_context.workspace_root_path, &source_path);
+                let include_dirs = resolve_cc_include_dirs(
+                    &self.script_context.workspace_root_path,
+                    &self.script_context.package_root_path,
+                    Path::new(&self.script_context.paths.generated_root),
+                    &include_dirs,
+                )?;
+                validate_cc_defines(&defines)?;
+                let output = record_staged_action(
+                    self.build_nodes,
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PreCompile,
+                    StagedActionKind::CcCompile {
+                        source,
+                        include_dirs,
+                        defines,
+                        args,
+                        opt: self.script_context.script.profile.opt,
+                        debug: self.script_context.script.profile.debug,
+                    },
+                )?;
+                let output_id = output.staged_id("C compiler output")?;
+                for dependency in dependencies {
+                    add_staged_dependency(
+                        self.build_nodes,
+                        output_id,
+                        dependency.staged_id("C compiler dependency")?,
+                    )?;
+                }
+                self.unit.link.args.push(output.path.clone());
+                push_unique(&mut self.unit.link.input_paths, output.path.clone());
                 Ok(output_value(&output))
             }
             "__craft_build_stage_generated_from_tool" => {
@@ -683,6 +793,12 @@ struct BuildOutput {
     path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LinkArgPathValue {
+    flag: String,
+    path: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuildOutputKind {
     Staged { id: usize, phase: StagedActionPhase },
@@ -719,6 +835,26 @@ fn generated_output_path(root: &Path, relative_path: &str) -> std::result::Resul
         relative_path,
         "generated relative path",
     )?))
+}
+
+fn cc_output_path(root: &Path, source_relative: &str) -> std::result::Result<PathBuf, String> {
+    let normalized = normalize_relative_path(source_relative, "C source path")?;
+    let mut name = normalized
+        .to_string_lossy()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if name.is_empty() {
+        return Err("C source path must not be empty".to_string());
+    }
+    name.push_str(".o");
+    Ok(root.join("cc").join(name))
 }
 
 fn source_root_binding_from_script_path(
@@ -824,6 +960,43 @@ fn relative_display(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"))
+}
+
+fn resolve_cc_include_dirs(
+    workspace_root: &Path,
+    package_root: &Path,
+    generated_root: &Path,
+    include_dirs: &[String],
+) -> std::result::Result<Vec<String>, String> {
+    include_dirs
+        .iter()
+        .map(|path| {
+            let resolved = package_or_absolute_path(package_root, path, "C include directory")?;
+            let generated_include_dir = resolved.starts_with(generated_root);
+            if !generated_include_dir && !resolved.is_dir() {
+                return Err(format!(
+                    "C include directory `{}` does not exist or is not a directory",
+                    resolved.display()
+                ));
+            }
+            Ok(relative_display(workspace_root, &resolved))
+        })
+        .collect()
+}
+
+fn validate_cc_defines(defines: &[String]) -> std::result::Result<(), String> {
+    for define in defines {
+        if define.trim().is_empty() {
+            return Err("C define entries must not be empty".to_string());
+        }
+        if define.starts_with("-D") {
+            return Err(format!(
+                "C define `{define}` must omit the `-D` prefix; write `{}` instead",
+                define.trim_start_matches("-D")
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn record_generated_file(
@@ -1046,12 +1219,86 @@ fn expect_string_list(
     }
 }
 
+fn expect_output_list(
+    args: &[ConstValue],
+    index: usize,
+    label: &str,
+) -> std::result::Result<Vec<BuildOutput>, String> {
+    match expect_arg(args, index, label)? {
+        ConstValue::Array(values) => values
+            .iter()
+            .enumerate()
+            .map(|(entry_index, value)| {
+                expect_output_value(value, &format!("{label}[{entry_index}]"))
+            })
+            .collect(),
+        _ => Err(format!(
+            "expected `{label}` to be an array of build outputs"
+        )),
+    }
+}
+
+fn expect_link_arg_path_list(
+    args: &[ConstValue],
+    index: usize,
+    label: &str,
+    fields: LinkArgPathFields,
+) -> std::result::Result<Vec<LinkArgPathValue>, String> {
+    match expect_arg(args, index, label)? {
+        ConstValue::Array(values) => values
+            .iter()
+            .enumerate()
+            .map(|(entry_index, value)| {
+                expect_link_arg_path_value(value, &format!("{label}[{entry_index}]"), fields)
+            })
+            .collect(),
+        _ => Err(format!(
+            "expected `{label}` to be an array of link argument paths"
+        )),
+    }
+}
+
+fn expect_link_arg_path_value(
+    value: &ConstValue,
+    label: &str,
+    fields: LinkArgPathFields,
+) -> std::result::Result<LinkArgPathValue, String> {
+    let ConstValue::Struct(map) = value else {
+        return Err(format!("expected `{label}` to be a link argument path"));
+    };
+    let flag = match map.get(&fields.flag) {
+        Some(ConstValue::String(value)) => value.clone(),
+        Some(_) => return Err(format!("expected `{label}.flag` to be a string")),
+        None => return Err(format!("expected `{label}` to contain `flag`")),
+    };
+    let path = match map.get(&fields.path) {
+        Some(ConstValue::String(value)) => value.clone(),
+        Some(_) => return Err(format!("expected `{label}.path` to be a string")),
+        None => return Err(format!("expected `{label}` to contain `path`")),
+    };
+    Ok(LinkArgPathValue { flag, path })
+}
+
 fn expect_output(
     args: &[ConstValue],
     index: usize,
     label: &str,
 ) -> std::result::Result<BuildOutput, String> {
     let value = expect_string(args, index, label)?;
+    expect_output_str(&value, label)
+}
+
+fn expect_output_value(
+    value: &ConstValue,
+    label: &str,
+) -> std::result::Result<BuildOutput, String> {
+    match value {
+        ConstValue::String(value) => expect_output_str(value, label),
+        _ => Err(format!("expected `{label}` to be a build output handle")),
+    }
+}
+
+fn expect_output_str(value: &str, label: &str) -> std::result::Result<BuildOutput, String> {
     let mut parts = value.splitn(3, '|');
     let kind = parts
         .next()
@@ -1102,4 +1349,59 @@ fn push_unique(values: &mut Vec<String>, value: String) {
     if !values.contains(&value) {
         values.push(value);
     }
+}
+
+fn push_non_empty_unique(
+    values: &mut Vec<String>,
+    value: String,
+    label: &str,
+) -> std::result::Result<(), String> {
+    if value.trim().is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+    push_unique(values, value);
+    Ok(())
+}
+
+fn push_link_search_path(
+    values: &mut Vec<String>,
+    path: String,
+) -> std::result::Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("link search path must not be empty".to_string());
+    }
+    push_unique(values, path);
+    Ok(())
+}
+
+fn push_link_arg(values: &mut Vec<String>, arg: String) -> std::result::Result<(), String> {
+    if arg.trim().is_empty() {
+        return Err("link argument must not be empty".to_string());
+    }
+    values.push(arg);
+    Ok(())
+}
+
+fn push_link_arg_path(
+    args: &mut Vec<String>,
+    input_paths: &mut Vec<String>,
+    package_root: &Path,
+    flag: String,
+    path: String,
+) -> std::result::Result<(), String> {
+    if flag.trim().is_empty() {
+        return Err("link argument flag must not be empty".to_string());
+    }
+    let resolved_path = package_or_absolute_path(package_root, &path, "link argument path")?;
+    if !resolved_path.exists() {
+        return Err(format!(
+            "link argument path `{}` does not exist",
+            resolved_path.display()
+        ));
+    }
+    args.push(flag);
+    let resolved = normalized_path_string(&resolved_path);
+    args.push(resolved.clone());
+    push_unique(input_paths, resolved);
+    Ok(())
 }

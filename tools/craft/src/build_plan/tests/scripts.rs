@@ -218,6 +218,90 @@ pub fn build(b: *mut builder.Builder) void {
 }
 
 #[test]
+fn build_script_can_apply_structured_link_config() {
+    let root = temp_dir("craft-build-plan-link-config");
+    fs::create_dir_all(root.join("link")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.1"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.link_config(.{
+        system_libs: .{"m"},
+        frameworks: .{"Security"},
+        search_paths: .{"native"},
+        args: .{"-Wl,--gc-sections"},
+        arg_paths: .{.{ flag: "-T", path: "link/kernel.ld" }},
+    });
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("link").join("kernel.ld"),
+        "ENTRY(_start)\nSECTIONS { .text : { *(.text .text.*) } }\n",
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let unit = build_plan.packages[0]
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+    let expected_script = root
+        .join("link")
+        .join("kernel.ld")
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    assert_eq!(unit.link.system_libs, vec!["m".to_string()]);
+    assert_eq!(unit.link.frameworks, vec!["Security".to_string()]);
+    assert_eq!(unit.link.search_paths, vec!["native".to_string()]);
+    assert!(unit.link.args.iter().any(|arg| arg == "-Wl,--gc-sections"));
+    assert_eq!(
+        unit.link
+            .args
+            .windows(2)
+            .find(|pair| pair[0] == "-T")
+            .map(|pair| pair[1].as_str()),
+        Some(expected_script.as_str())
+    );
+    assert_eq!(
+        unit.link.input_paths.first().map(String::as_str),
+        Some(expected_script.as_str())
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_can_generate_sources_and_mutate_unit_cfg_define() {
     let root = temp_dir("craft-build-plan-generated");
     fs::write(

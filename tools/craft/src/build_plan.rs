@@ -113,6 +113,14 @@ pub enum StagedActionKind {
     WriteFile {
         contents: String,
     },
+    CcCompile {
+        source: String,
+        include_dirs: Vec<String>,
+        defines: Vec<String>,
+        args: Vec<String>,
+        opt: u8,
+        debug: bool,
+    },
     RunTool {
         tool: Box<script::BuildScriptTool>,
         args: Vec<String>,

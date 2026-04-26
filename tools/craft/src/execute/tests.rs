@@ -5,7 +5,7 @@ use super::{
     parallel_target_compile_jobs, parallel_target_link_jobs, runtime_packages, runtime_profile_key,
     validate_package_metadata_root,
 };
-use crate::build_plan;
+use crate::build_plan::{self, StagedActionKind};
 use crate::elaborate::{FeatureSelection, plan};
 use crate::manifest::Manifest;
 use crate::workspace;
@@ -353,7 +353,7 @@ root = "src/main.rn"
         r#"
 #[export_name("_start")]
 fn kmain() void {
-    for (;;) {}
+    while (true) {}
     @unreachable();
 }
 "#,
@@ -510,7 +510,7 @@ SECTIONS {
         r#"
 #[export_name("_start")]
 fn kmain() void {
-    for (;;) {}
+    while (true) {}
     @unreachable();
 }
 "#,
@@ -607,7 +607,7 @@ SECTIONS {
         r#"
 #[export_name("_start")]
 fn kmain() void {
-    for (;;) {}
+    while (true) {}
     @unreachable();
 }
 "#,
@@ -750,6 +750,143 @@ fn main() i32 {
     let _summary = build(&build_plan, &action_plan).unwrap();
     let output = run_binary_with_retry(&link_action.artifact_path, 0);
     assert_eq!(String::from_utf8_lossy(&output.stdout), "native=42\n");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_script_can_compile_and_link_c_source() {
+    let root = temp_dir("craft-build-cc-source");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("native")).unwrap();
+    fs::create_dir_all(root.join("native/include")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "native"
+version = "0.1.0"
+kern = "0.7.1"
+
+[runtime]
+entry = "rt"
+bundle = "std"
+
+[[bin]]
+name = "native"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r##"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    let header = b.stage_generated("demo.h", "#define EXT_OFFSET 20\n");
+    let _ = b.cc_config("native/demo.c", .{
+        include_dirs: .{"native/include", b.paths.generated_root},
+        defines: .{"CRAFT_NATIVE_ENABLED=1"},
+        args: .{},
+        dependencies: .{header},
+    });
+}
+"##,
+    )
+    .unwrap();
+    fs::write(
+        root.join("native/include/native_extra.h"),
+        "#define EXT_EXTRA 0\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("native/demo.c"),
+        r#"
+#include "demo.h"
+#include "native_extra.h"
+
+#ifndef CRAFT_NATIVE_ENABLED
+#error "expected craft C define"
+#endif
+
+int ext_add(int lhs, int rhs) {
+    return lhs + rhs + EXT_OFFSET + EXT_EXTRA;
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+use std.io;
+
+extern {
+    fn ext_add(lhs: i32, rhs: i32) i32;
+}
+
+fn main() i32 {
+    let value = ext_add(10, 12);
+    io.println("native={}", .{value,});
+    if (value == 42) {
+        return 0;
+    }
+    if (value == 49) {
+        return 0;
+    }
+    return 1;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let link_action = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "native")
+        .unwrap();
+
+    assert!(
+        link_action
+            .link
+            .args
+            .iter()
+            .any(|arg| arg.ends_with("native_demo.c.o"))
+    );
+    let cc_action = action_plan
+        .build_nodes
+        .iter()
+        .find(|action| matches!(action.kind, StagedActionKind::CcCompile { .. }))
+        .unwrap();
+    assert_eq!(cc_action.depends_on.len(), 1);
+
+    let summary = build(&build_plan, &action_plan).unwrap();
+    assert!(summary.action_cache_stats.staged_misses >= 1);
+    let output = run_binary_with_retry(&link_action.artifact_path, 0);
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "native=42\n");
+
+    fs::write(
+        root.join("native/include/native_extra.h"),
+        "#define EXT_EXTRA 7\n",
+    )
+    .unwrap();
+    let summary = build(&build_plan, &action_plan).unwrap();
+    assert!(summary.action_cache_stats.staged_misses >= 1);
+    let output = run_binary_with_retry(&link_action.artifact_path, 0);
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "native=49\n");
 
     let _ = fs::remove_dir_all(root);
 }

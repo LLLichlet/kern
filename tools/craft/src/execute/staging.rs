@@ -7,6 +7,8 @@ use crate::build_state;
 use crate::error::{Error, Result};
 use crate::graph::BuildDomain;
 use crate::operation_lock::OutputOperationLock;
+use kernc_driver::CompilerDriver;
+use kernc_utils::config::{CompileOptions, DriverMode, OptLevel};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -116,6 +118,13 @@ fn stage_action_label(action: &StagedAction, output_path: &Path) -> String {
         .unwrap_or(&action.output);
     match &action.kind {
         StagedActionKind::WriteFile { .. } => format!("write {output}"),
+        StagedActionKind::CcCompile { source, .. } => {
+            let input = Path::new(source)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(source);
+            format!("cc {input} -> {output}")
+        }
         StagedActionKind::RunTool { tool, .. } => {
             let tool_name = Path::new(&tool.executable_path)
                 .file_name()
@@ -193,6 +202,39 @@ fn execute_staged_action(
             format!("output={}", output_path.display()),
             format!("contents={}", build_state::hash_string(contents)),
         ]),
+        StagedActionKind::CcCompile {
+            source,
+            include_dirs,
+            defines,
+            args,
+            opt,
+            debug,
+        } => {
+            let input_path = PathBuf::from(source);
+            input_paths.push(input_path.clone());
+            input_paths.extend(
+                include_dirs
+                    .iter()
+                    .map(PathBuf::from)
+                    .filter(|path| path.is_dir() && !output_path.starts_with(path)),
+            );
+            let mut lines = vec![
+                "kind=cc-compile".to_string(),
+                format!("toolchain={toolchain_digest}"),
+                format!("source={}", input_path.display()),
+                format!("output={}", output_path.display()),
+                format!("opt={opt}"),
+                format!("debug={debug}"),
+            ];
+            lines.extend(
+                include_dirs
+                    .iter()
+                    .map(|path| format!("include_dir={path}")),
+            );
+            lines.extend(defines.iter().map(|define| format!("define={define}")));
+            lines.extend(args.iter().map(|arg| format!("arg={arg}")));
+            build_fingerprint(&lines)
+        }
         StagedActionKind::RunTool { tool, args } => {
             let tool_path = PathBuf::from(&tool.executable_path);
             match &tool.origin {
@@ -275,6 +317,33 @@ fn execute_staged_action(
             prepare_output_path(&output_path, false)?;
             fs::write(&output_path, contents).map_err(|err| Error::from_io(&output_path, err))?;
         }
+        StagedActionKind::CcCompile {
+            source,
+            include_dirs,
+            defines,
+            args,
+            opt,
+            debug,
+        } => {
+            prepare_output_path(&output_path, false)?;
+            let mut options = CompileOptions {
+                input_file: Some(source.clone()),
+                output_file: output_path.to_string_lossy().to_string(),
+                driver_mode: DriverMode::CcCompile,
+                opt_level: cc_opt_level(*opt),
+                debug_info: *debug,
+                cc_args: cc_compile_args(include_dirs, defines, args),
+                report_progress: false,
+                ..CompileOptions::default()
+            };
+            super::options::apply_host_linker_env(&mut options);
+            if CompilerDriver::new(options).compile_with_report().is_none() {
+                return Err(Error::Execution(format!(
+                    "C compile failed for `{}`",
+                    source
+                )));
+            }
+        }
         StagedActionKind::RunTool { tool, args } => {
             prepare_output_path(&output_path, false)?;
             let tool_path = PathBuf::from(&tool.executable_path);
@@ -332,6 +401,23 @@ fn execute_staged_action(
         progress.record_staged_action();
     }
     Ok(true)
+}
+
+fn cc_opt_level(opt: u8) -> OptLevel {
+    match opt {
+        0 => OptLevel::O0,
+        1 => OptLevel::O1,
+        2 => OptLevel::O2,
+        _ => OptLevel::O3,
+    }
+}
+
+fn cc_compile_args(include_dirs: &[String], defines: &[String], args: &[String]) -> Vec<String> {
+    let mut result = Vec::with_capacity(include_dirs.len() + defines.len() + args.len());
+    result.extend(include_dirs.iter().map(|path| format!("-I{path}")));
+    result.extend(defines.iter().map(|define| format!("-D{define}")));
+    result.extend(args.iter().cloned());
+    result
 }
 
 pub(super) fn cleanup_stale_artifact_outputs(

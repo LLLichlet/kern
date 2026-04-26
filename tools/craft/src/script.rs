@@ -4,7 +4,7 @@ mod build_host;
 use self::analysis::{
     BUILD_SCRIPT_ENTRY, CRAFT_SCRIPT_ENTRY, PreparedScript, prepare_script, validate_script,
 };
-use self::build_host::{BuildUnitHost, build_argument_value};
+use self::build_host::{BuildUnitHost, LinkArgPathFields, build_argument_value};
 use crate::build_plan::{BuildUnit, StagedAction};
 use crate::error::{Error, Result};
 use crate::graph::BuildDomain;
@@ -328,7 +328,11 @@ pub fn apply_build_script(
         entry_def,
     } = prepare_script(path, &mut session, BUILD_SCRIPT_ENTRY)?;
 
-    let mut host = BuildUnitHost::new(build_nodes, unit, script_context);
+    let link_arg_path_fields = LinkArgPathFields {
+        flag: ctx.intern("flag"),
+        path: ctx.intern("path"),
+    };
+    let mut host = BuildUnitHost::new(build_nodes, unit, script_context, link_arg_path_fields);
     let arg_values = vec![build_argument_value(&mut ctx, script_context)];
     let mut evaluator = ConstEvaluator::with_script_host(&mut ctx, &mut host);
     evaluator

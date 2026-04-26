@@ -149,6 +149,24 @@ pub(super) fn resolve_staged_action(workspace_root: &Path, action: &StagedAction
             StagedActionKind::WriteFile { contents } => StagedActionKind::WriteFile {
                 contents: contents.clone(),
             },
+            StagedActionKind::CcCompile {
+                source,
+                include_dirs,
+                defines,
+                args,
+                opt,
+                debug,
+            } => StagedActionKind::CcCompile {
+                source: workspace_root.join(source).to_string_lossy().to_string(),
+                include_dirs: include_dirs
+                    .iter()
+                    .map(|path| workspace_root.join(path).to_string_lossy().to_string())
+                    .collect(),
+                defines: defines.clone(),
+                args: args.clone(),
+                opt: *opt,
+                debug: *debug,
+            },
             StagedActionKind::RunTool { tool, args } => StagedActionKind::RunTool {
                 tool: Box::new(script::BuildScriptTool {
                     target_name: tool.target_name.clone(),

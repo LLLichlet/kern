@@ -25,7 +25,8 @@ The current implementation covers:
 - automatic deterministic canonical `Craft.lock` synchronization during package-graph commands
 - release-oriented publish readiness checks via `craft publish`
 - build-plan derivation from normalized package targets and resolved dependencies
-- package-level `build.rn` discovery, validation, and per-target link-plan orchestration for execution-sensitive adaptation
+- package-level `build.rn` discovery, validation, and structured per-target link-plan orchestration for execution-sensitive adaptation
+- package-level `build.rn` C-family source compilation through the resolved SDK-first `kernc --cc` path with structured include directories, defines, and generated dependencies
 - host `craft build/run/test` execution through explicit `kernc` compile/link action graphs
 - `craft install/uninstall` for copying package `bin` targets into an install root
 - `craft fetch` materialization of external sources into `.craft/sources`

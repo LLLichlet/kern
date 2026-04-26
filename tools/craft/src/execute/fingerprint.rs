@@ -77,6 +77,7 @@ pub(super) fn link_action_fingerprint(
         format!("toolchain={toolchain_digest}"),
         format!("artifact={}", action.artifact_path.display()),
         format!("linker={}", options.linker_cmd),
+        format!("linker_explicit={}", options.linker_cmd_explicit),
         format!("runtime_entry={}", options.runtime_entry.as_str()),
         format!("runtime_libc={}", options.runtime_libc),
         format!("library_bundle={}", options.library_bundle.as_str()),

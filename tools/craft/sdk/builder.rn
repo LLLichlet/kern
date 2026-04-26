@@ -36,6 +36,26 @@ pub type Paths = struct {
 
 pub type Output = []u8;
 
+pub type CcOptions = struct {
+    pub include_dirs: [][]u8,
+    pub defines: [][]u8,
+    pub args: [][]u8,
+    pub dependencies: []Output,
+};
+
+pub type LinkArgPath = struct {
+    pub flag: []u8,
+    pub path: []u8,
+};
+
+pub type LinkOptions = struct {
+    pub system_libs: [][]u8,
+    pub frameworks: [][]u8,
+    pub search_paths: [][]u8,
+    pub args: [][]u8,
+    pub arg_paths: []LinkArgPath,
+};
+
 pub extern type Builder = struct {
     pub package: plan.Package,
     pub workspace: plan.Workspace,
@@ -57,6 +77,7 @@ extern {
     fn __craft_build_link_search(builder: *mut Builder, path: []u8) void;
     fn __craft_build_link_arg(builder: *mut Builder, arg: []u8) void;
     fn __craft_build_link_arg_path(builder: *mut Builder, flag: []u8, path: []u8) void;
+    fn __craft_build_link_config(builder: *mut Builder, system_libs: [][]u8, frameworks: [][]u8, search_paths: [][]u8, args: [][]u8, arg_paths: []LinkArgPath) void;
     fn __craft_build_cfg_bool(builder: *mut Builder, name: []u8, value: bool) void;
     fn __craft_build_cfg_string(builder: *mut Builder, name: []u8, value: []u8) void;
     fn __craft_build_define_bool(builder: *mut Builder, name: []u8, value: bool) void;
@@ -67,6 +88,8 @@ extern {
     fn __craft_build_stage_generated(builder: *mut Builder, relative_path: []u8, contents: []u8) Output;
     fn __craft_build_stage_copy_package_file(builder: *mut Builder, source_relative: []u8, generated_relative: []u8) Output;
     fn __craft_build_stage_copy_output(builder: *mut Builder, source_output: Output, generated_relative: []u8) Output;
+    fn __craft_build_cc(builder: *mut Builder, source_relative: []u8, args: [][]u8) Output;
+    fn __craft_build_cc_config(builder: *mut Builder, source_relative: []u8, include_dirs: [][]u8, defines: [][]u8, args: [][]u8, dependencies: []Output) Output;
     fn __craft_build_tool_path(builder: *Builder, dependency_name: []u8, tool_name: []u8) []u8;
     fn __craft_build_stage_generated_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, generated_relative: []u8, args: [][]u8) Output;
     fn __craft_build_stage_artifact_file(builder: *mut Builder, relative_path: []u8, contents: []u8) Output;
@@ -126,6 +149,10 @@ impl *mut Builder {
         __craft_build_link_arg_path(self, flag, path);
     }
 
+    pub fn link_config(options: LinkOptions) void {
+        __craft_build_link_config(self, options.system_libs, options.frameworks, options.search_paths, options.args, options.arg_paths);
+    }
+
     pub fn cfg_bool(name: []u8, value: bool) void {
         __craft_build_cfg_bool(self, name, value);
     }
@@ -172,6 +199,14 @@ impl *mut Builder {
 
     pub fn copy_output(source_output: Output, generated_relative: []u8) []u8 {
         return self.output_path(self.stage_copy_output(source_output, generated_relative));
+    }
+
+    pub fn cc(source_relative: []u8, args: [][]u8) Output {
+        return __craft_build_cc(self, source_relative, args);
+    }
+
+    pub fn cc_config(source_relative: []u8, options: CcOptions) Output {
+        return __craft_build_cc_config(self, source_relative, options.include_dirs, options.defines, options.args, options.dependencies);
     }
 
     pub fn stage_generated_from_tool(dependency_name: []u8, tool_name: []u8, generated_relative: []u8, args: [][]u8) Output {

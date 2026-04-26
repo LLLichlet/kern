@@ -552,6 +552,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> Option<CoveragePattern> {
         let norm_target = self.resolve_tv(target_ty);
         match &expr.kind {
+            ExprKind::Grouped { expr, .. } => self.coverage_lower_expr_pattern(expr, target_ty),
             ExprKind::Bool(value) if norm_target == TypeId::BOOL => Some(
                 CoveragePattern::Constructor(CoverageConstructorKind::Bool(*value), Vec::new()),
             ),

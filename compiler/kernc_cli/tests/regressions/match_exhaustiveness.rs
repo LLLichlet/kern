@@ -186,6 +186,133 @@ fn main() i32 {
 }
 
 #[test]
+fn qualified_value_patterns_contribute_to_non_exhaustive_witnesses() {
+    let output = compile_source(
+        r#"
+type Mode = enum {
+    Cold,
+    Warm,
+    Hot,
+};
+
+fn classify(mode: Mode) i32 {
+    return match (mode) {
+        Mode.Cold => 1,
+        Mode.Warm => 2,
+    };
+}
+
+fn main() i32 {
+    return classify(Mode.Hot);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("match expression is not exhaustive"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(stderr.contains(".Hot"), "unexpected stderr:\n{}", stderr);
+}
+
+#[test]
+fn warns_when_qualified_value_pattern_is_shadowed() {
+    let output = compile_source(
+        r#"
+type Mode = enum {
+    Off,
+    On,
+};
+
+fn classify(mode: Mode) i32 {
+    return match (mode) {
+        Mode.Off => 1,
+        Mode.Off => 2,
+        Mode.On => 3,
+    };
+}
+
+fn main() i32 {
+    return classify(Mode.On) - 3;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning"), "unexpected stderr:\n{}", stderr);
+    assert!(
+        stderr.contains("unreachable match pattern"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn accepts_exhaustive_qualified_value_patterns_through_aliases_and_generic_namespaces() {
+    let output = build_and_run_source(
+        r#"
+type Mode = enum {
+    Off,
+    On,
+};
+
+type Alias = Mode;
+
+type Box[T] = enum {
+    Empty,
+    Full: T,
+};
+
+fn classify_alias(mode: Alias) i32 {
+    return match (mode) {
+        Alias.Off => 1,
+        Alias.On => 2,
+    };
+}
+
+fn classify_box(value: Box[Mode]) i32 {
+    return match (value) {
+        (Box[Mode].Empty) => 3,
+        Box[Mode].{ Full: Mode.Off } => 4,
+        Box[Mode].{ Full: Mode.On } => 5,
+    };
+}
+
+fn main() i32 {
+    return classify_alias(Alias.On)
+        + classify_box(Box[Mode].Empty)
+        + classify_box(Box[Mode].{ Full: Mode.Off })
+        + classify_box(Box[Mode].{ Full: Mode.On })
+        - 14;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_nested_enum_gap_in_let_else_arm_block() {
     let output = compile_source(
         r#"

@@ -91,6 +91,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> Option<MastExpr> {
         let norm_target = self.ctx.type_registry.normalize(target_ty);
         match &value.kind {
+            ExprKind::Grouped { expr, .. } => {
+                self.collect_value_pattern_plan(span, expr, target_expr, target_ty, subst_map)
+            }
             ExprKind::Bool(expected) if norm_target == TypeId::BOOL => Some(MastExpr::new(
                 TypeId::BOOL,
                 MastExprKind::Binary {

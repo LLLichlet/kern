@@ -22,6 +22,7 @@ use ..base.{
     find_index_with_hash,
     max_occupied,
     visit_full,
+    set_len,
 };
 
 impl[K, V] *mut Map[K, V]
@@ -184,11 +185,11 @@ impl[K, V] *mut Map[K, V]
             return self.rebuild(alloc, self.capacity);
         }
 
-        if (additional > USIZE_MAX - self.len) {
+        if (additional > USIZE_MAX - self.len()) {
             return false;
         }
 
-        let required_len = self.len + additional;
+        let required_len = self.len() + additional;
         let required_occupied = required_len + self.tombstones;
         let .{ Some: target } = self.capacity_for_len(required_occupied) else return false;
 
@@ -240,7 +241,7 @@ impl[K, V] *mut Map[K, V]
         entry.key = key;
         entry.value = value;
         set_ctrl(self.ctrl, slot, FULL);
-        self.len += 1;
+        set_len[K, V](self, self.len() + 1);
         if (prev_state == DELETED) {
             self.tombstones -= 1;
         }
@@ -259,12 +260,12 @@ impl[K, V] *mut Map[K, V]
 
     /// Shrinks table capacity toward the current number of entries.
     pub fn shrink_to_fit(alloc: *mut Allocator) bool {
-        if (self.len == 0) {
+        if (self.len() == 0) {
             self.deinit(alloc);
             return true;
         }
 
-        let .{ Some: target } = self.capacity_for_len(self.len) else return false;
+        let .{ Some: target } = self.capacity_for_len(self.len()) else return false;
 
         if (target == self.capacity and self.tombstones == 0) {
             return true;
@@ -376,7 +377,7 @@ impl[K, V] *mut Map[K, V]
                 continue;
             }
             set_ctrl(self.ctrl, i, DELETED);
-            self.len -= 1;
+            set_len[K, V](self, self.len() - 1);
             self.tombstones += 1;
 
             i += 1;
@@ -393,7 +394,7 @@ impl[K, V] *mut Map[K, V]
         let entry = entry_ptr[K, V](self.entries, slot);
         let removed = entry.value;
         set_ctrl(self.ctrl, slot, DELETED);
-        self.len -= 1;
+        set_len[K, V](self, self.len() - 1);
         self.tombstones += 1;
         return .{ Some: removed };
     }
@@ -413,7 +414,7 @@ impl[K, V] *mut Map[K, V]
             }
             let removed = entry.value;
             set_ctrl(self.ctrl, i, DELETED);
-            self.len -= 1;
+            set_len[K, V](self, self.len() - 1);
             self.tombstones += 1;
             return .{ Some: removed };
 
@@ -436,7 +437,7 @@ impl[K, V] *mut Map[K, V]
                 continue;
             }
             set_ctrl(self.ctrl, i, DELETED);
-            self.len -= 1;
+            set_len[K, V](self, self.len() - 1);
             self.tombstones += 1;
 
             i += 1;
@@ -447,7 +448,7 @@ impl[K, V] *mut Map[K, V]
     pub fn clear() void {
         if (self.capacity == 0) return;
         @memset(self.ctrl, EMPTY, self.capacity);
-        self.len = 0;
+        set_len[K, V](self, 0);
         self.tombstones = 0;
     }
 
@@ -457,7 +458,7 @@ impl[K, V] *mut Map[K, V]
         self.ctrl = usize.{1}.as_mut_ptr[u8]();
         self.entries = usize.{1}.as_mut_ptr[Entry[K, V]]();
         self.capacity = 0;
-        self.len = 0;
+        set_len[K, V](self, 0);
         self.tombstones = 0;
     }
 }

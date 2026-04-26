@@ -125,17 +125,17 @@ fn deinit_string_list(alloc: *mut Allocator, items: *mut List[String]) void {
 }
 
 pub.. fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], limit: usize) void {
-    if (items.len <= limit) {
+    if (items.len() <= limit) {
         return;
     }
-    let remove_count = items.len - limit;
+    let remove_count = items.len() - limit;
     let slice = items.as_mut_slice();
     let mut i = usize.{0};
     while (i < remove_count) {
         slice.[i]..&.deinit(alloc);
         i += 1;
     }
-    let kept = items.len - remove_count;
+    let kept = items.len() - remove_count;
     if (kept > 0) {
         let bytes = kept * @sizeOf[String]();
         let _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);
@@ -154,17 +154,17 @@ fn deinit_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntr
 }
 
 pub.. fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry], limit: usize) void {
-    if (items.len <= limit) {
+    if (items.len() <= limit) {
         return;
     }
-    let remove_count = items.len - limit;
+    let remove_count = items.len() - limit;
     let slice = items.as_mut_slice();
     let mut i = usize.{0};
     while (i < remove_count) {
         slice.[i]..&.deinit(alloc);
         i += 1;
     }
-    let kept = items.len - remove_count;
+    let kept = items.len() - remove_count;
     if (kept > 0) {
         let bytes = kept * @sizeOf[ShellOutputEntry]();
         let _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);

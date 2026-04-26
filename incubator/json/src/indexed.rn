@@ -147,7 +147,7 @@ impl *IndexedObjectView {
         let .{ Some: bucket } = self.bucket(name) else return .None;
 
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else { i += 1; continue; };
             if (entry.key_eq(name)) {
@@ -169,7 +169,7 @@ impl *IndexedObjectView {
         let mut found = ?OwnedObjectEntry.None;
 
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else { i += 1; continue; };
             if (entry.key_eq(name)) {
@@ -186,7 +186,7 @@ impl *IndexedObjectView {
         let mut total = usize.{0};
 
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else { i += 1; continue; };
             if (entry.key_eq(name)) {
@@ -203,7 +203,7 @@ impl *IndexedObjectView {
         let mut total = usize.{0};
 
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
@@ -226,7 +226,7 @@ impl *IndexedObjectView {
         let mut total = usize.{0};
 
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             let .{ Some: entry } = self.object.&.get_entry(entry_index) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
@@ -486,12 +486,12 @@ impl *OwnedObject {
     pub fn build_indexed_view(alloc: *mut Allocator) IndexedObjectView!IndexBuildError {
         let mut out = IndexedObjectView.{ object: self.* };
 
-        if (!out.index..&.reserve(alloc, self.entries.len)) {
+        if (!out.index..&.reserve(alloc, self.entries.&.len())) {
             return .{ Err: IndexBuildError.OutOfMemory };
         }
 
         let mut i = usize.{0};
-        while (i < self.entries.len) {
+        while (i < self.entries.&.len()) {
             let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             let hash = hash_bytes(entry.key.&.as_str());
             let .{ Some: bucket } = out.index..&.get_or_insert(alloc, hash, List[usize].{}) else {

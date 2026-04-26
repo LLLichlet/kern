@@ -19,6 +19,7 @@ use ..base.{
     some_node,
     first_hit,
     last_hit,
+    set_len,
 };
 
 /// The minimum number of keys a non-root node may keep.
@@ -298,9 +299,9 @@ impl[K, V] *mut Tree[K, V]
             return .None;
         }
 
-        self.len -= 1;
+        set_len[K, V](self, self.len() - 1);
 
-        if (self.len == 0) {
+        if (self.len() == 0) {
             // The final delete can free the root outright.
             self.delete_free_node(alloc, root);
             self.root = .None;

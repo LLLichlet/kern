@@ -7,6 +7,11 @@ use base.mem.{layout_of, memmove};
 use base.coll.SliceMutIter;
 
 impl[T] []mut T {
+    /// Returns the number of elements in the slice.
+    pub fn len() usize {
+        return #self;
+    }
+
     /// Returns an iterator over mutable element pointers.
     pub fn iter() SliceMutIter[T] {
         return .{ data: self };

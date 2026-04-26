@@ -14,9 +14,26 @@ mod query;
 pub/ type List[T] = struct {
     ptr: *mut T = usize.{1}.as_mut_ptr[T](),
     /// The number of initialized elements in the list.
-    pub len: usize = 0,
+    len: usize = 0,
     cap: usize = 0,
 };
+
+impl[T] List[T] {
+    #[inline]
+    pub fn as_slice() []T {
+        return self.ptr.[0 .. self.len];
+    }
+
+    #[inline]
+    pub fn len() usize {
+        return self.len;
+    }
+
+    #[inline]
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+}
 
 impl[T] *mut List[T] {
     #[inline]
@@ -780,6 +797,11 @@ impl[T] *List[T] {
     #[inline]
     pub fn as_slice() []T {
         return self.ptr.[0 .. self.len];
+    }
+
+    #[inline]
+    pub fn len() usize {
+        return self.len;
     }
 
     #[inline]

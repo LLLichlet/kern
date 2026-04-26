@@ -156,7 +156,7 @@ fn append_value_node(
     state: *mut PackedDocumentState,
     node: PackedValueNode,
 ) usize!MaterializeError {
-    let index = state.*.values.len;
+    let index = state.*.values.&.len();
     if (!state.*.values..&.push(state.*.arena..&, node)) {
         return .{ Err: MaterializeError.OutOfMemory };
     }
@@ -248,7 +248,7 @@ fn parse_packed_array(
         let .{ Some: slot } = state.*.values..&.get_ptr(index)
             else return .{ Err: MaterializeError.OutOfMemory };
         slot.kind = Kind.Array;
-        slot.data0 = state.*.array_items.len;
+        slot.data0 = state.*.array_items.&.len();
         slot.data1 = 0;
         return .{ Ok: PackedParsedValue.{ index: index, next: next + 1 } };
     }
@@ -274,7 +274,7 @@ fn parse_packed_array(
             continue;
         }
         if (text.[end] == b']') {
-            let items_start = state.*.array_items.len;
+            let items_start = state.*.array_items.&.len();
             if (!state.*.array_items..&.append_slice(state.*.arena..&, items.&.as_slice())) {
                 return .{ Err: MaterializeError.OutOfMemory };
             }
@@ -282,7 +282,7 @@ fn parse_packed_array(
                 else return .{ Err: MaterializeError.OutOfMemory };
             slot.kind = Kind.Array;
             slot.data0 = items_start;
-            slot.data1 = items.len;
+            slot.data1 = items.len();
             return .{ Ok: PackedParsedValue.{ index: index, next: end + 1 } };
         }
         return .{ Err: .{ Parse: .{ MissingCommaOrEnd: end } } };
@@ -308,7 +308,7 @@ fn parse_packed_object(
         let .{ Some: slot } = state.*.values..&.get_ptr(index)
             else return .{ Err: MaterializeError.OutOfMemory };
         slot.kind = Kind.Object;
-        slot.data0 = state.*.object_entries.len;
+        slot.data0 = state.*.object_entries.&.len();
         slot.data1 = 0;
         return .{ Ok: PackedParsedValue.{ index: index, next: next + 1 } };
     }
@@ -359,7 +359,7 @@ fn parse_packed_object(
             continue;
         }
         if (text.[end] == b'}') {
-            let entries_start = state.*.object_entries.len;
+            let entries_start = state.*.object_entries.&.len();
             if (!state.*.object_entries..&.append_slice(state.*.arena..&, entries.&.as_slice())) {
                 return .{ Err: MaterializeError.OutOfMemory };
             }
@@ -367,7 +367,7 @@ fn parse_packed_object(
                 else return .{ Err: MaterializeError.OutOfMemory };
             slot.kind = Kind.Object;
             slot.data0 = entries_start;
-            slot.data1 = entries.len;
+            slot.data1 = entries.len();
             return .{ Ok: PackedParsedValue.{ index: index, next: end + 1 } };
         }
         return .{ Err: .{ Parse: .{ MissingCommaOrEnd: end } } };
@@ -708,7 +708,7 @@ impl PackedIndexedObjectView {
     pub fn get_field(name: []u8) ?PackedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
             i += 1;
@@ -727,7 +727,7 @@ impl PackedIndexedObjectView {
         let .{ Some: bucket } = self.bucket(name) else return .None;
         let mut found = ?PackedObjectEntry.None;
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
             i += 1;
@@ -746,7 +746,7 @@ impl PackedIndexedObjectView {
         let .{ Some: bucket } = self.bucket(name) else return usize.{0};
         let mut total = usize.{0};
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
             i += 1;
@@ -765,7 +765,7 @@ impl PackedIndexedObjectView {
         let .{ Some: bucket } = self.bucket(name) else return usize.{0};
         let mut total = usize.{0};
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
             i += 1;
@@ -884,7 +884,7 @@ impl PackedIndexedObjectView {
         let mut found = PackedValue.{};
         let mut total = usize.{0};
         let mut i = usize.{0};
-        while (i < bucket.len) {
+        while (i < bucket.len()) {
             let .{ Some: entry_index } = bucket.&.get(i) else { i += 1; continue; };
             if (entry_index < self.start or entry_index >= self.start + self.count) {
             i += 1;

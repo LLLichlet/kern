@@ -160,7 +160,7 @@ impl *String {
 
     /// Returns the current byte length.
     pub fn len() usize {
-        return self.raw.len;
+        return self.raw.&.len();
     }
 
     /// Returns the current byte capacity.

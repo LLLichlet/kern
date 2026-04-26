@@ -58,11 +58,6 @@ impl[K, V] *Tree[K, V]
         return accum;
     }
 
-    /// Returns `true` when the tree contains no entries.
-    pub fn is_empty() bool {
-        return self.len == 0;
-    }
-
     /// Returns `true` when the tree contains `key`.
     pub fn contains(key: K) bool {
         return self.get(key).is_some();

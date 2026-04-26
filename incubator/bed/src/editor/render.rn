@@ -285,7 +285,7 @@ impl *mut Editor {
         if (!push_truncated(out, alloc, label, remaining..&)) {
             return false;
         }
-        let position = if (self.output_history.len == 0) usize.{0} else self.output_history_index + 1;
+        let position = if (self.output_history.&.len() == 0) usize.{0} else self.output_history_index + 1;
         let total = self.output_history_count();
         let digits = String.{}..&;
         defer digits.deinit(alloc);

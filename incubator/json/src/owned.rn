@@ -992,7 +992,7 @@ impl *mut OwnedObjectEntry {
 impl *mut OwnedArray {
     pub fn deinit(alloc: *mut Allocator) void {
         let mut i = usize.{0};
-        while (i < self.*.items.len) {
+        while (i < self.*.items.&.len()) {
             let .{ Some: value } = self.*.items.&.get(i) else { i += 1; continue; };
             if ((value as usize) == 0) {
             i += 1;
@@ -1008,11 +1008,11 @@ impl *mut OwnedArray {
 
 impl *OwnedArray {
     pub fn len() usize {
-        return self.items.len;
+        return self.items.&.len();
     }
 
     pub fn is_empty() bool {
-        return self.items.len == 0;
+        return self.items.&.len() == 0;
     }
 
     pub fn get(index: usize) ?*mut OwnedValue {
@@ -1081,7 +1081,7 @@ impl *mut OwnedArray {
 impl *mut OwnedObject {
     pub fn deinit(alloc: *mut Allocator) void {
         let mut i = usize.{0};
-        while (i < self.*.entries.len) {
+        while (i < self.*.entries.&.len()) {
             let .{ Some: mut entry } = self.*.entries.&.get(i) else { i += 1; continue; };
             entry..&.deinit(alloc);
             i += 1;
@@ -1093,11 +1093,11 @@ impl *mut OwnedObject {
 
 impl *OwnedObject {
     pub fn len() usize {
-        return self.entries.len;
+        return self.entries.&.len();
     }
 
     pub fn is_empty() bool {
-        return self.entries.len == 0;
+        return self.entries.&.len() == 0;
     }
 
     pub fn get_entry(index: usize) ?OwnedObjectEntry {
@@ -1106,7 +1106,7 @@ impl *OwnedObject {
 
     pub fn get_field(name: []u8) ?OwnedObjectEntry {
         let mut i = usize.{0};
-        while (i < self.entries.len) {
+        while (i < self.entries.&.len()) {
             let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (entry.key_eq(name)) {
                 return .{ Some: entry };
@@ -1124,7 +1124,7 @@ impl *OwnedObject {
     pub fn get_last_field(name: []u8) ?OwnedObjectEntry {
         let mut found = ?OwnedObjectEntry.None;
         let mut i = usize.{0};
-        while (i < self.entries.len) {
+        while (i < self.entries.&.len()) {
             let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (entry.key_eq(name)) {
                 found = .{ Some: entry };
@@ -1137,7 +1137,7 @@ impl *OwnedObject {
     pub fn count_fields(name: []u8) usize {
         let mut total = usize.{0};
         let mut i = usize.{0};
-        while (i < self.entries.len) {
+        while (i < self.entries.&.len()) {
             let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (entry.key_eq(name)) {
                 total += 1;
@@ -1150,7 +1150,7 @@ impl *OwnedObject {
     pub fn collect_fields(name: []u8, out: []mut OwnedObjectEntry) usize {
         let mut total = usize.{0};
         let mut i = usize.{0};
-        while (i < self.entries.len) {
+        while (i < self.entries.&.len()) {
             let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
             i += 1;
@@ -1169,7 +1169,7 @@ impl *OwnedObject {
         let mut found = (?*mut OwnedValue).None;
         let mut total = usize.{0};
         let mut i = usize.{0};
-        while (i < self.entries.len) {
+        while (i < self.entries.&.len()) {
             let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
             i += 1;
@@ -1483,7 +1483,7 @@ impl *mut OwnedObject {
         value: OwnedValue,
     ) (*mut OwnedValue)!OwnedBuildError {
         let mut i = usize.{0};
-        while (i < self.*.entries.len) {
+        while (i < self.*.entries.&.len()) {
             let .{ Some: entry } = self.*.entries..&.get_ptr(i) else { i += 1; continue; };
             if (!entry.*.key_eq(key)) {
             i += 1;
@@ -1499,7 +1499,7 @@ impl *mut OwnedObject {
 
     pub fn remove_field(alloc: *mut Allocator, key: []u8) bool {
         let mut i = usize.{0};
-        while (i < self.*.entries.len) {
+        while (i < self.*.entries.&.len()) {
             let .{ Some: entry } = self.*.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(key)) {
             i += 1;

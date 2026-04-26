@@ -69,8 +69,8 @@ impl *mut Editor {
         }
 
         let history = self.prompt_history_mut();
-        if (history.len > 0) {
-            let last = history.as_slice().[history.len - 1].&.as_str();
+        if (history.len() > 0) {
+            let last = history.as_slice().[history.len() - 1].&.as_str();
             if (last == line) {
                 return;
             }
@@ -89,7 +89,7 @@ impl *mut Editor {
 
     fn prompt_history_prev(alloc: *mut Allocator) void {
         let history = self.prompt_history();
-        if (history.len == 0) {
+        if (history.len() == 0) {
             return;
         }
 
@@ -98,7 +98,7 @@ impl *mut Editor {
                 self.set_message(alloc, "command edit failed");
                 return;
             }
-            self.prompt_history_index = history.len - 1;
+            self.prompt_history_index = history.len() - 1;
             self.has_prompt_history_index = true;
         } else if (self.prompt_history_index > 0) {
             self.prompt_history_index -= 1;
@@ -114,7 +114,7 @@ impl *mut Editor {
         }
 
         let history = self.prompt_history();
-        if (self.prompt_history_index + 1 < history.len) {
+        if (self.prompt_history_index + 1 < history.len()) {
             self.prompt_history_index += 1;
             let text = history.as_slice().[self.prompt_history_index].&.as_str();
             let _ = self.set_command_line_text(alloc, text);
@@ -127,7 +127,7 @@ impl *mut Editor {
     }
 
     fn output_history_count() usize {
-        return self.output_history.len;
+        return self.output_history.&.len();
     }
 
     fn clear_visible_output(alloc: *mut Allocator) void {
@@ -146,7 +146,7 @@ impl *mut Editor {
     }
 
     fn restore_output_history_entry(alloc: *mut Allocator, index: usize, focus_output: bool) bool {
-        if (index >= self.output_history.len) {
+        if (index >= self.output_history.&.len()) {
             return false;
         }
 
@@ -192,10 +192,10 @@ impl *mut Editor {
             return false;
         }
         trim_output_history(alloc, self.output_history..&, OUTPUT_HISTORY_LIMIT);
-        if (self.output_history.len == 0) {
+        if (self.output_history.&.len() == 0) {
             return false;
         }
-        self.output_history_index = self.output_history.len - 1;
+        self.output_history_index = self.output_history.&.len() - 1;
         return true;
     }
 
@@ -206,7 +206,7 @@ impl *mut Editor {
     }
 
     fn show_prev_output_history(alloc: *mut Allocator) void {
-        if (self.output_history.len == 0) {
+        if (self.output_history.&.len() == 0) {
             return;
         }
         let next_index = if (self.output_history_index > 0) self.output_history_index - 1 else usize.{0};
@@ -214,10 +214,10 @@ impl *mut Editor {
     }
 
     fn show_next_output_history(alloc: *mut Allocator) void {
-        if (self.output_history.len == 0) {
+        if (self.output_history.&.len() == 0) {
             return;
         }
-        let last = self.output_history.len - 1;
+        let last = self.output_history.&.len() - 1;
         let next_index = if (self.output_history_index < last) self.output_history_index + 1 else last;
         self.show_output_history(alloc, next_index, true);
     }

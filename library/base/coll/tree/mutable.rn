@@ -23,6 +23,7 @@ use ..base.{
     last_hit,
     ceil_hit,
     floor_hit,
+    set_len,
 };
 
 impl[K, V] *mut Tree[K, V]
@@ -141,7 +142,7 @@ impl[K, V] *mut Tree[K, V]
             set_key[K, V](node, slot, key);
             set_value[K, V](node, slot, value);
             node.len += 1;
-            self.len += 1;
+            set_len[K, V](self, self.len() + 1);
             return true;
         }
 
@@ -212,7 +213,7 @@ impl[K, V] *mut Tree[K, V]
                 set_value[K, V](root, 0, value);
                 root.len = 1;
                 self.root = .{ Some: root };
-                self.len = 1;
+                set_len[K, V](self, 1);
                 return true;
             }
         };
@@ -241,7 +242,7 @@ impl[K, V] *mut Tree[K, V]
     pub fn deinit(alloc: *mut Allocator) void {
         self.deinit_node(alloc, self.root);
         self.root = .None;
-        self.len = 0;
+        set_len[K, V](self, 0);
     }
 
     /// Removes every entry from the tree.

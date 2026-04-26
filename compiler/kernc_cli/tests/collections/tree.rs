@@ -83,7 +83,7 @@ fn main() i32 {
     if (!map.contains(15) or map.contains(1000)) {
         return 15;
     }
-    if (map.len != 34) {
+    if (map.len() != 34) {
         return 16;
     }
 
@@ -160,7 +160,7 @@ fn main() i32 {
     if (map.contains(Key.{ major: 2, minor: 0 })) {
         return 7;
     }
-    if (map.len != 3) {
+    if (map.len() != 3) {
         return 8;
     }
 
@@ -403,7 +403,7 @@ fn main() i32 {
     if (map.remove(gpa, 99).is_some()) {
         return 8;
     }
-    if (map.len != 37) {
+    if (map.len() != 37) {
         return 9;
     }
 

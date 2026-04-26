@@ -48,6 +48,10 @@ fn arrays_satisfy_trait_based_equality() {
 use std.test;
 
 fn main() i32 {
+    let values = [4]i32.{ 1, 2, 3, 4 };
+    if (values.len() != 4) {
+        return 1;
+    }
     test.eq([4]i32.{ 1, 2, 3, 4 }, [4]i32.{ 1, 2, 3, 4 });
     test.not_eq([4]i32.{ 1, 2, 3, 4 }, [4]i32.{ 1, 2, 3, 5 });
     return 0;
@@ -206,7 +210,7 @@ fn main() i32 {
     if (!list.shrink_to_fit(gpa)) {
         return 34;
     }
-    if (list.capacity() != list.len) {
+    if (list.capacity() != list.len()) {
         return 35;
     }
     if (list.count(.[](value: i32) bool { return value >= 3; }) != 2) {

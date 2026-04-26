@@ -183,5 +183,39 @@ pub.. type Tree[K, V] where K: Ord[K] = struct {
     /// The root node pointer when the tree is non-empty.
     pub root: ?*mut Node[K, V] = .None,
     /// The number of key-value pairs stored in the tree.
-    pub len: usize = 0,
+    len: usize = 0,
 };
+
+pub.. fn set_len[K, V](tree: *mut Tree[K, V], len: usize) void
+    where K: Ord[K],
+{
+    tree.len = len;
+}
+
+impl[K, V] Tree[K, V]
+    where K: Ord[K],
+{
+    /// Returns the number of key-value pairs stored in the tree.
+    pub fn len() usize {
+        return self.len;
+    }
+
+    /// Returns `true` when the tree contains no entries.
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+}
+
+impl[K, V] *Tree[K, V]
+    where K: Ord[K],
+{
+    /// Returns the number of key-value pairs stored in the tree.
+    pub fn len() usize {
+        return self.len;
+    }
+
+    /// Returns `true` when the tree contains no entries.
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+}

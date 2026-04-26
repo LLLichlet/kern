@@ -332,7 +332,7 @@ pub/ fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
     }
 
     let mut seg_index = usize.{0};
-    while (seg_index < segments.len) {
+    while (seg_index < segments.len()) {
         let .{ Some: segment } = segments.get(seg_index) else {
             seg_index += 1;
             continue;

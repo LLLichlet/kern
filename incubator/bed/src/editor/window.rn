@@ -180,7 +180,7 @@ impl *mut Editor {
         let keep_index = self.active_window;
         let keep = self.window(keep_index);
         let mut index = usize.{0};
-        while (index < self.windows.len) {
+        while (index < self.windows.&.len()) {
             if (index == keep_index or !self.window(index).alive) {
             index += 1;
                 continue;
@@ -283,7 +283,7 @@ impl *mut Editor {
         let mut best_index = first;
         let mut best_rect = self.window_rect(first);
         let mut index = usize.{0};
-        while (index < self.windows.len) {
+        while (index < self.windows.&.len()) {
             if (!self.window(index).alive or index == first) {
             index += 1;
                 continue;
@@ -303,7 +303,7 @@ impl *mut Editor {
         let mut best_index = first;
         let mut best_rect = self.window_rect(first);
         let mut index = usize.{0};
-        while (index < self.windows.len) {
+        while (index < self.windows.&.len()) {
             if (!self.window(index).alive or index == first) {
             index += 1;
                 continue;
@@ -330,7 +330,7 @@ impl *mut Editor {
         let mut best_secondary = usize.{0};
 
         let mut index = usize.{0};
-        while (index < self.windows.len) {
+        while (index < self.windows.&.len()) {
             if (!self.window(index).alive or index == self.active_window) {
             index += 1;
                 continue;
@@ -535,10 +535,10 @@ impl *mut Editor {
     }
 
     pub fn layout_node_slots() usize {
-        return self.layout_nodes.len;
+        return self.layout_nodes.&.len();
     }
 
     pub fn window_slots() usize {
-        return self.windows.len;
+        return self.windows.&.len();
     }
 }

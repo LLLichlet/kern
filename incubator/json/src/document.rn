@@ -386,7 +386,7 @@ impl DocumentValue {
         let .{ Object: object } = self.value_ptr().* else return .None;
         let mut total = usize.{0};
         let mut i = usize.{0};
-        while (i < object.entries.len) {
+        while (i < object.entries.&.len()) {
             let .{ Some: entry } = object.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
             i += 1;
@@ -695,7 +695,7 @@ impl DocumentValueMut {
         let .{ Object: object } = self.value_ptr().* else return .None;
         let mut total = usize.{0};
         let mut i = usize.{0};
-        while (i < object.entries.len) {
+        while (i < object.entries.&.len()) {
             let .{ Some: entry } = object.entries.&.get(i) else { i += 1; continue; };
             if (!entry.key_eq(name)) {
             i += 1;

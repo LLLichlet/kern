@@ -26,7 +26,7 @@ fn main() i32 {
     if (!map.insert(gpa, 7, 99)) {
         return 2;
     }
-    if (map.len != 128) {
+    if (map.len() != 128) {
         return 3;
     }
 
@@ -76,7 +76,7 @@ fn main() i32 {
     }
 
     map.clear();
-    if (!map.is_empty() or map.len != 0) {
+    if (!map.is_empty() or map.len() != 0) {
         return 15;
     }
 
@@ -151,7 +151,7 @@ fn main() i32 {
     if (!map.insert(gpa, Key.{ group: 2, id: 99 }, 99)) {
         return 4;
     }
-    if (map.len != 4) {
+    if (map.len() != 4) {
         return 5;
     }
 
@@ -373,14 +373,14 @@ fn main() i32 {
         i += 1;
     }
 
-    if (map.capacity != 8 or map.len != 6) {
+    if (map.capacity != 8 or map.len() != 6) {
         return 2;
     }
 
     if (!map.insert(gpa, 3, 99)) {
         return 3;
     }
-    if (map.capacity != 8 or map.len != 6) {
+    if (map.capacity != 8 or map.len() != 6) {
         return 4;
     }
 
@@ -395,7 +395,7 @@ fn main() i32 {
     if (!map.get(3).is_some_and(.[](value: i32) bool { return value == 123; })) {
         return 7;
     }
-    if (map.capacity != 8 or map.len != 6) {
+    if (map.capacity != 8 or map.len() != 6) {
         return 8;
     }
 
@@ -406,7 +406,7 @@ fn main() i32 {
     if (inserted.* != 500) {
         return 10;
     }
-    if (map.len != 7 or map.capacity != 16) {
+    if (map.len() != 7 or map.capacity != 16) {
         return 11;
     }
 
@@ -437,7 +437,7 @@ fn main() i32 {
     if (lazy_calls != 1) {
         return 17;
     }
-    if (map.len != 8) {
+    if (map.len() != 8) {
         return 18;
     }
 
@@ -501,7 +501,7 @@ fn main() i32 {
     map.retain(.[](key: i32, _: i32) bool {
         return key % 2 == 0;
     });
-    if (map.len != 2) {
+    if (map.len() != 2) {
         return 11;
     }
     if (map.contains(1) or map.contains(3)) {
@@ -595,7 +595,7 @@ fn main() i32 {
         value.* += key;
         return key >= 2;
     });
-    if (map.len != 3) {
+    if (map.len() != 3) {
         return 11;
     }
     if (map.contains(1)) {
@@ -614,7 +614,7 @@ fn main() i32 {
     if (removed != 33) {
         return 17;
     }
-    if (map.contains(3) or map.len != 2) {
+    if (map.contains(3) or map.len() != 2) {
         return 18;
     }
 
@@ -689,7 +689,7 @@ fn main() i32 {
         return 11;
     }
 
-    if (keys.len != 4 or values.len != 4) {
+    if (keys.len() != 4 or values.len() != 4) {
         return 12;
     }
     if (!keys.first().is_some_and(.[](key: i32) bool { return key == 1000; })) {
@@ -738,7 +738,7 @@ fn main() i32 {
     };
     defer owned_values..&.deinit(gpa);
 
-    if (owned_keys.len != 3 or owned_values.len != 3) {
+    if (owned_keys.len() != 3 or owned_values.len() != 3) {
         return 21;
     }
 

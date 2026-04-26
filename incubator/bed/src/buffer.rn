@@ -137,7 +137,7 @@ impl *mut TextBuffer {
 
     /// Inserts one byte into one line.
     pub fn insert_byte(alloc: *mut Allocator, row: usize, col: usize, byte: u8) bool {
-        if (row >= self.lines.len) {
+        if (row >= self.lines.&.len()) {
             return false;
         }
 
@@ -156,7 +156,7 @@ impl *mut TextBuffer {
     /// Splits the current line at `col`.
     pub fn split_line(alloc: *mut Allocator, row: usize, col: usize) bool {
         let text = self.line(row);
-        if (row >= self.lines.len or col > #text) {
+        if (row >= self.lines.&.len() or col > #text) {
             return false;
         }
 
@@ -177,7 +177,7 @@ impl *mut TextBuffer {
 
     /// Inserts a new blank line below `row`.
     pub fn insert_blank_line_below(alloc: *mut Allocator, row: usize) bool {
-        if (row >= self.lines.len) {
+        if (row >= self.lines.&.len()) {
             return false;
         }
         if (!self.lines..&.insert(alloc, row + 1, String.{})) {
@@ -189,7 +189,7 @@ impl *mut TextBuffer {
 
     /// Inserts a new blank line above `row`.
     pub fn insert_blank_line_above(alloc: *mut Allocator, row: usize) bool {
-        if (row > self.lines.len) {
+        if (row > self.lines.&.len()) {
             return false;
         }
         if (!self.lines..&.insert(alloc, row, String.{})) {
@@ -201,7 +201,7 @@ impl *mut TextBuffer {
 
     /// Deletes the byte before the cursor, joining lines at column zero.
     pub fn delete_backward(alloc: *mut Allocator, row: usize, col: usize) Cursor {
-        if (row >= self.lines.len) {
+        if (row >= self.lines.&.len()) {
             return .{ row: 0, col: 0 };
         }
 
@@ -234,7 +234,7 @@ impl *mut TextBuffer {
 
     /// Deletes the byte under the cursor, joining with the next line at end-of-line.
     pub fn delete_at(alloc: *mut Allocator, row: usize, col: usize) bool {
-        if (row >= self.lines.len) {
+        if (row >= self.lines.&.len()) {
             return false;
         }
 
@@ -247,7 +247,7 @@ impl *mut TextBuffer {
             return true;
         }
 
-        if (row + 1 >= self.lines.len) {
+        if (row + 1 >= self.lines.&.len()) {
             return false;
         }
 
@@ -274,11 +274,11 @@ impl *mut TextBuffer {
         defer text..&.deinit(alloc);
 
         let mut i = usize.{0};
-        while (i < self.lines.len) {
+        while (i < self.lines.&.len()) {
             if (!text..&.push_str(alloc, self.line(i))) {
                 return .{ Err: .OutOfMemory };
             }
-            if (i + 1 < self.lines.len and !text..&.push_char(alloc, b'\n')) {
+            if (i + 1 < self.lines.&.len() and !text..&.push_char(alloc, b'\n')) {
                 return .{ Err: .OutOfMemory };
             }
             i += 1;
@@ -294,12 +294,12 @@ impl *mut TextBuffer {
 impl *TextBuffer {
     /// Returns the number of lines tracked by the buffer.
     pub fn line_count() usize {
-        return self.lines.len;
+        return self.lines.&.len();
     }
 
     /// Returns one line as a borrowed byte slice.
     pub fn line(row: usize) []u8 {
-        if (row >= self.lines.len) {
+        if (row >= self.lines.&.len()) {
             return "";
         }
         let lines = self.lines.&.as_slice();

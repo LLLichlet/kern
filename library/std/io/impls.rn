@@ -162,7 +162,7 @@ impl[T] *List[T] : Printable
     pub fn fmt(writer: *mut Writer) void {
         let _ = writer.write("<List len=");
 
-        let len = self.len;
+        let len = self.len();
         len.&.fmt(writer);
 
         let _ = writer.write(", cap=");
@@ -174,11 +174,11 @@ impl[T] *List[T] : Printable
 
         let items = self.as_slice();
                 let mut i = usize.{0};
-        while (i < self.len) {
+        while (i < self.len()) {
             let item = items.[i];
             item.&.fmt(writer);
 
-            if (i + usize.{1} < self.len) {
+            if (i + usize.{1} < self.len()) {
                 let _ = writer.write(", ");
             }
 

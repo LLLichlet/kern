@@ -134,7 +134,41 @@ pub.. type Map[K, V] where K: Eq[K] + Hash[K] = struct {
     /// The number of allocated slots.
     pub capacity: usize = 0,
     /// The number of live entries.
-    pub len: usize = 0,
+    len: usize = 0,
     /// The number of deleted tombstone slots.
     pub tombstones: usize = 0,
 };
+
+pub.. fn set_len[K, V](map: *mut Map[K, V], len: usize) void
+    where K: Eq[K] + Hash[K],
+{
+    map.len = len;
+}
+
+impl[K, V] Map[K, V]
+    where K: Eq[K] + Hash[K],
+{
+    /// Returns the number of live entries.
+    pub fn len() usize {
+        return self.len;
+    }
+
+    /// Returns `true` when the map contains no entries.
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+}
+
+impl[K, V] *Map[K, V]
+    where K: Eq[K] + Hash[K],
+{
+    /// Returns the number of live entries.
+    pub fn len() usize {
+        return self.len;
+    }
+
+    /// Returns `true` when the map contains no entries.
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+}

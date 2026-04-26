@@ -7,6 +7,11 @@ use base.cmp.{Ord, Ordering, LESS, EQUAL, GREATER};
 use base.coll.SliceIter;
 
 impl[T] []T {
+    /// Returns the number of elements in the slice.
+    pub fn len() usize {
+        return #self;
+    }
+
     /// Returns an iterator over copied slice elements.
     pub fn iter() SliceIter[T] {
         return .{ data: self };
@@ -143,6 +148,13 @@ impl[T] []T {
         }
 
         return left;
+    }
+}
+
+impl[T, N: usize] [N]T {
+    /// Returns the number of elements in the array.
+    pub fn len() usize {
+        return N;
     }
 }
 

@@ -1,0 +1,148 @@
+//! Integer range iterator values.
+//!
+//! Ranges are ordinary library values. The `..` syntax remains reserved for
+//! slice bounds and match patterns rather than becoming expression sugar.
+
+use base.coll.Iterator;
+
+/// A value that can advance through an integer range.
+pub/ type RangeStep[T] = trait {
+    is_before: fn(T) bool,
+    is_at: fn(T) bool,
+    step_next: fn() T,
+};
+
+/// A left-closed, right-open range `[start, end)`.
+pub/ type Range[T] = struct {
+    start: T,
+    end: T,
+};
+
+/// A closed range `[start, end]`.
+pub/ type RangeInclusive[T] = struct {
+    start: T,
+    end: T,
+    done: bool = false,
+};
+
+/// Constructs a left-closed, right-open range `[start, end)`.
+pub/ fn range[T](start: T, end: T) Range[T]
+    where T: RangeStep[T],
+{
+    return .{ start: start, end: end };
+}
+
+/// Constructs a closed range `[start, end]`.
+pub/ fn range_inclusive[T](start: T, end: T) RangeInclusive[T]
+    where T: RangeStep[T],
+{
+    return .{ start: start, end: end };
+}
+
+impl[T] *mut Range[T] : Iterator
+    where T: RangeStep[T],
+{
+    type Item = T;
+
+    pub fn next() ?Item {
+        if (!self.start.is_before(self.end)) return .None;
+
+        let item = self.start;
+        self.start = self.start.step_next();
+        return .{ Some: item };
+    }
+}
+
+impl[T] *mut RangeInclusive[T] : Iterator
+    where T: RangeStep[T],
+{
+    type Item = T;
+
+    pub fn next() ?Item {
+        if (self.done) return .None;
+        if (!self.start.is_before(self.end) and !self.start.is_at(self.end)) {
+            self.done = true;
+            return .None;
+        }
+
+        let item = self.start;
+        if (self.start.is_at(self.end)) {
+            self.done = true;
+        } else {
+            self.start = self.start.step_next();
+        }
+        return .{ Some: item };
+    }
+}
+
+impl i8 : RangeStep[i8] {
+    pub fn is_before(other: i8) bool { return self < other; }
+    pub fn is_at(other: i8) bool { return self == other; }
+    pub fn step_next() i8 { return self + i8.{1}; }
+}
+
+impl i16 : RangeStep[i16] {
+    pub fn is_before(other: i16) bool { return self < other; }
+    pub fn is_at(other: i16) bool { return self == other; }
+    pub fn step_next() i16 { return self + i16.{1}; }
+}
+
+impl i32 : RangeStep[i32] {
+    pub fn is_before(other: i32) bool { return self < other; }
+    pub fn is_at(other: i32) bool { return self == other; }
+    pub fn step_next() i32 { return self + i32.{1}; }
+}
+
+impl i64 : RangeStep[i64] {
+    pub fn is_before(other: i64) bool { return self < other; }
+    pub fn is_at(other: i64) bool { return self == other; }
+    pub fn step_next() i64 { return self + i64.{1}; }
+}
+
+impl i128 : RangeStep[i128] {
+    pub fn is_before(other: i128) bool { return self < other; }
+    pub fn is_at(other: i128) bool { return self == other; }
+    pub fn step_next() i128 { return self + i128.{1}; }
+}
+
+impl isize : RangeStep[isize] {
+    pub fn is_before(other: isize) bool { return self < other; }
+    pub fn is_at(other: isize) bool { return self == other; }
+    pub fn step_next() isize { return self + isize.{1}; }
+}
+
+impl u8 : RangeStep[u8] {
+    pub fn is_before(other: u8) bool { return self < other; }
+    pub fn is_at(other: u8) bool { return self == other; }
+    pub fn step_next() u8 { return self + u8.{1}; }
+}
+
+impl u16 : RangeStep[u16] {
+    pub fn is_before(other: u16) bool { return self < other; }
+    pub fn is_at(other: u16) bool { return self == other; }
+    pub fn step_next() u16 { return self + u16.{1}; }
+}
+
+impl u32 : RangeStep[u32] {
+    pub fn is_before(other: u32) bool { return self < other; }
+    pub fn is_at(other: u32) bool { return self == other; }
+    pub fn step_next() u32 { return self + u32.{1}; }
+}
+
+impl u64 : RangeStep[u64] {
+    pub fn is_before(other: u64) bool { return self < other; }
+    pub fn is_at(other: u64) bool { return self == other; }
+    pub fn step_next() u64 { return self + u64.{1}; }
+}
+
+impl u128 : RangeStep[u128] {
+    pub fn is_before(other: u128) bool { return self < other; }
+    pub fn is_at(other: u128) bool { return self == other; }
+    pub fn step_next() u128 { return self + u128.{1}; }
+}
+
+impl usize : RangeStep[usize] {
+    pub fn is_before(other: usize) bool { return self < other; }
+    pub fn is_at(other: usize) bool { return self == other; }
+    pub fn step_next() usize { return self + usize.{1}; }
+}

@@ -672,6 +672,75 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_integer_ranges_as_iterators() {
+    let output = build_and_run_hosted(
+        r#"
+use base.coll.{Iterator, range, range_inclusive};
+
+fn main() i32 {
+    let mut sum = 0;
+    for (i: range(0, 5)) {
+        sum += i;
+    }
+    if (sum != 10) {
+        return 1;
+    }
+
+    let mut usize_sum = usize.{0};
+    for (i: range(usize.{2}, usize.{5})) {
+        usize_sum += i;
+    }
+    if (usize_sum != usize.{9}) {
+        return 2;
+    }
+
+    let mut inclusive_sum = 0;
+    for (i: range_inclusive(-2, 2)) {
+        inclusive_sum += i;
+    }
+    if (inclusive_sum != 0) {
+        return 3;
+    }
+
+    let mut empty_count = 0;
+    for (_: range(5, 5)) {
+        empty_count += 1;
+    }
+    for (_: range_inclusive(5, 3)) {
+        empty_count += 1;
+    }
+    if (empty_count != 0) {
+        return 4;
+    }
+
+    let mut seen = 0;
+    for (value: range_inclusive(u8.{254}, u8.{255})) {
+        if (seen == 0 and value != u8.{254}) {
+            return 5;
+        }
+        if (seen == 1 and value != u8.{255}) {
+            return 6;
+        }
+        seen += 1;
+    }
+    if (seen != 2) {
+        return 7;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_option_and_result_closure_methods() {
     let output = build_and_run_hosted(
         r#"

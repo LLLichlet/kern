@@ -844,6 +844,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (TypeId::ERROR, None, Some(inferred_arg_tys));
             }
 
+            let resolved_args = resolved_args
+                .into_iter()
+                .map(|arg| self.materialize_numeric_defaults_in_generic_arg(arg))
+                .collect::<Vec<_>>();
+
             self.check_generic_bounds(span, def_id, generics, &resolved_args);
 
             let inferred_callee_ty = self

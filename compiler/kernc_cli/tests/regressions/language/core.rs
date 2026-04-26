@@ -1563,3 +1563,37 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn defaults_inferred_integer_generic_arguments_before_bound_checking() {
+    let output = build_and_run_source(
+        r#"
+type Step[T] = trait {
+    step: fn() T,
+};
+
+impl i32 : Step[i32] {
+    pub fn step() i32 {
+        return self + 1;
+    }
+}
+
+fn advance[T](value: T) T
+    where T: Step[T],
+{
+    return value.step();
+}
+
+fn main() i32 {
+    return advance(41) - 42;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

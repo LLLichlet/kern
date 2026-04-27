@@ -3,12 +3,18 @@
 use base.coll.List;
 use base.mem.alloc.Allocator;
 use base.num;
-use ..traits.Reader;
+use ..traits.{Reader, Writer};
 
 /// Reads from a caller-provided byte slice.
 pub/ type SliceReader = struct {
     data: []u8,
     pos: usize = 0,
+};
+
+/// Caps reads from another reader to a fixed remaining byte count.
+pub/ type LimitReader = struct {
+    inner: *mut Reader,
+    remaining: usize,
 };
 
 impl *mut SliceReader : Reader {
@@ -23,6 +29,19 @@ impl *mut SliceReader : Reader {
         let _ = out.copy_from(self.data.[self.pos .. self.pos + count]);
         self.pos += count;
         return count;
+    }
+}
+
+impl *mut LimitReader : Reader {
+    pub fn read(buf: []mut u8) usize {
+        if (#buf == 0 or self.remaining == 0) {
+            return 0;
+        }
+
+        let want = num.min[usize](#buf, self.remaining);
+        let n = self.inner.read(buf..[0 .. want]);
+        self.remaining -= n;
+        return n;
     }
 }
 
@@ -46,6 +65,11 @@ impl *mut SliceReader {
 /// Creates a reader over `data`.
 pub/ fn slice_reader(data: []u8) SliceReader {
     return .{ data: data };
+}
+
+/// Creates a reader that stops after `limit` bytes from `reader`.
+pub/ fn limit_reader(reader: *mut Reader, limit: usize) LimitReader {
+    return .{ inner: reader, remaining: limit };
 }
 
 /// Reads exactly `#buf` bytes unless the reader reaches EOF first.
@@ -74,6 +98,36 @@ pub/ fn skip(reader: *mut Reader, count: usize) usize {
         skipped += n;
     }
     return skipped;
+}
+
+/// Copies bytes from `reader` into `writer` until EOF or write failure.
+pub/ fn copy(reader: *mut Reader, writer: *mut Writer) usize {
+    let mut scratch = [1024]u8.{undef};
+    let mut copied = usize.{0};
+
+        while (true) {
+        let n = reader.read(scratch..[0 .. 1024]);
+        if (n == 0) {
+            return copied;
+        }
+
+        let mut written = usize.{0};
+        while (written < n) {
+            let out = writer.write(scratch.[written .. n]);
+            if (out == 0) {
+                return copied;
+            }
+            written += out;
+            copied += out;
+        }
+    }
+}
+
+/// Copies up to `limit` bytes from `reader` into `writer`.
+pub/ fn copy_n(reader: *mut Reader, writer: *mut Writer, limit: usize) usize {
+    let mut limited = limit_reader(reader, limit);
+    let limited_reader = *mut Reader.{ limited..& };
+    return copy(limited_reader, writer);
 }
 
 /// Reads all remaining bytes into a new list.

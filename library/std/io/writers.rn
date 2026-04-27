@@ -19,6 +19,15 @@ pub/ type StringWriter = struct {
     failed: bool = false,
 };
 
+/// Counts bytes successfully written through another writer.
+pub/ type CountingWriter = struct {
+    inner: *mut Writer,
+    written: usize = 0,
+};
+
+/// Discards every byte written to it.
+pub/ type NullWriter = struct {};
+
 impl *mut FixedBufferWriter : Writer {
     pub fn write(buf: []u8) usize {
         if (#buf == 0) {
@@ -57,6 +66,20 @@ impl *mut StringWriter : Writer {
     }
 }
 
+impl *mut CountingWriter : Writer {
+    pub fn write(buf: []u8) usize {
+        let n = self.inner.write(buf);
+        self.written += n;
+        return n;
+    }
+}
+
+impl *mut NullWriter : Writer {
+    pub fn write(buf: []u8) usize {
+        return #buf;
+    }
+}
+
 impl *mut FixedBufferWriter {
     /// Returns all bytes successfully written so far.
     pub fn as_slice() []u8 {
@@ -81,6 +104,13 @@ impl *mut StringWriter {
     }
 }
 
+impl *mut CountingWriter {
+    /// Returns how many bytes have been successfully forwarded.
+    pub fn bytes_written() usize {
+        return self.written;
+    }
+}
+
 /// Creates a writer over `buffer`.
 pub/ fn fixed_buffer(buffer: []mut u8) FixedBufferWriter {
     return .{ buffer: buffer };
@@ -89,6 +119,16 @@ pub/ fn fixed_buffer(buffer: []mut u8) FixedBufferWriter {
 /// Creates a writer that appends to `string`.
 pub/ fn string_writer(alloc: *mut Allocator, string: *mut String) StringWriter {
     return .{ alloc: alloc, string: string };
+}
+
+/// Creates a writer that forwards to `writer` and counts successful bytes.
+pub/ fn counting_writer(writer: *mut Writer) CountingWriter {
+    return .{ inner: writer };
+}
+
+/// Creates a writer that discards all bytes.
+pub/ fn null_writer() NullWriter {
+    return .{};
 }
 
 /// Writes the full byte slice unless the writer reports no forward progress.

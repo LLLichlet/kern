@@ -14,8 +14,28 @@ use sys.os;
 
 pub use .fmt.{format_to, eprint, eprintln, print, println};
 pub use .traits.{Printable, Reader, Writer};
-pub use .writers.{FixedBufferWriter, StringWriter, fixed_buffer, string_writer, write_all};
-pub use .readers.{SliceReader, slice_reader, read_exact, read_to_end, skip};
+pub use .writers.{
+    FixedBufferWriter,
+    StringWriter,
+    CountingWriter,
+    NullWriter,
+    fixed_buffer,
+    string_writer,
+    counting_writer,
+    null_writer,
+    write_all,
+};
+pub use .readers.{
+    SliceReader,
+    LimitReader,
+    slice_reader,
+    limit_reader,
+    read_exact,
+    read_to_end,
+    skip,
+    copy,
+    copy_n,
+};
 
 /// A writable handle backed by `std.fs.File`.
 pub type File = struct {

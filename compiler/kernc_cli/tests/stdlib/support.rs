@@ -572,6 +572,104 @@ fn main() i32 {
 }
 
 #[test]
+fn hosted_std_io_copies_between_generic_adapters() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_io_copy_adapters",
+        r#"
+use std.io.{
+    Reader,
+    Writer,
+    slice_reader,
+    limit_reader,
+    fixed_buffer,
+    string_writer,
+    counting_writer,
+    null_writer,
+    copy,
+    copy_n,
+};
+use base.coll.String;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {
+    let mut source = slice_reader("abcdef");
+    let source_reader = *mut Reader.{ source..& };
+
+    let mut storage = [8]u8.{undef};
+    let mut fixed = fixed_buffer(storage..[0 .. 8]);
+    let fixed_writer = *mut Writer.{ fixed..& };
+    let mut counted = counting_writer(fixed_writer);
+    let counted_writer = *mut Writer.{ counted..& };
+
+    let copied = copy_n(source_reader, counted_writer, 4);
+    if (copied != 4) {
+        return 1;
+    }
+    if (counted..&.bytes_written() != 4) {
+        return 2;
+    }
+    if (fixed..&.as_slice() != "abcd") {
+        return 3;
+    }
+    if (source..&.remaining_slice() != "ef") {
+        return 4;
+    }
+
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+
+    let mut text = String.{};
+    defer text..&.deinit(gpa);
+    let mut sink = string_writer(gpa, text..&);
+    let sink_writer = *mut Writer.{ sink..& };
+
+    let mut source2 = slice_reader("0123456789");
+    let source2_reader = *mut Reader.{ source2..& };
+    let mut limited = limit_reader(source2_reader, 6);
+    let limited_reader = *mut Reader.{ limited..& };
+    let limited_copied = copy(limited_reader, sink_writer);
+    if (limited_copied != 6) {
+        return 5;
+    }
+    if (text..&.as_str() != "012345") {
+        return 6;
+    }
+    if (source2..&.remaining_slice() != "6789") {
+        return 7;
+    }
+
+    let mut source3 = slice_reader("discard");
+    let source3_reader = *mut Reader.{ source3..& };
+    let mut null = null_writer();
+    let null_sink = *mut Writer.{ null..& };
+    if (copy(source3_reader, null_sink) != 7) {
+        return 8;
+    }
+    if (!source3..&.is_empty()) {
+        return 9;
+    }
+
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std io copy adapters program to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn test_expect_err_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_expect_err_fail",

@@ -97,9 +97,45 @@ impl Error {
                         .to_string(),
                 )
             }
+            Self::Io { path, source } if io_error_is_storage_full(source) => Some(match path {
+                Some(path) => format!(
+                    "free disk space or move the workspace/cache; the failing path was `{}`",
+                    path.display()
+                ),
+                None => "free disk space or move the workspace/cache to a larger filesystem"
+                    .to_string(),
+            }),
+            Self::Io { path, source } if source.kind() == io::ErrorKind::PermissionDenied => {
+                Some(match path {
+                    Some(path) => format!(
+                        "check filesystem permissions and ownership for `{}`",
+                        path.display()
+                    ),
+                    None => "check filesystem permissions and ownership for the selected workspace"
+                        .to_string(),
+                })
+            }
+            Self::Io { path, source } if source.kind() == io::ErrorKind::NotFound => {
+                Some(match path {
+                    Some(path) => format!(
+                        "check that `{}` exists and that generated files were not removed during the build",
+                        path.display()
+                    ),
+                    None => "check that the selected project path and required tools still exist"
+                        .to_string(),
+                })
+            }
             _ => None,
         }
     }
+}
+
+fn io_error_is_storage_full(source: &io::Error) -> bool {
+    matches!(
+        source.raw_os_error(),
+        // ENOSPC on Unix, ERROR_DISK_FULL on Windows, EDQUOT on Linux.
+        Some(28 | 112 | 122)
+    ) || source.to_string().contains("No space left on device")
 }
 
 impl Display for Error {
@@ -193,6 +229,46 @@ mod tests {
         assert_eq!(
             err.hint().as_deref(),
             Some("declare `pub fn craft(p: *mut plan.Plan) void` and import `craft.plan`")
+        );
+    }
+
+    #[test]
+    fn io_permission_errors_provide_permission_hint() {
+        let err = Error::from_io(
+            &PathBuf::from("/tmp/demo/.craft/out"),
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+        );
+        assert_eq!(
+            err.hint().as_deref(),
+            Some("check filesystem permissions and ownership for `/tmp/demo/.craft/out`")
+        );
+    }
+
+    #[test]
+    fn io_not_found_errors_provide_path_hint() {
+        let err = Error::from_io(
+            &PathBuf::from("/tmp/demo/src/main.rn"),
+            std::io::Error::new(std::io::ErrorKind::NotFound, "missing"),
+        );
+        assert_eq!(
+            err.hint().as_deref(),
+            Some(
+                "check that `/tmp/demo/src/main.rn` exists and that generated files were not removed during the build"
+            )
+        );
+    }
+
+    #[test]
+    fn io_storage_errors_provide_space_hint() {
+        let err = Error::from_io(
+            &PathBuf::from("/tmp/demo/.craft/build/out.o"),
+            std::io::Error::from_raw_os_error(28),
+        );
+        assert_eq!(
+            err.hint().as_deref(),
+            Some(
+                "free disk space or move the workspace/cache; the failing path was `/tmp/demo/.craft/build/out.o`"
+            )
         );
     }
 }

@@ -56,6 +56,7 @@ These documents are useful context for maintainers, but they should not be
 quoted as if they were current product guarantees.
 
 - [`docs/sdk-rebuild-plan.md`](./sdk-rebuild-plan.md): active release-engineering / SDK restructuring plan
+- [`docs/stdlib-enhancement-plan.md`](./stdlib-enhancement-plan.md): active standard-library gap and enhancement plan
 
 ## Source Of Truth By Topic
 

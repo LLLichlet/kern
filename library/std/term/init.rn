@@ -31,6 +31,13 @@ fn wrap_os_error(err: os.Error) Error {
     return .{ Os: err };
 }
 
+fn size_for_handle(handle: os.Handle) Size!Error {
+    if (!os.is_terminal(handle)) {
+        return .{ Err: .NotTerminal };
+    }
+    return os.terminal_size(handle).map(normalized_size).map_err(wrap_os_error);
+}
+
 /// Returns `true` when standard input is attached to a terminal.
 pub fn stdin_is_terminal() bool {
     return os.is_terminal(os.get_stdin_handle());
@@ -39,6 +46,11 @@ pub fn stdin_is_terminal() bool {
 /// Returns `true` when standard output is attached to a terminal.
 pub fn stdout_is_terminal() bool {
     return os.is_terminal(os.get_stdout_handle());
+}
+
+/// Returns `true` when standard error is attached to a terminal.
+pub fn stderr_is_terminal() bool {
+    return os.is_terminal(os.get_stderr_handle());
 }
 
 /// Enables raw mode on standard input.
@@ -56,11 +68,27 @@ pub fn stdin_raw_mode() RawMode!Error {
 
 /// Returns the current visible size for standard output.
 pub fn stdout_size() Size!Error {
-    let handle = os.get_stdout_handle();
-    if (!os.is_terminal(handle)) {
-        return .{ Err: .NotTerminal };
-    }
-    return os.terminal_size(handle).map(normalized_size).map_err(wrap_os_error);
+    return size_for_handle(os.get_stdout_handle());
+}
+
+/// Returns the current visible size for standard input.
+pub fn stdin_size() Size!Error {
+    return size_for_handle(os.get_stdin_handle());
+}
+
+/// Returns the current visible size for standard error.
+pub fn stderr_size() Size!Error {
+    return size_for_handle(os.get_stderr_handle());
+}
+
+/// Returns the current standard output row count.
+pub fn stdout_rows() usize!Error {
+    return stdout_size().map(.[](size: Size) usize { return size.rows; });
+}
+
+/// Returns the current standard output column count.
+pub fn stdout_columns() usize!Error {
+    return stdout_size().map(.[](size: Size) usize { return size.cols; });
 }
 
 impl *mut RawMode {

@@ -533,6 +533,7 @@ fn runs_std_time_duration_and_sleep_helpers() {
         "kernc_std_time",
         r#"
 use std.time;
+use base.cmp.{LESS, EQUAL, GREATER};
 
 fn main() i32 {
     let fixed = time.from_millis(1500);
@@ -560,9 +561,28 @@ fn main() i32 {
     if (time.from_secs(2).units_per_sec(400) != 200) {
         return 8;
     }
+    if (!(time.from_secs(1) == time.from_millis(1000))) {
+        return 13;
+    }
+    if (time.from_secs(1) == time.from_millis(999)) {
+        return 14;
+    }
+    if (time.from_millis(1).cmp(time.from_secs(1)) != LESS) {
+        return 15;
+    }
+    if (time.from_secs(1).cmp(time.from_millis(1000)) != EQUAL) {
+        return 16;
+    }
+    if (time.from_secs(2).cmp(time.from_secs(1)) != GREATER) {
+        return 17;
+    }
+    let _ = time.from_micros(250).hash();
 
     let start = time.now();
+    time.sleep_nanos(1);
+    time.sleep_micros(1);
     time.sleep_millis(10);
+    time.sleep_secs(0);
     let elapsed = start.elapsed();
     if (elapsed.as_millis() < 5) {
         return 9;
@@ -576,6 +596,11 @@ fn main() i32 {
     if (elapsed.units_per_sec(2) == 0) {
         return 12;
     }
+    let end = time.now();
+    if (end.cmp(start) == LESS) {
+        return 18;
+    }
+    let _ = end.hash();
 
     return 0;
 }
@@ -587,6 +612,51 @@ fn main() i32 {
     assert!(
         run_output.status.success(),
         "std time binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn runs_std_term_convenience_helpers() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_term_helpers",
+        r#"
+use std.term;
+
+fn main() i32 {
+    let _ = term.stdin_is_terminal();
+    let _ = term.stdout_is_terminal();
+    let _ = term.stderr_is_terminal();
+
+    let out_size = term.stdout_size();
+    if (out_size.is_ok()) {
+        let size = match (out_size) {
+            .{ Ok: size } => size,
+            .{ Err: _ } => return 1,
+        };
+        if (size.rows == 0 or size.cols == 0) {
+            return 2;
+        }
+    }
+
+    let _ = term.stdin_size();
+    let _ = term.stderr_size();
+    let _ = term.stdout_rows();
+    let _ = term.stdout_columns();
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "std term binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );

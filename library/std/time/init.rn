@@ -5,6 +5,9 @@
 //! `Instant` and `Duration` support benchmark-style elapsed-time measurement
 //! without pulling date/time-zone policy into the core standard library.
 
+use base.cmp.{Comparable, Ord, Ordering, LESS, EQUAL, GREATER};
+use base.hash.{Hash, mix_u64};
+
 const U64_MAX = ~u64.{0};
 const NS_PER_MICRO = u64.{1_000};
 const NS_PER_MILLI = u64.{1_000_000};
@@ -76,6 +79,28 @@ impl Duration {
     }
 }
 
+impl Duration : Eq[Duration] {
+    pub fn eq(other: Duration) bool {
+        return self.nanos == other.nanos;
+    }
+}
+
+impl Duration : Comparable[Duration] {
+    pub fn cmp(other: Duration) Ordering {
+        if (self.nanos < other.nanos) return LESS;
+        if (self.nanos > other.nanos) return GREATER;
+        return EQUAL;
+    }
+}
+
+impl Duration : Ord[Duration] {}
+
+impl Duration : Hash[Duration] {
+    pub fn hash() u64 {
+        return mix_u64(self.nanos);
+    }
+}
+
 pub type Instant = struct {
     nanos: u64,
 };
@@ -90,20 +115,42 @@ impl Instant {
     }
 }
 
+impl Instant : Eq[Instant] {
+    pub fn eq(other: Instant) bool {
+        return self.nanos == other.nanos;
+    }
+}
+
+impl Instant : Comparable[Instant] {
+    pub fn cmp(other: Instant) Ordering {
+        if (self.nanos < other.nanos) return LESS;
+        if (self.nanos > other.nanos) return GREATER;
+        return EQUAL;
+    }
+}
+
+impl Instant : Ord[Instant] {}
+
+impl Instant : Hash[Instant] {
+    pub fn hash() u64 {
+        return mix_u64(self.nanos);
+    }
+}
+
 #[if(os == "linux")]
 mod linux;
 #[if(os == "linux")]
-use .linux.{monotonic_now_nanos, sleep_nanos};
+use .linux.{monotonic_now_nanos, sleep_nanos as platform_sleep_nanos};
 
 #[if(os == "darwin")]
 mod darwin;
 #[if(os == "darwin")]
-use .darwin.{monotonic_now_nanos, sleep_nanos};
+use .darwin.{monotonic_now_nanos, sleep_nanos as platform_sleep_nanos};
 
 #[if(os == "windows")]
 mod windows;
 #[if(os == "windows")]
-use .windows.{monotonic_now_nanos, sleep_nanos};
+use .windows.{monotonic_now_nanos, sleep_nanos as platform_sleep_nanos};
 
 const fn saturating_mul_u64(lhs: u64, rhs: u64) u64 {
     if (lhs == 0 or rhs == 0) {
@@ -161,9 +208,21 @@ pub fn sleep(duration: Duration) void {
     if (duration.is_zero()) {
         return;
     }
-    sleep_nanos(duration.nanos);
+    platform_sleep_nanos(duration.nanos);
+}
+
+pub fn sleep_secs(secs: u64) void {
+    sleep(from_secs(secs));
 }
 
 pub fn sleep_millis(millis: u64) void {
     sleep(from_millis(millis));
+}
+
+pub fn sleep_micros(micros: u64) void {
+    sleep(from_micros(micros));
+}
+
+pub fn sleep_nanos(nanos: u64) void {
+    sleep(from_nanos(nanos));
 }

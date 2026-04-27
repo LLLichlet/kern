@@ -25,7 +25,6 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     let _ = writer.write("{");
                     i += 2;
                     last_pos = i;
-                    i += usize.{1};
                     continue;
                 }
                 // Handles the placeholder `{}`.
@@ -42,7 +41,6 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     }
                     i += usize.{2};
                     last_pos = i;
-                    i += usize.{1};
                     continue;
                 }
             }
@@ -58,7 +56,6 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     let _ = writer.write("}");
                     i += usize.{2};
                     last_pos = i;
-                    i += usize.{1};
                     continue;
                 }
             }

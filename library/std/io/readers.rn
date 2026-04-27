@@ -1,0 +1,93 @@
+//! In-memory reader adapters.
+
+use base.coll.List;
+use base.mem.alloc.Allocator;
+use base.num;
+use ..traits.Reader;
+
+/// Reads from a caller-provided byte slice.
+pub/ type SliceReader = struct {
+    data: []u8,
+    pos: usize = 0,
+};
+
+impl *mut SliceReader : Reader {
+    pub fn read(buf: []mut u8) usize {
+        if (#buf == 0 or self.pos >= #self.data) {
+            return 0;
+        }
+
+        let available = #self.data - self.pos;
+        let count = num.min[usize](available, #buf);
+        let out = (buf.[0]..& + usize.{0})..[0 .. count];
+        let _ = out.copy_from(self.data.[self.pos .. self.pos + count]);
+        self.pos += count;
+        return count;
+    }
+}
+
+impl *mut SliceReader {
+    /// Returns the unread suffix.
+    pub fn remaining_slice() []u8 {
+        return self.data.[self.pos .. #self.data];
+    }
+
+    /// Returns how many unread bytes remain.
+    pub fn remaining() usize {
+        return #self.data - self.pos;
+    }
+
+    /// Returns `true` when all bytes have been consumed.
+    pub fn is_empty() bool {
+        return self.pos >= #self.data;
+    }
+}
+
+/// Creates a reader over `data`.
+pub/ fn slice_reader(data: []u8) SliceReader {
+    return .{ data: data };
+}
+
+/// Reads exactly `#buf` bytes unless the reader reaches EOF first.
+pub/ fn read_exact(reader: *mut Reader, buf: []mut u8) bool {
+    let mut filled = usize.{0};
+    while (filled < #buf) {
+        let n = reader.read((buf.[0]..& + filled)..[0 .. #buf - filled]);
+        if (n == 0) {
+            return false;
+        }
+        filled += n;
+    }
+    return true;
+}
+
+/// Skips up to `count` bytes and returns how many were discarded.
+pub/ fn skip(reader: *mut Reader, count: usize) usize {
+    let mut scratch = [128]u8.{undef};
+    let mut skipped = usize.{0};
+    while (skipped < count) {
+        let want = num.min[usize](#scratch, count - skipped);
+        let n = reader.read(scratch..[0 .. want]);
+        if (n == 0) {
+            return skipped;
+        }
+        skipped += n;
+    }
+    return skipped;
+}
+
+/// Reads all remaining bytes into a new list.
+pub/ fn read_to_end(alloc: *mut Allocator, reader: *mut Reader) ?List[u8] {
+    let out = List[u8].{}..&;
+    let mut scratch = [256]u8.{undef};
+    while (true) {
+        let n = reader.read(scratch..[0 .. 256]);
+        if (n == 0) {
+            return .{ Some: out.* };
+        }
+        if (!out.append_slice(alloc, scratch.[0 .. n])) {
+            out.deinit(alloc);
+            return .None;
+        }
+    }
+}

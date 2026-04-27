@@ -1,0 +1,105 @@
+//! In-memory writer adapters.
+
+use base.coll.String;
+use base.mem.alloc.Allocator;
+use base.num;
+use ..traits.Writer;
+
+/// Writes into a caller-provided byte slice.
+pub/ type FixedBufferWriter = struct {
+    buffer: []mut u8,
+    written: usize = 0,
+    overflowed: bool = false,
+};
+
+/// Writes into an owned `String` using a caller-provided allocator.
+pub/ type StringWriter = struct {
+    alloc: *mut Allocator,
+    string: *mut String,
+    failed: bool = false,
+};
+
+impl *mut FixedBufferWriter : Writer {
+    pub fn write(buf: []u8) usize {
+        if (#buf == 0) {
+            return 0;
+        }
+        if (self.written >= #self.buffer) {
+            self.overflowed = true;
+            return 0;
+        }
+
+        let available = #self.buffer - self.written;
+        let count = num.min[usize](available, #buf);
+        let out = (self.buffer.[0]..& + self.written)..[0 .. count];
+        let _ = out.copy_from(buf.[0 .. count]);
+        self.written += count;
+        if (count < #buf) {
+            self.overflowed = true;
+        }
+        return count;
+    }
+}
+
+impl *mut StringWriter : Writer {
+    pub fn write(buf: []u8) usize {
+        if (#buf == 0) {
+            return 0;
+        }
+        if (self.failed) {
+            return 0;
+        }
+        if (!self.string.push_str(self.alloc, buf)) {
+            self.failed = true;
+            return 0;
+        }
+        return #buf;
+    }
+}
+
+impl *mut FixedBufferWriter {
+    /// Returns all bytes successfully written so far.
+    pub fn as_slice() []u8 {
+        return self.buffer.[0 .. self.written];
+    }
+
+    /// Returns the remaining capacity in bytes.
+    pub fn remaining() usize {
+        return #self.buffer - self.written;
+    }
+
+    /// Returns `true` when a write could not fully fit.
+    pub fn did_overflow() bool {
+        return self.overflowed;
+    }
+}
+
+impl *mut StringWriter {
+    /// Returns `true` when an allocation failure prevented a full write.
+    pub fn did_fail() bool {
+        return self.failed;
+    }
+}
+
+/// Creates a writer over `buffer`.
+pub/ fn fixed_buffer(buffer: []mut u8) FixedBufferWriter {
+    return .{ buffer: buffer };
+}
+
+/// Creates a writer that appends to `string`.
+pub/ fn string_writer(alloc: *mut Allocator, string: *mut String) StringWriter {
+    return .{ alloc: alloc, string: string };
+}
+
+/// Writes the full byte slice unless the writer reports no forward progress.
+pub/ fn write_all(writer: *mut Writer, buf: []u8) bool {
+    let mut written = usize.{0};
+    while (written < #buf) {
+        let n = writer.write(buf.[written .. #buf]);
+        if (n == 0) {
+            return false;
+        }
+        written += n;
+    }
+    return true;
+}

@@ -429,6 +429,149 @@ fn main() i32 {
 }
 
 #[test]
+fn hosted_std_io_formats_to_memory_writers() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_io_memory_writers",
+        r#"
+use std.io.{Writer, format_to, fixed_buffer, string_writer, write_all};
+use base.coll.String;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {
+    let mut fixed_storage = [64]u8.{undef};
+    let mut fixed = fixed_buffer(fixed_storage..[0 .. 64]);
+    let fixed_writer = *mut Writer.{ fixed..& };
+    format_to(fixed_writer, "{}{} {{}} {}", .{ 12, "ab", false, });
+    if (fixed..&.as_slice() != "12ab {} false") {
+        return 1;
+    }
+    if (fixed..&.did_overflow()) {
+        return 2;
+    }
+
+    let mut small_storage = [5]u8.{undef};
+    let mut small = fixed_buffer(small_storage..[0 .. 5]);
+    let small_writer = *mut Writer.{ small..& };
+    if (write_all(small_writer, "abcdef")) {
+        return 3;
+    }
+    if (small..&.as_slice() != "abcde") {
+        return 4;
+    }
+    if (!small..&.did_overflow()) {
+        return 5;
+    }
+
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+
+    let out = String.{}..&;
+    defer out.deinit(gpa);
+    let mut string_sink = string_writer(gpa, out);
+    let string_writer_obj = *mut Writer.{ string_sink..& };
+    format_to(string_writer_obj, "[{}{}] {{x}}", .{ "id-", usize.{7}, });
+    if (string_sink..&.did_fail()) {
+        return 6;
+    }
+    if (out.as_str() != "[id-7] {x}") {
+        return 7;
+    }
+
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std io memory writer program to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn hosted_std_io_reads_from_memory_readers() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_io_memory_readers",
+        r#"
+use std.io.{Reader, slice_reader, read_exact, read_to_end, skip};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {
+    let mut reader = slice_reader("abcdef");
+    let reader_obj = *mut Reader.{ reader..& };
+
+    let mut head = [2]u8.{undef};
+    if (!read_exact(reader_obj, head..[0 .. 2])) {
+        return 1;
+    }
+    if (head.[0 .. 2] != "ab") {
+        return 2;
+    }
+    if (reader..&.remaining() != 4 or reader..&.remaining_slice() != "cdef") {
+        return 3;
+    }
+    if (skip(reader_obj, 2) != 2) {
+        return 4;
+    }
+
+    let mut tail = [3]u8.{undef};
+    if (read_exact(reader_obj, tail..[0 .. 3])) {
+        return 5;
+    }
+    if (tail.[0] != b'e' or tail.[1] != b'f') {
+        return 6;
+    }
+    if (!reader..&.is_empty()) {
+        return 7;
+    }
+
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+
+    let mut reader2 = slice_reader("kern-io");
+    let reader2_obj = *mut Reader.{ reader2..& };
+    let mut bytes = match (read_to_end(gpa, reader2_obj)) {
+        .{ Some: list } => list,
+        .None => return 8,
+    };
+    defer bytes..&.deinit(gpa);
+    if (bytes..&.as_slice() != "kern-io") {
+        return 9;
+    }
+    if (skip(reader2_obj, 1) != 0) {
+        return 10;
+    }
+
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std io memory reader program to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn test_expect_err_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_expect_err_fail",

@@ -5,6 +5,11 @@ pub/ type Writer = trait {
     write: fn([]u8) usize,
 };
 
+/// A byte source used by generic input helpers.
+pub/ type Reader = trait {
+    read: fn([]mut u8) usize,
+};
+
 /// A value that knows how to render itself into a `Writer`.
 pub/ type Printable = trait {
     fmt: fn(*mut Writer) void,

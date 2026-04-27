@@ -2056,6 +2056,7 @@ root = "src/main.rn"
     .unwrap();
 
     assert!(root.join("Craft.lock").is_file());
+    fs::remove_file(root.join("Craft.lock")).unwrap();
 
     run_command(Command::Build {
         path: Some(root.clone()),
@@ -2064,6 +2065,104 @@ root = "src/main.rn"
         include_examples: false,
     })
     .unwrap();
+
+    assert!(root.join("Craft.lock").is_file());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn build_updates_lockfile_after_manifest_changes() {
+    let root = temp_dir("craft-cli-build-lock-update");
+    write_minimal_bin_package(&root);
+
+    run_command(Command::Build {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        include_examples: false,
+    })
+    .unwrap();
+
+    let initial = fs::read_to_string(root.join("Craft.lock")).unwrap();
+    assert!(initial.contains("version = \"0.1.0\""));
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.2.0"
+kern = "0.7.2"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+
+    run_command(Command::Build {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        include_examples: false,
+    })
+    .unwrap();
+
+    let updated = fs::read_to_string(root.join("Craft.lock")).unwrap();
+    assert!(updated.contains("version = \"0.2.0\""));
+    assert!(!updated.contains("version = \"0.1.0\""));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn member_build_recreates_deleted_workspace_lockfile() {
+    let root = temp_dir("craft-cli-member-lock-recreate");
+    let member = root.join("member");
+    fs::create_dir_all(member.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "[workspace]\nmembers = [\"member\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        member.join("Craft.toml"),
+        r#"
+[package]
+name = "member"
+version = "0.1.0"
+kern = "0.7.2"
+
+[[bin]]
+name = "member"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+    run_command(Command::Build {
+        path: Some(member.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        include_examples: false,
+    })
+    .unwrap();
+
+    fs::remove_file(root.join("Craft.lock")).unwrap();
+
+    run_command(Command::Build {
+        path: Some(member.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        include_examples: false,
+    })
+    .unwrap();
+
+    assert!(root.join("Craft.lock").is_file());
+    assert!(!member.join("Craft.lock").exists());
 
     let _ = fs::remove_dir_all(root);
 }

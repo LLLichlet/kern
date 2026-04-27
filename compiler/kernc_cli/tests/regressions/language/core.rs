@@ -209,6 +209,41 @@ fn main() i32 {
 }
 
 #[test]
+fn immutable_subslice_method_miss_suggests_mutable_slice_syntax() {
+    let output = compile_source_with_std(
+        r#"
+use base.coll;
+
+fn main() i32 {
+    let mut values = [4]i32.{ 1, 2, 3, 4 };
+    let view = values..[0 .. 4];
+    view.[0 .. 2].reverse();
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no field or method named `reverse` found on type `[]i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("use `..[start .. end]` when you need a mutable subslice"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn runs_explicit_slice_literals_with_local_backing_storage() {
     let output = build_and_run_source(
         r#"

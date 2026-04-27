@@ -1354,10 +1354,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // No field or method matched. Emit the detailed fallback diagnostic.
         let miss_started = self.timing_start();
-        let field_str = self.ctx.resolve(field);
+        let field_str = self.ctx.resolve(field).to_string();
         let lhs_str = self.ctx.ty_to_string(lhs_ty);
 
-        self.ctx
+        let mutable_slice_hint = self.mutable_slice_method_hint(lhs, lhs_ty, field, span);
+        let mut diag = self
+            .ctx
             .struct_error(
                 span,
                 format!(
@@ -1368,8 +1370,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .with_hint(
                 "if this is a method, ensure the trait defining it is imported and implemented",
             )
-            .with_hint("if this is a struct field, check for typos")
-            .emit();
+            .with_hint("if this is a struct field, check for typos");
+        if let Some(hint) = mutable_slice_hint {
+            diag = diag.with_hint(hint);
+        }
+        diag.emit();
         self.record_expr_timing(miss_started, |stats, elapsed| {
             stats.access_field_miss += elapsed;
         });
@@ -1432,6 +1437,42 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // semantic state, but it does not resize or replace `ctx.analysis.active_bounds`.
         let env = unsafe { MemberQueryEnv::from_active_bounds(&*active_bounds_ptr) };
         query.resolve_named_member(current_module_id, lhs_ty, field, &env, span)
+    }
+
+    fn mutable_slice_method_hint(
+        &mut self,
+        lhs: &Expr,
+        lhs_ty: TypeId,
+        field: SymbolId,
+        span: Span,
+    ) -> Option<&'static str> {
+        let ast::ExprKind::SliceOp { is_mut: false, .. } = &lhs.kind else {
+            return None;
+        };
+
+        let lhs_norm = self.resolve_tv(lhs_ty);
+        let TypeKind::Slice {
+            is_mut: false,
+            elem,
+        } = self.ctx.type_registry.get(lhs_norm).clone()
+        else {
+            return None;
+        };
+
+        let mutable_slice_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Slice { is_mut: true, elem });
+        if self
+            .try_find_method_silent(mutable_slice_ty, field, span)
+            .is_none()
+        {
+            return None;
+        }
+
+        Some(
+            "the receiver is an immutable slice produced by `.[start .. end]`; use `..[start .. end]` when you need a mutable subslice",
+        )
     }
 
     pub(crate) fn try_find_method_silent(

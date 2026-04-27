@@ -13,7 +13,7 @@ use crate::test_support::{
     FAILPOINT_AFTER_LINK_STATE_WRITE, FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
 };
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand};
 use std::sync::mpsc;
 use std::thread;
@@ -46,6 +46,78 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+}
+
+fn write_minimal_lib_package(root: &Path) {
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.2"
+
+[lib]
+root = "src/lib.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.rn"), "pub fn demo() void {}\n").unwrap();
+}
+
+fn write_publishable_bin_package(root: &Path) {
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.2"
+description = "Demo package"
+license = "MIT"
+authors = ["Demo <demo@example.com>"]
+readme = "README.md"
+repository = "https://example.com/demo"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("README.md"), "# demo\n").unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+}
+
+fn assert_lockfile_is_current(root: &Path) {
+    let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
+    assert!(lockfile.contains("manifest = \"Craft.toml\""));
+    assert!(lockfile.contains("name = \"demo\""));
+    assert!(!lockfile.contains("partial lockfile"));
+}
+
+fn assert_command_resyncs_missing_and_damaged_lockfile(
+    prefix: &str,
+    setup: impl Fn(&Path),
+    mut command: impl FnMut(&Path) -> Command,
+) {
+    let root = temp_dir(prefix);
+    setup(&root);
+
+    run_command(command(&root)).unwrap();
+    assert_lockfile_is_current(&root);
+
+    fs::remove_file(root.join("Craft.lock")).unwrap();
+    run_command(command(&root)).unwrap();
+    assert_lockfile_is_current(&root);
+
+    fs::write(root.join("Craft.lock"), "partial lockfile\n").unwrap();
+    run_command(command(&root)).unwrap();
+    assert_lockfile_is_current(&root);
+
+    let _ = fs::remove_dir_all(root);
 }
 
 fn arg_check_source(first: &str, second: &str) -> String {
@@ -2025,6 +2097,108 @@ root = "src/main.rn"
     );
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn package_graph_commands_resync_missing_and_damaged_lockfiles() {
+    assert_command_resyncs_missing_and_damaged_lockfile(
+        "craft-cli-check-lock-resync",
+        write_minimal_bin_package,
+        |root| Command::Check {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+        },
+    );
+    assert_command_resyncs_missing_and_damaged_lockfile(
+        "craft-cli-fetch-lock-resync",
+        write_minimal_bin_package,
+        |root| Command::Fetch {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+        },
+    );
+    assert_command_resyncs_missing_and_damaged_lockfile(
+        "craft-cli-publish-lock-resync",
+        write_publishable_bin_package,
+        |root| Command::Publish {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection {
+                profile: crate::script::ProfileSelection::Release,
+                ..Default::default()
+            },
+            ui: UiOptions::default(),
+        },
+    );
+    assert_command_resyncs_missing_and_damaged_lockfile(
+        "craft-cli-doc-lock-resync",
+        write_minimal_lib_package,
+        |root| Command::Doc {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+        },
+    );
+    assert_command_resyncs_missing_and_damaged_lockfile(
+        "craft-cli-build-lock-resync",
+        write_minimal_bin_package,
+        |root| Command::Build {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            include_examples: false,
+        },
+    );
+
+    let install_root = temp_dir("craft-cli-install-lock-resync-root");
+    assert_command_resyncs_missing_and_damaged_lockfile(
+        "craft-cli-install-lock-resync",
+        write_minimal_bin_package,
+        |root| Command::Install {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            selection: InstallSelection::AllBins,
+            root: Some(install_root.clone()),
+        },
+    );
+    let _ = fs::remove_dir_all(install_root);
+
+    let uninstall_root = temp_dir("craft-cli-uninstall-lock-resync-root");
+    assert_command_resyncs_missing_and_damaged_lockfile(
+        "craft-cli-uninstall-lock-resync",
+        write_minimal_bin_package,
+        |root| Command::Uninstall {
+            path: Some(root.to_path_buf()),
+            ui: UiOptions::default(),
+            selection: InstallSelection::AllBins,
+            root: Some(uninstall_root.clone()),
+        },
+    );
+    let _ = fs::remove_dir_all(uninstall_root);
+
+    assert_command_resyncs_missing_and_damaged_lockfile(
+        "craft-cli-run-lock-resync",
+        write_minimal_bin_package,
+        |root| Command::Run {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            selection: RunSelection::DefaultBin,
+            runtime_args: Vec::new(),
+        },
+    );
+    assert_command_resyncs_missing_and_damaged_lockfile(
+        "craft-cli-test-lock-resync",
+        write_bin_and_test_package,
+        |root| Command::Test {
+            path: Some(root.to_path_buf()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            runtime_args: Vec::new(),
+        },
+    );
 }
 
 #[test]

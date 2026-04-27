@@ -307,7 +307,7 @@ type Point = struct {
   * **Default fields**: `type Config = struct { port: u16 = 8080, host: u32 = 0 };`
   * **Zero-Cost Memory Layout**: By default, Kern employs a highly optimized physical layout engine. It aggressively reorders struct fields at compile-time (descending by alignment requirements, then size) to eliminate memory padding (empty holes). 
   * **C-ABI Compatibility (`extern`)**: If a struct must strictly maintain its source-code declaration order to interface with C or hardware, it must be prefixed with `extern` (e.g., `extern type Header = struct { ... };`). This disables reordering and guarantees standard C-ABI layout.
-  * **Strict Explicit Binding**: To prevent syntactic ambiguity with array literals and to strictly adhere to Kern's "explicit over implicit" philosophy, elided field initialization (e.g., `Point.{x, y}`) is strictly forbidden. All fields must be explicitly bound using the `field: value` syntax, even if the local variable name perfectly matches the field name (`x: x`).
+  * **Field puns in typed initialization**: Explicit field binding remains the canonical form (`x: x`), but typed struct initialization may use field puns when the field name and local binding name match (e.g., `Point.{x, y}`). Untyped `.{ ... }` keeps its existing contextual literal behavior and is not reclassified by syntax alone.
   * **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized, you must explicitly use `undef` (e.g., `priority = u8.{undef};`).
 
 ```kern
@@ -323,6 +323,9 @@ let y = i32.{20};
 // Standard explicit initialization
 // Kern forces explicit binding to guarantee absolute clarity
 let p3 = Point.{x: x, y: y};
+
+// Typed field-pun initialization
+let p4 = Point.{x, y};
 ```
 
 ### 5.2 Unions
@@ -852,6 +855,16 @@ match (value) {
     },
     .None => printf("Nothing\n\0"),
 }
+```
+
+Constructor syntax keeps the same surface form in pattern position. The
+compiler interprets `Type.{ ... }` as an enum payload pattern or a struct
+destructuring pattern after type checking the target type, and nested fields are
+recursively parsed as patterns:
+
+```kern
+Tree.{ Branch: Node.{ left: Leaf.Empty, right } } => use(right),
+Tree.{ Branch: Node.{ left: Leaf.Empty, right: right } } => use(right),
 ```
 
 ### 10.5 Refutable `let` and `let else`

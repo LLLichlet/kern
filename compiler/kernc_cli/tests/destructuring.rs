@@ -85,6 +85,96 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_fully_typed_nested_enum_struct_patterns_with_field_puns() {
+    let output = build_and_run_source(
+        r#"
+type Bit = enum {
+    Zero,
+    One,
+};
+
+type Leaf = enum {
+    Empty,
+    Full: Bit,
+};
+
+type Node = struct {
+    left: Leaf,
+    right: Leaf,
+};
+
+type Tree = enum {
+    Nil,
+    Branch: Node,
+};
+
+fn classify_pun(tree: Tree) i32 {
+    return match (tree) {
+        Tree.Nil => 0,
+        Tree.{ Branch: Node.{ left: Leaf.Empty, right } } => match (right) {
+            Leaf.Empty => 1,
+            Leaf.{ Full: Bit.Zero } => 2,
+            Leaf.{ Full: Bit.One } => 3,
+        },
+        Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.Zero }, right: right } } => match (right) {
+            Leaf.Empty => 4,
+            Leaf.{ Full: Bit.Zero } => 5,
+            Leaf.{ Full: Bit.One } => 6,
+        },
+        Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.One }, right } } => match (right) {
+            Leaf.Empty => 7,
+            Leaf.{ Full: Bit.Zero } => 8,
+            Leaf.{ Full: Bit.One } => 9,
+        },
+    };
+}
+
+fn main() i32 {
+    let a = classify_pun(Tree.{ Branch: Node.{ left: Leaf.Empty, right: Leaf.{ Full: Bit.One } } });
+    let b = classify_pun(Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.Zero }, right: Leaf.Empty } });
+    let c = classify_pun(Tree.{ Branch: Node.{ left: Leaf.{ Full: Bit.One }, right: Leaf.{ Full: Bit.Zero } } });
+    return a + b + c;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(15),
+        "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_typed_struct_initialization_with_field_puns() {
+    let output = build_and_run_source(
+        r#"
+type Point = struct {
+    x: i32,
+    y: i32,
+};
+
+fn main() i32 {
+    let x = 4;
+    let y = 9;
+    let point = Point.{ x, y };
+    return point.x + point.y;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(13),
+        "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_mut_binding_inside_struct_pattern() {
     let output = build_and_run_source(
         r#"

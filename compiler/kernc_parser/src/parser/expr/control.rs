@@ -552,6 +552,17 @@ impl<'a> Parser<'a> {
         let target_type = self.parse_type()?;
         if self.match_token(&[TokenType::DotLBrace]) {
             self.parse_braced_destructure_pattern(Some(Box::new(target_type)), start_span)
+        } else if let Some((target_type, variant)) =
+            self.split_trailing_variant(target_type.clone())
+        {
+            Ok(Pattern {
+                span: start_span.to(variant.name_span),
+                kind: PatternKind::Variant(VariantPattern {
+                    target_type: Some(Box::new(target_type)),
+                    variant_name: variant.name,
+                    variant_span: variant.name_span,
+                }),
+            })
         } else {
             self.expect(TokenType::Dot)?;
             let variant = self.parse_unit_variant_pattern_after_dot(Some(Box::new(target_type)))?;
@@ -639,17 +650,50 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn lookahead_type_path_end(&mut self, start: usize) -> Option<usize> {
+    fn split_trailing_variant(
+        &mut self,
+        type_node: TypeNode,
+    ) -> Option<(TypeNode, TypePathSegment)> {
+        let TypeKind::Path { anchor, segments } = type_node.kind else {
+            return None;
+        };
+        if segments.len() < 2 {
+            return None;
+        }
+
+        let mut target_segments = segments;
+        let variant = target_segments.pop()?;
+        if !variant.args.is_empty() {
+            return None;
+        }
+        let target_span = target_segments
+            .iter()
+            .flat_map(|segment| {
+                std::iter::once(segment.name_span).chain(segment.args.iter().map(|arg| match arg {
+                    GenericArg::Type(ty) => ty.span,
+                    GenericArg::ConstExpr(expr) => expr.span,
+                    GenericArg::AssocBinding { value, .. } => value.span,
+                }))
+            })
+            .reduce(|span, next| span.to(next))
+            .unwrap_or(type_node.span);
+        let target_type = TypeNode {
+            id: self.new_id(),
+            span: target_span,
+            kind: TypeKind::Path {
+                anchor,
+                segments: target_segments,
+            },
+        };
+        Some((target_type, variant))
+    }
+
+    fn lookahead_type_path_segment_end(&mut self, start: usize) -> Option<usize> {
         if self.stream.peek_tag_nth(start) != TokenType::Identifier {
             return None;
         }
 
         let mut index = start + 1;
-        while self.stream.peek_tag_nth(index) == TokenType::Dot
-            && self.stream.peek_tag_nth(index + 1) == TokenType::Identifier
-        {
-            index += 2;
-        }
 
         if self.stream.peek_tag_nth(index) == TokenType::LBracket {
             let mut depth = 1;
@@ -666,6 +710,19 @@ impl<'a> Parser<'a> {
         }
 
         Some(index)
+    }
+
+    fn lookahead_type_path_end(&mut self, start: usize) -> Option<(usize, usize)> {
+        let mut index = self.lookahead_type_path_segment_end(start)?;
+        let mut segments = 1;
+        while self.stream.peek_tag_nth(index) == TokenType::Dot
+            && self.stream.peek_tag_nth(index + 1) == TokenType::Identifier
+        {
+            index = self.lookahead_type_path_segment_end(index + 1)?;
+            segments += 1;
+        }
+
+        Some((index, segments))
     }
 
     fn lookahead_destructure_pattern_end(&mut self, start: usize) -> Option<usize> {
@@ -706,7 +763,7 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenType::Identifier => {
-                if let Some(index) = self.lookahead_type_path_end(start) {
+                if let Some((index, segments)) = self.lookahead_type_path_end(start) {
                     match self.stream.peek_tag_nth(index) {
                         TokenType::Dot => {
                             if self.stream.peek_tag_nth(index + 1) == TokenType::Identifier {
@@ -717,6 +774,9 @@ impl<'a> Parser<'a> {
                             return self.lookahead_destructure_pattern_end(index + 1);
                         }
                         _ => {}
+                    }
+                    if segments >= 2 {
+                        return Some(index);
                     }
                 }
 
@@ -745,19 +805,19 @@ impl<'a> Parser<'a> {
     }
 
     fn looks_like_typed_pattern(&mut self) -> bool {
-        let Some(index) = self.lookahead_type_path_end(0) else {
+        let Some((index, segments)) = self.lookahead_type_path_end(0) else {
             return false;
         };
 
         match self.stream.peek_tag_nth(index) {
             TokenType::Dot => self.stream.peek_tag_nth(index + 1) == TokenType::Identifier,
             TokenType::DotLBrace => self.lookahead_destructure_pattern_end(index + 1).is_some(),
-            _ => false,
+            _ => segments >= 2,
         }
     }
 
     fn looks_like_typed_destructure_pattern(&mut self) -> bool {
-        let Some(index) = self.lookahead_type_path_end(0) else {
+        let Some((index, _)) = self.lookahead_type_path_end(0) else {
             return false;
         };
 

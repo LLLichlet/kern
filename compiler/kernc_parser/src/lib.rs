@@ -366,7 +366,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn parses_generic_enum_variant_match_arm_as_value_pattern() {
+    fn parses_generic_enum_variant_match_arm_patterns() {
         let source = r#"
 type Mode = enum {
     Off,
@@ -426,13 +426,13 @@ fn pick(value: Box[Mode]) i32 {
             panic!("expected generic enum namespace in variant value pattern");
         };
 
-        let ast::MatchPatternKind::Value(value) = &arms[1].patterns[0].kind else {
-            panic!("expected generic payload variant literal to parse as a value pattern");
+        let ast::MatchPatternKind::Pattern(pattern) = &arms[1].patterns[0].kind else {
+            panic!("expected generic payload variant to parse as a pattern");
         };
-        let ast::ExprKind::DataInit { type_node, .. } = &value.kind else {
-            panic!("expected typed enum payload value pattern");
+        let ast::PatternKind::Destructure(destructure) = &pattern.kind else {
+            panic!("expected typed enum payload destructuring pattern");
         };
-        assert!(type_node.is_some());
+        assert!(destructure.target_type.is_some());
     }
 
     #[test]

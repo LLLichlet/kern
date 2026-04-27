@@ -289,8 +289,13 @@ impl<'a> Parser<'a> {
             });
         }
 
-        let is_struct_mode =
-            self.check(TokenType::Identifier) && self.stream.peek_nth(1).tag == TokenType::Colon;
+        let is_struct_mode = self.check(TokenType::Identifier)
+            && (self.stream.peek_nth(1).tag == TokenType::Colon
+                || (type_node.is_some()
+                    && matches!(
+                        self.stream.peek_nth(1).tag,
+                        TokenType::Comma | TokenType::RBrace
+                    )));
 
         if is_struct_mode {
             return self.parse_struct_data_init(type_node, start_span);
@@ -370,26 +375,20 @@ impl<'a> Parser<'a> {
             let name = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name);
 
-            if self.expect(TokenType::Colon).is_err() {
-                let name_str = self.session.resolve(name_id).to_string();
-                self.session
-                    .struct_error(
-                        name.span,
-                        "explicit field names are required in struct/union initialization",
-                    )
-                    .with_hint(format!(
-                        "Kern does not support elided fields. Write `{name_str}: {name_str}` instead."
-                    ))
-                    .emit();
-                return Err(ParseError);
-            }
-
-            let val = match self.parse_expression(Precedence::Lowest) {
-                Ok(expr) => expr,
-                Err(ParseError) => {
-                    let err_span = self.peek().span;
-                    self.recover_data_init_until(&[TokenType::Comma, TokenType::RBrace]);
-                    self.placeholder_expr(err_span)
+            let val = if self.match_token(&[TokenType::Colon]) {
+                match self.parse_expression(Precedence::Lowest) {
+                    Ok(expr) => expr,
+                    Err(ParseError) => {
+                        let err_span = self.peek().span;
+                        self.recover_data_init_until(&[TokenType::Comma, TokenType::RBrace]);
+                        self.placeholder_expr(err_span)
+                    }
+                }
+            } else {
+                Expr {
+                    id: self.new_id(),
+                    span: name.span,
+                    kind: ExprKind::Identifier(name_id),
                 }
             };
             let field_span = name.span.to(val.span);

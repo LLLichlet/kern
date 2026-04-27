@@ -9,7 +9,7 @@ use crate::manifest::Manifest;
 use crate::resolver::ExternalPackageId;
 use crate::target_defaults::apply_target_runtime_defaults;
 use kernc_utils::config::{
-    CompileOptions, DriverMode, LinkerInputFlavor, LtoMode, OptLevel,
+    CompileOptions, DriverMode, LibraryBundle, LinkerInputFlavor, LtoMode, OptLevel,
     inject_driver_condition_defines, maybe_add_base_alias, maybe_add_std_alias,
     maybe_add_sys_alias,
 };
@@ -25,11 +25,12 @@ fn default_target_compile_options(target_kind: crate::plan::TargetKind) -> Compi
 }
 
 fn inject_target_library_aliases(options: &mut CompileOptions) {
-    if options.module_interface_aliases.contains_key("std") {
-        return;
+    if !options.module_interface_aliases.contains_key("base") {
+        maybe_add_base_alias(options);
     }
-    maybe_add_base_alias(options);
-    maybe_add_sys_alias(options);
+    if !options.module_interface_aliases.contains_key("sys") {
+        maybe_add_sys_alias(options);
+    }
     if !options.module_interface_aliases.contains_key("std") {
         maybe_add_std_alias(options);
     }
@@ -61,7 +62,7 @@ fn compile_time_defines(
     Ok(values)
 }
 
-fn apply_manifest_runtime_options(
+pub(super) fn apply_manifest_runtime_options(
     manifest_path: &Path,
     manifest_runtime_options: &mut BTreeMap<std::path::PathBuf, ManifestRuntimeOptions>,
     target_kind: crate::plan::TargetKind,
@@ -214,12 +215,21 @@ pub(super) fn compile_action_options(
         &mut options,
     )?;
     apply_host_linker_env(&mut options);
+    let std_package = matches!(options.library_bundle, LibraryBundle::Std)
+        .then(|| built_std_packages.get(&runtime_profile_key(&action.profile)))
+        .flatten();
     options.module_interface_aliases = compile_module_aliases(
         action,
         local_library_actions,
-        built_std_packages.get(&runtime_profile_key(&action.profile)),
+        std_package,
         built_external_packages,
     )?;
+    if action.target_kind == crate::plan::TargetKind::Lib {
+        options.module_aliases.insert(
+            action.package_id.name.clone(),
+            action.source_path().to_string_lossy().to_string(),
+        );
+    }
     inject_target_library_aliases(&mut options);
     inject_driver_condition_defines(&mut options);
     options.custom_defines.extend(compile_time_defines(
@@ -297,6 +307,7 @@ pub(super) fn apply_host_linker_env(options: &mut CompileOptions) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{BuiltStdPackage, runtime_profile_key};
     use super::{
         compile_action_options, profile_emit_multi_linker_input_dir, profile_linker_input_flavor,
     };
@@ -304,9 +315,10 @@ mod tests {
     use crate::graph::{BuildDomain, PackageId, SourceId};
     use crate::plan::TargetKind;
     use crate::script::ScriptProfile;
-    use kernc_utils::config::{LinkerInputFlavor, LtoMode};
+    use kernc_utils::config::{LibraryBundle, LinkerInputFlavor, LtoMode};
     use std::collections::BTreeMap;
     use std::fs;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn profile(codegen_units: usize, lto_mode: LtoMode) -> ScriptProfile {
@@ -332,6 +344,58 @@ mod tests {
         let path = std::env::temp_dir().join(unique);
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    fn lib_action(root: &Path, package_name: &str, manifest_path: PathBuf) -> CompileAction {
+        let source_path = root.join("src/lib.rn");
+        CompileAction {
+            domain: BuildDomain::Target,
+            package_id: PackageId {
+                name: package_name.to_string(),
+                version: "0.1.0".to_string(),
+                source: SourceId::Root,
+            },
+            manifest_path,
+            target_kind: TargetKind::Lib,
+            target_name: None,
+            artifact_name: package_name.to_string(),
+            generated_root_path: root.join("gen"),
+            source_input: CompileSourceInput::AbsolutePath(source_path),
+            metadata_path: Some(root.join("meta")),
+            object_path: root.join(format!("{package_name}.o")),
+            artifact_path: root.join(format!("lib{package_name}.a")),
+            profile: ScriptProfile {
+                name: "dev".to_string(),
+                opt: 0,
+                debug: true,
+                codegen_units: 1,
+                lto_mode: LtoMode::None,
+            },
+            cfg: BTreeMap::new(),
+            define: BTreeMap::new(),
+            compile_inputs: Vec::new(),
+            local_dependencies: Vec::new(),
+            external_dependencies: Vec::new(),
+        }
+    }
+
+    fn built_std_package(
+        root: &Path,
+        profile: &ScriptProfile,
+    ) -> BTreeMap<String, BuiltStdPackage> {
+        BTreeMap::from([(
+            runtime_profile_key(profile),
+            BuiltStdPackage {
+                metadata_root_path: root.join("prebuilt-std"),
+                common_link_objects: Vec::new(),
+                hosted_entry_object_path: root.join("hosted-entry.o"),
+                freestanding_entry_object_path: root.join("freestanding-entry.o"),
+                interface_aliases: BTreeMap::from([
+                    ("base".to_string(), root.join("prebuilt-base")),
+                    ("sys".to_string(), root.join("prebuilt-sys")),
+                ]),
+            },
+        )])
     }
 
     #[test]
@@ -429,6 +493,96 @@ mod tests {
         .unwrap();
 
         assert!(options.debug_info);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn base_bundle_lib_targets_do_not_import_prebuilt_std_interfaces() {
+        let root = temp_dir("craft-base-bundle-aliases");
+        let manifest_path = root.join("Craft.toml");
+        fs::write(
+            &manifest_path,
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.2"
+
+[runtime]
+bundle = "base"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        let action = lib_action(&root, "demo", manifest_path);
+        let built_std_packages = built_std_package(&root, &action.profile);
+        let mut manifest_runtime_options = BTreeMap::new();
+
+        let options = compile_action_options(
+            crate::script::ScriptCommand::Build,
+            &action,
+            &BTreeMap::new(),
+            &built_std_packages,
+            &BTreeMap::new(),
+            &mut manifest_runtime_options,
+        )
+        .unwrap();
+
+        assert_eq!(options.library_bundle, LibraryBundle::Base);
+        assert!(!options.module_interface_aliases.contains_key("std"));
+        assert!(!options.module_interface_aliases.contains_key("base"));
+        assert_eq!(
+            options.module_aliases.get("demo").map(String::as_str),
+            Some(action.source_path().to_string_lossy().as_ref())
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn std_named_lib_targets_keep_the_std_alias_for_their_own_source() {
+        let root = temp_dir("craft-std-self-alias");
+        let manifest_path = root.join("Craft.toml");
+        fs::write(
+            &manifest_path,
+            r#"
+[package]
+name = "std"
+version = "0.1.0"
+kern = "0.7.2"
+
+[runtime]
+bundle = "std"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        let action = lib_action(&root, "std", manifest_path);
+        let built_std_packages = built_std_package(&root, &action.profile);
+        let mut manifest_runtime_options = BTreeMap::new();
+
+        let options = compile_action_options(
+            crate::script::ScriptCommand::Build,
+            &action,
+            &BTreeMap::new(),
+            &built_std_packages,
+            &BTreeMap::new(),
+            &mut manifest_runtime_options,
+        )
+        .unwrap();
+
+        assert_eq!(options.library_bundle, LibraryBundle::Std);
+        assert!(!options.module_interface_aliases.contains_key("std"));
+        assert!(options.module_interface_aliases.contains_key("base"));
+        assert_eq!(
+            options.module_aliases.get("std").map(String::as_str),
+            Some(action.source_path().to_string_lossy().as_ref())
+        );
 
         let _ = fs::remove_dir_all(root);
     }

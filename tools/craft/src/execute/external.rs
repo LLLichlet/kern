@@ -15,9 +15,11 @@ use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph}
 use crate::source;
 use crate::target_defaults::apply_target_runtime_defaults;
 use crate::workspace;
-use kernc_utils::config::{CompileOptions, RuntimeEntry};
+use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+
+use super::options::apply_manifest_runtime_options;
 
 fn push_linker_inputs_for_primary_output(
     objects: &mut Vec<PathBuf>,
@@ -194,12 +196,25 @@ pub(super) fn build_external_package(
         &dep.package_name,
         dep.version.as_deref(),
     )?;
+    let mut root_options = CompileOptions::default();
+    apply_target_runtime_defaults(&mut root_options, root_library_action.target_kind);
+    apply_manifest_runtime_options(
+        &root_library_action.manifest_path,
+        external.manifest_runtime_options,
+        root_library_action.target_kind,
+        &mut root_options,
+    )?;
+    let std_package = matches!(root_options.library_bundle, LibraryBundle::Std)
+        .then(|| {
+            external
+                .built_std_packages
+                .get(&runtime_profile_key(&root_library_action.profile))
+        })
+        .flatten();
     let module_aliases = module_alias_paths(
         root_library_action,
         &loaded.local_library_actions,
-        external
-            .built_std_packages
-            .get(&runtime_profile_key(&root_library_action.profile)),
+        std_package,
         external.built_external_packages,
     )?;
     let link_objects = if config.command == crate::script::ScriptCommand::Check {
@@ -551,7 +566,9 @@ pub(super) fn module_alias_paths(
 ) -> Result<BTreeMap<String, PathBuf>> {
     let mut aliases = BTreeMap::new();
     if let Some(std_package) = std_package {
-        aliases.insert("std".to_string(), std_package.metadata_root_path.clone());
+        if root_action.package_id.name != "std" {
+            aliases.insert("std".to_string(), std_package.metadata_root_path.clone());
+        }
         aliases.extend(std_package.interface_aliases.clone());
     }
     let mut visited_local = BTreeSet::new();

@@ -62,6 +62,7 @@ extern {
     pub fn FindClose(hFindFile: Handle) i32;
     pub fn GetFileAttributesExW(lpFileName: *u16, fInfoLevelId: u32, lpFileInformation: *mut Win32FileAttributeData) i32;
     pub fn GetLastError() u32;
+    pub fn GetCurrentProcessId() u32;
     pub fn ExitProcess(uExitCode: u32) void;
     pub fn SetErrorMode(uMode: u32) u32;
     pub fn GetCommandLineW() *mut u16;
@@ -327,6 +328,11 @@ pub fn get_environment_strings() *mut u8 {
 /// Releases a process environment block returned by `get_environment_strings`.
 pub fn free_environment_strings(block: *mut u8) void {
     let _ = FreeEnvironmentStringsA(block);
+}
+
+/// Returns the current process identifier.
+pub fn process_id() usize {
+    return GetCurrentProcessId() as usize;
 }
 
 /// Returns the process handle for standard input.

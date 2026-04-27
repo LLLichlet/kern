@@ -33,6 +33,7 @@ const DEFAULT_MODE = usize.{420};
 const MODE_DIR = usize.{493};
 const SYS_IOCTL = usize.{16};
 const SYS_DUP2 = usize.{33};
+const SYS_GETPID = usize.{39};
 const SYS_FORK = usize.{57};
 const SYS_EXECVE = usize.{59};
 const SYS_WAIT4 = usize.{61};
@@ -126,6 +127,22 @@ pub type ProcessCapture = struct {
     pub output: String,
     pub status: i32,
 };
+
+fn syscall0_raw(sys_num: usize) isize {
+    let mut ret = isize.{undef};
+
+    @asm(.{
+        asm: "syscall",
+        outputs: .{ rax: ret..& },
+        inputs: .{
+            rax: sys_num,
+        },
+        clobbers: .{ "rcx", "r11", "memory" },
+        volatile: true
+    });
+
+    return ret;
+}
 
 fn syscall1_raw(sys_num: usize, arg1: usize) isize {
     let mut ret = isize.{undef};
@@ -285,6 +302,11 @@ pub fn environment_entries() ?**u8 {
         return .None;
     }
     return .{ Some: PROCESS_ENV as **u8 };
+}
+
+/// Returns the current process identifier.
+pub fn process_id() usize {
+    return syscall0_raw(SYS_GETPID) as usize;
 }
 
 /// Returns the process handle for standard input.

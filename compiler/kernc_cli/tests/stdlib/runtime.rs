@@ -68,6 +68,10 @@ use std.proc;
 
 fn main(argc: i32, argv: **u8) i32 {
     let args = proc.args(argc, argv);
+    let pid = proc.process_id();
+    if (pid == 0) {
+        return 1;
+    }
     let _ = args.len();
     let _ = args.contains("--help");
     let _ = args.position("--help");
@@ -356,6 +360,45 @@ fn main() i32 {
     assert!(
         run_output.status.success(),
         "std.proc shell capture binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+}
+
+#[test]
+fn runs_hosted_program_using_std_proc_process_id() {
+    let run_output = build_and_run(
+        "kernc_std_proc_process_id",
+        r#"
+use std.proc;
+
+fn main() i32 {
+    let pid = proc.process_id();
+    if (pid == 0) {
+        return 1;
+    }
+
+    let second = proc.process_id();
+    if (second != pid) {
+        return 2;
+    }
+
+    return 0;
+}
+"#,
+        &[
+            "--library-bundle",
+            "std",
+            "--runtime-entry",
+            "crt",
+            "--runtime-libc",
+            "yes",
+        ],
+    );
+
+    assert!(
+        run_output.status.success(),
+        "std.proc process_id binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );

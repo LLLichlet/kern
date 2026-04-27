@@ -52,6 +52,9 @@ extern {
     #[export_name("exit")]
     fn system_exit(code: i32) void;
 
+    #[export_name("getpid")]
+    fn system_getpid() i32;
+
     #[export_name("mmap")]
     pub fn mmap(addr: *mut void, len: usize, prot: i32, flags: i32, fd: i32, offset: isize) *mut void;
 
@@ -272,6 +275,11 @@ pub fn environment_entries() ?**u8 {
         return .None;
     }
     return .{ Some: PROCESS_ENV as **u8 };
+}
+
+/// Returns the current process identifier.
+pub fn process_id() usize {
+    return system_getpid() as usize;
 }
 
 /// Returns the process handle for standard input.

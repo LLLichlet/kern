@@ -147,6 +147,11 @@ pub fn args(argc: i32, argv: **u8) Args {
     return .{ count: argc, values: argv };
 }
 
+/// Returns the current process identifier.
+pub fn process_id() usize {
+    return os.process_id();
+}
+
 /// Runs one hosted shell command and captures combined stdout/stderr.
 #[if(os == "linux")]
 pub fn shell_capture(alloc: *mut Allocator, command: []u8) Capture!Error {

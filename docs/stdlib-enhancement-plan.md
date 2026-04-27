@@ -67,6 +67,8 @@ Status:
 - `write_all_atomic_tmp` is available in `std.fs`.
 - Windows rename now uses replace-existing semantics so replacement-style writes
   have the same public contract across supported hosted targets.
+- `std.proc.process_id()` is available, providing the first stable ingredient
+  for future automatic temporary-path generation.
 
 ### 4. Time Convenience
 

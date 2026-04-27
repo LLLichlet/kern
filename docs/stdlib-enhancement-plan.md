@@ -26,13 +26,16 @@ Planned additions:
 - const-generic ordering methods for load, store, exchange, compare-and-swap,
   and common integer read-modify-write operations
 - `SpinLock[T]` with closure-based `with_lock` and `try_with_lock`
-- later: `Once` once the low-level wrappers are stable
+- `Once` with `call_once` and `try_call_once`
+- later: payload-carrying `OnceCell[T]` once initialization storage has a
+  stable library shape
 
 Status:
 
 - `Atomic[T]` and `atomic[T](value)` are available in `std.sync`.
 - `SpinLock[T]` is available through `spin_lock[T](value)`. It intentionally
   uses closure-based access instead of returning a copyable guard value.
+- `Once` is available through `once()`.
 
 ### 2. Generic IO Adapters
 

@@ -233,6 +233,80 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_std_sync_once_helpers() {
+    let output = build_and_run(
+        "kernc_once_test",
+        r#"
+use sync.once;
+
+fn main() i32 {
+    let mut gate = once();
+    if (gate..&.is_completed()) {
+        return 1;
+    }
+
+    let mut hits = i32.{0};
+    gate..&.call_once(.[hits = hits..&]() void {
+        hits.* += 1;
+    });
+    if (!gate..&.is_completed()) {
+        return 2;
+    }
+    if (hits != 1) {
+        return 3;
+    }
+
+    gate..&.call_once(.[hits = hits..&]() void {
+        hits.* += 10;
+    });
+    if (hits != 1) {
+        return 4;
+    }
+
+    let ran_after_done = gate..&.try_call_once(.[hits = hits..&]() void {
+        hits.* += 100;
+    });
+    if (ran_after_done or hits != 1) {
+        return 5;
+    }
+
+    let mut second = once();
+    let won = second..&.try_call_once(.[hits = hits..&]() void {
+        hits.* += 7;
+    });
+    if (!won or hits != 8) {
+        return 6;
+    }
+    if (!second..&.is_completed()) {
+        return 7;
+    }
+    let lost = second..&.try_call_once(.[hits = hits..&]() void {
+        hits.* += 70;
+    });
+    if (lost or hits != 8) {
+        return 8;
+    }
+
+    return 0;
+}
+"#,
+        &[
+            "--module-path",
+            "sync=library/std/sync",
+            "--runtime-libc",
+            "yes",
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "once binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_atomic_intrinsics_and_fence_with_std_sync_constants() {
     let output = compile_source_with_args(
         r#"

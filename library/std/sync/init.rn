@@ -17,6 +17,10 @@ pub const ACQ_REL = MemOrder.{3};
 /// Sequentially consistent ordering.
 pub const SEQ_CST = MemOrder.{4};
 
+const ONCE_INCOMPLETE = usize.{0};
+const ONCE_RUNNING = usize.{1};
+const ONCE_DONE = usize.{2};
+
 /// Result of a compare-and-swap operation.
 pub type AtomicCas[T] = struct {
     pub success: bool,
@@ -34,6 +38,11 @@ pub type SpinLock[T] = struct {
     value: T,
 };
 
+/// A one-time initialization gate.
+pub type Once = struct {
+    state: Atomic[usize],
+};
+
 /// Creates atomic storage initialized to `value`.
 pub const fn atomic[T](value: T) Atomic[T] {
     return .{ value: value };
@@ -42,6 +51,11 @@ pub const fn atomic[T](value: T) Atomic[T] {
 /// Creates a spin lock initialized with `value`.
 pub const fn spin_lock[T](value: T) SpinLock[T] {
     return .{ locked: atomic[bool](false), value: value };
+}
+
+/// Creates a one-time initialization gate.
+pub const fn once() Once {
+    return .{ state: atomic[usize](ONCE_INCOMPLETE) };
 }
 
 impl[T] *Atomic[T] {
@@ -171,5 +185,47 @@ impl[T] *mut SpinLock[T] {
         }
         defer self.release();
         return .{ Some: call_back(self.value..&) };
+    }
+}
+
+impl *Once {
+    /// Returns whether the one-time function has completed.
+    pub fn is_completed() bool {
+        return self.state.&.load[ACQUIRE]() == ONCE_DONE;
+    }
+}
+
+impl *mut Once {
+    fn wait_until_done() void {
+        while (self.state..&.load[ACQUIRE]() != ONCE_DONE) {}
+    }
+
+    /// Runs `call_back` exactly once, waiting if another caller is running it.
+    pub fn call_once(call_back: *Fn() void) void {
+        let cas = self.state..&.compare_exchange[ACQ_REL, ACQUIRE](ONCE_INCOMPLETE, ONCE_RUNNING);
+        if (cas.success) {
+            call_back();
+            self.state..&.store[RELEASE](ONCE_DONE);
+            return;
+        }
+        if (cas.value != ONCE_DONE) {
+            self.wait_until_done();
+        }
+    }
+
+    /// Runs `call_back` only when this call wins initialization.
+    pub fn try_call_once(call_back: *Fn() void) bool {
+        let cas = self.state..&.compare_exchange[ACQ_REL, ACQUIRE](ONCE_INCOMPLETE, ONCE_RUNNING);
+        if (!cas.success) {
+            return false;
+        }
+        call_back();
+        self.state..&.store[RELEASE](ONCE_DONE);
+        return true;
+    }
+
+    /// Returns whether the one-time function has completed.
+    pub fn is_completed() bool {
+        return self.state..&.load[ACQUIRE]() == ONCE_DONE;
     }
 }

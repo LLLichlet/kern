@@ -176,7 +176,7 @@ craft run -p incubator/json --example hello_compact
 Kern ships these tools:
 
 - `kernc`: compiler, analysis, object emission, and linking driver.
-- `craft`: package manager, lockfile manager, and build orchestrator.
+- `craft`: package manager, automatic lockfile synchronizer, and build orchestrator.
 - `kern-lsp`: language server for editor integration.
 - `base`, `sys`, `rt`, `std`: official library layers.
 

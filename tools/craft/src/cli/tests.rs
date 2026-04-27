@@ -528,12 +528,6 @@ fn parses_explicit_help_topic() {
 }
 
 #[test]
-fn rejects_unknown_lock_command() {
-    let err = parse_args(["lock".to_string(), "--features=ssl".to_string()]).unwrap_err();
-    assert!(err.to_string().contains("unsupported command line"));
-}
-
-#[test]
 fn parses_build_without_path() {
     let cmd = parse_args(["build".to_string()]).unwrap();
 
@@ -1816,6 +1810,31 @@ fn run_command_passes_runtime_args_to_bin() {
     })
     .unwrap();
 
+    assert!(root.join("Craft.lock").is_file());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn run_command_rewrites_damaged_lockfile() {
+    let root = temp_dir("craft-cli-run-lock-repair");
+    write_minimal_bin_package(&root);
+    fs::write(root.join("Craft.lock"), "partial lockfile\n").unwrap();
+
+    run_command(Command::Run {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        selection: RunSelection::DefaultBin,
+        runtime_args: Vec::new(),
+    })
+    .unwrap();
+
+    let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
+    assert!(lockfile.contains("manifest = \"Craft.toml\""));
+    assert!(lockfile.contains("name = \"demo\""));
+    assert!(!lockfile.contains("partial lockfile"));
+
     let _ = fs::remove_dir_all(root);
 }
 
@@ -1852,6 +1871,9 @@ fn init_command_scaffolds_minimal_bin_package() {
         fs::read_to_string(root.join(".gitignore")).unwrap(),
         ".craft/\n"
     );
+    let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
+    assert!(lockfile.contains("manifest = \"Craft.toml\""));
+    assert!(lockfile.contains("name = \"craft_cli_init_minimal"));
     assert!(root.join("src/main.rn").is_file());
 
     let _ = fs::remove_dir_all(root);
@@ -1887,6 +1909,10 @@ fn init_command_collects_existing_test_and_example_roots() {
     assert!(manifest.contains("\"tests/nested/smoke.rn\""));
     assert!(manifest.contains("[example]"));
     assert!(manifest.contains("\"examples/sample.rn\""));
+    let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
+    assert!(lockfile.contains("kind = \"lib\""));
+    assert!(lockfile.contains("kind = \"test\""));
+    assert!(lockfile.contains("kind = \"example\""));
     assert!(!root.join("src/main.rn").exists());
 
     let _ = fs::remove_dir_all(root);
@@ -1931,6 +1957,8 @@ root = "src/main.rn"
             .join(format!("member{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
+    assert!(root.join("Craft.lock").is_file());
+    assert!(!member.join("Craft.lock").exists());
     assert!(!member.join(".craft").exists());
 
     let _ = fs::remove_dir_all(root);

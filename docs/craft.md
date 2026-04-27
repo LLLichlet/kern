@@ -928,17 +928,18 @@ The current command surface is intentionally narrow:
 
 Current behavior:
 
+- `init` creates `Craft.toml`, package stubs when needed, `.gitignore`, and the initial `Craft.lock`
 - `check` loads the package graph, auto-synchronizes `Craft.lock`, evaluates scripts, derives the build plan, materializes staged inputs, and runs semantic analysis for every selected compile unit without codegen or final linking
-- `fetch` materializes both external package sources and declared package resources into the local cache
+- `fetch` auto-synchronizes `Craft.lock`, then materializes both external package sources and declared package resources into the local cache
   - package source backends are explicit package paths or git repositories
   - resource source backends are explicit package-relative paths or git repositories
 - `publish` auto-synchronizes `Craft.lock` and runs release-oriented metadata and source-policy checks without uploading anywhere
-- `doc` builds the selected package graph and renders Markdown package docs under `.craft/docs`
-- `build` executes the selected build plan
-- `install` builds selected package `bin` targets and copies them into the active install root's `bin/` directory
-- `uninstall` removes installed package `bin` targets from that same install root
-- `run` builds and runs the selected runnable binary from its owning package root
-- `test` builds and runs test targets from their owning package roots
+- `doc` auto-synchronizes `Craft.lock`, builds the selected package graph, and renders Markdown package docs under `.craft/docs`
+- `build` auto-synchronizes `Craft.lock` and executes the selected build plan
+- `install` auto-synchronizes `Craft.lock`, builds selected package `bin` targets, and copies them into the active install root's `bin/` directory
+- `uninstall` auto-synchronizes `Craft.lock` and removes installed package `bin` targets from that same install root
+- `run` auto-synchronizes `Craft.lock`, then builds and runs the selected runnable binary from its owning package root
+- `test` auto-synchronizes `Craft.lock`, then builds and runs test targets from their owning package roots
 
 When `craft` launches a runtime target for `run` or `test`, it also injects:
 

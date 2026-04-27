@@ -103,11 +103,30 @@ fn run_init(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
     let created = apply_init_plan(&root, &init)?;
     let manifest_path = root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path)?;
+    manifest.validate(&manifest_path)?;
     let feature_selection = elaborate::FeatureSelection::default();
+    let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
+    let elaboration = elaborate::plan(
+        &manifest_path,
+        &manifest,
+        &workspace_members,
+        manifest.workspace.is_some(),
+        crate::script::ScriptCommand::Check,
+        &feature_selection,
+    )?;
+    let (_, lockfile_write_result) = lockfile::sync_lockfile(&manifest_path, &elaboration)?;
 
     render.header_with_path("init", &manifest, &manifest_path, &feature_selection);
     render.summary("root", root.display());
     render.summary("targets", init.target_summary());
+    render.summary(
+        "lockfile",
+        match lockfile_write_result {
+            lockfile::LockWriteResult::Created => "created",
+            lockfile::LockWriteResult::Updated => "updated",
+            lockfile::LockWriteResult::Unchanged => "current",
+        },
+    );
     render.summary("created", created.len());
     for path in &created {
         render.action(

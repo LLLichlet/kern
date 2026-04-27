@@ -5,8 +5,8 @@
 This directory intentionally lives under `tools/` rather than `compiler/`.
 
 - `kernc` is the compiler/link driver.
-- `craft` is the package graph resolver, lockfile manager, build planner, and
-  command runner.
+- `craft` is the package graph resolver, automatic lockfile synchronizer,
+  build planner, and command runner.
 
 ## Current Scope
 
@@ -22,7 +22,7 @@ The current implementation covers:
 - `craft.rn` discovery and pre-lock normalization scaffolding
 - normalized package-plan snapshots for declared targets
 - `workspace = true` dependency inheritance
-- automatic deterministic canonical `Craft.lock` synchronization during package-graph commands
+- automatic deterministic canonical `Craft.lock` synchronization during `init` and package-graph commands
 - release-oriented publish readiness checks via `craft publish`
 - build-plan derivation from normalized package targets and resolved dependencies
 - package-level `build.rn` discovery, validation, and structured per-target link-plan orchestration for execution-sensitive adaptation

@@ -142,6 +142,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .into();
         }
 
+        if self.is_atomic_bool_ty(result_ty) && op == AtomicRmwOp::Xchg {
+            let cast_val = self.atomic_bool_to_i8(value_val);
+            let old_val = self
+                .builder
+                .build_atomicrmw(crate::AtomicRMWBinOp::Xchg, ptr_val, cast_val, llvm_order)
+                .unwrap();
+            return self.atomic_i8_to_bool(old_val).into();
+        }
+
         let llvm_op = match op {
             AtomicRmwOp::Xchg => crate::AtomicRMWBinOp::Xchg,
             AtomicRmwOp::Add => crate::AtomicRMWBinOp::Add,
@@ -180,6 +189,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         if self.current_block_is_terminated() {
             return self.get_undef_val(llvm_ty);
         }
+        let cmp_ty = self
+            .mir_operand_ty(body, cas.expected)
+            .unwrap_or(TypeId::ERROR);
+        let (expected_val, desired_val) = if self.is_atomic_bool_ty(cmp_ty) {
+            (
+                self.atomic_bool_to_i8(expected_val).into(),
+                self.atomic_bool_to_i8(desired_val).into(),
+            )
+        } else {
+            (expected_val, desired_val)
+        };
         let cas_pair = self
             .builder
             .build_cmpxchg(
@@ -205,6 +225,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .builder
             .build_extract_value(cas_pair, 0, "mir_cas_old")
             .unwrap();
+        let old_val = if self.is_atomic_bool_ty(cmp_ty) {
+            self.atomic_i8_to_bool(old_val.into_int_value()).into()
+        } else {
+            old_val
+        };
         let success_val = self
             .builder
             .build_extract_value(cas_pair, 1, "mir_cas_success")

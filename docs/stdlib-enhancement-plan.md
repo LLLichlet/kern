@@ -25,7 +25,14 @@ Planned additions:
 - `atomic[T](value)` construction
 - const-generic ordering methods for load, store, exchange, compare-and-swap,
   and common integer read-modify-write operations
-- later: `SpinLock[T]` and `Once` once the low-level wrappers are stable
+- `SpinLock[T]` with closure-based `with_lock` and `try_with_lock`
+- later: `Once` once the low-level wrappers are stable
+
+Status:
+
+- `Atomic[T]` and `atomic[T](value)` are available in `std.sync`.
+- `SpinLock[T]` is available through `spin_lock[T](value)`. It intentionally
+  uses closure-based access instead of returning a copyable guard value.
 
 ### 2. Generic IO Adapters
 

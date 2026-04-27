@@ -3,7 +3,7 @@ use crate::basic_block::BasicBlock;
 use crate::intrinsics::Intrinsic;
 use crate::llvm_sys::core::LLVMSetWeak;
 use crate::types::BasicTypeEnum;
-use crate::values::{AsValueRef, BasicValueEnum, FunctionValue, PointerValue};
+use crate::values::{AsValueRef, BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use kernc_ast::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use kernc_mir::{
     MirAggregateKind, MirBitIntrinsicKind, MirBlockId, MirBody, MirCallTarget, MirCastKind,

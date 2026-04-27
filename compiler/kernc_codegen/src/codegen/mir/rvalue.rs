@@ -15,6 +15,39 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
+    pub(super) fn is_atomic_bool_ty(&mut self, ty: TypeId) -> bool {
+        self.type_registry.normalize(ty) == TypeId::BOOL
+    }
+
+    pub(super) fn atomic_memory_type(&mut self, ty: TypeId) -> BasicTypeEnum<'ctx> {
+        if self.is_atomic_bool_ty(ty) {
+            self.context.i8_type().into()
+        } else {
+            self.get_llvm_type(ty)
+        }
+    }
+
+    pub(super) fn atomic_bool_to_i8(&self, value: BasicValueEnum<'ctx>) -> IntValue<'ctx> {
+        self.builder
+            .build_int_z_extend(
+                value.into_int_value(),
+                self.context.i8_type(),
+                "mir_atomic_bool_i8",
+            )
+            .unwrap()
+    }
+
+    pub(super) fn atomic_i8_to_bool(&self, value: IntValue<'ctx>) -> IntValue<'ctx> {
+        self.builder
+            .build_int_compare(
+                crate::IntPredicate::NE,
+                value,
+                self.context.i8_type().const_zero(),
+                "mir_atomic_i8_bool",
+            )
+            .unwrap()
+    }
+
     pub(super) fn compile_mir_call_target_value(
         &mut self,
         _body: &MirBody,
@@ -899,6 +932,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         target_ty: TypeId,
     ) -> BasicValueEnum<'ctx> {
         let llvm_ty = self.get_llvm_type(target_ty);
+        let atomic_ty = self.atomic_memory_type(target_ty);
         let ptr_val = self.compile_mir_operand(body, ptr).into_pointer_value();
         if self.current_block_is_terminated() {
             return self.get_undef_val(llvm_ty);
@@ -931,11 +965,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         let load = self
             .builder
-            .build_load(llvm_ty, ptr_val, "mir_atomic_load")
+            .build_load(atomic_ty, ptr_val, "mir_atomic_load")
             .unwrap();
         if let Some(inst) = load.as_instruction_value() {
             inst.set_atomic_ordering(Self::llvm_atomic_ordering(ordering));
             inst.set_alignment(self.atomic_memory_alignment(target_ty));
+        }
+        if self.is_atomic_bool_ty(target_ty) {
+            return self.atomic_i8_to_bool(load.into_int_value()).into();
         }
         load
     }
@@ -971,6 +1008,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 )
                 .unwrap()
                 .into()
+        } else if value_ty.is_some_and(|value_ty| self.is_atomic_bool_ty(value_ty)) {
+            self.atomic_bool_to_i8(value_val).into()
         } else {
             value_val
         };

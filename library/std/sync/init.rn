@@ -28,9 +28,20 @@ pub type Atomic[T] = struct {
     value: T,
 };
 
+/// A small spin lock around a value.
+pub type SpinLock[T] = struct {
+    locked: Atomic[bool],
+    value: T,
+};
+
 /// Creates atomic storage initialized to `value`.
 pub const fn atomic[T](value: T) Atomic[T] {
     return .{ value: value };
+}
+
+/// Creates a spin lock initialized with `value`.
+pub const fn spin_lock[T](value: T) SpinLock[T] {
+    return .{ locked: atomic[bool](false), value: value };
 }
 
 impl[T] *Atomic[T] {
@@ -119,4 +130,46 @@ impl *mut Atomic[usize] {
 /// Emits an atomic fence with const ordering `ORDER`.
 pub fn fence[ORDER: u8]() void {
     @fence(ORDER);
+}
+
+impl[T] *SpinLock[T] {
+    /// Returns whether the lock is currently held.
+    pub fn is_locked() bool {
+        return self.locked.&.load[ACQUIRE]();
+    }
+}
+
+impl[T] *mut SpinLock[T] {
+    fn try_acquire() bool {
+        return self.locked..&.compare_exchange[ACQUIRE, RELAXED](false, true).success;
+    }
+
+    fn acquire() void {
+        while (!self.try_acquire()) {}
+    }
+
+    fn release() void {
+        self.locked..&.store[RELEASE](false);
+    }
+
+    /// Returns whether the lock is currently held.
+    pub fn is_locked() bool {
+        return self.locked..&.load[ACQUIRE]();
+    }
+
+    /// Runs `call_back` while holding the lock.
+    pub fn with_lock[U](call_back: *Fn(*mut T) U) U {
+        self.acquire();
+        defer self.release();
+        return call_back(self.value..&);
+    }
+
+    /// Runs `call_back` when the lock can be acquired immediately.
+    pub fn try_with_lock[U](call_back: *Fn(*mut T) U) ?U {
+        if (!self.try_acquire()) {
+            return .None;
+        }
+        defer self.release();
+        return .{ Some: call_back(self.value..&) };
+    }
 }

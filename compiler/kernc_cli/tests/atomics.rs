@@ -48,6 +48,21 @@ fn main() i32 {
         return 4;
     }
 
+    let mut flag = atomic[bool](false);
+    if (flag..&.load[ACQUIRE]()) {
+        return 19;
+    }
+    flag..&.store[RELEASE](true);
+    if (!flag..&.load[ACQUIRE]()) {
+        return 20;
+    }
+    if (!flag..&.exchange[ACQ_REL](false)) {
+        return 21;
+    }
+    if (flag..&.load[ACQUIRE]()) {
+        return 22;
+    }
+
     let mut counter = atomic[usize](1);
     if (counter..&.fetch_add[SEQ_CST](2) != 1) {
         return 5;
@@ -117,6 +132,101 @@ fn main() i32 {
     assert!(
         output.status.success(),
         "atomic wrapper binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_std_sync_spin_lock_helpers() {
+    let output = build_and_run(
+        "kernc_spin_lock_test",
+        r#"
+use sync.spin_lock;
+
+type Pair = struct {
+    left: i32,
+    right: i32,
+};
+
+fn main() i32 {
+    let mut counter = spin_lock[i32](5);
+    if (counter..&.is_locked()) {
+        return 1;
+    }
+
+    let first = counter..&.with_lock[i32](.[](value: *mut i32) i32 {
+        value.* += 1;
+        return value.*;
+    });
+    if (first != 6) {
+        return 2;
+    }
+    if (counter..&.is_locked()) {
+        return 3;
+    }
+
+    let next = match (counter..&.try_with_lock[i32](.[](value: *mut i32) i32 {
+        value.* += 4;
+        return value.*;
+    })) {
+        .{ Some: value } => value,
+        .None => return 4,
+    };
+    if (next != 10) {
+        return 5;
+    }
+
+    let reentrant_blocked = counter..&.with_lock[bool](.[lock = counter..&](value: *mut i32) bool {
+        if (!lock.is_locked()) {
+            return false;
+        }
+        let nested = lock.try_with_lock[i32](.[](inner: *mut i32) i32 {
+            inner.* = 99;
+            return inner.*;
+        });
+        match (nested) {
+            .None => {},
+            .{ Some: _ } => return false,
+        }
+        value.* += 1;
+        return true;
+    });
+    if (!reentrant_blocked) {
+        return 6;
+    }
+
+    let final_counter = counter..&.with_lock[i32](.[](value: *mut i32) i32 {
+        return value.*;
+    });
+    if (final_counter != 11) {
+        return 7;
+    }
+
+    let mut pair = spin_lock[Pair](Pair.{ left: 2, right: 3 });
+    let total = pair..&.with_lock[i32](.[](value: *mut Pair) i32 {
+        value.left *= 5;
+        value.right += 7;
+        return value.left + value.right;
+    });
+    if (total != 20) {
+        return 8;
+    }
+
+    return 0;
+}
+"#,
+        &[
+            "--module-path",
+            "sync=library/std/sync",
+            "--runtime-libc",
+            "yes",
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "spin lock binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

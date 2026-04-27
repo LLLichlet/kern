@@ -651,16 +651,19 @@ fn main() i32 {{
 fn runs_hosted_program_using_std_fs_atomic_tmp_write() {
     let temp_root = unique_temp_path("kernc_std_fs_atomic_write", "dir");
     let target_file = temp_root.join("target.txt");
+    let auto_target_file = temp_root.join("auto.txt");
     let tmp_file = temp_root.join("target.tmp");
     let bad_target = temp_root.join("missing").join("out.txt");
     let bad_tmp = temp_root.join("bad.tmp");
     let root_path = kern_string_literal(&temp_root);
     let target_path = kern_string_literal(&target_file);
+    let auto_target_path = kern_string_literal(&auto_target_file);
     let tmp_path = kern_string_literal(&tmp_file);
     let bad_target_path = kern_string_literal(&bad_target);
     let bad_tmp_path = kern_string_literal(&bad_tmp);
 
     let _ = fs::remove_file(&target_file);
+    let _ = fs::remove_file(&auto_target_file);
     let _ = fs::remove_file(&tmp_file);
     let _ = fs::remove_file(&bad_tmp);
     let _ = fs::remove_dir_all(&temp_root);
@@ -668,6 +671,9 @@ fn runs_hosted_program_using_std_fs_atomic_tmp_write() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
+use std.proc;
+use std.io.{{Writer, format_to, string_writer}};
+use base.coll.String;
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
@@ -736,11 +742,77 @@ fn main() i32 {{
         return 14;
     }}
 
+    let mut auto_tmp0 = String.{{}};
+    defer auto_tmp0..&.deinit(gpa);
+    {{
+        let mut sink = string_writer(gpa, auto_tmp0..&);
+        let writer = *mut Writer.{{ sink..& }};
+        format_to(writer, "{{}}.tmp.{{}}.{{}}", .{{ "{auto_target_path}", proc.process_id(), usize.{{0}}, }});
+        if (sink..&.did_fail()) {{
+            return 15;
+        }}
+    }}
+
+    let mut auto_tmp1 = String.{{}};
+    defer auto_tmp1..&.deinit(gpa);
+    {{
+        let mut sink = string_writer(gpa, auto_tmp1..&);
+        let writer = *mut Writer.{{ sink..& }};
+        format_to(writer, "{{}}.tmp.{{}}.{{}}", .{{ "{auto_target_path}", proc.process_id(), usize.{{1}}, }});
+        if (sink..&.did_fail()) {{
+            return 16;
+        }}
+    }}
+
+    match (fs.write_all(gpa, auto_tmp0.&.as_str(), "blocked")) {{
+        .{{ Ok: count }} => {{
+            if (count != 7) {{
+                return 17;
+            }}
+        }},
+        .{{ Err: _ }} => return 18,
+    }}
+
+    let auto_written = match (fs.write_all_atomic(gpa, "{auto_target_path}", "auto-data")) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 19,
+    }};
+    if (auto_written != 9) {{
+        return 20;
+    }}
+
+    let mut auto_text = match (fs.read_to_string(gpa, "{auto_target_path}")) {{
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 21,
+    }};
+    defer auto_text..&.deinit(gpa);
+    if (auto_text.& != "auto-data") {{
+        return 22;
+    }}
+
+    let mut collision_text = match (fs.read_to_string(gpa, auto_tmp0.&.as_str())) {{
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 23,
+    }};
+    defer collision_text..&.deinit(gpa);
+    if (collision_text.& != "blocked") {{
+        return 24;
+    }}
+
+    let tmp1_exists = match (fs.exists(gpa, auto_tmp1.&.as_str())) {{
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 25,
+    }};
+    if (tmp1_exists) {{
+        return 26;
+    }}
+
     return 0;
 }}
 "#,
         root_path = root_path,
         target_path = target_path,
+        auto_target_path = auto_target_path,
         tmp_path = tmp_path,
         bad_target_path = bad_target_path,
         bad_tmp_path = bad_tmp_path
@@ -754,6 +826,7 @@ fn main() i32 {{
     );
 
     let _ = fs::remove_file(&target_file);
+    let _ = fs::remove_file(&auto_target_file);
     let _ = fs::remove_file(&tmp_file);
     let _ = fs::remove_file(&bad_tmp);
     let _ = fs::remove_dir_all(&temp_root);

@@ -6,6 +6,8 @@ use base.coll.{List, String};
 use ..types.{Error, File, Metadata, OpenOptions, SeekFrom};
 use ..c_path.{alloc_c_path, free_c_path};
 
+const MAX_ATOMIC_TMP_ATTEMPTS = usize.{32};
+
 fn to_os_open_options(options: *OpenOptions) os.OpenOptions {
     return os.OpenOptions.{
         read: options.read,
@@ -51,6 +53,47 @@ fn not_found_is_false(err: Error) bool!Error {
         },
         _ => return .{ Err: err },
     }
+}
+
+fn is_already_exists_error(err: Error) bool {
+    match (err) {
+        .{ Os: os_err } => return os.is_already_exists(os_err),
+        _ => return false,
+    }
+}
+
+fn append_usize_decimal(out: *mut String, alloc: *mut Allocator, value: usize) bool {
+    if (value == 0) {
+        return out.push_char(alloc, b'0');
+    }
+
+    let mut buf = [40]u8.{undef};
+    let mut i = usize.{40};
+    let mut curr = value;
+
+    while (curr > 0) {
+        i -= usize.{1};
+        let digit = curr % usize.{10};
+        buf.[i] = digit as u8 + 48;
+        curr /= usize.{10};
+    }
+
+    return out.push_str(alloc, buf.[i .. 40]);
+}
+
+fn atomic_tmp_path(alloc: *mut Allocator, path: []u8, attempt: usize) String!Error {
+    let mut tmp = String.{};
+    if (!tmp..&.push_str(alloc, path)
+        or !tmp..&.push_str(alloc, ".tmp.")
+        or !append_usize_decimal(tmp..&, alloc, os.process_id())
+        or !tmp..&.push_char(alloc, b'.')
+        or !append_usize_decimal(tmp..&, alloc, attempt))
+    {
+        tmp..&.deinit(alloc);
+        return .{ Err: .OutOfMemory };
+    }
+
+    return .{ Ok: tmp };
 }
 
 fn open_with_c_path(c_path: *u8, options: *OpenOptions) File!Error {
@@ -300,6 +343,77 @@ pub/ fn write_all_atomic_tmp(
     }
 
     return .{ Ok: written };
+}
+
+fn write_all_atomic_unique_tmp(
+    alloc: *mut Allocator,
+    path: []u8,
+    tmp_path: []u8,
+    buf: []u8,
+) usize!Error {
+    let mut file = create_new(alloc, tmp_path).!;
+
+    let written = match (file..&.write_all(buf)) {
+        .{ Ok: count } => count,
+        .{ Err: err } => {
+            let _ = file..&.close();
+            let _ = remove_file_if_exists(alloc, tmp_path);
+            return .{ Err: err };
+        },
+    };
+
+    match (file..&.flush()) {
+        .{ Ok: _ } => {},
+        .{ Err: err } => {
+            let _ = file..&.close();
+            let _ = remove_file_if_exists(alloc, tmp_path);
+            return .{ Err: err };
+        },
+    }
+
+    match (file..&.close()) {
+        .{ Ok: _ } => {},
+        .{ Err: err } => {
+            let _ = remove_file_if_exists(alloc, tmp_path);
+            return .{ Err: err };
+        },
+    }
+
+    match (rename(alloc, tmp_path, path)) {
+        .{ Ok: _ } => {},
+        .{ Err: err } => {
+            let _ = remove_file_if_exists(alloc, tmp_path);
+            return .{ Err: err };
+        },
+    }
+
+    return .{ Ok: written };
+}
+
+/// Writes `buf` through a same-directory temporary path and renames it over `path`.
+pub/ fn write_all_atomic(alloc: *mut Allocator, path: []u8, buf: []u8) usize!Error {
+    let mut attempt = usize.{0};
+    let mut last_err = Error.InvalidPath;
+
+    while (attempt < MAX_ATOMIC_TMP_ATTEMPTS) {
+        let mut tmp = atomic_tmp_path(alloc, path, attempt).!;
+        let result = write_all_atomic_unique_tmp(alloc, path, tmp.&.as_str(), buf);
+        tmp..&.deinit(alloc);
+
+        match (result) {
+            .{ Ok: written } => return .{ Ok: written },
+            .{ Err: err } => {
+                if (!is_already_exists_error(err)) {
+                    return .{ Err: err };
+                }
+                last_err = err;
+            },
+        }
+
+        attempt += usize.{1};
+    }
+
+    return .{ Err: last_err };
 }
 
 /// Appends the entire buffer to a file, creating it when needed.

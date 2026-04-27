@@ -39,8 +39,8 @@ Status:
 
 ### 2. Generic IO Adapters
 
-`std.io` has `Reader`, `Writer`, in-memory readers, and in-memory writers. It
-still lacks the common glue needed to assemble pipelines.
+`std.io` has `Reader`, `Writer`, in-memory readers, in-memory writers, and the
+common glue needed to assemble pipelines.
 
 Planned additions:
 
@@ -49,6 +49,11 @@ Planned additions:
 - `LimitReader`
 - `CountingWriter`
 - `NullWriter`
+
+Status:
+
+- `copy`, `copy_n`, `LimitReader`, `CountingWriter`, and `NullWriter` are
+  available in `std.io`.
 
 ### 3. Filesystem Safety Helpers
 
@@ -59,16 +64,18 @@ Planned additions:
 
 - `write_all_atomic_tmp(alloc, path, tmp_path, buf)`, using a caller-provided
   temporary path
-- later: automatic temporary-path generation once process identifiers or random
-  bytes are available in `std`
+- `write_all_atomic(alloc, path, buf)`, using an automatically generated
+  same-directory temporary path
 
 Status:
 
 - `write_all_atomic_tmp` is available in `std.fs`.
+- `write_all_atomic` is available in `std.fs`; it uses process identifiers and
+  bounded collision retries for its generated temporary path.
 - Windows rename now uses replace-existing semantics so replacement-style writes
   have the same public contract across supported hosted targets.
-- `std.proc.process_id()` is available, providing the first stable ingredient
-  for future automatic temporary-path generation.
+- `std.proc.process_id()` is available as the process-level primitive used by
+  the generated temporary-path policy.
 
 ### 4. Time Convenience
 

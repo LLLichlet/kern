@@ -44,6 +44,7 @@ pub use .file.{
     read_all,
     read_to_string,
     write_all,
+    write_all_atomic,
     write_all_atomic_tmp,
     append_all,
     copy,

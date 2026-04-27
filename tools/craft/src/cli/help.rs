@@ -55,7 +55,7 @@ fn overview_doc() -> HelpDoc {
                     "Disable the implicit `default` feature",
                 )
                 .entry("--features <A,B>", "Enable a comma-separated feature list")
-                .entry("--verbose, -v", "Print detailed action logs")
+                .entry("--verbose, -v/-vv/-vvv", "Increase diagnostic detail")
                 .entry("--timings", "Print aggregated action timings")
                 .entry("--color <WHEN>", "Output color mode: auto, always, never"),
         )
@@ -79,7 +79,7 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
             &["craft init [OPTIONS]"],
             HelpSection::new("Options")
                 .entry("--project-path, -p <PATH>", "Directory to initialize")
-                .entry("--verbose, -v", "Print detailed action logs")
+                .entry("--verbose, -v/-vv/-vvv", "Increase diagnostic detail")
                 .entry("--timings", "Print aggregated timing information")
                 .entry("--color <WHEN>", "Color mode: auto, always, never"),
             &[
@@ -105,7 +105,7 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
                     "--project-path, -p <PATH>",
                     "Select the package root, workspace root, or Craft.toml manifest",
                 )
-                .entry("--verbose, -v", "Print detailed action logs")
+                .entry("--verbose, -v/-vv/-vvv", "Increase diagnostic detail")
                 .entry("--timings", "Print aggregated timing information")
                 .entry("--color <WHEN>", "Color mode: auto, always, never"),
             &[
@@ -192,7 +192,7 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
                     "--root, -r <PATH>",
                     "Installation root; binaries are removed from `PATH/bin`",
                 )
-                .entry("--verbose, -v", "Print detailed action logs")
+                .entry("--verbose, -v/-vv/-vvv", "Increase diagnostic detail")
                 .entry("--timings", "Print aggregated action timings")
                 .entry("--color <WHEN>", "Color mode: auto, always, never"),
             &[
@@ -300,7 +300,7 @@ fn feature_options_section() -> HelpSection {
             "Disable the implicit `default` feature",
         )
         .entry("--features <A,B>", "Enable a comma-separated feature list")
-        .entry("--verbose, -v", "Print detailed action logs")
+        .entry("--verbose, -v/-vv/-vvv", "Increase diagnostic detail")
         .entry("--timings", "Print aggregated action timings")
         .entry("--color <WHEN>", "Output color mode: auto, always, never")
 }

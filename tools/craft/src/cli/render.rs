@@ -13,10 +13,10 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use super::{ColorChoice, UiOptions};
+use super::{ColorChoice, UiOptions, Verbosity};
 
 pub(super) struct Renderer {
-    verbose: bool,
+    verbosity: Verbosity,
     timings: bool,
     color_enabled: bool,
     terminal_output: bool,
@@ -58,7 +58,7 @@ impl Renderer {
         };
 
         Self {
-            verbose: ui.verbose,
+            verbosity: ui.verbosity,
             timings: ui.timings,
             color_enabled,
             terminal_output,
@@ -79,7 +79,7 @@ impl Renderer {
         let marker = self.paint(Tone::Accent, "==>");
         let command = self.paint(Tone::Accent, command);
         println!("{marker} {command} {}", format_package_label(manifest));
-        if self.verbose {
+        if self.is_verbose() {
             self.meta("manifest", manifest_path.display());
             self.meta("features", format_feature_inputs(feature_selection));
         }
@@ -108,7 +108,7 @@ impl Renderer {
     }
 
     pub(super) fn section(&self, name: &str) {
-        if self.quiet || !self.verbose {
+        if self.quiet || !self.is_verbose() {
             return;
         }
         let marker = self.paint(Tone::Muted, "--");
@@ -123,7 +123,7 @@ impl Renderer {
         subject: impl Display,
         detail: impl Display,
     ) {
-        if self.quiet || !self.verbose {
+        if self.quiet || !self.is_verbose() {
             return;
         }
         let kind = self.paint(tone, &format!("{kind:<8}"));
@@ -138,7 +138,15 @@ impl Renderer {
     }
 
     pub(super) fn is_verbose(&self) -> bool {
-        self.verbose
+        self.verbosity >= Verbosity::Verbose
+    }
+
+    pub(super) fn is_debug(&self) -> bool {
+        self.verbosity >= Verbosity::Debug
+    }
+
+    pub(super) fn is_trace(&self) -> bool {
+        self.verbosity >= Verbosity::Trace
     }
 
     pub(super) fn progress(
@@ -146,7 +154,7 @@ impl Renderer {
         command: &'static str,
         plan: execute::ExecutionProgressPlan,
     ) -> Option<ProgressDisplay> {
-        if self.quiet || self.verbose || !self.terminal_output || plan.is_empty() {
+        if self.quiet || self.is_verbose() || !self.terminal_output || plan.is_empty() {
             return None;
         }
 
@@ -465,6 +473,45 @@ fn print_compile_action(
     if !action.define.is_empty() {
         detail.push_str(&format!(" | define {}", format_plan_map(&action.define)));
     }
+    if render.is_debug() {
+        detail.push_str(&format!(
+            " | profile {} | object {}",
+            action.profile.name.as_str(),
+            action.object_path.display()
+        ));
+        if let Some(metadata_path) = &action.metadata_path {
+            detail.push_str(&format!(" | metadata {}", metadata_path.display()));
+        }
+        if !action.local_dependencies.is_empty() {
+            detail.push_str(&format!(
+                " | local-deps {}",
+                action
+                    .local_dependencies
+                    .iter()
+                    .map(|dep| dep.dependency_name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+    if render.is_trace() {
+        detail.push_str(&format!(
+            " | manifest {} | generated-root {}",
+            action.manifest_path.display(),
+            action.generated_root_path.display()
+        ));
+        if !action.compile_inputs.is_empty() {
+            detail.push_str(&format!(
+                " | build-inputs {}",
+                action
+                    .compile_inputs
+                    .iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
     render.action(
         Tone::Build,
         "compile",
@@ -502,6 +549,42 @@ fn print_link_action(render: &Renderer, action: &build_plan::LinkAction, artifac
     }
     if !action.link.args.is_empty() {
         extras.push(format!("args {}", action.link.args.join(", ")));
+    }
+    if render.is_debug() {
+        extras.push(format!("primary {}", action.primary_object.display()));
+        if !action.local_library_objects.is_empty() {
+            extras.push(format!(
+                "local-objects {}",
+                action
+                    .local_library_objects
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+    if render.is_trace() {
+        extras.push(format!("manifest {}", action.manifest_path.display()));
+        extras.push(format!(
+            "package-root {}",
+            action.package_root_path.display()
+        ));
+        extras.push(format!(
+            "artifact-root {}",
+            action.artifact_root_path.display()
+        ));
+        if !action.artifact_outputs.is_empty() {
+            extras.push(format!(
+                "build-outputs {}",
+                action
+                    .artifact_outputs
+                    .iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
     }
     let detail = if extras.is_empty() {
         format!("-> {}", action.artifact_path.display())
@@ -551,7 +634,7 @@ pub(super) fn render_execution_timings(render: &Renderer, summary: &execute::Exe
         );
     }
 
-    if !render.verbose {
+    if !render.is_verbose() {
         return;
     }
 

@@ -1,6 +1,7 @@
 use super::{
-    ColorChoice, Command, HelpTopic, InstallSelection, RunSelection, UiOptions, parse_args,
-    run_command, summarize_check_sources, summarize_source_security, validate_check_source_policy,
+    ColorChoice, Command, HelpTopic, InstallSelection, RunSelection, UiOptions, Verbosity,
+    parse_args, run_command, summarize_check_sources, summarize_source_security,
+    validate_check_source_policy,
 };
 use crate::elaborate::FeatureSelection;
 use crate::graph::SourceId;
@@ -749,7 +750,7 @@ fn parses_doc_with_verbose_output() {
             assert!(path.is_none());
             assert!(feature_selection.enable_default);
             assert!(feature_selection.explicit.is_empty());
-            assert!(ui.verbose);
+            assert_eq!(ui.verbosity, Verbosity::Verbose);
             assert_eq!(ui.color, ColorChoice::Auto);
         }
         other => panic!("expected doc command, got {other:?}"),
@@ -902,7 +903,7 @@ fn parses_verbose_flag() {
             assert_eq!(
                 ui,
                 UiOptions {
-                    verbose: true,
+                    verbosity: Verbosity::Verbose,
                     timings: false,
                     color: ColorChoice::Auto,
                 }
@@ -926,7 +927,7 @@ fn parses_short_verbose_and_color_always() {
             assert_eq!(
                 ui,
                 UiOptions {
-                    verbose: true,
+                    verbosity: Verbosity::Verbose,
                     timings: false,
                     color: ColorChoice::Always,
                 }
@@ -934,6 +935,63 @@ fn parses_short_verbose_and_color_always() {
         }
         other => panic!("expected build command, got {other:?}"),
     }
+}
+
+#[test]
+fn parses_repeated_short_verbose_levels() {
+    let cmd = parse_args(["build".to_string(), "-vv".to_string()]).unwrap();
+
+    match cmd {
+        Command::Build { ui, .. } => {
+            assert_eq!(ui.verbosity, Verbosity::Debug);
+        }
+        other => panic!("expected build command, got {other:?}"),
+    }
+
+    let cmd = parse_args(["build".to_string(), "-v".to_string(), "-v".to_string()]).unwrap();
+
+    match cmd {
+        Command::Build { ui, .. } => {
+            assert_eq!(ui.verbosity, Verbosity::Debug);
+        }
+        other => panic!("expected build command, got {other:?}"),
+    }
+
+    let cmd = parse_args(["build".to_string(), "-vvv".to_string()]).unwrap();
+
+    match cmd {
+        Command::Build { ui, .. } => {
+            assert_eq!(ui.verbosity, Verbosity::Trace);
+        }
+        other => panic!("expected build command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_long_verbose_levels() {
+    let cmd = parse_args(["build".to_string(), "--verbose=2".to_string()]).unwrap();
+
+    match cmd {
+        Command::Build { ui, .. } => {
+            assert_eq!(ui.verbosity, Verbosity::Debug);
+        }
+        other => panic!("expected build command, got {other:?}"),
+    }
+
+    let cmd = parse_args(["build".to_string(), "--verbose=trace".to_string()]).unwrap();
+
+    match cmd {
+        Command::Build { ui, .. } => {
+            assert_eq!(ui.verbosity, Verbosity::Trace);
+        }
+        other => panic!("expected build command, got {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_unknown_verbose_level() {
+    let err = parse_args(["build".to_string(), "--verbose=chatty".to_string()]).unwrap_err();
+    assert!(format!("{err}").contains("unsupported `--verbose` value `chatty`"));
 }
 
 #[test]
@@ -945,7 +1003,7 @@ fn parses_timings_flag() {
             assert_eq!(
                 ui,
                 UiOptions {
-                    verbose: false,
+                    verbosity: Verbosity::Normal,
                     timings: true,
                     color: ColorChoice::Auto,
                 }
@@ -964,7 +1022,7 @@ fn parses_no_color_alias() {
             assert_eq!(
                 ui,
                 UiOptions {
-                    verbose: false,
+                    verbosity: Verbosity::Normal,
                     timings: false,
                     color: ColorChoice::Never,
                 }

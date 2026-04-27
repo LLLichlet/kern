@@ -106,9 +106,42 @@ pub enum InstallSelection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct UiOptions {
-    verbose: bool,
+    verbosity: Verbosity,
     timings: bool,
     color: ColorChoice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Verbosity {
+    #[default]
+    Normal,
+    Verbose,
+    Debug,
+    Trace,
+}
+
+impl Verbosity {
+    fn from_level(level: u8) -> Self {
+        match level {
+            0 => Self::Normal,
+            1 => Self::Verbose,
+            2 => Self::Debug,
+            _ => Self::Trace,
+        }
+    }
+
+    fn increment(self, amount: u8) -> Self {
+        Self::from_level(self.level().saturating_add(amount))
+    }
+
+    fn level(self) -> u8 {
+        match self {
+            Self::Normal => 0,
+            Self::Verbose => 1,
+            Self::Debug => 2,
+            Self::Trace => 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -505,8 +538,26 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
             runtime_args.extend_from_slice(&args[idx + 1..]);
             break;
         }
-        if arg == "--verbose" || arg == "-v" {
-            ui.verbose = true;
+        if arg == "--verbose" {
+            ui.verbosity = ui.verbosity.increment(1);
+            idx += 1;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--verbose=") {
+            ui.verbosity = parse_verbosity_level(value)?;
+            idx += 1;
+            continue;
+        }
+        if arg == "-v" {
+            ui.verbosity = ui.verbosity.increment(1);
+            idx += 1;
+            continue;
+        }
+        if let Some(flags) = arg.strip_prefix('-')
+            && flags.len() > 1
+            && flags.bytes().all(|byte| byte == b'v')
+        {
+            ui.verbosity = ui.verbosity.increment(flags.len() as u8);
             idx += 1;
             continue;
         }
@@ -727,6 +778,18 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
         install_root,
         runtime_args,
     })
+}
+
+fn parse_verbosity_level(value: &str) -> Result<Verbosity> {
+    match value {
+        "0" | "normal" => Ok(Verbosity::Normal),
+        "1" | "verbose" => Ok(Verbosity::Verbose),
+        "2" | "debug" => Ok(Verbosity::Debug),
+        "3" | "trace" => Ok(Verbosity::Trace),
+        other => Err(Error::Usage(format!(
+            "unsupported `--verbose` value `{other}`; expected 0, 1, 2, 3, normal, verbose, debug, or trace"
+        ))),
+    }
 }
 
 fn args_before_separator(args: &[String]) -> &[String] {

@@ -41,6 +41,14 @@ extern {
         lpNumberOfBytesRead: *mut u32,
         lpOverlapped: *mut void
     ) i32;
+    pub fn SetFilePointerEx(
+        hFile: Handle,
+        liDistanceToMove: LargeInteger,
+        lpNewFilePointer: *mut LargeInteger,
+        dwMoveMethod: u32
+    ) i32;
+    pub fn SetEndOfFile(hFile: Handle) i32;
+    pub fn FlushFileBuffers(hFile: Handle) i32;
     pub fn GetConsoleMode(hConsoleHandle: Handle, lpMode: *mut u32) i32;
     pub fn SetConsoleMode(hConsoleHandle: Handle, dwMode: u32) i32;
     pub fn GetConsoleScreenBufferInfo(hConsoleOutput: Handle, lpConsoleScreenBufferInfo: *mut ConsoleScreenBufferInfo) i32;
@@ -114,6 +122,10 @@ pub type Error = struct {
 extern type FileTime = struct {
     dwLowDateTime: u32,
     dwHighDateTime: u32,
+};
+
+extern type LargeInteger = struct {
+    QuadPart: i64,
 };
 
 extern type Win32FileAttributeData = struct {
@@ -235,6 +247,9 @@ const HANDLE_FLAG_INHERIT = u32.{1};
 const STARTF_USESTDHANDLES = u32.{256};
 const INFINITE = ~u32.{0};
 const WAIT_FAILED = ~u32.{0};
+const FILE_BEGIN = u32.{0};
+const FILE_CURRENT = u32.{1};
+const FILE_END = u32.{2};
 const SECURITY_ATTRIBUTES_SIZE = u32.{24};
 const STARTUP_INFO_W_SIZE = u32.{104};
 
@@ -675,6 +690,36 @@ pub fn write_file(handle: Handle, ptr: *u8, len: usize) usize!Error {
         return .{ Err: last_error() };
     }
     return .{ Ok: written as usize };
+}
+
+/// Repositions an open file handle and returns the new byte offset.
+pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
+    let mut out = LargeInteger.{ QuadPart: 0 };
+    let distance = LargeInteger.{ QuadPart: offset as i64 };
+    let method = if (whence == 0) FILE_BEGIN else if (whence == 1) FILE_CURRENT else FILE_END;
+    if (SetFilePointerEx(handle, distance, out..&, method) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: out.QuadPart as usize };
+}
+
+/// Changes an open file's length.
+pub fn truncate_file(handle: Handle, size: usize) bool!Error {
+    let current = seek_file(handle, 0, 1).!;
+    let _ = seek_file(handle, size as isize, 0).!;
+    if (SetEndOfFile(handle) == 0) {
+        return .{ Err: last_error() };
+    }
+    let _ = seek_file(handle, current as isize, 0).!;
+    return .{ Ok: true };
+}
+
+/// Flushes file contents and metadata to the backing store.
+pub fn flush_file(handle: Handle) bool!Error {
+    if (FlushFileBuffers(handle) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
 }
 
 /// Closes an open file handle.

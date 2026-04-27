@@ -19,6 +19,7 @@ pub use .types.{
     Metadata,
     DirEntry,
     OpenOptions,
+    SeekFrom,
 };
 
 pub use .file.{
@@ -33,11 +34,14 @@ pub use .file.{
     exists,
     is_file,
     is_dir,
+    file_size,
+    is_empty_file,
     remove_file,
     remove_file_if_exists,
     stdin,
     stdout,
     stderr,
+    read_all,
     read_to_string,
     write_all,
     append_all,

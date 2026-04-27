@@ -2,8 +2,8 @@
 
 use sys.os;
 use base.mem.alloc.Allocator;
-use base.coll.String;
-use ..types.{Error, File, Metadata, OpenOptions};
+use base.coll.{List, String};
+use ..types.{Error, File, Metadata, OpenOptions, SeekFrom};
 use ..c_path.{alloc_c_path, free_c_path};
 
 fn to_os_open_options(options: *OpenOptions) os.OpenOptions {
@@ -33,6 +33,14 @@ fn metadata_is_dir(meta: Metadata) bool {
     return meta.is_dir();
 }
 
+fn metadata_size(meta: Metadata) usize {
+    return meta.size;
+}
+
+fn size_is_zero(size: usize) bool {
+    return size == 0;
+}
+
 fn not_found_is_false(err: Error) bool!Error {
     match (err) {
         .{ Os: os_err } => {
@@ -58,6 +66,27 @@ fn metadata_with_c_path(c_path: *u8) Metadata!Error {
 
 fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) bool!Error {
     return os.rename(old_c_path, new_c_path).map_err(wrap_os_error);
+}
+
+fn seek_whence(value: SeekFrom) i32 {
+    return match (value) {
+        .{ Start: _ } => 0,
+        .{ Current: _ } => 1,
+        .{ End: _ } => 2,
+    };
+}
+
+fn seek_offset(value: SeekFrom) isize!Error {
+    return match (value) {
+        .{ Start: offset } => {
+            if ((offset as isize) < 0) {
+                return .{ Err: .InvalidSeek };
+            }
+            .{ Ok: offset as isize }
+        },
+        .{ Current: offset } => .{ Ok: offset },
+        .{ End: offset } => .{ Ok: offset },
+    };
 }
 
 /// Opens a file using the provided options.
@@ -165,6 +194,16 @@ pub/ fn is_dir(alloc: *mut Allocator, path: []u8) bool!Error {
         .or_else(not_found_is_false);
 }
 
+/// Returns the byte length reported by filesystem metadata.
+pub/ fn file_size(alloc: *mut Allocator, path: []u8) usize!Error {
+    return metadata(alloc, path).map(metadata_size);
+}
+
+/// Returns `true` when a path exists and reports a zero byte length.
+pub/ fn is_empty_file(alloc: *mut Allocator, path: []u8) bool!Error {
+    return file_size(alloc, path).map(size_is_zero);
+}
+
 /// Removes a file.
 pub/ fn remove_file(alloc: *mut Allocator, path: []u8) bool!Error {
     let c_path = alloc_c_path(alloc, path).!;
@@ -198,6 +237,13 @@ pub/ fn read_to_string(alloc: *mut Allocator, path: []u8) String!Error {
     let mut file = open_read(alloc, path).!;
     defer file..&.deinit();
     return file..&.read_to_string(alloc);
+}
+
+/// Reads an entire file into an owned byte list.
+pub/ fn read_all(alloc: *mut Allocator, path: []u8) List[u8]!Error {
+    let mut file = open_read(alloc, path).!;
+    defer file..&.deinit();
+    return file..&.read_to_end(alloc);
 }
 
 /// Writes the entire buffer to a file, creating or truncating it first.
@@ -248,6 +294,47 @@ impl *mut File {
 
         return os.read_file(self.handle, buf.[0]..&, len)
             .map_err(wrap_os_error);
+    }
+
+    /// Repositions the file handle and returns the new byte offset.
+    pub fn seek(from: SeekFrom) usize!Error {
+        let offset = seek_offset(from).!;
+        return os.seek_file(self.handle, offset, seek_whence(from))
+            .map_err(wrap_os_error);
+    }
+
+    /// Returns the current byte offset.
+    pub fn tell() usize!Error {
+        return self.seek(.{ Current: 0 });
+    }
+
+    /// Changes the file length.
+    pub fn truncate(size: usize) bool!Error {
+        return os.truncate_file(self.handle, size)
+            .map_err(wrap_os_error);
+    }
+
+    /// Flushes file contents and metadata to the backing store.
+    pub fn flush() bool!Error {
+        return os.flush_file(self.handle)
+            .map_err(wrap_os_error);
+    }
+
+    /// Repeatedly reads until `buf` has been filled.
+    ///
+    /// Errors:
+    /// returns `UnexpectedEof` if the file ends before the buffer is full.
+    pub fn read_exact(buf: []mut u8) bool!Error {
+        let mut total = usize.{0};
+        while (total < #buf) {
+            let chunk = (buf.[0]..& + total)..[0 .. #buf - total];
+            let read = self.read(chunk).!;
+            if (read == 0) {
+                return .{ Err: .UnexpectedEof };
+            }
+            total += read;
+        }
+        return .{ Ok: true };
     }
 
     /// Writes bytes from the provided slice.
@@ -326,6 +413,30 @@ impl *mut File {
             }
 
             if (!out..&.push_str(alloc, chunk.[0 .. read])) {
+                out..&.deinit(alloc);
+                return .{ Err: .OutOfMemory };
+            }
+        }
+    }
+
+    /// Reads the remainder of the file into an owned byte list.
+    pub fn read_to_end(alloc: *mut Allocator) List[u8]!Error {
+        let mut out = List[u8].{};
+        let mut chunk = [1024]u8.{undef};
+
+                while (true) {
+            let .{ Ok: read } = self.read(chunk..[0 .. 1024]) else {
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: err };
+                },
+            };
+
+            if (read == 0) {
+                return .{ Ok: out };
+            }
+
+            if (!out..&.append_slice(alloc, chunk.[0 .. read])) {
                 out..&.deinit(alloc);
                 return .{ Err: .OutOfMemory };
             }

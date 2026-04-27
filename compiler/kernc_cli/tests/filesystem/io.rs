@@ -74,6 +74,42 @@ fn main() i32 {{
         return 2;
     }}
 
+    let exists = match (fs.exists(gpa, "{path}")) {{
+        .{{ Ok: value }} => value,
+        .{{ Err: _ }} => return 20,
+    }};
+    if (!exists) {{
+        return 21;
+    }}
+    let is_file = match (fs.is_file(gpa, "{path}")) {{
+        .{{ Ok: value }} => value,
+        .{{ Err: _ }} => return 22,
+    }};
+    if (!is_file) {{
+        return 23;
+    }}
+    let is_dir = match (fs.is_dir(gpa, "{path}")) {{
+        .{{ Ok: value }} => value,
+        .{{ Err: _ }} => return 24,
+    }};
+    if (is_dir) {{
+        return 25;
+    }}
+    let size = match (fs.file_size(gpa, "{path}")) {{
+        .{{ Ok: value }} => value,
+        .{{ Err: _ }} => return 26,
+    }};
+    if (size != 6) {{
+        return 27;
+    }}
+    let empty = match (fs.is_empty_file(gpa, "{path}")) {{
+        .{{ Ok: value }} => value,
+        .{{ Err: _ }} => return 28,
+    }};
+    if (empty) {{
+        return 29;
+    }}
+
     let mut text = match (fs.read_to_string(gpa, "{path}")) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 3,
@@ -92,6 +128,14 @@ fn main() i32 {{
     let missing = fs.open_read(gpa, "{path}");
     if (!missing.is_err()) {{
         return 6;
+    }}
+
+    let missing_exists = match (fs.exists(gpa, "{path}")) {{
+        .{{ Ok: value }} => value,
+        .{{ Err: _ }} => return 30,
+    }};
+    if (missing_exists) {{
+        return 31;
     }}
 
     return 0;
@@ -160,6 +204,229 @@ fn main() i32 {{
     let missing = fs.open_read(gpa, "{path}.missing");
     if (!missing.is_err()) {{
         return 9;
+    }}
+
+    return 0;
+}}
+"#,
+        path = temp_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&temp_file);
+}
+
+#[test]
+fn runs_hosted_program_using_std_fs_exact_and_byte_reads() {
+    let temp_file = unique_temp_path("kernc_std_fs_exact_reads", "bin");
+    let temp_path = kern_string_literal(&temp_file);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {{
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
+
+    let written = match (fs.write_all(gpa, "{path}", "abcdef")) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 1,
+    }};
+    if (written != 6) {{
+        return 2;
+    }}
+
+    let mut bytes = match (fs.read_all(gpa, "{path}")) {{
+        .{{ Ok: bytes }} => bytes,
+        .{{ Err: _ }} => return 3,
+    }};
+    defer bytes..&.deinit(gpa);
+    if (bytes.as_slice() != "abcdef") {{
+        return 4;
+    }}
+
+    let mut file = match (fs.open_read(gpa, "{path}")) {{
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 5,
+    }};
+    defer file..&.deinit();
+
+    let mut first = [3]u8.{{undef}};
+    match (file..&.read_exact(first..[0 .. 3])) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 6,
+    }}
+    if (first.[0 .. 3] != "abc") {{
+        return 7;
+    }}
+
+    let mut rest = match (file..&.read_to_end(gpa)) {{
+        .{{ Ok: bytes }} => bytes,
+        .{{ Err: _ }} => return 8,
+    }};
+    defer rest..&.deinit(gpa);
+    if (rest.as_slice() != "def") {{
+        return 9;
+    }}
+
+    let mut empty = [0]u8.{{}};
+    match (file..&.read_exact(empty..[0 .. 0])) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 10,
+    }}
+
+    let mut too_much = [1]u8.{{undef}};
+    match (file..&.read_exact(too_much..[0 .. 1])) {{
+        .{{ Ok: _ }} => return 11,
+        .{{ Err: err }} => match (err) {{
+            .UnexpectedEof => {{}},
+            _ => return 12,
+        }},
+    }}
+
+    return 0;
+}}
+"#,
+        path = temp_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&temp_file);
+}
+
+#[test]
+fn runs_hosted_program_using_std_fs_seek_truncate_and_flush() {
+    let temp_file = unique_temp_path("kernc_std_fs_seek_truncate", "bin");
+    let temp_path = kern_string_literal(&temp_file);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {{
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
+
+    let options = fs.OpenOptions.{{
+        read: true,
+        write: true,
+        create: true,
+        truncate: true,
+    }};
+    let mut file = match (fs.open(gpa, "{path}", options.&)) {{
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 1,
+    }};
+    defer file..&.deinit();
+
+    let written = match (file..&.write_all("abcdef")) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 2,
+    }};
+    if (written != 6) {{
+        return 3;
+    }}
+    let pos_after_write = match (file..&.tell()) {{
+        .{{ Ok: pos }} => pos,
+        .{{ Err: _ }} => return 4,
+    }};
+    if (pos_after_write != 6) {{
+        return 4;
+    }}
+
+    let pos_after_seek = match (file..&.seek(.{{ Start: 2 }})) {{
+        .{{ Ok: pos }} => pos,
+        .{{ Err: _ }} => return 5,
+    }};
+    if (pos_after_seek != 2) {{
+        return 5;
+    }}
+    let rewritten = match (file..&.write_all("XY")) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 6,
+    }};
+    if (rewritten != 2) {{
+        return 6;
+    }}
+    let pos_after_rewrite = match (file..&.tell()) {{
+        .{{ Ok: pos }} => pos,
+        .{{ Err: _ }} => return 7,
+    }};
+    if (pos_after_rewrite != 4) {{
+        return 7;
+    }}
+    match (file..&.flush()) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 8,
+    }}
+
+    let start_pos = match (file..&.seek(.{{ Start: 0 }})) {{
+        .{{ Ok: pos }} => pos,
+        .{{ Err: _ }} => return 9,
+    }};
+    if (start_pos != 0) {{
+        return 9;
+    }}
+    let mut all = [6]u8.{{undef}};
+    match (file..&.read_exact(all..[0 .. 6])) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 10,
+    }}
+    if (all.[0 .. 6] != "abXYef") {{
+        return 11;
+    }}
+
+    let tail_pos = match (file..&.seek(.{{ End: -2 }})) {{
+        .{{ Ok: pos }} => pos,
+        .{{ Err: _ }} => return 12,
+    }};
+    if (tail_pos != 4) {{
+        return 12;
+    }}
+    let mut tail = [2]u8.{{undef}};
+    match (file..&.read_exact(tail..[0 .. 2])) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 13,
+    }}
+    if (tail.[0 .. 2] != "ef") {{
+        return 14;
+    }}
+
+    match (file..&.truncate(4)) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 15,
+    }}
+    let reread_pos = match (file..&.seek(.{{ Start: 0 }})) {{
+        .{{ Ok: pos }} => pos,
+        .{{ Err: _ }} => return 16,
+    }};
+    if (reread_pos != 0) {{
+        return 16;
+    }}
+    let mut remaining = match (file..&.read_to_end(gpa)) {{
+        .{{ Ok: bytes }} => bytes,
+        .{{ Err: _ }} => return 17,
+    }};
+    defer remaining..&.deinit(gpa);
+    if (remaining.as_slice() != "abXY") {{
+        return 18;
     }}
 
     return 0;

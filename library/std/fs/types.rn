@@ -8,8 +8,20 @@ pub/ type Error = enum {
     InvalidOptions,
     InvalidPath,
     NotDirectory,
+    InvalidSeek,
+    UnexpectedEof,
     WriteZero,
     Os: os.Error,
+};
+
+/// A file position request.
+pub/ type SeekFrom = enum {
+    //// Offset from the beginning of the file.
+    Start: usize,
+    //// Signed offset from the current file position.
+    Current: isize,
+    //// Signed offset from the end of the file.
+    End: isize,
 };
 
 /// The coarse type of a filesystem entry.

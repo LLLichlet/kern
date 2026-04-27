@@ -36,6 +36,8 @@ const SYS_DUP2 = usize.{33};
 const SYS_FORK = usize.{57};
 const SYS_EXECVE = usize.{59};
 const SYS_WAIT4 = usize.{61};
+const SYS_FSYNC = usize.{74};
+const SYS_FTRUNCATE = usize.{77};
 const UNLINKAT = usize.{263};
 const MKDIRAT = usize.{258};
 const NEWFSTATAT = usize.{262};
@@ -510,6 +512,33 @@ pub fn write_file(handle: Handle, ptr: *u8, len: usize) usize!Error {
         return error_result[usize](ret);
     }
     return .{ Ok: ret as usize };
+}
+
+/// Repositions an open file handle and returns the new byte offset.
+pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
+    let ret = syscall3_raw(8, handle, offset as usize, whence as usize);
+    if (ret < 0) {
+        return error_result[usize](ret);
+    }
+    return .{ Ok: ret as usize };
+}
+
+/// Changes an open file's length.
+pub fn truncate_file(handle: Handle, size: usize) bool!Error {
+    let ret = syscall3_raw(SYS_FTRUNCATE, handle, size, 0);
+    if (ret < 0) {
+        return error_result[bool](ret);
+    }
+    return .{ Ok: true };
+}
+
+/// Flushes file contents and metadata to the backing store.
+pub fn flush_file(handle: Handle) bool!Error {
+    let ret = syscall1_raw(SYS_FSYNC, handle);
+    if (ret < 0) {
+        return error_result[bool](ret);
+    }
+    return .{ Ok: true };
 }
 
 /// Closes an open file handle.

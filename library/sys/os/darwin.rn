@@ -22,6 +22,15 @@ extern {
     #[export_name("close")]
     fn system_close(fd: i32) i32;
 
+    #[export_name("lseek")]
+    fn system_lseek(fd: i32, offset: isize, whence: i32) isize;
+
+    #[export_name("ftruncate")]
+    fn system_ftruncate(fd: i32, length: isize) i32;
+
+    #[export_name("fsync")]
+    fn system_fsync(fd: i32) i32;
+
     #[export_name("unlink")]
     fn system_unlink(path: *u8) i32;
 
@@ -342,6 +351,33 @@ pub fn write_file(handle: Handle, ptr: *u8, len: usize) usize!Error {
         return .{ Err: last_error() };
     }
     return .{ Ok: ret as usize };
+}
+
+/// Repositions an open file handle and returns the new byte offset.
+pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
+    let ret = system_lseek(handle, offset, whence);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: ret as usize };
+}
+
+/// Changes an open file's length.
+pub fn truncate_file(handle: Handle, size: usize) bool!Error {
+    let ret = system_ftruncate(handle, size as isize);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+/// Flushes file contents and metadata to the backing store.
+pub fn flush_file(handle: Handle) bool!Error {
+    let ret = system_fsync(handle);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
 }
 
 /// Closes an open file handle.

@@ -1,5 +1,15 @@
 use super::*;
 
+struct ImplAssocTypeContract<'a> {
+    trait_def_id: DefId,
+    trait_generics: &'a [ast::GenericParam],
+    trait_args: &'a [GenericArg],
+    trait_assoc: &'a AssociatedTypeDef,
+    impl_assoc: &'a AssociatedTypeDef,
+    resolved_target: TypeId,
+    assoc_targets: &'a HashMap<DefId, TypeId>,
+}
+
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     fn canonical_trait_assoc_generic_arg(&mut self, param: &ast::GenericParam) -> GenericArg {
         match &param.kind {
@@ -84,26 +94,21 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     fn check_impl_assoc_type_contracts(
         &mut self,
         impl_def: &ImplDef,
-        trait_def_id: DefId,
-        trait_generics: &[ast::GenericParam],
-        trait_args: &[GenericArg],
-        trait_assoc: &AssociatedTypeDef,
-        impl_assoc: &AssociatedTypeDef,
-        resolved_target: TypeId,
-        assoc_targets: &HashMap<DefId, TypeId>,
+        contract: ImplAssocTypeContract<'_>,
     ) {
-        if resolved_target == TypeId::ERROR {
+        if contract.resolved_target == TypeId::ERROR {
             return;
         }
 
-        let trait_generic_args = trait_generics
+        let trait_generic_args = contract
+            .trait_generics
             .iter()
-            .zip(trait_args.iter())
+            .zip(contract.trait_args.iter())
             .map(|(param, arg)| (param.name, *arg))
             .collect::<HashMap<_, _>>();
 
         let prev_bounds_len = self.push_impl_context_where_bounds(impl_def);
-        for clause in &impl_assoc.where_clauses {
+        for clause in &contract.impl_assoc.where_clauses {
             let target_ty = self.ctx.type_registry.normalize(
                 self.ctx
                     .facts
@@ -129,26 +134,26 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             self.ctx.analysis.active_bounds.push((target_ty, bounds));
         }
         self.push_instantiated_where_bounds(
-            &trait_assoc.where_clauses,
+            &contract.trait_assoc.where_clauses,
             &trait_generic_args,
-            assoc_targets,
-            trait_def_id,
-            trait_args,
-            resolved_target,
+            contract.assoc_targets,
+            contract.trait_def_id,
+            contract.trait_args,
+            contract.resolved_target,
         );
         if self.ctx.analysis.active_bounds.len() != prev_bounds_len {
             self.ctx.clear_active_bound_caches();
         }
 
-        let assoc_name = self.ctx.resolve(impl_assoc.name).to_string();
-        for &bound_ty in &trait_assoc.resolved_bounds {
+        let assoc_name = self.ctx.resolve(contract.impl_assoc.name).to_string();
+        for &bound_ty in &contract.trait_assoc.resolved_bounds {
             let instantiated_bound = self.instantiate_trait_assoc_contract_ty(
                 bound_ty,
                 &trait_generic_args,
-                assoc_targets,
-                trait_def_id,
-                trait_args,
-                resolved_target,
+                contract.assoc_targets,
+                contract.trait_def_id,
+                contract.trait_args,
+                contract.resolved_target,
             );
             let instantiated_bound = self.ctx.type_registry.normalize(instantiated_bound);
             if instantiated_bound == TypeId::ERROR {
@@ -157,28 +162,28 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
             let bound_ok = {
                 let mut checker = ExprChecker::new(self.ctx, None);
-                checker.check_trait_impl(resolved_target, instantiated_bound)
+                checker.check_trait_impl(contract.resolved_target, instantiated_bound)
             };
             if bound_ok {
                 continue;
             }
 
-            let target_str = self.ctx.ty_to_string(resolved_target);
+            let target_str = self.ctx.ty_to_string(contract.resolved_target);
             let bound_str = self.ctx.ty_to_string(instantiated_bound);
             self.ctx
                 .struct_error(
-                    impl_assoc.span,
+                    contract.impl_assoc.span,
                     format!(
                         "associated type `{}` does not satisfy the bounds declared by the trait",
                         assoc_name
                     ),
                 )
                 .with_span_label(
-                    impl_assoc.span,
+                    contract.impl_assoc.span,
                     "this impl-associated type target does not implement the required bound",
                 )
                 .with_span_label(
-                    trait_assoc.span,
+                    contract.trait_assoc.span,
                     "the trait declares the associated-type contract here",
                 )
                 .with_hint(format!("required bound: `{}: {}`", target_str, bound_str))
@@ -520,13 +525,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         .unwrap_or(canonical_target);
                     self.check_impl_assoc_type_contracts(
                         impl_def,
-                        trait_def_id,
-                        &trait_generics,
-                        &trait_args,
-                        &trait_assoc,
-                        &impl_assoc,
-                        resolved_target,
-                        &resolved_trait_assoc_targets,
+                        ImplAssocTypeContract {
+                            trait_def_id,
+                            trait_generics: &trait_generics,
+                            trait_args: &trait_args,
+                            trait_assoc: &trait_assoc,
+                            impl_assoc: &impl_assoc,
+                            resolved_target,
+                            assoc_targets: &resolved_trait_assoc_targets,
+                        },
                     );
                 }
             }

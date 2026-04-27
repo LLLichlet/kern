@@ -75,16 +75,16 @@ impl AnalysisEngine {
         let target_path = normalize_path(&target_doc.path);
         let uri_by_path = self.uri_by_normalized_path();
 
-        Ok(find_reference_locations(
-            &artifact.session,
-            &artifact.hovers,
-            &artifact.definition_links,
-            &artifact.semantic_entries,
-            &target_path,
-            &position,
+        Ok(find_reference_locations(ReferenceLocationQuery {
+            session: &artifact.session,
+            hovers: &artifact.hovers,
+            definition_links: &artifact.definition_links,
+            semantic_entries: &artifact.semantic_entries,
+            target_path: &target_path,
+            position: &position,
             include_declaration,
-            &uri_by_path,
-        ))
+            uri_by_path: &uri_by_path,
+        }))
     }
 
     pub fn document_highlights(

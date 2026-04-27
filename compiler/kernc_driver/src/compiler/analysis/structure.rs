@@ -177,9 +177,7 @@ impl CompilerDriver {
         let root_name = loader
             .ctx
             .intern(self.options.root_module_name.as_deref().unwrap_or("root"));
-        if loader.load_root(input_file, root_name).is_none() {
-            return None;
-        }
+        loader.load_root(input_file, root_name)?;
         if !Self::report_diagnostics_if_errors(loader.ctx) {
             return None;
         }
@@ -256,7 +254,7 @@ impl CompilerDriver {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(in crate::compiler) fn analyze_compile_structure(
         &self,
         input_file: &str,

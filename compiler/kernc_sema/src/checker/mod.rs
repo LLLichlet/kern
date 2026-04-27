@@ -1007,16 +1007,14 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 .iter()
                 .skip(1)
                 .map(|requirement| {
+                    let proof = format!(
+                        "{}: {}",
+                        self.ctx.ty_to_string(requirement.target_ty),
+                        self.ctx.ty_to_string(requirement.trait_ty)
+                    );
                     (
                         requirement.requirement_span,
-                        format!(
-                            "the proof then requires `{}`",
-                            format!(
-                                "{}: {}",
-                                self.ctx.ty_to_string(requirement.target_ty),
-                                self.ctx.ty_to_string(requirement.trait_ty)
-                            )
-                        ),
+                        format!("the proof then requires `{}`", proof),
                     )
                 })
                 .collect::<Vec<_>>();

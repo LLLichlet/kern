@@ -1030,17 +1030,14 @@ fn resolve_trait_impl_obligation_inner(
     let target_trait_norm = ctx.type_registry.normalize(target_trait_ty);
 
     let mut checker = ExprChecker::new(ctx, None);
-    let Some(impl_ptr) = checker
+    let impl_ptr = checker
         .ctx
         .defs
         .get(impl_id.0 as usize)
         .and_then(|def| match def {
             Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
             _ => None,
-        })
-    else {
-        return None;
-    };
+        })?;
 
     let impl_def = unsafe { &*impl_ptr };
     let Some(impl_trait_node) = &impl_def.trait_type else {
@@ -1140,11 +1137,8 @@ fn resolve_trait_impl_obligation_inner(
     };
 
     if !target_assoc_bindings.is_empty() {
-        let Some(instantiated_impl_trait_ty) =
-            instantiate_impl_trait_ty(checker.ctx, impl_id, &resolved_args)
-        else {
-            return None;
-        };
+        let instantiated_impl_trait_ty =
+            instantiate_impl_trait_ty(checker.ctx, impl_id, &resolved_args)?;
         // Obligations can mention associated types inherited from supertraits.
         // Validate against the receiver's full resolved trait hierarchy, not
         // just the direct assoc bindings written on the impl head itself.
@@ -1166,9 +1160,7 @@ fn resolve_trait_impl_obligation_inner(
             .collect::<FastHashMap<_, _>>();
 
         for (assoc_def_id, target_assoc_ty) in target_assoc_bindings {
-            let Some(&impl_assoc_ty) = impl_assoc_bindings.get(&assoc_def_id) else {
-                return None;
-            };
+            let &impl_assoc_ty = impl_assoc_bindings.get(&assoc_def_id)?;
             if !checker.match_available_type_against_requirement(
                 impl_assoc_ty,
                 target_assoc_ty,

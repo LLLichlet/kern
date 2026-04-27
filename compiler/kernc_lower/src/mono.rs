@@ -506,10 +506,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let body = self.measure_phase("    lower_fn_body", |this| {
             let def = unsafe { &*def_ptr };
-            if this.function_requires_runtime_body(&def) {
+            if this.function_requires_runtime_body(def) {
                 let prev_scope = this.ctx.scopes.current_scope_id();
                 let saved_owner = this.current_owner_def_id.replace(def_id);
-                if let Some(owner_scope) = this.function_owner_scope(&def) {
+                if let Some(owner_scope) = this.function_owner_scope(def) {
                     this.ctx.scopes.set_current_scope(owner_scope);
                 }
                 this.current_return_types.push(conc_ret);

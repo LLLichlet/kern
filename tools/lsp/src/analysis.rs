@@ -20,7 +20,7 @@ use self::diagnostics::{
     convert_diagnostic_for_document, diagnostics_from_session, preserve_target_diagnostics,
 };
 use self::navigation::{
-    analysis_completion_to_lsp_item, analysis_signature_help_to_lsp_help,
+    ReferenceLocationQuery, analysis_completion_to_lsp_item, analysis_signature_help_to_lsp_help,
     analysis_symbol_to_document_symbol, build_rename_changes, find_definition_location,
     find_document_highlights, find_hover, find_reference_locations, find_rename_target,
 };

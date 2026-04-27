@@ -64,6 +64,16 @@ enum ScalarCoverageState {
     },
 }
 
+struct MatchArmCheckState<'a> {
+    norm_target: TypeId,
+    has_constructor_coverage: bool,
+    common_ret_ty: Option<TypeId>,
+    seen_patterns: &'a mut Vec<Vec<CoveragePattern>>,
+    scalar_coverage: Option<&'a mut ScalarCoverageState>,
+    match_closed: &'a mut bool,
+    has_catch_all: &'a mut bool,
+}
+
 #[derive(Debug, Clone)]
 enum CoverageWitness {
     Wildcard,
@@ -185,9 +195,7 @@ impl ScalarCoverageState {
                     if cursor < interval.start {
                         return Some(ScalarPoint::Signed(cursor));
                     }
-                    let Some(next_cursor) = interval.end.checked_add(1) else {
-                        return None;
-                    };
+                    let next_cursor = interval.end.checked_add(1)?;
                     cursor = next_cursor;
                     if cursor > *max {
                         return None;
@@ -202,9 +210,7 @@ impl ScalarCoverageState {
                     if cursor < interval.start {
                         return Some(ScalarPoint::Unsigned(cursor));
                     }
-                    let Some(next_cursor) = interval.end.checked_add(1) else {
-                        return None;
-                    };
+                    let next_cursor = interval.end.checked_add(1)?;
                     cursor = next_cursor;
                     if cursor > *max {
                         return None;
@@ -1088,16 +1094,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut match_closed = false;
 
         for arm in arms {
-            let body_ty = self.check_match_arm(
-                arm,
+            let mut arm_state = MatchArmCheckState {
                 norm_target,
                 has_constructor_coverage,
                 common_ret_ty,
-                &mut seen_patterns,
-                scalar_coverage.as_mut(),
-                &mut match_closed,
-                &mut has_catch_all,
-            );
+                seen_patterns: &mut seen_patterns,
+                scalar_coverage: scalar_coverage.as_mut(),
+                match_closed: &mut match_closed,
+                has_catch_all: &mut has_catch_all,
+            };
+            let body_ty = self.check_match_arm(arm, &mut arm_state);
 
             if common_ret_ty.is_none() || common_ret_ty == Some(TypeId::NEVER) {
                 common_ret_ty = Some(body_ty);
@@ -1158,114 +1164,115 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn check_match_arm(
         &mut self,
         arm: &ast::MatchArm,
-        norm_target: TypeId,
-        has_constructor_coverage: bool,
-        common_ret_ty: Option<TypeId>,
-        seen_patterns: &mut Vec<Vec<CoveragePattern>>,
-        scalar_coverage: Option<&mut ScalarCoverageState>,
-        match_closed: &mut bool,
-        has_catch_all: &mut bool,
+        state: &mut MatchArmCheckState<'_>,
     ) -> TypeId {
         self.ctx.scopes.enter_scope();
-        let mut scalar_coverage = scalar_coverage;
 
         let pattern_started = self.timing_start();
         for pat in &arm.patterns {
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
-                    let v_ty = self.check_expr(v, Some(norm_target));
-                    self.check_coercion(v, norm_target, v_ty);
-                    if *match_closed {
+                    let v_ty = self.check_expr(v, Some(state.norm_target));
+                    self.check_coercion(v, state.norm_target, v_ty);
+                    if *state.match_closed {
                         self.warn_unreachable_match_pattern(pat.span);
-                    } else if has_constructor_coverage
-                        && let Some(lowered) = self.coverage_lower_match_pattern(pat, norm_target)
+                    } else if state.has_constructor_coverage
+                        && let Some(lowered) =
+                            self.coverage_lower_match_pattern(pat, state.norm_target)
                     {
                         if self.coverage_vector_is_useful(
-                            &[norm_target],
-                            seen_patterns,
+                            &[state.norm_target],
+                            state.seen_patterns,
                             std::slice::from_ref(&lowered),
                         ) {
-                            seen_patterns.push(vec![lowered]);
-                            if self.coverage_matrix_is_exhaustive(norm_target, seen_patterns) {
-                                *has_catch_all = true;
-                                *match_closed = true;
+                            state.seen_patterns.push(vec![lowered]);
+                            if self.coverage_matrix_is_exhaustive(
+                                state.norm_target,
+                                state.seen_patterns,
+                            ) {
+                                *state.has_catch_all = true;
+                                *state.match_closed = true;
                             }
                         } else {
                             self.warn_unreachable_match_pattern(pat.span);
                         }
-                    } else if let Some(scalar_coverage) = scalar_coverage.as_deref_mut()
+                    } else if let Some(scalar_coverage) = state.scalar_coverage.as_deref_mut()
                         && let Some(intervals) =
-                            self.scalar_pattern_intervals(pat, norm_target, scalar_coverage)
+                            self.scalar_pattern_intervals(pat, state.norm_target, scalar_coverage)
                     {
                         if intervals.is_empty() || scalar_coverage.covers_all(&intervals) {
                             self.warn_unreachable_match_pattern(pat.span);
                         } else {
                             scalar_coverage.add_intervals(&intervals);
                             if scalar_coverage.is_full() {
-                                *has_catch_all = true;
-                                *match_closed = true;
+                                *state.has_catch_all = true;
+                                *state.match_closed = true;
                             }
                         }
                     }
                 }
                 ast::MatchPatternKind::Range { start, end, .. } => {
-                    let s_ty = self.check_expr(start, Some(norm_target));
-                    let e_ty = self.check_expr(end, Some(norm_target));
-                    self.check_coercion(start, norm_target, s_ty);
-                    self.check_coercion(end, norm_target, e_ty);
-                    if *match_closed {
+                    let s_ty = self.check_expr(start, Some(state.norm_target));
+                    let e_ty = self.check_expr(end, Some(state.norm_target));
+                    self.check_coercion(start, state.norm_target, s_ty);
+                    self.check_coercion(end, state.norm_target, e_ty);
+                    if *state.match_closed {
                         self.warn_unreachable_match_pattern(pat.span);
-                    } else if let Some(scalar_coverage) = scalar_coverage.as_deref_mut()
+                    } else if let Some(scalar_coverage) = state.scalar_coverage.as_deref_mut()
                         && let Some(intervals) =
-                            self.scalar_pattern_intervals(pat, norm_target, scalar_coverage)
+                            self.scalar_pattern_intervals(pat, state.norm_target, scalar_coverage)
                     {
                         if intervals.is_empty() || scalar_coverage.covers_all(&intervals) {
                             self.warn_unreachable_match_pattern(pat.span);
                         } else {
                             scalar_coverage.add_intervals(&intervals);
                             if scalar_coverage.is_full() {
-                                *has_catch_all = true;
-                                *match_closed = true;
+                                *state.has_catch_all = true;
+                                *state.match_closed = true;
                             }
                         }
                     }
                 }
                 ast::MatchPatternKind::Pattern(pattern) => {
-                    self.check_pattern(arm.body.id, pattern, norm_target);
+                    self.check_pattern(arm.body.id, pattern, state.norm_target);
 
-                    let irrefutable = self.pattern_is_irrefutable(pattern, norm_target);
-                    if *match_closed {
+                    let irrefutable = self.pattern_is_irrefutable(pattern, state.norm_target);
+                    if *state.match_closed {
                         self.warn_unreachable_match_pattern(pat.span);
-                    } else if has_constructor_coverage
-                        && let Some(lowered) = self.coverage_lower_match_pattern(pat, norm_target)
+                    } else if state.has_constructor_coverage
+                        && let Some(lowered) =
+                            self.coverage_lower_match_pattern(pat, state.norm_target)
                     {
                         if self.coverage_vector_is_useful(
-                            &[norm_target],
-                            seen_patterns,
+                            &[state.norm_target],
+                            state.seen_patterns,
                             std::slice::from_ref(&lowered),
                         ) {
-                            seen_patterns.push(vec![lowered]);
+                            state.seen_patterns.push(vec![lowered]);
                             if irrefutable
-                                || self.coverage_matrix_is_exhaustive(norm_target, seen_patterns)
+                                || self.coverage_matrix_is_exhaustive(
+                                    state.norm_target,
+                                    state.seen_patterns,
+                                )
                             {
-                                *has_catch_all = true;
-                                *match_closed = true;
+                                *state.has_catch_all = true;
+                                *state.match_closed = true;
                             }
                         } else {
                             self.warn_unreachable_match_pattern(pat.span);
                         }
-                    } else if let Some(scalar_coverage) = scalar_coverage.as_deref_mut() {
+                    } else if let Some(scalar_coverage) = state.scalar_coverage.as_deref_mut() {
                         if irrefutable {
                             if scalar_coverage.is_full() {
                                 self.warn_unreachable_match_pattern(pat.span);
                             } else {
-                                *has_catch_all = true;
-                                *match_closed = true;
+                                *state.has_catch_all = true;
+                                *state.match_closed = true;
                             }
                         }
                     } else if irrefutable {
-                        *has_catch_all = true;
-                        *match_closed = true;
+                        *state.has_catch_all = true;
+                        *state.match_closed = true;
                     }
                 }
             }
@@ -1275,7 +1282,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         });
 
         let body_started = self.timing_start();
-        let body_ty = self.check_expr(&arm.body, common_ret_ty);
+        let body_ty = self.check_expr(&arm.body, state.common_ret_ty);
         self.record_expr_timing(body_started, |stats, elapsed| {
             stats.control_match_bodies += elapsed;
         });
@@ -1291,10 +1298,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // Thread the function's expected return type into the returned expression.
             let val_ty = self.check_expr(v, Some(expected_ret));
 
-            if let Some(ret_ty) = self.current_return_type {
-                if !self.reject_returned_capturing_closure(v, ret_ty, val_ty) {
-                    self.check_coercion(v, ret_ty, val_ty);
-                }
+            if let Some(ret_ty) = self.current_return_type
+                && !self.reject_returned_capturing_closure(v, ret_ty, val_ty)
+            {
+                self.check_coercion(v, ret_ty, val_ty);
             }
         } else if expected_ret != TypeId::VOID && expected_ret != TypeId::ERROR {
             let ret_str = self.ctx.ty_to_string(expected_ret);

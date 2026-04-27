@@ -204,13 +204,13 @@ pub fn build(b: *mut builder.Builder) void {
         .to_string_lossy()
         .replace('\\', "/");
 
-    assert_eq!(unit.link.args.get(0).map(String::as_str), Some("-T"));
+    assert_eq!(unit.link.args.first().map(String::as_str), Some("-T"));
     assert_eq!(
         unit.link.args.get(1).map(String::as_str),
         Some(expected.as_str())
     );
     assert_eq!(
-        unit.link.input_paths.get(0).map(String::as_str),
+        unit.link.input_paths.first().map(String::as_str),
         Some(expected.as_str())
     );
 

@@ -11,6 +11,17 @@ use kernc_driver::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+pub(super) struct ReferenceLocationQuery<'a> {
+    pub session: &'a kernc_utils::Session,
+    pub hovers: &'a [AnalysisHover],
+    pub definition_links: &'a [AnalysisDefinitionLink],
+    pub semantic_entries: &'a [AnalysisSemanticEntry],
+    pub target_path: &'a Path,
+    pub position: &'a Position,
+    pub include_declaration: bool,
+    pub uri_by_path: &'a BTreeMap<PathBuf, String>,
+}
+
 pub(super) fn analysis_symbol_to_document_symbol(
     session: &kernc_utils::Session,
     symbol: &AnalysisSymbol,
@@ -90,40 +101,37 @@ pub(super) fn find_definition_location(
     location_from_span(session, definition_span, uri_by_path)
 }
 
-pub(super) fn find_reference_locations(
-    session: &kernc_utils::Session,
-    hovers: &[AnalysisHover],
-    definition_links: &[AnalysisDefinitionLink],
-    semantic_entries: &[AnalysisSemanticEntry],
-    target_path: &Path,
-    position: &Position,
-    include_declaration: bool,
-    uri_by_path: &BTreeMap<PathBuf, String>,
-) -> Vec<Location> {
-    let Some(definition_span) =
-        find_target_definition_span(session, hovers, semantic_entries, target_path, position)
-    else {
+pub(super) fn find_reference_locations(query: ReferenceLocationQuery<'_>) -> Vec<Location> {
+    let Some(definition_span) = find_target_definition_span(
+        query.session,
+        query.hovers,
+        query.semantic_entries,
+        query.target_path,
+        query.position,
+    ) else {
         return Vec::new();
     };
-    let definition_spans = rename_definition_span_group(definition_span, definition_links);
+    let definition_spans = rename_definition_span_group(definition_span, query.definition_links);
 
     let mut locations = Vec::new();
-    if include_declaration {
+    if query.include_declaration {
         for definition_span in &definition_spans {
-            if let Some(location) = location_from_span(session, *definition_span, uri_by_path) {
+            if let Some(location) =
+                location_from_span(query.session, *definition_span, query.uri_by_path)
+            {
                 locations.push(location);
             }
         }
     }
 
-    for entry in semantic_entries {
+    for entry in query.semantic_entries {
         if entry.role != AnalysisSemanticRole::Reference
             || !definition_spans.contains(&entry.definition_span)
         {
             continue;
         }
 
-        if let Some(location) = location_from_span(session, entry.span, uri_by_path) {
+        if let Some(location) = location_from_span(query.session, entry.span, query.uri_by_path) {
             locations.push(location);
         }
     }

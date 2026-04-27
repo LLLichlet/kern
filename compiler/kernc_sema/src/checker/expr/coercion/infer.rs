@@ -424,11 +424,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         self.type_vars.resize(other_vid as usize + 1, None);
                         self.numeric_type_vars.resize(other_vid as usize + 1, None);
                     }
-                    if self.type_vars[other_vid as usize].is_some() {
-                        self.type_vars[vid as usize] = Some(ty);
-                    } else {
-                        self.type_vars[vid as usize] = Some(ty);
-                    }
+                    self.type_vars[vid as usize] = Some(ty);
                     return true;
                 }
 

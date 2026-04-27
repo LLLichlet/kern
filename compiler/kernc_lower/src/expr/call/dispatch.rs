@@ -1,5 +1,15 @@
 use super::*;
 
+struct PlainFnCallLowering<'a> {
+    callee_mast: MastExpr,
+    args: &'a [Expr],
+    arg_masts: Vec<MastExpr>,
+    fn_id: DefId,
+    fn_args: Vec<kernc_sema::ty::GenericArg>,
+    subst_map: &'a HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    span: Span,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn resolve_bound_impl_method_target(
         &mut self,
@@ -407,25 +417,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         })
     }
 
-    fn lower_plain_fn_call(
-        &mut self,
-        callee_mast: MastExpr,
-        args: &[Expr],
-        mut arg_masts: Vec<MastExpr>,
-        fn_id: DefId,
-        fn_args: Vec<kernc_sema::ty::GenericArg>,
-        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
-        span: Span,
-    ) -> MastExprKind {
+    fn lower_plain_fn_call(&mut self, mut call: PlainFnCallLowering<'_>) -> MastExprKind {
         if let Some(intrinsic) =
             self.measure_phase("              lower_call_plain_intrinsic", |this| {
                 this.lower_intrinsic_call(
-                    fn_id,
-                    callee_mast.ty,
-                    args,
-                    &mut arg_masts,
-                    subst_map,
-                    span,
+                    call.fn_id,
+                    call.callee_mast.ty,
+                    call.args,
+                    &mut call.arg_masts,
+                    call.subst_map,
+                    call.span,
                 )
             })
         {
@@ -433,13 +434,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let mono_id = self.measure_phase("              lower_call_plain_instantiate", |this| {
-            this.instantiate_function_at(fn_id, &fn_args, span)
+            this.instantiate_function_at(call.fn_id, &call.fn_args, call.span)
         });
         self.measure_phase("              lower_call_plain_build", |_this| {
-            let func_ref = MastExpr::new(callee_mast.ty, MastExprKind::FuncRef(mono_id), span);
+            let func_ref = MastExpr::new(
+                call.callee_mast.ty,
+                MastExprKind::FuncRef(mono_id),
+                call.span,
+            );
             MastExprKind::Call {
                 callee: Box::new(func_ref),
-                args: arg_masts,
+                args: call.arg_masts,
             }
         })
     }
@@ -659,15 +664,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone()
         {
-            self.lower_plain_fn_call(
+            self.lower_plain_fn_call(PlainFnCallLowering {
                 callee_mast,
                 args,
                 arg_masts,
                 fn_id,
                 fn_args,
                 subst_map,
-                callee.span,
-            )
+                span: callee.span,
+            })
         } else {
             self.lower_plain_direct_call(callee_mast, arg_masts)
         }

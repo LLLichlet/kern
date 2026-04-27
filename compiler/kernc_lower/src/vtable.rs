@@ -7,6 +7,16 @@ use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 use std::collections::{HashMap, HashSet};
 
+pub(crate) struct VtableGlobalInput<'a> {
+    vtable_id: MonoId,
+    data_ptr_ty: TypeId,
+    receiver_ty: TypeId,
+    actual_trait_ty: TypeId,
+    trait_def: &'a TraitDef,
+    impl_def: &'a ImplDef,
+    impl_args: &'a [GenericArg],
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn trait_object_satisfies_required(
         &mut self,
@@ -292,15 +302,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let vtable_id = this.new_mono_id();
             this.vtable_cache.insert(key, vtable_id);
 
-            this.build_and_inject_vtable_global(
+            this.build_and_inject_vtable_global(VtableGlobalInput {
                 vtable_id,
                 data_ptr_ty,
                 receiver_ty,
-                norm_trait,
-                &trait_def,
-                &impl_def,
-                &impl_args,
-            );
+                actual_trait_ty: norm_trait,
+                trait_def: &trait_def,
+                impl_def: &impl_def,
+                impl_args: &impl_args,
+            });
 
             vtable_id
         })
@@ -677,25 +687,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         id
     }
 
-    pub(crate) fn build_and_inject_vtable_global(
-        &mut self,
-        vtable_id: MonoId,
-        data_ptr_ty: TypeId,
-        receiver_ty: TypeId,
-        actual_trait_ty: TypeId,
-        trait_def: &TraitDef,
-        impl_def: &ImplDef,
-        impl_args: &[kernc_sema::ty::GenericArg],
-    ) {
+    pub(crate) fn build_and_inject_vtable_global(&mut self, input: VtableGlobalInput<'_>) {
         let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
             elem: TypeId::VOID,
         });
         let mut vtable_entries = Vec::new();
 
-        for super_trait_ty in self.collect_transitive_supertraits(actual_trait_ty) {
+        for super_trait_ty in self.collect_transitive_supertraits(input.actual_trait_ty) {
             let super_vtable_id =
-                self.get_or_create_vtable(data_ptr_ty, receiver_ty, super_trait_ty);
+                self.get_or_create_vtable(input.data_ptr_ty, input.receiver_ty, super_trait_ty);
             match self.vtable_global_void_ptr_expr(super_vtable_id, Span::default()) {
                 Some(expr) => vtable_entries.push(expr),
                 None => vtable_entries.push(MastExpr::new(
@@ -706,21 +707,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        for method in &trait_def.methods {
+        for method in &input.trait_def.methods {
             let mut method_entry = None;
 
-            for &m_id in &impl_def.methods {
+            for &m_id in &input.impl_def.methods {
                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
                     && f.name == method.name
                 {
-                    let method_mono_id = self.instantiate_function_at(m_id, impl_args, f.name_span);
+                    let method_mono_id =
+                        self.instantiate_function_at(m_id, input.impl_args, f.name_span);
                     let method_fn_ty = self
                         .ctx
                         .type_registry
-                        .intern(TypeKind::FnDef(m_id, impl_args.to_vec()));
+                        .intern(TypeKind::FnDef(m_id, input.impl_args.to_vec()));
                     method_entry = self.get_or_create_vtable_method_adapter(
                         method_mono_id,
-                        data_ptr_ty,
+                        input.data_ptr_ty,
                         method_fn_ty,
                         Span::default(),
                     );
@@ -770,10 +772,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         );
 
         self.module.globals.push(MastGlobal {
-            id: vtable_id,
+            id: input.vtable_id,
             name: format!(
                 "__vtable_{}_{}_{}",
-                data_ptr_ty.0, receiver_ty.0, actual_trait_ty.0
+                input.data_ptr_ty.0, input.receiver_ty.0, input.actual_trait_ty.0
             ),
             span: Span::default(),
             linkage: MastLinkage::Internal,

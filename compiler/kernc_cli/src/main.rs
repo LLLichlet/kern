@@ -23,7 +23,7 @@ fn set_driver_mode(options: &mut CompileOptions, requested: DriverMode, flag: &s
 }
 
 enum CliAction {
-    Run(CompileOptions),
+    Run(Box<CompileOptions>),
     Help(HelpTopic),
     Version,
 }
@@ -224,9 +224,7 @@ fn validate_mode_inputs(
 }
 
 fn parse_help_request(args: &[String]) -> Option<CliAction> {
-    let Some(first) = args.first() else {
-        return None;
-    };
+    let first = args.first()?;
     if args.iter().any(|arg| arg == "--help=all") {
         return Some(CliAction::Help(HelpTopic::All));
     }
@@ -249,9 +247,7 @@ fn parse_help_request(args: &[String]) -> Option<CliAction> {
 }
 
 fn parse_version_request(args: &[String]) -> Option<CliAction> {
-    let Some(first) = args.first() else {
-        return None;
-    };
+    let first = args.first()?;
     if first == "--version" || first == "-V" || (first == "-v" && args.len() == 1) {
         return Some(CliAction::Version);
     }
@@ -464,13 +460,13 @@ fn parse_args() -> CliAction {
     inject_driver_condition_defines(&mut options);
     apply_configured_library_aliases(&mut options);
 
-    CliAction::Run(options)
+    CliAction::Run(Box::new(options))
 }
 
 fn main() {
     match parse_args() {
         CliAction::Run(options) => {
-            let driver = CompilerDriver::new(options);
+            let driver = CompilerDriver::new(*options);
             if !driver.compile() {
                 process::exit(1);
             }

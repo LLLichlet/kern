@@ -38,9 +38,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let first = self
             .pack_union_static_chunk(value, elem_ty)?
             .into_int_value();
-        let Some(slot) = values.first_mut() else {
-            return None;
-        };
+        let slot = values.first_mut()?;
         *slot = first;
         Some(elem_ty.const_array(&values).into())
     }

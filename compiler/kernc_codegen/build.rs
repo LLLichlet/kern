@@ -64,7 +64,7 @@ fn add_llvm_include_dir(build: &mut cc::Build, llvm_includedir: &str) {
     if compiler.is_like_msvc() {
         build.flag_if_supported("/experimental:external");
         build.flag_if_supported("/external:W0");
-        build.flag(&format!("/external:I{llvm_includedir}"));
+        build.flag(format!("/external:I{llvm_includedir}"));
         return;
     }
 

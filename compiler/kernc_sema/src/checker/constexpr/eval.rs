@@ -773,29 +773,25 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     Divide => {
                         if lhs_is_unsigned {
                             self.eval_const_uint_division(l, r, span)
+                        } else if r == 0 {
+                            self.ctx
+                                .struct_error(span, "division by zero in constant expression")
+                                .emit();
+                            Err(ConstEvalError)
                         } else {
-                            if r == 0 {
-                                self.ctx
-                                    .struct_error(span, "division by zero in constant expression")
-                                    .emit();
-                                Err(ConstEvalError)
-                            } else {
-                                self.eval_const_int_division(l, r, span)
-                            }
+                            self.eval_const_int_division(l, r, span)
                         }
                     }
                     Modulo => {
                         if lhs_is_unsigned {
                             self.eval_const_uint_modulo(l, r, span)
+                        } else if r == 0 {
+                            self.ctx
+                                .struct_error(span, "modulo by zero in constant expression")
+                                .emit();
+                            Err(ConstEvalError)
                         } else {
-                            if r == 0 {
-                                self.ctx
-                                    .struct_error(span, "modulo by zero in constant expression")
-                                    .emit();
-                                Err(ConstEvalError)
-                            } else {
-                                self.eval_const_int_modulo(l, r, span)
-                            }
+                            self.eval_const_int_modulo(l, r, span)
                         }
                     }
                     ShiftLeft => self.eval_const_int_shift(l, r, true, lhs_is_unsigned, span),

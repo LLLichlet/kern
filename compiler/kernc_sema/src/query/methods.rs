@@ -491,9 +491,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     ) -> Option<[String; 2]> {
         let trait_name = self.common_builtin_trait_name(candidates)?;
         let member_name_str = self.ctx.resolve(member_name);
-        let Some(shape) = builtin_operator_method_shape(&trait_name, member_name_str) else {
-            return None;
-        };
+        let shape = builtin_operator_method_shape(&trait_name, member_name_str)?;
 
         let syntax_hint = match shape {
             BuiltinOperatorMethodShape::Binary(op) => format!(
@@ -811,9 +809,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             }
             _ => None,
         };
-        let Some((trait_def_id, trait_args, assoc_bindings)) = trait_object else {
-            return None;
-        };
+        let (trait_def_id, trait_args, assoc_bindings) = trait_object?;
 
         let cache_key = (trait_object_ty, member_name, receiver_ty);
         if let Some(cached) = self

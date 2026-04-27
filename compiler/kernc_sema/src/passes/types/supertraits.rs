@@ -9,6 +9,15 @@ struct TraitSupertraitEdge {
     target_trait_id: DefId,
 }
 
+struct SupertraitCycleSearch<'a> {
+    visited: &'a mut HashSet<DefId>,
+    stack: &'a mut Vec<DefId>,
+    stack_edges: &'a mut Vec<TraitSupertraitEdge>,
+    on_stack: &'a mut HashMap<DefId, usize>,
+    reported_cycles: &'a mut HashSet<Vec<u32>>,
+    edges_to_break: &'a mut HashSet<(DefId, usize)>,
+}
+
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub(super) fn validate_supertrait_graph(&mut self) {
         let trait_ids = self
@@ -29,15 +38,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let mut edges_to_break = HashSet::new();
 
         for trait_id in trait_ids {
-            self.find_supertrait_cycles_from(
-                trait_id,
-                &mut visited,
-                &mut stack,
-                &mut stack_edges,
-                &mut on_stack,
-                &mut reported_cycles,
-                &mut edges_to_break,
-            );
+            let mut search = SupertraitCycleSearch {
+                visited: &mut visited,
+                stack: &mut stack,
+                stack_edges: &mut stack_edges,
+                on_stack: &mut on_stack,
+                reported_cycles: &mut reported_cycles,
+                edges_to_break: &mut edges_to_break,
+            };
+            self.find_supertrait_cycles_from(trait_id, &mut search);
         }
 
         for (trait_id, supertrait_index) in edges_to_break {
@@ -53,56 +62,44 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     fn find_supertrait_cycles_from(
         &mut self,
         trait_id: DefId,
-        visited: &mut HashSet<DefId>,
-        stack: &mut Vec<DefId>,
-        stack_edges: &mut Vec<TraitSupertraitEdge>,
-        on_stack: &mut HashMap<DefId, usize>,
-        reported_cycles: &mut HashSet<Vec<u32>>,
-        edges_to_break: &mut HashSet<(DefId, usize)>,
+        search: &mut SupertraitCycleSearch<'_>,
     ) {
-        if !visited.insert(trait_id) {
+        if !search.visited.insert(trait_id) {
             return;
         }
 
-        on_stack.insert(trait_id, stack.len());
-        stack.push(trait_id);
+        search.on_stack.insert(trait_id, search.stack.len());
+        search.stack.push(trait_id);
 
         for edge in self.trait_supertrait_edges(trait_id) {
-            if let Some(&cycle_start) = on_stack.get(&edge.target_trait_id) {
-                let mut cycle_edges = stack_edges[cycle_start..].to_vec();
+            if let Some(&cycle_start) = search.on_stack.get(&edge.target_trait_id) {
+                let mut cycle_edges = search.stack_edges[cycle_start..].to_vec();
                 cycle_edges.push(edge);
 
-                let cycle_trait_ids = stack[cycle_start..].to_vec();
+                let cycle_trait_ids = search.stack[cycle_start..].to_vec();
                 let cycle_key = canonical_cycle_key(&cycle_trait_ids);
-                if reported_cycles.insert(cycle_key) {
+                if search.reported_cycles.insert(cycle_key) {
                     self.report_supertrait_cycle(&cycle_trait_ids, &cycle_edges);
                 }
                 for cycle_edge in cycle_edges {
-                    edges_to_break
+                    search
+                        .edges_to_break
                         .insert((cycle_edge.source_trait_id, cycle_edge.supertrait_index));
                 }
                 continue;
             }
 
-            if visited.contains(&edge.target_trait_id) {
+            if search.visited.contains(&edge.target_trait_id) {
                 continue;
             }
 
-            stack_edges.push(edge);
-            self.find_supertrait_cycles_from(
-                edge.target_trait_id,
-                visited,
-                stack,
-                stack_edges,
-                on_stack,
-                reported_cycles,
-                edges_to_break,
-            );
-            stack_edges.pop();
+            search.stack_edges.push(edge);
+            self.find_supertrait_cycles_from(edge.target_trait_id, search);
+            search.stack_edges.pop();
         }
 
-        stack.pop();
-        on_stack.remove(&trait_id);
+        search.stack.pop();
+        search.on_stack.remove(&trait_id);
     }
 
     fn trait_supertrait_edges(&mut self, trait_id: DefId) -> Vec<TraitSupertraitEdge> {

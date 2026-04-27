@@ -116,6 +116,48 @@ impl<'ctx> DIType<'ctx> {
     }
 }
 
+pub struct DIMemberTypeInput<'ctx, 'a> {
+    pub scope: DICompileUnit<'ctx>,
+    pub name: &'a str,
+    pub file: DIFile<'ctx>,
+    pub size_in_bits: u64,
+    pub align_in_bits: u32,
+    pub offset_in_bits: u64,
+    pub ty: DIType<'ctx>,
+}
+
+pub struct DICompositeTypeInput<'ctx, 'a> {
+    pub scope: DICompileUnit<'ctx>,
+    pub name: &'a str,
+    pub file: DIFile<'ctx>,
+    pub size_in_bits: u64,
+    pub align_in_bits: u32,
+    pub elements: &'a [DIType<'ctx>],
+    pub unique_id: &'a str,
+}
+
+pub struct DIReplaceableCompositeTypeInput<'ctx, 'a> {
+    pub tag: u32,
+    pub scope: DICompileUnit<'ctx>,
+    pub name: &'a str,
+    pub file: DIFile<'ctx>,
+    pub size_in_bits: u64,
+    pub align_in_bits: u32,
+    pub unique_id: &'a str,
+}
+
+pub struct DIFunctionInput<'ctx, 'a> {
+    pub scope: DICompileUnit<'ctx>,
+    pub file: DIFile<'ctx>,
+    pub name: &'a str,
+    pub linkage_name: &'a str,
+    pub line: u32,
+    pub scope_line: u32,
+    pub subroutine_type: DISubroutineType<'ctx>,
+    pub is_local_to_unit: bool,
+    pub is_optimized: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DILocalVariable<'ctx> {
     pub(super) raw: LLVMMetadataRef,
@@ -265,95 +307,76 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         DIType::new(raw)
     }
 
-    pub fn create_member_type(
-        &self,
-        scope: DICompileUnit<'ctx>,
-        name: &str,
-        file: DIFile<'ctx>,
-        size_in_bits: u64,
-        align_in_bits: u32,
-        offset_in_bits: u64,
-        ty: DIType<'ctx>,
-    ) -> DIType<'ctx> {
+    pub fn create_member_type(&self, input: DIMemberTypeInput<'ctx, '_>) -> DIType<'ctx> {
         let raw = unsafe {
             LLVMDIBuilderCreateMemberType(
                 self.raw,
-                scope.raw,
-                name.as_ptr() as *const _,
-                name.len(),
-                file.raw,
+                input.scope.raw,
+                input.name.as_ptr() as *const _,
+                input.name.len(),
+                input.file.raw,
                 0,
-                size_in_bits,
-                align_in_bits,
-                offset_in_bits,
+                input.size_in_bits,
+                input.align_in_bits,
+                input.offset_in_bits,
                 LLVMDIFlagZero,
-                ty.raw,
+                input.ty.raw,
             )
         };
         DIType::new(raw)
     }
 
-    pub fn create_struct_type(
-        &self,
-        scope: DICompileUnit<'ctx>,
-        name: &str,
-        file: DIFile<'ctx>,
-        size_in_bits: u64,
-        align_in_bits: u32,
-        elements: &[DIType<'ctx>],
-        unique_id: &str,
-    ) -> DIType<'ctx> {
-        let mut elements = elements.iter().map(|elem| elem.raw).collect::<Vec<_>>();
+    pub fn create_struct_type(&self, input: DICompositeTypeInput<'ctx, '_>) -> DIType<'ctx> {
+        let mut elements = input
+            .elements
+            .iter()
+            .map(|elem| elem.raw)
+            .collect::<Vec<_>>();
         let raw = unsafe {
             LLVMDIBuilderCreateStructType(
                 self.raw,
-                scope.raw,
-                name.as_ptr() as *const _,
-                name.len(),
-                file.raw,
+                input.scope.raw,
+                input.name.as_ptr() as *const _,
+                input.name.len(),
+                input.file.raw,
                 0,
-                size_in_bits,
-                align_in_bits,
+                input.size_in_bits,
+                input.align_in_bits,
                 LLVMDIFlagZero,
                 std::ptr::null_mut(),
                 elements.as_mut_ptr(),
                 elements.len() as u32,
                 0,
                 std::ptr::null_mut(),
-                unique_id.as_ptr() as *const _,
-                unique_id.len(),
+                input.unique_id.as_ptr() as *const _,
+                input.unique_id.len(),
             )
         };
         DIType::new(raw)
     }
 
-    pub fn create_union_type(
-        &self,
-        scope: DICompileUnit<'ctx>,
-        name: &str,
-        file: DIFile<'ctx>,
-        size_in_bits: u64,
-        align_in_bits: u32,
-        elements: &[DIType<'ctx>],
-        unique_id: &str,
-    ) -> DIType<'ctx> {
-        let mut elements = elements.iter().map(|elem| elem.raw).collect::<Vec<_>>();
+    pub fn create_union_type(&self, input: DICompositeTypeInput<'ctx, '_>) -> DIType<'ctx> {
+        let mut elements = input
+            .elements
+            .iter()
+            .map(|elem| elem.raw)
+            .collect::<Vec<_>>();
         let raw = unsafe {
             LLVMDIBuilderCreateUnionType(
                 self.raw,
-                scope.raw,
-                name.as_ptr() as *const _,
-                name.len(),
-                file.raw,
+                input.scope.raw,
+                input.name.as_ptr() as *const _,
+                input.name.len(),
+                input.file.raw,
                 0,
-                size_in_bits,
-                align_in_bits,
+                input.size_in_bits,
+                input.align_in_bits,
                 LLVMDIFlagZero,
                 elements.as_mut_ptr(),
                 elements.len() as u32,
                 0,
-                unique_id.as_ptr() as *const _,
-                unique_id.len(),
+                input.unique_id.as_ptr() as *const _,
+                input.unique_id.len(),
             )
         };
         DIType::new(raw)
@@ -382,29 +405,23 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
 
     pub fn create_replaceable_composite_type(
         &self,
-        tag: u32,
-        scope: DICompileUnit<'ctx>,
-        name: &str,
-        file: DIFile<'ctx>,
-        size_in_bits: u64,
-        align_in_bits: u32,
-        unique_id: &str,
+        input: DIReplaceableCompositeTypeInput<'ctx, '_>,
     ) -> DIType<'ctx> {
         let raw = unsafe {
             LLVMDIBuilderCreateReplaceableCompositeType(
                 self.raw,
-                tag,
-                name.as_ptr() as *const _,
-                name.len(),
-                scope.raw,
-                file.raw,
+                input.tag,
+                input.name.as_ptr() as *const _,
+                input.name.len(),
+                input.scope.raw,
+                input.file.raw,
                 0,
                 0,
-                size_in_bits,
-                align_in_bits,
+                input.size_in_bits,
+                input.align_in_bits,
                 LLVMDIFlagZero,
-                unique_id.as_ptr() as *const _,
-                unique_id.len(),
+                input.unique_id.as_ptr() as *const _,
+                input.unique_id.len(),
             )
         };
         DIType::new(raw)
@@ -428,34 +445,23 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         DISubroutineType::new(raw)
     }
 
-    pub fn create_function(
-        &self,
-        scope: DICompileUnit<'ctx>,
-        file: DIFile<'ctx>,
-        name: &str,
-        linkage_name: &str,
-        line: u32,
-        scope_line: u32,
-        subroutine_type: DISubroutineType<'ctx>,
-        is_local_to_unit: bool,
-        is_optimized: bool,
-    ) -> DISubprogram<'ctx> {
+    pub fn create_function(&self, input: DIFunctionInput<'ctx, '_>) -> DISubprogram<'ctx> {
         let raw = unsafe {
             LLVMDIBuilderCreateFunction(
                 self.raw,
-                scope.raw,
-                name.as_ptr() as *const _,
-                name.len(),
-                linkage_name.as_ptr() as *const _,
-                linkage_name.len(),
-                file.raw,
-                line,
-                subroutine_type.raw,
-                if is_local_to_unit { 1 } else { 0 },
+                input.scope.raw,
+                input.name.as_ptr() as *const _,
+                input.name.len(),
+                input.linkage_name.as_ptr() as *const _,
+                input.linkage_name.len(),
+                input.file.raw,
+                input.line,
+                input.subroutine_type.raw,
+                if input.is_local_to_unit { 1 } else { 0 },
                 1,
-                scope_line,
+                input.scope_line,
                 0,
-                if is_optimized { 1 } else { 0 },
+                if input.is_optimized { 1 } else { 0 },
             )
         };
         DISubprogram::new(raw)
@@ -569,7 +575,7 @@ impl<'ctx> Drop for DebugInfoBuilder<'ctx> {
     }
 }
 
-impl<'ctx> Context {
+impl Context {
     pub fn debug_metadata_version(&self) -> u32 {
         unsafe { LLVMDebugMetadataVersion() }
     }

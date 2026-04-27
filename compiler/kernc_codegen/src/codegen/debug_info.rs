@@ -1,6 +1,7 @@
 use super::CodeGenerator;
 use crate::llvm_api::{
-    DICompileUnit, DIFile, DISubprogram, DIType, DebugInfoBuilder, FunctionValue,
+    DICompileUnit, DICompositeTypeInput, DIFile, DIFunctionInput, DIMemberTypeInput,
+    DIReplaceableCompositeTypeInput, DISubprogram, DIType, DebugInfoBuilder, FunctionValue,
     ModuleFlagBehavior, PointerValue,
 };
 use kernc_mir::{MirFunction, MirStruct};
@@ -9,6 +10,9 @@ use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::{FileId, Span};
 use std::collections::HashMap;
 use std::path::Path;
+
+type DebugLayoutField = (String, TypeId, u64, u64, u32);
+type DebugStructLayout = (u64, u64, Vec<DebugLayoutField>);
 
 pub(super) struct DebugInfoState<'ctx> {
     builder: DebugInfoBuilder<'ctx>,
@@ -225,10 +229,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         Some((unit, file))
     }
 
-    fn debug_mir_struct_layout(
-        &mut self,
-        mir_struct: &MirStruct,
-    ) -> (u64, u64, Vec<(String, TypeId, u64, u64, u32)>) {
+    fn debug_mir_struct_layout(&mut self, mir_struct: &MirStruct) -> DebugStructLayout {
         let packed = self.debug_has_packed_attr(&mir_struct.attributes);
         // MIR already carries the lowered field ordering, but DI needs an explicit byte layout.
         // Rebuild the member offsets here instead of depending on LLVM to reverse-engineer them
@@ -529,19 +530,21 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let state = self.ensure_debug_info_state()?;
             // Recursive ADTs need a replaceable forward declaration first so child members can
             // point back to this type before the final field list is available.
-            state.builder.create_replaceable_composite_type(
-                if mir_struct.is_union {
-                    DW_TAG_UNION_TYPE
-                } else {
-                    DW_TAG_STRUCTURE_TYPE
-                },
-                scope,
-                &name,
-                file,
-                size_bytes * 8,
-                (align_bytes * 8) as u32,
-                &unique_id,
-            )
+            state
+                .builder
+                .create_replaceable_composite_type(DIReplaceableCompositeTypeInput {
+                    tag: if mir_struct.is_union {
+                        DW_TAG_UNION_TYPE
+                    } else {
+                        DW_TAG_STRUCTURE_TYPE
+                    },
+                    scope,
+                    name: &name,
+                    file,
+                    size_in_bits: size_bytes * 8,
+                    align_in_bits: (align_bytes * 8) as u32,
+                    unique_id: &unique_id,
+                })
         };
         self.debug_cache_type(norm, placeholder);
 
@@ -550,15 +553,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let field_di_ty = self.debug_type(member_ty)?;
             let member_di = {
                 let state = self.ensure_debug_info_state()?;
-                state.builder.create_member_type(
+                state.builder.create_member_type(DIMemberTypeInput {
                     scope,
-                    &member_name,
+                    name: &member_name,
                     file,
-                    size_bits,
-                    align_bits,
-                    offset_bits,
-                    field_di_ty,
-                )
+                    size_in_bits: size_bits,
+                    align_in_bits: align_bits,
+                    offset_in_bits: offset_bits,
+                    ty: field_di_ty,
+                })
             };
             member_types.push(member_di);
         }
@@ -566,25 +569,25 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let composite_ty = {
             let state = self.ensure_debug_info_state()?;
             if mir_struct.is_union {
-                state.builder.create_union_type(
+                state.builder.create_union_type(DICompositeTypeInput {
                     scope,
-                    &name,
+                    name: &name,
                     file,
-                    size_bytes * 8,
-                    (align_bytes * 8) as u32,
-                    &member_types,
-                    &unique_id,
-                )
+                    size_in_bits: size_bytes * 8,
+                    align_in_bits: (align_bytes * 8) as u32,
+                    elements: &member_types,
+                    unique_id: &unique_id,
+                })
             } else {
-                state.builder.create_struct_type(
+                state.builder.create_struct_type(DICompositeTypeInput {
                     scope,
-                    &name,
+                    name: &name,
                     file,
-                    size_bytes * 8,
-                    (align_bytes * 8) as u32,
-                    &member_types,
-                    &unique_id,
-                )
+                    size_in_bits: size_bytes * 8,
+                    align_in_bits: (align_bytes * 8) as u32,
+                    elements: &member_types,
+                    unique_id: &unique_id,
+                })
             }
         };
         let state = self.ensure_debug_info_state()?;
@@ -632,37 +635,38 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let members = {
             let state = self.ensure_debug_info_state()?;
             vec![
-                state.builder.create_member_type(
+                state.builder.create_member_type(DIMemberTypeInput {
                     scope,
-                    "data_ptr",
+                    name: "data_ptr",
                     file,
-                    pointer_bits,
-                    pointer_bits as u32,
-                    0,
-                    data_ptr_ty,
-                ),
-                state.builder.create_member_type(
+                    size_in_bits: pointer_bits,
+                    align_in_bits: pointer_bits as u32,
+                    offset_in_bits: 0,
+                    ty: data_ptr_ty,
+                }),
+                state.builder.create_member_type(DIMemberTypeInput {
                     scope,
-                    meta_name,
+                    name: meta_name,
                     file,
-                    pointer_bits,
-                    pointer_bits as u32,
-                    pointer_bits,
-                    meta_ty,
-                ),
+                    size_in_bits: pointer_bits,
+                    align_in_bits: pointer_bits as u32,
+                    offset_in_bits: pointer_bits,
+                    ty: meta_ty,
+                }),
             ]
         };
         let composite_ty = {
             let state = self.ensure_debug_info_state()?;
-            state.builder.create_struct_type(
+            let unique_id = format!("kern.debug.{name}.{:?}", norm);
+            state.builder.create_struct_type(DICompositeTypeInput {
                 scope,
-                &name,
+                name: &name,
                 file,
-                pointer_bits * 2,
-                pointer_bits as u32,
-                &members,
-                &format!("kern.debug.{name}.{:?}", norm),
-            )
+                size_in_bits: pointer_bits * 2,
+                align_in_bits: pointer_bits as u32,
+                elements: &members,
+                unique_id: &unique_id,
+            })
         };
         self.debug_cache_type(norm, composite_ty);
         Some(composite_ty)
@@ -686,15 +690,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let capture_di_ty = self.debug_type(capture_ty)?;
             let member = {
                 let state = self.ensure_debug_info_state()?;
-                state.builder.create_member_type(
+                let member_name = format!("capture{index}");
+                state.builder.create_member_type(DIMemberTypeInput {
                     scope,
-                    &format!("capture{index}"),
+                    name: &member_name,
                     file,
-                    capture_size_bits,
-                    capture_align_bits,
-                    offset_bits,
-                    capture_di_ty,
-                )
+                    size_in_bits: capture_size_bits,
+                    align_in_bits: capture_align_bits,
+                    offset_in_bits: offset_bits,
+                    ty: capture_di_ty,
+                })
             };
             members.push(member);
             offset_bits += capture_size_bits;
@@ -703,15 +708,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let align_bits = (self.debug_type_align_bytes(norm) * 8) as u32;
         let composite_ty = {
             let state = self.ensure_debug_info_state()?;
-            state.builder.create_struct_type(
+            let unique_id = format!("kern.debug.{name}.{:?}", norm);
+            state.builder.create_struct_type(DICompositeTypeInput {
                 scope,
-                &name,
+                name: &name,
                 file,
-                size_bits,
-                align_bits,
-                &members,
-                &format!("kern.debug.{name}.{:?}", norm),
-            )
+                size_in_bits: size_bits,
+                align_in_bits: align_bits,
+                elements: &members,
+                unique_id: &unique_id,
+            })
         };
         self.debug_cache_type(norm, composite_ty);
         Some(composite_ty)
@@ -930,17 +936,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .ensure_debug_info_state()
             .expect("debug info state must exist");
         let subroutine_type = state.builder.create_subroutine_type(file);
-        let subprogram = state.builder.create_function(
-            compile_unit,
+        let subprogram = state.builder.create_function(DIFunctionInput {
+            scope: compile_unit,
             file,
-            &function.name,
-            &function.name,
+            name: &function.name,
+            linkage_name: &function.name,
             line,
-            line,
+            scope_line: line,
             subroutine_type,
             is_local_to_unit,
             is_optimized,
-        );
+        });
         llvm_func.set_subprogram(subprogram);
         state.subprograms.insert(function.id, subprogram);
     }

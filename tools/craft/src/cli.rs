@@ -280,13 +280,12 @@ where
     if rest_cli_args
         .iter()
         .any(|arg| arg == "--help" || arg == "-h")
+        && known_command(cmd)
     {
-        if known_command(cmd) {
-            return Ok(Command::Help {
-                topic: HelpTopic::Command(cmd.clone()),
-                color: help_color,
-            });
-        }
+        return Ok(Command::Help {
+            topic: HelpTopic::Command(cmd.clone()),
+            color: help_color,
+        });
     }
 
     match cmd.as_str() {

@@ -1375,10 +1375,10 @@ fn default_install_root() -> Result<PathBuf> {
     if let Some(kern_home) = std::env::var_os("KERN_HOME") {
         return Ok(PathBuf::from(kern_home));
     }
-    if cfg!(windows) {
-        if let Some(user_profile) = std::env::var_os("USERPROFILE") {
-            return Ok(PathBuf::from(user_profile).join(".kern"));
-        }
+    if cfg!(windows)
+        && let Some(user_profile) = std::env::var_os("USERPROFILE")
+    {
+        return Ok(PathBuf::from(user_profile).join(".kern"));
     }
     if let Some(home) = std::env::var_os("HOME") {
         return Ok(PathBuf::from(home).join(".kern"));

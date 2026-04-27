@@ -166,7 +166,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     fn compute_type_align_body(&mut self, norm: TypeId, request_span: Span) -> u64 {
         let kind = self.ctx.type_registry.get(norm).clone();
 
-        let align = match kind {
+        match kind {
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } | TypeKind::Function { .. } => {
                 self.ctx.sess.target.pointer_size
             }
@@ -293,9 +293,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 );
                 1
             }
-        };
-
-        align
+        }
     }
 
     pub fn compute_type_size(&mut self, ty: TypeId) -> u64 {
@@ -334,7 +332,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     fn compute_type_size_body(&mut self, norm: TypeId, request_span: Span) -> u64 {
         let kind = self.ctx.type_registry.get(norm).clone();
 
-        let size = match kind {
+        match kind {
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.ctx.type_registry.normalize(elem);
                 if matches!(
@@ -497,9 +495,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 );
                 0
             }
-        };
-
-        size
+        }
     }
 
     fn align_to(offset: u64, align: u64) -> u64 {

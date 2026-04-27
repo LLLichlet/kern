@@ -72,6 +72,9 @@ pub struct LowerReport {
     pub cache_stats: LowerCacheStats,
 }
 
+type BoundImplMethodKey = (TypeId, TypeId, SymbolId);
+type BoundImplMethodTarget = (DefId, Option<TypeId>, Vec<GenericArg>);
+
 pub struct Lowerer<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
     module: MastModule,
@@ -93,8 +96,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) local_statics: Vec<HashMap<SymbolId, MonoId>>,
     pub(crate) loop_frames: Vec<usize>,
     pub(crate) field_index_cache: HashMap<(TypeId, SymbolId), usize>,
-    pub(crate) bound_impl_method_cache:
-        HashMap<(TypeId, TypeId, SymbolId), Option<(DefId, Option<TypeId>, Vec<GenericArg>)>>,
+    pub(crate) bound_impl_method_cache: HashMap<BoundImplMethodKey, Option<BoundImplMethodTarget>>,
     pub(crate) callee_expected_params_cache: HashMap<TypeId, Vec<TypeId>>,
     pub(crate) callable_signature_cache: HashMap<TypeId, (Vec<TypeId>, TypeId)>,
     pub(crate) named_struct_layout_cache: HashMap<NamedStructLayoutKey, StructLayoutMapping>,

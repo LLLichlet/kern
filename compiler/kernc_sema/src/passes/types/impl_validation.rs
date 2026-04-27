@@ -237,33 +237,29 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         right_impl_id: DefId,
     ) -> Option<OverlappingTraitImplPair> {
         let (left_impl, right_impl) = {
-            let Some(left_impl) = self.ctx.defs.get(left_impl_id.0 as usize).and_then(|def| {
+            let left_impl = self.ctx.defs.get(left_impl_id.0 as usize).and_then(|def| {
                 if let Def::Impl(impl_def) = def {
                     Some(impl_def.clone())
                 } else {
                     None
                 }
-            }) else {
-                return None;
-            };
-            let Some(right_impl) = self.ctx.defs.get(right_impl_id.0 as usize).and_then(|def| {
-                if let Def::Impl(impl_def) = def {
-                    Some(impl_def.clone())
-                } else {
-                    None
-                }
-            }) else {
-                return None;
-            };
+            })?;
+            let right_impl = self
+                .ctx
+                .defs
+                .get(right_impl_id.0 as usize)
+                .and_then(|def| {
+                    if let Def::Impl(impl_def) = def {
+                        Some(impl_def.clone())
+                    } else {
+                        None
+                    }
+                })?;
             (left_impl, right_impl)
         };
 
-        let Some(_) = left_impl.trait_type else {
-            return None;
-        };
-        let Some(_) = right_impl.trait_type else {
-            return None;
-        };
+        let _ = left_impl.trait_type.as_ref()?;
+        let _ = right_impl.trait_type.as_ref()?;
         if left_impl.parent_module.is_none() || right_impl.parent_module.is_none() {
             return None;
         }

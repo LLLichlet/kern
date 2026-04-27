@@ -1463,12 +1463,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .ctx
             .type_registry
             .intern(TypeKind::Slice { is_mut: true, elem });
-        if self
-            .try_find_method_silent(mutable_slice_ty, field, span)
-            .is_none()
-        {
-            return None;
-        }
+        self.try_find_method_silent(mutable_slice_ty, field, span)?;
 
         Some(
             "the receiver is an immutable slice produced by `.[start .. end]`; use `..[start .. end]` when you need a mutable subslice",

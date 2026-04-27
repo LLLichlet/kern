@@ -160,10 +160,8 @@ impl<'a> Parser<'a> {
         while precedence < Precedence::from_token(self.peek().tag) {
             let next_tag = self.peek().tag;
 
-            if next_tag == TokenType::DotLBrace {
-                if !expr_can_prefix_data_init_type(&left) {
-                    break;
-                }
+            if next_tag == TokenType::DotLBrace && !expr_can_prefix_data_init_type(&left) {
+                break;
             }
 
             let is_manifestly_void = matches!(

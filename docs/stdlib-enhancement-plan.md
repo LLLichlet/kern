@@ -52,6 +52,12 @@ Planned additions:
 - later: automatic temporary-path generation once process identifiers or random
   bytes are available in `std`
 
+Status:
+
+- `write_all_atomic_tmp` is available in `std.fs`.
+- Windows rename now uses replace-existing semantics so replacement-style writes
+  have the same public contract across supported hosted targets.
+
 ### 4. Time Convenience
 
 `std.time` has monotonic `Instant`, `Duration`, and millisecond sleep. It needs
@@ -82,3 +88,5 @@ Planned additions:
 3. Add atomic wrappers in `std.sync` with compile and IR coverage.
 4. Add filesystem atomic-write helpers after the IO layer has enough shared
    copying primitives.
+5. Continue with test ergonomics and higher-level synchronization once the new
+   low-level APIs have enough real usage.

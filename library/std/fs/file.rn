@@ -253,6 +253,55 @@ pub/ fn write_all(alloc: *mut Allocator, path: []u8, buf: []u8) usize!Error {
     return file..&.write_all(buf);
 }
 
+/// Writes `buf` to `tmp_path`, flushes it, then renames it over `path`.
+///
+/// The caller supplies `tmp_path` so naming policy stays outside this low-level
+/// helper. `tmp_path` should be on the same filesystem as `path`.
+pub/ fn write_all_atomic_tmp(
+    alloc: *mut Allocator,
+    path: []u8,
+    tmp_path: []u8,
+    buf: []u8,
+) usize!Error {
+    let mut file = create(alloc, tmp_path).!;
+
+    let written = match (file..&.write_all(buf)) {
+        .{ Ok: count } => count,
+        .{ Err: err } => {
+            let _ = file..&.close();
+            let _ = remove_file_if_exists(alloc, tmp_path);
+            return .{ Err: err };
+        },
+    };
+
+    match (file..&.flush()) {
+        .{ Ok: _ } => {},
+        .{ Err: err } => {
+            let _ = file..&.close();
+            let _ = remove_file_if_exists(alloc, tmp_path);
+            return .{ Err: err };
+        },
+    }
+
+    match (file..&.close()) {
+        .{ Ok: _ } => {},
+        .{ Err: err } => {
+            let _ = remove_file_if_exists(alloc, tmp_path);
+            return .{ Err: err };
+        },
+    }
+
+    match (rename(alloc, tmp_path, path)) {
+        .{ Ok: _ } => {},
+        .{ Err: err } => {
+            let _ = remove_file_if_exists(alloc, tmp_path);
+            return .{ Err: err };
+        },
+    }
+
+    return .{ Ok: written };
+}
+
 /// Appends the entire buffer to a file, creating it when needed.
 pub/ fn append_all(alloc: *mut Allocator, path: []u8, buf: []u8) usize!Error {
     let mut file = open_append(alloc, path).!;

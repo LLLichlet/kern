@@ -54,7 +54,7 @@ extern {
     pub fn GetConsoleScreenBufferInfo(hConsoleOutput: Handle, lpConsoleScreenBufferInfo: *mut ConsoleScreenBufferInfo) i32;
     pub fn CloseHandle(hObject: Handle) i32;
     pub fn DeleteFileW(lpFileName: *u16) i32;
-    pub fn MoveFileW(lpExistingFileName: *u16, lpNewFileName: *u16) i32;
+    pub fn MoveFileExW(lpExistingFileName: *u16, lpNewFileName: *u16, dwFlags: u32) i32;
     pub fn CreateDirectoryW(lpPathName: *u16, lpSecurityAttributes: *mut SecurityAttributes) i32;
     pub fn RemoveDirectoryW(lpPathName: *u16) i32;
     pub fn FindFirstFileW(lpFileName: *u16, lpFindFileData: *mut Win32FindDataW) Handle;
@@ -225,6 +225,7 @@ const FILE_ATTRIBUTE_DIRECTORY = u32.{16};
 const CREATE_ALWAYS = u32.{2};
 const OPEN_EXISTING = u32.{3};
 const OPEN_ALWAYS = u32.{4};
+const MOVEFILE_REPLACE_EXISTING = u32.{1};
 const FILE_ATTRIBUTE_NORMAL = u32.{128};
 const GET_FILE_EX_INFO_STANDARD = u32.{0};
 const CP_UTF8 = u32.{65001};
@@ -908,7 +909,7 @@ pub fn rename(old_path: *u8, new_path: *u8) bool!Error {
     let wide_new_path = utf8_z_to_wide(new_path).!;
     defer free_wide_units(wide_new_path);
 
-    if (MoveFileW(wide_old_path, wide_new_path) == 0) {
+    if (MoveFileExW(wide_old_path, wide_new_path, MOVEFILE_REPLACE_EXISTING) == 0) {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };

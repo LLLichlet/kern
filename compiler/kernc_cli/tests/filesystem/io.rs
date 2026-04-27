@@ -648,6 +648,118 @@ fn main() i32 {{
 }
 
 #[test]
+fn runs_hosted_program_using_std_fs_atomic_tmp_write() {
+    let temp_root = unique_temp_path("kernc_std_fs_atomic_write", "dir");
+    let target_file = temp_root.join("target.txt");
+    let tmp_file = temp_root.join("target.tmp");
+    let bad_target = temp_root.join("missing").join("out.txt");
+    let bad_tmp = temp_root.join("bad.tmp");
+    let root_path = kern_string_literal(&temp_root);
+    let target_path = kern_string_literal(&target_file);
+    let tmp_path = kern_string_literal(&tmp_file);
+    let bad_target_path = kern_string_literal(&bad_target);
+    let bad_tmp_path = kern_string_literal(&bad_tmp);
+
+    let _ = fs::remove_file(&target_file);
+    let _ = fs::remove_file(&tmp_file);
+    let _ = fs::remove_file(&bad_tmp);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {{
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
+
+    match (fs.create_dir_all(gpa, "{root_path}")) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
+    }}
+
+    match (fs.write_all(gpa, "{target_path}", "old")) {{
+        .{{ Ok: count }} => {{
+            if (count != 3) {{
+                return 2;
+            }}
+        }},
+        .{{ Err: _ }} => return 3,
+    }}
+
+    let written = match (fs.write_all_atomic_tmp(gpa, "{target_path}", "{tmp_path}", "new-data")) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 4,
+    }};
+    if (written != 8) {{
+        return 5;
+    }}
+
+    let tmp_exists = match (fs.exists(gpa, "{tmp_path}")) {{
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 6,
+    }};
+    if (tmp_exists) {{
+        return 7;
+    }}
+
+    let mut text = match (fs.read_to_string(gpa, "{target_path}")) {{
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 8,
+    }};
+    defer text..&.deinit(gpa);
+    if (text.& != "new-data") {{
+        return 9;
+    }}
+
+    let failed = fs.write_all_atomic_tmp(gpa, "{bad_target_path}", "{bad_tmp_path}", "bad");
+    if (!failed.is_err()) {{
+        return 10;
+    }}
+
+    let bad_tmp_exists = match (fs.exists(gpa, "{bad_tmp_path}")) {{
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 11,
+    }};
+    if (bad_tmp_exists) {{
+        return 12;
+    }}
+
+    let mut after_failure = match (fs.read_to_string(gpa, "{target_path}")) {{
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 13,
+    }};
+    defer after_failure..&.deinit(gpa);
+    if (after_failure.& != "new-data") {{
+        return 14;
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = root_path,
+        target_path = target_path,
+        tmp_path = tmp_path,
+        bad_target_path = bad_target_path,
+        bad_tmp_path = bad_tmp_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&target_file);
+    let _ = fs::remove_file(&tmp_file);
+    let _ = fs::remove_file(&bad_tmp);
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn runs_hosted_program_using_std_fs_copy_and_append() {
     let temp_root = unique_temp_path("kernc_std_fs_copy_append", "dir");
     let from_file = temp_root.join("from.txt");

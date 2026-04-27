@@ -91,6 +91,12 @@ Planned additions:
 - option/result predicate assertions
 - richer equality helpers once formatting can render more value categories
 
+Status:
+
+- Message-bearing variants are available for equality and option/result helpers.
+- Option/result predicate assertions are available as `assert_some`,
+  `assert_none`, `assert_ok`, and `assert_err`.
+
 ## Current Execution Order
 
 1. Land low-risk `std.time` and `std.term` convenience helpers.

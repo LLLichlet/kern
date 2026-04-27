@@ -85,6 +85,8 @@ fn main() i32 {
     test.assert(true, "should not fail", .{});
     test.eq(usize.{4}, usize.{4});
     test.not_eq(usize.{4}, usize.{5});
+    test.eq_msg(usize.{8}, usize.{8}, "should not fail {}", .{ 8, });
+    test.not_eq_msg(usize.{8}, usize.{9}, "should not fail {}", .{ 9, });
     return 0;
 }
 "#,
@@ -188,12 +190,27 @@ fn main() i32 {
     let some = test.expect_some(?usize.{ Some: 9 });
     test.eq(some, usize.{9});
     test.expect_none(?usize.None);
+    test.assert_some(?usize.{ Some: 11 });
+    test.assert_some_msg(?usize.{ Some: 13 }, "expected configured option {}", .{ 13, });
+    test.assert_none(?usize.None);
+    test.assert_none_msg(?usize.None, "expected missing option {}", .{ 17, });
+    let some_msg = test.expect_some_msg(?usize.{ Some: 19 }, "expected option {}", .{ 19, });
+    test.eq(some_msg, usize.{19});
+    test.expect_none_msg(?usize.None, "expected none {}", .{ 23, });
 
     let ok = test.expect_ok(parse(true));
     test.eq(ok, usize.{7});
+    test.assert_ok(parse(true));
+    test.assert_ok_msg(parse(true), "expected parse ok {}", .{ 29, });
+    let ok_msg = test.expect_ok_msg(parse(true), "expected parse ok {}", .{ 31, });
+    test.eq(ok_msg, usize.{7});
 
     let err = test.expect_err(parse(false));
     test.eq(err, i32.{-1});
+    test.assert_err(parse(false));
+    test.assert_err_msg(parse(false), "expected parse err {}", .{ 37, });
+    let err_msg = test.expect_err_msg(parse(false), "expected parse err {}", .{ 41, });
+    test.eq(err_msg, i32.{-1});
     return 0;
 }
 "#,
@@ -206,6 +223,40 @@ fn main() i32 {
         "expected std.test option/result helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn test_message_assertion_failure_uses_custom_format() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_test_msg_fail",
+        r#"
+use std.test;
+
+fn main() i32 {
+    test.eq_msg(usize.{4}, usize.{5}, "mismatch at {}", .{ 7, });
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        !run_output.status.success(),
+        "expected std.test.eq_msg failure to abort:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&run_output.stderr);
+    assert!(
+        stderr.contains("test failed: mismatch at 7"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 
     let _ = fs::remove_file(&source_path);

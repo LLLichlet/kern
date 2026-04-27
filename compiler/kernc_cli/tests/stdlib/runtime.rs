@@ -69,6 +69,10 @@ use std.proc;
 fn main(argc: i32, argv: **u8) i32 {
     let args = proc.args(argc, argv);
     let _ = args.len();
+    let _ = args.contains("--help");
+    let _ = args.position("--help");
+    let _ = args.value_after("--target");
+    let _ = args.find_prefixed("--profile=");
     let mut saw_entry = false;
 
     let visited = env.visit(.[saw_entry = saw_entry..&](entry: env.Var) bool {
@@ -308,14 +312,34 @@ fn main() i32 {
         .{ Ok: value } => value,
         .{ Err: _ } => return 10,
     };
-    defer capture.output..&.deinit(gpa);
+    defer capture..&.deinit(gpa);
 
-    if (capture.status != 0) {
+    if (!capture.success()) {
         return 20;
     }
-    if (!capture.output.&.as_str().starts_with("shell_capture")) {
+    if (capture.len() == 0 or capture.is_empty()) {
         return 30;
     }
+    if (!capture.as_str().starts_with("shell_capture")) {
+        return 40;
+    }
+
+    let status = match (proc.shell_status(gpa, "echo status_only")) {
+        .{ Ok: value } => value,
+        .{ Err: _ } => return 50,
+    };
+    if (status != 0) {
+        return 60;
+    }
+
+    let success = match (proc.shell_success(gpa, "echo success_only")) {
+        .{ Ok: value } => value,
+        .{ Err: _ } => return 70,
+    };
+    if (!success) {
+        return 80;
+    }
+
     return 0;
 }
 "#,
@@ -427,7 +451,7 @@ use std.proc;
 
 fn main(argc: i32, argv: **u8) i32 {
     let args = proc.args(argc, argv);
-    if (args.len() != 3) {
+    if (args.len() != 6) {
         return 1;
     }
     let first = match (args.get(0)) {
@@ -451,6 +475,33 @@ fn main(argc: i32, argv: **u8) i32 {
     if (third != "beta gamma") {
         return 4;
     }
+    let alpha_pos = match (args.position("alpha")) {
+        .{ Some: index } => index,
+        .None => return 5,
+    };
+    if (alpha_pos != 1) {
+        return 6;
+    }
+    if (!args.contains("--name") or args.contains("--missing")) {
+        return 7;
+    }
+    let name = match (args.value_after("--name")) {
+        .{ Some: value } => value,
+        .None => return 8,
+    };
+    if (name != "kern") {
+        return 9;
+    }
+    let cfg = match (args.find_prefixed("--cfg=")) {
+        .{ Some: value } => value,
+        .None => return 10,
+    };
+    if (cfg != "fast") {
+        return 11;
+    }
+    if (args.value_after("--cfg=fast").is_some()) {
+        return 12;
+    }
     return 0;
 }
 "#,
@@ -460,6 +511,9 @@ fn main(argc: i32, argv: **u8) i32 {
     let run_output = Command::new(&executable_path)
         .arg("alpha")
         .arg("beta gamma")
+        .arg("--name")
+        .arg("kern")
+        .arg("--cfg=fast")
         .output()
         .unwrap();
     assert!(
@@ -960,6 +1014,32 @@ fn main() i32 {
     if (found.& != "alpha-beta") {
         return 2;
     }
+    if (!env.value_equals("KERN_STD_ENV_TEST", "alpha-beta")) {
+        return 20;
+    }
+    if (env.value_equals("KERN_STD_ENV_TEST", "wrong")) {
+        return 21;
+    }
+    if (env.value_equals("KERN_STD_ENV_MISSING", "alpha-beta")) {
+        return 22;
+    }
+    let mut visited_value = false;
+    let found_value = env.visit_value("KERN_STD_ENV_TEST", .[visited_value = visited_value..&](value: []u8) bool {
+        if (value != "alpha-beta") {
+            return false;
+        }
+        visited_value.* = true;
+        return false;
+    });
+    if (!found_value or !visited_value) {
+        return 23;
+    }
+    if (env.visit_value("KERN_STD_ENV_MISSING", .[](value: []u8) bool {
+        let _ = value;
+        return false;
+    })) {
+        return 24;
+    }
 
     if (env.get(gpa, "KERN_STD_ENV_MISSING").is_some()) {
         return 3;
@@ -985,8 +1065,8 @@ fn main() i32 {
 
     let mut saw_target = false;
     let visited = env.visit(.[saw_target = saw_target..&](entry: env.Var) bool {
-        if (entry.name == "KERN_STD_ENV_TEST") {
-            if (entry.value != "alpha-beta") {
+        if (entry.name_eq("KERN_STD_ENV_TEST")) {
+            if (!entry.value_eq("alpha-beta") or !entry.eq("KERN_STD_ENV_TEST", "alpha-beta")) {
                 return false;
             }
             saw_target.* = true;

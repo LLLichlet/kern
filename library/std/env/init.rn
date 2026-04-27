@@ -19,6 +19,38 @@ pub type Var = struct {
     pub value: []u8,
 };
 
+fn bytes_eq(lhs: []u8, rhs: []u8) bool {
+    if (#lhs != #rhs) {
+        return false;
+    }
+
+    let mut i = usize.{0};
+    while (i < #lhs) {
+        if (lhs.[i] != rhs.[i]) {
+            return false;
+        }
+        i += 1;
+    }
+    return true;
+}
+
+impl Var {
+    /// Returns `true` when the variable has this name.
+    pub fn name_eq(name: []u8) bool {
+        return bytes_eq(self.name, name);
+    }
+
+    /// Returns `true` when the variable has this value.
+    pub fn value_eq(value: []u8) bool {
+        return bytes_eq(self.value, value);
+    }
+
+    /// Returns `true` when both name and value match.
+    pub fn eq(name: []u8, value: []u8) bool {
+        return self.name_eq(name) and self.value_eq(value);
+    }
+}
+
 #[if((os == "linux" or os == "darwin") or os == "windows")]
 fn split_var(entry: []u8) ?Var {
     if (#entry == 0) {
@@ -253,4 +285,37 @@ pub fn visit(visitor: *Fn(Var) bool) usize {
 
     let _ = visitor;
     return 0;
+}
+
+/// Visits the value of one environment variable when it exists.
+///
+/// Returns:
+/// `true` when a matching variable was found. The borrowed value is only valid
+/// for the duration of the callback.
+pub fn visit_value(name: []u8, visitor: *Fn([]u8) bool) bool {
+    if (#name == 0) {
+        return false;
+    }
+
+    let mut found = false;
+    let _ = visit(.[needle = name, target = visitor, found = found..&](entry: Var) bool {
+        if (!entry.name_eq(needle)) {
+            return true;
+        }
+        found.* = true;
+        return target(entry.value);
+    });
+    return found;
+}
+
+/// Returns `true` when an environment variable exists with the expected value.
+pub fn value_equals(name: []u8, expected: []u8) bool {
+    let mut matched = false;
+    let found = visit_value(name, .[expected, matched = matched..&](value: []u8) bool {
+        if (bytes_eq(value, expected)) {
+            matched.* = true;
+        }
+        return false;
+    });
+    return found and matched;
 }

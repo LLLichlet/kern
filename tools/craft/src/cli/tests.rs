@@ -238,11 +238,23 @@ fn run_command_with_timeout(command: Command, timeout: Duration) {
         .unwrap();
 }
 
-fn wait_for_path(path: &std::path::Path, timeout: Duration) {
+fn wait_for_failpoint_ready(child: &mut Child, path: &std::path::Path, timeout: Duration) {
     let start = Instant::now();
     while start.elapsed() < timeout {
         if path.exists() {
             return;
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                panic!(
+                    "failpoint subprocess exited with status {status} before path `{}` appeared",
+                    path.display()
+                );
+            }
+            Ok(None) => {}
+            Err(err) => {
+                panic!("failed to poll failpoint subprocess status: {err}");
+            }
         }
         thread::sleep(Duration::from_millis(50));
     }
@@ -251,6 +263,14 @@ fn wait_for_path(path: &std::path::Path, timeout: Duration) {
         path.display(),
         timeout
     );
+}
+
+fn failpoint_ready_timeout() -> Duration {
+    if cfg!(windows) || std::env::var_os("CI").is_some() {
+        Duration::from_secs(60)
+    } else {
+        Duration::from_secs(10)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -362,7 +382,7 @@ fn run_kill_recovery_case(
 ) {
     let ready_path = root.join(".craft-failpoint-ready");
     let mut child = spawn_command_subprocess_with_failpoint(root, mode, failpoint, &ready_path);
-    wait_for_path(&ready_path, Duration::from_secs(10));
+    wait_for_failpoint_ready(&mut child, &ready_path, failpoint_ready_timeout());
     child.kill().unwrap();
     let _ = child.wait().unwrap();
 

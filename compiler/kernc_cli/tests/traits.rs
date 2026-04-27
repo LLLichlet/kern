@@ -964,6 +964,447 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_argument_inferred_trait_method_with_associated_return() {
+    let output = build_and_run(
+        "kernc_argument_inferred_trait_method_assoc_return",
+        r#"
+type Score = trait {
+    score: fn() i32,
+};
+
+type Wrap[N: usize] = struct {
+    value: i32,
+};
+
+impl[N: usize] Wrap[N] : Score {
+    pub fn score() i32 {
+        return self.value;
+    }
+}
+
+type Make[Rhs] = trait {
+    type Out: Score;
+    make: fn(Rhs) Out,
+};
+
+impl[T, N: usize] []T : Make[[N]T] {
+    type Out = Wrap[N];
+
+    pub fn make(other: [N]T) Out {
+        return Wrap[N].{ value: (#self + N) as i32 };
+    }
+}
+
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+    return slice.make([4]i32.{1, 2, 3, 4}).score() - 8;
+}
+"#,
+        &[],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_argument_inferred_method_with_supertrait_bound() {
+    let output = build_and_run(
+        "kernc_argument_inferred_method_supertrait_bound",
+        r#"
+type Parent[Rhs] = trait {
+    parent: fn(Rhs) i32,
+};
+
+type Child[Rhs]: Parent[Rhs] = trait {};
+
+impl[T, N: usize] []T : Parent[[N]T] {
+    pub fn parent(other: [N]T) i32 {
+        return (#self + N) as i32;
+    }
+}
+
+impl[T, N: usize] []T : Child[[N]T] {}
+
+fn use_child[S, T, N: usize](value: S, arg: [N]T) i32
+    where S: Child[[N]T],
+{
+    return value.parent(arg);
+}
+
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+    return use_child[[]i32, i32, 4](slice, [4]i32.{1, 2, 3, 4}) - 8;
+}
+"#,
+        &[],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_argument_inferred_method_after_where_bound_substitution() {
+    let output = build_and_run(
+        "kernc_argument_inferred_method_where_bound",
+        r#"
+type Allowed = trait {
+    marker: fn() i32,
+};
+
+type Gate[Rhs] = struct {
+    value: Rhs,
+};
+
+impl Gate[[4]i32] : Allowed {
+    pub fn marker() i32 {
+        return 4;
+    }
+}
+
+type Checked[Rhs] = trait {
+    checked: fn(Rhs) i32,
+};
+
+impl[T, N: usize] []T : Checked[[N]T]
+    where Gate[[N]T]: Allowed,
+{
+    pub fn checked(other: [N]T) i32 {
+        return Gate[[N]T].{ value: other }.marker();
+    }
+}
+
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+    return slice.checked([4]i32.{1, 2, 3, 4}) - 4;
+}
+"#,
+        &[],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_argument_inferred_method_when_where_bound_is_unsatisfied() {
+    let output = compile_source(
+        r#"
+type Allowed = trait {
+    marker: fn() i32,
+};
+
+type Gate[Rhs] = struct {
+    value: Rhs,
+};
+
+impl Gate[[4]i32] : Allowed {
+    pub fn marker() i32 {
+        return 4;
+    }
+}
+
+type Checked[Rhs] = trait {
+    checked: fn(Rhs) i32,
+};
+
+impl[T, N: usize] []T : Checked[[N]T]
+    where Gate[[N]T]: Allowed,
+{
+    pub fn checked(other: [N]T) i32 {
+        return Gate[[N]T].{ value: other }.marker();
+    }
+}
+
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+    return slice.checked([3]i32.{1, 2, 3});
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no field or method named `checked`")
+            || stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_argument_inferred_method_when_receiver_const_arg_disagrees() {
+    let output = compile_source(
+        r#"
+type Box[N: usize] = struct {};
+
+type Use[Rhs] = trait {
+    use_it: fn(Rhs) i32,
+};
+
+impl[N: usize] Box[N] : Use[[N]i32] {
+    pub fn use_it(other: [N]i32) i32 {
+        return N as i32;
+    }
+}
+
+fn main() i32 {
+    let value = Box[3].{};
+    return value.use_it([4]i32.{1, 2, 3, 4});
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mismatched types") || stderr.contains("no field or method named `use_it`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn runs_argument_inferred_method_with_associated_where_equality() {
+    let output = build_and_run(
+        "kernc_argument_inferred_method_assoc_where_equality",
+        r#"
+type HasOut = trait {
+    type Out;
+};
+
+type Gate[N: usize] = struct {};
+
+impl Gate[4] : HasOut {
+    type Out = i32;
+}
+
+impl Gate[3] : HasOut {
+    type Out = bool;
+}
+
+type Checked[Rhs] = trait {
+    checked: fn(Rhs) i32,
+};
+
+impl[T, N: usize] []T : Checked[[N]T]
+    where Gate[N]: HasOut[Out = i32],
+{
+    pub fn checked(other: [N]T) i32 {
+        let _ = other;
+        return N as i32;
+    }
+}
+
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+    return slice.checked([4]i32.{1, 2, 3, 4}) - 4;
+}
+"#,
+        &[],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_argument_inferred_method_when_associated_where_equality_is_unsatisfied() {
+    let output = compile_source(
+        r#"
+type HasOut = trait {
+    type Out;
+};
+
+type Gate[N: usize] = struct {};
+
+impl Gate[4] : HasOut {
+    type Out = i32;
+}
+
+impl Gate[3] : HasOut {
+    type Out = bool;
+}
+
+type Checked[Rhs] = trait {
+    checked: fn(Rhs) i32,
+};
+
+impl[T, N: usize] []T : Checked[[N]T]
+    where Gate[N]: HasOut[Out = i32],
+{
+    pub fn checked(other: [N]T) i32 {
+        let _ = other;
+        return N as i32;
+    }
+}
+
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+    return slice.checked([3]i32.{1, 2, 3});
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no field or method named `checked`")
+            || stderr.contains("type does not satisfy trait bounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_ambiguous_argument_inferred_method_candidates() {
+    let output = compile_source(
+        r#"
+type Use[Rhs] = trait {
+    pick: fn(Rhs) i32,
+};
+
+type AlsoUse[Rhs] = trait {
+    pick: fn(Rhs) i32,
+};
+
+impl[T, N: usize] []T : Use[[N]T] {
+    pub fn pick(other: [N]T) i32 {
+        let _ = other;
+        return 1;
+    }
+}
+
+impl[T, N: usize] []T : AlsoUse[[N]T] {
+    pub fn pick(other: [N]T) i32 {
+        let _ = other;
+        return 2;
+    }
+}
+
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+    return slice.pick([4]i32.{1, 2, 3, 4});
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("ambiguous impl method `pick`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected ICE stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn argument_inferred_method_lookup_does_not_steal_callable_fields() {
+    let output = build_and_run(
+        "kernc_argument_inferred_method_callable_field",
+        r#"
+type Other = struct {};
+
+impl Other {
+    pub fn run(value: i32) i32 {
+        return value;
+    }
+}
+
+type Runner = struct {
+    run: fn([2]i32) i32,
+};
+
+fn sum(values: [2]i32) i32 {
+    return values.[0] + values.[1];
+}
+
+fn main() i32 {
+    let runner = Runner.{ run: sum };
+    return (runner.run)(.{20, 22}) - 42;
+}
+"#,
+        &[],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_generic_integer_marker_bound_for_bit_intrinsic() {
     let output = build_and_run(
         "kernc_integer_marker_bound",

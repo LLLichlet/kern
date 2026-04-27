@@ -249,7 +249,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return Some(TypeId::ERROR);
         }
 
-        let candidate = self.resolve_argument_inferred_method(receiver_ty, *field, &arg_tys)?;
+        let candidate =
+            match self.resolve_argument_inferred_method(receiver_ty, *field, &arg_tys, callee.span)
+            {
+                Ok(Some(candidate)) => candidate,
+                Ok(None) => return None,
+                Err(()) => {
+                    self.ctx.facts.node_types.insert(callee.id, TypeId::ERROR);
+                    self.touched_expr_nodes.push(callee.id);
+                    return Some(TypeId::ERROR);
+                }
+            };
         self.ctx
             .record_identifier_reference(*field_span, candidate.method_span);
         let type_id = self
@@ -266,13 +276,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         receiver_ty: TypeId,
         method_name: kernc_utils::SymbolId,
         arg_tys: &[TypeId],
-    ) -> Option<ArgumentInferredMethodCandidate> {
-        let method_ids = self
+        span: Span,
+    ) -> Result<Option<ArgumentInferredMethodCandidate>, ()> {
+        let Some(method_ids) = self
             .ctx
             .impl_index
             .impl_methods_by_name
             .get(&method_name)
-            .cloned()?;
+            .cloned()
+        else {
+            return Ok(None);
+        };
         let mut candidates = Vec::new();
 
         for method_id in method_ids {
@@ -302,7 +316,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         if candidates.is_empty() {
-            return None;
+            return Ok(None);
         }
 
         let maximal = candidates
@@ -325,10 +339,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .collect::<Vec<_>>();
 
         if maximal.len() > 1 {
-            return None;
+            let method_name_str = self.ctx.resolve(method_name).to_string();
+            self.ctx
+                .struct_error(span, format!("ambiguous impl method `{}`", method_name_str))
+                .with_hint(
+                    "method lookup remains ambiguous after inferring impl generics from call arguments",
+                )
+                .emit();
+            return Err(());
         }
 
-        maximal.into_iter().next()
+        Ok(maximal.into_iter().next())
     }
 
     fn infer_impl_method_from_call_arguments(
@@ -409,15 +430,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 );
             }
 
+            let mut argument_inference_matches = true;
             for (param_ty, arg_ty) in params.iter().skip(1).zip(arg_tys.iter().copied()) {
                 let substituted_param =
                     self.substitute_type_with_unification_maps(*param_ty, &type_map, &const_map);
-                let _ = self.infer_generic_args_from_types(
-                    substituted_param,
-                    arg_ty,
-                    &mut type_map,
-                    &mut const_map,
-                );
+                if self.type_contains_unresolved_params(substituted_param)
+                    && !self.infer_generic_args_from_types(
+                        substituted_param,
+                        arg_ty,
+                        &mut type_map,
+                        &mut const_map,
+                    )
+                {
+                    argument_inference_matches = false;
+                    break;
+                }
+            }
+            if !argument_inference_matches {
+                continue;
             }
 
             if !crate::query::impl_bounds_satisfied(

@@ -530,7 +530,7 @@ mod tests {
             kind: ExprKind::Integer(99),
         };
 
-        let ordering = Lowerer::new(&mut ctx).atomic_ordering_arg(&arg);
+        let ordering = Lowerer::new(&mut ctx).atomic_ordering_arg(&arg, &HashMap::new());
 
         assert_eq!(ordering, AtomicOrdering::SeqCst);
         assert_eq!(ctx.sess.diagnostics.len(), 1);

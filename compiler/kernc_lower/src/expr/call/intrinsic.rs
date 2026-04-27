@@ -133,6 +133,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         callee_ty: TypeId,
         args: &[Expr],
         arg_masts: &mut Vec<MastExpr>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> Option<MastExprKind> {
         let (is_intrinsic, name_id) = match &self.ctx.defs[fn_id.0 as usize] {
@@ -502,12 +503,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             "@trap" => Some(MastExprKind::Trap),
             "@atomicLoad" => Some(MastExprKind::AtomicLoad {
                 ptr: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[1]),
+                ordering: self.atomic_ordering_arg(&args[1], subst_map),
             }),
             "@atomicStore" => Some(MastExprKind::AtomicStore {
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicCas" | "@atomicCasWeak" => {
                 let is_weak = name_str == "@atomicCasWeak";
@@ -524,78 +525,78 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     ptr: Box::new(arg_masts.remove(0)),
                     expected: Box::new(arg_masts.remove(0)),
                     desired: Box::new(arg_masts.remove(0)),
-                    success: self.atomic_ordering_arg(&args[3]),
-                    failure: self.atomic_ordering_arg(&args[4]),
+                    success: self.atomic_ordering_arg(&args[3], subst_map),
+                    failure: self.atomic_ordering_arg(&args[4], subst_map),
                 })
             }
             "@atomicXchg" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Xchg,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwAdd" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Add,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwSub" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Sub,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwAnd" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::And,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwNand" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Nand,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwOr" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Or,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwXor" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Xor,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwMax" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Max,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwMin" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Min,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwUMax" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::UMax,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwUMin" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::UMin,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2]),
+                ordering: self.atomic_ordering_arg(&args[2], subst_map),
             }),
             "@fence" => Some(MastExprKind::Fence {
-                ordering: self.atomic_ordering_arg(&args[0]),
+                ordering: self.atomic_ordering_arg(&args[0], subst_map),
             }),
             "@breakpoint" => Some(MastExprKind::Breakpoint),
             "@memcpy" => Some(MastExprKind::Memcpy {
@@ -660,12 +661,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.substitute_type_with_map(ret, &subst_map)
     }
 
-    pub(crate) fn atomic_ordering_arg(&mut self, arg: &Expr) -> AtomicOrdering {
+    pub(crate) fn atomic_ordering_arg(
+        &mut self,
+        arg: &Expr,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    ) -> AtomicOrdering {
         if let Some(ordering) = self.ctx.atomic_ordering(arg.id) {
             return ordering;
         }
 
-        let mut evaluator = ConstEvaluator::new(self.ctx);
+        let mut evaluator = ConstEvaluator::new(self.ctx).with_type_substs(subst_map);
         match evaluator.eval_inner(arg, 0) {
             Ok(ConstValue::Int(value)) => {
                 AtomicOrdering::from_abi_const(value).unwrap_or_else(|| {

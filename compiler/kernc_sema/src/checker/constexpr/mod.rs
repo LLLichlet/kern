@@ -141,6 +141,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         this
     }
 
+    pub fn with_type_substs(mut self, subst_map: &HashMap<SymbolId, GenericArg>) -> Self {
+        if !subst_map.is_empty() {
+            self.type_substs.push(subst_map.clone());
+        }
+        self
+    }
+
     /// Evaluate a constant expression that must yield a non-negative usize-like value.
     pub fn eval_usize(&mut self, expr: &Expr) -> ConstEvalResult<u64> {
         match self.eval_inner(expr, 0) {

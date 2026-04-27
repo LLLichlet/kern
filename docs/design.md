@@ -1138,10 +1138,14 @@ These numeric values are part of Kern's intrinsic ABI contract. The compiler map
 The standard library provides named wrappers in `std.sync`:
 
 ```kern
-use std.sync.{MemOrder, ACQUIRE, RELEASE};
+use std.sync.{MemOrder, atomic, ACQUIRE, RELEASE};
 
-let load_order: MemOrder = ACQUIRE;
-let store_order: MemOrder = RELEASE;
+let load_order = ACQUIRE;
+let store_order = RELEASE;
+
+let mut counter = atomic[usize](0);
+counter..&.store[RELEASE](1);
+let current = counter.&.load[ACQUIRE]();
 ```
 
 Freestanding code that does not use `std` may pass the raw compile-time integers directly (for example `1` for Acquire or `4` for SeqCst).

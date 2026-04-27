@@ -1,6 +1,20 @@
 use super::*;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn atomic_memory_alignment(&mut self, ty: TypeId) -> u32 {
+        match self.type_registry.normalize(ty) {
+            TypeId::BOOL | TypeId::I8 | TypeId::U8 => 1,
+            TypeId::I16 | TypeId::U16 => 2,
+            TypeId::I32 | TypeId::U32 | TypeId::F32 => 4,
+            TypeId::I64 | TypeId::U64 | TypeId::ISIZE | TypeId::USIZE | TypeId::F64 => 8,
+            TypeId::I128 | TypeId::U128 => 16,
+            norm => match self.type_registry.get(norm) {
+                TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } => 8,
+                _ => 1,
+            },
+        }
+    }
+
     pub(super) fn compile_mir_call_target_value(
         &mut self,
         _body: &MirBody,
@@ -889,13 +903,40 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         if self.current_block_is_terminated() {
             return self.get_undef_val(llvm_ty);
         }
+
+        if matches!(
+            self.type_registry
+                .get(self.type_registry.normalize(target_ty)),
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+        ) {
+            let ptr_int_ty = self.atomic_xchg_pointer_width_int();
+            let load = self
+                .builder
+                .build_load(ptr_int_ty, ptr_val, "mir_atomic_load_ptr_int")
+                .unwrap();
+            if let Some(inst) = load.as_instruction_value() {
+                inst.set_atomic_ordering(Self::llvm_atomic_ordering(ordering));
+                inst.set_alignment(self.atomic_memory_alignment(target_ty));
+            }
+            return self
+                .builder
+                .build_int_to_ptr(
+                    load.into_int_value(),
+                    llvm_ty.into_pointer_type(),
+                    "mir_atomic_load_ptr",
+                )
+                .unwrap()
+                .into();
+        }
+
         let load = self
             .builder
             .build_load(llvm_ty, ptr_val, "mir_atomic_load")
             .unwrap();
-        load.as_instruction_value()
-            .unwrap()
-            .set_atomic_ordering(Self::llvm_atomic_ordering(ordering));
+        if let Some(inst) = load.as_instruction_value() {
+            inst.set_atomic_ordering(Self::llvm_atomic_ordering(ordering));
+            inst.set_alignment(self.atomic_memory_alignment(target_ty));
+        }
         load
     }
 
@@ -914,8 +955,30 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         if self.current_block_is_terminated() {
             return;
         }
-        let store = self.builder.build_store(ptr_val, value_val).unwrap();
+        let value_ty = self.mir_operand_ty(body, value);
+        let store_val = if value_ty.is_some_and(|value_ty| {
+            matches!(
+                self.type_registry
+                    .get(self.type_registry.normalize(value_ty)),
+                TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+            )
+        }) {
+            self.builder
+                .build_ptr_to_int(
+                    value_val.into_pointer_value(),
+                    self.atomic_xchg_pointer_width_int(),
+                    "mir_atomic_store_ptr_int",
+                )
+                .unwrap()
+                .into()
+        } else {
+            value_val
+        };
+        let store = self.builder.build_store(ptr_val, store_val).unwrap();
         store.set_atomic_ordering(Self::llvm_atomic_ordering(ordering));
+        if let Some(value_ty) = value_ty {
+            store.set_alignment(self.atomic_memory_alignment(value_ty));
+        }
     }
 
     pub(super) fn compile_mir_inline_asm(&mut self, body: &MirBody, asm: &MirInlineAsm) {

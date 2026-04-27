@@ -1052,7 +1052,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         subst.substitute(ty)
     }
 
-    fn type_arg_is_direct_const_param_ref(&mut self, ty_node: &kernc_ast::TypeNode) -> bool {
+    fn type_arg_is_direct_const_value_ref(&mut self, ty_node: &kernc_ast::TypeNode) -> bool {
         let ast::TypeKind::Path {
             anchor: None,
             segments,
@@ -1067,10 +1067,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return false;
         }
 
-        self.ctx
-            .scopes
-            .resolve(segment.name)
-            .is_some_and(|info| info.kind == crate::scope::SymbolKind::ConstParam)
+        self.ctx.scopes.resolve(segment.name).is_some_and(|info| {
+            matches!(
+                info.kind,
+                crate::scope::SymbolKind::ConstParam | crate::scope::SymbolKind::Const
+            )
+        })
     }
 
     fn type_arg_is_payloadless_enum_value_ref(
@@ -1326,7 +1328,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         ast::GenericArg::Type(ty_node)
                         | ast::GenericArg::AssocBinding { value: ty_node, .. } => {
                             if matches!(arg, ast::GenericArg::Type(_))
-                                && (self.type_arg_is_direct_const_param_ref(ty_node)
+                                && (self.type_arg_is_direct_const_value_ref(ty_node)
                                     || self
                                         .type_arg_is_payloadless_enum_value_ref(ty_node, expr.span))
                             {

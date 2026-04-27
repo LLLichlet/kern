@@ -21,11 +21,10 @@ call atomic intrinsics directly.
 
 Planned additions:
 
-- `AtomicBool`
-- `AtomicUsize`
-- `AtomicPtr[T]`
-- thin methods for load, store, exchange, compare-and-swap, and common integer
-  read-modify-write operations
+- `Atomic[T]` as the single long-term atomic storage shape
+- `atomic[T](value)` construction
+- const-generic ordering methods for load, store, exchange, compare-and-swap,
+  and common integer read-modify-write operations
 - later: `SpinLock[T]` and `Once` once the low-level wrappers are stable
 
 ### 2. Generic IO Adapters

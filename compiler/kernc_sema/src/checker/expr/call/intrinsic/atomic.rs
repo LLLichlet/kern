@@ -1,4 +1,6 @@
 use super::*;
+use crate::scope::SymbolKind;
+use kernc_ast::ExprKind;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(super) fn eval_atomic_order_arg(
@@ -10,6 +12,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> Option<AtomicOrdering> {
         let arg_ty = self.check_expr(arg, None);
         if arg_ty == TypeId::ERROR {
+            return None;
+        }
+
+        if self.atomic_order_arg_is_unbound_const_param(arg) {
             return None;
         }
 
@@ -65,6 +71,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         Some(ordering)
     }
 
+    fn atomic_order_arg_is_unbound_const_param(&mut self, arg: &Expr) -> bool {
+        let ExprKind::Identifier(name) = arg.kind else {
+            return false;
+        };
+        let Some(info) = self.ctx.scopes.resolve(name) else {
+            return false;
+        };
+        info.kind == SymbolKind::ConstParam
+    }
+
     pub(super) fn check_atomic_target_type(
         &mut self,
         ty: TypeId,
@@ -74,6 +90,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) {
         let norm = self.resolve_tv(ty);
         if norm == TypeId::ERROR {
+            return;
+        }
+        if matches!(self.ctx.type_registry.get(norm), TypeKind::Param(_)) {
             return;
         }
 

@@ -414,11 +414,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         mut arg_masts: Vec<MastExpr>,
         fn_id: DefId,
         fn_args: Vec<kernc_sema::ty::GenericArg>,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> MastExprKind {
-        if let Some(intrinsic) = self
-            .measure_phase("              lower_call_plain_intrinsic", |this| {
-                this.lower_intrinsic_call(fn_id, callee_mast.ty, args, &mut arg_masts, span)
+        if let Some(intrinsic) =
+            self.measure_phase("              lower_call_plain_intrinsic", |this| {
+                this.lower_intrinsic_call(
+                    fn_id,
+                    callee_mast.ty,
+                    args,
+                    &mut arg_masts,
+                    subst_map,
+                    span,
+                )
             })
         {
             return intrinsic;
@@ -651,7 +659,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone()
         {
-            self.lower_plain_fn_call(callee_mast, args, arg_masts, fn_id, fn_args, callee.span)
+            self.lower_plain_fn_call(
+                callee_mast,
+                args,
+                arg_masts,
+                fn_id,
+                fn_args,
+                subst_map,
+                callee.span,
+            )
         } else {
             self.lower_plain_direct_call(callee_mast, arg_masts)
         }

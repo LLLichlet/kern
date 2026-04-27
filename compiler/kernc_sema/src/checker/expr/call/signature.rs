@@ -515,6 +515,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         def_id: DefId,
         args: &[ast::GenericArg],
         span: Span,
+        trailing_args: bool,
     ) -> Option<Vec<GenericArg>> {
         let scope = self.resolve_current_scope_for_types(span, "generic instantiation")?;
         let generics = match &self.ctx.defs[def_id.0 as usize] {
@@ -535,9 +536,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return None;
             }
         };
+        let param_start = if trailing_args && args.len() < generics.len() {
+            generics.len() - args.len()
+        } else {
+            0
+        };
+        let generic_params = &generics[param_start..];
         let mut resolver = TypeResolver::new(self.ctx);
         let (resolved_args, assoc_bindings) =
-            resolver.resolve_generic_args_for_params(&generics, args, scope, span);
+            resolver.resolve_generic_args_for_params(generic_params, args, scope, span);
         if !assoc_bindings.is_empty() {
             self.ctx
                 .struct_error(
@@ -678,7 +685,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 );
             }
 
-            if has_user_explicit_generics && !explicit_args.is_empty() {
+            let trailing_method_explicit_args =
+                is_method && has_user_explicit_generics && explicit_args.len() < generics_count;
+            let explicit_arg_start = if trailing_method_explicit_args {
+                generics_count - explicit_args.len()
+            } else {
+                0
+            };
+
+            if has_user_explicit_generics
+                && !explicit_args.is_empty()
+                && !trailing_method_explicit_args
+            {
                 let name_str = self.ctx.resolve(fn_name_id).to_string();
                 self.ctx.struct_error(span, format!("function `{}` requires exactly {} generic arguments, but {} were provided", name_str, generics_count, explicit_args.len()))
                     .with_hint("either provide all generic arguments or omit them entirely to let the compiler infer them")
@@ -689,7 +707,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let mut map: FastHashMap<kernc_utils::SymbolId, TypeId> = FastHashMap::default();
             let mut const_map: FastHashMap<kernc_utils::SymbolId, ConstGeneric> =
                 FastHashMap::default();
-            for (param, explicit_arg) in generics.iter().zip(explicit_args.iter()) {
+            for (param, explicit_arg) in generics
+                .iter()
+                .skip(explicit_arg_start)
+                .zip(explicit_args.iter())
+            {
                 match (&param.kind, explicit_arg) {
                     (ast::GenericParamKind::Type, GenericArg::Type(ty)) => {
                         map.insert(param.name, *ty);
@@ -1071,7 +1093,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let Some(def_id) = self.generic_target_identity(target_norm, span) else {
             return TypeId::ERROR;
         };
-        let Some(arg_values) = self.resolve_generic_instantiation_args(def_id, args, span) else {
+        let is_method_target = matches!(target.kind, ExprKind::FieldAccess { .. });
+        let Some(arg_values) =
+            self.resolve_generic_instantiation_args(def_id, args, span, is_method_target)
+        else {
             return TypeId::ERROR;
         };
 
@@ -1097,7 +1122,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         };
 
-        if generics.len() != arg_values.len() {
+        let is_partial_method_function = is_method_target
+            && matches!(self.ctx.defs.get(def_id.0 as usize), Some(Def::Function(_)))
+            && arg_values.len() < generics.len();
+
+        if generics.len() != arg_values.len() && !is_partial_method_function {
             self.ctx
                 .struct_error(
                     span,
@@ -1111,7 +1140,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        self.check_generic_bounds(span, def_id, &generics, &arg_values);
+        if !is_partial_method_function {
+            self.check_generic_bounds(span, def_id, &generics, &arg_values);
+        }
 
         match self.ctx.type_registry.get(target_norm) {
             TypeKind::FnDef(..) => self

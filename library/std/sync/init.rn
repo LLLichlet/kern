@@ -1,10 +1,7 @@
 //! Synchronization primitives and memory ordering constants.
 //!
-//! The current standard library exposes the memory ordering vocabulary used by
-//! atomics and low-level runtime code.
-//!
-//! Design:
-//! keep the public surface small and let low-level code speak in explicit ordering terms.
+//! Atomic orderings are generic arguments so the compiler can validate them at
+//! compile time while still exposing one long-term `Atomic[T]` shape.
 
 /// Encodes the ordering used by an atomic operation.
 pub type MemOrder = u8;
@@ -19,3 +16,107 @@ pub const RELEASE = MemOrder.{2};
 pub const ACQ_REL = MemOrder.{3};
 /// Sequentially consistent ordering.
 pub const SEQ_CST = MemOrder.{4};
+
+/// Result of a compare-and-swap operation.
+pub type AtomicCas[T] = struct {
+    pub success: bool,
+    pub value: T,
+};
+
+/// Atomic storage for lock-free integer and pointer types.
+pub type Atomic[T] = struct {
+    value: T,
+};
+
+/// Creates atomic storage initialized to `value`.
+pub const fn atomic[T](value: T) Atomic[T] {
+    return .{ value: value };
+}
+
+impl[T] *Atomic[T] {
+    /// Loads the current value with const ordering `ORDER`.
+    pub fn load[ORDER: u8]() T {
+        return @atomicLoad[T](self.value.&, ORDER);
+    }
+}
+
+impl[T] *mut Atomic[T] {
+    /// Stores `value` with const ordering `ORDER`.
+    pub fn store[ORDER: u8](value: T) void {
+        @atomicStore[T](self.value..&, value, ORDER);
+    }
+
+    /// Replaces the value and returns the previous value.
+    pub fn exchange[ORDER: u8](value: T) T {
+        return @atomicXchg[T](self.value..&, value, ORDER);
+    }
+
+    /// Compares against `expected` and stores `desired` on success.
+    pub fn compare_exchange[SUCCESS: u8, FAILURE: u8](expected: T, desired: T) AtomicCas[T] {
+        let cas = @atomicCas[T](self.value..&, expected, desired, SUCCESS, FAILURE);
+        return .{ success: cas.success, value: cas.value };
+    }
+
+    /// Weak compare-and-swap variant.
+    pub fn compare_exchange_weak[SUCCESS: u8, FAILURE: u8](expected: T, desired: T) AtomicCas[T] {
+        let cas = @atomicCasWeak[T](self.value..&, expected, desired, SUCCESS, FAILURE);
+        return .{ success: cas.success, value: cas.value };
+    }
+}
+
+impl *mut Atomic[usize] {
+    /// Adds `value` and returns the previous value.
+    pub fn fetch_add[ORDER: u8](value: usize) usize {
+        return @atomicRmwAdd[usize](self.value..&, value, ORDER);
+    }
+
+    /// Subtracts `value` and returns the previous value.
+    pub fn fetch_sub[ORDER: u8](value: usize) usize {
+        return @atomicRmwSub[usize](self.value..&, value, ORDER);
+    }
+
+    /// Bitwise-ands `value` and returns the previous value.
+    pub fn fetch_and[ORDER: u8](value: usize) usize {
+        return @atomicRmwAnd[usize](self.value..&, value, ORDER);
+    }
+
+    /// Bitwise-nands `value` and returns the previous value.
+    pub fn fetch_nand[ORDER: u8](value: usize) usize {
+        return @atomicRmwNand[usize](self.value..&, value, ORDER);
+    }
+
+    /// Bitwise-ors `value` and returns the previous value.
+    pub fn fetch_or[ORDER: u8](value: usize) usize {
+        return @atomicRmwOr[usize](self.value..&, value, ORDER);
+    }
+
+    /// Bitwise-xors `value` and returns the previous value.
+    pub fn fetch_xor[ORDER: u8](value: usize) usize {
+        return @atomicRmwXor[usize](self.value..&, value, ORDER);
+    }
+
+    /// Signed max with `value`, returning the previous value.
+    pub fn fetch_max[ORDER: u8](value: usize) usize {
+        return @atomicRmwMax[usize](self.value..&, value, ORDER);
+    }
+
+    /// Signed min with `value`, returning the previous value.
+    pub fn fetch_min[ORDER: u8](value: usize) usize {
+        return @atomicRmwMin[usize](self.value..&, value, ORDER);
+    }
+
+    /// Unsigned max with `value`, returning the previous value.
+    pub fn fetch_umax[ORDER: u8](value: usize) usize {
+        return @atomicRmwUMax[usize](self.value..&, value, ORDER);
+    }
+
+    /// Unsigned min with `value`, returning the previous value.
+    pub fn fetch_umin[ORDER: u8](value: usize) usize {
+        return @atomicRmwUMin[usize](self.value..&, value, ORDER);
+    }
+}
+
+/// Emits an atomic fence with const ordering `ORDER`.
+pub fn fence[ORDER: u8]() void {
+    @fence(ORDER);
+}

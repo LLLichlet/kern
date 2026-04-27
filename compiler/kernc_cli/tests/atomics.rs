@@ -1,5 +1,6 @@
 use kernc_cli::test_support::{
-    compile_source_with_args as compile_with_args, emit_llvm_ir_with_args as emit_ir_with_args,
+    build_and_run, compile_source_with_args as compile_with_args,
+    emit_llvm_ir_with_args as emit_ir_with_args,
 };
 
 fn compile_source_with_args(source: &str, extra_args: &[&str]) -> std::process::Output {
@@ -12,6 +13,113 @@ fn emit_llvm_ir_with_args(source: &str, extra_args: &[&str]) -> std::process::Ou
 
 fn compile_source(source: &str) -> std::process::Output {
     compile_source_with_args(source, &[])
+}
+
+#[test]
+fn runs_std_sync_atomic_wrappers() {
+    let output = build_and_run(
+        "kernc_atomic_wrapper_test",
+        r#"
+use sync.{
+    atomic,
+    fence,
+    RELAXED,
+    ACQUIRE,
+    RELEASE,
+    ACQ_REL,
+    SEQ_CST,
+};
+
+fn main() i32 {
+    let mut byte = atomic[u8](0);
+    if (byte..&.load[ACQUIRE]() != 0) {
+        return 1;
+    }
+    byte..&.store[RELEASE](1);
+    if (byte..&.load[ACQUIRE]() != 1) {
+        return 2;
+    }
+    let old_byte = byte..&.exchange[ACQ_REL](0);
+    if (old_byte != 1 or byte..&.load[ACQUIRE]() != 0) {
+        return 3;
+    }
+    let byte_cas = byte..&.compare_exchange[ACQ_REL, ACQUIRE](0, 1);
+    if (!byte_cas.success or byte_cas.value != 0) {
+        return 4;
+    }
+
+    let mut counter = atomic[usize](1);
+    if (counter..&.fetch_add[SEQ_CST](2) != 1) {
+        return 5;
+    }
+    if (counter..&.load[ACQUIRE]() != 3) {
+        return 6;
+    }
+    if (counter..&.fetch_sub[ACQ_REL](1) != 3) {
+        return 7;
+    }
+    if (counter..&.exchange[SEQ_CST](10) != 2) {
+        return 8;
+    }
+    let cas = counter..&.compare_exchange[ACQ_REL, ACQUIRE](10, 12);
+    if (!cas.success or cas.value != 10) {
+        return 9;
+    }
+    let weak = counter..&.compare_exchange_weak[ACQ_REL, ACQUIRE](99, 1);
+    if (weak.success or weak.value != 12) {
+        return 10;
+    }
+    if (counter..&.fetch_or[ACQ_REL](3) != 12) {
+        return 11;
+    }
+    if (counter..&.fetch_and[ACQ_REL](7) != 15) {
+        return 12;
+    }
+    if (counter..&.fetch_xor[ACQ_REL](2) != 7) {
+        return 13;
+    }
+    if (counter..&.load[ACQUIRE]() != 5) {
+        return 14;
+    }
+
+    let mut left = usize.{1};
+    let mut right = usize.{2};
+    let mut ptr = atomic[*mut usize](left..&);
+    if (ptr..&.load[ACQUIRE]() != left..&) {
+        return 15;
+    }
+    ptr..&.store[RELEASE](right..&);
+    if (ptr..&.load[ACQUIRE]() != right..&) {
+        return 16;
+    }
+    let old_ptr = ptr..&.exchange[ACQ_REL](left..&);
+    if (old_ptr != right..& or ptr..&.load[ACQUIRE]() != left..&) {
+        return 17;
+    }
+    let ptr_cas = ptr..&.compare_exchange[ACQ_REL, ACQUIRE](left..&, right..&);
+    if (!ptr_cas.success or ptr_cas.value != left..&) {
+        return 18;
+    }
+
+    fence[SEQ_CST]();
+    let _ = RELAXED;
+    return 0;
+}
+"#,
+        &[
+            "--module-path",
+            "sync=library/std/sync",
+            "--runtime-libc",
+            "yes",
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "atomic wrapper binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]

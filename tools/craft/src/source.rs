@@ -7,6 +7,12 @@ use crate::resolver::{ExternalPackageId, ResolvedGraph};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+const GIT_WAIT_REPORT_DELAY: Duration = Duration::from_secs(15);
+const GIT_WAIT_REPORT_INTERVAL: Duration = Duration::from_secs(30);
+const GIT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchSummary {
@@ -536,20 +542,94 @@ fn git_selector_from_parts(
 }
 
 fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<()> {
-    let status = Command::new("git")
+    let command_line = format_git_command(&args);
+    let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .status()
-        .map_err(|err| Error::Execution(format!("failed to run git: {err}")))?;
+        .spawn()
+        .map_err(|err| {
+            Error::Execution(format!(
+                "failed to run `{command_line}` in `{}`: {err}",
+                cwd.display()
+            ))
+        })?;
 
-    if status.success() {
-        return Ok(());
+    let started = Instant::now();
+    let mut last_report = None;
+    loop {
+        let status = match child.try_wait() {
+            Ok(status) => status,
+            Err(err) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Error::Execution(format!(
+                    "failed to wait for `{command_line}` in `{}`: {err}",
+                    cwd.display()
+                )));
+            }
+        };
+        let Some(status) = status else {
+            report_git_wait(cwd, &command_line, started, &mut last_report);
+            thread::sleep(GIT_WAIT_POLL_INTERVAL);
+            continue;
+        };
+
+        if status.success() {
+            return Ok(());
+        }
+
+        return Err(Error::Execution(format!(
+            "`{command_line}` failed with status {status} in `{}`",
+            cwd.display()
+        )));
+    }
+}
+
+fn report_git_wait(
+    cwd: &Path,
+    command_line: &str,
+    started: Instant,
+    last_report: &mut Option<Instant>,
+) {
+    let now = Instant::now();
+    let elapsed = now.saturating_duration_since(started);
+    if elapsed < GIT_WAIT_REPORT_DELAY {
+        return;
+    }
+    if let Some(last) = last_report
+        && now.saturating_duration_since(*last) < GIT_WAIT_REPORT_INTERVAL
+    {
+        return;
     }
 
-    Err(Error::Execution(format!("git exited with status {status}")))
+    eprintln!(
+        "craft: waiting {}s for `{command_line}` in `{}`",
+        elapsed.as_secs(),
+        cwd.display()
+    );
+    *last_report = Some(now);
+}
+
+fn format_git_command(args: &[&str]) -> String {
+    std::iter::once("git")
+        .chain(args.iter().copied())
+        .map(format_command_arg)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn format_command_arg(arg: &str) -> String {
+    if arg
+        .bytes()
+        .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'\'' | b'"' | b'`' | b'\\'))
+    {
+        arg.to_string()
+    } else {
+        format!("{arg:?}")
+    }
 }
 
 fn git_output<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<String> {
@@ -845,7 +925,7 @@ fn git_selector_cache_key(rev: Option<&str>, branch: Option<&str>, tag: Option<&
 mod tests {
     use super::{
         FetchStatus, FetchedGitSelector, FetchedSourceBackend, fetch_external_packages,
-        fetch_package_resources, summarize_fetch, summarize_fetch_resources,
+        fetch_package_resources, format_git_command, summarize_fetch, summarize_fetch_resources,
     };
     use crate::elaborate::{FeatureSelection, plan};
     use crate::manifest::Manifest;
@@ -862,6 +942,18 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn git_command_format_quotes_non_plain_args() {
+        assert_eq!(
+            format_git_command(&["clone", "--no-checkout", "https://example.test/repo"]),
+            "git clone --no-checkout https://example.test/repo"
+        );
+        assert_eq!(
+            format_git_command(&["clone", "https://example.test/repo", "/tmp/space path"]),
+            "git clone https://example.test/repo \"/tmp/space path\""
+        );
     }
 
     #[test]

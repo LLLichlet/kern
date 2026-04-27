@@ -761,7 +761,22 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
-        let ty = self.node_type(node_id);
+        let mut ty = self.node_type(node_id);
+        if !self.type_is_enum_like(ty)
+            && let Some(expected) = self.expected_types.last().copied()
+        {
+            ty = self.resolved_type(expected);
+        }
+        self.eval_enum_literal_in_type(ty, variant_name, depth, span)
+    }
+
+    pub(super) fn eval_enum_literal_in_type(
+        &mut self,
+        ty: TypeId,
+        variant_name: SymbolId,
+        depth: usize,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
         let norm_ty = self.ctx.type_registry.normalize(ty);
         match self.ctx.type_registry.get(norm_ty).clone() {
             TypeKind::Enum(def_id, _) => {

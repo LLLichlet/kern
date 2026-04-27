@@ -491,7 +491,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
                     )
                 {
-                    self.eval_enum_literal(expr.id, *field, depth, expr.span)
+                    self.eval_enum_literal_in_type(norm_lhs, *field, depth, expr.span)
                 } else if let TypeKind::Module(mod_def_id) =
                     self.ctx.type_registry.get(norm_lhs).clone()
                 {
@@ -1322,7 +1322,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         let value = if let Some(expr) = value {
-            self.eval_inner(expr, depth + 1)?
+            if let Some(return_ty) = self.function_return_types.last().copied() {
+                self.expected_types.push(return_ty);
+                let value = self.eval_inner(expr, depth + 1);
+                let _ = self.expected_types.pop();
+                value?
+            } else {
+                self.eval_inner(expr, depth + 1)?
+            }
         } else {
             ConstValue::Void
         };

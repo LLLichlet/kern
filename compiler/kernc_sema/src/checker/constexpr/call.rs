@@ -187,9 +187,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         let saved_loop_control = self.loop_control.take();
         self.loop_depth = 0;
         self.push_local_scope();
-        let param_tys = match self.callable_return_and_params(def_id, generic_args) {
-            Some((params, _)) => params,
-            None => vec![TypeId::ERROR; func.params.len()],
+        let (param_tys, return_ty) = match self.callable_return_and_params(def_id, generic_args) {
+            Some((params, ret)) => (params, ret),
+            None => (vec![TypeId::ERROR; func.params.len()], TypeId::ERROR),
         };
         for ((param, value), param_ty) in func.params.iter().zip(arg_values.into_iter()).zip(
             param_tys
@@ -202,6 +202,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         let saved_return = self.return_value.take();
+        self.function_return_types.push(return_ty);
         let body_result = if let Some(body) = &func.body {
             self.eval_inner(body, depth + 1)
         } else {
@@ -210,6 +211,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 .emit();
             Err(ConstEvalError)
         };
+        let _ = self.function_return_types.pop();
         let fn_return = self.return_value.take();
         self.return_value = saved_return;
 

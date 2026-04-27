@@ -87,8 +87,122 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                 Some(MastExpr::new(ty, MastExprKind::ArrayInit(elems), span))
             }
+            ConstValue::Enum { tag, payload } => {
+                self.lower_const_enum_value_expr(*tag, payload.as_deref(), ty, span)
+            }
             ConstValue::Undef => Some(MastExpr::new(ty, MastExprKind::Undef, span)),
             ConstValue::Void => Some(MastExpr::new(ty, MastExprKind::Undef, span)),
+            _ => None,
+        }
+    }
+
+    fn lower_const_enum_value_expr(
+        &mut self,
+        tag: i128,
+        payload: Option<&ConstValue>,
+        ty: TypeId,
+        span: Span,
+    ) -> Option<MastExpr> {
+        let norm_ty = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm_ty).clone() {
+            TypeKind::AnonymousEnum(enum_def) => {
+                if enum_def
+                    .variants
+                    .iter()
+                    .all(|variant| variant.payload_ty.is_none())
+                {
+                    return Some(MastExpr::new(ty, MastExprKind::Integer(tag as u128), span));
+                }
+
+                let mut current_tag = 0i128;
+                let mut payload_ty = TypeId::VOID;
+                let mut found = false;
+                for variant in &enum_def.variants {
+                    if let Some(value) = variant.explicit_value {
+                        current_tag = value;
+                    }
+                    if current_tag == tag {
+                        payload_ty = variant.payload_ty.unwrap_or(TypeId::VOID);
+                        found = true;
+                        break;
+                    }
+                    current_tag += 1;
+                }
+                if !found {
+                    return None;
+                }
+
+                let payload_expr = if payload_ty == TypeId::VOID {
+                    MastExpr::new(TypeId::VOID, MastExprKind::Undef, span)
+                } else {
+                    self.lower_const_value_expr(payload?, payload_ty, span)?
+                };
+                let mono_id = self.instantiate_anon_enum(norm_ty);
+                Some(MastExpr::new(
+                    ty,
+                    MastExprKind::DataInit {
+                        data_struct_id: mono_id,
+                        tag_value: tag as u128,
+                        payload: Box::new(payload_expr),
+                    },
+                    span,
+                ))
+            }
+            TypeKind::Enum(def_id, gen_args) => {
+                let Def::Enum(def) = self.ctx.defs.get(def_id.0 as usize)?.clone() else {
+                    return None;
+                };
+                if self.is_pure_enum(&def) {
+                    self.record_pure_enum_tag_ty(def_id, &gen_args);
+                    return Some(MastExpr::new(ty, MastExprKind::Integer(tag as u128), span));
+                }
+
+                let mut generic_map = HashMap::new();
+                for (param, arg) in def.generics.iter().zip(gen_args.iter()) {
+                    generic_map.insert(param.name, *arg);
+                }
+
+                let mut current_tag = 0i128;
+                let mut payload_ty = TypeId::VOID;
+                let mut found = false;
+                for variant in &def.variants {
+                    if let Some(value_expr) = &variant.value {
+                        let mut ce = ConstEvaluator::new(self.ctx);
+                        if let Ok(value) = ce.eval_math(value_expr) {
+                            current_tag = value;
+                        }
+                    }
+                    if current_tag == tag {
+                        if let Some(payload_ast) = &variant.payload_type {
+                            let raw_payload_ty = *self.ctx.facts.node_types.get(&payload_ast.id)?;
+                            payload_ty =
+                                self.substitute_type_with_map(raw_payload_ty, &generic_map);
+                        }
+                        found = true;
+                        break;
+                    }
+                    current_tag += 1;
+                }
+                if !found {
+                    return None;
+                }
+
+                let payload_expr = if payload_ty == TypeId::VOID {
+                    MastExpr::new(TypeId::VOID, MastExprKind::Undef, span)
+                } else {
+                    self.lower_const_value_expr(payload?, payload_ty, span)?
+                };
+                let mono_id = self.instantiate_data(def_id, &gen_args);
+                Some(MastExpr::new(
+                    ty,
+                    MastExprKind::DataInit {
+                        data_struct_id: mono_id,
+                        tag_value: tag as u128,
+                        payload: Box::new(payload_expr),
+                    },
+                    span,
+                ))
+            }
             _ => None,
         }
     }

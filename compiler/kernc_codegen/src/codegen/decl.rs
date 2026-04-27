@@ -12,6 +12,61 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn pack_union_static_chunk(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+        target_ty: crate::types::IntType<'ctx>,
+    ) -> Option<BasicValueEnum<'ctx>> {
+        match value {
+            BasicValueEnum::IntValue(int_val) => {
+                if int_val.get_type().bit_width() != target_ty.bit_width() {
+                    return None;
+                }
+                Some(int_val.const_bitcast(target_ty).into())
+            }
+            _ => None,
+        }
+    }
+
+    fn pack_union_static_storage_array(
+        &mut self,
+        array_ty: crate::types::ArrayType<'ctx>,
+        value: BasicValueEnum<'ctx>,
+    ) -> Option<BasicValueEnum<'ctx>> {
+        let elem_ty = array_ty.get_element_type().into_int_type();
+        let mut values = vec![elem_ty.const_zero(); array_ty.len() as usize];
+        let first = self
+            .pack_union_static_chunk(value, elem_ty)?
+            .into_int_value();
+        let Some(slot) = values.first_mut() else {
+            return None;
+        };
+        *slot = first;
+        Some(elem_ty.const_array(&values).into())
+    }
+
+    fn pack_union_static_value(
+        &mut self,
+        union_ty: StructType<'ctx>,
+        value: BasicValueEnum<'ctx>,
+    ) -> Option<crate::values::StructValue<'ctx>> {
+        if union_ty.count_fields() != 1 {
+            return None;
+        }
+        let field_ty = union_ty.get_field_type_at_index(0)?;
+        let storage = if field_ty == value.get_type() {
+            value
+        } else {
+            match field_ty {
+                BasicTypeEnum::ArrayType(array_ty) => {
+                    self.pack_union_static_storage_array(array_ty, value)?
+                }
+                _ => return None,
+            }
+        };
+        Some(union_ty.const_named_struct(&[storage]))
+    }
+
     fn has_meta_item_attr(&self, attributes: &[ast::MetaItem], expected: &str) -> bool {
         attributes.iter().any(|attribute| match attribute {
             ast::MetaItem::Call(id, _) | ast::MetaItem::Marker(id) => {
@@ -166,13 +221,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             } => {
                 let union_ty = *self.structs.get(union_id)?;
                 let value_const = self.compile_mir_static_init(value)?;
-                if union_ty.count_fields() == 1
-                    && union_ty.get_field_type_at_index(0) == Some(value_const.get_type())
-                {
-                    Some(union_ty.const_named_struct(&[value_const]).into())
-                } else {
-                    Some(union_ty.const_zero().into())
-                }
+                Some(
+                    self.pack_union_static_value(union_ty, value_const)
+                        .unwrap_or_else(|| union_ty.const_zero())
+                        .into(),
+                )
             }
             MirStaticInit::Data {
                 data_struct_id,
@@ -187,13 +240,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let union_ty = struct_ty.get_field_type_at_index(1)?.into_struct_type();
                 let union_val = if let Some(payload) = payload {
                     let payload_const = self.compile_mir_static_init(payload)?;
-                    if union_ty.count_fields() == 1
-                        && union_ty.get_field_type_at_index(0) == Some(payload_const.get_type())
-                    {
-                        union_ty.const_named_struct(&[payload_const])
-                    } else {
-                        union_ty.const_zero()
-                    }
+                    self.pack_union_static_value(union_ty, payload_const)
+                        .unwrap_or_else(|| union_ty.const_zero())
                 } else {
                     union_ty.const_zero()
                 };

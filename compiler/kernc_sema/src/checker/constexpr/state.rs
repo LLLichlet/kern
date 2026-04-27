@@ -48,6 +48,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         self.resolved_type(ty)
     }
 
+    pub(super) fn type_is_enum_like(&mut self, ty: TypeId) -> bool {
+        let ty = self.resolved_type(ty);
+        matches!(
+            self.ctx.type_registry.get(ty),
+            TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
+        )
+    }
+
     pub(super) fn expr_type(&mut self, expr: &Expr) -> TypeId {
         let ty = self.node_type(expr.id);
         if ty != TypeId::ERROR {

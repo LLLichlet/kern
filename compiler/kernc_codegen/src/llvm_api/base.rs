@@ -1,8 +1,8 @@
 use llvm_sys::LLVMAttributeFunctionIndex;
 use llvm_sys::core::{
-    LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstInt,
-    LLVMConstIntOfArbitraryPrecision, LLVMConstIntToPtr, LLVMConstNamedStruct, LLVMConstNull,
-    LLVMConstPointerNull, LLVMConstReal, LLVMConstVector, LLVMCountParams,
+    LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstBitCast,
+    LLVMConstInt, LLVMConstIntOfArbitraryPrecision, LLVMConstIntToPtr, LLVMConstNamedStruct,
+    LLVMConstNull, LLVMConstPointerNull, LLVMConstReal, LLVMConstVector, LLVMCountParams,
     LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent,
     LLVMGetBasicBlockTerminator, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
     LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetIntTypeWidth,
@@ -354,6 +354,12 @@ impl<'ctx> IntType<'ctx> {
 
     pub fn get_undef(self) -> IntValue<'ctx> {
         IntValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
+    }
+}
+
+impl<'ctx> IntValue<'ctx> {
+    pub fn const_bitcast(self, target_ty: IntType<'ctx>) -> IntValue<'ctx> {
+        IntValue::new(unsafe { LLVMConstBitCast(self.as_value_ref(), target_ty.as_type_ref()) })
     }
 }
 

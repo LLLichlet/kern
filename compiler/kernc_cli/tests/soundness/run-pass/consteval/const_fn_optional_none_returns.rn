@@ -1,0 +1,25 @@
+// class: consteval-optional-return
+// source: const fn return evaluation must preserve optional variant type context
+// exit: 0
+
+const fn contextual_missing() ?usize {
+    return .None;
+}
+
+const fn qualified_missing() ?usize {
+    return ?usize.None;
+}
+
+const CONTEXTUAL = contextual_missing();
+const QUALIFIED = qualified_missing();
+
+fn score(value: ?usize) i32 {
+    return match (value) {
+        .{ Some: _ } => 10,
+        .None => 0,
+    };
+}
+
+fn main() i32 {
+    return score(CONTEXTUAL) + score(QUALIFIED);
+}

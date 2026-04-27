@@ -18,6 +18,41 @@ type StructLiteralDefInfo = (
 );
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn data_field_init_is_pun(&self, field: &ast::StructFieldInit) -> bool {
+        matches!(
+            &field.value.kind,
+            ExprKind::Identifier(name)
+                if *name == field.name && field.value.span == field.name_span
+        )
+    }
+
+    fn data_field_inits_are_puns(&self, fields: &[ast::StructFieldInit]) -> bool {
+        fields
+            .iter()
+            .all(|field| self.data_field_init_is_pun(field))
+    }
+
+    fn data_literal_target_is_array_like(&self, kind: &TypeKind) -> bool {
+        matches!(
+            kind,
+            TypeKind::Array { .. }
+                | TypeKind::ArrayInfer { .. }
+                | TypeKind::Slice { .. }
+                | TypeKind::Simd { .. }
+        )
+    }
+
+    fn data_literal_target_is_structural(&self, kind: &TypeKind) -> bool {
+        match kind {
+            TypeKind::Def(def_id, _) => matches!(
+                self.ctx.defs.get(def_id.0 as usize),
+                Some(Def::Struct(_)) | Some(Def::Union(_))
+            ),
+            TypeKind::AnonymousStruct(_, _) | TypeKind::AnonymousUnion(_, _) => true,
+            _ => false,
+        }
+    }
+
     pub(crate) fn resolve_data_init_target_type(
         &mut self,
         type_node: Option<&ast::TypeNode>,
@@ -274,18 +309,26 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ast::DataLiteralKind::Struct(init_fields) => {
                 if is_data {
                     self.check_enum_payload_literal(init_fields, expected, exp_norm, span)
+                } else if self.data_literal_target_is_structural(&kind_enum) {
+                    self.check_struct_or_union_literal(init_fields, expected, exp_norm, span)
+                } else if self.data_field_inits_are_puns(init_fields) {
+                    let elems = init_fields
+                        .iter()
+                        .map(|field| field.value.clone())
+                        .collect::<Vec<_>>();
+                    if self.data_literal_target_is_array_like(&kind_enum) {
+                        self.check_array_literal(&elems, expected, exp_norm, span)
+                    } else if let [inner] = elems.as_slice() {
+                        self.check_scalar_literal(inner, expected)
+                    } else {
+                        self.check_array_literal(&elems, expected, exp_norm, span)
+                    }
                 } else {
                     self.check_struct_or_union_literal(init_fields, expected, exp_norm, span)
                 }
             }
             ast::DataLiteralKind::Scalar(inner) => {
-                let is_target_array_like = matches!(
-                    kind_enum,
-                    TypeKind::Array { .. }
-                        | TypeKind::ArrayInfer { .. }
-                        | TypeKind::Slice { .. }
-                        | TypeKind::Simd { .. }
-                );
+                let is_target_array_like = self.data_literal_target_is_array_like(&kind_enum);
                 if is_target_array_like && !matches!(inner.kind, ExprKind::Undef) {
                     self.check_array_literal(std::slice::from_ref(inner), expected, exp_norm, span)
                 } else if is_data {

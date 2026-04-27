@@ -291,11 +291,7 @@ impl<'a> Parser<'a> {
 
         let is_struct_mode = self.check(TokenType::Identifier)
             && (self.stream.peek_nth(1).tag == TokenType::Colon
-                || (type_node.is_some()
-                    && matches!(
-                        self.stream.peek_nth(1).tag,
-                        TokenType::Comma | TokenType::RBrace
-                    )));
+                || (type_node.is_some() && self.looks_like_field_pun_data_init()));
 
         if is_struct_mode {
             return self.parse_struct_data_init(type_node, start_span);
@@ -418,5 +414,27 @@ impl<'a> Parser<'a> {
                 literal: DataLiteralKind::Struct(fields),
             },
         })
+    }
+
+    fn looks_like_field_pun_data_init(&mut self) -> bool {
+        let mut index = 0;
+
+        loop {
+            if self.stream.peek_tag_nth(index) != TokenType::Identifier {
+                return false;
+            }
+            index += 1;
+
+            match self.stream.peek_tag_nth(index) {
+                TokenType::Comma => {
+                    index += 1;
+                    if self.stream.peek_tag_nth(index) == TokenType::RBrace {
+                        return true;
+                    }
+                }
+                TokenType::RBrace => return true,
+                _ => return false,
+            }
+        }
     }
 }

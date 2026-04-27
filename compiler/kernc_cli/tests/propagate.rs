@@ -85,8 +85,7 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("payload-less enum variants must use direct variant syntax"),
+        String::from_utf8_lossy(&output.stderr).contains("variant `None` does not take a payload"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );

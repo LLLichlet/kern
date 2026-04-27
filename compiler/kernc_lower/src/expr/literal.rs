@@ -10,6 +10,44 @@ use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn data_field_init_is_pun(&self, field: &ast::StructFieldInit) -> bool {
+        matches!(
+            &field.value.kind,
+            ExprKind::Identifier(name)
+                if *name == field.name && field.value.span == field.name_span
+        )
+    }
+
+    fn data_field_inits_are_puns(&self, fields: &[ast::StructFieldInit]) -> bool {
+        fields
+            .iter()
+            .all(|field| self.data_field_init_is_pun(field))
+    }
+
+    fn data_literal_target_is_array_like(&self, kind: &TypeKind) -> bool {
+        matches!(
+            kind,
+            TypeKind::Array { .. }
+                | TypeKind::ArrayInfer { .. }
+                | TypeKind::Slice { .. }
+                | TypeKind::Simd { .. }
+        )
+    }
+
+    fn data_literal_target_is_structural(&self, concrete_ty: TypeId) -> bool {
+        match self.ctx.type_registry.get(concrete_ty) {
+            TypeKind::Enum(_, _)
+            | TypeKind::AnonymousEnum(_)
+            | TypeKind::AnonymousStruct(_, _)
+            | TypeKind::AnonymousUnion(_, _) => true,
+            TypeKind::Def(def_id, _) => matches!(
+                self.ctx.defs.get(def_id.0 as usize),
+                Some(Def::Struct(_)) | Some(Def::Union(_))
+            ),
+            _ => false,
+        }
+    }
+
     fn lower_literal_error(&mut self, span: Span, message: impl Into<String>) -> MastExprKind {
         self.lower_error_kind(span, message)
     }
@@ -248,6 +286,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let inner_norm = self.ctx.type_registry.normalize(elem);
             if matches!(
                 self.ctx.type_registry.get(inner_norm),
+                TypeKind::TraitObject(..)
+            ) {
+                let raw_expr_opt = match literal {
+                    ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
+                    ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => {
+                        Some(&fields[0].value)
+                    }
+                    _ => None,
+                };
+
+                if let Some(raw_expr) = raw_expr_opt {
+                    return self.lower_trait_object_init(
+                        raw_expr,
+                        subst_map,
+                        concrete_ty,
+                        inner_norm,
+                        span,
+                    );
+                }
+            }
+            if matches!(
+                self.ctx.type_registry.get(inner_norm),
                 TypeKind::ClosureInterface { .. }
             ) {
                 let raw_expr_opt = match literal {
@@ -325,16 +385,26 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         match literal {
             ast::DataLiteralKind::Struct(fields) => {
-                self.lower_struct_union_data_init(fields, subst_map, concrete_ty)
+                if self.data_literal_target_is_structural(concrete_ty) {
+                    self.lower_struct_union_data_init(fields, subst_map, concrete_ty)
+                } else if self.data_field_inits_are_puns(fields) {
+                    let elems = fields
+                        .iter()
+                        .map(|field| field.value.clone())
+                        .collect::<Vec<_>>();
+                    if self.data_literal_target_is_array_like(&norm) {
+                        self.lower_array_init(&elems, subst_map, concrete_ty, span)
+                    } else if let [field] = fields.as_slice() {
+                        self.lower_scalar_init(&field.value, subst_map, concrete_ty, span)
+                    } else {
+                        self.lower_array_init(&elems, subst_map, concrete_ty, span)
+                    }
+                } else {
+                    self.lower_struct_union_data_init(fields, subst_map, concrete_ty)
+                }
             }
             ast::DataLiteralKind::Array(elems) => {
-                let is_target_array_like = matches!(
-                    norm,
-                    TypeKind::Array { .. }
-                        | TypeKind::ArrayInfer { .. }
-                        | TypeKind::Slice { .. }
-                        | TypeKind::Simd { .. }
-                );
+                let is_target_array_like = self.data_literal_target_is_array_like(&norm);
                 if elems.is_empty() && !is_target_array_like {
                     // Treat these as empty aggregates so they are still instantiated correctly.
                     self.lower_struct_union_data_init(&[], subst_map, concrete_ty)
@@ -346,13 +416,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.lower_repeat_init(value, subst_map, concrete_ty, span)
             }
             ast::DataLiteralKind::Scalar(inner) => {
-                let is_target_array_like = matches!(
-                    norm,
-                    TypeKind::Array { .. }
-                        | TypeKind::ArrayInfer { .. }
-                        | TypeKind::Slice { .. }
-                        | TypeKind::Simd { .. }
-                );
+                let is_target_array_like = self.data_literal_target_is_array_like(&norm);
                 if is_target_array_like && !matches!(inner.kind, ExprKind::Undef) {
                     self.lower_array_init(
                         std::slice::from_ref(inner.as_ref()),

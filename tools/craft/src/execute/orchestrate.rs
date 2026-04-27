@@ -253,6 +253,12 @@ pub(super) fn build_with_command(
         let _progress_suspend = progress
             .as_ref()
             .map(|progress| progress.suspend_terminal());
+        let _long_action = progress.as_ref().map(|progress| {
+            progress.report_long_action(
+                "compiling",
+                format!("parallel target batch ({} jobs)", jobs.len()),
+            )
+        });
         for result in build_parallel_target_compile_jobs(
             command,
             &jobs,
@@ -329,6 +335,14 @@ pub(super) fn build_with_command(
     let _progress_suspend = progress
         .as_ref()
         .map(|progress| progress.suspend_terminal());
+    let _long_action = progress.as_ref().and_then(|progress| {
+        (!parallel_jobs.is_empty()).then(|| {
+            progress.report_long_action(
+                "linking",
+                format!("parallel target batch ({} jobs)", parallel_jobs.len()),
+            )
+        })
+    });
     for result in build_parallel_target_link_jobs(
         command,
         &parallel_jobs,

@@ -380,6 +380,7 @@ fn build_compile_action_if_needed(
     options: CompileOptions,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
+    progress: Option<&ProgressReporter>,
 ) -> Result<bool> {
     // The output lock and fingerprint check make compile actions idempotent even when the build
     // graph reaches the same unit from multiple dependent targets.
@@ -404,6 +405,8 @@ fn build_compile_action_if_needed(
     let emits_linker_input = options.driver_mode.emits_linker_input();
     let compile_label = compile_action_label(action, &options);
     let compile_tags = compile_action_detail_tags(&options);
+    let _long_action = progress
+        .map(|progress| progress.report_long_action("compiling", compile_progress_label(action)));
     let Some(report) = compile_with_shared_driver(driver_families, options) else {
         return Err(Error::Execution(format!(
             "compile failed for `{}`",
@@ -439,6 +442,7 @@ fn build_link_action_if_needed(
     options: CompileOptions,
     linker_inputs: &[PathBuf],
     execution_summary: &mut ExecutionSummary,
+    progress: Option<&ProgressReporter>,
 ) -> Result<bool> {
     let _link_lock = OutputOperationLock::acquire(&action.artifact_path, "link-action")?;
     let toolchain_digest = build_state::current_process_digest()?;
@@ -470,6 +474,8 @@ fn build_link_action_if_needed(
     let link_label = link_action_label(action, &options);
     let link_tags = link_action_detail_tags(action, &options, linker_inputs);
     let driver = CompilerDriver::new(options);
+    let _long_action = progress
+        .map(|progress| progress.report_long_action("linking", link_progress_label(action)));
     let Some(report) = driver.compile_with_report() else {
         return Err(Error::Execution(format!(
             "link failed for `{}`",
@@ -554,6 +560,7 @@ fn ensure_compile_action_built(
         options,
         session.external.driver_families,
         session.state.execution_summary,
+        session.state.progress.as_ref(),
     )?;
     if let Some(progress) = &session.state.progress {
         progress.record_compile_action();
@@ -598,6 +605,7 @@ fn ensure_link_action_built(
         options,
         &linker_inputs,
         session.state.execution_summary,
+        session.state.progress.as_ref(),
     )?;
     if let Some(progress) = &session.state.progress {
         progress.record_link_action();

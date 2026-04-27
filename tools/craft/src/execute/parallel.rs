@@ -157,6 +157,7 @@ fn build_parallel_target_link_job(
         compile_options,
         driver_families,
         &mut summary,
+        None,
     )?;
 
     ensure_parent_dir(&job.link_action.artifact_path)?;
@@ -168,8 +169,13 @@ fn build_parallel_target_link_job(
         built_external_packages,
         manifest_runtime_options,
     )?;
-    let _ =
-        build_link_action_if_needed(job.link_action, link_options, &linker_inputs, &mut summary)?;
+    let _ = build_link_action_if_needed(
+        job.link_action,
+        link_options,
+        &linker_inputs,
+        &mut summary,
+        None,
+    )?;
 
     Ok(ParallelTargetLinkResult {
         compile_object_path: job.compile_action.object_path.clone(),
@@ -203,6 +209,7 @@ fn build_parallel_target_compile_job(
         compile_options,
         driver_families,
         &mut summary,
+        None,
     )?;
 
     Ok(ParallelTargetCompileResult {

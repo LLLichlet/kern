@@ -156,9 +156,10 @@ fn execute_staged_action(
     session: &mut ExecutionSession<'_>,
 ) -> Result<bool> {
     let output_path = PathBuf::from(&action.output);
+    let progress_label = stage_action_label(action, &output_path);
     if let Some(progress) = &session.state.progress {
         progress.set_phase(ExecutionPhase::Stage);
-        progress.set_detail(stage_action_label(action, &output_path));
+        progress.set_detail(progress_label.clone());
     }
     if session.state.staged_outputs.contains(&output_path) {
         return Ok(false);
@@ -311,6 +312,11 @@ fn execute_staged_action(
     }
 
     ensure_parent_dir(&output_path)?;
+    let _long_action = session
+        .state
+        .progress
+        .as_ref()
+        .map(|progress| progress.report_long_action("staging", progress_label));
 
     match &action.kind {
         StagedActionKind::WriteFile { contents } => {

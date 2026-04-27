@@ -1,7 +1,13 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::thread;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+const LONG_ACTION_REPORT_DELAY: Duration = Duration::from_secs(15);
+const LONG_ACTION_REPORT_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ExecutionProgressPlan {
@@ -83,6 +89,12 @@ pub(crate) struct ProgressSuspendGuard {
 }
 
 #[derive(Debug)]
+pub(crate) struct LongActionReport {
+    stop: Option<mpsc::Sender<()>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug)]
 struct ProgressState {
     plan: ExecutionProgressPlan,
     phase: AtomicU8,
@@ -152,10 +164,53 @@ impl ProgressReporter {
     pub(crate) fn terminal_suspended(&self) -> bool {
         self.state.suspended.load(Ordering::Relaxed) != 0
     }
+
+    pub(crate) fn report_long_action(
+        &self,
+        verb: &'static str,
+        detail: impl Into<String>,
+    ) -> LongActionReport {
+        LongActionReport::spawn(verb, detail.into())
+    }
 }
 
 impl Drop for ProgressSuspendGuard {
     fn drop(&mut self) {
         self.state.suspended.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+impl LongActionReport {
+    fn spawn(verb: &'static str, detail: String) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let started = Instant::now();
+        let worker = thread::spawn(move || {
+            if rx.recv_timeout(LONG_ACTION_REPORT_DELAY).is_ok() {
+                return;
+            }
+            loop {
+                let elapsed = started.elapsed();
+                eprintln!("craft: still {verb} after {}s: {detail}", elapsed.as_secs());
+                if rx.recv_timeout(LONG_ACTION_REPORT_INTERVAL).is_ok() {
+                    return;
+                }
+            }
+        });
+
+        Self {
+            stop: Some(tx),
+            worker: Some(worker),
+        }
+    }
+}
+
+impl Drop for LongActionReport {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }

@@ -24,3 +24,11 @@ implementation is linked.
 
 In other words, `rt` owns startup and minimal runtime glue, not general-purpose
 library APIs.
+
+## Documentation
+
+From the repository root:
+
+```sh
+craft doc --project-path library/rt
+```

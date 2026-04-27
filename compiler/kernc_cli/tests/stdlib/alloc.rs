@@ -170,3 +170,93 @@ fn main() i32 {
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);
 }
+
+#[test]
+fn runs_hosted_program_using_typed_allocation_helpers() {
+    let output = build_and_run(
+        "kernc_std_alloc_typed",
+        r#"
+use base.mem.alloc.{GPA, alloc_one, free_one, alloc_array, free_array, clone_array};
+use sys.mem.Page;
+
+type Pair = struct {
+    left: i32,
+    right: i32,
+};
+
+fn sum(items: []i32) i32 {
+    return items.fold[i32, i32](0, .[](accum: i32, value: i32) i32 {
+        return accum + value;
+    });
+}
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+
+    let pair = match (alloc_one[Pair](gpa)) {
+        .{ Some: ptr } => ptr,
+        .None => return 1,
+    };
+    pair.* = Pair.{ left: 11, right: 31 };
+    if (pair.left + pair.right != 42) {
+        return 2;
+    }
+    free_one[Pair](gpa, pair);
+
+    let items = match (alloc_array[i32](gpa, 5)) {
+        .{ Some: slice } => slice,
+        .None => return 3,
+    };
+    items.[0] = 5;
+    items.[1] = 1;
+    items.[2] = 4;
+    items.[3] = 1;
+    items.[4] = 3;
+    items.sort();
+    if (items != [5]i32.{ 1, 1, 3, 4, 5 }) {
+        return 4;
+    }
+    if (sum(items) != 14) {
+        return 5;
+    }
+    free_array[i32](gpa, items);
+
+    let source = [4]i32.{ 7, 8, 9, 10 };
+    let clone = match (clone_array[i32](gpa, source.[0 .. 4])) {
+        .{ Some: slice } => slice,
+        .None => return 6,
+    };
+    clone.[2] = 90;
+    if (source.[2] != 9 or clone.[2] != 90) {
+        return 7;
+    }
+    clone.sort();
+    if (clone.lower_bound(90) != 3) {
+        return 8;
+    }
+    free_array[i32](gpa, clone);
+
+    let empty = match (alloc_array[u64](gpa, 0)) {
+        .{ Some: slice } => slice,
+        .None => return 9,
+    };
+    if (#empty != 0) {
+        return 10;
+    }
+    free_array[u64](gpa, empty);
+
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

@@ -7,6 +7,7 @@ use base.mem.alloc.{Allocator, Arena};
 use base.mem.{Layout, memmove};
 use base.num.USIZE_MAX;
 use base.coll.{SliceIter, SliceMutIter};
+use base.cmp.{Ord, Ordering};
 
 mod query;
 
@@ -694,6 +695,21 @@ impl[T] *mut List[T] {
         self.as_mut_slice().reverse();
     }
 
+    /// Rotates the element order left by `amount` positions.
+    pub fn rotate_left(amount: usize) void {
+        self.as_mut_slice().rotate_left(amount);
+    }
+
+    /// Rotates the element order right by `amount` positions.
+    pub fn rotate_right(amount: usize) void {
+        self.as_mut_slice().rotate_right(amount);
+    }
+
+    /// Copies `[src_start, src_end)` into `dest_start`.
+    pub fn copy_within(src_start: usize, src_end: usize, dest_start: usize) bool {
+        return self.as_mut_slice().copy_within(src_start, src_end, dest_start);
+    }
+
     /// Overwrites every element with `value`.
     pub fn fill(value: T) void {
         self.as_mut_slice().fill(value);
@@ -782,6 +798,38 @@ impl[T] *mut List[T] {
         self.len = write;
     }
 
+    /// Removes consecutive duplicates according to `same`.
+    pub fn dedup_by(same: *Fn(T, T) bool) void {
+        if (self.len < 2) {
+            return;
+        }
+
+        let mut write = usize.{1};
+                let mut read = usize.{1};
+        while (read < self.len) {
+            let previous = (self.ptr + (write - usize.{1})).*;
+            let item = (self.ptr + read).*;
+            if (same(previous, item)) {
+                read += 1;
+                continue;
+            }
+
+            if (write != read and !self.is_zst()) {
+                (self.ptr + write).* = item;
+            }
+            write += 1;
+
+            read += 1;
+        }
+
+        self.len = write;
+    }
+
+    /// Sorts the list in place with a caller-provided comparison function.
+    pub fn sort_by(compare: *Fn(T, T) Ordering) void {
+        self.as_mut_slice().sort_by(compare);
+    }
+
     #[inline]
     pub fn as_mut_slice() []mut T {
         return self.ptr..[0 .. self.len];
@@ -790,6 +838,26 @@ impl[T] *mut List[T] {
     #[inline]
     pub fn iter_mut() SliceMutIter[T] {
         return self.as_mut_slice().iter();
+    }
+}
+
+impl[T] *mut List[T]
+    where T: Eq[T],
+{
+    /// Removes consecutive equal elements.
+    pub fn dedup() void {
+        self.dedup_by(.[](lhs: T, rhs: T) bool {
+            return lhs == rhs;
+        });
+    }
+}
+
+impl[T] *mut List[T]
+    where T: Ord[T],
+{
+    /// Sorts the list in nondecreasing order.
+    pub fn sort() void {
+        self.as_mut_slice().sort();
     }
 }
 

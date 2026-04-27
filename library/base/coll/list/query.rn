@@ -118,4 +118,19 @@ impl[T] *List[T]
     pub fn binary_search(target: T) ?usize {
         return self.as_slice().binary_search(target);
     }
+
+    /// Returns the first index whose value is not less than `target`.
+    pub fn lower_bound(target: T) usize {
+        return self.as_slice().lower_bound(target);
+    }
+
+    /// Returns the first index whose value is greater than `target`.
+    pub fn upper_bound(target: T) usize {
+        return self.as_slice().upper_bound(target);
+    }
+
+    /// Returns `true` when the list is sorted in nondecreasing order.
+    pub fn is_sorted() bool {
+        return self.as_slice().is_sorted();
+    }
 }

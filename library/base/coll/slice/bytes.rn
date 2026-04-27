@@ -1,5 +1,6 @@
 //! Byte-slice search and trimming helpers.
 
+use base.cmp.{Comparable, Ord, Ordering};
 
 const USIZE_BYTES = @sizeOf[usize]();
 
@@ -86,6 +87,14 @@ impl []u8 : Eq[[]u8] {
         return bytes_eq(self, other);
     }
 }
+
+impl []u8 : Comparable[[]u8] {
+    pub fn cmp(other: []u8) Ordering {
+        return self.lex_cmp(other);
+    }
+}
+
+impl []u8 : Ord[[]u8] {}
 
 impl []u8 {
     /// Returns the first index of `byte`.

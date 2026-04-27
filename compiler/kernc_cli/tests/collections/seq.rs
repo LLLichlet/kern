@@ -35,7 +35,8 @@ fn main() i32 {
 
     assert!(
         output.status.success(),
-        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        "hosted std binary failed with status {:?}:\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -61,7 +62,8 @@ fn main() i32 {
 
     assert!(
         output.status.success(),
-        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        "hosted std binary failed with status {:?}:\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -465,10 +467,158 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_foundation_numeric_and_slice_algorithms() {
+    let output = build_and_run_hosted(
+        r##"
+use base.num;
+use base.cmp.{Ordering, LESS, GREATER};
+
+const SAT_ADD = num.saturating_add_usize(num.USIZE_MAX, 1);
+const SAT_MUL = num.saturating_mul_usize(num.USIZE_MAX, 2);
+const CHECKED_SUM = num.checked_add_usize(40, 2);
+const CHECKED_OVERFLOW = num.checked_add_usize(num.USIZE_MAX, 1);
+const CONST_ALIGNED = num.align_up_usize(17, 8);
+
+fn expect_bounds(items: []i32, value: i32, lower: usize, upper: usize) bool {
+    return items.lower_bound(value) == lower and items.upper_bound(value) == upper;
+}
+
+fn main() i32 {
+    let aligned = match (CONST_ALIGNED) {
+        .{ Some: value } => value,
+        .None => return 1,
+    };
+    if (aligned != 24) {
+        return 1;
+    }
+    if (SAT_ADD != num.USIZE_MAX or SAT_MUL != num.USIZE_MAX) {
+        return 2;
+    }
+    if (!CHECKED_SUM.is_some_and(.[](value: usize) bool {
+        return value == 42;
+    }) or CHECKED_OVERFLOW.is_some()) {
+        return 3;
+    }
+    if (!num.checked_sub_usize(10, 3).is_some_and(.[](value: usize) bool {
+        return value == 7;
+    })) {
+        return 4;
+    }
+    if (num.align_up_usize(10, 3).is_some()) {
+        return 5;
+    }
+    if (!num.is_power_of_two_usize(64) or num.is_power_of_two_usize(0)) {
+        return 6;
+    }
+    if (num.min[i32](8, 3) != 3 or num.max[i32](8, 3) != 8) {
+        return 7;
+    }
+    if (num.clamp[i32](19, -2, 9) != 9 or num.clamp[i32](-5, -2, 9) != -2) {
+        return 8;
+    }
+
+    let mut values = [8]i32.{ 5, 1, 3, 3, 9, 0, 8, 3 };
+    let view = values..[0 .. 8];
+    view.sort();
+
+    let sorted = values.[0 .. 8];
+    if (!sorted.is_sorted()) {
+        return 9;
+    }
+    if (sorted != [8]i32.{ 0, 1, 3, 3, 3, 5, 8, 9 }) {
+        return 10;
+    }
+    if (!expect_bounds(sorted, 3, 2, 5)) {
+        return 11;
+    }
+    if (!expect_bounds(sorted, 4, 5, 5)) {
+        return 12;
+    }
+    if (!sorted.binary_search(8).is_some_and(.[](index: usize) bool {
+        return index == 6;
+    })) {
+        return 13;
+    }
+
+    view.sort_by(.[](lhs: i32, rhs: i32) Ordering {
+        return rhs.cmp(lhs);
+    });
+    if (values.[0 .. 8] != [8]i32.{ 9, 8, 5, 3, 3, 3, 1, 0 }) {
+        return 14;
+    }
+
+    let mut words = [5][]u8.{ "gamma", "alpha", "beta", "beta", "delta" };
+    let word_view = words..[0 .. 5];
+    word_view.sort();
+    let sorted_words = words.[0 .. 5];
+    if (!sorted_words.is_sorted()) {
+        return 15;
+    }
+    if (sorted_words.lower_bound("beta") != 1 or sorted_words.upper_bound("beta") != 3) {
+        return 16;
+    }
+    if (sorted_words.[0] != "alpha" or sorted_words.[4] != "gamma") {
+        return 17;
+    }
+
+    let odd_first = [6]i32.{ 2, 4, 6, 1, 3, 5 };
+    let split = odd_first.[0 .. 6].partition_point(.[](value: i32) bool {
+        return (value % 2) == 0;
+    });
+    if (split != 3) {
+        return 18;
+    }
+
+    if (LESS != Ordering.{-1} or GREATER != Ordering.{1}) {
+        return 19;
+    }
+
+    let mut ring = [6]i32.{ 0, 1, 2, 3, 4, 5 };
+    let ring_view = ring..[0 .. 6];
+    ring_view.rotate_left(2);
+    if (ring.[0 .. 6] != [6]i32.{ 2, 3, 4, 5, 0, 1 }) {
+        return 20;
+    }
+    ring_view.rotate_right(8);
+    if (ring.[0 .. 6] != [6]i32.{ 0, 1, 2, 3, 4, 5 }) {
+        return 21;
+    }
+    if (!ring_view.copy_within(0, 3, 2)) {
+        return 22;
+    }
+    if (ring.[0 .. 6] != [6]i32.{ 0, 1, 0, 1, 2, 5 }) {
+        return 23;
+    }
+    if (!ring_view.copy_within(2, 6, 0)) {
+        return 24;
+    }
+    if (ring.[0 .. 6] != [6]i32.{ 0, 1, 2, 5, 2, 5 }) {
+        return 25;
+    }
+    if (ring_view.copy_within(4, 2, 0) or ring_view.copy_within(0, 4, 3)) {
+        return 26;
+    }
+
+    return 0;
+}
+"##,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed with status {:?}:\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_coll_iteration_and_copy_helpers() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{List, String};
+use base.cmp.{Ordering, GREATER};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
@@ -629,16 +779,80 @@ fn main() i32 {
         return 32;
     }
 
+    list.rotate_left(1);
+    if (list.as_slice() != [4]i32.{60, 30, 60, 40}) {
+        return 100;
+    }
+    list.rotate_right(2);
+    if (list.as_slice() != [4]i32.{60, 40, 60, 30}) {
+        return 101;
+    }
+    if (!list.copy_within(0, 2, 2)) {
+        return 102;
+    }
+    if (list.as_slice() != [4]i32.{60, 40, 60, 40}) {
+        return 103;
+    }
+    if (list.copy_within(0, 5, 0)) {
+        return 104;
+    }
+    if (!list.clone_from(gpa, [4]i32.{40, 60, 30, 60})) {
+        return 105;
+    }
+
+    list.sort();
+    if (!list.is_sorted()) {
+        return 33;
+    }
+    if (list.as_slice() != [4]i32.{30, 40, 60, 60}) {
+        return 34;
+    }
+    if (list.lower_bound(60) != 2 or list.upper_bound(60) != 4) {
+        return 35;
+    }
+    if (!list.binary_search(40).is_some_and(.[](index: usize) bool {
+        return index == 1;
+    })) {
+        return 36;
+    }
+
+    if (!list.clone_from(gpa, [7]i32.{1, 1, 2, 2, 2, 3, 1})) {
+        return 106;
+    }
+    list.dedup();
+    if (list.as_slice() != [4]i32.{1, 2, 3, 1}) {
+        return 107;
+    }
+    list.dedup_by(.[](lhs: i32, rhs: i32) bool {
+        return (lhs % 2) == (rhs % 2);
+    });
+    if (list.as_slice() != [3]i32.{1, 2, 3}) {
+        return 108;
+    }
+    if (!list.clone_from(gpa, [4]i32.{30, 40, 60, 60})) {
+        return 109;
+    }
+
+    list.sort_by(.[](lhs: i32, rhs: i32) Ordering {
+        if (lhs.cmp(rhs) == GREATER) {
+            return Ordering.{-1};
+        }
+        return rhs.cmp(lhs);
+    });
+    if (list.as_slice() != [4]i32.{60, 60, 40, 30}) {
+        return 37;
+    }
+
     let text = String.{}..&;
     defer text.deinit(gpa);
     if (!text.clone_from(gpa, "kern")) {
-        return 33;
+        return 38;
     }
     if (!text.push_repeat(gpa, b'!', 3)) {
-        return 34;
+        return 39;
     }
     if (text != "kern!!!") {
-        return 35;
+        return 40;
     }
 
     let mut bangs = i32.{0};
@@ -648,14 +862,14 @@ fn main() i32 {
         }
     });
     if (bangs != 3) {
-        return 36;
+        return 41;
     }
 
     let ascii_sum = text.fold_bytes(i32.{0}, .[](accum: i32, byte: u8) i32 {
         return accum + byte as i32;
     });
     if (ascii_sum != 531) {
-        return 37;
+        return 42;
     }
 
     return 0;

@@ -1,7 +1,9 @@
-//! Numeric limits and small arithmetic constants.
+//! Numeric limits and small arithmetic helpers.
 //!
 //! This module collects target-dependent integer bounds that other low-level
 //! modules reuse when checking overflow or sentinel values.
+
+use base.cmp.{Ord, LESS, GREATER};
 
 /// The minimum representable `i8`.
 pub const I8_MIN  = i8.{-128};
@@ -9,9 +11,112 @@ pub const I8_MIN  = i8.{-128};
 pub const I8_MAX  = i8.{127};
 
 /// The maximum representable `usize`.
-pub const USIZE_MAX = ~usize.{0}; 
+pub const USIZE_MAX = ~usize.{0};
 /// The minimum representable `usize`.
 pub const USIZE_MIN = 0;
 
 /// The maximum representable `isize`.
 pub const ISIZE_MAX = (USIZE_MAX >> 1) as isize;
+
+/// Returns the smaller of two ordered values.
+pub fn min[T](lhs: T, rhs: T) T
+    where T: Ord[T],
+{
+    return if (lhs.cmp(rhs) == GREATER) rhs else lhs;
+}
+
+/// Returns the larger of two ordered values.
+pub fn max[T](lhs: T, rhs: T) T
+    where T: Ord[T],
+{
+    return if (lhs.cmp(rhs) == LESS) rhs else lhs;
+}
+
+/// Clamps `value` into the inclusive range `[lo, hi]`.
+///
+/// Note:
+/// when `lo > hi`, `lo` is returned. This keeps the helper total and avoids
+/// hidden failure policy in low-level code.
+pub fn clamp[T](value: T, lo: T, hi: T) T
+    where T: Ord[T],
+{
+    if (lo.cmp(hi) == GREATER) {
+        return lo;
+    }
+    if (value.cmp(lo) == LESS) {
+        return lo;
+    }
+    if (value.cmp(hi) == GREATER) {
+        return hi;
+    }
+    return value;
+}
+
+/// Checked addition for `usize`.
+pub const fn checked_add_usize(lhs: usize, rhs: usize) ?usize {
+    if (lhs > USIZE_MAX - rhs) {
+        return ?usize.None;
+    }
+    return .{ Some: lhs + rhs };
+}
+
+/// Checked subtraction for `usize`.
+pub const fn checked_sub_usize(lhs: usize, rhs: usize) ?usize {
+    if (lhs < rhs) {
+        return ?usize.None;
+    }
+    return .{ Some: lhs - rhs };
+}
+
+/// Checked multiplication for `usize`.
+pub const fn checked_mul_usize(lhs: usize, rhs: usize) ?usize {
+    if (lhs == 0 or rhs == 0) {
+        return .{ Some: usize.{0} };
+    }
+    if (lhs > USIZE_MAX / rhs) {
+        return ?usize.None;
+    }
+    return .{ Some: lhs * rhs };
+}
+
+/// Saturating addition for `usize`.
+pub const fn saturating_add_usize(lhs: usize, rhs: usize) usize {
+    if (lhs > USIZE_MAX - rhs) {
+        return USIZE_MAX;
+    }
+    return lhs + rhs;
+}
+
+/// Saturating subtraction for `usize`.
+pub const fn saturating_sub_usize(lhs: usize, rhs: usize) usize {
+    return if (lhs < rhs) usize.{0} else lhs - rhs;
+}
+
+/// Saturating multiplication for `usize`.
+pub const fn saturating_mul_usize(lhs: usize, rhs: usize) usize {
+    if (lhs == 0 or rhs == 0) {
+        return 0;
+    }
+    if (lhs > USIZE_MAX / rhs) {
+        return USIZE_MAX;
+    }
+    return lhs * rhs;
+}
+
+/// Returns `true` when `value` is a non-zero power of two.
+pub const fn is_power_of_two_usize(value: usize) bool {
+    return value != 0 and (value & (value - 1)) == 0;
+}
+
+/// Rounds `value` up to `align`.
+///
+/// Returns:
+/// `None` when `align` is zero, not a power of two, or the rounded value would overflow.
+pub const fn align_up_usize(value: usize, align: usize) ?usize {
+    if (!is_power_of_two_usize(align)) {
+        return ?usize.None;
+    }
+    let mask = align - 1;
+    let .{ Some: biased } = checked_add_usize(value, mask) else return ?usize.None;
+    return .{ Some: biased & ~mask };
+}

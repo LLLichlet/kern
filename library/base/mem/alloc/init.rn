@@ -4,9 +4,11 @@
 //! page acquisition belongs to `sys.mem`.
 
 mod allocator;
+mod typed;
 mod gpa;
 mod arena;
 
 pub use .allocator.Allocator;
+pub use .typed.{alloc_one, free_one, alloc_array, free_array, clone_array};
 pub use .gpa.GPA;
 pub use .arena.{Arena, ArenaMark};

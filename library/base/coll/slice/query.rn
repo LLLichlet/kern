@@ -362,23 +362,59 @@ impl[T] []T
 
     /// Performs binary search on a sorted slice.
     pub fn binary_search(target: T) ?usize {
-        let mut left = usize.{0};
-        let mut right = #self;
-
-                while (left < right) {
-            let mid = left + (right - left) / 2;
-            let ord = self.[mid].cmp(target);
-            if (ord == LESS) {
-                left = mid + 1;
-            } else {
-                right = mid;
-            }
-        }
+        let left = self.lower_bound(target);
 
         if (left < #self and self.[left].cmp(target) == EQUAL) {
             return .{ Some: left };
         }
 
         return .None;
+    }
+
+    /// Returns the first index whose value is not less than `target`.
+    pub fn lower_bound(target: T) usize {
+        let mut left = usize.{0};
+        let mut right = #self;
+
+        while (left < right) {
+            let mid = left + (right - left) / 2;
+            if (self.[mid].cmp(target) == LESS) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        return left;
+    }
+
+    /// Returns the first index whose value is greater than `target`.
+    pub fn upper_bound(target: T) usize {
+        let mut left = usize.{0};
+        let mut right = #self;
+
+        while (left < right) {
+            let mid = left + (right - left) / 2;
+            let ord = self.[mid].cmp(target);
+            if (ord == LESS or ord == EQUAL) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        return left;
+    }
+
+    /// Returns `true` when the slice is sorted in nondecreasing order.
+    pub fn is_sorted() bool {
+        let mut i = usize.{1};
+        while (i < #self) {
+            if (self.[i - 1].cmp(self.[i]) == GREATER) {
+                return false;
+            }
+            i += 1;
+        }
+        return true;
     }
 }

@@ -345,6 +345,14 @@ fn failpoint_ready_timeout() -> Duration {
     }
 }
 
+fn kill_recovery_command_timeout() -> Duration {
+    if cfg!(windows) || std::env::var_os("CI").is_some() {
+        Duration::from_secs(60)
+    } else {
+        Duration::from_secs(10)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum KillRecoveryMode {
     Build,
@@ -446,12 +454,7 @@ b.set_source_root(main);
     .unwrap();
 }
 
-fn run_kill_recovery_case(
-    root: &std::path::Path,
-    mode: KillRecoveryMode,
-    failpoint: &str,
-    timeout: Duration,
-) {
+fn run_kill_recovery_case(root: &std::path::Path, mode: KillRecoveryMode, failpoint: &str) {
     let ready_path = root.join(".craft-failpoint-ready");
     let mut child = spawn_command_subprocess_with_failpoint(root, mode, failpoint, &ready_path);
     wait_for_failpoint_ready(&mut child, &ready_path, failpoint_ready_timeout());
@@ -460,6 +463,7 @@ fn run_kill_recovery_case(
 
     assert!(root.join(".craft/lock/workspace.lock").exists());
 
+    let timeout = kill_recovery_command_timeout();
     run_command_with_timeout(command_for_mode(root, mode), timeout);
     run_command_with_timeout(command_for_mode(root, mode), timeout);
 
@@ -1462,7 +1466,6 @@ fn build_command_recovers_after_killed_process_leaves_partial_generated_state() 
         &root,
         KillRecoveryMode::Build,
         FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
-        Duration::from_secs(10),
     );
     assert!(
         root.join(".craft/build/dev/target/gen/demo-0.1.0/bin/demo/src")
@@ -1497,7 +1500,6 @@ fn build_command_recovers_after_killed_process_leaves_partial_compile_state() {
         &root,
         KillRecoveryMode::Build,
         FAILPOINT_AFTER_COMPILE_STATE_WRITE,
-        Duration::from_secs(10),
     );
 
     assert!(
@@ -1528,7 +1530,6 @@ fn build_command_recovers_after_killed_process_leaves_partial_link_state() {
         &root,
         KillRecoveryMode::Build,
         FAILPOINT_AFTER_LINK_STATE_WRITE,
-        Duration::from_secs(10),
     );
 
     assert!(
@@ -1554,7 +1555,6 @@ fn check_command_recovers_after_killed_process_leaves_partial_generated_state() 
         &root,
         KillRecoveryMode::Check,
         FAILPOINT_AFTER_STAGED_OUTPUT_WRITE,
-        Duration::from_secs(10),
     );
 
     assert!(
@@ -1587,7 +1587,6 @@ fn check_command_recovers_after_killed_process_leaves_partial_analysis_context()
         &root,
         KillRecoveryMode::Check,
         FAILPOINT_AFTER_ANALYSIS_CONTEXT_SYNC,
-        Duration::from_secs(10),
     );
 
     assert!(root.join(".craft/analysis.toml").is_file());
@@ -1615,7 +1614,6 @@ fn run_command_recovers_after_killed_process_leaves_partial_link_state() {
         &root,
         KillRecoveryMode::Run,
         FAILPOINT_AFTER_LINK_STATE_WRITE,
-        Duration::from_secs(10),
     );
 
     assert!(
@@ -1636,7 +1634,6 @@ fn test_command_recovers_after_killed_process_leaves_partial_link_state() {
         &root,
         KillRecoveryMode::Test,
         FAILPOINT_AFTER_LINK_STATE_WRITE,
-        Duration::from_secs(10),
     );
 
     let test_out_dir = root.join(".craft/build/dev/target/out/demo-0.1.0/test");

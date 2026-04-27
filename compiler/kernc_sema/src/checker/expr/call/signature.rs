@@ -114,7 +114,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn infer_generic_args_from_types(
+    pub(crate) fn infer_generic_args_from_types(
         &mut self,
         generic_ty: TypeId,
         concrete_ty: TypeId,

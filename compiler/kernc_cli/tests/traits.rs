@@ -894,6 +894,76 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_slice_array_eq_method_impls() {
+    let output = build_and_run(
+        "kernc_slice_array_eq_method_impls",
+        r#"
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+
+    if (!slice.eq([4]i32.{1, 2, 3, 4})) {
+        return 1;
+    }
+    if (slice.eq([3]i32.{1, 2, 3})) {
+        return 2;
+    }
+
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_argument_inferred_generic_trait_method_impl() {
+    let output = build_and_run(
+        "kernc_argument_inferred_generic_trait_method_impl",
+        r#"
+type Fits[Rhs] = trait {
+    fits: fn(Rhs) bool,
+};
+
+impl[T, N: usize] []T : Fits[[N]T] {
+    pub fn fits(other: [N]T) bool {
+        return #self == N;
+    }
+}
+
+fn main() i32 {
+    let array = [4]i32.{1, 2, 3, 4};
+    let slice = array.[0 .. 4];
+
+    if (!slice.fits([4]i32.{1, 2, 3, 4})) {
+        return 1;
+    }
+    if (slice.fits([3]i32.{1, 2, 3})) {
+        return 2;
+    }
+
+    return 0;
+}
+"#,
+        &[],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_generic_integer_marker_bound_for_bit_intrinsic() {
     let output = build_and_run(
         "kernc_integer_marker_bound",

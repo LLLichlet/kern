@@ -90,6 +90,7 @@ extern {
     fn __craft_build_stage_copy_output(builder: *mut Builder, source_output: Output, generated_relative: []u8) Output;
     fn __craft_build_cc(builder: *mut Builder, source_relative: []u8, args: [][]u8) Output;
     fn __craft_build_cc_config(builder: *mut Builder, source_relative: []u8, include_dirs: [][]u8, defines: [][]u8, args: [][]u8, dependencies: []Output) Output;
+    fn __craft_build_cc_resource_config(builder: *mut Builder, resource_name: []u8, source_relative: []u8, include_dirs: [][]u8, defines: [][]u8, args: [][]u8, dependencies: []Output) Output;
     fn __craft_build_tool_path(builder: *Builder, dependency_name: []u8, tool_name: []u8) []u8;
     fn __craft_build_stage_generated_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, generated_relative: []u8, args: [][]u8) Output;
     fn __craft_build_stage_artifact_file(builder: *mut Builder, relative_path: []u8, contents: []u8) Output;
@@ -207,6 +208,10 @@ impl *mut Builder {
 
     pub fn cc_config(source_relative: []u8, options: CcOptions) Output {
         return __craft_build_cc_config(self, source_relative, options.include_dirs, options.defines, options.args, options.dependencies);
+    }
+
+    pub fn cc_resource_config(resource_name: []u8, source_relative: []u8, options: CcOptions) Output {
+        return __craft_build_cc_resource_config(self, resource_name, source_relative, options.include_dirs, options.defines, options.args, options.dependencies);
     }
 
     pub fn stage_generated_from_tool(dependency_name: []u8, tool_name: []u8, generated_relative: []u8, args: [][]u8) Output {

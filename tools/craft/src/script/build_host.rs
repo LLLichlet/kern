@@ -477,6 +477,66 @@ impl ScriptHost for BuildUnitHost<'_> {
                 push_unique(&mut self.unit.link.input_paths, output.path.clone());
                 Ok(output_value(&output))
             }
+            "__craft_build_cc_resource_config" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let resource_name = expect_string(args, 1, "resource name")?;
+                let source_relative = expect_string(args, 2, "C resource source path")?;
+                let include_dirs = expect_string_list(args, 3, "C include directories")?;
+                let defines = expect_string_list(args, 4, "C defines")?;
+                let cc_args = expect_string_list(args, 5, "C compiler arguments")?;
+                let dependencies = expect_output_list(args, 6, "C compiler dependencies")?;
+                for dependency in &dependencies {
+                    self.validate_output_handle(dependency, "C compiler dependency")?;
+                }
+                let resource = resolve_build_resource(self.script_context, &resource_name)?;
+                let resource_root = Path::new(&resource.root_path);
+                let source_path = resource_input_path(resource_root, &source_relative)?;
+                if !source_path.is_file() {
+                    return Err(format!(
+                        "C resource source file `{}` does not exist",
+                        source_path.display()
+                    ));
+                }
+                let dest_path = cc_output_path(
+                    Path::new(&self.script_context.paths.generated_root),
+                    &format!("resources/{resource_name}/{source_relative}"),
+                )?;
+                let source =
+                    relative_display(&self.script_context.workspace_root_path, &source_path);
+                let include_dirs = resolve_cc_include_dirs(
+                    &self.script_context.workspace_root_path,
+                    resource_root,
+                    Path::new(&self.script_context.paths.generated_root),
+                    &include_dirs,
+                )?;
+                validate_cc_defines(&defines)?;
+                let output = record_staged_action(
+                    self.build_nodes,
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PreCompile,
+                    StagedActionKind::CcCompile {
+                        source,
+                        include_dirs,
+                        defines,
+                        args: cc_args,
+                        opt: self.script_context.script.profile.opt,
+                        debug: self.script_context.script.profile.debug,
+                    },
+                )?;
+                let output_id = output.staged_id("C compiler output")?;
+                for dependency in dependencies {
+                    add_staged_dependency(
+                        self.build_nodes,
+                        output_id,
+                        dependency.staged_id("C compiler dependency")?,
+                    )?;
+                }
+                self.unit.link.args.push(output.path.clone());
+                push_unique(&mut self.unit.link.input_paths, output.path.clone());
+                Ok(output_value(&output))
+            }
             "__craft_build_stage_generated_from_tool" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let dependency_name = expect_string(args, 1, "tool dependency name")?;

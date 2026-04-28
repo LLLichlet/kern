@@ -463,6 +463,89 @@ pub fn build(b: *mut builder.Builder) void {
 }
 
 #[test]
+fn build_script_can_compile_declared_resource_c_source() {
+    let root = temp_dir("craft-build-plan-resource-cc");
+    fs::create_dir_all(root.join("vendor/ray/src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.2"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[resources]
+ray = { path = "vendor/ray" }
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    let obj = b.cc_resource_config("ray", "src/foo.c", .{
+        include_dirs: .{"src"},
+        defines: .{"PLATFORM_DESKTOP"},
+        args: .{"-std=c99"},
+        dependencies: .{},
+    });
+    let _ = obj;
+}
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    fs::write(
+        root.join("vendor/ray/src/foo.c"),
+        "int ray_foo(void) { return 7; }\n",
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let unit = build_plan.packages[0]
+        .units
+        .iter()
+        .find(|unit| unit.target_kind == TargetKind::Bin)
+        .unwrap();
+
+    let unit_nodes = build_plan.compile_input_nodes_for_unit(unit);
+    assert_eq!(unit_nodes.len(), 1);
+    let node = &unit_nodes[0];
+    assert!(node.output.ends_with("resources_ray_src_foo.c.o"));
+    assert!(matches!(
+        &node.kind,
+        StagedActionKind::CcCompile { source, include_dirs, defines, args, .. }
+            if source.ends_with("src/foo.c")
+                && include_dirs.len() == 1
+                && include_dirs[0].ends_with("src")
+                && *defines == vec!["PLATFORM_DESKTOP".to_string()]
+                && *args == vec!["-std=c99".to_string()]
+    ));
+    assert_eq!(unit.link.input_paths.len(), 1);
+    assert_eq!(unit.link.args, unit.link.input_paths);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn build_script_can_copy_package_files_into_generated_root() {
     let root = temp_dir("craft-build-plan-copy");
     fs::create_dir_all(root.join("templates")).unwrap();

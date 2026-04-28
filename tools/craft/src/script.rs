@@ -14,7 +14,7 @@ use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
 use crate::resolver::ExternalPackageId;
 use kernc_sema::checker::{ConstEvaluator, ConstValue, ScriptHost};
-use kernc_utils::config::{CompileOptions, LtoMode};
+use kernc_utils::config::{CodeModel, CompileOptions, LtoMode};
 use kernc_utils::{Session, Span, SymbolId};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -162,6 +162,7 @@ pub struct ScriptProfile {
     pub debug: bool,
     pub codegen_units: usize,
     pub lto_mode: LtoMode,
+    pub code_model: CodeModel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -254,6 +255,12 @@ pub fn manifest_profile(manifest: &Manifest, selection: ProfileSelection) -> Scr
             .transpose()
             .expect("manifest profile LTO should already be validated")
             .unwrap_or_else(|| default_profile_lto_mode(selection, resolved_opt)),
+        code_model: profile
+            .and_then(|profile| profile.code_model.as_deref())
+            .map(CodeModel::parse)
+            .transpose()
+            .expect("manifest profile code model should already be validated")
+            .unwrap_or_default(),
     }
 }
 
@@ -679,6 +686,10 @@ fn plan_argument_value(
         field("lto", ctx),
         ConstValue::String(script_context.profile.lto_mode.as_str().to_string()),
     );
+    profile.insert(
+        field("code_model", ctx),
+        ConstValue::String(script_context.profile.code_model.as_str().to_string()),
+    );
 
     let mut plan = HashMap::new();
     plan.insert(field("package", ctx), ConstValue::Struct(package));
@@ -764,7 +775,7 @@ mod tests {
         Manifest, ProfileSelection, default_profile_codegen_units, default_profile_lto_mode,
         manifest_profile, validate_build_script, validate_craft_script,
     };
-    use kernc_utils::config::LtoMode;
+    use kernc_utils::config::{CodeModel, LtoMode};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -965,5 +976,25 @@ lto = "full"
 
         let profile = manifest_profile(&manifest, ProfileSelection::Release);
         assert_eq!(profile.lto_mode, LtoMode::Full);
+    }
+
+    #[test]
+    fn manifest_profile_preserves_explicit_code_model() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.2"
+
+[profile.release]
+code-model = "kernel"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let profile = manifest_profile(&manifest, ProfileSelection::Release);
+        assert_eq!(profile.code_model, CodeModel::Kernel);
     }
 }

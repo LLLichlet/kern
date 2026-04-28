@@ -17,6 +17,7 @@ pub type Profile = struct {
     pub opt: u8,
     pub debug: bool,
     pub codegen_units: usize,
+    pub code_model: []u8,
 };
 
 pub type Package = struct {

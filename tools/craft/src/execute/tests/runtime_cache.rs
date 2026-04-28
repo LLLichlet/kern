@@ -1,5 +1,5 @@
 use super::*;
-use kernc_utils::config::LtoMode;
+use kernc_utils::config::{CodeModel, LtoMode};
 
 #[test]
 fn runtime_packages_are_reused_across_fresh_workspaces() {
@@ -216,6 +216,7 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
         debug: false,
         codegen_units: 2,
         lto_mode: LtoMode::Thin,
+        code_model: CodeModel::Default,
     };
 
     let summary = super::runtime_packages::with_test_runtime_cache_root(cache_root.clone(), || {

@@ -316,9 +316,18 @@ fn assign_profile(
         "debug" => profile.debug = Some(parse_bool(raw_value)?),
         "codegen-units" => profile.codegen_units = Some(parse_usize(raw_value)?),
         "lto" => profile.lto = Some(parse_lto_mode(raw_value)?.as_str().to_string()),
+        "code-model" => {
+            profile.code_model = Some(parse_code_model(raw_value)?.as_str().to_string())
+        }
         _ => return Err(format!("unsupported {section} key `{key}`")),
     }
     Ok(())
+}
+
+fn parse_code_model(
+    raw_value: &str,
+) -> std::result::Result<kernc_utils::config::CodeModel, String> {
+    kernc_utils::config::CodeModel::parse(&parse_string(raw_value)?)
 }
 
 fn parse_lto_mode(raw_value: &str) -> std::result::Result<LtoMode, String> {

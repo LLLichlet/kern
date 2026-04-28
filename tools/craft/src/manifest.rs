@@ -127,6 +127,7 @@ pub struct Profile {
     pub debug: Option<bool>,
     pub codegen_units: Option<usize>,
     pub lto: Option<String>,
+    pub code_model: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

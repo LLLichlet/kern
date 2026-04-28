@@ -200,6 +200,7 @@ pub(super) fn compile_action_options(
         debug_info: action.profile.debug,
         codegen_units: action.profile.codegen_units,
         lto_mode: action.profile.lto_mode,
+        code_model: action.profile.code_model,
         linker_input_flavor: profile_linker_input_flavor(&action.profile, action.domain),
         emit_multi_linker_input_dir: profile_emit_multi_linker_input_dir(
             &action.profile,
@@ -315,7 +316,7 @@ mod tests {
     use crate::graph::{BuildDomain, PackageId, SourceId};
     use crate::plan::TargetKind;
     use crate::script::ScriptProfile;
-    use kernc_utils::config::{LibraryBundle, LinkerInputFlavor, LtoMode};
+    use kernc_utils::config::{CodeModel, LibraryBundle, LinkerInputFlavor, LtoMode};
     use std::collections::BTreeMap;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -328,6 +329,7 @@ mod tests {
             debug: false,
             codegen_units,
             lto_mode,
+            code_model: CodeModel::Default,
         }
     }
 
@@ -370,6 +372,7 @@ mod tests {
                 debug: true,
                 codegen_units: 1,
                 lto_mode: LtoMode::None,
+                code_model: CodeModel::Default,
             },
             cfg: BTreeMap::new(),
             define: BTreeMap::new(),
@@ -474,6 +477,7 @@ mod tests {
                 debug: true,
                 codegen_units: 1,
                 lto_mode: LtoMode::None,
+                code_model: CodeModel::Default,
             },
             cfg: BTreeMap::new(),
             define: BTreeMap::new(),

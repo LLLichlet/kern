@@ -317,12 +317,13 @@ struct ExecutionSession<'a> {
 
 pub(super) fn runtime_profile_key(profile: &crate::script::ScriptProfile) -> String {
     format!(
-        "{}-opt{}-debug{}-cgu{}-lto{}",
+        "{}-opt{}-debug{}-cgu{}-lto{}-codemodel{}",
         profile.name,
         profile.opt,
         profile.debug,
         profile.codegen_units,
-        profile.lto_mode.as_str()
+        profile.lto_mode.as_str(),
+        profile.code_model.as_str()
     )
 }
 

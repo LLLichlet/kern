@@ -407,6 +407,30 @@ lto = "thin"
 }
 
 #[test]
+fn profile_section_parses_code_model() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.2"
+
+[profile.release]
+code-model = "kernel"
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let profile = manifest
+        .profile
+        .as_ref()
+        .and_then(|profiles| profiles.release.as_ref())
+        .expect("expected release profile");
+    assert_eq!(profile.code_model.as_deref(), Some("kernel"));
+}
+
+#[test]
 fn rejects_zero_profile_codegen_units() {
     let manifest = Manifest::parse(
         r#"
@@ -444,6 +468,24 @@ lto = "turbo"
     )
     .unwrap_err();
     assert!(format!("{err}").contains("invalid LTO mode `turbo`"));
+}
+
+#[test]
+fn rejects_invalid_profile_code_model() {
+    let err = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.2"
+
+[profile.release]
+code-model = "huge"
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap_err();
+    assert!(format!("{err}").contains("invalid code model `huge`"));
 }
 
 #[test]

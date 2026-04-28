@@ -37,6 +37,7 @@ pub(super) fn compile_action_fingerprint(
         format!("driver_mode={}", options.driver_mode.as_str()),
         format!("codegen_units={}", options.codegen_units),
         format!("lto={}", options.lto_mode.as_str()),
+        format!("code_model={}", options.code_model.as_str()),
         format!(
             "linker_input_flavor={}",
             options.linker_input_flavor.as_str()
@@ -152,6 +153,7 @@ pub(super) fn compile_action_detail_tags(options: &CompileOptions) -> Vec<String
         format!("pipeline={}", compile_pipeline_label(options)),
         format!("lto={}", options.lto_mode.as_str()),
         format!("cgu={}", options.codegen_units),
+        format!("code-model={}", options.code_model.as_str()),
         format!("linker-input={}", options.linker_input_flavor.as_str()),
     ];
     if options.emit_multi_linker_input_dir {
@@ -246,7 +248,7 @@ mod tests {
     use crate::build_plan::{CompileAction, CompileSourceInput, LinkAction, LinkPlan};
     use crate::graph::{BuildDomain, PackageId, SourceId};
     use crate::script::ScriptProfile;
-    use kernc_utils::config::{CompileOptions, DriverMode, LinkerInputFlavor, LtoMode};
+    use kernc_utils::config::{CodeModel, CompileOptions, DriverMode, LinkerInputFlavor, LtoMode};
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
@@ -265,6 +267,7 @@ mod tests {
             debug: false,
             codegen_units: 2,
             lto_mode: LtoMode::Thin,
+            code_model: CodeModel::Default,
         }
     }
 

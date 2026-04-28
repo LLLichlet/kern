@@ -255,6 +255,14 @@ fn validate_profile(path: &Path, section: &str, profile: &Profile) -> Result<()>
             message: format!("{section}.lto {message}"),
         });
     }
+    if let Some(code_model) = profile.code_model.as_deref()
+        && let Err(message) = kernc_utils::config::CodeModel::parse(code_model)
+    {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!("{section}.code-model {message}"),
+        });
+    }
     let _ = profile.debug;
     Ok(())
 }

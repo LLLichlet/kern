@@ -81,12 +81,13 @@ fn runtime_profile_root(
 
 fn runtime_profile_label(profile: &crate::script::ScriptProfile) -> String {
     format!(
-        "{} (opt={}, debug={}, cgu={}, lto={})",
+        "{} (opt={}, debug={}, cgu={}, lto={}, code-model={})",
         profile.name,
         profile.opt,
         profile.debug,
         profile.codegen_units,
-        profile.lto_mode.as_str()
+        profile.lto_mode.as_str(),
+        profile.code_model.as_str()
     )
 }
 
@@ -324,6 +325,7 @@ pub(super) fn build_std_package(
         debug_info: profile.debug,
         codegen_units: profile.codegen_units,
         lto_mode: profile.lto_mode,
+        code_model: profile.code_model,
         linker_input_flavor,
         emit_multi_linker_input_dir,
         library_bundle: LibraryBundle::Std,
@@ -353,6 +355,7 @@ pub(super) fn build_std_package(
         format!("debug={}", profile.debug),
         format!("codegen_units={}", options.codegen_units),
         format!("lto={}", options.lto_mode.as_str()),
+        format!("code_model={}", options.code_model.as_str()),
         format!(
             "linker_input_flavor={}",
             options.linker_input_flavor.as_str()
@@ -482,6 +485,7 @@ pub(super) fn build_rt_package(
         debug_info: profile.debug,
         codegen_units: profile.codegen_units,
         lto_mode: profile.lto_mode,
+        code_model: profile.code_model,
         linker_input_flavor,
         emit_multi_linker_input_dir,
         split_sections_for_gc: true,
@@ -510,6 +514,7 @@ pub(super) fn build_rt_package(
         format!("debug={}", profile.debug),
         format!("codegen_units={}", options.codegen_units),
         format!("lto={}", options.lto_mode.as_str()),
+        format!("code_model={}", options.code_model.as_str()),
         format!(
             "linker_input_flavor={}",
             options.linker_input_flavor.as_str()
@@ -606,6 +611,7 @@ pub(super) fn build_base_package(
         debug_info: profile.debug,
         codegen_units: profile.codegen_units,
         lto_mode: profile.lto_mode,
+        code_model: profile.code_model,
         linker_input_flavor,
         emit_multi_linker_input_dir,
         library_bundle: LibraryBundle::Base,
@@ -630,6 +636,7 @@ pub(super) fn build_base_package(
         format!("debug={}", profile.debug),
         format!("codegen_units={}", options.codegen_units),
         format!("lto={}", options.lto_mode.as_str()),
+        format!("code_model={}", options.code_model.as_str()),
         format!(
             "linker_input_flavor={}",
             options.linker_input_flavor.as_str()
@@ -731,6 +738,7 @@ pub(super) fn build_sys_package(
         debug_info: profile.debug,
         codegen_units: profile.codegen_units,
         lto_mode: profile.lto_mode,
+        code_model: profile.code_model,
         linker_input_flavor,
         emit_multi_linker_input_dir,
         library_bundle: LibraryBundle::Base,
@@ -760,6 +768,7 @@ pub(super) fn build_sys_package(
         format!("debug={}", profile.debug),
         format!("codegen_units={}", options.codegen_units),
         format!("lto={}", options.lto_mode.as_str()),
+        format!("code_model={}", options.code_model.as_str()),
         format!(
             "linker_input_flavor={}",
             options.linker_input_flavor.as_str()
@@ -853,6 +862,7 @@ pub(super) fn build_rt_entry_package(
         debug_info: profile.debug,
         codegen_units: profile.codegen_units,
         lto_mode: profile.lto_mode,
+        code_model: profile.code_model,
         linker_input_flavor,
         emit_multi_linker_input_dir,
         split_sections_for_gc: true,
@@ -896,6 +906,7 @@ pub(super) fn build_rt_entry_package(
         format!("debug={}", profile.debug),
         format!("codegen_units={}", options.codegen_units),
         format!("lto={}", options.lto_mode.as_str()),
+        format!("code_model={}", options.code_model.as_str()),
         format!(
             "linker_input_flavor={}",
             options.linker_input_flavor.as_str()

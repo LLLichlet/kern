@@ -1148,10 +1148,10 @@ SeqCst  = 4
 
 These numeric values are part of Kern's intrinsic ABI contract. The compiler maps them to the backend's actual atomic ordering semantics; source code does not depend on LLVM's internal enum numbering.
 
-The standard library provides named wrappers in `std.sync`:
+The base library provides named wrappers in `base.sync`:
 
 ```kern
-use std.sync.{MemOrder, atomic, ACQUIRE, RELEASE};
+use base.sync.{MemOrder, atomic, ACQUIRE, RELEASE};
 
 let load_order = ACQUIRE;
 let store_order = RELEASE;
@@ -1161,7 +1161,7 @@ counter..&.store[RELEASE](1);
 let current = counter.&.load[ACQUIRE]();
 ```
 
-Freestanding code that does not use `std` may pass the raw compile-time integers directly (for example `1` for Acquire or `4` for SeqCst).
+Code may also pass the raw compile-time integers directly (for example `1` for Acquire or `4` for SeqCst).
 
 Supported atomic value types are:
 

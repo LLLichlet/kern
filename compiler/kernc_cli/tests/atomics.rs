@@ -16,7 +16,30 @@ fn compile_source(source: &str) -> std::process::Output {
 }
 
 #[test]
-fn runs_std_sync_atomic_wrappers() {
+fn compiles_base_sync_from_base_bundle() {
+    let output = compile_source_with_args(
+        r#"
+use base.sync.{atomic, SEQ_CST};
+
+fn main() i32 {
+    let mut counter = atomic[usize](0);
+    counter..&.store[SEQ_CST](1);
+    return counter..&.load[SEQ_CST]() as i32 - 1;
+}
+"#,
+        &["--library-bundle", "base"],
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_base_sync_atomic_wrappers() {
     let output = build_and_run(
         "kernc_atomic_wrapper_test",
         r#"
@@ -123,7 +146,7 @@ fn main() i32 {
 "#,
         &[
             "--module-path",
-            "sync=library/std/sync",
+            "sync=library/base/sync",
             "--runtime-libc",
             "yes",
         ],
@@ -138,7 +161,7 @@ fn main() i32 {
 }
 
 #[test]
-fn runs_std_sync_spin_lock_helpers() {
+fn runs_base_sync_spin_lock_helpers() {
     let output = build_and_run(
         "kernc_spin_lock_test",
         r#"
@@ -218,7 +241,7 @@ fn main() i32 {
 "#,
         &[
             "--module-path",
-            "sync=library/std/sync",
+            "sync=library/base/sync",
             "--runtime-libc",
             "yes",
         ],
@@ -233,7 +256,7 @@ fn main() i32 {
 }
 
 #[test]
-fn runs_std_sync_once_helpers() {
+fn runs_base_sync_once_helpers() {
     let output = build_and_run(
         "kernc_once_test",
         r#"
@@ -292,7 +315,7 @@ fn main() i32 {
 "#,
         &[
             "--module-path",
-            "sync=library/std/sync",
+            "sync=library/base/sync",
             "--runtime-libc",
             "yes",
         ],
@@ -307,7 +330,7 @@ fn main() i32 {
 }
 
 #[test]
-fn compiles_atomic_intrinsics_and_fence_with_std_sync_constants() {
+fn compiles_atomic_intrinsics_and_fence_with_base_sync_constants() {
     let output = compile_source_with_args(
         r#"
 use sync.{MemOrder, RELAXED, ACQUIRE, RELEASE, ACQ_REL, SEQ_CST};
@@ -336,7 +359,7 @@ fn main() i32 {
     return 0;
 }
 "#,
-        &["--module-path", "sync=library/std/sync"],
+        &["--module-path", "sync=library/base/sync"],
     );
 
     assert!(
@@ -361,7 +384,7 @@ fn main() i32 {
     return 0;
 }
 "#,
-        &["--module-path", "sync=library/std/sync"],
+        &["--module-path", "sync=library/base/sync"],
     );
 
     assert!(

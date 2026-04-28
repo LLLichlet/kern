@@ -807,7 +807,7 @@ fn main() i32 {
     return 0;
 }
 "#,
-        &["--module-path", "sync=library/std/sync"],
+        &["--module-path", "sync=library/base/sync"],
     );
 
     assert_success(&output, "kernc");
@@ -888,7 +888,7 @@ fn main() i32 {
     return 0;
 }
 "#,
-        &["--module-path", "sync=library/std/sync"],
+        &["--module-path", "sync=library/base/sync"],
     );
 
     assert_success(&output, "kernc");

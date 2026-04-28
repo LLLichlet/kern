@@ -14,6 +14,5 @@ pub mod env;
 pub mod proc;
 pub mod msg;
 pub mod test;
-pub mod sync;
 pub mod time;
 pub mod term;

@@ -16,8 +16,8 @@ promise.
 
 ### 1. Synchronization
 
-`std.sync` currently exposes memory-order constants, while users still have to
-call atomic intrinsics directly.
+`base.sync` exposes memory-order constants and reusable synchronization
+primitives without depending on hosted `std`.
 
 Planned additions:
 
@@ -32,14 +32,14 @@ Planned additions:
 
 Status:
 
-- `Atomic[T]` and `atomic[T](value)` are available in `std.sync`.
+- `Atomic[T]` and `atomic[T](value)` are available in `base.sync`.
 - `SpinLock[T]` is available through `spin_lock[T](value)`. It intentionally
   uses closure-based access instead of returning a copyable guard value.
 - `Once` is available through `once()`.
 
 ### 2. Generic IO Adapters
 
-`std.io` has `Reader`, `Writer`, in-memory readers, in-memory writers, and the
+`base.io` has `Reader`, `Writer`, in-memory readers, in-memory writers, and the
 common glue needed to assemble pipelines.
 
 Planned additions:
@@ -53,7 +53,7 @@ Planned additions:
 Status:
 
 - `copy`, `copy_n`, `LimitReader`, `CountingWriter`, and `NullWriter` are
-  available in `std.io`.
+  available in `base.io`.
 
 ### 3. Filesystem Safety Helpers
 
@@ -110,7 +110,7 @@ Status:
 
 1. Land low-risk `std.time` and `std.term` convenience helpers.
 2. Add generic `std.io` adapters with hosted runtime coverage.
-3. Add atomic wrappers in `std.sync` with compile and IR coverage.
+3. Add atomic wrappers in `base.sync` with compile and IR coverage.
 4. Add filesystem atomic-write helpers after the IO layer has enough shared
    copying primitives.
 5. Continue with test ergonomics and higher-level synchronization once the new

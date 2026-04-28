@@ -1,4 +1,4 @@
-use std.sync.{MemOrder, ACQUIRE, RELEASE};
+use base.sync.{MemOrder, ACQUIRE, RELEASE};
 
 #[export_name("_start")]
 extern fn start() ! {

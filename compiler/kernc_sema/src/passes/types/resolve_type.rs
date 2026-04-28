@@ -366,7 +366,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             "usize" => Some(TypeId::USIZE),
             "f32" => Some(TypeId::F32),
             "f64" => Some(TypeId::F64),
-            "str" => Some(TypeId::STR),
             "never" => Some(TypeId::NEVER),
             _ => None,
         };

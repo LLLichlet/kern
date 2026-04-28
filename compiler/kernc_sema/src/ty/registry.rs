@@ -56,10 +56,9 @@ impl TypeRegistry {
         self.add_primitive(PrimitiveType::F64); // 13
         self.add_primitive(PrimitiveType::ISize); // 14
         self.add_primitive(PrimitiveType::USize); // 15
-        self.add_primitive(PrimitiveType::Str); // 16
-        self.add_primitive(PrimitiveType::Never); // 17
+        self.add_primitive(PrimitiveType::Never); // 16
 
-        // 18: Error
+        // 17: Error
         self.types.push(TypeKind::Error);
     }
 

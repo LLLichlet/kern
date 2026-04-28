@@ -66,6 +66,16 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     };
                     self.project_const_value(next, &path[1..], span)
                 }
+                ConstValue::String(text) => {
+                    let Some(byte) = text.as_bytes().get(index) else {
+                        self.ctx
+                            .struct_error(span, "constant string index out of bounds")
+                            .emit();
+                        return Err(ConstEvalError);
+                    };
+                    let next = ConstValue::Int(*byte as i128);
+                    self.project_const_value(&next, &path[1..], span)
+                }
                 _ => {
                     self.ctx
                         .struct_error(span, "attempted indexing into a non-array constant")

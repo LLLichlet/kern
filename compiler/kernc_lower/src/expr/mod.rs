@@ -61,7 +61,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ExprKind::Char(c) => MastExprKind::Integer(*c as u32 as u128),
             ExprKind::ByteChar(b) => MastExprKind::Integer(*b as u128),
             ExprKind::String(s) => self.measure_phase("        lower_expr_literal", |this| {
-                this.lower_string_literal(s, expr.span)
+                match this
+                    .ctx
+                    .type_registry
+                    .get(this.ctx.type_registry.normalize(concrete_ty))
+                {
+                    TypeKind::Slice { .. } => this.lower_string_literal_slice(s, expr.span),
+                    _ => MastExprKind::StringLiteral(s.to_string()),
+                }
             }),
             ExprKind::Identifier(name) => {
                 self.measure_phase("        lower_expr_identifier", |this| {

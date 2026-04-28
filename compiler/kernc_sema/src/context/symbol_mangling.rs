@@ -164,7 +164,6 @@ impl<'a> SemaContext<'a> {
                 crate::ty::PrimitiveType::USize => "usize".to_string(),
                 crate::ty::PrimitiveType::F32 => "f32".to_string(),
                 crate::ty::PrimitiveType::F64 => "f64".to_string(),
-                crate::ty::PrimitiveType::Str => "str".to_string(),
                 crate::ty::PrimitiveType::Never => "never".to_string(),
             },
             crate::ty::TypeKind::Simd { elem, lanes } => {

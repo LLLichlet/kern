@@ -131,9 +131,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             PrimitiveType::I16 | PrimitiveType::U16 => 2,
             PrimitiveType::I32 | PrimitiveType::U32 | PrimitiveType::F32 => 4,
             PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::F64 => 8,
-            PrimitiveType::ISize | PrimitiveType::USize | PrimitiveType::Str => {
-                self.debug_pointer_bytes()
-            }
+            PrimitiveType::ISize | PrimitiveType::USize => self.debug_pointer_bytes(),
             PrimitiveType::I128 | PrimitiveType::U128 => 16,
         }
     }
@@ -145,9 +143,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             PrimitiveType::I16 | PrimitiveType::U16 => 2,
             PrimitiveType::I32 | PrimitiveType::U32 | PrimitiveType::F32 => 4,
             PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::F64 => 8,
-            PrimitiveType::ISize | PrimitiveType::USize | PrimitiveType::Str => {
-                self.debug_pointer_bytes()
-            }
+            PrimitiveType::ISize | PrimitiveType::USize => self.debug_pointer_bytes(),
             PrimitiveType::I128 | PrimitiveType::U128 => 16,
         }
     }
@@ -433,7 +429,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 PrimitiveType::USize => "usize".to_string(),
                 PrimitiveType::F32 => "f32".to_string(),
                 PrimitiveType::F64 => "f64".to_string(),
-                PrimitiveType::Str => "str".to_string(),
                 PrimitiveType::Never => "never".to_string(),
             },
             TypeKind::Pointer { is_mut, elem } => {
@@ -488,7 +483,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn debug_basic_type_encoding(
         primitive: PrimitiveType,
     ) -> Option<(u64, llvm_sys::debuginfo::LLVMDWARFTypeEncoding)> {
-        const DW_ATE_ADDRESS: u32 = 0x01;
         const DW_ATE_BOOLEAN: u32 = 0x02;
         const DW_ATE_FLOAT: u32 = 0x04;
         const DW_ATE_SIGNED: u32 = 0x05;
@@ -509,7 +503,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             PrimitiveType::USize => Some((0, DW_ATE_UNSIGNED)),
             PrimitiveType::F32 => Some((32, DW_ATE_FLOAT)),
             PrimitiveType::F64 => Some((64, DW_ATE_FLOAT)),
-            PrimitiveType::Str => Some((0, DW_ATE_ADDRESS)),
             PrimitiveType::Void | PrimitiveType::Never => None,
         }
     }

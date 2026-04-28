@@ -1,4 +1,49 @@
 use super::*;
+
+#[test]
+fn string_literals_are_fixed_byte_arrays() {
+    let output = build_and_run_source(
+        r#"
+const TITLE = "abc\0";
+const EMPTY = "";
+
+fn take_slice(text: []u8) usize {
+    return #text;
+}
+
+fn take_array(value: [5]u8) u8 {
+    return value.[4];
+}
+
+fn main() i32 {
+    if (#TITLE != 4) {
+        return 1;
+    }
+    if (TITLE.[0] != b'a' or TITLE.[3] != 0) {
+        return 2;
+    }
+    if (#EMPTY != 0) {
+        return 3;
+    }
+    if (take_slice("hello") != 5) {
+        return 4;
+    }
+    if (take_array("abcd\0") != 0) {
+        return 5;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn compiles_const_enum_and_const_array_usage() {
     let output = compile_source(

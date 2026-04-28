@@ -4,7 +4,7 @@ use crate::passes::TypeResolver;
 use crate::scope::ScopeId;
 use crate::ty::{
     AnonymousEnum, AnonymousVariant, BuiltinAnonymousEnumKind, ConstExprKind, ConstGeneric,
-    GenericArg, TypeId, TypeKind,
+    ConstGenericValue, ConstGenericValueKind, GenericArg, TypeId, TypeKind,
 };
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::{FastHashMap, NodeId, Span, SymbolId};
@@ -47,6 +47,16 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn string_literal_type(&mut self, value: &str) -> TypeId {
+        self.ctx.type_registry.intern(TypeKind::Array {
+            elem: TypeId::U8,
+            len: ConstGeneric::Value(ConstGenericValue {
+                ty: TypeId::USIZE,
+                kind: ConstGenericValueKind::Int(value.len() as i128),
+            }),
+        })
+    }
+
     const NUMERIC_CAND_I8: u16 = 1 << 0;
     const NUMERIC_CAND_I16: u16 = 1 << 1;
     const NUMERIC_CAND_I32: u16 = 1 << 2;
@@ -1177,10 +1187,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Bool(_) => TypeId::BOOL,
             ExprKind::Char(_) => TypeId::U32,
             ExprKind::ByteChar(_) => TypeId::U8,
-            ExprKind::String(_) => self.ctx.type_registry.intern(TypeKind::Slice {
-                is_mut: false,
-                elem: TypeId::U8,
-            }),
+            ExprKind::String(value) => self.string_literal_type(value),
 
             // === 2. Identifiers and variables ===
             ExprKind::Identifier(name) => {

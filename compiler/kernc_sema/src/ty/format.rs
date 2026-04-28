@@ -214,7 +214,6 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 PrimitiveType::USize => "usize".to_string(),
                 PrimitiveType::F32 => "f32".to_string(),
                 PrimitiveType::F64 => "f64".to_string(),
-                PrimitiveType::Str => "str".to_string(),
                 PrimitiveType::Never => "!".to_string(),
             },
             TypeKind::Simd { elem, lanes } => format!("{}x{}", self.format(*elem), lanes),

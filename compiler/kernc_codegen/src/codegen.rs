@@ -130,6 +130,7 @@ pub struct CodeGenerator<'ctx, 'a> {
     functions: HashMap<MonoId, FunctionValue<'ctx>>,
     function_ret_tys: HashMap<MonoId, TypeId>,
     retained_globals: Vec<PointerValue<'ctx>>,
+    string_literal_counter: usize,
     alloca_stats: CodegenAllocaStats,
 
     locals: HashMap<kernc_utils::SymbolId, PointerValue<'ctx>>,
@@ -333,6 +334,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             functions: HashMap::new(),
             function_ret_tys: HashMap::new(),
             retained_globals: Vec::new(),
+            string_literal_counter: 0,
             alloca_stats: CodegenAllocaStats::default(),
             locals: HashMap::new(),
             mir_locals: HashMap::new(),

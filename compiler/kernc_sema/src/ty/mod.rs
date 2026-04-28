@@ -33,11 +33,9 @@ impl TypeId {
     pub const F64: Self = Self(13);
     pub const ISIZE: Self = Self(14);
     pub const USIZE: Self = Self(15);
-    // String literal type, represented as an immutable slice.
-    pub const STR: Self = Self(16);
-    pub const NEVER: Self = Self(17);
+    pub const NEVER: Self = Self(16);
     // Error placeholder used to suppress cascaded diagnostics.
-    pub const ERROR: Self = Self(18);
+    pub const ERROR: Self = Self(17);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -304,7 +302,6 @@ pub enum PrimitiveType {
     USize,
     F32,
     F64,
-    Str, // Internal string-literal primitive.
     Never,
 }
 

@@ -141,6 +141,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let TypeKind::Slice { .. } = exp_kind
             && let TypeKind::Array { .. } = conc_kind
         {
+            if let MastExprKind::StringLiteral(value) = mast_kind {
+                return MastExpr::new(exp_ty, self.lower_string_literal_slice(&value, span), span);
+            }
             mast_kind = MastExprKind::Cast {
                 kind: MastCastKind::ArrayToSlice,
                 operand: Box::new(MastExpr::new(concrete_ty, mast_kind, span)),

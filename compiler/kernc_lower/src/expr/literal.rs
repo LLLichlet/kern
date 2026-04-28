@@ -228,7 +228,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         ))
     }
 
-    pub(crate) fn lower_string_literal(&mut self, s: &str, span: Span) -> MastExprKind {
+    pub(crate) fn lower_string_literal_slice(&mut self, s: &str, span: Span) -> MastExprKind {
         let global_id = self.new_mono_id();
         let len = s.len() as u64;
         let array_ty = self.ctx.type_registry.intern(TypeKind::Array {

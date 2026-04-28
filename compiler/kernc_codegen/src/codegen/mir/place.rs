@@ -1,4 +1,5 @@
 use super::*;
+use crate::module::Linkage;
 use crate::types::IntType;
 use crate::values::IntValue;
 
@@ -254,7 +255,32 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .bool_type()
                 .const_int(u64::from(*value), false)
                 .into(),
-            MirConst::StringLiteral { value, .. } => {
+            MirConst::StringLiteral { ty, value } => {
+                if matches!(
+                    self.type_registry.get(self.type_registry.normalize(*ty)),
+                    TypeKind::Slice { .. }
+                ) {
+                    let array_val = self.context.const_string(value.as_bytes(), true);
+                    let global_name = format!(".str.mir.{}", self.string_literal_counter);
+                    self.string_literal_counter += 1;
+                    let global =
+                        self.module
+                            .add_global(array_val.get_type().into(), None, &global_name);
+                    global.set_linkage(Linkage::Internal);
+                    global.set_constant(true);
+                    global.set_initializer(&array_val);
+
+                    let slice_ty = self.get_llvm_type(*ty).into_struct_type();
+                    return slice_ty
+                        .const_named_struct(&[
+                            global.as_pointer_value().into(),
+                            self.context
+                                .i64_type()
+                                .const_int(value.len() as u64, false)
+                                .into(),
+                        ])
+                        .into();
+                }
                 self.context.const_string(value.as_bytes(), true).into()
             }
             MirConst::GlobalRef { ty, id } => {

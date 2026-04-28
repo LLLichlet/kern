@@ -68,7 +68,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let name = self.ctx.resolve(field.name);
             let expr = match name {
                 "file" => {
-                    MastExpr::new(field.ty, self.lower_string_literal(&file_text, span), span)
+                    let kind = match self
+                        .ctx
+                        .type_registry
+                        .get(self.ctx.type_registry.normalize(field.ty))
+                    {
+                        TypeKind::Slice { .. } => self.lower_string_literal_slice(&file_text, span),
+                        _ => MastExprKind::StringLiteral(file_text.clone()),
+                    };
+                    MastExpr::new(field.ty, kind, span)
                 }
                 "line" => MastExpr::new(field.ty, MastExprKind::Integer(line as u128), span),
                 "col" => MastExpr::new(field.ty, MastExprKind::Integer(col as u128), span),

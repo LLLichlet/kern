@@ -1023,7 +1023,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .and_then(|tys| tys.get(i))
                     .and_then(|ty| *ty)
                     .unwrap_or_else(|| self.check_expr(arg, Some(expected)));
-                self.check_coercion(arg, expected, arg_ty);
+                if self.check_coercion(arg, expected, arg_ty) {
+                    self.ctx
+                        .facts
+                        .call_arg_expected_tys
+                        .insert(arg.id, expected);
+                }
             } else {
                 let arg_ty = inferred_arg_tys
                     .and_then(|tys| tys.get(i))

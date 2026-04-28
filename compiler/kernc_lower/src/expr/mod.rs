@@ -148,7 +148,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             ExprKind::Binary { lhs, op, rhs } => self
                 .measure_phase("        lower_expr_ops", |this| {
-                    this.lower_binary(lhs, *op, rhs, subst_map, concrete_ty, expr.span)
+                    this.lower_binary(expr.id, lhs, *op, rhs, subst_map, concrete_ty, expr.span)
                 }),
             ExprKind::Unary { op, operand } => self
                 .measure_phase("        lower_expr_ops", |this| {

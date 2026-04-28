@@ -5,7 +5,7 @@ use kernc_ast::{self as ast, Expr};
 use kernc_mast::*;
 use kernc_sema::def::Def;
 use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{NodeId, Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn has_builtin_simd_binary_fast_path(
@@ -367,6 +367,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     pub(crate) fn lower_binary(
         &mut self,
+        binary_expr_id: NodeId,
         lhs: &Expr,
         op: ast::BinaryOperator,
         rhs: &Expr,
@@ -415,7 +416,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }),
             }
         } else {
-            let l = self.lower_expr(lhs, subst_map, None);
+            let l_expected = self
+                .ctx
+                .facts
+                .binary_operator_lhs_trait_self_tys
+                .get(&binary_expr_id)
+                .copied()
+                .map(|ty| self.substitute_type_with_map(ty, subst_map));
+            let l = self.lower_expr(lhs, subst_map, l_expected);
 
             let l_norm = self.ctx.type_registry.normalize(l.ty);
 
@@ -437,9 +445,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let r_sema_ty = self
                 .ctx
                 .facts
-                .node_types
-                .get(&rhs.id)
+                .binary_operator_rhs_trait_arg_tys
+                .get(&binary_expr_id)
                 .copied()
+                .or_else(|| self.ctx.facts.node_types.get(&rhs.id).copied())
                 .unwrap_or(TypeId::ERROR);
             let r_concrete_ty = self.substitute_type_with_map(r_sema_ty, subst_map);
             let r_norm = self.ctx.type_registry.normalize(r_concrete_ty);
@@ -449,9 +458,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             );
 
             // Reuse sema's finalized RHS type. For overloaded operators this preserves the trait
-            // argument shape that actually proved the operation, while pointer arithmetic still
-            // needs to keep its built-in mixed pointer/integer path uncoerced.
-            let expected_r = if is_l_ptr || is_r_ptr {
+            // argument shape that actually proved the operation. Builtin pointer arithmetic still
+            // needs to keep its mixed pointer/integer RHS uncoerced.
+            let expected_r = if (is_l_ptr || is_r_ptr)
+                && matches!(op, ast::BinaryOperator::Add | ast::BinaryOperator::Subtract)
+            {
                 None
             } else {
                 Some(r_concrete_ty)

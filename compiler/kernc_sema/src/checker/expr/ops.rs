@@ -2,7 +2,7 @@ use super::{ExprChecker, NumericInferenceKind};
 use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{BinaryOperator, Expr, ExprKind, UnaryOperator};
-use kernc_utils::{DiagnosticCode, Span};
+use kernc_utils::{DiagnosticCode, NodeId, Span};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn alloc_type_var(&mut self, kind: Option<NumericInferenceKind>) -> TypeId {
@@ -283,8 +283,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     fn require_builtin_binary_trait(
         &mut self,
+        binary_expr_id: NodeId,
         lhs: &Expr,
-        _rhs: &Expr,
+        rhs: &Expr,
         lhs_ty: TypeId,
         rhs_ty: TypeId,
         op: BinaryOperator,
@@ -304,24 +305,66 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             expected_ty.unwrap_or_else(|| self.fresh_type_var())
         };
 
-        let target_trait_ty = if returns_bool {
-            self.ctx.builtin_trait_ty(trait_name, vec![rhs_ty])
-        } else {
-            self.ctx
-                .builtin_trait_ty_with_assoc(trait_name, vec![rhs_ty], vec![("Out", out_ty)])
-        };
-        let Some(target_trait_ty) = target_trait_ty else {
-            self.ctx.emit_ice(
-                lhs.span,
-                format!("missing builtin operator trait `{}`", trait_name),
-            );
-            return TypeId::ERROR;
-        };
+        let mut lhs_trait_self_candidates = vec![lhs_ty];
+        if let Some(slice_ty) = self.immutable_slice_type_for_array(lhs_ty) {
+            lhs_trait_self_candidates.push(slice_ty);
+        }
 
-        if self.check_trait_impl(lhs_ty, target_trait_ty) {
-            self.resolve_tv(out_ty)
-        } else {
-            let bound_hint = self.ctx.ty_to_string(target_trait_ty);
+        let mut rhs_trait_arg_candidates = vec![rhs_ty];
+        if let Some(slice_ty) = self.immutable_slice_type_for_array(rhs_ty) {
+            rhs_trait_arg_candidates.push(slice_ty);
+        }
+
+        let mut first_target_trait_ty = None;
+        for lhs_trait_self_ty in lhs_trait_self_candidates {
+            for rhs_trait_arg_ty in rhs_trait_arg_candidates.iter().copied() {
+                let target_trait_ty = if returns_bool {
+                    self.ctx
+                        .builtin_trait_ty(trait_name, vec![rhs_trait_arg_ty])
+                } else {
+                    self.ctx.builtin_trait_ty_with_assoc(
+                        trait_name,
+                        vec![rhs_trait_arg_ty],
+                        vec![("Out", out_ty)],
+                    )
+                };
+                let Some(target_trait_ty) = target_trait_ty else {
+                    self.ctx.emit_ice(
+                        lhs.span,
+                        format!("missing builtin operator trait `{}`", trait_name),
+                    );
+                    return TypeId::ERROR;
+                };
+                first_target_trait_ty.get_or_insert(target_trait_ty);
+
+                if self.check_trait_impl(lhs_trait_self_ty, target_trait_ty) {
+                    if lhs_trait_self_ty != lhs_ty {
+                        if !self.check_coercion(lhs, lhs_trait_self_ty, lhs_ty) {
+                            return TypeId::ERROR;
+                        }
+                        self.ctx
+                            .facts
+                            .binary_operator_lhs_trait_self_tys
+                            .insert(binary_expr_id, lhs_trait_self_ty);
+                    }
+                    if rhs_trait_arg_ty != rhs_ty {
+                        if !self.check_coercion(rhs, rhs_trait_arg_ty, rhs_ty) {
+                            return TypeId::ERROR;
+                        }
+                        self.ctx
+                            .facts
+                            .binary_operator_rhs_trait_arg_tys
+                            .insert(binary_expr_id, rhs_trait_arg_ty);
+                    }
+                    return self.resolve_tv(out_ty);
+                }
+            }
+        }
+
+        {
+            let bound_hint = first_target_trait_ty
+                .map(|ty| self.ctx.ty_to_string(ty))
+                .unwrap_or_else(|| format!("{}[{}]", trait_name, self.ctx.ty_to_string(rhs_ty)));
             self.ctx
                 .struct_error(
                     lhs.span,
@@ -358,6 +401,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .emit();
             TypeId::ERROR
         }
+    }
+
+    fn immutable_slice_type_for_array(&mut self, ty: TypeId) -> Option<TypeId> {
+        let norm = self.resolve_tv(ty);
+        let (TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem }) =
+            self.ctx.type_registry.get(norm).clone()
+        else {
+            return None;
+        };
+        Some(self.ctx.type_registry.intern(TypeKind::Slice {
+            is_mut: false,
+            elem,
+        }))
     }
 
     fn require_builtin_unary_trait(
@@ -410,6 +466,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     pub fn check_binary(
         &mut self,
+        binary_expr_id: NodeId,
         lhs: &Expr,
         op: BinaryOperator,
         rhs: &Expr,
@@ -534,7 +591,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return l_norm;
                 }
 
-                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
+                self.require_builtin_binary_trait(
+                    binary_expr_id,
+                    lhs,
+                    rhs,
+                    l_norm,
+                    r_norm,
+                    op,
+                    expected_ty,
+                )
             }
             Multiply | Divide | Modulo => {
                 if is_l_ptr || is_r_ptr {
@@ -563,7 +628,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return l_norm;
                 }
 
-                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
+                self.require_builtin_binary_trait(
+                    binary_expr_id,
+                    lhs,
+                    rhs,
+                    l_norm,
+                    r_norm,
+                    op,
+                    expected_ty,
+                )
             }
             Equal | NotEqual => {
                 // Allow `void == void`; constexpr will fold it to `true`.
@@ -577,7 +650,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::BOOL;
                 }
 
-                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
+                self.require_builtin_binary_trait(
+                    binary_expr_id,
+                    lhs,
+                    rhs,
+                    l_norm,
+                    r_norm,
+                    op,
+                    expected_ty,
+                )
             }
             LessThan | GreaterThan | LessOrEqual | GreaterOrEqual => {
                 // Ordering comparisons on `void` are never valid.
@@ -601,7 +682,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::BOOL;
                 }
 
-                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
+                self.require_builtin_binary_trait(
+                    binary_expr_id,
+                    lhs,
+                    rhs,
+                    l_norm,
+                    r_norm,
+                    op,
+                    expected_ty,
+                )
             }
             LogicalAnd | LogicalOr => {
                 self.check_coercion(lhs, TypeId::BOOL, l_norm);
@@ -629,7 +718,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return l_norm;
                 }
 
-                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
+                self.require_builtin_binary_trait(
+                    binary_expr_id,
+                    lhs,
+                    rhs,
+                    l_norm,
+                    r_norm,
+                    op,
+                    expected_ty,
+                )
             }
         }
     }

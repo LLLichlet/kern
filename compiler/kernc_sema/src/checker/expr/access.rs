@@ -1341,7 +1341,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx
                 .record_identifier_reference(field_span, resolution.candidate.definition_span);
             if let Some(owner_trait_ty) = resolution.owner_trait_ty {
-                self.ctx.set_trait_method_owner(expr_id, owner_trait_ty);
+                self.ctx.set_method_owner_ty(expr_id, owner_trait_ty);
             }
             self.record_expr_timing(started, |stats, elapsed| {
                 stats.access_field_member_query += elapsed;
@@ -1412,7 +1412,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.ctx
             .record_identifier_reference(field_span, resolution.candidate.definition_span);
         if let Some(owner_trait_ty) = resolution.owner_trait_ty {
-            self.ctx.set_trait_method_owner(expr_id, owner_trait_ty);
+            self.ctx.set_method_owner_ty(expr_id, owner_trait_ty);
         }
         self.ctx
             .facts
@@ -1432,11 +1432,36 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let lhs_ty = self.resolve_tv(lhs_ty);
         let active_bounds_ptr = std::ptr::from_ref(self.ctx.analysis.active_bounds.as_slice());
         let current_module_id = self.cached_current_module_id();
-        let mut query = MemberQuery::new(self.ctx);
         // Safety: member queries only read active generic bounds. The query may mutate other
         // semantic state, but it does not resize or replace `ctx.analysis.active_bounds`.
         let env = unsafe { MemberQueryEnv::from_active_bounds(&*active_bounds_ptr) };
-        query.resolve_named_member(current_module_id, lhs_ty, field, &env, span)
+        let mut query = MemberQuery::new(self.ctx);
+        if let Some(resolution) =
+            query.resolve_named_member(current_module_id, lhs_ty, field, &env, span)
+        {
+            return Some(resolution);
+        }
+        let slice_ty = self.immutable_slice_view_ty(lhs_ty)?;
+        let mut query = MemberQuery::new(self.ctx);
+        let resolution =
+            query.resolve_named_member(current_module_id, slice_ty, field, &env, span)?;
+        Some(crate::query::MemberResolution {
+            owner_trait_ty: Some(resolution.owner_trait_ty.unwrap_or(slice_ty)),
+            candidate: resolution.candidate,
+        })
+    }
+
+    fn immutable_slice_view_ty(&mut self, ty: TypeId) -> Option<TypeId> {
+        let ty = self.resolve_tv(ty);
+        match self.ctx.type_registry.get(ty).clone() {
+            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::Slice {
+                    is_mut: false,
+                    elem,
+                }))
+            }
+            _ => None,
+        }
     }
 
     fn mutable_slice_method_hint(
@@ -1482,7 +1507,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // Safety: member queries only read active generic bounds. The query may mutate other
         // semantic state, but it does not resize or replace `ctx.analysis.active_bounds`.
         let env = unsafe { MemberQueryEnv::from_active_bounds(&*active_bounds_ptr) };
-        query.resolve_named_method(lhs_ty, field, &env, span)
+        if let Some(resolution) = query.resolve_named_method(lhs_ty, field, &env, span) {
+            return Some(resolution);
+        }
+        let slice_ty = self.immutable_slice_view_ty(lhs_ty)?;
+        let mut query = MemberQuery::new(self.ctx);
+        let resolution = query.resolve_named_method(slice_ty, field, &env, span)?;
+        Some(crate::query::MemberResolution {
+            owner_trait_ty: Some(resolution.owner_trait_ty.unwrap_or(slice_ty)),
+            candidate: resolution.candidate,
+        })
     }
 
     pub(crate) fn check_slice_op(

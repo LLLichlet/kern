@@ -116,7 +116,10 @@ pub struct SemaResolutionState {
 pub struct SemaNodeFactsState {
     pub node_types: FastHashMap<NodeId, TypeId>,
     pub atomic_orderings: FastHashMap<NodeId, AtomicOrdering>,
-    pub trait_method_owners: FastHashMap<NodeId, TypeId>,
+    pub method_owner_tys: FastHashMap<NodeId, TypeId>,
+    pub call_arg_expected_tys: FastHashMap<NodeId, TypeId>,
+    pub binary_operator_lhs_trait_self_tys: FastHashMap<NodeId, TypeId>,
+    pub binary_operator_rhs_trait_arg_tys: FastHashMap<NodeId, TypeId>,
 }
 
 #[derive(Clone)]
@@ -362,14 +365,12 @@ impl<'a> SemaContext<'a> {
         self.facts.atomic_orderings.insert(node_id, ordering);
     }
 
-    pub fn trait_method_owner(&self, node_id: NodeId) -> Option<TypeId> {
-        self.facts.trait_method_owners.get(&node_id).copied()
+    pub fn method_owner_ty(&self, node_id: NodeId) -> Option<TypeId> {
+        self.facts.method_owner_tys.get(&node_id).copied()
     }
 
-    pub fn set_trait_method_owner(&mut self, node_id: NodeId, owner_trait_ty: TypeId) {
-        self.facts
-            .trait_method_owners
-            .insert(node_id, owner_trait_ty);
+    pub fn set_method_owner_ty(&mut self, node_id: NodeId, owner_ty: TypeId) {
+        self.facts.method_owner_tys.insert(node_id, owner_ty);
     }
 
     pub fn trait_impl_ids(&self) -> &[DefId] {

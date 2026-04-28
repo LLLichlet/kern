@@ -11,6 +11,62 @@ struct PlainFnCallLowering<'a> {
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn coerce_call_args_to_params(
+        &mut self,
+        arg_masts: Vec<MastExpr>,
+        params: &[TypeId],
+        param_offset: usize,
+        span: Span,
+    ) -> Vec<MastExpr> {
+        arg_masts
+            .into_iter()
+            .enumerate()
+            .map(|(idx, arg)| {
+                let Some(expected) = params.get(idx + param_offset).copied() else {
+                    return arg;
+                };
+                if expected == TypeId::ERROR || arg.ty == expected {
+                    return arg;
+                }
+                self.apply_implicit_cast(arg.kind, arg.ty, expected, span)
+            })
+            .collect()
+    }
+
+    fn function_first_param_ty(
+        &mut self,
+        method_id: DefId,
+        generics: &[kernc_sema::ty::GenericArg],
+    ) -> Option<TypeId> {
+        let Def::Function(function) = self.ctx.defs.get(method_id.0 as usize)?.clone() else {
+            return None;
+        };
+        let raw_ty = if let Some(first_param) = function.params.first() {
+            self.ctx
+                .facts
+                .node_types
+                .get(&first_param.type_node.id)
+                .copied()?
+        } else if let Some(parent) = function.parent
+            && let Some(Def::Impl(impl_def)) = self.ctx.defs.get(parent.0 as usize)
+        {
+            self.ctx
+                .facts
+                .node_types
+                .get(&impl_def.target_type.id)
+                .copied()?
+        } else {
+            return None;
+        };
+        let mut subst_map = HashMap::new();
+        for (idx, param) in function.generics.iter().enumerate() {
+            if idx < generics.len() {
+                subst_map.insert(param.name, generics[idx]);
+            }
+        }
+        Some(self.substitute_type_with_map(raw_ty, &subst_map))
+    }
+
     fn resolve_bound_impl_method_target(
         &mut self,
         receiver_ty: TypeId,
@@ -172,9 +228,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 ) {
                     None
                 } else {
-                    expected_param_tys
-                        .get(param_idx)
+                    this.ctx
+                        .facts
+                        .call_arg_expected_tys
+                        .get(&a.id)
                         .copied()
+                        .map(|ty| this.substitute_type_with_map(ty, subst_map))
+                        .or_else(|| expected_param_tys.get(param_idx).copied())
                         .filter(|&ty| ty != TypeId::ERROR)
                 };
                 arg_masts.push(this.lower_expr(a, subst_map, exp_ty));
@@ -209,11 +269,23 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_method_call(
         &mut self,
         callee_id: NodeId,
-        recv: MastExpr,
+        mut recv: MastExpr,
         arg_masts: Vec<MastExpr>,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         call: MethodCallSite,
     ) -> MastExpr {
+        let stored_owner_ty = self.ctx.method_owner_ty(callee_id);
+        let expected_self_ty = call.expected_self_ty.or(stored_owner_ty).or_else(|| {
+            self.get_callee_expected_params(call.norm_callee)
+                .first()
+                .copied()
+        });
+        if let Some(expected_self_ty) = expected_self_ty
+            && recv.ty != expected_self_ty
+        {
+            recv = self.apply_implicit_cast(recv.kind, recv.ty, expected_self_ty, call.span);
+        }
+
         // Resolve methods against the type that actually owns the implementation.
         let norm_base = self.ctx.type_registry.normalize(recv.ty);
 
@@ -225,7 +297,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             inner_ty = elem;
         }
 
-        let owner_trait_ty = self.ctx.trait_method_owner(callee_id).unwrap_or(inner_ty);
+        let owner_trait_ty = self.ctx.method_owner_ty(callee_id).unwrap_or(inner_ty);
         let owner_trait_ty = self.substitute_type_with_map(owner_trait_ty, subst_map);
         let owner_trait_ty = kernc_sema::query::retain_declared_trait_object_assoc_bindings(
             self.ctx,
@@ -266,14 +338,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             );
         }
 
-        let stale_static_callee = call
-            .expected_self_ty
-            .is_some_and(|expected_self_ty| expected_self_ty != recv.ty);
-
         // 2. Choose static dispatch first when Sema resolved an inherent impl method.
-        if !stale_static_callee
-            && let TypeKind::FnDef(method_id, generics) =
-                self.ctx.type_registry.get(call.norm_callee).clone()
+        if let TypeKind::FnDef(method_id, generics) =
+            self.ctx.type_registry.get(call.norm_callee).clone()
         {
             if let Def::Function(func) = &self.ctx.defs[method_id.0 as usize]
                 && func.is_intrinsic
@@ -384,22 +451,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         generics: &[kernc_sema::ty::GenericArg],
         call: MethodCallSite,
     ) -> MastExprKind {
-        recv = self.measure_phase("                lower_call_static_recv", |_this| {
-            if let Some(exp_self) = call.expected_self_ty
+        let expected_self_ty = call
+            .expected_self_ty
+            .or_else(|| self.function_first_param_ty(method_id, generics));
+        recv = self.measure_phase("                lower_call_static_recv", |this| {
+            if let Some(exp_self) = expected_self_ty
                 && recv.ty != exp_self
             {
-                MastExpr::new(
-                    exp_self,
-                    MastExprKind::Cast {
-                        kind: MastCastKind::Bitcast,
-                        operand: Box::new(recv),
-                    },
-                    call.span,
-                )
+                this.apply_implicit_cast(recv.kind, recv.ty, exp_self, call.span)
             } else {
                 recv
             }
         });
+        let expected_params = self.get_callee_expected_params(call.norm_callee);
+        arg_masts = self.coerce_call_args_to_params(arg_masts, &expected_params, 1, call.span);
 
         self.measure_phase("                lower_call_static_args", |_this| {
             arg_masts.insert(0, recv);
@@ -433,6 +498,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return intrinsic;
         }
 
+        let expected_params = self.get_callee_expected_params(call.callee_mast.ty);
+        call.arg_masts =
+            self.coerce_call_args_to_params(call.arg_masts, &expected_params, 0, call.span);
+
         let mono_id = self.measure_phase("              lower_call_plain_instantiate", |this| {
             this.instantiate_function_at(call.fn_id, &call.fn_args, call.span)
         });
@@ -454,6 +523,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         callee_mast: MastExpr,
         arg_masts: Vec<MastExpr>,
     ) -> MastExprKind {
+        let expected_params = self.get_callee_expected_params(callee_mast.ty);
+        let arg_masts =
+            self.coerce_call_args_to_params(arg_masts, &expected_params, 0, callee_mast.span);
         self.measure_phase("              lower_call_plain_direct", |_this| {
             MastExprKind::Call {
                 callee: Box::new(callee_mast),
@@ -705,16 +777,31 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let params = match self.ctx.type_registry.get(norm_callee).clone() {
             TypeKind::Function { params, .. } => params,
             TypeKind::FnDef(def_id, gen_args) => {
-                if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
+                if let Def::Function(f) = self.ctx.defs[def_id.0 as usize].clone() {
                     if let Some(sig) = f.resolved_sig {
                         let norm_sig = self.ctx.type_registry.normalize(sig);
-                        let raw_params = if let TypeKind::Function { params, .. } =
+                        let mut raw_params = if let TypeKind::Function { params, .. } =
                             self.ctx.type_registry.get(norm_sig).clone()
                         {
                             params
                         } else {
                             Vec::new()
                         };
+                        if let Some(parent) = f.parent
+                            && let Some(Def::Impl(impl_def)) = self.ctx.defs.get(parent.0 as usize)
+                            && let Some(self_ty) = self
+                                .ctx
+                                .facts
+                                .node_types
+                                .get(&impl_def.target_type.id)
+                                .copied()
+                            && raw_params.first().is_none_or(|first| {
+                                self.ctx.type_registry.normalize(*first)
+                                    != self.ctx.type_registry.normalize(self_ty)
+                            })
+                        {
+                            raw_params.insert(0, self_ty);
+                        }
 
                         let mut sig_subst_map = HashMap::new();
                         for (idx, param) in f.generics.iter().enumerate() {

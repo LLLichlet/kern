@@ -1240,7 +1240,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // === 4. Operators and assignment ===
             ExprKind::Binary { lhs, op, rhs } => {
                 let started = self.timing_start();
-                let ty = self.check_binary(lhs, *op, rhs, expected_ty);
+                let ty = self.check_binary(expr.id, lhs, *op, rhs, expected_ty);
                 self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
@@ -1352,8 +1352,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                 }
                 let ty = self.check_generic_instantiation(target, args, expr.span);
-                if let Some(owner_trait_ty) = self.ctx.trait_method_owner(target.id) {
-                    self.ctx.set_trait_method_owner(expr.id, owner_trait_ty);
+                if let Some(owner_trait_ty) = self.ctx.method_owner_ty(target.id) {
+                    self.ctx.set_method_owner_ty(expr.id, owner_trait_ty);
                 }
                 self.record_expr_timing(started, |stats, elapsed| {
                     stats.call += elapsed;

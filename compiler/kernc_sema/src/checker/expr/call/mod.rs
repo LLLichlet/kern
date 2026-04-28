@@ -26,6 +26,7 @@ struct ArgumentInferredMethodCandidate {
     method_id: DefId,
     method_span: Span,
     impl_args: Vec<GenericArg>,
+    receiver_ty: TypeId,
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -132,12 +133,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if is_method && !params.is_empty() {
             let expected_self = params[0];
             self.check_method_receiver(expected_self, receiver_ty, callee);
-            if receiver_ty != expected_self
-                && let Some(method_target) = self.method_callee_field_access(callee)
-                && let ExprKind::FieldAccess { lhs, .. } = &method_target.kind
-            {
-                self.ctx.facts.node_types.insert(lhs.id, expected_self);
-            }
         }
 
         let mut final_ret = ret;
@@ -262,6 +257,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             };
         self.ctx
             .record_identifier_reference(*field_span, candidate.method_span);
+        if candidate.receiver_ty != receiver_ty {
+            self.ctx
+                .set_method_owner_ty(callee.id, candidate.receiver_ty);
+        }
         let type_id = self
             .ctx
             .type_registry
@@ -482,6 +481,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     method_id,
                     method_span,
                     impl_args,
+                    receiver_ty: search_ty,
                 });
             }
         }
@@ -520,6 +520,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
         if let Some(kind) = downgraded {
             let ty = self.ctx.type_registry.intern(kind);
+            if !search_tys.contains(&ty) {
+                search_tys.push(ty);
+            }
+        }
+        if let TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem } =
+            self.ctx.type_registry.get(receiver_norm).clone()
+        {
+            let ty = self.ctx.type_registry.intern(TypeKind::Slice {
+                is_mut: false,
+                elem,
+            });
             if !search_tys.contains(&ty) {
                 search_tys.push(ty);
             }

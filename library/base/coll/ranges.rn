@@ -19,6 +19,8 @@ pub/ type RangeInclusive[T] = struct {
 };
 
 /// Constructs a left-closed, right-open range `[start, end)`.
+///
+/// When `start >= end`, the range is empty.
 pub/ fn range[T](start: T, end: T) Range[T]
     where T: Integer + Lt[T] + Add[T, Out = T],
 {
@@ -26,6 +28,8 @@ pub/ fn range[T](start: T, end: T) Range[T]
 }
 
 /// Constructs a closed range `[start, end]`.
+///
+/// When `start > end`, the range is empty.
 pub/ fn range_inclusive[T](start: T, end: T) RangeInclusive[T]
     where T: Integer + Eq[T] + Le[T] + Add[T, Out = T],
 {

@@ -920,7 +920,19 @@ fn main() i32 {
     for (_: range(5, 5)) {
         empty_count += 1;
     }
+    for (_: range(5, 3)) {
+        empty_count += 1;
+    }
+    for (_: range(usize.{5}, usize.{3})) {
+        empty_count += 1;
+    }
+    for (_: range(-1, -4)) {
+        empty_count += 1;
+    }
     for (_: range_inclusive(5, 3)) {
+        empty_count += 1;
+    }
+    for (_: range_inclusive(usize.{5}, usize.{3})) {
         empty_count += 1;
     }
     if (empty_count != 0) {

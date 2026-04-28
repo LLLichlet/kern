@@ -1091,7 +1091,7 @@ fn main() i32 {
 }
 
 #[test]
-fn indexes_const_arrays_through_their_global_storage() {
+fn indexes_const_arrays_from_comptime_values_without_global_storage() {
     let source = r#"
 const TABLE = [4]u8.{ 1, 2, 3, 4 };
 
@@ -1105,18 +1105,13 @@ fn main() i32 {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("constant [4 x i8] c\"\\01\\02\\03\\04\""),
-        "expected a constant global array in LLVM IR, got:\n{}",
+        stdout.contains("store [4 x i8] c\"\\01\\02\\03\\04\""),
+        "expected the const array value to be folded into the use site, got:\n{}",
         stdout
     );
     assert!(
-        stdout.contains("ptr @_K4root5TABLE"),
-        "expected index access to address the global const directly, got:\n{}",
-        stdout
-    );
-    assert!(
-        !stdout.contains("tmp_materialized_lvalue"),
-        "const array indexing unexpectedly materialized a stack temporary:\n{}",
+        !stdout.contains("@_K4root5TABLE"),
+        "const array unexpectedly emitted global storage:\n{}",
         stdout
     );
 }
@@ -1162,7 +1157,7 @@ fn main() i32 {
 }
 
 #[test]
-fn folds_const_fn_array_initializers_into_global_data() {
+fn folds_const_fn_array_initializers_into_comptime_values() {
     let source = r#"
 const fn build() [4]u8 {
     let mut table = [4]u8.{ 0; 4 };
@@ -1182,13 +1177,13 @@ fn main() i32 {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("@_K4root5TABLE = internal constant [4 x i8] c\"\\00\\00\\07\\00\""),
-        "expected folded global array initializer in LLVM IR, got:\n{}",
+        stdout.contains("store [4 x i8] c\"\\00\\00\\07\\00\""),
+        "expected folded const fn array initializer at the use site, got:\n{}",
         stdout
     );
     assert!(
-        !stdout.contains("@_K4root5TABLE = internal global [4 x i8] zeroinitializer"),
-        "const fn array initializer unexpectedly fell back to zero initialization:\n{}",
+        !stdout.contains("@_K4root5TABLE"),
+        "const fn array initializer unexpectedly emitted global storage:\n{}",
         stdout
     );
 }

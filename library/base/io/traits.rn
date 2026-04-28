@@ -1,4 +1,4 @@
-//! Formatting traits.
+//! Formatting and byte-stream traits.
 
 /// A byte sink used by the formatting subsystem.
 pub/ type Writer = trait {

@@ -399,7 +399,7 @@ fn hosted_std_io_prints_custom_value_printable() {
         "kernc_std_printable_value_impl",
         r#"
 use std.io;
-use std.io.{Printable, Writer};
+use base.io.{Printable, Writer};
 
 type Pair = struct {
     left: usize,
@@ -484,7 +484,7 @@ fn hosted_std_io_formats_to_memory_writers() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_io_memory_writers",
         r#"
-use std.io.{Writer, format_to, fixed_buffer, string_writer, write_all};
+use base.io.{Writer, format_to, fixed_buffer, string_writer, write_all};
 use base.coll.String;
 use base.mem.alloc.GPA;
 use sys.mem.Page;
@@ -553,7 +553,7 @@ fn hosted_std_io_reads_from_memory_readers() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_io_memory_readers",
         r#"
-use std.io.{Reader, slice_reader, read_exact, read_to_end, skip};
+use base.io.{Reader, slice_reader, read_exact, read_to_end, skip};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
@@ -627,7 +627,7 @@ fn hosted_std_io_copies_between_generic_adapters() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_io_copy_adapters",
         r#"
-use std.io.{
+use base.io.{
     Reader,
     Writer,
     slice_reader,
@@ -759,9 +759,10 @@ fn wrapped_fmt_helpers_accept_inline_integer_literals() {
     let output = build_and_run(
         "kernc_std_fmt_wrapper_literals",
         r#"
+use base.io.Printable;
 use std.io;
 
-fn wrap(fmt: []u8, args: []*io.Printable) void {
+fn wrap(fmt: []u8, args: []*Printable) void {
     io.println(fmt, args);
 }
 
@@ -789,9 +790,10 @@ fn wrapped_fmt_helpers_accept_call_results_inside_inline_argument_arrays() {
     let output = build_and_run(
         "kernc_std_fmt_wrapper_call_results",
         r#"
+use base.io.Printable;
 use std.io;
 
-fn wrap(fmt: []u8, args: []*io.Printable) void {
+fn wrap(fmt: []u8, args: []*Printable) void {
     io.println(fmt, args);
 }
 

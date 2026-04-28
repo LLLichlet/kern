@@ -672,7 +672,7 @@ fn runs_hosted_program_using_std_fs_atomic_tmp_write() {
         r#"
 use std.fs;
 use std.proc;
-use std.io.{{Writer, format_to, string_writer}};
+use base.io.{{Writer, format_to, string_writer}};
 use base.coll.String;
 use base.mem.alloc.GPA;
 use sys.mem.Page;

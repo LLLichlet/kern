@@ -1,0 +1,68 @@
+use ..traits.{Printable, Writer};
+
+/// Formats text and placeholders into the given writer.
+///
+/// Design:
+/// keep formatting small, predictable, and allocation-free.
+pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
+    let fmt_len = #fmt;
+    let mut arg_idx = usize.{0};
+    let mut last_pos = usize.{0};
+    let mut i = usize.{0};
+    while (i < fmt_len) {
+        if (fmt.[i] == b'{') {
+            if (i + usize.{1} < fmt_len) {
+                // Handles the escaped left brace `{{`.
+                if (fmt.[i + 1] == b'{') {
+                    if (i > last_pos) {
+                        let text_slice = fmt.[last_pos .. i];
+                        let _ = writer.write(text_slice);
+                    }
+                    let _ = writer.write("{");
+                    i += 2;
+                    last_pos = i;
+                    continue;
+                }
+                // Handles the placeholder `{}`.
+                else if (fmt.[i + 1] == b'}') {
+                    if (i > last_pos) {
+                        let text_slice = fmt.[last_pos .. i];
+                        let _ = writer.write(text_slice);
+                    }
+                    if (arg_idx < #args) {
+                        args.[arg_idx].fmt(writer);
+                        arg_idx += usize.{1};
+                    } else {
+                        let _ = writer.write("<missing>");
+                    }
+                    i += usize.{2};
+                    last_pos = i;
+                    continue;
+                }
+            }
+        }
+        // Handles the escaped right brace `}}`.
+        else if (fmt.[i] == b'}') {
+            if (i + usize.{1} < fmt_len) {
+                if (fmt.[i + 1] == b'}') {
+                    if (i > last_pos) {
+                        let text_slice = fmt.[last_pos .. i];
+                        let _ = writer.write(text_slice);
+                    }
+                    let _ = writer.write("}");
+                    i += usize.{2};
+                    last_pos = i;
+                    continue;
+                }
+            }
+        }
+
+        i += usize.{1};
+    }
+
+    // Writes the remaining tail of the format string.
+    if (last_pos < fmt_len) {
+        let tail_slice = fmt.[last_pos .. fmt_len];
+        let _ = writer.write(tail_slice);
+    }
+}

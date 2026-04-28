@@ -1,41 +1,15 @@
 //! Text and byte-oriented output helpers.
 //!
-//! This module exposes the `Writer` and `Printable` traits, formatting helpers,
-//! and lightweight wrappers around standard output streams.
+//! Runtime-independent formatting traits and adapters live in `base.io`.
+//! This hosted module adds OS-backed standard streams and convenience printing.
 
-mod impls;
-mod traits;
 mod fmt;
-mod writers;
-mod readers;
 
+use base.io.{Reader, Writer};
 use std.fs;
 use sys.os;
 
-pub use .fmt.{format_to, eprint, eprintln, print, println};
-pub use .traits.{Printable, Reader, Writer};
-pub use .writers.{
-    FixedBufferWriter,
-    StringWriter,
-    CountingWriter,
-    NullWriter,
-    fixed_buffer,
-    string_writer,
-    counting_writer,
-    null_writer,
-    write_all,
-};
-pub use .readers.{
-    SliceReader,
-    LimitReader,
-    slice_reader,
-    limit_reader,
-    read_exact,
-    read_to_end,
-    skip,
-    copy,
-    copy_n,
-};
+pub use .fmt.{eprint, eprintln, print, println};
 
 /// A writable handle backed by `std.fs.File`.
 pub type File = struct {

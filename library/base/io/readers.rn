@@ -105,7 +105,7 @@ pub/ fn copy(reader: *mut Reader, writer: *mut Writer) usize {
     let mut scratch = [1024]u8.{undef};
     let mut copied = usize.{0};
 
-        while (true) {
+    while (true) {
         let n = reader.read(scratch..[0 .. 1024]);
         if (n == 0) {
             return copied;

@@ -1404,7 +1404,7 @@ root = "src/main.rn"
         tool_dir.join("src/main.rn"),
         r#"
 use std.io;
-use std.io.Writer;
+use base.io.Writer;
 
 fn main() i32 {
 let mut out = io.stdout();

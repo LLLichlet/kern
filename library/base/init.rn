@@ -7,6 +7,7 @@ pub mod abi;
 pub mod cmp;
 pub mod coll;
 pub mod hash;
+pub mod io;
 pub mod mem;
 pub mod num;
 mod option;

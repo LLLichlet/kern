@@ -1,5 +1,4 @@
-use ..traits.Writer;
-use ..traits.Printable;
+use ..traits.{Printable, Writer};
 use base.coll.{List, String};
 
 /// Built-in `Printable` implementations.
@@ -17,7 +16,7 @@ fn write_printable_slice[T](items: []T, writer: *mut Writer) void
     let _ = writer.write("[");
 
     let len = #items;
-        let mut i = usize.{0};
+    let mut i = usize.{0};
     while (i < len) {
         let item = items.[i];
         item.&.fmt(writer);
@@ -52,7 +51,7 @@ fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
     let mut i = 20;
     let mut curr = val;
 
-        while (curr > 0) {
+    while (curr > 0) {
         i -= 1;
         let digit = curr % 10;
         // Emits the last digit as its ASCII byte.
@@ -173,7 +172,7 @@ impl[T] *List[T] : Printable
         let _ = writer.write(", items: [");
 
         let items = self.as_slice();
-                let mut i = usize.{0};
+        let mut i = usize.{0};
         while (i < self.len()) {
             let item = items.[i];
             item.&.fmt(writer);

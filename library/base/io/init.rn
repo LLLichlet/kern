@@ -1,0 +1,35 @@
+//! Runtime-independent formatting and byte-stream helpers.
+//!
+//! `base.io` contains only freestanding traits and adapters. Hosted output
+//! streams such as stdout and stderr live in `std.io`.
+
+mod impls;
+mod traits;
+mod fmt;
+mod writers;
+mod readers;
+
+pub use .fmt.format_to;
+pub use .traits.{Printable, Reader, Writer};
+pub use .writers.{
+    FixedBufferWriter,
+    StringWriter,
+    CountingWriter,
+    NullWriter,
+    fixed_buffer,
+    string_writer,
+    counting_writer,
+    null_writer,
+    write_all,
+};
+pub use .readers.{
+    SliceReader,
+    LimitReader,
+    slice_reader,
+    limit_reader,
+    read_exact,
+    read_to_end,
+    skip,
+    copy,
+    copy_n,
+};

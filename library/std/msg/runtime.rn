@@ -3,7 +3,8 @@
 //! Design:
 //! keep failure reporting small, explicit, and available even before richer runtime services exist.
 
-use std.io.{Printable, Writer, format_to, stderr};
+use base.io.{Printable, Writer, format_to};
+use std.io.stderr;
 
 fn write_line(prefix: []u8, fmt: []u8, args: []*Printable) void {
     let mut err_file = stderr();

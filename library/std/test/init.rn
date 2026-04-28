@@ -4,7 +4,7 @@
 //! `msg` is for diagnostics and low-level runtime failures, while `test`
 //! defines vocabulary for executable test targets.
 
-use std.io.Printable;
+use base.io.Printable;
 use ..msg;
 
 /// Fails the current test immediately after printing a diagnostic.

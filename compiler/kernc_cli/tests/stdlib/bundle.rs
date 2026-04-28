@@ -22,6 +22,36 @@ fn main() i32 {
 }
 
 #[test]
+fn base_bundle_exposes_freestanding_io_helpers() {
+    let output = compile_source_with_args(
+        "kernc_base_io_helpers",
+        r#"
+use base.io.{Writer, fixed_buffer, format_to, write_all};
+
+fn main() i32 {
+    let mut storage = [32]u8.{undef};
+    let mut fixed = fixed_buffer(storage..[0 .. 32]);
+    let writer = *mut Writer.{ fixed..& };
+
+    format_to(writer, "base {} {}", .{ "io", usize.{7}, });
+    if (fixed..&.as_slice() != "base io 7") {
+        return 1;
+    }
+    if (!write_all(writer, "!")) {
+        return 2;
+    }
+    if (fixed..&.as_slice() != "base io 7!") {
+        return 3;
+    }
+    return 0;
+}
+"#,
+        &["--library-bundle", "base"],
+    );
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn std_bundle_does_not_expose_std_coll_module() {
     let output = compile_source_with_args(
         "kernc_std_coll_module",

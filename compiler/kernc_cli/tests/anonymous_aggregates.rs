@@ -1,8 +1,4 @@
-use std::fs;
-
-use kernc_cli::test_support::{
-    assert_success, build_and_run, compile_source_with_args, repo_root, run_kernc, unique_temp_path,
-};
+use kernc_cli::test_support::{assert_success, build_and_run, compile_source_with_args};
 
 fn compile_source(source: &str) -> std::process::Output {
     compile_source_with_args("kernc_test", source, &[])
@@ -10,22 +6,60 @@ fn compile_source(source: &str) -> std::process::Output {
 
 #[test]
 fn compiles_anonymous_aggregates_example() {
-    let source = repo_root().join("examples/anonymous_aggregates.rn");
-    let object = unique_temp_path("anonymous_aggregates", "o");
+    let output = compile_source(
+        r#"
+extern type CLayout = struct {
+    tag: u8,
+    value: u64,
+    flag: u16,
+};
 
-    let source_arg = source.to_string_lossy().into_owned();
-    let object_arg = object.to_string_lossy().into_owned();
-    let args = vec!["-c", source_arg.as_str(), "-o", object_arg.as_str()];
-    let output = run_kernc(&args);
+type NativeLayout = struct {
+    tag: u8,
+    value: u64,
+    flag: u16,
+};
 
-    assert_success(&output, "kernc");
-    assert!(
-        object.exists(),
-        "expected object file at {}",
-        object.display()
+type Pair = struct {
+    x: i32,
+    y: i32,
+};
+
+fn sum_pair(pair: struct { y: i32, x: i32 }) i32 {
+    return pair.x + pair.y;
+}
+
+fn read_word(word: union { int: i32, bytes: [4]u8 }) i32 {
+    return word.int;
+}
+
+fn classify(state: enum: u32 { Off = 0, On = 1, Error: i32 }) i32 {
+    return match (state) {
+        .Off => 0,
+        .On => 1,
+        .{ Error: code } => code,
+    };
+}
+
+fn main() i32 {
+    if (@sizeOf[CLayout]() != 24) {
+        return 1;
+    }
+    if (@sizeOf[NativeLayout]() != 16) {
+        return 2;
+    }
+    if (@sizeOf[struct { tag: u8, value: u64, flag: u16 }]() != 16) {
+        return 3;
+    }
+
+    let pair = Pair.{ x: 2, y: 3 };
+    let word = union { bytes: [4]u8, int: i32 }.{ int: 7 };
+    return sum_pair(pair) + read_word(word) + classify(.{ Error: 11 });
+}
+"#,
     );
 
-    let _ = fs::remove_file(&object);
+    assert_success(&output, "kernc");
 }
 
 #[test]

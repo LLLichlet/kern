@@ -19,8 +19,9 @@ fn direct_source_build_defaults_to_std_rt_and_source_stem_output() {
     let temp_dir = unique_temp_path("kernc_direct_defaults", "dir");
     fs::create_dir_all(&temp_dir).unwrap();
 
-    let source = repo_root().join("examples/hello_world.rn");
+    let source = temp_dir.join("hello_world.rn");
     let expected_output = temp_dir.join(format!("hello_world{}", std::env::consts::EXE_SUFFIX));
+    fs::write(&source, HOSTED_HELLO_WORLD_SOURCE).unwrap();
     let source_arg = source.to_string_lossy().into_owned();
 
     let output = Command::new(env!("CARGO_BIN_EXE_kernc"))
@@ -410,8 +411,9 @@ fn links_windows_rt_program_with_std_bundle() {
         return;
     }
 
-    let source = repo_root().join("examples/hello_world.rn");
+    let source = unique_temp_path("kernc_std_windows_rt", "rn");
     let executable_path = unique_temp_path("kernc_std_windows_rt", "exe");
+    fs::write(&source, HOSTED_HELLO_WORLD_SOURCE).unwrap();
 
     let source_arg = source.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
@@ -445,6 +447,7 @@ fn links_windows_rt_program_with_std_bundle() {
         String::from_utf8_lossy(&run_output.stdout)
     );
 
+    let _ = fs::remove_file(&source);
     let _ = fs::remove_file(&executable_path);
 }
 

@@ -189,8 +189,9 @@ fn main() i32 {
 
 #[test]
 fn compiles_std_hello_world_in_compile_only_mode() {
-    let source = repo_root().join("examples/hello_world.rn");
+    let source = unique_temp_path("kernc_std_hello_world", "rn");
     let object = unique_temp_path("kernc_std_hello_world", "o");
+    fs::write(&source, HOSTED_HELLO_WORLD_SOURCE).unwrap();
 
     let source_arg = source.to_string_lossy().into_owned();
     let object_arg = object.to_string_lossy().into_owned();
@@ -217,14 +218,16 @@ fn compiles_std_hello_world_in_compile_only_mode() {
     );
     assert_not_textual_llvm_ir(&object);
 
+    let _ = fs::remove_file(&source);
     let _ = fs::remove_file(&object);
 }
 
 #[cfg(windows)]
 #[test]
 fn compiles_std_hello_world_to_unicode_object_path() {
-    let source = repo_root().join("examples/hello_world.rn");
+    let source = unique_temp_path("kernc_std_hello_world", "rn");
     let object = unique_temp_path("kernc_std_hello_world_\u{4F60}\u{597D}", "o");
+    fs::write(&source, HOSTED_HELLO_WORLD_SOURCE).unwrap();
 
     let source_arg = source.to_string_lossy().into_owned();
     let object_arg = object.to_string_lossy().into_owned();
@@ -246,6 +249,7 @@ fn compiles_std_hello_world_to_unicode_object_path() {
     );
     assert_not_textual_llvm_ir(&object);
 
+    let _ = fs::remove_file(&source);
     let _ = fs::remove_file(&object);
 }
 

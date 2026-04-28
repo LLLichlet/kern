@@ -3,8 +3,17 @@ use std::process::Command;
 
 use kernc_cli::test_support::{
     assert_not_textual_llvm_ir, assert_success, build_and_run, build_temp_program,
-    compile_source_with_args, repo_root, run_kernc, unique_temp_path,
+    compile_source_with_args, run_kernc, unique_temp_path,
 };
+
+const HOSTED_HELLO_WORLD_SOURCE: &str = r#"
+use std.io;
+
+fn main() i32 {
+    io.println("hello, {}!", .{"world",});
+    return 0;
+}
+"#;
 
 #[path = "stdlib/alloc.rs"]
 mod alloc;

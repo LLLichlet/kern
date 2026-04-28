@@ -1,6 +1,6 @@
 use base.mem.alloc.{Arena, GPA};
 use sys.mem.Page;
-use std.test;
+use base.test;
 use json.{
     ArrayCursor,
     FieldDecodeError,

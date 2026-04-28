@@ -1,7 +1,7 @@
 use base.coll.String;
 use base.mem.alloc.GPA;
 use std.fs;
-use std.test;
+use base.test;
 use sys.mem.Page;
 use bed.{buffer, command, editor, input};
 

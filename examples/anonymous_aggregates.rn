@@ -1,5 +1,6 @@
 use std.io;
-use std.test;
+use base.io.Writer;
+use base.test;
 
 extern type CLayout = struct {
     tag: u8,
@@ -35,18 +36,21 @@ fn classify(state: enum: u32 { Off = 0, On = 1, Error: i32 }) i32 {
 }
 
 fn main() i32 {
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
     // Native structs may reorder fields for compact layout; extern structs keep
     // C-compatible layout.
-    test.eq(@sizeOf[CLayout](), usize.{24});
-    test.eq(@sizeOf[NativeLayout](), usize.{16});
-    test.eq(@sizeOf[struct { tag: u8, value: u64, flag: u16 }](), usize.{16});
+    ctx..&.eq(@sizeOf[CLayout](), usize.{24});
+    ctx..&.eq(@sizeOf[NativeLayout](), usize.{16});
+    ctx..&.eq(@sizeOf[struct { tag: u8, value: u64, flag: u16 }](), usize.{16});
 
     let pair = Pair.{ x: 4, y: 5 };
     let word = union { bytes: [4]u8, int: i32 }.{ int: 11 };
     let state = enum: u32 { Off = 0, On = 1, Error: i32 }.{ Error: 13 };
 
     let total = sum_pair(pair) + read_word(word) + classify(state);
-    test.eq(total, 33);
+    ctx..&.eq(total, 33);
     io.println("anonymous_aggregates: total={}", .{total,});
     return 0;
 }

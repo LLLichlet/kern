@@ -79,14 +79,19 @@ fn runs_test_assertion_helpers() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_helpers",
         r#"
-use std.test;
+use base.test;
+use base.io.Writer;
+use std.io;
 
 fn main() i32 {
-    test.assert(true, "should not fail", .{});
-    test.eq(usize.{4}, usize.{4});
-    test.not_eq(usize.{4}, usize.{5});
-    test.eq_msg(usize.{8}, usize.{8}, "should not fail {}", .{ 8, });
-    test.not_eq_msg(usize.{8}, usize.{9}, "should not fail {}", .{ 9, });
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
+    ctx..&.assert(true, "should not fail", .{});
+    ctx..&.eq(usize.{4}, usize.{4});
+    ctx..&.not_eq(usize.{4}, usize.{5});
+    ctx..&.eq_msg(usize.{8}, usize.{8}, "should not fail {}", .{ 8, });
+    ctx..&.not_eq_msg(usize.{8}, usize.{9}, "should not fail {}", .{ 9, });
     return 0;
 }
 "#,
@@ -96,7 +101,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         run_output.status.success(),
-        "expected std.test helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
+        "expected base.test helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -110,10 +115,15 @@ fn test_eq_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_eq_fail",
         r#"
-use std.test;
+use base.test;
+use base.io.Writer;
+use std.io;
 
 fn main() i32 {
-    test.eq(usize.{4}, usize.{5});
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
+    ctx..&.eq(usize.{4}, usize.{5});
     return 0;
 }
 "#,
@@ -123,7 +133,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         !run_output.status.success(),
-        "expected std.test.eq failure to abort:\nstdout:\n{}\nstderr:\n{}",
+        "expected base.test context eq failure to abort with a diagnostic:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -144,7 +154,9 @@ fn test_eq_supports_payloadless_user_enums() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_enum_eq",
         r#"
-use std.test;
+use base.test;
+use base.io.Writer;
+use std.io;
 
 type Mode = enum {
     Fast,
@@ -152,8 +164,11 @@ type Mode = enum {
 };
 
 fn main() i32 {
-    test.eq(Mode.Fast, Mode.Fast);
-    test.not_eq(Mode.Fast, Mode.Slow);
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
+    ctx..&.eq(Mode.Fast, Mode.Fast);
+    ctx..&.not_eq(Mode.Fast, Mode.Slow);
     return 0;
 }
 "#,
@@ -163,7 +178,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         run_output.status.success(),
-        "expected std.test to support payloadless enums:\nstdout:\n{}\nstderr:\n{}",
+        "expected base.test to support payloadless enums:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -177,7 +192,9 @@ fn runs_test_option_and_result_helpers() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_option_result_helpers",
         r#"
-use std.test;
+use base.test;
+use base.io.Writer;
+use std.io;
 
 fn parse(flag: bool) usize!i32 {
     if (flag) {
@@ -187,30 +204,33 @@ fn parse(flag: bool) usize!i32 {
 }
 
 fn main() i32 {
-    let some = test.expect_some(?usize.{ Some: 9 });
-    test.eq(some, usize.{9});
-    test.expect_none(?usize.None);
-    test.assert_some(?usize.{ Some: 11 });
-    test.assert_some_msg(?usize.{ Some: 13 }, "expected configured option {}", .{ 13, });
-    test.assert_none(?usize.None);
-    test.assert_none_msg(?usize.None, "expected missing option {}", .{ 17, });
-    let some_msg = test.expect_some_msg(?usize.{ Some: 19 }, "expected option {}", .{ 19, });
-    test.eq(some_msg, usize.{19});
-    test.expect_none_msg(?usize.None, "expected none {}", .{ 23, });
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
 
-    let ok = test.expect_ok(parse(true));
-    test.eq(ok, usize.{7});
-    test.assert_ok(parse(true));
-    test.assert_ok_msg(parse(true), "expected parse ok {}", .{ 29, });
-    let ok_msg = test.expect_ok_msg(parse(true), "expected parse ok {}", .{ 31, });
-    test.eq(ok_msg, usize.{7});
+    let some = ctx..&.expect_some(?usize.{ Some: 9 });
+    ctx..&.eq(some, usize.{9});
+    ctx..&.expect_none(?usize.None);
+    ctx..&.assert_some(?usize.{ Some: 11 });
+    ctx..&.assert_some_msg(?usize.{ Some: 13 }, "expected configured option {}", .{ 13, });
+    ctx..&.assert_none(?usize.None);
+    ctx..&.assert_none_msg(?usize.None, "expected missing option {}", .{ 17, });
+    let some_msg = ctx..&.expect_some_msg(?usize.{ Some: 19 }, "expected option {}", .{ 19, });
+    ctx..&.eq(some_msg, usize.{19});
+    ctx..&.expect_none_msg(?usize.None, "expected none {}", .{ 23, });
 
-    let err = test.expect_err(parse(false));
-    test.eq(err, i32.{-1});
-    test.assert_err(parse(false));
-    test.assert_err_msg(parse(false), "expected parse err {}", .{ 37, });
-    let err_msg = test.expect_err_msg(parse(false), "expected parse err {}", .{ 41, });
-    test.eq(err_msg, i32.{-1});
+    let ok = ctx..&.expect_ok(parse(true));
+    ctx..&.eq(ok, usize.{7});
+    ctx..&.assert_ok(parse(true));
+    ctx..&.assert_ok_msg(parse(true), "expected parse ok {}", .{ 29, });
+    let ok_msg = ctx..&.expect_ok_msg(parse(true), "expected parse ok {}", .{ 31, });
+    ctx..&.eq(ok_msg, usize.{7});
+
+    let err = ctx..&.expect_err(parse(false));
+    ctx..&.eq(err, i32.{-1});
+    ctx..&.assert_err(parse(false));
+    ctx..&.assert_err_msg(parse(false), "expected parse err {}", .{ 37, });
+    let err_msg = ctx..&.expect_err_msg(parse(false), "expected parse err {}", .{ 41, });
+    ctx..&.eq(err_msg, i32.{-1});
     return 0;
 }
 "#,
@@ -220,7 +240,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         run_output.status.success(),
-        "expected std.test option/result helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
+        "expected base.test option/result helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -234,10 +254,15 @@ fn test_message_assertion_failure_uses_custom_format() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_msg_fail",
         r#"
-use std.test;
+use base.test;
+use base.io.Writer;
+use std.io;
 
 fn main() i32 {
-    test.eq_msg(usize.{4}, usize.{5}, "mismatch at {}", .{ 7, });
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
+    ctx..&.eq_msg(usize.{4}, usize.{5}, "mismatch at {}", .{ 7, });
     return 0;
 }
 "#,
@@ -247,7 +272,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         !run_output.status.success(),
-        "expected std.test.eq_msg failure to abort:\nstdout:\n{}\nstderr:\n{}",
+        "expected base.test context eq_msg failure to abort with a diagnostic:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -268,10 +293,15 @@ fn test_expect_some_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_expect_some_fail",
         r#"
-use std.test;
+use base.test;
+use base.io.Writer;
+use std.io;
 
 fn main() i32 {
-    let _ = test.expect_some(?usize.None);
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
+    let _ = ctx..&.expect_some(?usize.None);
     return 0;
 }
 "#,
@@ -281,7 +311,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         !run_output.status.success(),
-        "expected std.test.expect_some failure to abort:\nstdout:\n{}\nstderr:\n{}",
+        "expected base.test context expect_some failure to abort with a diagnostic:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -725,10 +755,15 @@ fn test_expect_err_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_expect_err_fail",
         r#"
-use std.test;
+use base.test;
+use base.io.Writer;
+use std.io;
 
 fn main() i32 {
-    let _ = test.expect_err(usize!i32.{ Ok: 3 });
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
+    let _ = ctx..&.expect_err(usize!i32.{ Ok: 3 });
     return 0;
 }
 "#,
@@ -738,7 +773,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         !run_output.status.success(),
-        "expected std.test.expect_err failure to abort:\nstdout:\n{}\nstderr:\n{}",
+        "expected base.test context expect_err failure to abort with a diagnostic:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );

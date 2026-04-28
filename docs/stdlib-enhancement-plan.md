@@ -92,17 +92,20 @@ Planned additions:
 
 ### 5. Test Ergonomics
 
-`std.test` has core assertions, but diagnostics are still sparse.
+`base.test` has core freestanding assertions. Failure reporting is explicit:
+callers use a `test.Context` with any `base.io.Writer` when diagnostics should
+be printed. Module-level helpers remain trap-only for tiny smoke tests.
 
 Planned additions:
 
-- message-bearing assertion variants
-- option/result predicate assertions
 - richer equality helpers once formatting can render more value categories
+- optional runner-level test reporting layered above `base.test`
 
 Status:
 
 - Message-bearing variants are available for equality and option/result helpers.
+  Context methods print through their writer and then trap; module-level
+  helpers trap without assuming any ambient writer.
 - Option/result predicate assertions are available as `assert_some`,
   `assert_none`, `assert_ok`, and `assert_err`.
 

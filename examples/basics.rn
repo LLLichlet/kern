@@ -1,5 +1,6 @@
 use std.io;
-use std.test;
+use base.io.Writer;
+use base.test;
 
 type Point = struct {
     x: i32,
@@ -14,10 +15,13 @@ fn translate(point: Point, dx: i32, dy: i32) Point {
 }
 
 fn main() i32 {
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
     let origin = Point.{ x: 0, y: 0 };
     let moved = translate(origin, 4, -2);
-    test.eq(moved.x, 4);
-    test.eq(moved.y, -2);
+    ctx..&.eq(moved.x, 4);
+    ctx..&.eq(moved.y, -2);
 
     let mut total = i32.{0};
     let mut i = i32.{0};
@@ -26,7 +30,7 @@ fn main() i32 {
         i += 1;
     }
 
-    test.eq(total, 10);
+    ctx..&.eq(total, 10);
     io.println("basics: point=({}, {}), total={}", .{moved.x, moved.y, total});
     return 0;
 }

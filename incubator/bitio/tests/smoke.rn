@@ -1,4 +1,4 @@
-use std.test;
+use base.test;
 use bitio.{
     BitIoError,
     read_u16_be,

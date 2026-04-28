@@ -1,22 +1,26 @@
 use base.sync.{ACQUIRE, RELAXED, SEQ_CST, atomic, once, spin_lock};
 use std.io;
-use std.test;
+use base.io.Writer;
+use base.test;
 
 fn main() i32 {
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
     let mut counter = atomic[usize](0);
-    test.eq(counter..&.fetch_add[SEQ_CST](2), usize.{0});
-    test.eq(counter.&.load[SEQ_CST](), usize.{2});
+    ctx..&.eq(counter..&.fetch_add[SEQ_CST](2), usize.{0});
+    ctx..&.eq(counter.&.load[SEQ_CST](), usize.{2});
 
     let cas = counter..&.compare_exchange[ACQUIRE, RELAXED](2, 5);
-    test.assert(cas.success, "compare_exchange should update the counter", .{});
-    test.eq(counter.&.load[SEQ_CST](), usize.{5});
+    ctx..&.assert(cas.success, "compare_exchange should update the counter", .{});
+    ctx..&.eq(counter.&.load[SEQ_CST](), usize.{5});
 
     let mut locked = spin_lock[i32](10);
     let next = locked..&.with_lock(.[](value: *mut i32) i32 {
         value.* += 1;
         return value.*;
     });
-    test.eq(next, 11);
+    ctx..&.eq(next, 11);
 
     let mut gate = once();
     let mut calls = usize.{0};
@@ -26,7 +30,7 @@ fn main() i32 {
     gate..&.call_once(.[calls = calls..&]() void {
         calls.* += 1;
     });
-    test.eq(calls, usize.{1});
+    ctx..&.eq(calls, usize.{1});
 
     io.println("sync: counter={}, locked={}, once calls={}", .{
         counter.&.load[SEQ_CST](),

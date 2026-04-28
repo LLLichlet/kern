@@ -1,0 +1,309 @@
+//! Test assertion helpers.
+//!
+//! `base.test` is freestanding: it defines assertion vocabulary that can be
+//! used by kernels, runtimes, hosted programs, and test targets without
+//! depending on an operating-system output channel.
+
+use base.io.{Printable, Writer, format_to};
+
+/// Assertion context with an explicit output sink.
+pub type Context = struct {
+    writer: ?*mut Writer = .None,
+};
+
+fn fail_with(writer: ?*mut Writer, fmt: []u8, args: []*Printable) ! {
+    let .{ Some: out } = writer else {
+        @trap();
+    };
+
+    let _ = out.write("test failed: ");
+    format_to(out, fmt, args);
+    let _ = out.write("\n");
+    @trap();
+}
+
+/// Creates an assertion context that reports failures to `writer`.
+pub fn context(writer: *mut Writer) Context {
+    return .{ writer: .{ Some: writer } };
+}
+
+/// Creates an assertion context that only traps on failure.
+pub fn silent() Context {
+    return .{};
+}
+
+impl *mut Context {
+    /// Fails the current test immediately after writing a diagnostic when this
+    /// context has a writer.
+    pub fn fail(fmt: []u8, args: []*Printable) ! {
+        fail_with(self.writer, fmt, args);
+    }
+
+    /// Fails the current test when `ok` is false.
+    pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
+        if (!ok) {
+            self.fail(fmt, args);
+        }
+    }
+
+    /// Fails unless `actual` equals `expected`.
+    pub fn eq[T](actual: T, expected: T) void
+        where T: Eq[T],
+    {
+        if (!(actual == expected)) {
+            self.fail("expected values to be equal", .{});
+        }
+    }
+
+    /// Fails with `fmt` unless `actual` equals `expected`.
+    pub fn eq_msg[T](actual: T, expected: T, fmt: []u8, args: []*Printable) void
+        where T: Eq[T],
+    {
+        if (!(actual == expected)) {
+            self.fail(fmt, args);
+        }
+    }
+
+    /// Fails when `actual` equals `unexpected`.
+    pub fn not_eq[T](actual: T, unexpected: T) void
+        where T: Eq[T],
+    {
+        if (actual == unexpected) {
+            self.fail("expected values to differ", .{});
+        }
+    }
+
+    /// Fails with `fmt` when `actual` equals `unexpected`.
+    pub fn not_eq_msg[T](actual: T, unexpected: T, fmt: []u8, args: []*Printable) void
+        where T: Eq[T],
+    {
+        if (actual == unexpected) {
+            self.fail(fmt, args);
+        }
+    }
+
+    /// Fails unless the option contains a value.
+    pub fn assert_some[T](value: ?T) void {
+        let .{ Some: _ } = value else self.fail("expected option to contain a value", .{});
+    }
+
+    /// Fails with `fmt` unless the option contains a value.
+    pub fn assert_some_msg[T](value: ?T, fmt: []u8, args: []*Printable) void {
+        let .{ Some: _ } = value else self.fail(fmt, args);
+    }
+
+    /// Fails unless the option is `None`.
+    pub fn assert_none[T](value: ?T) void {
+        let .None = value else self.fail("expected option to be empty", .{});
+    }
+
+    /// Fails with `fmt` unless the option is `None`.
+    pub fn assert_none_msg[T](value: ?T, fmt: []u8, args: []*Printable) void {
+        let .None = value else self.fail(fmt, args);
+    }
+
+    /// Returns the payload from `Some(T)` or fails when the option is `None`.
+    pub fn expect_some[T](value: ?T) T {
+        let .{ Some: payload } = value else self.fail("expected option to contain a value", .{});
+        return payload;
+    }
+
+    /// Returns the payload from `Some(T)` or fails with `fmt` when the option is `None`.
+    pub fn expect_some_msg[T](value: ?T, fmt: []u8, args: []*Printable) T {
+        let .{ Some: payload } = value else self.fail(fmt, args);
+        return payload;
+    }
+
+    /// Fails unless the option is `None`.
+    pub fn expect_none[T](value: ?T) void {
+        let .None = value else self.fail("expected option to be empty", .{});
+    }
+
+    /// Fails with `fmt` unless the option is `None`.
+    pub fn expect_none_msg[T](value: ?T, fmt: []u8, args: []*Printable) void {
+        let .None = value else self.fail(fmt, args);
+    }
+
+    /// Fails unless the result is `Ok`.
+    pub fn assert_ok[T, E](value: T!E) void {
+        let .{ Ok: _ } = value else self.fail("expected result to be ok", .{});
+    }
+
+    /// Fails with `fmt` unless the result is `Ok`.
+    pub fn assert_ok_msg[T, E](value: T!E, fmt: []u8, args: []*Printable) void {
+        let .{ Ok: _ } = value else self.fail(fmt, args);
+    }
+
+    /// Fails unless the result is `Err`.
+    pub fn assert_err[T, E](value: T!E) void {
+        let .{ Err: _ } = value else self.fail("expected result to be err", .{});
+    }
+
+    /// Fails with `fmt` unless the result is `Err`.
+    pub fn assert_err_msg[T, E](value: T!E, fmt: []u8, args: []*Printable) void {
+        let .{ Err: _ } = value else self.fail(fmt, args);
+    }
+
+    /// Returns the payload from `Ok(T)` or fails when the result is `Err`.
+    pub fn expect_ok[T, E](value: T!E) T {
+        let .{ Ok: payload } = value else self.fail("expected result to be ok", .{});
+        return payload;
+    }
+
+    /// Returns the payload from `Ok(T)` or fails with `fmt` when the result is `Err`.
+    pub fn expect_ok_msg[T, E](value: T!E, fmt: []u8, args: []*Printable) T {
+        let .{ Ok: payload } = value else self.fail(fmt, args);
+        return payload;
+    }
+
+    /// Returns the payload from `Err(E)` or fails when the result is `Ok`.
+    pub fn expect_err[T, E](value: T!E) E {
+        let .{ Err: payload } = value else self.fail("expected result to be err", .{});
+        return payload;
+    }
+
+    /// Returns the payload from `Err(E)` or fails with `fmt` when the result is `Ok`.
+    pub fn expect_err_msg[T, E](value: T!E, fmt: []u8, args: []*Printable) E {
+        let .{ Err: payload } = value else self.fail(fmt, args);
+        return payload;
+    }
+}
+
+/// Fails the current test immediately.
+///
+/// Module-level helpers are trap-only. Use `Context` when a failure diagnostic
+/// should be written before trapping.
+pub fn fail(fmt: []u8, args: []*Printable) ! {
+    let _ = fmt;
+    let _ = args;
+    @trap();
+}
+
+/// Fails the current test when `ok` is false.
+pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
+    if (!ok) {
+        fail(fmt, args);
+    }
+}
+
+/// Fails unless `actual` equals `expected`.
+pub fn eq[T](actual: T, expected: T) void
+    where T: Eq[T],
+{
+    if (!(actual == expected)) {
+        fail("expected values to be equal", .{});
+    }
+}
+
+/// Fails with `fmt` unless `actual` equals `expected`.
+pub fn eq_msg[T](actual: T, expected: T, fmt: []u8, args: []*Printable) void
+    where T: Eq[T],
+{
+    if (!(actual == expected)) {
+        fail(fmt, args);
+    }
+}
+
+/// Fails when `actual` equals `unexpected`.
+pub fn not_eq[T](actual: T, unexpected: T) void
+    where T: Eq[T],
+{
+    if (actual == unexpected) {
+        fail("expected values to differ", .{});
+    }
+}
+
+/// Fails with `fmt` when `actual` equals `unexpected`.
+pub fn not_eq_msg[T](actual: T, unexpected: T, fmt: []u8, args: []*Printable) void
+    where T: Eq[T],
+{
+    if (actual == unexpected) {
+        fail(fmt, args);
+    }
+}
+
+/// Fails unless the option contains a value.
+pub fn assert_some[T](value: ?T) void {
+    let .{ Some: _ } = value else fail("expected option to contain a value", .{});
+}
+
+/// Fails with `fmt` unless the option contains a value.
+pub fn assert_some_msg[T](value: ?T, fmt: []u8, args: []*Printable) void {
+    let .{ Some: _ } = value else fail(fmt, args);
+}
+
+/// Fails unless the option is `None`.
+pub fn assert_none[T](value: ?T) void {
+    let .None = value else fail("expected option to be empty", .{});
+}
+
+/// Fails with `fmt` unless the option is `None`.
+pub fn assert_none_msg[T](value: ?T, fmt: []u8, args: []*Printable) void {
+    let .None = value else fail(fmt, args);
+}
+
+/// Returns the payload from `Some(T)` or fails when the option is `None`.
+pub fn expect_some[T](value: ?T) T {
+    let .{ Some: payload } = value else fail("expected option to contain a value", .{});
+    return payload;
+}
+
+/// Returns the payload from `Some(T)` or fails with `fmt` when the option is `None`.
+pub fn expect_some_msg[T](value: ?T, fmt: []u8, args: []*Printable) T {
+    let .{ Some: payload } = value else fail(fmt, args);
+    return payload;
+}
+
+/// Fails unless the option is `None`.
+pub fn expect_none[T](value: ?T) void {
+    let .None = value else fail("expected option to be empty", .{});
+}
+
+/// Fails with `fmt` unless the option is `None`.
+pub fn expect_none_msg[T](value: ?T, fmt: []u8, args: []*Printable) void {
+    let .None = value else fail(fmt, args);
+}
+
+/// Fails unless the result is `Ok`.
+pub fn assert_ok[T, E](value: T!E) void {
+    let .{ Ok: _ } = value else fail("expected result to be ok", .{});
+}
+
+/// Fails with `fmt` unless the result is `Ok`.
+pub fn assert_ok_msg[T, E](value: T!E, fmt: []u8, args: []*Printable) void {
+    let .{ Ok: _ } = value else fail(fmt, args);
+}
+
+/// Fails unless the result is `Err`.
+pub fn assert_err[T, E](value: T!E) void {
+    let .{ Err: _ } = value else fail("expected result to be err", .{});
+}
+
+/// Fails with `fmt` unless the result is `Err`.
+pub fn assert_err_msg[T, E](value: T!E, fmt: []u8, args: []*Printable) void {
+    let .{ Err: _ } = value else fail(fmt, args);
+}
+
+/// Returns the payload from `Ok(T)` or fails when the result is `Err`.
+pub fn expect_ok[T, E](value: T!E) T {
+    let .{ Ok: payload } = value else fail("expected result to be ok", .{});
+    return payload;
+}
+
+/// Returns the payload from `Ok(T)` or fails with `fmt` when the result is `Err`.
+pub fn expect_ok_msg[T, E](value: T!E, fmt: []u8, args: []*Printable) T {
+    let .{ Ok: payload } = value else fail(fmt, args);
+    return payload;
+}
+
+/// Returns the payload from `Err(E)` or fails when the result is `Ok`.
+pub fn expect_err[T, E](value: T!E) E {
+    let .{ Err: payload } = value else fail("expected result to be err", .{});
+    return payload;
+}
+
+/// Returns the payload from `Err(E)` or fails with `fmt` when the result is `Ok`.
+pub fn expect_err_msg[T, E](value: T!E, fmt: []u8, args: []*Printable) E {
+    let .{ Err: payload } = value else fail(fmt, args);
+    return payload;
+}

@@ -4,8 +4,8 @@
 
 It contains runtime-independent primitives that every Kern build mode can use:
 comparison traits, numeric traits, pointer and layout helpers, allocation
-interfaces, options/results, hashes, ranges, strings, slices, lists, maps, and
-trees.
+interfaces, options/results, hashes, ranges, strings, slices, lists, maps,
+trees, synchronization primitives, generic IO helpers, and test assertions.
 
 ## Boundaries
 

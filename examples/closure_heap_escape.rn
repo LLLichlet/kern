@@ -1,7 +1,8 @@
 use base.mem.alloc.GPA;
 use base.mem.{Allocator, Layout, layout_of};
 use std.io;
-use std.test;
+use base.io.Writer;
+use base.test;
 use sys.mem.Page;
 
 type StoredClosure = struct {
@@ -29,6 +30,9 @@ fn create_heap_closure(alloc: *mut Allocator, factor: i32) StoredClosure {
 }
 
 fn main() i32 {
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -36,7 +40,7 @@ fn main() i32 {
     defer gpa.free((#stored.callback) as *mut u8, stored.layout);
 
     let result = stored.callback(5);
-    test.eq(result, 50);
+    ctx..&.eq(result, 50);
 
     io.println("closure_heap_escape: result={}", .{result,});
     return 0;

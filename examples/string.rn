@@ -1,21 +1,25 @@
 use base.coll.String;
 use base.mem.alloc.GPA;
 use std.io;
-use std.test;
+use base.io.Writer;
+use base.test;
 use sys.mem.Page;
 
 fn main() i32 {
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
     let text = String.{}..&;
     defer text.deinit(gpa);
     
-    test.assert(text.push_str(gpa, "Hello"), "push_str should allocate", .{});
-    test.assert(text.push_str(gpa, ", "), "push_str should allocate", .{});
-    test.assert(text.push_str(gpa, "Kern"), "push_str should allocate", .{});
+    ctx..&.assert(text.push_str(gpa, "Hello"), "push_str should allocate", .{});
+    ctx..&.assert(text.push_str(gpa, ", "), "push_str should allocate", .{});
+    ctx..&.assert(text.push_str(gpa, "Kern"), "push_str should allocate", .{});
     
-    test.eq(text.as_str(), "Hello, Kern");
+    ctx..&.eq(text.as_str(), "Hello, Kern");
     io.println("string: {}", .{text,});
     
     return 0;

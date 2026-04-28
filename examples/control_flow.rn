@@ -1,5 +1,6 @@
 use std.io;
-use std.test;
+use base.io.Writer;
+use base.test;
 
 type Bit = enum {
     Zero,
@@ -37,13 +38,16 @@ fn classify(tree: Tree) i32 {
 }
 
 fn main() i32 {
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
     let tree = Tree.{ Branch: .{
         left: .{ Full: .One },
         right: .{ Full: .One },
     } };
 
     let kind = classify(tree);
-    test.eq(kind, 9);
+    ctx..&.eq(kind, 9);
     io.println("control_flow: classified tree as {}", .{kind,});
     return 0;
 }

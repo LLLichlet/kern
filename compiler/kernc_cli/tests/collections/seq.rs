@@ -46,7 +46,7 @@ fn main() i32 {
 fn arrays_satisfy_trait_based_equality() {
     let output = build_and_run_hosted(
         r#"
-use std.test;
+use base.test;
 
 fn main() i32 {
     let values = [4]i32.{ 1, 2, 3, 4 };

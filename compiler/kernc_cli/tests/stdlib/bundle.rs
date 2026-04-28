@@ -52,6 +52,37 @@ fn main() i32 {
 }
 
 #[test]
+fn base_bundle_exposes_freestanding_test_helpers() {
+    let output = compile_source_with_args(
+        "kernc_base_test_helpers",
+        r#"
+use base.test;
+use base.io.{Writer, null_writer};
+
+fn main() i32 {
+    let mut sink = null_writer();
+    let mut ctx = test.context(*mut Writer.{ sink..& });
+
+    ctx..&.assert(true, "should not fail", .{});
+    ctx..&.eq(usize.{4}, usize.{4});
+    ctx..&.not_eq(usize.{4}, usize.{5});
+    let value = ctx..&.expect_some(?usize.{ Some: 7 });
+    ctx..&.eq(value, usize.{7});
+    ctx..&.expect_none(?usize.None);
+
+    let mut local_sink = null_writer();
+    let mut local_ctx = test.context(*mut Writer.{ local_sink..& });
+    local_ctx..&.eq(usize.{8}, usize.{8});
+    local_ctx..&.assert_ok(usize!i32.{ Ok: 9 });
+    return 0;
+}
+"#,
+        &["--library-bundle", "base"],
+    );
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn std_bundle_does_not_expose_std_coll_module() {
     let output = compile_source_with_args(
         "kernc_std_coll_module",
@@ -74,6 +105,34 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("std.coll") || stderr.contains("coll"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn std_bundle_does_not_expose_std_test_module() {
+    let output = compile_source_with_args(
+        "kernc_std_test_module",
+        r#"
+use std.test;
+
+fn main() i32 {
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+    assert!(
+        !output.status.success(),
+        "expected std.test import to fail:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("std.test") || stderr.contains("test"),
         "unexpected stderr:\n{}",
         stderr
     );

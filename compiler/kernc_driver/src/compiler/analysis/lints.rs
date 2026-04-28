@@ -342,7 +342,8 @@ impl CompilerDriver {
                         || self.item_has_attr(&global.attributes, ctx, "export_name")
                         || self.item_has_attr(&global.attributes, ctx, "retain")
                         || exported_via_pub_use;
-                    let preserve_package_export_root = self.options.metadata_output.is_some()
+                    let preserve_package_export_root = global.is_static
+                        && self.options.metadata_output.is_some()
                         && (global.vis == Visibility::Public || exported_via_pub_use);
 
                     nodes.insert(
@@ -356,12 +357,13 @@ impl CompilerDriver {
                                 ReachabilityItemKind::Constant
                             },
                             is_root,
-                            is_lower_root: !global.vis.is_private()
-                                || global.is_extern
-                                || self.item_has_attr(&global.attributes, ctx, "export_name")
-                                || self.item_has_attr(&global.attributes, ctx, "retain")
-                                || exported_from_root_module
-                                || preserve_package_export_root,
+                            is_lower_root: global.is_static
+                                && (!global.vis.is_private()
+                                    || global.is_extern
+                                    || self.item_has_attr(&global.attributes, ctx, "export_name")
+                                    || self.item_has_attr(&global.attributes, ctx, "retain")
+                                    || exported_from_root_module
+                                    || preserve_package_export_root),
                             is_warnable: global.vis == Visibility::Private,
                         },
                     );

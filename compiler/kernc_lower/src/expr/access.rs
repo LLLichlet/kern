@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 use kernc_ast::Expr;
 use kernc_mast::*;
-use kernc_sema::checker::{ConstEvaluator, ConstValue};
 use kernc_sema::def::Def;
 use kernc_sema::scope::SymbolKind;
 use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
@@ -115,55 +114,35 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             this.ctx.scopes.resolve(name).cloned()
         });
 
-        // Inline constant values when possible.
+        // Kern constants are compile-time values, not addressable storage.
         if let Some(info) = resolved_info.as_ref()
             && info.kind == SymbolKind::Const
             && let Some(def_id) = info.def_id
-            && let Some(kind) = self.measure_phase("          lower_ident_inline_const", |this| {
-                let const_expr = if let Def::Global(g) = &this.ctx.defs[def_id.0 as usize] {
-                    Some(g.value.clone())
-                } else {
-                    None
-                }?;
-
-                let prev_scope = this.ctx.scopes.current_scope_id();
-                if let Some(owner_scope) = this.global_owner_scope(def_id) {
-                    this.ctx.scopes.set_current_scope(owner_scope);
-                }
-
-                let lowered_kind = {
-                    let mut ce = ConstEvaluator::new(this.ctx);
-                    if let Ok(val) = ce.eval_inner(&const_expr, 0) {
-                        match val {
-                            ConstValue::Int(v) => Some(MastExprKind::Integer(v as u128)),
-                            ConstValue::Float(f) => Some(MastExprKind::Float(f)),
-                            ConstValue::Bool(b) => Some(MastExprKind::Bool(b)),
-                            ConstValue::String(s) => {
-                                Some(this.lower_string_literal(&s, const_expr.span))
-                            }
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    }
-                };
-
-                if let Some(prev_scope) = prev_scope {
-                    this.ctx.scopes.set_current_scope(prev_scope);
-                }
-
-                lowered_kind
-            })
         {
+            let Some(expr) = self.measure_phase("          lower_ident_inline_const", |this| {
+                this.lower_const_global_value_expr(def_id, Span::default())
+            }) else {
+                let const_name = self.ctx.resolve(name).to_string();
+                return LoweredIdentifier {
+                    kind: self.lower_error_kind(
+                        Span::default(),
+                        format!(
+                            "constant `{}` could not be evaluated at compile time",
+                            const_name
+                        ),
+                    ),
+                    is_local_binding: false,
+                };
+            };
             return LoweredIdentifier {
-                kind,
+                kind: expr.kind,
                 is_local_binding: false,
             };
         }
 
         // First check whether this resolves to a top-level global.
         if let Some(info) = resolved_info
-            && matches!(info.kind, SymbolKind::Const | SymbolKind::Static)
+            && matches!(info.kind, SymbolKind::Static)
             && let Some(def_id) = info.def_id
             && let Some(mono_id) = self.measure_phase("          lower_ident_global_ref", |this| {
                 this.ensure_global_lowered(def_id);
@@ -291,54 +270,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
                 SymbolKind::Const => {
                     if let Some(def_id) = target_info.def_id {
-                        let const_expr_opt =
-                            if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                                Some(g.value.clone())
-                            } else {
-                                None
-                            };
-
-                        if let Some(const_expr) = const_expr_opt {
-                            let prev_scope = self.ctx.scopes.current_scope_id();
-                            if let Some(owner_scope) = self.global_owner_scope(def_id) {
-                                self.ctx.scopes.set_current_scope(owner_scope);
-                            }
-
-                            let lowered_kind = {
-                                let mut ce = ConstEvaluator::new(self.ctx);
-                                if let Ok(val) = ce.eval_inner(&const_expr, 0) {
-                                    match val {
-                                        ConstValue::Int(v) => {
-                                            Some(MastExprKind::Integer(v as u128))
-                                        }
-                                        ConstValue::Float(f) => Some(MastExprKind::Float(f)),
-                                        ConstValue::Bool(b) => Some(MastExprKind::Bool(b)),
-                                        ConstValue::String(s) => {
-                                            Some(self.lower_string_literal(&s, const_expr.span))
-                                        }
-                                        _ => None,
-                                    }
-                                } else {
-                                    None
-                                }
-                            };
-
-                            if let Some(prev_scope) = prev_scope {
-                                self.ctx.scopes.set_current_scope(prev_scope);
-                            }
-
-                            if let Some(kind) = lowered_kind {
-                                return kind;
-                            }
+                        if let Some(expr) = self.lower_const_global_value_expr(def_id, span) {
+                            return expr.kind;
                         }
-                    }
-
-                    // Fall back to the global map when the value cannot be inlined.
-                    if let Some(def_id) = target_info.def_id {
-                        self.ensure_global_lowered(def_id);
-                        if let Some(&mono_id) = self.global_map.get(&def_id) {
-                            return MastExprKind::GlobalRef(mono_id);
-                        }
+                        let field_name = self.ctx.resolve(field);
+                        return self.lower_access_error(
+                            span,
+                            format!(
+                                "constant `{}` could not be evaluated at compile time",
+                                field_name
+                            ),
+                        );
                     } else {
                         let field_name = self.ctx.resolve(field);
                         return self.lower_access_error(

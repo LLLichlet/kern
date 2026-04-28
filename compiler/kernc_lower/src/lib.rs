@@ -540,7 +540,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         }
                     }
                     Def::Global(g) => {
-                        if !g.is_imported
+                        if g.is_static
+                            && !g.is_imported
                             && this
                                 .reachable_module_items
                                 .as_ref()

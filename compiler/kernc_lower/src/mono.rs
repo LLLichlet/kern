@@ -87,6 +87,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                 Some(MastExpr::new(ty, MastExprKind::ArrayInit(elems), span))
             }
+            ConstValue::Struct(fields) => self.lower_const_struct_value_expr(fields, ty, span),
             ConstValue::Enum { tag, payload } => {
                 self.lower_const_enum_value_expr(*tag, payload.as_deref(), ty, span)
             }
@@ -94,6 +95,119 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ConstValue::Void => Some(MastExpr::new(ty, MastExprKind::Undef, span)),
             _ => None,
         }
+    }
+
+    fn lower_const_struct_value_expr(
+        &mut self,
+        fields: &HashMap<SymbolId, ConstValue>,
+        ty: TypeId,
+        span: Span,
+    ) -> Option<MastExpr> {
+        let norm_ty = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm_ty).clone() {
+            TypeKind::Def(def_id, gen_args) => {
+                let Def::Struct(def) = self.ctx.defs.get(def_id.0 as usize)?.clone() else {
+                    return None;
+                };
+                let struct_id = self.instantiate_struct(def_id, &gen_args);
+
+                let mut subst_map = HashMap::new();
+                for (param, arg) in def.generics.iter().zip(gen_args.iter()) {
+                    subst_map.insert(param.name, *arg);
+                }
+
+                let mut ast_ordered_exprs = Vec::with_capacity(def.fields.len());
+                for field in &def.fields {
+                    let raw_ty = self
+                        .ctx
+                        .facts
+                        .node_types
+                        .get(&field.type_node.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+                    let field_ty = self.substitute_type_with_map(raw_ty, &subst_map);
+                    let value = fields.get(&field.name)?;
+                    ast_ordered_exprs.push(self.lower_const_value_expr(value, field_ty, span)?);
+                }
+
+                let (_, physical_to_ast) = self.cached_named_struct_mapping(def_id, &gen_args);
+                let mut physical_ordered_exprs = Vec::with_capacity(def.fields.len());
+                for &ast_idx in &physical_to_ast {
+                    physical_ordered_exprs.push(ast_ordered_exprs[ast_idx].clone());
+                }
+
+                Some(MastExpr::new(
+                    ty,
+                    MastExprKind::StructInit {
+                        struct_id,
+                        fields: physical_ordered_exprs,
+                    },
+                    span,
+                ))
+            }
+            TypeKind::AnonymousStruct(is_extern, anon_fields) => {
+                let struct_id = self.instantiate_anon_struct(norm_ty);
+                let mut ast_ordered_exprs = Vec::with_capacity(anon_fields.len());
+                for field in &anon_fields {
+                    let value = fields.get(&field.name)?;
+                    ast_ordered_exprs.push(self.lower_const_value_expr(value, field.ty, span)?);
+                }
+
+                let (_, physical_to_ast) =
+                    self.cached_anon_struct_mapping(norm_ty, is_extern, &anon_fields);
+                let mut physical_ordered_exprs = Vec::with_capacity(anon_fields.len());
+                for &ast_idx in &physical_to_ast {
+                    physical_ordered_exprs.push(ast_ordered_exprs[ast_idx].clone());
+                }
+
+                Some(MastExpr::new(
+                    ty,
+                    MastExprKind::StructInit {
+                        struct_id,
+                        fields: physical_ordered_exprs,
+                    },
+                    span,
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn lower_const_global_value_expr(
+        &mut self,
+        def_id: DefId,
+        span: Span,
+    ) -> Option<MastExpr> {
+        let const_expr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+            g.value.clone()
+        } else {
+            return None;
+        };
+        let ty = self
+            .ctx
+            .facts
+            .node_types
+            .get(&const_expr.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+
+        let prev_scope = self.ctx.scopes.current_scope_id();
+        if let Some(owner_scope) = self.global_owner_scope(def_id) {
+            self.ctx.scopes.set_current_scope(owner_scope);
+        }
+
+        let lowered = {
+            let mut ce = ConstEvaluator::new(self.ctx);
+            ce.eval_inner(&const_expr, 0)
+                .ok()
+                .and_then(|value| self.lower_const_value_expr(&value, ty, span))
+        };
+
+        if let Some(prev_scope) = prev_scope {
+            self.ctx.scopes.set_current_scope(prev_scope);
+        }
+
+        lowered
     }
 
     fn lower_const_enum_value_expr(
@@ -1519,6 +1633,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } else {
             None
         };
+
+        if !g.is_static && !g.is_extern {
+            self.ctx.emit_ice(
+                g.span,
+                format!(
+                    "Kern ICE (Lowering): const `{}` reached global lowering instead of being inlined.",
+                    self.ctx.resolve(g.name)
+                ),
+            );
+            return;
+        }
 
         self.module.globals.push(MastGlobal {
             id,

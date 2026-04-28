@@ -1,4 +1,4 @@
-use base.coll.range;
+use base.coll.{iter_fold, iter_nth, range, range_down};
 use std.io;
 use std.test;
 
@@ -22,6 +22,15 @@ fn main() i32 {
     }
     test.eq(squares, 14);
 
-    io.println("slices: sum={}, squares={}", .{sum, squares});
+    let mut descending = range_down(5, 2);
+    let descending_sum = iter_fold[i32, i32](descending..&, 0, .[](accum: i32, value: i32) i32 {
+        return accum + value;
+    });
+    test.eq(descending_sum, 12);
+
+    let mut nth = range(10, 20);
+    test.eq(test.expect_some(iter_nth[i32](nth..&, usize.{4})), 14);
+
+    io.println("slices: sum={}, squares={}, descending={}", .{sum, squares, descending_sum});
     return 0;
 }

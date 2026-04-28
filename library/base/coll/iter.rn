@@ -8,6 +8,132 @@ pub type Iterator = trait {
     next: fn() ?Item,
 };
 
+/// Consumes an iterator and returns the number of remaining items.
+pub fn iter_count[T](it: *mut Iterator[Item = T]) usize {
+    let mut total = usize.{0};
+    while (true) {
+        match (it.next()) {
+            .{ Some: _ } => total += 1,
+            .None => return total,
+        }
+    }
+    return total;
+}
+
+/// Consumes at most `n + 1` items and returns the `n`th item when present.
+pub fn iter_nth[T](it: *mut Iterator[Item = T], n: usize) ?T {
+    let mut i = usize.{0};
+    while (true) {
+        let item = match (it.next()) {
+            .{ Some: value } => value,
+            .None => return .None,
+        };
+        if (i == n) {
+            return .{ Some: item };
+        }
+        i += 1;
+    }
+    return .None;
+}
+
+/// Consumes an iterator and returns the last item when present.
+pub fn iter_last[T](it: *mut Iterator[Item = T]) ?T {
+    let mut last = ?T.None;
+    while (true) {
+        match (it.next()) {
+            .{ Some: value } => last = .{ Some: value },
+            .None => return last,
+        }
+    }
+    return last;
+}
+
+/// Visits each remaining item in an iterator.
+pub fn iter_for_each[T](it: *mut Iterator[Item = T], visitor: *Fn(T) void) void {
+    while (true) {
+        match (it.next()) {
+            .{ Some: value } => visitor(value),
+            .None => return,
+        }
+    }
+}
+
+/// Folds the remaining iterator items from left to right.
+pub fn iter_fold[T, U](it: *mut Iterator[Item = T], init: U, step: *Fn(U, T) U) U {
+    let mut accum = init;
+    while (true) {
+        match (it.next()) {
+            .{ Some: value } => accum = step(accum, value),
+            .None => return accum,
+        }
+    }
+    return accum;
+}
+
+/// Returns `true` when any remaining item satisfies `pred`.
+pub fn iter_any[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) bool {
+    while (true) {
+        match (it.next()) {
+            .{ Some: value } => if (pred(value)) return true,
+            .None => return false,
+        }
+    }
+    return false;
+}
+
+/// Returns `true` when every remaining item satisfies `pred`.
+pub fn iter_all[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) bool {
+    while (true) {
+        match (it.next()) {
+            .{ Some: value } => if (!pred(value)) return false,
+            .None => return true,
+        }
+    }
+    return true;
+}
+
+/// Returns the first remaining item accepted by `pred`.
+pub fn iter_find[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) ?T {
+    while (true) {
+        match (it.next()) {
+            .{ Some: value } => if (pred(value)) return .{ Some: value },
+            .None => return .None,
+        }
+    }
+    return .None;
+}
+
+/// Returns the index of the first remaining item accepted by `pred`.
+pub fn iter_position[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) ?usize {
+    let mut index = usize.{0};
+    while (true) {
+        match (it.next()) {
+            .{ Some: value } => {
+                if (pred(value)) {
+                    return .{ Some: index };
+                }
+                index += 1;
+            },
+            .None => return .None,
+        }
+    }
+    return .None;
+}
+
+/// Returns the first mapped value produced by `call_back`.
+pub fn iter_find_map[T, U](it: *mut Iterator[Item = T], call_back: *Fn(T) ?U) ?U {
+    while (true) {
+        match (it.next()) {
+            .{ Some: value } => match (call_back(value)) {
+                .{ Some: mapped } => return .{ Some: mapped },
+                .None => {},
+            },
+            .None => return .None,
+        }
+    }
+    return .None;
+}
+
 pub type SliceIter[T] = struct {
     data: []T,
     index: usize = 0,

@@ -889,7 +889,23 @@ fn main() i32 {
 fn runs_hosted_program_using_integer_ranges_as_iterators() {
     let output = build_and_run_hosted(
         r#"
-use base.coll.{Iterator, range, range_inclusive};
+use base.coll.{
+    Iterator,
+    iter_all,
+    iter_any,
+    iter_count,
+    iter_find,
+    iter_find_map,
+    iter_fold,
+    iter_for_each,
+    iter_last,
+    iter_nth,
+    iter_position,
+    range,
+    range_down,
+    range_down_inclusive,
+    range_inclusive,
+};
 
 fn main() i32 {
     let mut sum = 0;
@@ -951,6 +967,119 @@ fn main() i32 {
     }
     if (seen != 2) {
         return 7;
+    }
+
+    let mut descending_sum = i32.{0};
+    for (value: range_down(5, 2)) {
+        descending_sum += value;
+    }
+    if (descending_sum != 12) {
+        return 8;
+    }
+
+    let mut inclusive_descending_sum = i32.{0};
+    for (value: range_down_inclusive(3, 1)) {
+        inclusive_descending_sum += value;
+    }
+    if (inclusive_descending_sum != 6) {
+        return 9;
+    }
+
+    let mut empty_descending = 0;
+    for (_: range_down(2, 5)) {
+        empty_descending += 1;
+    }
+    for (_: range_down_inclusive(2, 5)) {
+        empty_descending += 1;
+    }
+    if (empty_descending != 0) {
+        return 10;
+    }
+
+    let mut count_range = range(2, 7);
+    if (iter_count[i32](count_range..&) != 5) {
+        return 11;
+    }
+
+    let mut nth_range = range(10, 20);
+    let third = match (iter_nth[i32](nth_range..&, usize.{3})) {
+        .{ Some: value } => value,
+        .None => return 12,
+    };
+    if (third != 13) {
+        return 13;
+    }
+    let after_third = match (nth_range..&.next()) {
+        .{ Some: value } => value,
+        .None => return 14,
+    };
+    if (after_third != 14) {
+        return 15;
+    }
+
+    let mut fold_range = range_down_inclusive(4, 1);
+    if (iter_fold[i32, i32](fold_range..&, 0, .[](accum: i32, value: i32) i32 {
+        return accum + value;
+    }) != 10) {
+        return 16;
+    }
+
+    let mut any_range = range(0, 6);
+    if (!iter_any[i32](any_range..&, .[](value: i32) bool { return value == 4; })) {
+        return 17;
+    }
+
+    let mut all_range = range(1, 4);
+    if (!iter_all[i32](all_range..&, .[](value: i32) bool { return value > 0; })) {
+        return 18;
+    }
+
+    let mut find_range = range(3, 9);
+    let found = match (iter_find[i32](find_range..&, .[](value: i32) bool { return value % 2 == 0; })) {
+        .{ Some: value } => value,
+        .None => return 19,
+    };
+    if (found != 4) {
+        return 20;
+    }
+
+    let mut pos_range = range_down(9, 3);
+    let pos = match (iter_position[i32](pos_range..&, .[](value: i32) bool { return value == 6; })) {
+        .{ Some: value } => value,
+        .None => return 21,
+    };
+    if (pos != usize.{3}) {
+        return 22;
+    }
+
+    let mut map_range = range(0, 6);
+    let mapped = match (iter_find_map[i32, i32](map_range..&, .[](value: i32) ?i32 {
+        if (value < 3) return .None;
+        return .{ Some: value * 10 };
+    })) {
+        .{ Some: value } => value,
+        .None => return 23,
+    };
+    if (mapped != 30) {
+        return 24;
+    }
+
+    let mut each_range = range(1, 4);
+    let mut each_sum = i32.{0};
+    iter_for_each[i32](each_range..&, .[sum = each_sum..&](value: i32) void {
+        sum.* += value;
+    });
+    if (each_sum != 6) {
+        return 25;
+    }
+
+    let mut last_range = range_down_inclusive(3, 1);
+    let last = match (iter_last[i32](last_range..&)) {
+        .{ Some: value } => value,
+        .None => return 26,
+    };
+    if (last != 1) {
+        return 27;
     }
 
     return 0;

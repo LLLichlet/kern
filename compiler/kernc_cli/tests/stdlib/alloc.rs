@@ -176,7 +176,8 @@ fn runs_hosted_program_using_typed_allocation_helpers() {
     let output = build_and_run(
         "kernc_std_alloc_typed",
         r#"
-use base.mem.alloc.{GPA, alloc_one, free_one, alloc_array, free_array, clone_array};
+use base.mem.alloc.Allocator;
+use base.mem.alloc.GPA;
 use sys.mem.Page;
 
 type Pair = struct {
@@ -193,9 +194,10 @@ fn sum(items: []i32) i32 {
 fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
+    let alloc = (*mut Allocator).{ gpa };
     defer gpa.deinit();
 
-    let pair = match (alloc_one[Pair](gpa)) {
+    let pair = match (alloc.alloc_one[Pair]()) {
         .{ Some: ptr } => ptr,
         .None => return 1,
     };
@@ -203,9 +205,9 @@ fn main() i32 {
     if (pair.left + pair.right != 42) {
         return 2;
     }
-    free_one[Pair](gpa, pair);
+    alloc.free_one[Pair](pair);
 
-    let items = match (alloc_array[i32](gpa, 5)) {
+    let items = match (alloc.alloc_array[i32](5)) {
         .{ Some: slice } => slice,
         .None => return 3,
     };
@@ -221,10 +223,10 @@ fn main() i32 {
     if (sum(items) != 14) {
         return 5;
     }
-    free_array[i32](gpa, items);
+    alloc.free_array[i32](items);
 
     let source = [4]i32.{ 7, 8, 9, 10 };
-    let clone = match (clone_array[i32](gpa, source.[0 .. 4])) {
+    let clone = match (alloc.clone_array[i32](source.[0 .. 4])) {
         .{ Some: slice } => slice,
         .None => return 6,
     };
@@ -236,16 +238,16 @@ fn main() i32 {
     if (clone.lower_bound(90) != 3) {
         return 8;
     }
-    free_array[i32](gpa, clone);
+    alloc.free_array[i32](clone);
 
-    let empty = match (alloc_array[u64](gpa, 0)) {
+    let empty = match (alloc.alloc_array[u64](0)) {
         .{ Some: slice } => slice,
         .None => return 9,
     };
     if (#empty != 0) {
         return 10;
     }
-    free_array[u64](gpa, empty);
+    alloc.free_array[u64](empty);
 
     return 0;
 }

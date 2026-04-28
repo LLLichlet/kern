@@ -6,48 +6,50 @@
 use base.mem.{Layout, layout_of, array_layout_of};
 use ..Allocator;
 
-/// Allocates storage for one `T`.
-pub fn alloc_one[T](alloc: *mut Allocator) ?*mut T {
-    let .{ Some: raw } = alloc.alloc(layout_of[T]()) else return .None;
-    return .{ Some: raw as *mut T };
-}
-
-/// Frees storage returned from `alloc_one[T]`.
-///
-/// Safety:
-/// `ptr` must have been allocated by `alloc_one[T]` from the same allocator.
-pub fn free_one[T](alloc: *mut Allocator, ptr: *mut T) void {
-    alloc.free(ptr as *mut u8, layout_of[T]());
-}
-
-/// Allocates storage for `count` contiguous `T` values.
-pub fn alloc_array[T](alloc: *mut Allocator, count: usize) ?[]mut T {
-    let .{ Some: layout } = array_layout_of[T](count) else return .None;
-    let .{ Some: raw } = alloc.alloc(layout) else return .None;
-    return .{ Some: (raw as *mut T)..[0 .. count] };
-}
-
-/// Frees storage returned from `alloc_array[T]`.
-///
-/// Safety:
-/// `items` must have been allocated by `alloc_array[T]` from the same allocator.
-pub fn free_array[T](alloc: *mut Allocator, items: []mut T) void {
-    let .{ Some: layout } = array_layout_of[T](#items) else return;
-    if (#items == 0 or layout.size == 0) {
-        return;
+impl *mut Allocator {
+    /// Allocates storage for one `T`.
+    pub fn alloc_one[T]() ?*mut T {
+        let .{ Some: raw } = self.alloc(layout_of[T]()) else return .None;
+        return .{ Some: raw as *mut T };
     }
-    alloc.free(items.[0]..& as *mut u8, layout);
-}
 
-/// Allocates a mutable copy of `items`.
-pub fn clone_array[T](alloc: *mut Allocator, items: []T) ?[]mut T {
-    let .{ Some: out } = alloc_array[T](alloc, #items) else return .None;
-    let .{ Some: layout } = array_layout_of[T](#items) else {
-        free_array[T](alloc, out);
-        return .None;
-    };
-    if (#items != 0 and layout.size != 0) {
-        @memcpy(out.[0]..& as *mut u8, items.[0].& as *u8, layout.size);
+    /// Frees storage returned from `alloc_one[T]`.
+    ///
+    /// Safety:
+    /// `ptr` must have been allocated by `alloc_one[T]` from the same allocator.
+    pub fn free_one[T](ptr: *mut T) void {
+        self.free(ptr as *mut u8, layout_of[T]());
     }
-    return .{ Some: out };
+
+    /// Allocates storage for `count` contiguous `T` values.
+    pub fn alloc_array[T](count: usize) ?[]mut T {
+        let .{ Some: layout } = array_layout_of[T](count) else return .None;
+        let .{ Some: raw } = self.alloc(layout) else return .None;
+        return .{ Some: (raw as *mut T)..[0 .. count] };
+    }
+
+    /// Frees storage returned from `alloc_array[T]`.
+    ///
+    /// Safety:
+    /// `items` must have been allocated by `alloc_array[T]` from the same allocator.
+    pub fn free_array[T](items: []mut T) void {
+        let .{ Some: layout } = array_layout_of[T](#items) else return;
+        if (#items == 0 or layout.size == 0) {
+            return;
+        }
+        self.free(items.[0]..& as *mut u8, layout);
+    }
+
+    /// Allocates a mutable copy of `items`.
+    pub fn clone_array[T](items: []T) ?[]mut T {
+        let .{ Some: out } = self.alloc_array[T](#items) else return .None;
+        let .{ Some: layout } = array_layout_of[T](#items) else {
+            self.free_array[T](out);
+            return .None;
+        };
+        if (#items != 0 and layout.size != 0) {
+            @memcpy(out.[0]..& as *mut u8, items.[0].& as *u8, layout.size);
+        }
+        return .{ Some: out };
+    }
 }

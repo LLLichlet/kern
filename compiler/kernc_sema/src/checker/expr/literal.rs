@@ -32,6 +32,35 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .all(|field| self.data_field_init_is_pun(field))
     }
 
+    fn data_array_elems_as_field_puns(&self, elems: &[Expr]) -> Option<Vec<ast::StructFieldInit>> {
+        elems
+            .iter()
+            .map(|elem| {
+                let ExprKind::Identifier(name) = elem.kind else {
+                    return None;
+                };
+                Some(ast::StructFieldInit {
+                    name,
+                    name_span: elem.span,
+                    value: elem.clone(),
+                    span: elem.span,
+                })
+            })
+            .collect()
+    }
+
+    fn data_expr_as_field_pun(&self, expr: &Expr) -> Option<ast::StructFieldInit> {
+        let ExprKind::Identifier(name) = expr.kind else {
+            return None;
+        };
+        Some(ast::StructFieldInit {
+            name,
+            name_span: expr.span,
+            value: expr.clone(),
+            span: expr.span,
+        })
+    }
+
     fn data_literal_target_is_array_like(&self, kind: &TypeKind) -> bool {
         matches!(
             kind,
@@ -299,6 +328,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     } else {
                         self.check_struct_or_union_literal(&[], expected, exp_norm, span)
                     }
+                } else if !is_target_array_like
+                    && self.data_literal_target_is_structural(&kind_enum)
+                {
+                    if let Some(init_fields) = self.data_array_elems_as_field_puns(elems) {
+                        self.check_struct_or_union_literal(&init_fields, expected, exp_norm, span)
+                    } else {
+                        self.check_array_literal(elems, expected, exp_norm, span)
+                    }
                 } else {
                     self.check_array_literal(elems, expected, exp_norm, span)
                 }
@@ -331,6 +368,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let is_target_array_like = self.data_literal_target_is_array_like(&kind_enum);
                 if is_target_array_like && !matches!(inner.kind, ExprKind::Undef) {
                     self.check_array_literal(std::slice::from_ref(inner), expected, exp_norm, span)
+                } else if self.data_literal_target_is_structural(&kind_enum) {
+                    if let Some(init_field) = self.data_expr_as_field_pun(inner) {
+                        self.check_struct_or_union_literal(&[init_field], expected, exp_norm, span)
+                    } else {
+                        self.check_scalar_literal(inner, expected)
+                    }
                 } else if is_data {
                     if let ExprKind::Identifier(variant_name) = &inner.kind {
                         let variant = self.ctx.resolve(*variant_name).to_string();

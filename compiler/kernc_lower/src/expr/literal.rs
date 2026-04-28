@@ -24,6 +24,35 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .all(|field| self.data_field_init_is_pun(field))
     }
 
+    fn data_array_elems_as_field_puns(&self, elems: &[Expr]) -> Option<Vec<ast::StructFieldInit>> {
+        elems
+            .iter()
+            .map(|elem| {
+                let ExprKind::Identifier(name) = elem.kind else {
+                    return None;
+                };
+                Some(ast::StructFieldInit {
+                    name,
+                    name_span: elem.span,
+                    value: elem.clone(),
+                    span: elem.span,
+                })
+            })
+            .collect()
+    }
+
+    fn data_expr_as_field_pun(&self, expr: &Expr) -> Option<ast::StructFieldInit> {
+        let ExprKind::Identifier(name) = expr.kind else {
+            return None;
+        };
+        Some(ast::StructFieldInit {
+            name,
+            name_span: expr.span,
+            value: expr.clone(),
+            span: expr.span,
+        })
+    }
+
     fn data_literal_target_is_array_like(&self, kind: &TypeKind) -> bool {
         matches!(
             kind,
@@ -408,6 +437,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if elems.is_empty() && !is_target_array_like {
                     // Treat these as empty aggregates so they are still instantiated correctly.
                     self.lower_struct_union_data_init(&[], subst_map, concrete_ty)
+                } else if !is_target_array_like
+                    && self.data_literal_target_is_structural(concrete_ty)
+                {
+                    if let Some(fields) = self.data_array_elems_as_field_puns(elems) {
+                        self.lower_struct_union_data_init(&fields, subst_map, concrete_ty)
+                    } else {
+                        self.lower_array_init(elems, subst_map, concrete_ty, span)
+                    }
                 } else {
                     self.lower_array_init(elems, subst_map, concrete_ty, span)
                 }
@@ -424,6 +461,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         concrete_ty,
                         span,
                     )
+                } else if self.data_literal_target_is_structural(concrete_ty) {
+                    if let Some(field) = self.data_expr_as_field_pun(inner) {
+                        self.lower_struct_union_data_init(&[field], subst_map, concrete_ty)
+                    } else {
+                        self.lower_scalar_init(inner, subst_map, concrete_ty, span)
+                    }
                 } else {
                     self.lower_scalar_init(inner, subst_map, concrete_ty, span)
                 }

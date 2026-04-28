@@ -105,6 +105,40 @@ fn main() i32 {
 }
 
 #[test]
+fn contextual_struct_field_puns_work_inside_enum_payload_literals() {
+    let output = build_and_run(
+        "contextual_struct_field_puns",
+        r#"
+type Pair = struct {
+    x: i32,
+    y: i32,
+};
+
+type Box[T] = struct {
+    value: T,
+};
+
+fn make_pair(x: i32, y: i32) ?Pair {
+    return .{ Some: .{ x, y } };
+}
+
+fn make_box[T](value: T) ?Box[T] {
+    return .{ Some: .{ value } };
+}
+
+fn main() i32 {
+    let .{ Some: pair } = make_pair(2, 3) else return 1;
+    let .{ Some: boxed } = make_box[i32](4) else return 2;
+    return pair.x + pair.y + boxed.value - 9;
+}
+"#,
+        &["--runtime-libc", "yes"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn rejects_extern_enum_declarations() {
     let output = compile_source(
         r#"

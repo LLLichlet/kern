@@ -120,7 +120,8 @@ fn main() i32 {
 fn runs_nested_use_trees_with_grouped_self_imports() {
     let output = build_and_run_source_with_std(
         r#"
-use std.{. as stdlib, io.{., Printable, Writer as W}};
+use std.{. as stdlib, io.{.}};
+use base.{io.{Printable, Writer as W}};
 
 type Pair = struct {
     value: usize,

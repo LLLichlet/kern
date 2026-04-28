@@ -270,24 +270,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .expected_self_ty
             .is_some_and(|expected_self_ty| expected_self_ty != recv.ty);
 
-        // 2. Choose dynamic (vtable) or static dispatch based on the recovered type.
-        if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(inner_ty) {
-            // Hand the full fat pointer to the dynamic dispatcher so it can extract the vtable.
-            let kind = self.measure_phase("              lower_call_dynamic_dispatch", |this| {
-                this.lower_dynamic_method_dispatch(
-                    recv,
-                    arg_masts,
-                    DynamicDispatchCall {
-                        field: call.field,
-                        recv_trait_ty: inner_ty,
-                        owner_trait_ty,
-                        norm_callee: call.norm_callee,
-                        span: call.span,
-                    },
-                )
-            });
-            MastExpr::new(call.default_ret_ty, kind, call.span)
-        } else if !stale_static_callee
+        // 2. Choose static dispatch first when Sema resolved an inherent impl method.
+        if !stale_static_callee
             && let TypeKind::FnDef(method_id, generics) =
                 self.ctx.type_registry.get(call.norm_callee).clone()
         {
@@ -302,6 +286,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             let kind = self.measure_phase("              lower_call_static_dispatch", |this| {
                 this.lower_static_method_dispatch(recv, arg_masts, method_id, &generics, call)
+            });
+            MastExpr::new(call.default_ret_ty, kind, call.span)
+        } else if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(inner_ty) {
+            // Hand the full fat pointer to the dynamic dispatcher so it can extract the vtable.
+            let kind = self.measure_phase("              lower_call_dynamic_dispatch", |this| {
+                this.lower_dynamic_method_dispatch(
+                    recv,
+                    arg_masts,
+                    DynamicDispatchCall {
+                        field: call.field,
+                        recv_trait_ty: inner_ty,
+                        owner_trait_ty,
+                        norm_callee: call.norm_callee,
+                        span: call.span,
+                    },
+                )
             });
             MastExpr::new(call.default_ret_ty, kind, call.span)
         } else {

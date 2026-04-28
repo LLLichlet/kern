@@ -736,21 +736,58 @@ pub(super) fn link_objects_for_compile_action(
         }
     }
     if let Some(std_package) = built_std_packages.get(&runtime_profile_key(&root_action.profile)) {
-        for object in &std_package.common_link_objects {
-            push_linker_inputs_for_primary_output(&mut objects, &mut seen, object)?;
-        }
-        match link_options.runtime_entry {
-            RuntimeEntry::None => {}
-            RuntimeEntry::Crt => push_linker_inputs_for_primary_output(
-                &mut objects,
-                &mut seen,
-                &std_package.hosted_entry_object_path,
-            )?,
-            RuntimeEntry::Rt => push_linker_inputs_for_primary_output(
-                &mut objects,
-                &mut seen,
-                &std_package.freestanding_entry_object_path,
-            )?,
+        match link_options.library_bundle {
+            LibraryBundle::None => {}
+            LibraryBundle::Base => {
+                push_linker_inputs_for_primary_output(
+                    &mut objects,
+                    &mut seen,
+                    &std_package.base_object_path,
+                )?;
+                if !link_options.runtime_libc
+                    && let Some(rt_object_path) = &std_package.rt_object_path
+                {
+                    push_linker_inputs_for_primary_output(&mut objects, &mut seen, rt_object_path)?;
+                }
+                if !matches!(link_options.runtime_entry, RuntimeEntry::None) {
+                    push_linker_inputs_for_primary_output(
+                        &mut objects,
+                        &mut seen,
+                        &std_package.sys_object_path,
+                    )?;
+                }
+                match link_options.runtime_entry {
+                    RuntimeEntry::None => {}
+                    RuntimeEntry::Crt => push_linker_inputs_for_primary_output(
+                        &mut objects,
+                        &mut seen,
+                        &std_package.hosted_entry_object_path,
+                    )?,
+                    RuntimeEntry::Rt => push_linker_inputs_for_primary_output(
+                        &mut objects,
+                        &mut seen,
+                        &std_package.freestanding_entry_object_path,
+                    )?,
+                }
+            }
+            LibraryBundle::Std => {
+                for object in &std_package.common_link_objects {
+                    push_linker_inputs_for_primary_output(&mut objects, &mut seen, object)?;
+                }
+                match link_options.runtime_entry {
+                    RuntimeEntry::None => {}
+                    RuntimeEntry::Crt => push_linker_inputs_for_primary_output(
+                        &mut objects,
+                        &mut seen,
+                        &std_package.hosted_entry_object_path,
+                    )?,
+                    RuntimeEntry::Rt => push_linker_inputs_for_primary_output(
+                        &mut objects,
+                        &mut seen,
+                        &std_package.freestanding_entry_object_path,
+                    )?,
+                }
+            }
         }
     }
 

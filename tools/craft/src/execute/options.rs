@@ -216,8 +216,9 @@ pub(super) fn compile_action_options(
         &mut options,
     )?;
     apply_host_linker_env(&mut options);
+    let runtime_package = built_std_packages.get(&runtime_profile_key(&action.profile));
     let std_package = matches!(options.library_bundle, LibraryBundle::Std)
-        .then(|| built_std_packages.get(&runtime_profile_key(&action.profile)))
+        .then_some(runtime_package)
         .flatten();
     options.module_interface_aliases = compile_module_aliases(
         action,
@@ -225,6 +226,15 @@ pub(super) fn compile_action_options(
         std_package,
         built_external_packages,
     )?;
+    if matches!(options.library_bundle, LibraryBundle::Base)
+        && let Some(runtime_package) = runtime_package
+        && let Some(base_metadata) = runtime_package.interface_aliases.get("base")
+    {
+        options.module_interface_aliases.insert(
+            "base".to_string(),
+            base_metadata.to_string_lossy().to_string(),
+        );
+    }
     if action.target_kind == crate::plan::TargetKind::Lib {
         options.module_aliases.insert(
             action.package_id.name.clone(),
@@ -390,6 +400,9 @@ mod tests {
             runtime_profile_key(profile),
             BuiltStdPackage {
                 metadata_root_path: root.join("prebuilt-std"),
+                base_object_path: root.join("base.o"),
+                sys_object_path: root.join("sys.o"),
+                rt_object_path: Some(root.join("rt.o")),
                 common_link_objects: Vec::new(),
                 hosted_entry_object_path: root.join("hosted-entry.o"),
                 freestanding_entry_object_path: root.join("freestanding-entry.o"),
@@ -502,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn base_bundle_lib_targets_do_not_import_prebuilt_std_interfaces() {
+    fn base_bundle_lib_targets_import_prebuilt_base_interface_only() {
         let root = temp_dir("craft-base-bundle-aliases");
         let manifest_path = root.join("Craft.toml");
         fs::write(
@@ -537,7 +550,13 @@ root = "src/lib.rn"
 
         assert_eq!(options.library_bundle, LibraryBundle::Base);
         assert!(!options.module_interface_aliases.contains_key("std"));
-        assert!(!options.module_interface_aliases.contains_key("base"));
+        assert_eq!(
+            options
+                .module_interface_aliases
+                .get("base")
+                .map(String::as_str),
+            Some(root.join("prebuilt-base").to_string_lossy().as_ref())
+        );
         assert_eq!(
             options.module_aliases.get("demo").map(String::as_str),
             Some(action.source_path().to_string_lossy().as_ref())

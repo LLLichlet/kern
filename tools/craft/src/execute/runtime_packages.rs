@@ -419,6 +419,15 @@ pub(super) fn build_std_package(
         profile_key,
         BuiltStdPackage {
             metadata_root_path,
+            base_object_path: profile_root
+                .join("obj")
+                .join("base")
+                .join("lib")
+                .join("base.o"),
+            sys_object_path: built_sys.object_path.clone(),
+            rt_object_path: built_rt
+                .as_ref()
+                .map(|built_rt| built_rt.object_path.clone()),
             common_link_objects: if let Some(built_rt) = &built_rt {
                 vec![
                     object_path,

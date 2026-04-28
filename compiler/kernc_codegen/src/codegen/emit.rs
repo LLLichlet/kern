@@ -1,7 +1,7 @@
 use super::{
     CodeGenerator, EmitObjectReport, EmitObjectTiming, IrCleanupStats, IrInstructionStats,
 };
-use kernc_utils::config::{LlvmIrStage, OptLevel};
+use kernc_utils::config::{CodeModel, LlvmIrStage, OptLevel};
 use llvm_sys::core::{
     LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
     LLVMSetTarget,
@@ -58,6 +58,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         &self,
         target_triple_str: &str,
         opt_level: OptLevel,
+        code_model: CodeModel,
         stage: LlvmIrStage,
         collect_diagnostics: bool,
     ) -> Result<EmitObjectReport, String> {
@@ -72,8 +73,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return Ok(report);
         }
 
-        let resources =
-            self.create_emission_target_machine(target_triple_str, opt_level, &mut report)?;
+        let resources = self.create_emission_target_machine(
+            target_triple_str,
+            opt_level,
+            code_model,
+            &mut report,
+        )?;
         self.verify_module_for_emission(&mut report)?;
 
         if stage == LlvmIrStage::Optimized {
@@ -103,6 +108,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         target_triple_str: &str,
         output_path: &str,
         opt_level: OptLevel,
+        code_model: CodeModel,
         collect_diagnostics: bool,
     ) -> Result<EmitObjectReport, String> {
         if target_triple_str.contains("windows") {
@@ -110,13 +116,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 target_triple_str,
                 output_path,
                 opt_level,
+                code_model,
                 collect_diagnostics,
             );
         }
 
         let mut report = EmitObjectReport::default();
-        let resources =
-            self.create_emission_target_machine(target_triple_str, opt_level, &mut report)?;
+        let resources = self.create_emission_target_machine(
+            target_triple_str,
+            opt_level,
+            code_model,
+            &mut report,
+        )?;
         self.verify_module_for_emission(&mut report)?;
 
         let cleanup_before_stats =
@@ -158,14 +169,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         &self,
         target_triple_str: &str,
         opt_level: OptLevel,
+        code_model: CodeModel,
         collect_diagnostics: bool,
     ) -> Result<(Vec<u8>, EmitObjectReport), String> {
         let _thin_lto_emit_guard = THIN_LTO_BITCODE_EMIT_LOCK
             .lock()
             .map_err(|_| "ThinLTO bitcode emit lock was poisoned".to_string())?;
         let mut report = EmitObjectReport::default();
-        let resources =
-            self.create_emission_target_machine(target_triple_str, opt_level, &mut report)?;
+        let resources = self.create_emission_target_machine(
+            target_triple_str,
+            opt_level,
+            code_model,
+            &mut report,
+        )?;
         self.verify_module_for_emission(&mut report)?;
 
         let cleanup_before_stats =
@@ -192,6 +208,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         &self,
         target_triple_str: &str,
         opt_level: OptLevel,
+        code_model: CodeModel,
         report: &mut EmitObjectReport,
     ) -> Result<EmissionTargetMachine, String> {
         let init_started = Instant::now();
@@ -204,7 +221,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             format!("Target triple contains an interior NUL byte: {target_triple_str:?}")
         })?;
         let setup_started = Instant::now();
-        let machine = create_target_machine(&triple, opt_level)?;
+        let machine = create_target_machine(&triple, opt_level, code_model)?;
         let target_data = unsafe { LLVMCreateTargetDataLayout(machine) };
         unsafe {
             LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
@@ -255,6 +272,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         target_triple_str: &str,
         output_path: &str,
         opt_level: OptLevel,
+        code_model: CodeModel,
         collect_diagnostics: bool,
     ) -> Result<EmitObjectReport, String> {
         let mut report = EmitObjectReport::default();
@@ -285,8 +303,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         });
 
         let setup_started = Instant::now();
-        let target_machine =
-            create_target_machine_from_parts(target, &triple, &cpu, &features, opt_level)?;
+        let target_machine = create_target_machine_from_parts(
+            target, &triple, &cpu, &features, opt_level, code_model,
+        )?;
         let target_data = unsafe { LLVMCreateTargetDataLayout(target_machine) };
         unsafe {
             LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
@@ -472,6 +491,7 @@ fn initialize_llvm_targets() {
 fn create_target_machine(
     triple: &CString,
     opt_level: OptLevel,
+    code_model: CodeModel,
 ) -> Result<LLVMTargetMachineRef, String> {
     let cpu = CString::new("generic").unwrap();
     let features = CString::new("").unwrap();
@@ -484,7 +504,7 @@ fn create_target_machine(
         }
     }
 
-    create_target_machine_from_parts(target, triple, &cpu, &features, opt_level)
+    create_target_machine_from_parts(target, triple, &cpu, &features, opt_level, code_model)
 }
 
 fn create_target_machine_from_parts(
@@ -493,6 +513,7 @@ fn create_target_machine_from_parts(
     cpu: &CString,
     features: &CString,
     opt_level: OptLevel,
+    code_model: CodeModel,
 ) -> Result<LLVMTargetMachineRef, String> {
     let target_machine = unsafe {
         LLVMCreateTargetMachine(
@@ -502,13 +523,23 @@ fn create_target_machine_from_parts(
             features.as_ptr(),
             llvm_raw_opt_level(opt_level),
             LLVMRelocMode::LLVMRelocDefault,
-            LLVMCodeModel::LLVMCodeModelDefault,
+            llvm_code_model(code_model),
         )
     };
     if target_machine.is_null() {
         Err("Failed to create target machine".to_string())
     } else {
         Ok(target_machine)
+    }
+}
+
+fn llvm_code_model(code_model: CodeModel) -> LLVMCodeModel {
+    match code_model {
+        CodeModel::Default => LLVMCodeModel::LLVMCodeModelDefault,
+        CodeModel::Small => LLVMCodeModel::LLVMCodeModelSmall,
+        CodeModel::Kernel => LLVMCodeModel::LLVMCodeModelKernel,
+        CodeModel::Medium => LLVMCodeModel::LLVMCodeModelMedium,
+        CodeModel::Large => LLVMCodeModel::LLVMCodeModelLarge,
     }
 }
 

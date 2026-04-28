@@ -164,6 +164,10 @@ fn all_doc(program_name: &str) -> HelpDoc {
                     "--lto <MODE>",
                     "Cross-CGU optimization mode: none, full, thin",
                 )
+                .entry(
+                    "--code-model <MODEL>",
+                    "LLVM code model: default, small, kernel, medium, large",
+                )
                 .entry("--debug-info <YES|NO>", "Whether to emit debug info")
                 .entry(
                     "--emit-llvm[=STAGE]",

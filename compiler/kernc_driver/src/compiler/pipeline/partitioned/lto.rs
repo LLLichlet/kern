@@ -61,6 +61,7 @@ impl CompilerDriver {
                     let target_triple = pipeline.target.triple.clone();
                     let split_sections_for_gc = self.options.split_sections_for_gc;
                     let opt_level = self.options.opt_level;
+                    let code_model = self.options.code_model;
                     let collect_diagnostics = pipeline.report.collect_codegen_diagnostics;
                     handles.push(scope.spawn(move || {
                         let codegen_ctx = Context::create();
@@ -78,6 +79,7 @@ impl CompilerDriver {
                         let (bitcode, emit_report) = codegen.emit_thin_lto_bitcode(
                             &target_triple,
                             opt_level,
+                            code_model,
                             collect_diagnostics,
                         )?;
                         Ok::<_, String>((
@@ -636,6 +638,7 @@ impl CompilerDriver {
                 merged_codegen.emit_llvm_ir(
                     &pipeline.target.triple,
                     self.options.opt_level,
+                    self.options.code_model,
                     self.options.emit_llvm_stage,
                     pipeline.report.collect_codegen_diagnostics,
                 )
@@ -646,6 +649,7 @@ impl CompilerDriver {
                     &pipeline.target.triple,
                     &link_input_path,
                     self.options.opt_level,
+                    self.options.code_model,
                     pipeline.report.collect_codegen_diagnostics,
                 )
             })

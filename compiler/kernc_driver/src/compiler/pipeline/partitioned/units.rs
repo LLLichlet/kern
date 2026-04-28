@@ -145,6 +145,7 @@ impl CompilerDriver {
                     let target_triple = build_context.target_triple.to_string();
                     let split_sections_for_gc = self.options.split_sections_for_gc;
                     let opt_level = self.options.opt_level;
+                    let code_model = self.options.code_model;
                     handles.push(scope.spawn(move || {
                         let codegen_ctx = Context::create();
                         let mut codegen = CodeGenerator::new(
@@ -163,6 +164,7 @@ impl CompilerDriver {
                             &target_triple,
                             &object_path,
                             opt_level,
+                            code_model,
                             build_context.collect_diagnostics,
                         )?;
                         Ok::<_, String>((
@@ -251,6 +253,7 @@ impl CompilerDriver {
                 build_context.target_triple,
                 &object_path,
                 self.options.opt_level,
+                self.options.code_model,
                 build_context.collect_diagnostics,
             )?;
             artifacts.push(CodegenUnitArtifacts {

@@ -96,6 +96,41 @@ impl LinkerInputFlavor {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CodeModel {
+    #[default]
+    Default,
+    Small,
+    Kernel,
+    Medium,
+    Large,
+}
+
+impl CodeModel {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "default" => Ok(Self::Default),
+            "small" => Ok(Self::Small),
+            "kernel" => Ok(Self::Kernel),
+            "medium" => Ok(Self::Medium),
+            "large" => Ok(Self::Large),
+            _ => Err(format!(
+                "invalid code model `{value}`; expected one of: default, small, kernel, medium, large"
+            )),
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Small => "small",
+            Self::Kernel => "kernel",
+            Self::Medium => "medium",
+            Self::Large => "large",
+        }
+    }
+}
+
 impl DriverMode {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -316,6 +351,7 @@ pub struct CompileOptions {
     pub library_bundle: LibraryBundle,
     pub codegen_units: usize,
     pub lto_mode: LtoMode,
+    pub code_model: CodeModel,
     pub linker_input_flavor: LinkerInputFlavor,
     pub emit_llvm_stage: LlvmIrStage,
     pub emit_multi_linker_input_dir: bool,
@@ -359,6 +395,7 @@ impl Default for CompileOptions {
             library_bundle: LibraryBundle::None,
             codegen_units: 1,
             lto_mode: LtoMode::default(),
+            code_model: CodeModel::default(),
             linker_input_flavor: LinkerInputFlavor::default(),
             emit_llvm_stage: LlvmIrStage::default(),
             emit_multi_linker_input_dir: false,

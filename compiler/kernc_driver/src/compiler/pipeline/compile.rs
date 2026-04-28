@@ -284,6 +284,7 @@ impl CompilerDriver {
                     codegen.emit_llvm_ir(
                         &pipeline.target.triple,
                         self.options.opt_level,
+                        self.options.code_model,
                         self.options.emit_llvm_stage,
                         pipeline.report.collect_codegen_diagnostics,
                     )
@@ -293,6 +294,7 @@ impl CompilerDriver {
                     let (bitcode, report) = codegen.emit_thin_lto_bitcode(
                         &pipeline.target.triple,
                         self.options.opt_level,
+                        self.options.code_model,
                         pipeline.report.collect_codegen_diagnostics,
                     )?;
                     fs::write(&link_input_path, bitcode)
@@ -305,6 +307,7 @@ impl CompilerDriver {
                         &pipeline.target.triple,
                         &link_input_path,
                         self.options.opt_level,
+                        self.options.code_model,
                         pipeline.report.collect_codegen_diagnostics,
                     )
                 })

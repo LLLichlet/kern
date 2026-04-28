@@ -3,9 +3,9 @@ mod help;
 use help::{HelpTopic, render_help, version_text};
 use kernc_driver::CompilerDriver;
 use kernc_utils::config::{
-    AsmDialect, CompileOptions, DriverMode, LibraryBundle, LlvmIrStage, LtoMode, OptLevel,
-    RuntimeEntry, TargetMachine, apply_configured_library_aliases, inject_driver_condition_defines,
-    validate_compile_options,
+    AsmDialect, CodeModel, CompileOptions, DriverMode, LibraryBundle, LlvmIrStage, LtoMode,
+    OptLevel, RuntimeEntry, TargetMachine, apply_configured_library_aliases,
+    inject_driver_condition_defines, validate_compile_options,
 };
 use shared_cli::{ColorChoice, ErrorReport};
 use std::env;
@@ -85,6 +85,10 @@ fn parse_llvm_ir_stage(value: &str) -> LlvmIrStage {
 
 fn parse_lto_mode(value: &str) -> LtoMode {
     LtoMode::parse(value).unwrap_or_else(|err| cli_error(err))
+}
+
+fn parse_code_model(value: &str) -> CodeModel {
+    CodeModel::parse(value).unwrap_or_else(|err| cli_error(err))
 }
 
 fn parse_yes_no(value: &str, flag: &str) -> bool {
@@ -324,6 +328,10 @@ fn parse_args() -> CliAction {
         }
         if let Some(value) = consume_long_option_value(&arg, "--lto", &mut args, "mode") {
             options.lto_mode = parse_lto_mode(&value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--code-model", &mut args, "model") {
+            options.code_model = parse_code_model(&value);
             continue;
         }
         if let Some(value) = consume_long_option_value(&arg, "--debug-info", &mut args, "yes|no") {

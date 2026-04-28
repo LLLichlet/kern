@@ -205,6 +205,70 @@ root = \"src/main.rn\"
 }
 
 #[test]
+fn bin_submodule_analysis_uses_bin_root_for_current_package_imports() {
+    let root = unique_temp_dir("analysis_bin_submodule_root_import");
+    fs::create_dir_all(root.join("src/mem")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            "\
+[package]
+name = \"kernel\"
+version = \"0.1.0\"
+kern = \"{CURRENT_KERN_VERSION}\"
+
+[[bin]]
+name = \"kernel\"
+root = \"src/main.rn\"
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        "pub mod lock;\npub mod mem;\nfn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lock.rn"),
+        "pub type SpinLock = struct {};\npub const SPIN_UNLOCKED = SpinLock.{};\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/mem/init.rn"), "mod bitmap;\n").unwrap();
+    let bitmap_source = "use /lock.{SpinLock, SPIN_UNLOCKED};\n";
+    fs::write(root.join("src/mem/bitmap.rn"), bitmap_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&root.join("src/mem/bitmap.rn")).unwrap();
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: bitmap_source.to_string(),
+        },
+    });
+
+    let resolved = analysis.resolve_analysis(&uri).unwrap();
+    assert_eq!(
+        super::normalize_path(&resolved.input_file),
+        super::normalize_path(&root.join("src/main.rn"))
+    );
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .unwrap();
+    assert!(bundle.diagnostics.iter().all(|diagnostic| {
+        !diagnostic
+            .message
+            .contains("Unresolved import: cannot find module `lock`")
+    }));
+}
+
+#[test]
 fn resolve_analysis_applies_build_cfg_and_define_values() {
     let root = unique_temp_dir("analysis_craft_cfg_define");
     fs::create_dir_all(root.join("src")).unwrap();

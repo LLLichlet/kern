@@ -1,0 +1,32 @@
+use std.io;
+use std.test;
+
+type Point = struct {
+    x: i32,
+    y: i32,
+};
+
+fn translate(point: Point, dx: i32, dy: i32) Point {
+    return .{
+        x: point.x + dx,
+        y: point.y + dy,
+    };
+}
+
+fn main() i32 {
+    let origin = Point.{ x: 0, y: 0 };
+    let moved = translate(origin, 4, -2);
+    test.eq(moved.x, 4);
+    test.eq(moved.y, -2);
+
+    let mut total = i32.{0};
+    let mut i = i32.{0};
+    while (i < 5) {
+        total += i;
+        i += 1;
+    }
+
+    test.eq(total, 10);
+    io.println("basics: point=({}, {}), total={}", .{moved.x, moved.y, total});
+    return 0;
+}

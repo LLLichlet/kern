@@ -1,27 +1,22 @@
 use base.coll.String;
 use base.mem.alloc.GPA;
-use sys.mem.Page;
-use base.mem.Allocator;
 use std.io;
-use std.msg;
+use std.test;
+use sys.mem.Page;
 
 fn main() i32 {
-    let pa = Page.{}..&;
-    let gpa = GPA.{ backing: pa }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
 
-    let greeting = String.{}..&;
-    defer greeting.deinit(gpa);
+    let text = String.{}..&;
+    defer text.deinit(gpa);
     
-    let _ = greeting.push_str(gpa, "Hello");
-    let _ = greeting.push_str(gpa, ", ");
-    let _ = greeting.push_str(gpa, "Kern World!");
+    test.assert(text.push_str(gpa, "Hello"), "push_str should allocate", .{});
+    test.assert(text.push_str(gpa, ", "), "push_str should allocate", .{});
+    test.assert(text.push_str(gpa, "Kern"), "push_str should allocate", .{});
     
-    io.println("Message: {}", .{ greeting, });
+    test.eq(text.as_str(), "Hello, Kern");
+    io.println("string: {}", .{text,});
     
-    if (!(greeting == "Hello, Kern World!")) {
-        msg.panic("unexpected greeting contents", .{});
-    }
-    io.println("Match successful!", .{});
-
-    0
+    return 0;
 }

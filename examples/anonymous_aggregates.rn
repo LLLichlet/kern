@@ -1,56 +1,52 @@
+use std.io;
+use std.test;
+
+extern type CLayout = struct {
+    tag: u8,
+    value: u64,
+    flag: u16,
+};
+
+type NativeLayout = struct {
+    tag: u8,
+    value: u64,
+    flag: u16,
+};
+
 type Pair = struct {
     x: i32,
     y: i32,
 };
 
-type Word = union {
-    bytes: [4]u8,
-    int: i32,
-};
-
-extern type CWord = union {
-    bytes: [4]u8,
-    int: i32,
-};
-
-type Switch = enum {
-    Off = 0,
-    On = 1,
-    Error: i32,
-};
-
-fn sum_pair(p: struct { y: i32, x: i32 }) i32 {
-    p.x + p.y
+fn sum_pair(pair: struct { y: i32, x: i32 }) i32 {
+    return pair.x + pair.y;
 }
 
-fn read_word(word: union { int: i32, bytes: [4]u8 }) i32 {
-    word.int
+fn read_word(word: union { bytes: [4]u8, int: i32 }) i32 {
+    return word.int;
 }
 
-fn read_c_word(word: extern union { bytes: [4]u8, int: i32 }) i32 {
-    word.int
-}
-
-fn is_on(v: enum: u32 { Off = 0, On = 1, Error: i32 }) bool {
-    match (v) {
-        .Off => false,
-        .On => true,
-        .{ Error: _ } => false,
-    }
+fn classify(state: enum: u32 { Off = 0, On = 1, Error: i32 }) i32 {
+    return match (state) {
+        .Off => 0,
+        .On => 1,
+        .{ Error: code } => code,
+    };
 }
 
 fn main() i32 {
-    let pair = Pair.{ x: 4, y: 5 };
-    let word = Word.{ int: 9 };
-    let c_word = CWord.{ int: 11 };
-    let anon_word = union { bytes: [4]u8, int: i32 }.{ int: 13 };
-    let state = Switch.On;
-    let anon_state = enum: u32 { Off = 0, On = 1, Error: i32 }.On;
+    // Native structs may reorder fields for compact layout; extern structs keep
+    // C-compatible layout.
+    test.eq(@sizeOf[CLayout](), usize.{24});
+    test.eq(@sizeOf[NativeLayout](), usize.{16});
+    test.eq(@sizeOf[struct { tag: u8, value: u64, flag: u16 }](), usize.{16});
 
-    let total = sum_pair(pair) + read_word(word) + read_word(anon_word) + read_c_word(c_word);
-    if (is_on(state) and is_on(anon_state)) {
-        return total;
-    }
+    let pair = Pair.{ x: 4, y: 5 };
+    let word = union { bytes: [4]u8, int: i32 }.{ int: 11 };
+    let state = enum: u32 { Off = 0, On = 1, Error: i32 }.{ Error: 13 };
+
+    let total = sum_pair(pair) + read_word(word) + classify(state);
+    test.eq(total, 33);
+    io.println("anonymous_aggregates: total={}", .{total,});
     return 0;
 }
-

@@ -156,7 +156,9 @@ Kern syntax keeps ownership of effects visible:
 
 The repository carries small programs and larger incubator packages:
 
-- [examples/hello_world.rn](examples/hello_world.rn): minimal hosted program.
+- [examples](examples): Craft-managed first-learn examples. Build all of them
+  with `craft build --project-path examples --examples`, or run one with
+  `craft run --project-path examples --example hello_world`.
 - [incubator/json](incubator/json): parser, renderer, tests, examples, and
   benchmarks.
 - [incubator/bitio](incubator/bitio): bit-level reader/writer package.

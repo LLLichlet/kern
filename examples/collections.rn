@@ -1,0 +1,28 @@
+use base.coll.List;
+use base.mem.alloc.GPA;
+use std.io;
+use std.test;
+use sys.mem.Page;
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let list = List[i32].{}..&;
+    defer list.deinit(gpa);
+
+    test.assert(list.push(gpa, 3), "push should allocate", .{});
+    test.assert(list.push(gpa, 1), "push should allocate", .{});
+    test.assert(list.push(gpa, 2), "push should allocate", .{});
+
+    list.as_mut_slice().sort();
+    test.eq(list.as_slice(), [3]i32.{ 1, 2, 3 });
+
+    let found = test.expect_some(list.position(.[](value: i32) bool {
+        return value == 2;
+    }));
+    test.eq(found, usize.{1});
+
+    io.println("collections: len={}, middle index={}", .{list.len(), found});
+    return 0;
+}

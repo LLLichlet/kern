@@ -190,6 +190,15 @@ jobs:
         shell: powershell
         run: cargo test -p craft
 
+      - name: Build Examples With Craft (Unix)
+        if: runner.os != 'Windows'
+        run: craft build --project-path examples --examples
+
+      - name: Build Examples With Craft (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: craft build --project-path examples --examples
+
       - name: Check craft Release Source Policy (Unix)
         if: runner.os != 'Windows'
         run: python3 -m ops ci craft-policy

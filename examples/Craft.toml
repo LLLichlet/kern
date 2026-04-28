@@ -1,0 +1,24 @@
+[package]
+name = "examples"
+version = "0.7.2"
+kern = "0.7.2"
+publish = false
+description = "Small runnable Kern examples for first-time learners"
+readme = "README.md"
+license = "MIT"
+
+[example]
+roots = [
+    "hello_world.rn",
+    "basics.rn",
+    "control_flow.rn",
+    "anonymous_aggregates.rn",
+    "slices_and_iterators.rn",
+    "string.rn",
+    "collections.rn",
+    "test_closure.rn",
+    "closure_heap_escape.rn",
+    "sync.rn",
+    "io_and_files.rn",
+    "void.rn",
+]

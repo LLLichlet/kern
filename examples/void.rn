@@ -1,30 +1,23 @@
-use std.io.println;
+use std.io;
+use std.test;
+
 fn process_erased_ptr(ptr: *mut void) void {
     let offset_ptr = ptr + 10;
-    
-    if (ptr == offset_ptr) {
-        println("Success: *void pointer arithmetic scaled by 0 leaves address unchanged.", .{});
-    }
 
-    let val = ptr.*; 
-    if (val == void.{}) {
-        println("Success: Dereferencing *void yields void.{{}}", .{});
-    }
+    test.assert(ptr == offset_ptr, "*void pointer arithmetic is zero-sized", .{});
+    let _ = ptr.*;
 }
+
 fn main() i32 {
-    println("--- Kern Void ZST Test ---", .{});
-    let size = @sizeOf[void]();
-    let arr_size = @sizeOf[[100]void]();
-    println("Size of void: {} (Expected: 0)", .{size,});
-    println("Size of [100]void: {} (Expected: 0)", .{arr_size,});
+    test.eq(@sizeOf[void](), usize.{0});
+    test.eq(@sizeOf[[100]void](), usize.{0});
+
     let mut real_data = i32.{0xDEADBEEF};
-    let specific_ptr = real_data..&; // *mut i32
+    process_erased_ptr(real_data..&);
 
-    process_erased_ptr(specific_ptr);
+    let null_ptr = usize.{0} as *mut void;
+    test.assert(null_ptr == (usize.{0} as *mut void), "null erased pointer should compare equal", .{});
 
-    let null_ptr = *mut void.{0};
-    if (null_ptr == *mut void.{0}) {
-        println("Success: Created and compared NULL pointers using *void.{0}.", .{});
-    }
+    io.println("void: size={}, array size={}", .{@sizeOf[void](), @sizeOf[[100]void]()});
     return 0;
 }

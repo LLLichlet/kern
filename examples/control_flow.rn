@@ -1,0 +1,49 @@
+use std.io;
+use std.test;
+
+type Bit = enum {
+    Zero,
+    One,
+};
+
+type Leaf = enum {
+    Empty,
+    Full: Bit,
+};
+
+type Node = struct {
+    left: Leaf,
+    right: Leaf,
+};
+
+type Tree = enum {
+    Nil,
+    Branch: Node,
+};
+
+fn classify(tree: Tree) i32 {
+    return match (tree) {
+        .Nil => 0,
+        .{ Branch: Node.{ left: .Empty, right: .Empty } } => 1,
+        .{ Branch: Node.{ left: .Empty, right: .{ Full: .Zero } } } => 2,
+        .{ Branch: Node.{ left: .Empty, right: .{ Full: .One } } } => 3,
+        .{ Branch: Node.{ left: .{ Full: .Zero }, right: .Empty } } => 4,
+        .{ Branch: Node.{ left: .{ Full: .Zero }, right: .{ Full: .Zero } } } => 5,
+        .{ Branch: Node.{ left: .{ Full: .Zero }, right: .{ Full: .One } } } => 6,
+        .{ Branch: Node.{ left: .{ Full: .One }, right: .Empty } } => 7,
+        .{ Branch: Node.{ left: .{ Full: .One }, right: .{ Full: .Zero } } } => 8,
+        .{ Branch: Node.{ left: .{ Full: .One }, right: .{ Full: .One } } } => 9,
+    };
+}
+
+fn main() i32 {
+    let tree = Tree.{ Branch: .{
+        left: .{ Full: .One },
+        right: .{ Full: .One },
+    } };
+
+    let kind = classify(tree);
+    test.eq(kind, 9);
+    io.println("control_flow: classified tree as {}", .{kind,});
+    return 0;
+}

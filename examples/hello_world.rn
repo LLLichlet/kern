@@ -1,7 +1,7 @@
 use std.io;
 
 fn main() i32 {
-    // Single formatting arguments still need a trailing comma: `.{ value, }`.
+    // Hosted examples use the standard runtime and can print to stdout.
     io.println("hello, {}!", .{"world",});
-    0
+    return 0;
 }

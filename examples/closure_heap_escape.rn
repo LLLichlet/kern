@@ -1,48 +1,43 @@
 use base.mem.alloc.GPA;
-use sys.mem.Page;
 use base.mem.{Allocator, Layout, layout_of};
-use std.io.println;
+use std.io;
+use std.test;
+use sys.mem.Page;
 
-fn smash_stack() void {
-    let trash1 = i32.{1111};
-    let trash2 = i32.{2222};
-    let trash3 = i32.{3333};
-    println("Smashing stack with: {} {} {}", .{trash1, trash2, trash3});
-}
-type Tuple2 = struct {
-    _0: *Fn(i32) i32,
-    _1: Layout,
+type StoredClosure = struct {
+    callback: *Fn(i32) i32,
+    layout: Layout,
 };
-fn create_heap_closure(alc: *mut Allocator, factor: i32) Tuple2 {
+
+fn create_heap_closure(alloc: *mut Allocator, factor: i32) StoredClosure {
     let stack_closure = .[factor](val: i32) i32 {
         return factor * val;
     };
 
     let layout = layout_of[@typeOf(stack_closure)]();
 
-    let heap_raw = match (alc.alloc(layout)) {
-        .{ Some: s } => s as *mut @typeOf(stack_closure),
+    let heap_raw = match (alloc.alloc(layout)) {
+        .{ Some: storage } => storage as *mut @typeOf(stack_closure),
         .None => @trap(),
     };
 
     heap_raw.* = stack_closure;
-    .{
-        _0: *Fn(i32) i32.{ heap_raw }, 
-        _1: layout,
-    } 
+    return .{
+        callback: *Fn(i32) i32.{ heap_raw },
+        layout: layout,
+    };
 }
-fn main() i32 {
-    let pa = Page.{}..&;
-    let gpa = GPA.{ backing: pa }..&;
 
-    let t = create_heap_closure(gpa, 10);
-    let heap_cb = t._0;
-    defer gpa.free((#heap_cb) as *mut u8, t._1);
-    smash_stack();
-    
-    let result = heap_cb(5);
-    
-    println("Heap closure result: {}", .{result,}); // 50
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let stored = create_heap_closure(gpa, 10);
+    defer gpa.free((#stored.callback) as *mut u8, stored.layout);
+
+    let result = stored.callback(5);
+    test.eq(result, 50);
+
+    io.println("closure_heap_escape: result={}", .{result,});
     return 0;
 }
-

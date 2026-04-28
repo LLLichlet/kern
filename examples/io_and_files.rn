@@ -1,0 +1,24 @@
+use base.mem.alloc.GPA;
+use std.fs;
+use std.io;
+use std.test;
+use sys.mem.Page;
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let path = ".craft/example-atomic-write.txt";
+    let _ = fs.remove_file_if_exists(gpa, path);
+
+    let written = test.expect_ok(fs.write_all_atomic(gpa, path, "kern examples\n"));
+    test.eq(written, usize.{14});
+
+    let mut text = test.expect_ok(fs.read_to_string(gpa, path));
+    defer text..&.deinit(gpa);
+    test.eq(text.&.as_str(), "kern examples\n");
+
+    let _ = fs.remove_file_if_exists(gpa, path);
+    io.println("io_and_files: wrote and read {} bytes", .{written,});
+    return 0;
+}

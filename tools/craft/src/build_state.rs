@@ -135,9 +135,15 @@ fn collect_state_paths(paths: &[PathBuf]) -> Result<Vec<ActionStatePath>> {
     let mut entries = Vec::with_capacity(paths.len());
     for path in paths {
         let Some((digest, len, modified_nanos)) = digest_path(path)? else {
+            let paths = paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
             return Err(Error::Execution(format!(
-                "cannot record build state for missing path `{}`",
-                path.display()
+                "cannot record build state for missing path `{}` among [{}]",
+                path.display(),
+                paths
             )));
         };
         entries.push(ActionStatePath {

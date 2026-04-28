@@ -97,7 +97,7 @@ fn runtime_emit_multi_linker_input_dir(profile: &crate::script::ScriptProfile) -
 
 fn runtime_driver_mode(command: crate::script::ScriptCommand) -> DriverMode {
     match command {
-        crate::script::ScriptCommand::Check => DriverMode::AnalyzeOnly,
+        crate::script::ScriptCommand::Check => DriverMode::CompileOnly,
         _ => DriverMode::CompileOnly,
     }
 }
@@ -260,44 +260,32 @@ pub(super) fn build_std_package(
         driver_families,
         execution_summary,
     )?;
-    let built_rt = if command == crate::script::ScriptCommand::Check {
-        None
-    } else {
-        Some(build_rt_package(
-            workspace_root,
-            profile,
-            command,
-            driver_families,
-            execution_summary,
-            &built_sys,
-        )?)
-    };
-    let hosted_rt_entry_object_path = if command == crate::script::ScriptCommand::Check {
-        PathBuf::new()
-    } else {
-        build_rt_entry_package(
-            workspace_root,
-            profile,
-            command,
-            driver_families,
-            execution_summary,
-            &built_sys,
-            RtEntryFlavor::Hosted,
-        )?
-    };
-    let freestanding_rt_entry_object_path = if command == crate::script::ScriptCommand::Check {
-        PathBuf::new()
-    } else {
-        build_rt_entry_package(
-            workspace_root,
-            profile,
-            command,
-            driver_families,
-            execution_summary,
-            &built_sys,
-            RtEntryFlavor::Freestanding,
-        )?
-    };
+    let built_rt = Some(build_rt_package(
+        workspace_root,
+        profile,
+        command,
+        driver_families,
+        execution_summary,
+        &built_sys,
+    )?);
+    let hosted_rt_entry_object_path = build_rt_entry_package(
+        workspace_root,
+        profile,
+        command,
+        driver_families,
+        execution_summary,
+        &built_sys,
+        RtEntryFlavor::Hosted,
+    )?;
+    let freestanding_rt_entry_object_path = build_rt_entry_package(
+        workspace_root,
+        profile,
+        command,
+        driver_families,
+        execution_summary,
+        &built_sys,
+        RtEntryFlavor::Freestanding,
+    )?;
 
     let object_path = profile_root
         .join("obj")

@@ -110,8 +110,9 @@ fn ctrl_w(state: *mut editor.Editor, gpa: *mut GPA, key: u8) void {
 }
 
 fn expect_cursor(state: *mut editor.Editor, row: usize, col: usize, label: []u8) void {
-    test.assert(state.cursor_row() == row, label, .{});
-    test.assert(state.cursor_col() == col, label, .{});
+    let _ = label;
+    test.assert(state.cursor_row() == row);
+    test.assert(state.cursor_col() == col);
 }
 
 fn run_ex_command(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
@@ -122,7 +123,7 @@ fn run_ex_command(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
 
 fn smoke_temp_root(gpa: *mut GPA) String {
     let root = String.{}..&;
-    test.assert(root.push_str(gpa, "t"), "expected smoke temp root allocation", .{});
+    test.assert(root.push_str(gpa, "t"));
     let _ = test.expect_ok(fs.create_dir_all(gpa, root.as_str()));
     return root.*;
 }
@@ -137,70 +138,70 @@ fn smoke_temp_path(gpa: *mut GPA, name: []u8) String {
 fn run_edit_command(state: *mut editor.Editor, gpa: *mut GPA, path: []u8) void {
     let command = String.{}..&;
     defer command.deinit(gpa);
-    test.assert(command.push_str(gpa, "e "), "expected edit command prefix allocation", .{});
-    test.assert(command.push_str(gpa, path), "expected edit command path allocation", .{});
+    test.assert(command.push_str(gpa, "e "));
+    test.assert(command.push_str(gpa, path));
     run_ex_command(state, gpa, command.as_str());
 }
 
 fn check_command_parse() void {
     match (command.parse("q")) {
         .Quit => {}
-        _ => test.fail("expected :q to parse as quit", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("q!")) {
         .ForceQuit => {}
-        _ => test.fail("expected :q! to parse as force quit", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("w tmp.txt")) {
         .{ WriteAs: path } => test.eq(path, "tmp.txt"),
-        _ => test.fail("expected :w <path> to parse as write-as", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("w")) {
         .Write => {}
-        _ => test.fail("expected :w to parse as write", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("wq")) {
         .WriteQuit => {}
-        _ => test.fail("expected :wq to parse as write-quit", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("wq!")) {
         .WriteQuit => {}
-        _ => test.fail("expected :wq! to parse as write-quit", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("split")) {
         .Split => {}
-        _ => test.fail("expected :split to parse as split", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("vsplit")) {
         .VSplit => {}
-        _ => test.fail("expected :vsplit to parse as vertical split", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("close")) {
         .CloseWindow => {}
-        _ => test.fail("expected :close to parse as close-window", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("only")) {
         .OnlyWindow => {}
-        _ => test.fail("expected :only to parse as only-window", .{}),
+        _ => test.fail(),
     }
 
     match (command.parse("set number")) {
-        .{ SetNumber: enabled } => test.assert(enabled, "expected :set number to enable numbers", .{}),
-        _ => test.fail("expected :set number to parse as number option", .{}),
+        .{ SetNumber: enabled } => test.assert(enabled),
+        _ => test.fail(),
     }
 
     match (command.parse("set relativenumber")) {
-        .{ SetRelativeNumber: enabled } => test.assert(enabled, "expected :set relativenumber to enable relative numbers", .{}),
-        _ => test.fail("expected :set relativenumber to parse as relative-number option", .{}),
+        .{ SetRelativeNumber: enabled } => test.assert(enabled),
+        _ => test.fail(),
     }
 }
 
@@ -211,9 +212,9 @@ fn check_buffer_editing() void {
     let text = test.expect_ok(buffer.empty(gpa, ""))..&;
     defer text.deinit(gpa);
 
-    test.assert(text.insert_byte(gpa, 0, 0, b'a'), "expected insert a to succeed", .{});
-    test.assert(text.insert_byte(gpa, 0, 1, b'b'), "expected insert b to succeed", .{});
-    test.assert(text.split_line(gpa, 0, 1), "expected split to succeed", .{});
+    test.assert(text.insert_byte(gpa, 0, 0, b'a'));
+    test.assert(text.insert_byte(gpa, 0, 1, b'b'));
+    test.assert(text.split_line(gpa, 0, 1));
     test.eq(text.line_count(), 2);
     test.eq(text.line(0), "a");
     test.eq(text.line(1), "b");
@@ -224,26 +225,26 @@ fn check_buffer_editing() void {
     test.eq(text.line_count(), 1);
     test.eq(text.line(0), "ab");
 
-    test.assert(text.delete_at(gpa, 0, 1), "expected delete at cursor to succeed", .{});
+    test.assert(text.delete_at(gpa, 0, 1));
     test.eq(text.line(0), "a");
 }
 
 fn check_escape_decode() void {
     match (input.map_csi_tilde(3)) {
         .Delete => {}
-        _ => test.fail("expected CSI 3~ to decode as delete", .{}),
+        _ => test.fail(),
     }
     match (input.map_csi_tilde(5)) {
         .PageUp => {}
-        _ => test.fail("expected CSI 5~ to decode as page up", .{}),
+        _ => test.fail(),
     }
     match (input.map_csi_final(b'H')) {
         .Home => {}
-        _ => test.fail("expected CSI H to decode as home", .{}),
+        _ => test.fail(),
     }
     match (input.map_csi_final(b'F')) {
         .End => {}
-        _ => test.fail("expected CSI F to decode as end", .{}),
+        _ => test.fail(),
     }
 }
 
@@ -254,8 +255,8 @@ fn check_editor_resize_and_command_cursor() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(40, 120), "expected initial resize to report change", .{});
-    test.assert(!state.resize(40, 120), "expected stable resize to report no change", .{});
+    test.assert(state.resize(40, 120));
+    test.assert(!state.resize(40, 120));
 
     state.handle_key(gpa, .{ Byte: b':' });
     state.handle_key(gpa, .{ Byte: b'w' });
@@ -265,7 +266,7 @@ fn check_editor_resize_and_command_cursor() void {
     state.handle_key(gpa, .End);
     state.handle_key(gpa, .Backspace);
     state.handle_key(gpa, .Escape);
-    test.assert(!state.should_quit(), "expected command editing path not to quit editor", .{});
+    test.assert(!state.should_quit());
 }
 
 fn check_editor_normal_mode_subset() void {
@@ -372,7 +373,7 @@ fn check_editor_extended_normal_motions() void {
     state.handle_key(gpa, .{ Byte: b'k' });
     expect_cursor(state, 1, 4, "expected preferred column to restore on longer line");
 
-    test.assert(state.resize(5, 80), "expected resize for screen motion test", .{});
+    test.assert(state.resize(5, 80));
     state.handle_key(gpa, .{ Byte: b'g' });
     state.handle_key(gpa, .{ Byte: b'g' });
     state.handle_key(gpa, .CtrlD);
@@ -405,7 +406,7 @@ fn check_command_line_viewport_render() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(2, 8), "expected resize for render viewport test", .{});
+    test.assert(state.resize(2, 8));
     state.handle_key(gpa, .{ Byte: b':' });
     let mut i = usize.{0};
     while (i < #"abcdefghij") {
@@ -415,9 +416,9 @@ fn check_command_line_viewport_render() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true), "expected command viewport render to succeed", .{});
-    test.assert(contains(frame.as_str(), ":efghij"), "expected long command render to scroll visible slice", .{});
-    test.assert(contains(frame.as_str(), "\x1b[2;8H"), "expected command cursor to remain visible at right edge", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), ":efghij"));
+    test.assert(contains(frame.as_str(), "\x1b[2;8H"));
 }
 
 fn check_insert_tab_and_line_number_render() void {
@@ -427,7 +428,7 @@ fn check_insert_tab_and_line_number_render() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(8, 32), "expected resize for tab and number render test", .{});
+    test.assert(state.resize(8, 32));
 
     state.handle_key(gpa, .{ Byte: b'i' });
     state.handle_key(gpa, .{ Byte: b'\t' });
@@ -451,10 +452,10 @@ fn check_insert_tab_and_line_number_render() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true), "expected line number render to succeed", .{});
-    test.assert(contains(frame.as_str(), "1     a"), "expected relative numbering to show distance for first line", .{});
-    test.assert(contains(frame.as_str(), "2 b"), "expected current line to keep absolute number when number is enabled", .{});
-    test.assert(contains(frame.as_str(), "1 c"), "expected relative numbering to show distance for later lines", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "1     a"));
+    test.assert(contains(frame.as_str(), "2 b"));
+    test.assert(contains(frame.as_str(), "1 c"));
 }
 
 fn check_split_window_and_window_commands() void {
@@ -464,7 +465,7 @@ fn check_split_window_and_window_commands() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(12, 40), "expected resize for split-window test", .{});
+    test.assert(state.resize(12, 40));
 
     state.handle_key(gpa, .{ Byte: b'i' });
     type_text(state, gpa, "one");
@@ -489,15 +490,15 @@ fn check_split_window_and_window_commands() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true), "expected split-window render to succeed", .{});
-    test.assert(contains(frame.as_str(), "[window W2/2]"), "expected render to include the inactive lower window separator", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"), "expected status line to show active editor window label", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "[window W2/2]"));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"));
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'o' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected :only-style window close render to succeed", .{});
-    test.assert(!contains(frame.as_str(), "[window W2/2]"), "expected only-window command to remove the second split", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(!contains(frame.as_str(), "[window W2/2]"));
 }
 
 fn check_split_window_keeps_window_local_buffers() void {
@@ -523,7 +524,7 @@ fn check_split_window_keeps_window_local_buffers() void {
     let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(10, 48), "expected resize for window-local buffer test", .{});
+    test.assert(state.resize(10, 48));
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b's' });
@@ -532,15 +533,15 @@ fn check_split_window_keeps_window_local_buffers() void {
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true), "expected render after split edit to succeed", .{});
-    test.assert(contains(frame.as_str(), path_b.as_str()), "expected active lower window to track the edited file", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), path_b.as_str()));
     test.eq(state.line(0), "beta");
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after switching back to upper window to succeed", .{});
-    test.assert(contains(frame.as_str(), path_a.as_str()), "expected upper window to keep the original file", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), path_a.as_str()));
     test.eq(state.line(0), "alpha");
 
     state.handle_key(gpa, .CtrlW);
@@ -550,8 +551,8 @@ fn check_split_window_keeps_window_local_buffers() void {
     state.handle_key(gpa, .{ Byte: b'q' });
 
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after closing lower window to succeed", .{});
-    test.assert(contains(frame.as_str(), path_a.as_str()), "expected remaining window to keep the original file after closing the edited split", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), path_a.as_str()));
     test.eq(state.line(0), "alpha");
 }
 
@@ -562,7 +563,7 @@ fn check_multi_window_cycle_and_close() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(18, 48), "expected resize for multi-window test", .{});
+    test.assert(state.resize(18, 48));
 
     state.handle_key(gpa, .{ Byte: b'i' });
     type_text(state, gpa, "one");
@@ -582,29 +583,29 @@ fn check_multi_window_cycle_and_close() void {
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true), "expected three-window render to succeed", .{});
-    test.assert(contains(frame.as_str(), "[window W2/3]"), "expected render to include the second inactive window separator", .{});
-    test.assert(contains(frame.as_str(), "[WINDOW W3/3]"), "expected render to include the active third window separator", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected status line to show the third active window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "[window W2/3]"));
+    test.assert(contains(frame.as_str(), "[WINDOW W3/3]"));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"));
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after cycling to first window to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w w to wrap back to the first window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"));
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after cycling to second window to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"), "expected ctrl-w w to advance to the second window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"));
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'q' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after closing one of three windows to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected closing the middle window to keep focus on the replacement second window", .{});
-    test.assert(contains(frame.as_str(), "[window W2/2]") or contains(frame.as_str(), "[WINDOW W2/2]"), "expected two-window layout after closing one split", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"));
+    test.assert(contains(frame.as_str(), "[window W2/2]") or contains(frame.as_str(), "[WINDOW W2/2]"));
 }
 
 fn check_ctrl_w_navigation_commands() void {
@@ -614,7 +615,7 @@ fn check_ctrl_w_navigation_commands() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(16, 48), "expected resize for ctrl-w navigation test", .{});
+    test.assert(state.resize(16, 48));
 
     state.handle_key(gpa, .{ Byte: b'i' });
     type_text(state, gpa, "one");
@@ -627,34 +628,34 @@ fn check_ctrl_w_navigation_commands() void {
     defer frame.deinit(gpa);
 
     ctrl_w(state, gpa, b'p');
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w p to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"), "expected ctrl-w p to jump to the previous active window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"));
 
     ctrl_w(state, gpa, b'p');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after second ctrl-w p to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected ctrl-w p to toggle back to the newer window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"));
 
     state.handle_key(gpa, .{ Byte: b'2' });
     ctrl_w(state, gpa, b'w');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after counted ctrl-w w to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"), "expected 2 ctrl-w w to jump to the second window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"));
 
     ctrl_w(state, gpa, b'W');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w W to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w W to cycle backward", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"));
 
     ctrl_w(state, gpa, b'b');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w b to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected ctrl-w b to jump to the bottom-right window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"));
 
     ctrl_w(state, gpa, b't');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w t to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"), "expected ctrl-w t to jump to the top-left window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"));
 }
 
 fn check_window_and_layout_slots_are_reused() void {
@@ -664,7 +665,7 @@ fn check_window_and_layout_slots_are_reused() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(12, 48), "expected resize for slot reuse test", .{});
+    test.assert(state.resize(12, 48));
 
     let mut i = 0;
     while (i < 8) {
@@ -701,52 +702,52 @@ fn check_vsplit_layout_and_window_resize_commands() void {
     let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(8, 48), "expected resize for vsplit test", .{});
+    test.assert(state.resize(8, 48));
     run_ex_command(state, gpa, "vsplit");
     run_edit_command(state, gpa, path_b.as_str());
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true), "expected vsplit render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true));
     let text = frame.as_str();
     let left_index = find_index(text, "left");
     let right_index = find_index(text, "right");
     let first_newline = find_byte(text, b'\n');
-    test.assert(left_index < first_newline and right_index < first_newline, "expected vertical layout to render both windows on the first row", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected status line to show the second active window in vsplit", .{});
+    test.assert(left_index < first_newline and right_index < first_newline);
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"));
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'h' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w h to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"), "expected ctrl-w h to focus the left window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"));
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'l' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w l to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected ctrl-w l to focus the right window", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"));
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'>' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after growing vsplit window to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true));
     let grown = frame.as_str();
     let left_grown = find_index(grown, "left");
     let right_grown = find_index(grown, "right");
     let first_grown_newline = find_byte(grown, b'\n');
-    test.assert(left_grown < first_grown_newline and right_grown < first_grown_newline, "expected resize to preserve the vertical layout on the first row", .{});
+    test.assert(left_grown < first_grown_newline and right_grown < first_grown_newline);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'=' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after equalizing windows to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true));
     let equalized = frame.as_str();
     let left_equalized = find_index(equalized, "left");
     let right_equalized = find_index(equalized, "right");
     let first_equalized_newline = find_byte(equalized, b'\n');
-    test.assert(left_equalized < first_equalized_newline and right_equalized < first_equalized_newline, "expected equalize to keep both vsplit windows on the first row", .{});
+    test.assert(left_equalized < first_equalized_newline and right_equalized < first_equalized_newline);
 }
 
 fn check_nested_split_tree_layout() void {
@@ -779,7 +780,7 @@ fn check_nested_split_tree_layout() void {
     let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(12, 52), "expected resize for nested split tree test", .{});
+    test.assert(state.resize(12, 52));
     run_ex_command(state, gpa, "vsplit");
     run_edit_command(state, gpa, path_top.as_str());
     state.handle_key(gpa, .CtrlW);
@@ -789,15 +790,15 @@ fn check_nested_split_tree_layout() void {
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true), "expected nested split tree render to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true));
     let first = line_slice(frame.as_str(), 0);
     let bottom_line = find_line_with(frame.as_str(), "B0", 10);
     let nested_line = line_slice(frame.as_str(), bottom_line);
-    test.assert(contains(first, "L0") and contains(first, "T0"), "expected first row to show left pane with top-right pane", .{});
-    test.assert(find_line_with(frame.as_str(), "L2", 10) < 10, "expected left pane to remain visible below the nested right split", .{});
-    test.assert(bottom_line > 0 and bottom_line < 10, "expected bottom-right pane to render on a later editor row", .{});
-    test.assert(contains(nested_line, "B0") and !contains(nested_line, "T0"), "expected bottom-right pane to render independently under the top-right pane", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected active window label to reflect the nested third window", .{});
+    test.assert(contains(first, "L0") and contains(first, "T0"));
+    test.assert(find_line_with(frame.as_str(), "L2", 10) < 10);
+    test.assert(bottom_line > 0 and bottom_line < 10);
+    test.assert(contains(nested_line, "B0") and !contains(nested_line, "T0"));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"));
 }
 
 fn check_ctrl_w_rearrange_commands() void {
@@ -830,7 +831,7 @@ fn check_ctrl_w_rearrange_commands() void {
     let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(12, 52), "expected resize for ctrl-w rearrange test", .{});
+    test.assert(state.resize(12, 52));
     run_ex_command(state, gpa, "vsplit");
     run_edit_command(state, gpa, path_top.as_str());
     ctrl_w(state, gpa, b's');
@@ -840,32 +841,32 @@ fn check_ctrl_w_rearrange_commands() void {
     defer frame.deinit(gpa);
 
     ctrl_w(state, gpa, b'H');
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w H to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true));
     let first_left = line_slice(frame.as_str(), 0);
-    test.assert(contains(first_left, "B0") and contains(first_left, "L0"), "expected ctrl-w H to keep both active and existing content visible", .{});
-    test.assert(find_index(first_left, "B0") < find_index(first_left, "L0"), "expected ctrl-w H to move the active window to the far left", .{});
+    test.assert(contains(first_left, "B0") and contains(first_left, "L0"));
+    test.assert(find_index(first_left, "B0") < find_index(first_left, "L0"));
 
     ctrl_w(state, gpa, b'L');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w L to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true));
     let first_right = line_slice(frame.as_str(), 0);
-    test.assert(contains(first_right, "B0") and contains(first_right, "L0"), "expected ctrl-w L to keep both active and existing content visible", .{});
-    test.assert(find_index(first_right, "L0") < find_index(first_right, "B0"), "expected ctrl-w L to move the active window to the far right", .{});
+    test.assert(contains(first_right, "B0") and contains(first_right, "L0"));
+    test.assert(find_index(first_right, "L0") < find_index(first_right, "B0"));
 
     ctrl_w(state, gpa, b'K');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w K to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true));
     let first_top = line_slice(frame.as_str(), 0);
-    test.assert(contains(first_top, "B0"), "expected ctrl-w K to move the active window to the top row", .{});
-    test.assert(!contains(first_top, "L0"), "expected ctrl-w K top row to belong to the moved active window", .{});
+    test.assert(contains(first_top, "B0"));
+    test.assert(!contains(first_top, "L0"));
 
     ctrl_w(state, gpa, b'J');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after ctrl-w J to succeed", .{});
+    test.assert(state.render_into(gpa, frame, true));
     let first_bottom = line_slice(frame.as_str(), 0);
     let moved_line = find_line_with(frame.as_str(), "B0", 10);
-    test.assert(contains(first_bottom, "L0"), "expected ctrl-w J to leave the original layout at the top", .{});
-    test.assert(moved_line > 0 and moved_line < 10, "expected ctrl-w J to move the active window below the original layout", .{});
+    test.assert(contains(first_bottom, "L0"));
+    test.assert(moved_line > 0 and moved_line < 10);
 }
 
 fn check_additional_jump_keys() void {
@@ -875,7 +876,7 @@ fn check_additional_jump_keys() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(6, 40), "expected resize for jump-key test", .{});
+    test.assert(state.resize(6, 40));
 
     state.handle_key(gpa, .{ Byte: b'i' });
     type_text(state, gpa, "(abc)");
@@ -912,7 +913,7 @@ fn check_prompt_history_navigation() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(8, 24), "expected resize for prompt history test", .{});
+    test.assert(state.resize(8, 24));
 
     state.handle_key(gpa, .{ Byte: b':' });
     type_text(state, gpa, "w");
@@ -924,13 +925,13 @@ fn check_prompt_history_navigation() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true), "expected ex history render to succeed", .{});
-    test.assert(contains(frame.as_str(), ":w"), "expected arrow-up to recall previous ex command", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), ":w"));
 
     state.handle_key(gpa, .ArrowDown);
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected ex draft restore render to succeed", .{});
-    test.assert(contains(frame.as_str(), ":draft"), "expected arrow-down to restore prompt draft", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), ":draft"));
     state.handle_key(gpa, .Escape);
 
     state.handle_key(gpa, .{ Byte: b'>' });
@@ -939,8 +940,8 @@ fn check_prompt_history_navigation() void {
     state.handle_key(gpa, .{ Byte: b'>' });
     state.handle_key(gpa, .ArrowUp);
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected shell history render to succeed", .{});
-    test.assert(contains(frame.as_str(), ">echo prompt_history"), "expected arrow-up to recall previous shell command", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), ">echo prompt_history"));
 }
 
 fn check_cursor_shape_changes_with_mode() void {
@@ -950,24 +951,24 @@ fn check_cursor_shape_changes_with_mode() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(4, 16), "expected resize for cursor shape test", .{});
+    test.assert(state.resize(4, 16));
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true), "expected normal-mode render to succeed", .{});
-    test.assert(contains(frame.as_str(), "\x1b[2 q"), "expected normal mode to render block cursor", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "\x1b[2 q"));
 
     state.handle_key(gpa, .{ Byte: b'i' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected insert-mode render to succeed", .{});
-    test.assert(contains(frame.as_str(), "\x1b[6 q"), "expected insert mode to render bar cursor", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "\x1b[6 q"));
 
     state.handle_key(gpa, .Escape);
     state.handle_key(gpa, .{ Byte: b':' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected command-mode render to succeed", .{});
-    test.assert(contains(frame.as_str(), "\x1b[6 q"), "expected command mode to render bar cursor", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "\x1b[6 q"));
 }
 
 fn check_shell_prompt_and_output_render() void {
@@ -977,7 +978,7 @@ fn check_shell_prompt_and_output_render() void {
     let state = test.expect_ok(editor.empty(gpa))..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(8, 64), "expected resize for shell render test", .{});
+    test.assert(state.resize(8, 64));
     state.handle_key(gpa, .{ Byte: b'>' });
     type_text(state, gpa, "echo hi");
     state.handle_key(gpa, .Enter);
@@ -987,37 +988,37 @@ fn check_shell_prompt_and_output_render() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true), "expected shell render to succeed", .{});
-    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 2/2] > echo two [exit 0]"), "expected output separator to include temp history position and shell command", .{});
-    test.assert(contains(frame.as_str(), "two"), "expected latest shell output to render in split pane", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [OUTPUT] --"), "expected status line to show output pane focus", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 2/2] > echo two [exit 0]"));
+    test.assert(contains(frame.as_str(), "two"));
+    test.assert(contains(frame.as_str(), "-- NORMAL [OUTPUT] --"));
 
     state.handle_key(gpa, .{ Byte: b'[' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected previous-output render to succeed", .{});
-    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"), "expected output history recall to show earlier shell entry", .{});
-    test.assert(contains(frame.as_str(), "hi"), "expected recalled shell output to render in split pane", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"));
+    test.assert(contains(frame.as_str(), "hi"));
 
     state.handle_key(gpa, .{ Byte: b'q' });
 
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after hiding shell output to succeed", .{});
-    test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"), "expected hiding output to remove split separator", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR] --"), "expected status line to return focus to editor pane", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"));
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR] --"));
 
     state.handle_key(gpa, .{ Byte: b'\t' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after reopening shell output to succeed", .{});
-    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"), "expected tab to reopen the selected temporary shell output", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"));
 
     state.handle_key(gpa, .{ Byte: b'\t' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected editor-focus render with visible shell output to succeed", .{});
-    test.assert(contains(frame.as_str(), "[output temp 1/2] > echo hi [exit 0]"), "expected inactive output separator to remain visible while editing", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(contains(frame.as_str(), "[output temp 1/2] > echo hi [exit 0]"));
     state.handle_key(gpa, .{ Byte: b'Q' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true), "expected render after closing shell output from editor to succeed", .{});
-    test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"), "expected editor-side close to hide the temporary shell output", .{});
+    test.assert(state.render_into(gpa, frame, true));
+    test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"));
 }
 
 fn main() i32 {

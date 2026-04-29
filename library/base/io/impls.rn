@@ -6,14 +6,14 @@ use base.coll.{List, String};
 /// Formats a byte slice as raw text.
 impl []u8 : Printable {
     pub fn fmt(writer: *mut Writer) void {
-        let _ = writer.write(self);
+        _ = writer.write(self);
     }
 }
 
 fn write_printable_slice[T](items: []T, writer: *mut Writer) void
     where *T: Printable,
 {
-    let _ = writer.write("[");
+    _ = writer.write("[");
 
     let len = #items;
     let mut i = usize.{0};
@@ -22,13 +22,13 @@ fn write_printable_slice[T](items: []T, writer: *mut Writer) void
         item.&.fmt(writer);
 
         if (i + usize.{1} < len) {
-            let _ = writer.write(", ");
+            _ = writer.write(", ");
         }
 
         i += 1;
     }
 
-    let _ = writer.write("]");
+    _ = writer.write("]");
 }
 
 impl[T] []T : Printable
@@ -42,7 +42,7 @@ impl[T] []T : Printable
 /// Writes an unsigned integer in base 10.
 fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
     if (val == 0) {
-        let _ = writer.write("0");
+        _ = writer.write("0");
         return;
     }
 
@@ -61,13 +61,13 @@ fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
 
     // Writes only the populated suffix.
     let valid_slice = buf.[i .. 20];
-    let _ = writer.write(valid_slice);
+    _ = writer.write(valid_slice);
 }
 
 /// Writes a signed integer in base 10.
 fn write_i64_to_writer(val: i64, writer: *mut Writer) void {
     if (val < 0) {
-        let _ = writer.write("-");
+        _ = writer.write("-");
         // Preserves the bit-pattern while converting to the unsigned domain.
         let unsigned_val = val as u64;
         // Computes the two's-complement magnitude and handles `i64::MIN`.
@@ -142,16 +142,16 @@ impl *isize : Printable {
 impl *bool : Printable {
     pub fn fmt(writer: *mut Writer) void {
         if (self.*) {
-            let _ = writer.write("true");
+            _ = writer.write("true");
         } else {
-            let _ = writer.write("false");
+            _ = writer.write("false");
         }
     }
 }
 
 impl *String : Printable {
     pub fn fmt(writer: *mut Writer) void {
-        let _ = writer.write(self.as_str());
+        _ = writer.write(self.as_str());
     }
 }
 
@@ -159,17 +159,17 @@ impl[T] *List[T] : Printable
     where *T: Printable,
 {
     pub fn fmt(writer: *mut Writer) void {
-        let _ = writer.write("<List len=");
+        _ = writer.write("<List len=");
 
         let len = self.len();
         len.&.fmt(writer);
 
-        let _ = writer.write(", cap=");
+        _ = writer.write(", cap=");
 
         let capacity = self.capacity();
         capacity.&.fmt(writer);
 
-        let _ = writer.write(", items: [");
+        _ = writer.write(", items: [");
 
         let items = self.as_slice();
         let mut i = usize.{0};
@@ -178,12 +178,12 @@ impl[T] *List[T] : Printable
             item.&.fmt(writer);
 
             if (i + usize.{1} < self.len()) {
-                let _ = writer.write(", ");
+                _ = writer.write(", ");
             }
 
             i += 1;
         }
 
-        let _ = writer.write("]>");
+        _ = writer.write("]>");
     }
 }

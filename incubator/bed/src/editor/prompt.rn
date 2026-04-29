@@ -105,7 +105,7 @@ impl *mut Editor {
         }
 
         let text = history.as_slice().[self.prompt_history_index].&.as_str();
-        let _ = self.set_command_line_text(alloc, text);
+        _ = self.set_command_line_text(alloc, text);
     }
 
     fn prompt_history_next(alloc: *mut Allocator) void {
@@ -117,12 +117,12 @@ impl *mut Editor {
         if (self.prompt_history_index + 1 < history.len()) {
             self.prompt_history_index += 1;
             let text = history.as_slice().[self.prompt_history_index].&.as_str();
-            let _ = self.set_command_line_text(alloc, text);
+            _ = self.set_command_line_text(alloc, text);
             return;
         }
 
         self.has_prompt_history_index = false;
-        let _ = self.set_command_line_text(alloc, self.prompt_history_draft.&.as_str());
+        _ = self.set_command_line_text(alloc, self.prompt_history_draft.&.as_str());
         self.prompt_history_draft..&.clear();
     }
 
@@ -329,7 +329,7 @@ impl *mut Editor {
             },
             .ForceQuit => self.wants_quit = true,
             .Write => {
-                let _ = self.save_current(alloc);
+                _ = self.save_current(alloc);
             },
             .WriteQuit => {
                 if (self.save_current(alloc)) {
@@ -342,7 +342,7 @@ impl *mut Editor {
                 if (!text_buffer.set_path(alloc, path)) {
                     self.set_message(alloc, "out of memory");
                 } else {
-                    let _ = self.save_current(alloc);
+                    _ = self.save_current(alloc);
                 }
             },
             .Split => self.split_window(alloc, .Rows),
@@ -364,7 +364,7 @@ impl *mut Editor {
         let .{ Ok: mut capture } = proc.shell_capture(alloc, command_text) else {
             .{ Err: err } => {
                 self.set_shell_error_message(alloc, err);
-                let _ = self.install_output(alloc, command_text, "shell command failed", -1);
+                _ = self.install_output(alloc, command_text, "shell command failed", -1);
                 self.command_line..&.clear();
                 self.finish_command();
                 return;
@@ -432,7 +432,7 @@ impl *mut Editor {
         if (self.command_col == 0) {
             return;
         }
-        let _ = self.command_line..&.remove_char(self.command_col - 1);
+        _ = self.command_line..&.remove_char(self.command_col - 1);
         self.command_col -= 1;
     }
 
@@ -440,7 +440,7 @@ impl *mut Editor {
         if (self.command_col >= self.command_line.&.len()) {
             return;
         }
-        let _ = self.command_line..&.remove_char(self.command_col);
+        _ = self.command_line..&.remove_char(self.command_col);
     }
 
     fn command_view_col(cols: usize) usize {

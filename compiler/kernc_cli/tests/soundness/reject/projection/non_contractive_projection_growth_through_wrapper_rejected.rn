@@ -18,6 +18,6 @@ impl X: Loop {
 }
 
 fn main() i32 {
-    let _ = @sizeOf[X.Loop.Out]();
+    _ = @sizeOf[X.Loop.Out]();
     return 0;
 }

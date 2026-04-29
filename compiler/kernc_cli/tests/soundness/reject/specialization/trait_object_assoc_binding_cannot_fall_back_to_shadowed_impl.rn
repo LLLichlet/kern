@@ -27,6 +27,6 @@ impl *X: Factory[4] {
 
 fn main() i32 {
     let x = X.{};
-    let _ = *Factory[4, Out = i32].{ x.& };
+    _ = *Factory[4, Out = i32].{ x.& };
     return 0;
 }

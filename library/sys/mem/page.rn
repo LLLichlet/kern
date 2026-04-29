@@ -57,7 +57,7 @@ impl *mut Page : Allocator{
                 return .None;
             }
             if ((raw as usize) == 0) {
-                let _ = os.darwin.munmap(raw, layout.size);
+                _ = os.darwin.munmap(raw, layout.size);
                 return .None;
             }
             return .{ Some: raw as *mut u8 };
@@ -85,15 +85,15 @@ impl *mut Page : Allocator{
         }
 
         #[if(os == "linux")] {
-            let _ = os.linux.munmap(ptr as usize, layout.size);
+            _ = os.linux.munmap(ptr as usize, layout.size);
         };
 
         #[if(os == "darwin")] {
-            let _ = os.darwin.munmap(ptr as *mut void, layout.size);
+            _ = os.darwin.munmap(ptr as *mut void, layout.size);
         };
 
         #[if(os == "windows")] {
-            let _ = os.windows.VirtualFree(ptr as *mut void, 0, os.windows.MEM_RELEASE as u32);
+            _ = os.windows.VirtualFree(ptr as *mut void, 0, os.windows.MEM_RELEASE as u32);
         };
     }
 }

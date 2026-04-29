@@ -28,7 +28,7 @@ fn write_byte_unchecked(out: []mut u8, offset: usize, value: u8) usize {
 
 fn write_bytes_unchecked(out: []mut u8, offset: usize, text: []u8) usize {
     let end = offset + #text;
-    let _ = out..[offset .. end].copy_from(text);
+    _ = out..[offset .. end].copy_from(text);
     return end;
 }
 

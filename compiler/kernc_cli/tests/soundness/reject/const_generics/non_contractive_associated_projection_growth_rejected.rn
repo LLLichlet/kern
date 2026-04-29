@@ -13,11 +13,11 @@ impl[N: usize] X: Loop[N] {
 }
 
 fn project(value: X) X.Loop[0].Out {
-    let _ = value;
+    _ = value;
     return X.{};
 }
 
 fn main() i32 {
-    let _ = project(X.{});
+    _ = project(X.{});
     return 0;
 }

@@ -11,7 +11,7 @@ impl[T] X: Marker {}
 fn need[T](value: T) i32
     where T: Marker,
 {
-    let _ = value;
+    _ = value;
     return 0;
 }
 

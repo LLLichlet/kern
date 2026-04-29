@@ -118,7 +118,7 @@ fn require_f32_value(value: *mut OwnedValue) f32!FieldDecodeError {
 impl *mut IndexedObjectView {
     pub fn deinit(alloc: *mut Allocator) void {
         let free_bucket = .[alloc](hash: u64, bucket: *mut List[usize]) void {
-            let _ = hash;
+            _ = hash;
             bucket.deinit(alloc);
         };
         self.*.index..&.for_each_mut(free_bucket);

@@ -36,6 +36,6 @@ fn cast[L, R](value: L) R
 }
 
 fn main() i32 {
-    let _ = cast[bool, i32](true);
+    _ = cast[bool, i32](true);
     return 0;
 }

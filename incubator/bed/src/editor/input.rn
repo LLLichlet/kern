@@ -3,7 +3,7 @@ use ..{Editor, Key, TAB_STOP};
 
 impl *mut Editor {
     fn set_message(alloc: *mut Allocator, text: []u8) void {
-        let _ = self.message..&.clone_from(alloc, text);
+        _ = self.message..&.clone_from(alloc, text);
     }
 
     fn clear_pending_count() void {
@@ -488,7 +488,7 @@ impl *mut Editor {
                 let count = self.consume_count_or_one();
                 let mut i = usize.{0};
                 while (i < count) {
-                    let _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
+                    _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
                     i += 1;
                 }
                 self.clamp_cursor();
@@ -706,7 +706,7 @@ impl *mut Editor {
                         let count = self.consume_count_or_one();
                         let mut i = usize.{0};
                         while (i < count) {
-                            let _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
+                            _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
                             i += 1;
                         }
                         self.clamp_cursor();
@@ -948,7 +948,7 @@ impl *mut Editor {
             .Delete => {
                 let cursor = self.active_cursor();
                 let text_buffer = self.active_buffer_mut();
-                let _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
+                _ = text_buffer.delete_at(alloc, cursor.row, cursor.col);
                 self.remember_preferred_col();
             },
             .PageUp => self.page_up(),

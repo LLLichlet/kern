@@ -219,8 +219,8 @@ pub fn get(alloc: *mut Allocator, name: []u8) ?String {
         return get_windows(alloc, name);
     }
 
-    let _ = alloc;
-    let _ = name;
+    _ = alloc;
+    _ = name;
     return .None;
 }
 
@@ -242,8 +242,8 @@ pub fn has(alloc: *mut Allocator, name: []u8) bool {
         return has_windows(alloc, name);
     }
 
-    let _ = alloc;
-    let _ = name;
+    _ = alloc;
+    _ = name;
     return false;
 }
 
@@ -283,7 +283,7 @@ pub fn visit(visitor: *Fn(Var) bool) usize {
         return visit_windows(visitor);
     }
 
-    let _ = visitor;
+    _ = visitor;
     return 0;
 }
 
@@ -298,7 +298,7 @@ pub fn visit_value(name: []u8, visitor: *Fn([]u8) bool) bool {
     }
 
     let mut found = false;
-    let _ = visit(.[needle = name, target = visitor, found = found..&](entry: Var) bool {
+    _ = visit(.[needle = name, target = visitor, found = found..&](entry: Var) bool {
         if (!entry.name_eq(needle)) {
             return true;
         }

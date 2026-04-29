@@ -1281,6 +1281,7 @@ fn count_calls_to_expr(expr: &MastExpr, target: MonoId) -> usize {
         }
         MastExprKind::AddressOf(inner)
         | MastExprKind::Deref(inner)
+        | MastExprKind::Discard(inner)
         | MastExprKind::ExtractFatPtrData(inner)
         | MastExprKind::ExtractFatPtrMeta(inner)
         | MastExprKind::Unary { operand: inner, .. }

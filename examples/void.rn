@@ -6,7 +6,7 @@ fn process_erased_ptr(ctx: *mut test.Context, ptr: *mut void) void {
     let offset_ptr = ptr + 10;
 
     ctx.assert(ptr == offset_ptr, "*void pointer arithmetic is zero-sized", .{});
-    let _ = ptr.*;
+    _ = ptr.*;
 }
 
 fn main() i32 {

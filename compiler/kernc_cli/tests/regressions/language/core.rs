@@ -1,6 +1,56 @@
 use super::*;
 
 #[test]
+fn underscore_assignment_explicitly_discards_values() {
+    let output = build_and_run_source(
+        r#"
+fn bump(value: *mut i32) i32 {
+    value.* += 1;
+    return value.*;
+}
+
+fn main() i32 {
+    let mut count = 0;
+    _ = bump(count..&);
+    _ = 123;
+    return count - 1;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn underscore_compound_assignment_is_not_a_discard() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    _ += 1;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted compound discard assignment:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("discard assignment only supports `=`"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn string_literals_are_immutable_byte_slices() {
     let output = build_and_run_source(
         r#"

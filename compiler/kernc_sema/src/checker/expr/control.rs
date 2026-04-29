@@ -1337,7 +1337,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     "expression evaluates to `{}`, which must be explicitly used or discarded",
                     ty_str
                 ))
-                .with_hint("in Kern, use `let _ = ...;` to explicitly discard the value")
+                .with_hint("in Kern, use `_ = ...;` to explicitly discard the value")
                 .emit();
         }
         ty

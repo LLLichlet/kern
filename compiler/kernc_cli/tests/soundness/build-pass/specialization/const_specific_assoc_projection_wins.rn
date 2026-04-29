@@ -16,7 +16,7 @@ impl X: HasOut[4] {
 }
 
 fn take(value: X.HasOut[4].Out) i32 {
-    let _ = value;
+    _ = value;
     return 0;
 }
 

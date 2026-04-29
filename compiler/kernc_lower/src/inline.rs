@@ -127,6 +127,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             MastExprKind::AddressOf(inner)
             | MastExprKind::Deref(inner)
+            | MastExprKind::Discard(inner)
             | MastExprKind::ExtractFatPtrData(inner)
             | MastExprKind::ExtractFatPtrMeta(inner)
             | MastExprKind::Unary { operand: inner, .. }
@@ -654,6 +655,7 @@ fn expr_contains_return(expr: &MastExpr) -> bool {
 
         MastExprKind::AddressOf(inner)
         | MastExprKind::Deref(inner)
+        | MastExprKind::Discard(inner)
         | MastExprKind::ExtractFatPtrData(inner)
         | MastExprKind::ExtractFatPtrMeta(inner)
         | MastExprKind::Unary { operand: inner, .. }

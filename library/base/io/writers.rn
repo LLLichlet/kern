@@ -41,7 +41,7 @@ impl *mut FixedBufferWriter : Writer {
         let available = #self.buffer - self.written;
         let count = num.min[usize](available, #buf);
         let out = (self.buffer.[0]..& + self.written)..[0 .. count];
-        let _ = out.copy_from(buf.[0 .. count]);
+        _ = out.copy_from(buf.[0 .. count]);
         self.written += count;
         if (count < #buf) {
             self.overflowed = true;

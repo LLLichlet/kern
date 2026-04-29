@@ -25,7 +25,7 @@ fn project[T](value: T) T.Step.Mid.Finish[Out = i32].Out
     where T: Step,
           T.Step.Mid: Finish[Out = i32],
 {
-    let _ = value;
+    _ = value;
     return 7;
 }
 

@@ -1404,6 +1404,19 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
+        if matches!(lhs.kind, ExprKind::Infer) {
+            if op != AssignmentOperator::Assign {
+                self.ctx
+                    .struct_error(lhs.span, "discard assignment only supports `=`")
+                    .with_hint("use `_ = ...;` to explicitly discard a value")
+                    .emit();
+                let _ = self.eval_inner(rhs, depth + 1);
+                return Err(ConstEvalError);
+            }
+            let _ = self.eval_inner(rhs, depth + 1)?;
+            return Ok(ConstValue::Void);
+        }
+
         let place = self.resolve_assignment_place(lhs, depth)?;
 
         if place.require_root_mutability {

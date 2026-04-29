@@ -27,10 +27,10 @@ fn enter_ui(alloc: *mut base.mem.alloc.Allocator, frame: *mut String, stdout: *m
 
 fn leave_ui(alloc: *mut base.mem.alloc.Allocator, frame: *mut String, stdout: *mut fs.File) void {
     frame.clear();
-    let _ = ansi.reset_cursor_shape(frame, alloc);
-    let _ = ansi.show_cursor(frame, alloc);
-    let _ = ansi.leave_alt_screen(frame, alloc);
-    let _ = flush_output(stdout, frame.as_str());
+    _ = ansi.reset_cursor_shape(frame, alloc);
+    _ = ansi.show_cursor(frame, alloc);
+    _ = ansi.leave_alt_screen(frame, alloc);
+    _ = flush_output(stdout, frame.as_str());
 }
 
 fn open_editor_state(

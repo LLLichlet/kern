@@ -416,6 +416,7 @@ impl MirFunctionBuilder {
             MastExprKind::Binary { .. } => "binary operator",
             MastExprKind::Unary { .. } => "unary operator",
             MastExprKind::Assign { .. } => "assignment",
+            MastExprKind::Discard(_) => "discard",
             MastExprKind::Cast { .. } => "cast",
             MastExprKind::ConstructFatPointer { .. } => "fat-pointer construction",
             MastExprKind::ExtractFatPtrData(_) => "fat-pointer data projection",

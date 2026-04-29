@@ -244,7 +244,7 @@ fn syscall4_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usi
 pub fn exit(code: i32) ! {
     // `sys_exit` takes an `int`, but the syscall wrapper uses `usize`.
     let sys_exit_num = usize.{60};
-    let _ = syscall3(sys_exit_num, code as usize, usize.{0}, usize.{0});
+    _ = syscall3(sys_exit_num, code as usize, usize.{0}, usize.{0});
 
     // `exit` never returns.
     @unreachable()
@@ -412,8 +412,8 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
     let write_end = fds.[1] as usize;
     let pid = syscall3_raw(SYS_FORK, 0, 0, 0);
     if (pid < 0) {
-        let _ = close_file(read_end);
-        let _ = close_file(write_end);
+        _ = close_file(read_end);
+        _ = close_file(write_end);
         return error_result[ProcessCapture](pid);
     }
 
@@ -422,24 +422,24 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
         let envp = environment_entries().map_or(usize.{0}, .[](envp: **u8) usize {
             return envp as usize;
         });
-        let _ = close_file(read_end);
-        let _ = syscall3_raw(SYS_DUP2, write_end, 1, 0);
-        let _ = syscall3_raw(SYS_DUP2, write_end, 2, 0);
-        let _ = close_file(write_end);
-        let _ = syscall3_raw(SYS_EXECVE, sh_path as usize, argv.[0]..& as usize, envp);
+        _ = close_file(read_end);
+        _ = syscall3_raw(SYS_DUP2, write_end, 1, 0);
+        _ = syscall3_raw(SYS_DUP2, write_end, 2, 0);
+        _ = close_file(write_end);
+        _ = syscall3_raw(SYS_EXECVE, sh_path as usize, argv.[0]..& as usize, envp);
         exit(127);
     }
 
-    let _ = close_file(write_end);
+    _ = close_file(write_end);
     let output = String.{}..&;
     let mut chunk = [1024]u8.{undef};
         while (true) {
         let .{ Ok: read } = read_file(read_end, chunk.[0]..&, 1024) else {
             .{ Err: err } => {
-                let _ = close_file(read_end);
+                _ = close_file(read_end);
                 output.deinit(alloc);
                 let mut raw_status = i32.{0};
-                let _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+                _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
                 return .{ Err: err };
             },
         };
@@ -447,14 +447,14 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
             break;
         }
         if (!output.push_str(alloc, chunk.[0 .. read])) {
-            let _ = close_file(read_end);
+            _ = close_file(read_end);
             output.deinit(alloc);
             let mut raw_status = i32.{0};
-            let _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+            _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
             return .{ Err: .{ code: 12 } };
         }
     }
-    let _ = close_file(read_end);
+    _ = close_file(read_end);
 
     let mut raw_status = i32.{0};
     let wait_ret = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
@@ -623,11 +623,11 @@ pub fn metadata(path: *u8) Metadata!Error {
 ///
 /// `search_path` is ignored on Linux because the scan operates directly on `path`.
 pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) usize!Error {
-    let _ = search_path;
+    _ = search_path;
     let options = OpenOptions.{ read: true };
     let handle = open_file(path, options.&).!;
     defer {
-        let _ = close_file(handle);
+        _ = close_file(handle);
     };
 
     let mut total = usize.{0};

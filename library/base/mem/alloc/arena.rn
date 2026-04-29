@@ -153,8 +153,8 @@ impl *mut Arena : Allocator {
     /// keep arena allocation fast and make reclamation an explicit bulk action.
     #[inline]
     pub fn free(ptr: *mut u8, layout: Layout) void {
-        let _ = ptr;
-        let _ = layout;
+        _ = ptr;
+        _ = layout;
     }
 
     /// Captures the current allocation frontier.

@@ -30,7 +30,7 @@ impl *X: Factory[4] {
 fn call[N: usize](x: *X) i32
     where *X: Factory[N, Out = i32],
 {
-    let _ = x.make();
+    _ = x.make();
     return 0;
 }
 

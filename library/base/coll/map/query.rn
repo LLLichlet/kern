@@ -24,7 +24,7 @@ impl[K, V] *Map[K, V]
             visitor(entry.key, entry.value);
             return true;
         };
-        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
     }
 
     /// Returns `true` when any key-value pair satisfies `pred`.
@@ -37,7 +37,7 @@ impl[K, V] *Map[K, V]
             }
             return true;
         };
-        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
         return matched;
     }
 
@@ -51,7 +51,7 @@ impl[K, V] *Map[K, V]
             }
             return true;
         };
-        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
         return all_match;
     }
 
@@ -64,7 +64,7 @@ impl[K, V] *Map[K, V]
             }
             return true;
         };
-        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
         return total;
     }
 
@@ -75,7 +75,7 @@ impl[K, V] *Map[K, V]
             accum.* = step(accum.*, entry.key, entry.value);
             return true;
         };
-        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
         return accum;
     }
 
@@ -92,7 +92,7 @@ impl[K, V] *Map[K, V]
             }
             return true;
         };
-        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit_entry);
+        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit_entry);
         return found;
     }
 
@@ -110,7 +110,7 @@ impl[K, V] *Map[K, V]
             }
             return true;
         };
-        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
         return ok;
     }
 
@@ -128,7 +128,7 @@ impl[K, V] *Map[K, V]
             }
             return true;
         };
-        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
         return ok;
     }
 

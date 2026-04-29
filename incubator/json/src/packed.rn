@@ -430,7 +430,7 @@ fn wrap_packed_entry(state: *PackedDocumentState, entry_index: usize) PackedObje
 
 fn deinit_packed_index(state: *mut PackedDocumentState) void {
     let free_bucket = .[state](hash: u64, bucket: *mut List[usize]) void {
-        let _ = hash;
+        _ = hash;
         bucket.deinit(state.arena..&);
     };
     state.index..&.for_each_mut(free_bucket);

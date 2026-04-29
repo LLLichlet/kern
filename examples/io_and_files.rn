@@ -13,7 +13,7 @@ fn main() i32 {
     let gpa = GPA.{ backing: page }..&;
 
     let path = ".craft/example-atomic-write.txt";
-    let _ = fs.remove_file_if_exists(gpa, path);
+    _ = fs.remove_file_if_exists(gpa, path);
 
     let written = ctx..&.expect_ok(fs.write_all_atomic(gpa, path, "kern examples\n"));
     ctx..&.eq(written, usize.{14});
@@ -22,7 +22,7 @@ fn main() i32 {
     defer text..&.deinit(gpa);
     ctx..&.eq(text.&.as_str(), "kern examples\n");
 
-    let _ = fs.remove_file_if_exists(gpa, path);
+    _ = fs.remove_file_if_exists(gpa, path);
     io.println("io_and_files: wrote and read {} bytes", .{written,});
     return 0;
 }

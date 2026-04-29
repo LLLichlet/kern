@@ -18,6 +18,6 @@ fn main() i32 {
     let x = X.{};
     let a = *A.{ x.& };
     let b = *B.{ a };
-    let _ = b;
+    _ = b;
     return 0;
 }

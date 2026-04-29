@@ -164,7 +164,7 @@ fn kern_entry_windows() i32 {
         return __kern_main_adapter(0, WINDOWS_ARGV_PTRS.[0]..& as **u8);
     }
     defer {
-        let _ = LocalFree(argv_wide as *mut void);
+        _ = LocalFree(argv_wide as *mut void);
     };
 
     let argc = build_windows_utf8_argv(wide_argc as usize, argv_wide);

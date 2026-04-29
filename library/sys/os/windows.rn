@@ -98,7 +98,7 @@ pub fn write_stdout(ptr: *u8, len: usize) usize {
     let mut written = u32.{0};
 
     // The Win32 API expects a 32-bit length parameter.
-    let _ = WriteFile(handle, ptr, len as u32, written..&, null_mut_ptr[void]());
+    _ = WriteFile(handle, ptr, len as u32, written..&, null_mut_ptr[void]());
     return written as usize;
 }
 
@@ -110,7 +110,7 @@ pub fn exit(code: i32) ! {
 
 /// Disables system crash and file error dialogs for the current process.
 pub fn suppress_error_dialogs() void {
-    let _ = SetErrorMode(
+    _ = SetErrorMode(
         SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX
     );
 }
@@ -311,8 +311,8 @@ pub fn is_already_exists(err: Error) bool {
 
 /// Hosted Windows environment access does not require startup-side initialization.
 pub fn init_process_env(argc: i32, argv: **u8) void {
-    let _ = argc;
-    let _ = argv;
+    _ = argc;
+    _ = argv;
 }
 
 /// Reads one environment variable as an ANSI byte string.
@@ -327,7 +327,7 @@ pub fn get_environment_strings() *mut u8 {
 
 /// Releases a process environment block returned by `get_environment_strings`.
 pub fn free_environment_strings(block: *mut u8) void {
-    let _ = FreeEnvironmentStringsA(block);
+    _ = FreeEnvironmentStringsA(block);
 }
 
 /// Returns the current process identifier.
@@ -408,10 +408,10 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
     }
     defer {
         if ((read_pipe as usize) != 0) {
-            let _ = CloseHandle(read_pipe);
+            _ = CloseHandle(read_pipe);
         }
         if ((write_pipe as usize) != 0) {
-            let _ = CloseHandle(write_pipe);
+            _ = CloseHandle(write_pipe);
         }
     };
 
@@ -472,14 +472,14 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
     }
     defer {
         if ((proc_info.hThread as usize) != 0) {
-            let _ = CloseHandle(proc_info.hThread);
+            _ = CloseHandle(proc_info.hThread);
         }
         if ((proc_info.hProcess as usize) != 0) {
-            let _ = CloseHandle(proc_info.hProcess);
+            _ = CloseHandle(proc_info.hProcess);
         }
     };
 
-    let _ = CloseHandle(write_pipe);
+    _ = CloseHandle(write_pipe);
 
     let output = String.{}..&;
     let mut chunk = [1024]u8.{undef};
@@ -490,8 +490,8 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
                     break;
                 }
                 if (!output.push_str(alloc, chunk.[0 .. read])) {
-                    let _ = CloseHandle(read_pipe);
-                    let _ = wait_for_process_exit(proc_info.hProcess);
+                    _ = CloseHandle(read_pipe);
+                    _ = wait_for_process_exit(proc_info.hProcess);
                     output.deinit(alloc);
                     return .{ Err: out_of_memory_error() };
                 }
@@ -500,15 +500,15 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
                 if (err.code == ERROR_BROKEN_PIPE) {
                     break;
                 }
-                let _ = CloseHandle(read_pipe);
-                let _ = wait_for_process_exit(proc_info.hProcess);
+                _ = CloseHandle(read_pipe);
+                _ = wait_for_process_exit(proc_info.hProcess);
                 output.deinit(alloc);
                 return .{ Err: err };
             },
         }
     }
 
-    let _ = CloseHandle(read_pipe);
+    _ = CloseHandle(read_pipe);
 
     let wait_status = WaitForSingleObject(proc_info.hProcess, INFINITE);
     if (wait_status == WAIT_FAILED) {
@@ -556,7 +556,7 @@ pub fn free_wide_units(ptr: *mut u16) void {
     if ((ptr as usize) == 0) {
         return;
     }
-    let _ = VirtualFree(ptr as *mut void, 0, MEM_RELEASE as u32);
+    _ = VirtualFree(ptr as *mut void, 0, MEM_RELEASE as u32);
 }
 
 fn alloc_utf8_units(bytes: usize) (*mut u8)!Error {
@@ -577,7 +577,7 @@ pub fn free_utf8_units(ptr: *mut u8) void {
     if ((ptr as usize) == 0) {
         return;
     }
-    let _ = VirtualFree(ptr as *mut void, 0, MEM_RELEASE as u32);
+    _ = VirtualFree(ptr as *mut void, 0, MEM_RELEASE as u32);
 }
 
 /// Converts a zero-terminated UTF-8 path into an owned zero-terminated UTF-16 buffer.
@@ -713,11 +713,11 @@ pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
 /// Changes an open file's length.
 pub fn truncate_file(handle: Handle, size: usize) bool!Error {
     let current = seek_file(handle, 0, 1).!;
-    let _ = seek_file(handle, size as isize, 0).!;
+    _ = seek_file(handle, size as isize, 0).!;
     if (SetEndOfFile(handle) == 0) {
         return .{ Err: last_error() };
     }
-    let _ = seek_file(handle, current as isize, 0).!;
+    _ = seek_file(handle, current as isize, 0).!;
     return .{ Ok: true };
 }
 
@@ -796,7 +796,7 @@ fn is_dot_entry(name: []u16) bool {
 }
 
 pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) usize!Error {
-    let _ = path;
+    _ = path;
     let wide_search_path = utf8_z_to_wide(search_path).!;
     defer free_wide_units(wide_search_path);
 
@@ -806,7 +806,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
         return .{ Err: last_error() };
     }
     defer {
-        let _ = FindClose(handle);
+        _ = FindClose(handle);
     };
 
     let mut total = usize.{0};

@@ -311,8 +311,8 @@ pub/ fn write_all_atomic_tmp(
     let written = match (file..&.write_all(buf)) {
         .{ Ok: count } => count,
         .{ Err: err } => {
-            let _ = file..&.close();
-            let _ = remove_file_if_exists(alloc, tmp_path);
+            _ = file..&.close();
+            _ = remove_file_if_exists(alloc, tmp_path);
             return .{ Err: err };
         },
     };
@@ -320,8 +320,8 @@ pub/ fn write_all_atomic_tmp(
     match (file..&.flush()) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            let _ = file..&.close();
-            let _ = remove_file_if_exists(alloc, tmp_path);
+            _ = file..&.close();
+            _ = remove_file_if_exists(alloc, tmp_path);
             return .{ Err: err };
         },
     }
@@ -329,7 +329,7 @@ pub/ fn write_all_atomic_tmp(
     match (file..&.close()) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            let _ = remove_file_if_exists(alloc, tmp_path);
+            _ = remove_file_if_exists(alloc, tmp_path);
             return .{ Err: err };
         },
     }
@@ -337,7 +337,7 @@ pub/ fn write_all_atomic_tmp(
     match (rename(alloc, tmp_path, path)) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            let _ = remove_file_if_exists(alloc, tmp_path);
+            _ = remove_file_if_exists(alloc, tmp_path);
             return .{ Err: err };
         },
     }
@@ -356,8 +356,8 @@ fn write_all_atomic_unique_tmp(
     let written = match (file..&.write_all(buf)) {
         .{ Ok: count } => count,
         .{ Err: err } => {
-            let _ = file..&.close();
-            let _ = remove_file_if_exists(alloc, tmp_path);
+            _ = file..&.close();
+            _ = remove_file_if_exists(alloc, tmp_path);
             return .{ Err: err };
         },
     };
@@ -365,8 +365,8 @@ fn write_all_atomic_unique_tmp(
     match (file..&.flush()) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            let _ = file..&.close();
-            let _ = remove_file_if_exists(alloc, tmp_path);
+            _ = file..&.close();
+            _ = remove_file_if_exists(alloc, tmp_path);
             return .{ Err: err };
         },
     }
@@ -374,7 +374,7 @@ fn write_all_atomic_unique_tmp(
     match (file..&.close()) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            let _ = remove_file_if_exists(alloc, tmp_path);
+            _ = remove_file_if_exists(alloc, tmp_path);
             return .{ Err: err };
         },
     }
@@ -382,7 +382,7 @@ fn write_all_atomic_unique_tmp(
     match (rename(alloc, tmp_path, path)) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            let _ = remove_file_if_exists(alloc, tmp_path);
+            _ = remove_file_if_exists(alloc, tmp_path);
             return .{ Err: err };
         },
     }
@@ -547,7 +547,7 @@ impl *mut File {
             return .{ Ok: true };
         }
 
-        let _ = os.close_file(self.handle)
+        _ = os.close_file(self.handle)
             .map_err(wrap_os_error).!;
         self.handle = os.invalid_handle();
         return .{ Ok: true };
@@ -555,7 +555,7 @@ impl *mut File {
 
     /// Best-effort destructor for the file handle.
     pub fn deinit() void {
-        let _ = self.close();
+        _ = self.close();
     }
 
     /// Reads the remainder of the file into an owned string.

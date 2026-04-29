@@ -208,7 +208,7 @@ impl *mut TextBuffer {
         if (col > 0) {
             let lines = self.lines..&.as_mut_slice();
             let line = lines.[row]..&;
-            let _ = line.remove_char(col - 1);
+            _ = line.remove_char(col - 1);
             self.dirty = true;
             return .{ row: row, col: col - 1 };
         }
@@ -242,7 +242,7 @@ impl *mut TextBuffer {
         if (col < line_len) {
             let lines = self.lines..&.as_mut_slice();
             let line = lines.[row]..&;
-            let _ = line.remove_char(col);
+            _ = line.remove_char(col);
             self.dirty = true;
             return true;
         }
@@ -284,7 +284,7 @@ impl *mut TextBuffer {
             i += 1;
         }
 
-        let _ = fs.write_all(alloc, self.path.&.as_str(), text.&.as_str())
+        _ = fs.write_all(alloc, self.path.&.as_str(), text.&.as_str())
             .map_err(wrap_fs_error).!;
         self.dirty = false;
         return .{ Ok: true };

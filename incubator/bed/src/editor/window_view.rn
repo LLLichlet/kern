@@ -84,7 +84,7 @@ impl *mut Editor {
 
     fn window_rect(index: usize) WindowRect {
         let mut rect = WindowRect.{};
-        let _ = self.window_rect_in_node(self.layout_root, self.editor_area_rect(), index, rect..&);
+        _ = self.window_rect_in_node(self.layout_root, self.editor_area_rect(), index, rect..&);
         return rect;
     }
 
@@ -184,7 +184,7 @@ impl *mut Editor {
     }
 
     fn ensure_cursor_visible(term_rows: usize) void {
-        let _ = term_rows;
+        _ = term_rows;
         let cursor = self.active_cursor();
         let scroll_row = self.active_scroll_row();
         let view_rows = self.view_rows();

@@ -239,7 +239,7 @@ pub/ fn walk_dir(
 
     let mut total = usize.{0};
     let mut walk_err = ?Error.None;
-    let _ = walk_dir_inner(alloc, path, usize.{1}, visitor, total..&, walk_err..&);
+    _ = walk_dir_inner(alloc, path, usize.{1}, visitor, total..&, walk_err..&);
 
     match (walk_err) {
         .{ Some: err } => return .{ Err: err },

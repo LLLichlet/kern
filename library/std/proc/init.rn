@@ -193,14 +193,14 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) Capture!Error {
             break;
         }
         if (!output.push_str(alloc, chunk.[0 .. read])) {
-            let _ = system_pclose(stream);
+            _ = system_pclose(stream);
             output.deinit(alloc);
             return .{ Err: .OutOfMemory };
         }
     }
 
     if (system_ferror(stream) != 0) {
-        let _ = system_pclose(stream);
+        _ = system_pclose(stream);
         output.deinit(alloc);
         return .{ Err: .ReadFailed };
     }

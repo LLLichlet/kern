@@ -1,7 +1,7 @@
 use super::Lowerer;
 use std::collections::HashMap;
 
-use kernc_ast::{self as ast, Expr};
+use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
 use kernc_sema::def::Def;
 use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
@@ -581,6 +581,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         rhs: &Expr,
         subst_map: &HashMap<SymbolId, GenericArg>,
     ) -> MastExprKind {
+        if matches!(lhs.kind, ExprKind::Infer) {
+            return MastExprKind::Discard(Box::new(self.lower_expr(rhs, subst_map, None)));
+        }
+
         let l = self.lower_expr(lhs, subst_map, None);
         let r = self.lower_expr(rhs, subst_map, Some(l.ty));
         self.measure_phase("            lower_ops_assign_build", |_this| {

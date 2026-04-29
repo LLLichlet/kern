@@ -16,9 +16,9 @@ fn fail_with(writer: ?*mut Writer, fmt: []u8, args: []*Printable) ! {
         @trap();
     };
 
-    let _ = out.write("test failed: ");
+    _ = out.write("test failed: ");
     format_to(out, fmt, args);
-    let _ = out.write("\n");
+    _ = out.write("\n");
     @trap();
 }
 

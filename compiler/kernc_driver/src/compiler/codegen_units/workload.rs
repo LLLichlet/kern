@@ -35,6 +35,7 @@ fn expr_workload(expr: &MastExpr) -> usize {
     match &expr.kind {
         MastExprKind::AddressOf(inner)
         | MastExprKind::Deref(inner)
+        | MastExprKind::Discard(inner)
         | MastExprKind::ExtractFatPtrData(inner)
         | MastExprKind::ExtractFatPtrMeta(inner)
         | MastExprKind::BitIntrinsic { operand: inner, .. }

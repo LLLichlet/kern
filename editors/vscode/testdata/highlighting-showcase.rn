@@ -18,7 +18,7 @@ extern fn start() ! {
         volatile: true
     });
 
-    let _ = match (state) {
+    _ = match (state) {
         .{ Some: value } => callback(value),
         .None => @trap(),
     };
@@ -27,8 +27,8 @@ extern fn start() ! {
     let view = device.buffer..[0 .. 4];
     let io = *mut Writer.{ device..& };
     let heap_cb = *mut Fn(i32) i32.{ callback };
-    let _ = io.write(view as []u8);
-    let _ = heap_cb(anon.left + (flag as i32));
+    _ = io.write(view as []u8);
+    _ = heap_cb(anon.left + (flag as i32));
     @unreachable();
 }
 
@@ -52,7 +52,7 @@ type Printable = trait {
 
 impl[T] *Option[T] : Printable {
     pub fn render() void {
-        let _ = match (self.*) {
+        _ = match (self.*) {
             .{ Some: value } => value,
             .None => 0,
         };

@@ -1245,23 +1245,23 @@ fn check_owned_dom_build_and_mutation() void {
     );
     test.assert(
         test.expect_some(msg.string_text()) == ([3]u8.{ b'h', b'i', b'\n' }.[0 .. 3]));
-    let _ = test.expect_some(test.expect_ok(root.append_object_number_text("count", "12")));
+    _ = test.expect_some(test.expect_ok(root.append_object_number_text("count", "12")));
     let flag = test.expect_some(test.expect_ok(root.append_object_field("flag", .{ Bool: false })));
     test.eq(test.expect_some(flag.bool_value()), false);
 
     let nested = test.expect_some(
         test.expect_ok(root.append_object_field("nested", .{ Object: json.OwnedObject.{} }))
     );
-    let _ = test.expect_some(test.expect_ok(nested.append_object_field("ok", .{ Bool: true })));
+    _ = test.expect_some(test.expect_ok(nested.append_object_field("ok", .{ Bool: true })));
 
     let items = test.expect_some(
         test.expect_ok(root.append_object_field("items", .{ Array: json.OwnedArray.{} }))
     );
     test.assert(items.reserve_array_items(usize.{2}));
-    let _ = test.expect_some(test.expect_ok(items.push_array_item(.{ Bool: true })));
-    let _ = test.expect_some(test.expect_ok(items.push_array_number_text("7")));
+    _ = test.expect_some(test.expect_ok(items.push_array_item(.{ Bool: true })));
+    _ = test.expect_some(test.expect_ok(items.push_array_number_text("7")));
     test.assert(items.pop_array_item());
-    let _ = test.expect_some(test.expect_ok(items.push_array_number_text("9")));
+    _ = test.expect_some(test.expect_ok(items.push_array_number_text("9")));
     test.assert(items.remove_array_index(usize.{1}));
     test.assert(!items.remove_array_index(usize.{9}));
 
@@ -1305,7 +1305,7 @@ fn check_owned_dom_node_pool_reuse() void {
     let second = test.expect_ok(array..&.push_string(gpa, "two"));
     test.assert(
         test.expect_some(second.string_text()) == ("two"));
-    let _ = test.expect_ok(array..&.push(gpa, .{ Bool: true }));
+    _ = test.expect_ok(array..&.push(gpa, .{ Bool: true }));
     test.eq(array.&.len(), usize.{2});
     test.assert(
         test.expect_some(test.expect_some(array.&.get(0)).string_text()) == ("two"));
@@ -1349,7 +1349,7 @@ fn check_parse_prefix_returns_remaining_suffix() void {
 }
 
 fn check_validate_accepts_complete_document() void {
-    let _ = test.expect_ok(validate("{\"ok\":true,\"items\":[1,2,3]}"));
+    _ = test.expect_ok(validate("{\"ok\":true,\"items\":[1,2,3]}"));
 }
 
 fn check_parse_rejects_trailing_data() void {

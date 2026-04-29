@@ -106,6 +106,6 @@ impl *mut RawMode {
 
     /// Best-effort destructor for raw terminal sessions.
     pub fn deinit() void {
-        let _ = self.restore();
+        _ = self.restore();
     }
 }

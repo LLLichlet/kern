@@ -60,6 +60,7 @@ fn collect_expr_refs(expr: &MastExpr, refs: &mut ItemRefs) {
         }
         MastExprKind::AddressOf(inner)
         | MastExprKind::Deref(inner)
+        | MastExprKind::Discard(inner)
         | MastExprKind::ExtractFatPtrData(inner)
         | MastExprKind::ExtractFatPtrMeta(inner)
         | MastExprKind::BitIntrinsic { operand: inner, .. }

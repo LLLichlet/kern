@@ -373,7 +373,7 @@ impl *mut BitWriter {
         while (i < bit_count) {
             let shift = bit_count - i - u8.{1};
             let bit = ((value >> (shift as u64)) & 1) != 0;
-            let _ = self.write_bit(bit).!;
+            _ = self.write_bit(bit).!;
             i += 1;
         }
 

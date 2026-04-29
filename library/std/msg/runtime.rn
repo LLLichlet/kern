@@ -9,9 +9,9 @@ use std.io.stderr;
 fn write_line(prefix: []u8, fmt: []u8, args: []*Printable) void {
     let mut err_file = stderr();
     let writer = *mut Writer.{ err_file..& };
-    let _ = writer.write(prefix);
+    _ = writer.write(prefix);
     format_to(writer, fmt, args);
-    let _ = writer.write("\n");
+    _ = writer.write("\n");
 }
 
 /// Prints one formatted diagnostic and traps.

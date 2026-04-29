@@ -19,6 +19,6 @@ impl *X: Derived[*X] {}
 
 fn main() i32 {
     let x = X.{};
-    let _ = *Derived[*X].{ x.& };
+    _ = *Derived[*X].{ x.& };
     return 0;
 }

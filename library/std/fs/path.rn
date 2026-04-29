@@ -44,7 +44,7 @@ fn preferred_separator_byte(path: []u8) u8 {
         return b'\\';
     }
 
-    let _ = path;
+    _ = path;
     return b'/';
 }
 
@@ -300,7 +300,7 @@ pub/ fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
                 return last != "..";
             });
             if (can_pop) {
-                let _ = segments.pop();
+                _ = segments.pop();
             } else if (prefix_len == 0) {
                 if (!segments.push(alloc, segment)) {
                     return .{ Err: .OutOfMemory };

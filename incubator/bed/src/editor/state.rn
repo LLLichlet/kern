@@ -138,7 +138,7 @@ pub.. fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], li
     let kept = items.len() - remove_count;
     if (kept > 0) {
         let bytes = kept * @sizeOf[String]();
-        let _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);
+        _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);
     }
     items.truncate(kept);
 }
@@ -167,7 +167,7 @@ pub.. fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutput
     let kept = items.len() - remove_count;
     if (kept > 0) {
         let bytes = kept * @sizeOf[ShellOutputEntry]();
-        let _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);
+        _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);
     }
     items.truncate(kept);
 }

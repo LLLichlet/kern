@@ -21,7 +21,7 @@ pub/ fn println(fmt: []u8, args: []*Printable) void {
     let mut out_file = stdout();
     let writer = *mut Writer.{ out_file..& };
     format_to(writer, fmt, args);
-    let _ = writer.write("\n");
+    _ = writer.write("\n");
 }
 
 /// Formats into standard error without appending a newline.
@@ -44,5 +44,5 @@ pub/ fn eprintln(fmt: []u8, args: []*Printable) void {
     let mut err_file = stderr();
     let writer = *mut Writer.{ err_file..& };
     format_to(writer, fmt, args);
-    let _ = writer.write("\n");
+    _ = writer.write("\n");
 }

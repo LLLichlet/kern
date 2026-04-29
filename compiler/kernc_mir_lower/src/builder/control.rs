@@ -557,6 +557,7 @@ impl MirFunctionBuilder {
                 }
                 Ok(Some(block_id))
             }
+            MastExprKind::Discard(inner) => self.lower_control_or_eval_stmt(block_id, inner),
             MastExprKind::Unreachable => {
                 self.set_terminator(block_id, expr.span, MirTerminator::Unreachable);
                 Ok(None)
@@ -742,6 +743,18 @@ impl MirFunctionBuilder {
                         result.span,
                         MirTerminator::Return(Some(MirRvalue::Load(place))),
                     );
+                    Ok(None)
+                }
+            }
+            MastExprKind::Discard(inner) => {
+                let Some(end_block) = self.lower_control_or_eval_stmt(block_id, inner)? else {
+                    return Ok(None);
+                };
+                if let Some(next) = fallthrough {
+                    self.set_terminator(end_block, result.span, MirTerminator::Goto(next));
+                    Ok(Some(next))
+                } else {
+                    self.set_terminator(end_block, result.span, MirTerminator::Return(None));
                     Ok(None)
                 }
             }

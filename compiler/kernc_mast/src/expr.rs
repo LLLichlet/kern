@@ -120,6 +120,8 @@ pub enum MastExprKind {
         lhs: Box<MastExpr>,
         rhs: Box<MastExpr>,
     },
+    /// Explicitly evaluate an expression for effects and drop its value.
+    Discard(Box<MastExpr>),
 
     // --- 7. Casts ---
     /// Frontend `as` casts are lowered into LLVM-oriented cast categories here.

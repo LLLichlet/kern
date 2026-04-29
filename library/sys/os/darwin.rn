@@ -448,13 +448,13 @@ pub fn metadata(path: *u8) Metadata!Error {
 ///
 /// `search_path` is ignored on Darwin because the scan operates directly on `path`.
 pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) usize!Error {
-    let _ = search_path;
+    _ = search_path;
     let dir = system_opendir(path);
     if ((dir as usize) == 0) {
         return .{ Err: last_error() };
     }
     defer {
-        let _ = system_closedir(dir);
+        _ = system_closedir(dir);
     };
 
     let errno = system_errno();

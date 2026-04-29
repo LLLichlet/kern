@@ -294,7 +294,7 @@ impl[K, V] *mut Map[K, V]
 
         // Reserve may rebuild, so the insertion slot must be chosen afterwards.
         let .{ Some: slot } = self.find_insert_slot(hash) else return false;
-        let _ = self.write_slot(slot, hash, key, value);
+        _ = self.write_slot(slot, hash, key, value);
         return true;
     }
 
@@ -360,7 +360,7 @@ impl[K, V] *mut Map[K, V]
             visitor(entry.key, entry.value..&);
             return true;
         };
-        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
     }
 
     /// Retains only the entries accepted by `pred`.

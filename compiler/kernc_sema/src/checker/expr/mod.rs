@@ -1251,9 +1251,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
-            ExprKind::Assign { lhs, rhs, .. } => {
+            ExprKind::Assign { lhs, op, rhs } => {
                 let started = self.timing_start();
-                let ty = self.check_assign(lhs, rhs);
+                let ty = self.check_assign(lhs, *op, rhs);
                 self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
@@ -1468,7 +1468,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             ExprKind::Infer => {
                 self.ctx.struct_error(expr.span, "type placeholder `_` cannot be evaluated as an expression")
-                    .with_hint("in Kern, `_` is only used as a discard binding (`let _ =`) or in array length inference (`[_]T`)")
+                    .with_hint("in Kern, `_` is only used as a discard statement (`_ =`), discard binding (`let _ =`), or array length inference (`[_]T`)")
                     .emit();
                 TypeId::ERROR
             }

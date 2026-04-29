@@ -203,6 +203,7 @@ fn visit_expr(expr: &MastExpr, stats: &mut MastWorkloadStats) {
 
         crate::MastExprKind::AddressOf(inner)
         | crate::MastExprKind::Deref(inner)
+        | crate::MastExprKind::Discard(inner)
         | crate::MastExprKind::ExtractFatPtrData(inner)
         | crate::MastExprKind::ExtractFatPtrMeta(inner)
         | crate::MastExprKind::Unary { operand: inner, .. }

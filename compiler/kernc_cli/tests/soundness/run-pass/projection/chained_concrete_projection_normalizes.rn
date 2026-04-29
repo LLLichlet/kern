@@ -22,7 +22,7 @@ impl Shell: Finish {
 }
 
 fn project(value: Bytes) Bytes.Step.Mid.Finish.Out {
-    let _ = value;
+    _ = value;
     return 7;
 }
 

@@ -278,10 +278,10 @@ impl[K, V] *mut Tree[K, V]
                 // When neither sibling can lend, merge with an adjacent child
                 // and continue through the combined subtree.
                 if (child_index < node.len) {
-                    let _ = self.delete_merge_children(alloc, node, child_index);
+                    _ = self.delete_merge_children(alloc, node, child_index);
                 } else {
                     child_index -= 1;
-                    let _ = self.delete_merge_children(alloc, node, child_index);
+                    _ = self.delete_merge_children(alloc, node, child_index);
                 }
             }
         }

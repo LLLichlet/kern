@@ -310,7 +310,7 @@ impl[T] *mut List[T] {
         let moved = self.len - index;
         if (moved > 0) {
             let bytes = moved * self.elem_size();
-            let _ = memmove((self.ptr + (index + usize.{1})) as *mut u8, (self.ptr + index) as *u8, bytes);
+            _ = memmove((self.ptr + (index + usize.{1})) as *mut u8, (self.ptr + index) as *u8, bytes);
         }
 
         (self.ptr + index).* = item;
@@ -367,11 +367,11 @@ impl[T] *mut List[T] {
         if (moved > 0) {
             // `memmove` keeps insertion correct even when source and target overlap.
             let move_bytes = moved * elem_size;
-            let _ = memmove((self.ptr + index + additional) as *mut u8, (self.ptr + index) as *u8, move_bytes);
+            _ = memmove((self.ptr + index + additional) as *mut u8, (self.ptr + index) as *u8, move_bytes);
         }
 
         let copy_bytes = additional * elem_size;
-        let _ = memmove((self.ptr + index) as *mut u8, src_ptr as *u8, copy_bytes);
+        _ = memmove((self.ptr + index) as *mut u8, src_ptr as *u8, copy_bytes);
         self.len = old_len + additional;
         return true;
     }
@@ -386,7 +386,7 @@ impl[T] *mut List[T] {
             let moved = self.len - index - 1;
             if (moved > 0) {
                 let bytes = moved * self.elem_size();
-                let _ = memmove((self.ptr + index) as *mut u8, (self.ptr + (index + usize.{1})) as *u8, bytes);
+                _ = memmove((self.ptr + index) as *mut u8, (self.ptr + (index + usize.{1})) as *u8, bytes);
             }
         }
 
@@ -472,7 +472,7 @@ impl[T] *mut List[T] {
 
         let target_ptr = self.ptr + old_len;
         let copy_bytes = additional * self.elem_size();
-        let _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
+        _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
         self.len = old_len + additional;
         return true;
     }
@@ -501,7 +501,7 @@ impl[T] *mut List[T] {
 
         let target_ptr = self.ptr + old_len;
         let copy_bytes = additional * self.elem_size();
-        let _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
+        _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
         self.len = old_len + additional;
         return true;
     }
@@ -529,7 +529,7 @@ impl[T] *mut List[T] {
 
         let target_ptr = self.ptr + old_len;
         let copy_bytes = additional * self.elem_size();
-        let _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
+        _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
         self.len = old_len + additional;
         return true;
     }

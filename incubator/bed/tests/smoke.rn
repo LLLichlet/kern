@@ -110,7 +110,7 @@ fn ctrl_w(state: *mut editor.Editor, gpa: *mut GPA, key: u8) void {
 }
 
 fn expect_cursor(state: *mut editor.Editor, row: usize, col: usize, label: []u8) void {
-    let _ = label;
+    _ = label;
     test.assert(state.cursor_row() == row);
     test.assert(state.cursor_col() == col);
 }
@@ -124,7 +124,7 @@ fn run_ex_command(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
 fn smoke_temp_root(gpa: *mut GPA) String {
     let root = String.{}..&;
     test.assert(root.push_str(gpa, "t"));
-    let _ = test.expect_ok(fs.create_dir_all(gpa, root.as_str()));
+    _ = test.expect_ok(fs.create_dir_all(gpa, root.as_str()));
     return root.*;
 }
 
@@ -509,17 +509,17 @@ fn check_split_window_keeps_window_local_buffers() void {
     defer path_a.deinit(gpa);
     defer path_b.deinit(gpa);
 
-    let _ = fs.remove_file_if_exists(gpa, path_a.as_str());
-    let _ = fs.remove_file_if_exists(gpa, path_b.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_a.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_b.as_str());
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_a.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_a.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_b.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_b.as_str());
     };
 
-    let _ = test.expect_ok(fs.write_all(gpa, path_a.as_str(), "alpha\none"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_b.as_str(), "beta\ntwo"));
+    _ = test.expect_ok(fs.write_all(gpa, path_a.as_str(), "alpha\none"));
+    _ = test.expect_ok(fs.write_all(gpa, path_b.as_str(), "beta\ntwo"));
 
     let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
     defer state.deinit(gpa);
@@ -687,17 +687,17 @@ fn check_vsplit_layout_and_window_resize_commands() void {
     defer path_a.deinit(gpa);
     defer path_b.deinit(gpa);
 
-    let _ = fs.remove_file_if_exists(gpa, path_a.as_str());
-    let _ = fs.remove_file_if_exists(gpa, path_b.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_a.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_b.as_str());
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_a.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_a.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_b.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_b.as_str());
     };
 
-    let _ = test.expect_ok(fs.write_all(gpa, path_a.as_str(), "left"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_b.as_str(), "right"));
+    _ = test.expect_ok(fs.write_all(gpa, path_a.as_str(), "left"));
+    _ = test.expect_ok(fs.write_all(gpa, path_b.as_str(), "right"));
 
     let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
     defer state.deinit(gpa);
@@ -760,22 +760,22 @@ fn check_nested_split_tree_layout() void {
     defer path_top.deinit(gpa);
     defer path_bottom.deinit(gpa);
 
-    let _ = fs.remove_file_if_exists(gpa, path_left.as_str());
-    let _ = fs.remove_file_if_exists(gpa, path_top.as_str());
-    let _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_left.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_top.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_left.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_left.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_top.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_top.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
     };
 
-    let _ = test.expect_ok(fs.write_all(gpa, path_left.as_str(), "L0\nL1\nL2\nL3"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_top.as_str(), "T0\nT1"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_bottom.as_str(), "B0\nB1"));
+    _ = test.expect_ok(fs.write_all(gpa, path_left.as_str(), "L0\nL1\nL2\nL3"));
+    _ = test.expect_ok(fs.write_all(gpa, path_top.as_str(), "T0\nT1"));
+    _ = test.expect_ok(fs.write_all(gpa, path_bottom.as_str(), "B0\nB1"));
 
     let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
     defer state.deinit(gpa);
@@ -811,22 +811,22 @@ fn check_ctrl_w_rearrange_commands() void {
     defer path_top.deinit(gpa);
     defer path_bottom.deinit(gpa);
 
-    let _ = fs.remove_file_if_exists(gpa, path_left.as_str());
-    let _ = fs.remove_file_if_exists(gpa, path_top.as_str());
-    let _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_left.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_top.as_str());
+    _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_left.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_left.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_top.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_top.as_str());
     };
     defer {
-        let _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
+        _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
     };
 
-    let _ = test.expect_ok(fs.write_all(gpa, path_left.as_str(), "L0\nL1\nL2\nL3"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_top.as_str(), "T0\nT1"));
-    let _ = test.expect_ok(fs.write_all(gpa, path_bottom.as_str(), "B0\nB1"));
+    _ = test.expect_ok(fs.write_all(gpa, path_left.as_str(), "L0\nL1\nL2\nL3"));
+    _ = test.expect_ok(fs.write_all(gpa, path_top.as_str(), "T0\nT1"));
+    _ = test.expect_ok(fs.write_all(gpa, path_bottom.as_str(), "B0\nB1"));
 
     let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
     defer state.deinit(gpa);

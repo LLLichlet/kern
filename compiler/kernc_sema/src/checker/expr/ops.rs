@@ -1,7 +1,7 @@
 use super::{ExprChecker, NumericInferenceKind};
 use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};
-use kernc_ast::{BinaryOperator, Expr, ExprKind, UnaryOperator};
+use kernc_ast::{AssignmentOperator, BinaryOperator, Expr, ExprKind, UnaryOperator};
 use kernc_utils::{DiagnosticCode, NodeId, Span};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -918,7 +918,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub fn check_assign(&mut self, lhs: &Expr, rhs: &Expr) -> TypeId {
+    pub fn check_assign(&mut self, lhs: &Expr, op: AssignmentOperator, rhs: &Expr) -> TypeId {
+        if matches!(lhs.kind, ExprKind::Infer) {
+            if op != AssignmentOperator::Assign {
+                self.ctx
+                    .struct_error(lhs.span, "discard assignment only supports `=`")
+                    .with_hint("use `_ = ...;` to explicitly discard a value")
+                    .emit();
+                let _ = self.check_expr(rhs, None);
+                return TypeId::ERROR;
+            }
+            let _ = self.check_expr(rhs, None);
+            return TypeId::VOID;
+        }
+
         let lhs_ty = self.check_expr(lhs, None);
 
         // Defer to the inherited-mutability analysis.

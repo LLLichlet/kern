@@ -149,7 +149,7 @@ Pointer arithmetic stays explicit:
   * **Arrays**: `[N]T` - Fixed-size value type.
   * **Slices**: `[]T` or `[]mut T` - A fat pointer containing a pointer and a `usize` length.
   * **Arrays Are Physical Aggregates**: Arrays behave like inline structs, not like hidden reference handles.
-      * `[N]T` is the only fixed-size array family. Kern does **not** define `[N]T`.
+      * `[N]T` is the only fixed-size array family. Kern does **not** define `[N]mut T`.
       * Array element writes are controlled by the mutability of the storage path that reaches the array.
       * `let mut arr = [4]u8.{ 1, 2, 3, 4 }; arr.[0] = 9;` is valid.
       * `let arr = [4]u8.{ 1, 2, 3, 4 }; arr.[0] = 9;` is rejected.
@@ -169,6 +169,8 @@ Pointer arithmetic stays explicit:
       * Field access composes normally: mutability flows through `obj.field.[i]` from the full storage path, not from a special array-element type qualifier.
       * Passing `[N]T` across a boundary may decay to `[]T` freely, but decay to `[]mut T` still requires a mutable source location.
   * **String Literals**: `"Hello"` evaluates to `[]u8` (an immutable slice).
+      * A string literal is not a fixed array expression. Passing a string to `[N]u8` requires an explicit array value such as `[N]u8.{ ... }`.
+      * When a string literal is used at runtime, the compiler may materialize anonymous read-only backing bytes for the slice pointer. That backing storage belongs to the literal, not to any `const` name that refers to it.
   * **Fat-Pointer State Extractor (`#`)**: The unary `#` operator is a universal primitive used to extract the implicit runtime metadata (or state) from a fat pointer or a container.
       * For Arrays and Slices, `#` evaluates to the length (`usize`).
       * For Closures (`*Fn`), `#` evaluates to the captured state's raw pointer (`*mut void` / `*void`).
@@ -227,13 +229,18 @@ BNC guarantees that the developer does not need to write boilerplate fat-pointer
 
 ## 4\. Const and Compile-Time Evaluation
 
-`const` in Kern is a language-level compile-time execution mechanism, not merely a "read-only storage class". Semantically it is much closer to a restricted `comptime` model: the compiler is allowed to interpret expressions, follow constant references, and execute explicitly marked functions in order to materialize values during compilation.
+`const` in Kern is a language-level compile-time execution mechanism, not a read-only storage class. Semantically it is much closer to a restricted `comptime` model: the compiler is allowed to interpret expressions, follow constant references, and execute explicitly marked functions in order to materialize values during compilation.
+
+A `const` declaration binds a name to a compile-time value. It does not create a runtime object, a storage identity, a linker symbol, or a section entry. Referencing a `const` is semantically equivalent to using the compile-time value it names; any runtime storage that appears after lowering belongs to the expanded expression itself, such as anonymous backing bytes for a string literal.
+
+Use `static` or `static mut` when a program needs a real global object with storage, identity, and addressability.
 
 ### 4.1 Design Position
 
 Kern is freestanding by default, so compile-time evaluation is intentionally independent of the runtime library split.
 
   * `const` does **not** depend on `std`, `kernstd`, `libc`, or any startup object.
+  * `const` does **not** enter the object file as a named entity. Public constants are still compile-time bindings, not exported data.
   * Kern does **not** need a Rust-style `core/std` split to model compile-time capability. Const evaluation is part of the language and compiler, not a special sub-library.
   * The standard library may expose more `const fn`, but the mechanism itself remains runtime-agnostic.
 

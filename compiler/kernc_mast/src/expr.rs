@@ -29,8 +29,8 @@ pub enum MastExprKind {
     Integer(u128),
     Float(f64),
     Bool(bool),
-    /// Strings are typically emitted as global constant arrays in LLVM.
-    /// Keeping this variant lets codegen materialize the backing global lazily.
+    /// String literal bytes. String expressions have slice type; lowering may
+    /// materialize anonymous read-only backing storage for the slice pointer.
     StringLiteral(String),
 
     // --- 2. References ---

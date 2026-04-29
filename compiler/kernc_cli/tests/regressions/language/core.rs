@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn string_literals_are_fixed_byte_arrays() {
+fn string_literals_are_immutable_byte_slices() {
     let output = build_and_run_source(
         r#"
 const TITLE = "abc\0";
@@ -9,10 +9,6 @@ const EMPTY = "";
 
 fn take_slice(text: []u8) usize {
     return #text;
-}
-
-fn take_array(value: [5]u8) u8 {
-    return value.[4];
 }
 
 fn main() i32 {
@@ -28,9 +24,6 @@ fn main() i32 {
     if (take_slice("hello") != 5) {
         return 4;
     }
-    if (take_array("abcd\0") != 0) {
-        return 5;
-    }
     return 0;
 }
 "#,
@@ -39,6 +32,35 @@ fn main() i32 {
     assert!(
         output.status.success(),
         "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn string_literals_do_not_implicitly_type_as_arrays() {
+    let output = compile_source(
+        r#"
+fn take_array(value: [5]u8) u8 {
+    return value.[4];
+}
+
+fn main() i32 {
+    return take_array("abcd\0") as i32;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "program unexpectedly compiled:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("expected `[5]u8`")
+            && String::from_utf8_lossy(&output.stderr).contains("found `[]u8`"),
+        "unexpected diagnostic:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

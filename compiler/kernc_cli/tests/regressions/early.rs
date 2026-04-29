@@ -1117,6 +1117,32 @@ fn main() i32 {
 }
 
 #[test]
+fn const_string_names_do_not_emit_global_storage() {
+    let source = r#"
+const TITLE = "abc";
+
+fn main() i32 {
+    return TITLE.[1] as i32;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_const_string_name_ir", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(".str.root"),
+        "expected anonymous string literal backing storage, got:\n{}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("@_K4root5TITLE"),
+        "const string name unexpectedly emitted global storage:\n{}",
+        stdout
+    );
+}
+
+#[test]
 fn compiles_result_with_payload_error_enum_without_union_alignment_ice() {
     let source = r#"
 

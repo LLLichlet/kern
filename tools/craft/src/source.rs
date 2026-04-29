@@ -358,7 +358,9 @@ fn prepare_git_dependency_root(
         &cache_root,
         ["remote", "set-url", "origin", git_locator.as_str()],
     )?;
-    git_fetch_ref(&cache_root, rev, branch, tag)?;
+    if git_ref_needs_fetch(&cache_root, rev, branch, tag) {
+        git_fetch_ref(&cache_root, rev, branch, tag)?;
+    }
     git_checkout_ref(&cache_root, rev, branch, tag)?;
     run_git(&cache_root, ["clean", "-ffdqx"])?;
     let resolved_revision = git_head_revision(&cache_root)?;
@@ -504,6 +506,32 @@ fn git_fetch_ref(
     }
 }
 
+fn git_ref_needs_fetch(
+    repo_root: &Path,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    tag: Option<&str>,
+) -> bool {
+    if let Some(rev) = rev {
+        return !git_commitish_exists(repo_root, rev);
+    }
+    if branch.is_some() {
+        return true;
+    }
+    if let Some(tag) = tag {
+        return !git_commitish_exists(repo_root, &format!("refs/tags/{tag}"));
+    }
+    true
+}
+
+fn git_commitish_exists(repo_root: &Path, commitish: &str) -> bool {
+    git_output(
+        repo_root,
+        ["cat-file", "-e", &format!("{commitish}^{{commit}}")],
+    )
+    .is_ok()
+}
+
 fn git_checkout_ref(
     repo_root: &Path,
     rev: Option<&str>,
@@ -519,10 +547,24 @@ fn git_checkout_ref(
     } else {
         "FETCH_HEAD".to_string()
     };
+    if git_worktree_at_target(repo_root, &target) {
+        return Ok(());
+    }
     run_git(
         repo_root,
         ["checkout", "--force", "--detach", target.as_str()],
     )
+}
+
+fn git_worktree_at_target(repo_root: &Path, target: &str) -> bool {
+    let Ok(head) = git_output(repo_root, ["rev-parse", "HEAD"]) else {
+        return false;
+    };
+    let Ok(target) = git_output(repo_root, ["rev-parse", &format!("{target}^{{commit}}")]) else {
+        return false;
+    };
+
+    head == target && git_output(repo_root, ["diff-index", "--quiet", "HEAD", "--"]).is_ok()
 }
 
 fn git_selector_from_parts(
@@ -1353,6 +1395,124 @@ limine = {{ git = "{}", branch = "main" }}
         let _ = fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn reuses_cached_git_tag_resource_without_contacting_remote() {
+        let root = temp_dir("craft-fetch-git-tag-resource-cache");
+        let repo = root.join("limine.git");
+        init_git_package(&repo, "pub fn x() i32 { return 0; }\n");
+        fs::write(repo.join("resource.txt"), "limine\n").unwrap();
+        run_git(&repo, ["add", "."]).unwrap();
+        run_git(&repo, ["commit", "-m", "resource"]).unwrap();
+        run_git(&repo, ["tag", "v1.0.0"]).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            format!(
+                r#"
+[package]
+name = "kernel"
+version = "0.1.0"
+kern = "0.7.2"
+
+[[bin]]
+name = "kernel"
+root = "src/main.rn"
+
+[resources]
+limine = {{ git = "{}", tag = "v1.0.0" }}
+"#,
+                file_git_url(&repo)
+            ),
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Fetch,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let fetched = fetch_package_resources(&elaboration).unwrap();
+        assert_eq!(fetched[0].status, FetchStatus::Created);
+        assert!(fetched[0].cache_path.join("resource.txt").is_file());
+
+        fs::rename(&repo, root.join("limine-offline.git")).unwrap();
+
+        let fetched = fetch_package_resources(&elaboration).unwrap();
+        assert_eq!(fetched[0].status, FetchStatus::Unchanged);
+        assert!(fetched[0].cache_path.join("resource.txt").is_file());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reuses_cached_git_rev_dependency_without_contacting_remote() {
+        let root = temp_dir("craft-fetch-git-rev-cache");
+        let repo = root.join("log.git");
+        init_git_package(&repo, "pub fn x() i32 { return 0; }\n");
+        let revision = git_head(&repo);
+
+        fs::write(
+            root.join("Craft.toml"),
+            format!(
+                r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.2"
+
+[dependencies]
+log = {{ git = "{}", rev = "{}", version = "1" }}
+"#,
+                file_git_url(&repo),
+                revision
+            ),
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let fetched = fetch_external_packages(&elaboration.resolved_graph).unwrap();
+        assert_eq!(fetched[0].status, FetchStatus::Created);
+        assert_eq!(
+            fetched[0].source.resolved_revision.as_deref(),
+            Some(revision.as_str())
+        );
+
+        fs::rename(&repo, root.join("log-offline.git")).unwrap();
+
+        let fetched = fetch_external_packages(&elaboration.resolved_graph).unwrap();
+        assert_eq!(fetched[0].status, FetchStatus::Unchanged);
+        assert_eq!(
+            fetched[0].source.resolved_revision.as_deref(),
+            Some(revision.as_str())
+        );
+        assert_eq!(
+            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
+            "pub fn x() i32 { return 0; }\n"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
     fn init_git_package(repo: &PathBuf, lib_source: &str) {
         fs::create_dir_all(repo.join("src")).unwrap();
         fs::write(
@@ -1382,6 +1542,10 @@ root = "src/lib.rn"
 
     fn toml_string_literal(path: &std::path::Path) -> String {
         path.to_string_lossy().replace('\\', "\\\\")
+    }
+
+    fn file_git_url(path: &std::path::Path) -> String {
+        format!("file://{}", toml_string_literal(path))
     }
 
     fn normalized_text_file(path: &std::path::Path) -> String {

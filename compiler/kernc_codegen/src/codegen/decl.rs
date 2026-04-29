@@ -12,6 +12,116 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn emit_static_init_ice(&mut self, msg: impl Into<String>) {
+        self.sess.emit_ice(Span::default(), msg);
+    }
+
+    fn llvm_static_array_type(&mut self, ty: TypeId) -> Option<crate::types::ArrayType<'ctx>> {
+        match self.get_llvm_type(ty) {
+            BasicTypeEnum::ArrayType(array_ty) => Some(array_ty),
+            other => {
+                self.emit_static_init_ice(format!(
+                    "Kern ICE (Codegen): static array initializer lowered to non-array LLVM type {:?}.",
+                    other
+                ));
+                None
+            }
+        }
+    }
+
+    fn llvm_static_struct_type(&mut self, ty: TypeId) -> Option<StructType<'ctx>> {
+        match self.get_llvm_type(ty) {
+            BasicTypeEnum::StructType(struct_ty) => Some(struct_ty),
+            other => {
+                self.emit_static_init_ice(format!(
+                    "Kern ICE (Codegen): static aggregate initializer lowered to non-struct LLVM type {:?}.",
+                    other
+                ));
+                None
+            }
+        }
+    }
+
+    fn static_int_value(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+    ) -> Option<crate::values::IntValue<'ctx>> {
+        match value {
+            BasicValueEnum::IntValue(value) => Some(value),
+            other => {
+                self.emit_static_init_ice(format!(
+                    "Kern ICE (Codegen): expected integer constant in static initializer, found {:?}.",
+                    other.get_type()
+                ));
+                None
+            }
+        }
+    }
+
+    fn static_float_value(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+    ) -> Option<crate::values::FloatValue<'ctx>> {
+        match value {
+            BasicValueEnum::FloatValue(value) => Some(value),
+            other => {
+                self.emit_static_init_ice(format!(
+                    "Kern ICE (Codegen): expected float constant in static initializer, found {:?}.",
+                    other.get_type()
+                ));
+                None
+            }
+        }
+    }
+
+    fn static_pointer_value(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+    ) -> Option<crate::values::PointerValue<'ctx>> {
+        match value {
+            BasicValueEnum::PointerValue(value) => Some(value),
+            other => {
+                self.emit_static_init_ice(format!(
+                    "Kern ICE (Codegen): expected pointer constant in static initializer, found {:?}.",
+                    other.get_type()
+                ));
+                None
+            }
+        }
+    }
+
+    fn static_struct_value(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+    ) -> Option<crate::values::StructValue<'ctx>> {
+        match value {
+            BasicValueEnum::StructValue(value) => Some(value),
+            other => {
+                self.emit_static_init_ice(format!(
+                    "Kern ICE (Codegen): expected struct constant in static initializer, found {:?}.",
+                    other.get_type()
+                ));
+                None
+            }
+        }
+    }
+
+    fn static_array_value(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+    ) -> Option<crate::values::ArrayValue<'ctx>> {
+        match value {
+            BasicValueEnum::ArrayValue(value) => Some(value),
+            other => {
+                self.emit_static_init_ice(format!(
+                    "Kern ICE (Codegen): expected array constant in static initializer, found {:?}.",
+                    other.get_type()
+                ));
+                None
+            }
+        }
+    }
+
     fn pack_union_static_chunk(
         &mut self,
         value: BasicValueEnum<'ctx>,
@@ -33,7 +143,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         array_ty: crate::types::ArrayType<'ctx>,
         value: BasicValueEnum<'ctx>,
     ) -> Option<BasicValueEnum<'ctx>> {
-        let elem_ty = array_ty.get_element_type().into_int_type();
+        let elem_ty = match array_ty.get_element_type() {
+            BasicTypeEnum::IntType(elem_ty) => elem_ty,
+            other => {
+                self.emit_static_init_ice(format!(
+                    "Kern ICE (Codegen): union static storage array expected integer elements, found {:?}.",
+                    other
+                ));
+                return None;
+            }
+        };
         let mut values = vec![elem_ty.const_zero(); array_ty.len() as usize];
         let first = self
             .pack_union_static_chunk(value, elem_ty)?
@@ -127,7 +246,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         match init {
             MirStaticInit::Const(value) => self.compile_mir_static_const(value),
             MirStaticInit::Array { ty, elems } => {
-                let array_ty = self.get_llvm_type(*ty).into_array_type();
+                let array_ty = self.llvm_static_array_type(*ty)?;
                 let elem_ty = self
                     .type_registry
                     .get_elem_type(*ty)
@@ -138,61 +257,46 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .collect::<Option<Vec<_>>>()?;
 
                 match elem_ty {
-                    Some(BasicTypeEnum::IntType(int_ty)) => Some(
-                        int_ty
-                            .const_array(
-                                &elem_consts
-                                    .iter()
-                                    .map(|value| value.into_int_value())
-                                    .collect::<Vec<_>>(),
-                            )
-                            .into(),
-                    ),
-                    Some(BasicTypeEnum::FloatType(float_ty)) => Some(
-                        float_ty
-                            .const_array(
-                                &elem_consts
-                                    .iter()
-                                    .map(|value| value.into_float_value())
-                                    .collect::<Vec<_>>(),
-                            )
-                            .into(),
-                    ),
-                    Some(BasicTypeEnum::PointerType(ptr_ty)) => Some(
-                        ptr_ty
-                            .const_array(
-                                &elem_consts
-                                    .iter()
-                                    .map(|value| value.into_pointer_value())
-                                    .collect::<Vec<_>>(),
-                            )
-                            .into(),
-                    ),
-                    Some(BasicTypeEnum::StructType(struct_ty)) => Some(
-                        struct_ty
-                            .const_array(
-                                &elem_consts
-                                    .iter()
-                                    .map(|value| value.into_struct_value())
-                                    .collect::<Vec<_>>(),
-                            )
-                            .into(),
-                    ),
-                    Some(BasicTypeEnum::ArrayType(nested_array_ty)) => Some(
-                        nested_array_ty
-                            .const_array(
-                                &elem_consts
-                                    .iter()
-                                    .map(|value| value.into_array_value())
-                                    .collect::<Vec<_>>(),
-                            )
-                            .into(),
-                    ),
+                    Some(BasicTypeEnum::IntType(int_ty)) => {
+                        let values = elem_consts
+                            .into_iter()
+                            .map(|value| self.static_int_value(value))
+                            .collect::<Option<Vec<_>>>()?;
+                        Some(int_ty.const_array(&values).into())
+                    }
+                    Some(BasicTypeEnum::FloatType(float_ty)) => {
+                        let values = elem_consts
+                            .into_iter()
+                            .map(|value| self.static_float_value(value))
+                            .collect::<Option<Vec<_>>>()?;
+                        Some(float_ty.const_array(&values).into())
+                    }
+                    Some(BasicTypeEnum::PointerType(ptr_ty)) => {
+                        let values = elem_consts
+                            .into_iter()
+                            .map(|value| self.static_pointer_value(value))
+                            .collect::<Option<Vec<_>>>()?;
+                        Some(ptr_ty.const_array(&values).into())
+                    }
+                    Some(BasicTypeEnum::StructType(struct_ty)) => {
+                        let values = elem_consts
+                            .into_iter()
+                            .map(|value| self.static_struct_value(value))
+                            .collect::<Option<Vec<_>>>()?;
+                        Some(struct_ty.const_array(&values).into())
+                    }
+                    Some(BasicTypeEnum::ArrayType(nested_array_ty)) => {
+                        let values = elem_consts
+                            .into_iter()
+                            .map(|value| self.static_array_value(value))
+                            .collect::<Option<Vec<_>>>()?;
+                        Some(nested_array_ty.const_array(&values).into())
+                    }
                     _ => Some(array_ty.const_zero().into()),
                 }
             }
             MirStaticInit::FatPointer { ty, data_ptr, meta } => {
-                let struct_ty = self.get_llvm_type(*ty).into_struct_type();
+                let struct_ty = self.llvm_static_struct_type(*ty)?;
                 let data_ptr_const = self.compile_mir_static_init(data_ptr)?;
                 let meta_const = self.compile_mir_static_init(meta)?;
                 Some(
@@ -232,10 +336,28 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 ..
             } => {
                 let struct_ty = *self.structs.get(data_struct_id)?;
-                let tag_ty = struct_ty.get_field_type_at_index(0)?.into_int_type();
+                let tag_ty = match struct_ty.get_field_type_at_index(0)? {
+                    BasicTypeEnum::IntType(tag_ty) => tag_ty,
+                    other => {
+                        self.emit_static_init_ice(format!(
+                            "Kern ICE (Codegen): data static initializer tag field expected integer type, found {:?}.",
+                            other
+                        ));
+                        return None;
+                    }
+                };
                 let tag_val = tag_ty.const_u128(*tag_value);
 
-                let union_ty = struct_ty.get_field_type_at_index(1)?.into_struct_type();
+                let union_ty = match struct_ty.get_field_type_at_index(1)? {
+                    BasicTypeEnum::StructType(union_ty) => union_ty,
+                    other => {
+                        self.emit_static_init_ice(format!(
+                            "Kern ICE (Codegen): data static initializer payload field expected struct type, found {:?}.",
+                            other
+                        ));
+                        return None;
+                    }
+                };
                 let union_val = if let Some(payload) = payload {
                     let payload_const = self.compile_mir_static_init(payload)?;
                     self.pack_union_static_value(union_ty, payload_const)

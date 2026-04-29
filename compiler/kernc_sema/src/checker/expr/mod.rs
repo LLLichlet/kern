@@ -1094,7 +1094,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return false;
         }
 
-        let last_segment = segments.last().unwrap();
+        let Some(last_segment) = segments.last() else {
+            return false;
+        };
         let mut current_scope = match anchor {
             Some(anchor) => {
                 let Some((_, scope)) = self.anchored_start_scope(*anchor, span) else {
@@ -1644,7 +1646,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // Delegate them directly to the type resolver.
             _ => {
                 let mut resolver = TypeResolver::new(self.ctx);
-                let scope = resolver.current_scope_id().unwrap();
+                let Some(scope) = resolver.current_scope_id() else {
+                    self.ctx.emit_ice(
+                        ty_node.span,
+                        "Kern ICE (Typeck): missing current scope while resolving `@typeOf`.",
+                    );
+                    return TypeId::ERROR;
+                };
                 resolver.resolve_type(ty_node, scope)
             }
         };

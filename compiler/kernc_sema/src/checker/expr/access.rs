@@ -110,9 +110,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.ctx
                     .record_identifier_reference(*field_span, target_info.span);
                 if target_info.kind == SymbolKind::Module {
-                    self.ctx
-                        .type_registry
-                        .intern(TypeKind::Module(target_info.def_id.unwrap()))
+                    let Some(def_id) = target_info.def_id else {
+                        self.ctx.emit_ice(
+                            *field_span,
+                            "Kern ICE (Typeck): module symbol is missing its definition id.",
+                        );
+                        return Some(TypeId::ERROR);
+                    };
+                    self.ctx.type_registry.intern(TypeKind::Module(def_id))
                 } else {
                     self.resolved_symbol_type(&target_info, *field_span)
                 }

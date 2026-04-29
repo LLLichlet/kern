@@ -40,7 +40,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 1. Allow pointer reinterpretation such as `*i32 as *u8`.
         if is_f_ptr && is_t_ptr {
-            let t_inner = self.ctx.type_registry.get_elem_type(t_norm).unwrap();
+            let Some(t_inner) = self.ctx.type_registry.get_elem_type(t_norm) else {
+                self.ctx.emit_ice(
+                    span,
+                    "Kern ICE (Typeck): pointer cast target is missing its element type.",
+                );
+                return;
+            };
             let t_inner_id = self.resolve_tv(t_inner);
 
             let t_is_fat = matches!(

@@ -375,6 +375,7 @@ fn collect_semantic_token_entries(
             | TokenType::Percent
             | TokenType::Hash
             | TokenType::At
+            | TokenType::Question
             | TokenType::Caret
             | TokenType::Bang
             | TokenType::Ampersand
@@ -403,6 +404,8 @@ fn collect_semantic_token_entries(
             | TokenType::DotDot
             | TokenType::DotDotEqual
             | TokenType::DotAmpersand
+            | TokenType::DotQuestion
+            | TokenType::DotBang
             | TokenType::DotStar
             | TokenType::DotLBracket
             | TokenType::DotLBrace
@@ -515,7 +518,7 @@ fn is_type_context_identifier(tokens: &[Token], index: usize) -> bool {
     };
 
     match previous.tag {
-        TokenType::Colon | TokenType::Arrow | TokenType::As => return true,
+        TokenType::Colon | TokenType::Arrow | TokenType::As | TokenType::Question => return true,
         TokenType::Dot => {
             let Some(dot_index) = previous_significant_token_index(tokens, index) else {
                 return false;
@@ -525,8 +528,21 @@ fn is_type_context_identifier(tokens: &[Token], index: usize) -> bool {
             };
             return is_type_context_identifier(tokens, base_index);
         }
+        TokenType::Mut => {
+            let Some(mut_index) = previous_significant_token_index(tokens, index) else {
+                return false;
+            };
+            if is_mut_type_qualifier(tokens, mut_index) {
+                return true;
+            }
+        }
         TokenType::Star
+        | TokenType::Caret
         | TokenType::Ampersand
+        | TokenType::Bang
+        | TokenType::LParen
+        | TokenType::RParen
+        | TokenType::RBracket
         | TokenType::DotAmpersand
         | TokenType::DotDotAmpersand
         | TokenType::LBracket
@@ -541,6 +557,29 @@ fn is_type_context_identifier(tokens: &[Token], index: usize) -> bool {
     false
 }
 
+fn is_mut_type_qualifier(tokens: &[Token], mut_index: usize) -> bool {
+    let Some(previous_index) = previous_significant_token_index(tokens, mut_index) else {
+        return false;
+    };
+    match tokens[previous_index].tag {
+        TokenType::Star | TokenType::Caret => is_nested_in_type_context(tokens, previous_index),
+        TokenType::RBracket => {
+            is_slice_type_close_bracket(tokens, previous_index)
+                && is_nested_in_type_context(tokens, previous_index)
+        }
+        _ => false,
+    }
+}
+
+fn is_slice_type_close_bracket(tokens: &[Token], rbracket_index: usize) -> bool {
+    if tokens.get(rbracket_index).map(|token| token.tag) != Some(TokenType::RBracket) {
+        return false;
+    }
+    previous_significant_token(tokens, rbracket_index)
+        .map(|token| token.tag == TokenType::LBracket)
+        .unwrap_or(false)
+}
+
 fn is_nested_in_type_context(tokens: &[Token], index: usize) -> bool {
     let mut paren_depth = 0usize;
     let mut bracket_depth = 0usize;
@@ -548,6 +587,12 @@ fn is_nested_in_type_context(tokens: &[Token], index: usize) -> bool {
     while idx > 0 {
         idx -= 1;
         match tokens[idx].tag {
+            TokenType::RParen if paren_depth == 0 && bracket_depth == 0 => {
+                if is_function_return_type_context_rparen(tokens, idx) {
+                    return true;
+                }
+                paren_depth += 1;
+            }
             TokenType::RParen => paren_depth += 1,
             TokenType::LParen => paren_depth = paren_depth.saturating_sub(1),
             TokenType::RBracket => bracket_depth += 1,
@@ -562,6 +607,68 @@ fn is_nested_in_type_context(tokens: &[Token], index: usize) -> bool {
     }
 
     false
+}
+
+fn is_function_return_type_context_rparen(tokens: &[Token], rparen_index: usize) -> bool {
+    let Some(lparen_index) =
+        matching_open_token_index(tokens, rparen_index, TokenType::LParen, TokenType::RParen)
+    else {
+        return false;
+    };
+
+    let Some(owner_index) = function_like_owner_before_lparen(tokens, lparen_index) else {
+        return false;
+    };
+
+    match tokens[owner_index].tag {
+        TokenType::Fn | TokenType::CapitalFn => true,
+        TokenType::Identifier => previous_significant_token(tokens, owner_index)
+            .map(|token| token.tag == TokenType::Fn)
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn function_like_owner_before_lparen(tokens: &[Token], lparen_index: usize) -> Option<usize> {
+    let previous_index = previous_significant_token_index(tokens, lparen_index)?;
+    if tokens[previous_index].tag != TokenType::RBracket {
+        return Some(previous_index);
+    }
+
+    let generic_lbracket_index = matching_open_token_index(
+        tokens,
+        previous_index,
+        TokenType::LBracket,
+        TokenType::RBracket,
+    )?;
+    previous_significant_token_index(tokens, generic_lbracket_index)
+}
+
+fn matching_open_token_index(
+    tokens: &[Token],
+    close_index: usize,
+    open: TokenType,
+    close: TokenType,
+) -> Option<usize> {
+    if tokens.get(close_index).map(|token| token.tag) != Some(close) {
+        return None;
+    }
+
+    let mut depth = 0usize;
+    let mut idx = close_index;
+    while idx > 0 {
+        idx -= 1;
+        if tokens[idx].tag == close {
+            depth += 1;
+        } else if tokens[idx].tag == open {
+            if depth == 0 {
+                return Some(idx);
+            }
+            depth -= 1;
+        }
+    }
+
+    None
 }
 
 fn previous_significant_token(tokens: &[Token], index: usize) -> Option<Token> {

@@ -144,6 +144,52 @@ fn semantic_tokens_classify_keywords_types_and_functions() {
 }
 
 #[test]
+fn semantic_tokens_classify_prefixed_and_qualified_type_contexts() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn z_string_layout(bytes: []u8) ?base.mem.Layout {\n",
+        "    return .None;\n",
+        "}\n",
+        "pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) ?*mut u8 {\n",
+        "    return .None;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("semantic_tokens_prefixed_type_contexts", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+    assert_token_type(
+        &decoded,
+        position_of_nth(source, "base", 0, 0),
+        SemanticTokenTypes::TYPE,
+    );
+    assert_token_type(
+        &decoded,
+        position_of_nth(source, "mem", 0, 0),
+        SemanticTokenTypes::TYPE,
+    );
+    assert_token_type(
+        &decoded,
+        position_of_nth(source, "Layout", 0, 0),
+        SemanticTokenTypes::TYPE,
+    );
+    assert_token_type(
+        &decoded,
+        position_of_nth(source, "Allocator", 0, 0),
+        SemanticTokenTypes::TYPE,
+    );
+}
+
+#[test]
 fn semantic_tokens_prefer_symbol_kinds_and_modifiers_for_references() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

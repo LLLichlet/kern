@@ -472,6 +472,8 @@ fn parse_args() -> CliAction {
 }
 
 fn main() {
+    kernc_utils::install_compiler_panic_hook("kernc");
+
     match parse_args() {
         CliAction::Run(options) => {
             let driver = CompilerDriver::new(*options);

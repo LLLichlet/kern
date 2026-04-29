@@ -343,6 +343,11 @@ fn execute_staged_action(
                 ..CompileOptions::default()
             };
             super::options::apply_host_linker_env(&mut options);
+            let _progress_suspend = session
+                .state
+                .progress
+                .as_ref()
+                .map(|progress| progress.suspend_terminal());
             if CompilerDriver::new(options).compile_with_report().is_none() {
                 return Err(Error::Execution(format!(
                     "C compile failed for `{}`",

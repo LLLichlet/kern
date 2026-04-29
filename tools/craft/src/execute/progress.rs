@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
@@ -156,6 +157,7 @@ impl ProgressReporter {
 
     pub(crate) fn suspend_terminal(&self) -> ProgressSuspendGuard {
         self.state.suspended.fetch_add(1, Ordering::Relaxed);
+        clear_terminal_progress_line();
         ProgressSuspendGuard {
             state: self.state.clone(),
         }
@@ -172,6 +174,12 @@ impl ProgressReporter {
     ) -> LongActionReport {
         LongActionReport::spawn(verb, detail.into())
     }
+}
+
+fn clear_terminal_progress_line() {
+    let mut stderr = std::io::stderr();
+    let _ = write!(stderr, "\r\x1b[2K\r");
+    let _ = stderr.flush();
 }
 
 impl Drop for ProgressSuspendGuard {

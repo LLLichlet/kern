@@ -334,6 +334,73 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
+    pub(super) fn compile_mir_operand_as_int(
+        &mut self,
+        body: &MirBody,
+        operand: &MirOperand,
+        context: &str,
+    ) -> IntValue<'ctx> {
+        match self.compile_mir_operand(body, operand) {
+            BasicValueEnum::IntValue(value) => value,
+            other => {
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Codegen): expected integer MIR operand for {}, found {:?}.",
+                        context,
+                        other.get_type()
+                    ),
+                );
+                self.context.i8_type().const_zero()
+            }
+        }
+    }
+
+    pub(super) fn compile_mir_operand_as_pointer(
+        &mut self,
+        body: &MirBody,
+        operand: &MirOperand,
+        context: &str,
+    ) -> PointerValue<'ctx> {
+        match self.compile_mir_operand(body, operand) {
+            BasicValueEnum::PointerValue(value) => value,
+            other => {
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Codegen): expected pointer MIR operand for {}, found {:?}.",
+                        context,
+                        other.get_type()
+                    ),
+                );
+                self.null_ptr()
+            }
+        }
+    }
+
+    pub(super) fn compile_mir_rvalue_as_int(
+        &mut self,
+        body: &MirBody,
+        rvalue: &MirRvalue,
+        expected_ty: Option<TypeId>,
+        context: &str,
+    ) -> IntValue<'ctx> {
+        match self.compile_mir_rvalue(body, rvalue, expected_ty) {
+            BasicValueEnum::IntValue(value) => value,
+            other => {
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Codegen): expected integer MIR rvalue for {}, found {:?}.",
+                        context,
+                        other.get_type()
+                    ),
+                );
+                self.context.i8_type().const_zero()
+            }
+        }
+    }
+
     pub(super) fn compile_mir_place_ptr(
         &mut self,
         body: &MirBody,

@@ -104,21 +104,21 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     ) {
         match intrinsic {
             MirMemoryIntrinsic::Copy { dest, src, len } => {
-                let dest = self.compile_mir_operand(body, dest).into_pointer_value();
-                let src = self.compile_mir_operand(body, src).into_pointer_value();
-                let len = self.compile_mir_operand(body, len).into_int_value();
+                let dest = self.compile_mir_operand_as_pointer(body, dest, "memcpy destination");
+                let src = self.compile_mir_operand_as_pointer(body, src, "memcpy source");
+                let len = self.compile_mir_operand_as_int(body, len, "memcpy length");
                 self.builder.build_memcpy(dest, 1, src, 1, len).unwrap();
             }
             MirMemoryIntrinsic::Move { dest, src, len } => {
-                let dest = self.compile_mir_operand(body, dest).into_pointer_value();
-                let src = self.compile_mir_operand(body, src).into_pointer_value();
-                let len = self.compile_mir_operand(body, len).into_int_value();
+                let dest = self.compile_mir_operand_as_pointer(body, dest, "memmove destination");
+                let src = self.compile_mir_operand_as_pointer(body, src, "memmove source");
+                let len = self.compile_mir_operand_as_int(body, len, "memmove length");
                 self.builder.build_memmove(dest, 1, src, 1, len).unwrap();
             }
             MirMemoryIntrinsic::Set { dest, val, len } => {
-                let dest = self.compile_mir_operand(body, dest).into_pointer_value();
-                let val = self.compile_mir_operand(body, val).into_int_value();
-                let len = self.compile_mir_operand(body, len).into_int_value();
+                let dest = self.compile_mir_operand_as_pointer(body, dest, "memset destination");
+                let val = self.compile_mir_operand_as_int(body, val, "memset value");
+                let len = self.compile_mir_operand_as_int(body, len, "memset length");
                 self.builder.build_memset(dest, 1, val, len).unwrap();
             }
         }
@@ -150,9 +150,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 then_block,
                 else_block,
             } => {
-                let cond_val = self
-                    .compile_mir_rvalue(body, cond, Some(TypeId::BOOL))
-                    .into_int_value();
+                let cond_val = self.compile_mir_rvalue_as_int(
+                    body,
+                    cond,
+                    Some(TypeId::BOOL),
+                    "branch condition",
+                );
                 let Some(then_bb) = blocks.get(then_block).copied() else {
                     self.sess.emit_ice(
                         Span::default(),
@@ -185,20 +188,35 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let target_ty = self
                     .mir_rvalue_ty(body, target, None)
                     .unwrap_or(TypeId::USIZE);
-                let target_val = self
-                    .compile_mir_rvalue(body, target, Some(target_ty))
-                    .into_int_value();
-                let default_bb = default_block
-                    .and_then(|id| blocks.get(&id).copied())
-                    .unwrap_or_else(|| {
-                        let current = self
-                            .builder
-                            .get_insert_block()
-                            .and_then(|block| block.get_parent())
-                            .expect("current MIR block must have parent function");
-                        self.context
-                            .append_basic_block(current, "mir_switch_default_unreachable")
-                    });
+                let target_val =
+                    self.compile_mir_rvalue_as_int(body, target, Some(target_ty), "switch target");
+                let default_bb = if let Some(default_block) = default_block {
+                    let Some(default_bb) = blocks.get(default_block).copied() else {
+                        self.sess.emit_ice(
+                            Span::default(),
+                            format!(
+                                "Kern ICE (Codegen): MIR switch default block {:?} missing from block map.",
+                                default_block
+                            ),
+                        );
+                        return;
+                    };
+                    default_bb
+                } else {
+                    let Some(current) = self
+                        .builder
+                        .get_insert_block()
+                        .and_then(|block| block.get_parent())
+                    else {
+                        self.sess.emit_ice(
+                            Span::default(),
+                            "Kern ICE (Codegen): current MIR switch block has no parent function.",
+                        );
+                        return;
+                    };
+                    self.context
+                        .append_basic_block(current, "mir_switch_default_unreachable")
+                };
 
                 let mut llvm_cases = Vec::new();
                 for case in cases {

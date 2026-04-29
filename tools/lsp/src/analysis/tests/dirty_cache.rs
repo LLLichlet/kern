@@ -29,7 +29,7 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
         },
     });
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 
     let _ = analysis.semantic_tokens(&result_uri).unwrap();
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
@@ -170,6 +170,7 @@ fn opening_clean_sibling_document_keeps_cached_artifact() {
         },
     });
 
+    let _ = analysis.semantic_tokens(&result_uri).unwrap();
     let resolved = analysis.resolve_analysis(&result_uri).unwrap();
     let cache_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let cached_before = analysis
@@ -229,6 +230,7 @@ fn reverting_dirty_document_reuses_clean_caches() {
         },
     });
 
+    let _ = analysis.semantic_tokens(&uri).unwrap();
     let resolved = analysis.resolve_analysis(&uri).unwrap();
     let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let clean_artifact = analysis
@@ -304,6 +306,7 @@ fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
         },
     });
 
+    let _ = analysis.semantic_tokens(&uri).unwrap();
     let resolved = analysis.resolve_analysis(&uri).unwrap();
     let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let clean_structure = analysis
@@ -393,7 +396,7 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
             .any(|diagnostic| diagnostic.code.as_deref() == Some("unused-private-item"))
     );
     assert_eq!(analysis.structure_cache.borrow().len(), 2);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 2);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 }
 
 #[test]
@@ -505,7 +508,7 @@ fn function_body_fast_path_preserves_clean_target_diagnostics_outside_changed_ow
         position_of_nth(dirty, "missing", 0, 0)
     );
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 }
 
 #[test]
@@ -548,5 +551,5 @@ fn function_body_fast_path_replaces_overlapping_clean_target_diagnostics() {
 
     assert!(bundle.diagnostics.is_empty());
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 }

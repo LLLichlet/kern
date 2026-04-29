@@ -37,6 +37,50 @@ fn completion_in_function_body_includes_visible_symbols() {
 }
 
 #[test]
+fn completion_uses_clean_artifact_when_dirty_body_is_incomplete() {
+    let mut analysis = AnalysisEngine::default();
+    let clean = concat!(
+        "fn helper() void {}\n",
+        "fn main() void {\n",
+        "    helper();\n",
+        "}\n",
+    );
+    let dirty = concat!(
+        "fn helper() void {}\n",
+        "fn main() void {\n",
+        "    hel\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_dirty_body_fallback", clean);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(dirty, "hel", 0, 3))
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"helper".to_string()));
+}
+
+#[test]
 fn completion_after_block_statements_includes_prior_bindings() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

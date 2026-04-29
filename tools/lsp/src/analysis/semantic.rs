@@ -481,7 +481,11 @@ fn is_parameter_declaration(tokens: &[Token], index: usize) -> bool {
                         return false;
                     };
                     if previous.tag == TokenType::Identifier {
-                        return previous_significant_token(tokens, token_index(tokens, previous))
+                        let Some(previous_index) = previous_significant_token_index(tokens, idx)
+                        else {
+                            return false;
+                        };
+                        return previous_significant_token(tokens, previous_index)
                             .map(|token| token.tag == TokenType::Fn)
                             .unwrap_or(false);
                     }
@@ -513,7 +517,10 @@ fn is_type_context_identifier(tokens: &[Token], index: usize) -> bool {
     match previous.tag {
         TokenType::Colon | TokenType::Arrow | TokenType::As => return true,
         TokenType::Dot => {
-            let Some(base_index) = token_index_by_end(tokens, previous.span.start) else {
+            let Some(dot_index) = previous_significant_token_index(tokens, index) else {
+                return false;
+            };
+            let Some(base_index) = previous_significant_token_index(tokens, dot_index) else {
                 return false;
             };
             return is_type_context_identifier(tokens, base_index);
@@ -561,19 +568,13 @@ fn previous_significant_token(tokens: &[Token], index: usize) -> Option<Token> {
     tokens.get(..index)?.iter().rev().copied().next()
 }
 
+fn previous_significant_token_index(tokens: &[Token], index: usize) -> Option<usize> {
+    tokens.get(..index)?;
+    index.checked_sub(1)
+}
+
 fn next_significant_token(tokens: &[Token], index: usize) -> Option<Token> {
     tokens.get(index + 1..)?.iter().copied().next()
-}
-
-fn token_index(tokens: &[Token], target: Token) -> usize {
-    tokens
-        .iter()
-        .position(|token| *token == target)
-        .expect("token must exist in stream")
-}
-
-fn token_index_by_end(tokens: &[Token], end: usize) -> Option<usize> {
-    tokens.iter().position(|token| token.span.end == end)
 }
 
 fn push_semantic_token_entries(

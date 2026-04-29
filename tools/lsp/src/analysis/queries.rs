@@ -3,8 +3,15 @@ use std::collections::BTreeSet;
 
 impl AnalysisEngine {
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<DocumentSymbol>, String> {
+        let context = self.resolve_analysis_context(uri)?;
         let surface = match self.analyze_surface_artifact(uri) {
             Ok(surface) => surface,
+            Err(_) if !context.dirty_documents.is_clean() => {
+                match self.analyze_clean_surface_for_context(&context) {
+                    Some(surface) => surface,
+                    None => return Ok(Vec::new()),
+                }
+            }
             Err(_) => return Ok(Vec::new()),
         };
         let Some(target_doc) = self.documents.get(uri) else {
@@ -169,19 +176,31 @@ impl AnalysisEngine {
         let context = completion_context(&target_doc.text, offset);
         let member_access = completion_is_member_access(&target_doc.text, offset);
 
-        let mut items = if let Ok(surface) = self.analyze_surface_artifact(uri) {
+        let analysis_context = self.resolve_analysis_context(uri)?;
+        let mut items = if let Some(surface) =
+            self.analyze_surface_artifact(uri).ok().or_else(|| {
+                (!analysis_context.dirty_documents.is_clean())
+                    .then(|| self.analyze_clean_surface_for_context(&analysis_context))
+                    .flatten()
+            }) {
             if !surface.requires_body_completion(&target_path, offset) {
                 surface.completion_items(&target_path, offset)
             } else {
-                match self.analyze_artifact(uri) {
-                    Ok(artifact) => artifact.completion_items(&target_path, offset),
-                    Err(_) => Vec::new(),
+                let artifact = self.analyze_artifact_for_context(&analysis_context);
+                if artifact.succeeded || analysis_context.dirty_documents.is_clean() {
+                    artifact.completion_items(&target_path, offset)
+                } else {
+                    self.analyze_clean_artifact_for_context(&analysis_context)
+                        .completion_items(&target_path, offset)
                 }
             }
         } else {
-            match self.analyze_artifact(uri) {
-                Ok(artifact) => artifact.completion_items(&target_path, offset),
-                Err(_) => Vec::new(),
+            let artifact = self.analyze_artifact_for_context(&analysis_context);
+            if artifact.succeeded || analysis_context.dirty_documents.is_clean() {
+                artifact.completion_items(&target_path, offset)
+            } else {
+                self.analyze_clean_artifact_for_context(&analysis_context)
+                    .completion_items(&target_path, offset)
             }
         };
         if !prefix.is_empty() {

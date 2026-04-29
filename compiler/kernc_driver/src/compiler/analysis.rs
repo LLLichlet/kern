@@ -82,12 +82,15 @@ impl CompilerDriver {
         source_overrides: &SourceOverrides,
     ) -> AnalysisReport {
         let mut session = Session::new();
-        let succeeded = {
-            let ctx = self.analyze_with_overrides(&mut session, input_file, source_overrides);
-            ctx.is_some()
-        };
+        session.apply_options(&self.options);
 
-        AnalysisReport { session, succeeded }
+        match self.try_analyze_structure(session, input_file, source_overrides) {
+            Ok(structure) => self.analyze_report_from_structure(&structure),
+            Err(session) => AnalysisReport {
+                session: *session,
+                succeeded: false,
+            },
+        }
     }
 
     pub fn analyze_artifact(

@@ -28,6 +28,52 @@ fn extracts_document_symbols_from_compiler_artifact() {
 }
 
 #[test]
+fn document_symbols_use_clean_surface_when_dirty_body_is_incomplete() {
+    let mut analysis = AnalysisEngine::default();
+    let clean = concat!(
+        "fn helper() void {}\n",
+        "fn main() void {\n",
+        "    helper();\n",
+        "}\n",
+    );
+    let dirty = concat!(
+        "fn helper() void {}\n",
+        "fn main() void {\n",
+        "    hel\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("document_symbols_dirty_fallback", clean);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+
+    let symbols = analysis.document_symbols(&uri).unwrap();
+    let names = symbols
+        .iter()
+        .map(|symbol| symbol.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(names.contains(&"helper"));
+    assert!(names.contains(&"main"));
+}
+
+#[test]
 fn document_symbols_use_surface_cache_without_body_artifact() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

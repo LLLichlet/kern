@@ -42,8 +42,8 @@ use crate::protocol::{
 };
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{
-    AnalysisArtifact, AnalysisSurfaceArtifact, CompilerDriver, IncrementalDriverKey,
-    ParsedModuleArtifact, SourceOverrides, StructureArtifact,
+    AnalysisArtifact, AnalysisReport, AnalysisSurfaceArtifact, CompilerDriver,
+    IncrementalDriverKey, ParsedModuleArtifact, SourceOverrides, StructureArtifact,
 };
 use kernc_utils::config::{
     CompileOptions, apply_configured_library_aliases, inject_driver_condition_defines,
@@ -168,14 +168,14 @@ impl AnalysisEngine {
             };
         }
 
-        let Ok(artifact) = self.analyze_artifact(target_uri) else {
+        let Ok(report) = self.analyze_diagnostic_report(target_uri) else {
             return single_server_diagnostic(
                 target_uri.to_string(),
                 "received analysis request for a document that is not open",
             );
         };
 
-        let mut bundles_by_uri = diagnostics_from_session(&artifact.session, &self.documents);
+        let mut bundles_by_uri = diagnostics_from_session(&report.session, &self.documents);
         bundles_by_uri.entry(target_uri.to_string()).or_default();
         self.retain_publishable_bundles(target_uri, &mut bundles_by_uri);
 
@@ -352,6 +352,44 @@ impl AnalysisEngine {
         self.open_uri_by_normalized_path()
     }
 
+    fn analyze_diagnostic_report(&self, target_uri: &str) -> Result<AnalysisReport, String> {
+        let context = self.resolve_analysis_context(target_uri)?;
+        if let Some(artifact) = self.artifact_cache.borrow().get(&context.cache_key) {
+            return Ok(AnalysisReport {
+                session: artifact.session.clone(),
+                succeeded: artifact.succeeded,
+            });
+        }
+
+        let structure =
+            if let Some(structure) = self.structure_cache.borrow().get(&context.cache_key) {
+                Some(Rc::clone(structure))
+            } else {
+                context
+                    .driver
+                    .analyze_structure(
+                        &context.resolved.input_file.to_string_lossy(),
+                        &context.dirty_documents.overrides,
+                    )
+                    .map(Rc::new)
+            };
+        self.prune_cache_family_for_insert(&context.cache_key);
+        if let Some(structure) = &structure {
+            self.structure_cache
+                .borrow_mut()
+                .insert(context.cache_key.clone(), Rc::clone(structure));
+        }
+
+        Ok(if let Some(structure) = structure {
+            context.driver.analyze_report_from_structure(&structure)
+        } else {
+            context.driver.analyze_report(
+                &context.resolved.input_file.to_string_lossy(),
+                &context.dirty_documents.overrides,
+            )
+        })
+    }
+
     fn analyze_artifact(&self, target_uri: &str) -> Result<Rc<AnalysisArtifact>, String> {
         let context = self.resolve_analysis_context(target_uri)?;
         Ok(self.analyze_artifact_for_context(&context))
@@ -422,6 +460,47 @@ impl AnalysisEngine {
             .borrow_mut()
             .insert(context.cache_key.clone(), Rc::clone(&surface));
         Ok(surface)
+    }
+
+    fn analyze_clean_artifact_for_context(
+        &self,
+        context: &AnalysisRequestContext,
+    ) -> Rc<AnalysisArtifact> {
+        let clean_key = AnalysisCacheKey::clean(&context.resolved);
+        if let Some(artifact) = self.artifact_cache.borrow().get(&clean_key) {
+            return Rc::clone(artifact);
+        }
+
+        let artifact = Rc::new(context.driver.analyze_artifact(
+            &context.resolved.input_file.to_string_lossy(),
+            &SourceOverrides::new(),
+        ));
+        self.artifact_cache
+            .borrow_mut()
+            .insert(clean_key, Rc::clone(&artifact));
+        artifact
+    }
+
+    fn analyze_clean_surface_for_context(
+        &self,
+        context: &AnalysisRequestContext,
+    ) -> Option<Rc<AnalysisSurfaceArtifact>> {
+        let clean_key = AnalysisCacheKey::clean(&context.resolved);
+        if let Some(surface) = self.surface_cache.borrow().get(&clean_key) {
+            return Some(Rc::clone(surface));
+        }
+
+        let surface = context
+            .driver
+            .analyze_surface(
+                &context.resolved.input_file.to_string_lossy(),
+                &SourceOverrides::new(),
+            )
+            .map(Rc::new)?;
+        self.surface_cache
+            .borrow_mut()
+            .insert(clean_key, Rc::clone(&surface));
+        Some(surface)
     }
 
     fn parse_modules_for_context(

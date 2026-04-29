@@ -56,6 +56,16 @@ impl CompilerDriver {
         }
     }
 
+    pub fn analyze_report_from_structure(&self, structure: &StructureArtifact) -> AnalysisReport {
+        let mut session = structure.session.clone();
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(structure.snapshot.clone());
+        let succeeded = self.run_body_pipeline(&mut ctx);
+        drop(ctx);
+
+        AnalysisReport { session, succeeded }
+    }
+
     pub fn analyze_report_from_structure_and_parsed(
         &self,
         structure: &StructureArtifact,

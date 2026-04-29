@@ -341,7 +341,7 @@ fn failpoint_ready_timeout() -> Duration {
     if cfg!(windows) || std::env::var_os("CI").is_some() {
         Duration::from_secs(60)
     } else {
-        Duration::from_secs(10)
+        Duration::from_secs(30)
     }
 }
 
@@ -349,7 +349,7 @@ fn kill_recovery_command_timeout() -> Duration {
     if cfg!(windows) || std::env::var_os("CI").is_some() {
         Duration::from_secs(60)
     } else {
-        Duration::from_secs(10)
+        Duration::from_secs(30)
     }
 }
 

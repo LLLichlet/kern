@@ -209,6 +209,37 @@ fn canceled_document_request_skips_analysis_work() {
 }
 
 #[test]
+fn panicking_document_request_returns_error_response() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_panicking_request", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+
+    execute_document_request::<Value, _>(
+        &mut state,
+        &mut writer,
+        json!(47),
+        &uri,
+        SchedulerLane::Interactive,
+        |_| panic!("synthetic analysis panic"),
+    )
+    .unwrap();
+    std::panic::set_hook(previous_hook);
+
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], json!(47));
+    assert!(
+        messages[0]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("synthetic analysis panic")
+    );
+}
+
+#[test]
 fn stale_document_request_generation_drops_response() {
     let mut state = initialized_state();
     let uri = temp_file_uri("server_stale_request", "fn main() void {}\n");

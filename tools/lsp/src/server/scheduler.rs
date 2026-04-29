@@ -7,6 +7,7 @@ use crate::protocol::{error_response, null_response, publish_diagnostics, succes
 use crate::transport::MessageWriter;
 use serde_json::Value;
 use std::io;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub(super) fn publish_analysis_outcome(
     state: &mut ServerState,
@@ -53,12 +54,35 @@ pub(super) fn flush_diagnostics_lane(
 ) -> Result<(), ServerError> {
     if let Some(reason) = state.pending_workspace_refresh_reason.take() {
         let generations = state.begin_workspace_refresh();
-        for (target_uri, outcome) in state.analysis.refresh_workspace() {
-            let generation = generations
-                .get(&target_uri)
-                .copied()
-                .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
-            state.queue_diagnostics_publish(target_uri, generation, outcome);
+        let fallback_targets = state.analysis.document_uris();
+        let refresh = catch_unwind(AssertUnwindSafe(|| state.analysis.refresh_workspace()));
+        match refresh {
+            Ok(outcomes) => {
+                for (target_uri, outcome) in outcomes {
+                    let generation = generations
+                        .get(&target_uri)
+                        .copied()
+                        .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
+                    state.queue_diagnostics_publish(target_uri, generation, outcome);
+                }
+            }
+            Err(payload) => {
+                let message = panic_message(payload.as_ref());
+                for target_uri in fallback_targets {
+                    let generation = generations
+                        .get(&target_uri)
+                        .copied()
+                        .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
+                    state.queue_diagnostics_publish(
+                        target_uri.clone(),
+                        generation,
+                        crate::analysis::single_server_diagnostic(
+                            target_uri,
+                            format!("kern-lsp analysis panicked: {message}"),
+                        ),
+                    );
+                }
+            }
         }
         state.pending_diagnostics_targets.clear();
         emit_trace(state, writer, reason, None, true)?;
@@ -70,7 +94,18 @@ pub(super) fn flush_diagnostics_lane(
                 .get(&target_uri)
                 .copied()
                 .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
-            let outcome = state.analysis.analyze_document_uri(&target_uri);
+            let outcome = match catch_unwind(AssertUnwindSafe(|| {
+                state.analysis.analyze_document_uri(&target_uri)
+            })) {
+                Ok(outcome) => outcome,
+                Err(payload) => crate::analysis::single_server_diagnostic(
+                    target_uri.clone(),
+                    format!(
+                        "kern-lsp analysis panicked: {}",
+                        panic_message(payload.as_ref())
+                    ),
+                ),
+            };
             state.queue_diagnostics_publish(target_uri, generation, outcome);
         }
     }
@@ -106,15 +141,27 @@ where
     F: FnOnce(&mut AnalysisEngine) -> DocumentSyncAction,
 {
     let generation = state.begin_target_analysis(target_uri);
-    match action(&mut state.analysis) {
-        DocumentSyncAction::ScheduleTarget(uri) => {
+    let result = catch_unwind(AssertUnwindSafe(|| action(&mut state.analysis)));
+    match result {
+        Ok(DocumentSyncAction::ScheduleTarget(uri)) => {
             state
                 .latest_generation_by_target
                 .insert(uri.clone(), generation);
             state.queue_target_diagnostics_task(uri);
         }
-        DocumentSyncAction::Immediate(outcome) => {
+        Ok(DocumentSyncAction::Immediate(outcome)) => {
             state.queue_diagnostics_publish(target_uri.to_string(), generation, outcome);
+        }
+        Err(payload) => {
+            let message = panic_message(payload.as_ref());
+            state.queue_diagnostics_publish(
+                target_uri.to_string(),
+                generation,
+                crate::analysis::single_server_diagnostic(
+                    target_uri.to_string(),
+                    format!("kern-lsp analysis panicked: {message}"),
+                ),
+            );
         }
     }
     let _ = writer;
@@ -149,12 +196,33 @@ where
         return Ok(());
     }
 
-    match analysis(&state.analysis) {
-        Ok(result) => {
+    let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis)));
+    match result {
+        Ok(Ok(result)) => {
             write_success_response(state, writer, &request, serde_json::to_value(result)?)
         }
-        Err(message) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
+        Ok(Err(message)) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
+        Err(payload) => write_error_response(
+            state,
+            writer,
+            &request,
+            INVALID_REQUEST,
+            format!(
+                "kern-lsp analysis panicked: {}",
+                panic_message(payload.as_ref())
+            ),
+        ),
     }
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        return (*message).to_string();
+    }
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+    "unknown panic payload".to_string()
 }
 
 pub(super) fn execute_optional_document_request<T, F>(
@@ -174,12 +242,23 @@ where
         return Ok(());
     }
 
-    match analysis(&state.analysis) {
-        Ok(Some(result)) => {
+    let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis)));
+    match result {
+        Ok(Ok(Some(result))) => {
             write_success_response(state, writer, &request, serde_json::to_value(result)?)
         }
-        Ok(None) => write_null_response(state, writer, &request),
-        Err(message) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
+        Ok(Ok(None)) => write_null_response(state, writer, &request),
+        Ok(Err(message)) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
+        Err(payload) => write_error_response(
+            state,
+            writer,
+            &request,
+            INVALID_REQUEST,
+            format!(
+                "kern-lsp analysis panicked: {}",
+                panic_message(payload.as_ref())
+            ),
+        ),
     }
 }
 

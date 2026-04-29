@@ -52,6 +52,63 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
 }
 
 #[test]
+fn dirty_semantic_tokens_use_lexical_fallback_without_full_analysis() {
+    let clean = "fn main() void {\n    let value = 1;\n}\n";
+    let dirty = "fn main() void {\n    _ = value;\n}\n";
+    let root = unique_temp_dir("dirty_semantic_tokens_lexical_project");
+    let src = root.join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "{CURRENT_KERN_VERSION}"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+"#
+        ),
+    )
+    .unwrap();
+    let path = src.join("main.rn");
+    fs::write(&path, clean).unwrap();
+    let uri = file_path_to_uri(&path).unwrap();
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.semantic_tokens(&uri).unwrap();
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let tokens = analysis.semantic_tokens(&uri).unwrap();
+
+    assert!(!tokens.data.is_empty());
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+}
+
+#[test]
 fn source_overrides_only_include_dirty_documents() {
     let uri = temp_file_uri("analysis_dirty_overrides", "fn main() void {}\n");
     let path = uri_to_file_path(&uri).unwrap();

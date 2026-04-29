@@ -160,6 +160,38 @@ root = \"src/main.rn\"
 }
 
 #[test]
+fn analysis_project_clones_share_build_plan_cache() {
+    let root = temp_dir("craft-project-build-plan-cache");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        "\
+[package]
+name = \"demo\"
+version = \"0.1.0\"
+kern = \"0.7.2\"
+
+[[bin]]
+name = \"demo\"
+root = \"src/main.rn\"
+",
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+    let clone = project.clone();
+
+    let _ = project.resolve_for_file(&root.join("src/main.rn"), &CompileOptions::default());
+    assert_eq!(project.cached_build_plan_count(), 1);
+    assert_eq!(clone.cached_build_plan_count(), 1);
+
+    let _ = clone.resolve_for_file(&root.join("src/main.rn"), &CompileOptions::default());
+    assert_eq!(project.cached_build_plan_count(), 1);
+    assert_eq!(clone.cached_build_plan_count(), 1);
+}
+
+#[test]
 fn resolves_external_path_dependency_aliases_for_analysis() {
     let root = temp_dir("craft-project-external-analysis");
     let deps_dir = root.join("deps");

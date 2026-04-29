@@ -66,6 +66,14 @@ pub(super) fn semantic_tokens(
     }
 }
 
+pub(super) fn lexical_semantic_tokens(file: &kernc_utils::SourceFile) -> SemanticTokens {
+    let entries = collect_semantic_token_entries(file, &BTreeMap::new());
+
+    SemanticTokens {
+        data: encode_semantic_tokens(&entries),
+    }
+}
+
 fn build_semantic_span_classes(
     artifact: &AnalysisArtifact,
     target_path: &Path,

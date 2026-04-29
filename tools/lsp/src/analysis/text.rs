@@ -160,7 +160,7 @@ pub(super) fn empty_range() -> Range {
     }
 }
 
-pub(super) fn single_server_diagnostic(uri: String, message: impl Into<String>) -> AnalysisOutcome {
+pub(crate) fn single_server_diagnostic(uri: String, message: impl Into<String>) -> AnalysisOutcome {
     AnalysisOutcome {
         bundles: vec![super::DiagnosticBundle {
             uri,

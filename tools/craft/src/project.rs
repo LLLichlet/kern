@@ -22,8 +22,10 @@ use crate::script::{ProfileSelection, ScriptCommand};
 use crate::target_defaults::apply_target_runtime_defaults;
 use crate::workspace::{self};
 use kernc_utils::config::{CompileOptions, apply_configured_library_aliases};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct AnalysisProject {
@@ -31,6 +33,7 @@ pub struct AnalysisProject {
     workspace_root: PathBuf,
     packages: Vec<AnalysisPackage>,
     workspace_script_roots: Vec<AnalysisScriptRoot>,
+    build_plan_cache: Rc<RefCell<BTreeMap<AnalysisBuildPlanKey, BuildPlan>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +49,24 @@ struct AnalysisFileMatch<'a> {
     target_kind: TargetKind,
     compile_time_values: BTreeMap<String, String>,
     source_path_aliases: BTreeMap<PathBuf, PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct AnalysisBuildPlanKey {
+    default_features: bool,
+    features: Vec<String>,
+}
+
+impl AnalysisBuildPlanKey {
+    fn from_compile_options(compile_options: &CompileOptions) -> Self {
+        let mut features = compile_options.craft_features.clone();
+        features.sort();
+        features.dedup();
+        Self {
+            default_features: compile_options.craft_default_features,
+            features,
+        }
+    }
 }
 
 impl AnalysisProject {
@@ -171,6 +192,7 @@ impl AnalysisProject {
             workspace_root,
             packages,
             workspace_script_roots: workspace_script_roots(manifest_path),
+            build_plan_cache: Rc::new(RefCell::new(BTreeMap::new())),
         }
     }
 
@@ -349,6 +371,11 @@ impl AnalysisProject {
     }
 
     fn build_plan_for_analysis(&self, compile_options: &CompileOptions) -> Result<BuildPlan> {
+        let cache_key = AnalysisBuildPlanKey::from_compile_options(compile_options);
+        if let Some(plan) = self.build_plan_cache.borrow().get(&cache_key) {
+            return Ok(plan.clone());
+        }
+
         let manifest = Manifest::load(&self.manifest_path)?;
         manifest.validate(&self.manifest_path)?;
         let workspace_members = workspace::load_members(&self.manifest_path, &manifest)?;
@@ -365,7 +392,16 @@ impl AnalysisProject {
             ScriptCommand::Build,
             &feature_selection,
         )?;
-        build_plan::derive(&elaboration, ScriptCommand::Build)
+        let plan = build_plan::derive(&elaboration, ScriptCommand::Build)?;
+        self.build_plan_cache
+            .borrow_mut()
+            .insert(cache_key, plan.clone());
+        Ok(plan)
+    }
+
+    #[cfg(test)]
+    fn cached_build_plan_count(&self) -> usize {
+        self.build_plan_cache.borrow().len()
     }
 }
 

@@ -321,8 +321,16 @@ impl AnalysisEngine {
             return Ok(tokens.clone());
         }
 
-        let artifact = self.analyze_artifact_for_context(&context);
-        let tokens = semantic::semantic_tokens(&artifact, &file, &target_path);
+        let clean_key = AnalysisCacheKey::clean(&context.resolved);
+        let should_use_lexical_fallback = !context.dirty_documents.is_clean()
+            && !self.artifact_cache.borrow().contains_key(&clean_key)
+            && self.project_for_path(&target_doc.path).is_some();
+        let tokens = if should_use_lexical_fallback {
+            semantic::lexical_semantic_tokens(&file)
+        } else {
+            let artifact = self.analyze_artifact_for_context(&context);
+            semantic::semantic_tokens(&artifact, &file, &target_path)
+        };
         self.semantic_tokens_cache
             .borrow_mut()
             .insert(token_key, tokens.clone());

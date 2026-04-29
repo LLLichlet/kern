@@ -16,6 +16,33 @@ fn stdlib_document_symbols_render_real_impl_target_types() {
 }
 
 #[test]
+fn raylib_api_compile_survives_discard_assignment_queries() {
+    let mut analysis = AnalysisEngine::default();
+    let path = workspace_root()
+        .parent()
+        .unwrap()
+        .join("raylib-kern/tests/api_compile.rn");
+    if !path.is_file() {
+        return;
+    }
+    let (uri, source) = open_workspace_document(&mut analysis, &path);
+
+    let diagnostics = analysis.analyze_document_uri(&uri);
+    let semantic_tokens = analysis.semantic_tokens(&uri).unwrap();
+    let hover = analysis
+        .hover(&uri, position_of_nth(&source, "window_should_close", 0, 1))
+        .unwrap();
+    let completion = analysis
+        .completion(&uri, position_of_nth(&source, "raylib.get_time", 0, 7))
+        .unwrap();
+
+    assert!(!diagnostics.bundles.is_empty());
+    assert!(!semantic_tokens.data.is_empty());
+    assert!(hover.is_some());
+    assert!(!completion.is_empty());
+}
+
+#[test]
 fn bitio_hover_renders_real_optional_mut_pointer_field() {
     let mut analysis = AnalysisEngine::default();
     let path = workspace_root().join("incubator/bitio/src/lib.rn");

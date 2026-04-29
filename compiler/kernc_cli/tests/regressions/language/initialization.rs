@@ -409,6 +409,46 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_integer_to_trait_object_pointer_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+type Writer = trait {
+    write: fn([]u8) usize,
+};
+
+pub static mut WRITER = 0 as *mut Writer;
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot cast an integer to a fat pointer using `as`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("trait objects, slices, and closure objects carry metadata"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at") && !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_result_type_in_pointer_static_initializer_without_panicking() {
     let output = compile_source(
         r#"

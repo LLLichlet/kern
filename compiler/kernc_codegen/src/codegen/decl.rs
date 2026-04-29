@@ -258,22 +258,29 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MirConst::Undef { ty } => Some(self.get_llvm_type(*ty).const_zero()),
             MirConst::Integer { ty, value } => {
                 let llvm_ty = self.get_llvm_type(*ty);
-                if llvm_ty.is_pointer_type() {
-                    let pointer_ty = llvm_ty.into_pointer_type();
-                    if *value == 0 {
-                        Some(pointer_ty.const_null().into())
-                    } else {
-                        let int_ty = self
-                            .context
-                            .custom_width_int_type((self.sess.target.pointer_size * 8) as u32);
-                        Some(
-                            pointer_ty
-                                .const_int_to_ptr(int_ty.const_u128(*value))
-                                .into(),
-                        )
+                match llvm_ty {
+                    BasicTypeEnum::PointerType(pointer_ty) => {
+                        if *value == 0 {
+                            Some(pointer_ty.const_null().into())
+                        } else {
+                            let int_ty = self
+                                .context
+                                .custom_width_int_type((self.sess.target.pointer_size * 8) as u32);
+                            Some(
+                                pointer_ty
+                                    .const_int_to_ptr(int_ty.const_u128(*value))
+                                    .into(),
+                            )
+                        }
                     }
-                } else {
-                    Some(llvm_ty.into_int_type().const_u128(*value).into())
+                    BasicTypeEnum::IntType(int_ty) => Some(int_ty.const_u128(*value).into()),
+                    other => {
+                        self.sess.emit_ice(
+                            Span::default(),
+                            "Kern ICE (Codegen): integer static initializer reached non-integer, non-pointer LLVM type.",
+                        );
+                        Some(other.const_zero())
+                    }
                 }
             }
             MirConst::Float { ty, value } => Some(

@@ -73,6 +73,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return;
         }
 
+        if is_f_ptr_int && self.is_fat_pointer_value_type(t_norm) {
+            self.ctx
+                .struct_error(span, "cannot cast an integer to a fat pointer using `as`")
+                .with_hint("trait objects, slices, and closure objects carry metadata")
+                .with_hint("construct a concrete fat pointer with explicit constructor syntax")
+                .emit();
+            return;
+        }
+
         if is_f_ptr_int && self.is_address_pointer_type(t_norm) {
             return;
         }
@@ -110,6 +119,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx.type_registry.get(norm),
             TypeKind::VolatilePtr { .. }
         )
+    }
+
+    fn is_fat_pointer_value_type(&self, ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm) {
+            TypeKind::Slice { .. } | TypeKind::TraitObject(..) => true,
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let elem_norm = self.ctx.type_registry.normalize(*elem);
+                matches!(
+                    self.ctx.type_registry.get(elem_norm),
+                    TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
+                )
+            }
+            _ => false,
+        }
     }
 
     fn constrain_pointer_cast_integer(&mut self, ty: TypeId) -> TypeId {

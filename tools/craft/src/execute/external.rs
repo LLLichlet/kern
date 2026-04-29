@@ -211,12 +211,22 @@ pub(super) fn build_external_package(
                 .get(&runtime_profile_key(&root_library_action.profile))
         })
         .flatten();
-    let module_aliases = module_alias_paths(
+    let mut module_aliases = module_alias_paths(
         root_library_action,
         &loaded.local_library_actions,
         std_package,
         external.built_external_packages,
     )?;
+    if matches!(root_options.library_bundle, LibraryBundle::Base)
+        && root_library_action.package_id.name != "base"
+        && !module_aliases.contains_key("base")
+        && let Some(runtime_package) = external
+            .built_std_packages
+            .get(&runtime_profile_key(&root_library_action.profile))
+        && let Some(base_metadata) = runtime_package.interface_aliases.get("base")
+    {
+        module_aliases.insert("base".to_string(), base_metadata.clone());
+    }
     let link_objects = if config.command == crate::script::ScriptCommand::Check {
         Vec::new()
     } else {

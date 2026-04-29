@@ -227,6 +227,8 @@ pub(super) fn compile_action_options(
         built_external_packages,
     )?;
     if matches!(options.library_bundle, LibraryBundle::Base)
+        && action.package_id.name != "base"
+        && !options.module_interface_aliases.contains_key("base")
         && let Some(runtime_package) = runtime_package
         && let Some(base_metadata) = runtime_package.interface_aliases.get("base")
     {
@@ -559,6 +561,50 @@ root = "src/lib.rn"
         );
         assert_eq!(
             options.module_aliases.get("demo").map(String::as_str),
+            Some(action.source_path().to_string_lossy().as_ref())
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn base_package_lib_targets_keep_base_alias_for_their_own_source() {
+        let root = temp_dir("craft-base-self-alias");
+        let manifest_path = root.join("Craft.toml");
+        fs::write(
+            &manifest_path,
+            r#"
+[package]
+name = "base"
+version = "0.1.0"
+kern = "0.7.2"
+
+[runtime]
+bundle = "base"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        let action = lib_action(&root, "base", manifest_path);
+        let built_std_packages = built_std_package(&root, &action.profile);
+        let mut manifest_runtime_options = BTreeMap::new();
+
+        let options = compile_action_options(
+            crate::script::ScriptCommand::Build,
+            &action,
+            &BTreeMap::new(),
+            &built_std_packages,
+            &BTreeMap::new(),
+            &mut manifest_runtime_options,
+        )
+        .unwrap();
+
+        assert_eq!(options.library_bundle, LibraryBundle::Base);
+        assert!(!options.module_interface_aliases.contains_key("base"));
+        assert_eq!(
+            options.module_aliases.get("base").map(String::as_str),
             Some(action.source_path().to_string_lossy().as_ref())
         );
 

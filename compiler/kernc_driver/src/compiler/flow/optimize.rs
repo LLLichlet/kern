@@ -331,6 +331,7 @@ fn collect_owner_exprs<'a>(
     exprs.insert(expr.id, expr);
 
     match &expr.kind {
+        ast::ExprKind::Error => {}
         ast::ExprKind::Let {
             init, else_clause, ..
         } => {
@@ -479,6 +480,7 @@ fn collect_simple_binding_let_expr_ids(
     }
 
     match &expr.kind {
+        ast::ExprKind::Error => {}
         ast::ExprKind::Let {
             init, else_clause, ..
         } => {
@@ -699,7 +701,8 @@ fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
         ast::ExprKind::Closure { captures, .. } => captures
             .iter()
             .all(|capture| expr_is_strictly_pure(ctx, &capture.value)),
-        ast::ExprKind::FieldAccess { .. }
+        ast::ExprKind::Error
+        | ast::ExprKind::FieldAccess { .. }
         | ast::ExprKind::IndexAccess { .. }
         | ast::ExprKind::Call { .. }
         | ast::ExprKind::If { .. }

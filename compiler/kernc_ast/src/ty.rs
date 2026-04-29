@@ -10,6 +10,9 @@ pub struct TypeNode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeKind {
+    /// Parser recovery placeholder for a syntactically missing or invalid type.
+    Error,
+
     /// Segmented type path or projection chain such as `i32`, `std.io.File`,
     /// `Map[K, V]`, or `T.Add[U].Out`.
     Path {

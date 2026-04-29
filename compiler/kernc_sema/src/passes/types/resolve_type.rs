@@ -9,6 +9,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         let ty_id = match &ty_node.kind {
+            ast::TypeKind::Error => TypeId::ERROR,
             ast::TypeKind::Path { anchor, segments } => {
                 self.resolve_path_type(*anchor, segments, env_scope, ty_node.span)
             }

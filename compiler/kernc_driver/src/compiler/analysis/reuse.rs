@@ -703,7 +703,8 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
             }
         }
         ast::TypeKind::TypeOf(expr) => normalize_expr_for_body_only_comparison(expr),
-        ast::TypeKind::Infer
+        ast::TypeKind::Error
+        | ast::TypeKind::Infer
         | ast::TypeKind::SelfType
         | ast::TypeKind::Never
         | ast::TypeKind::Void => {}
@@ -747,7 +748,8 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
             normalize_binding_pattern_for_body_only_comparison(pattern);
             normalize_expr_for_body_only_comparison(init);
         }
-        ast::ExprKind::Integer(_)
+        ast::ExprKind::Error
+        | ast::ExprKind::Integer(_)
         | ast::ExprKind::Float(_)
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)

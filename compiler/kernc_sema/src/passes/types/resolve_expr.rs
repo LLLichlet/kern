@@ -25,6 +25,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
     pub(super) fn resolve_expr(&mut self, expr: &ast::Expr, scope: ScopeId) {
         match &expr.kind {
+            ast::ExprKind::Error => {}
             ast::ExprKind::Let {
                 pattern,
                 init,

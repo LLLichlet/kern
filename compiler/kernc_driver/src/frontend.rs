@@ -682,7 +682,8 @@ impl CachedAstRebinder<'_> {
                 self.rebind_binding_pattern(pattern);
                 self.rebind_expr(init);
             }
-            ast::ExprKind::Integer(..)
+            ast::ExprKind::Error
+            | ast::ExprKind::Integer(..)
             | ast::ExprKind::Float(..)
             | ast::ExprKind::Bool(..)
             | ast::ExprKind::Char(..)
@@ -978,7 +979,8 @@ impl CachedAstRebinder<'_> {
                     self.rebind_enum_variant(variant);
                 }
             }
-            ast::TypeKind::Infer
+            ast::TypeKind::Error
+            | ast::TypeKind::Infer
             | ast::TypeKind::SelfType
             | ast::TypeKind::Never
             | ast::TypeKind::Void => {}
@@ -1472,7 +1474,8 @@ mod tests {
                 }
                 collect_identifier_symbols(body, visit);
             }
-            ast::ExprKind::EnumLiteral { .. }
+            ast::ExprKind::Error
+            | ast::ExprKind::EnumLiteral { .. }
             | ast::ExprKind::Integer(..)
             | ast::ExprKind::Float(..)
             | ast::ExprKind::Bool(..)
@@ -1569,7 +1572,8 @@ mod tests {
                     }
                 }
             }
-            ast::TypeKind::TypeOf(_)
+            ast::TypeKind::Error
+            | ast::TypeKind::TypeOf(_)
             | ast::TypeKind::Infer
             | ast::TypeKind::SelfType
             | ast::TypeKind::Never

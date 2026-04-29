@@ -4,6 +4,7 @@ mod expr;
 mod ty;
 
 use super::TokenStream;
+use kernc_ast::{Expr, ExprKind, TypeKind, TypeNode};
 use kernc_lexer::{Token, TokenType, Tokenizer};
 use kernc_utils::{
     DiagnosticCode, DiagnosticLevel, FastHashMap, FileId, NodeId, Session, Span, SymbolId,
@@ -165,6 +166,83 @@ impl<'a> Parser<'a> {
             self.panic_mode = true;
             Err(ParseError)
         }
+    }
+
+    fn report_expected_semicolon(&mut self, span: Span) {
+        self.session
+            .struct_error(span, "Expected semicolon")
+            .with_code(DiagnosticCode::ExpectedSemicolon)
+            .with_hint("consider adding a `;` here")
+            .emit();
+        self.panic_mode = true;
+    }
+
+    fn error_expr(&mut self, span: Span, message: impl Into<String>) -> Expr {
+        if !self.panic_mode {
+            self.session.struct_error(span, message).emit();
+        }
+        self.panic_mode = true;
+        Expr {
+            id: self.new_id(),
+            span,
+            kind: ExprKind::Error,
+        }
+    }
+
+    fn error_type(&mut self, span: Span, message: impl Into<String>) -> TypeNode {
+        if !self.panic_mode {
+            self.session.struct_error(span, message).emit();
+        }
+        self.panic_mode = true;
+        TypeNode {
+            id: self.new_id(),
+            span,
+            kind: TypeKind::Error,
+        }
+    }
+
+    fn recover_missing_closing_delimiter(
+        &mut self,
+        tag: TokenType,
+        start_span: Span,
+        fallback_span: Span,
+    ) -> Span {
+        if self.check(tag) {
+            return self.advance().span;
+        }
+
+        let current = self.peek();
+        let mut diag_span = current.span;
+        if current.tag == TokenType::Eof {
+            diag_span = fallback_span;
+        }
+
+        let mut diag = self.session.struct_error(
+            diag_span,
+            format!("expected `{:?}` to close delimiter opened here", tag),
+        );
+        match tag {
+            TokenType::RBrace => {
+                diag = diag
+                    .with_code(DiagnosticCode::UnclosedBlock)
+                    .with_hint("unclosed block")
+            }
+            TokenType::RParen => {
+                diag = diag
+                    .with_code(DiagnosticCode::UnclosedParen)
+                    .with_hint("unclosed parenthesis")
+            }
+            TokenType::RBracket => {
+                diag = diag
+                    .with_code(DiagnosticCode::UnclosedBracket)
+                    .with_hint("unclosed bracket")
+            }
+            _ => {}
+        }
+        diag.with_span_label(start_span, "delimiter opened here")
+            .emit();
+        self.panic_mode = true;
+        fallback_span
     }
 
     fn intern_token(&mut self, token: Token) -> SymbolId {

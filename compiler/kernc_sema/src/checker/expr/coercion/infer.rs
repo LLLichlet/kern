@@ -4,6 +4,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     /// Infer whether an expression can be treated as a mutable lvalue.
     pub(crate) fn is_lvalue_mutable(&mut self, expr: &Expr) -> bool {
         match &expr.kind {
+            ExprKind::Error => false,
             ExprKind::Grouped { expr: inner } => self.is_lvalue_mutable(inner),
             ExprKind::Identifier(name) => {
                 if let Some(info) = self.ctx.scopes.resolve(*name) {
@@ -101,6 +102,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     /// storage instead of silently copying.
     pub(crate) fn can_materialize_mut_temporary(&self, expr: &Expr) -> bool {
         match &expr.kind {
+            ExprKind::Error => false,
             ExprKind::Grouped { expr: inner } => self.can_materialize_mut_temporary(inner),
             ExprKind::Identifier(_)
             | ExprKind::SelfValue

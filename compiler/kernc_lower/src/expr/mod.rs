@@ -55,6 +55,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let mast_kind = match &expr.kind {
+            ExprKind::Error => MastExprKind::Trap,
             ExprKind::Integer(val) => MastExprKind::Integer(*val),
             ExprKind::Float(val) => MastExprKind::Float(*val),
             ExprKind::Bool(val) => MastExprKind::Bool(*val),

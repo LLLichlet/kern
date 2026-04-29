@@ -512,7 +512,8 @@ impl<'a> FlowCfgBuilder<'a> {
                 let node = self.lower_eval(expr, current);
                 self.fallthrough(node)
             }
-            ast::ExprKind::Integer(_)
+            ast::ExprKind::Error
+            | ast::ExprKind::Integer(_)
             | ast::ExprKind::Float(_)
             | ast::ExprKind::Bool(_)
             | ast::ExprKind::Char(_)
@@ -772,7 +773,8 @@ fn collect_local_binding_uses_in_expr(
             }
             collect_local_binding_uses_in_expr(body, reference_to_binding, uses);
         }
-        ast::ExprKind::Integer(_)
+        ast::ExprKind::Error
+        | ast::ExprKind::Integer(_)
         | ast::ExprKind::Float(_)
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)
@@ -808,7 +810,8 @@ fn classify_expr_effects(node_id: AnalysisFlowNodeId, expr: &ast::Expr) -> Analy
 
 fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffects) {
     match &expr.kind {
-        ast::ExprKind::Integer(_)
+        ast::ExprKind::Error
+        | ast::ExprKind::Integer(_)
         | ast::ExprKind::Float(_)
         | ast::ExprKind::Bool(_)
         | ast::ExprKind::Char(_)

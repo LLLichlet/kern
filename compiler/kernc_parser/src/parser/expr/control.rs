@@ -2,7 +2,7 @@ use super::super::{ParseResult, Parser};
 use super::Precedence;
 use kernc_ast::*;
 use kernc_lexer::{Token, TokenType};
-use kernc_utils::{DiagnosticCode, Span};
+use kernc_utils::Span;
 
 #[derive(Clone, Copy)]
 enum PatternLead {
@@ -21,11 +21,15 @@ impl<'a> Parser<'a> {
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
             let attributes = self.parse_attributes(false).unwrap_or_default();
             if self.check(TokenType::Defer) {
-                self.parse_defer_stmt(&mut stmts, attributes)?;
+                if self.parse_defer_stmt(&mut stmts, attributes).is_err() {
+                    self.synchronize();
+                }
                 continue;
             }
             if self.check(TokenType::Use) {
-                self.parse_use_stmt(&mut stmts, attributes)?;
+                if self.parse_use_stmt(&mut stmts, attributes).is_err() {
+                    self.synchronize();
+                }
                 continue;
             }
 
@@ -51,20 +55,19 @@ impl<'a> Parser<'a> {
                 self.push_expr_stmt(&mut stmts, attributes, expr);
             } else {
                 let span = self.peek().span;
-                self.session
-                    .struct_error(span, "Expected semicolon")
-                    .with_code(DiagnosticCode::ExpectedSemicolon)
-                    .with_hint("consider adding a `;` here")
-                    .emit();
-                self.panic_mode = true;
+                self.report_expected_semicolon(span);
                 self.push_expr_stmt(&mut stmts, attributes, expr);
             }
         }
 
-        let rb = self.expect(TokenType::RBrace)?;
+        let end_span = self.recover_missing_closing_delimiter(
+            TokenType::RBrace,
+            start_span,
+            self.stream.prev_span(),
+        );
         Ok(Expr {
             id: self.new_id(),
-            span: start_span.to(rb.span),
+            span: start_span.to(end_span),
             kind: ExprKind::Block { stmts, result },
         })
     }
@@ -76,7 +79,10 @@ impl<'a> Parser<'a> {
     ) -> ParseResult<()> {
         let start = self.peek().span;
         let (kind, path, target, binding_span) = self.parse_use_clause(start)?;
-        self.expect(TokenType::Semicolon)?;
+        if !self.match_token(&[TokenType::Semicolon]) {
+            let span = self.peek().span;
+            self.report_expected_semicolon(span);
+        }
         let end = self.stream.prev_span();
         stmts.push(Stmt {
             id: self.new_id(),
@@ -99,7 +105,10 @@ impl<'a> Parser<'a> {
     ) -> ParseResult<()> {
         let defer_t = self.advance();
         let expr = self.parse_expression(Precedence::Lowest)?;
-        self.expect(TokenType::Semicolon)?;
+        if !self.match_token(&[TokenType::Semicolon]) {
+            let span = self.peek().span;
+            self.report_expected_semicolon(span);
+        }
         let defer_expr = Expr {
             id: self.new_id(),
             span: defer_t.span.to(self.stream.prev_span()),

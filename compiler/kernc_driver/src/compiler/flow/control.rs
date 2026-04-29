@@ -42,7 +42,7 @@ fn collect_control_facts_expr(
             }
         }
         ast::ExprKind::Static { init, .. } => collect_control_facts_expr(init, regions, summary),
-        ast::ExprKind::AnchoredPath { .. } => {}
+        ast::ExprKind::Error | ast::ExprKind::AnchoredPath { .. } => {}
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             collect_control_facts_expr(lhs, regions, summary);
             collect_control_facts_expr(rhs, regions, summary);

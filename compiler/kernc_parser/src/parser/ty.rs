@@ -4,7 +4,26 @@ use kernc_ast::*;
 use kernc_lexer::TokenType;
 
 impl<'a> Parser<'a> {
+    fn token_can_end_missing_type(tag: TokenType) -> bool {
+        matches!(
+            tag,
+            TokenType::Assign
+                | TokenType::Semicolon
+                | TokenType::Comma
+                | TokenType::RParen
+                | TokenType::RBrace
+                | TokenType::RBracket
+                | TokenType::Arrow
+                | TokenType::Eof
+        )
+    }
+
     pub fn parse_type(&mut self) -> ParseResult<TypeNode> {
+        let current = self.peek();
+        if Self::token_can_end_missing_type(current.tag) {
+            return Ok(self.error_type(current.span, "Expected type"));
+        }
+
         self.parse_result_type()
     }
 
@@ -26,6 +45,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_prefixed_type(&mut self) -> ParseResult<TypeNode> {
+        let current = self.peek();
+        if Self::token_can_end_missing_type(current.tag) {
+            return Ok(self.error_type(current.span, "Expected type"));
+        }
+
         let start_token = self.advance();
         self.parse_type_after_consumed(start_token)
     }

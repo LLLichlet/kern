@@ -26,6 +26,9 @@ impl Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
+    /// Parser recovery placeholder for a syntactically missing or invalid expression.
+    Error,
+
     /// `let mut x = v` or `let x = v`
     Let {
         pattern: LetPattern,

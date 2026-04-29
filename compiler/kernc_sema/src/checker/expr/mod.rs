@@ -1181,6 +1181,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     /// Main entry point for expression type checking.
     pub(crate) fn check_expr(&mut self, expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
         let ty = match &expr.kind {
+            ExprKind::Error => TypeId::ERROR,
+
             // === 1. Primitive literals ===
             ExprKind::Integer(_) => self.check_integer(expr, expected_ty),
             ExprKind::Float(_) => self.check_float(expr, expected_ty),
@@ -1492,6 +1494,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn evaluate_dynamic_typeof(&mut self, ty_node: &kernc_ast::TypeNode) -> TypeId {
         let started = self.timing_start();
         let ty_id = match &ty_node.kind {
+            ast::TypeKind::Error => TypeId::ERROR,
             ast::TypeKind::TypeOf(inner_expr) => self.check_expr(inner_expr, None),
             ast::TypeKind::Optional { inner } => {
                 let inner_ty = self.evaluate_dynamic_typeof(inner);

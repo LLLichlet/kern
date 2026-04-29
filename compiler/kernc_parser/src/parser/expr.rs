@@ -122,6 +122,19 @@ fn expr_can_prefix_data_init_type(expr: &Expr) -> bool {
 }
 
 impl<'a> Parser<'a> {
+    fn token_can_end_missing_expr(tag: TokenType) -> bool {
+        matches!(
+            tag,
+            TokenType::Semicolon
+                | TokenType::Comma
+                | TokenType::RParen
+                | TokenType::RBrace
+                | TokenType::RBracket
+                | TokenType::Arrow
+                | TokenType::Eof
+        )
+    }
+
     pub fn parse_binding_pattern(&mut self) -> ParseResult<BindingPattern> {
         let mut is_mut = false;
         let start_span = self.peek().span;
@@ -154,6 +167,11 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_expression(&mut self, precedence: Precedence) -> ParseResult<Expr> {
+        let current = self.peek();
+        if Self::token_can_end_missing_expr(current.tag) {
+            return Ok(self.error_expr(current.span, "Expected expression"));
+        }
+
         let prefix_token = self.advance();
         let mut left = self.parse_prefix(prefix_token)?;
 
@@ -256,7 +274,11 @@ impl<'a> Parser<'a> {
             | TokenType::Extern => self.parse_type_namespace_expr(token),
             TokenType::LexError(msg) => {
                 self.add_error(span, msg.to_string());
-                Err(ParseError)
+                Ok(Expr {
+                    id: self.new_id(),
+                    span,
+                    kind: ExprKind::Error,
+                })
             }
             TokenType::Illegal => {
                 let text = self.source_slice(span).to_string();
@@ -266,7 +288,11 @@ impl<'a> Parser<'a> {
                     format!("invalid token `{text}`")
                 };
                 self.add_error(span, message);
-                Err(ParseError)
+                Ok(Expr {
+                    id: self.new_id(),
+                    span,
+                    kind: ExprKind::Error,
+                })
             }
             TokenType::Underscore => Ok(Expr {
                 id: self.new_id(),
@@ -276,8 +302,7 @@ impl<'a> Parser<'a> {
             TokenType::DotLBracket => self.parse_closure_expr(span),
             _ => {
                 let text = self.source_slice(span).to_string();
-                self.add_error(span, format!("Expected expression, found '{}'", text));
-                Err(ParseError)
+                Ok(self.error_expr(span, format!("Expected expression, found '{}'", text)))
             }
         }
     }
@@ -423,7 +448,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_field_access_expr(&mut self, left: Expr) -> ParseResult<Expr> {
-        let field_token = self.expect(TokenType::Identifier)?;
+        if !self.check(TokenType::Identifier) {
+            let span = self.peek().span;
+            return Ok(self.error_expr(span, "Expected field name after `.`"));
+        }
+        let field_token = self.advance();
         let field_id = self.intern_token(field_token);
         Ok(Expr {
             id: self.new_id(),

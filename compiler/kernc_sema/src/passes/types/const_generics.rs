@@ -653,7 +653,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::Closure { body, .. } => {
                 self.expr_references_const_param(body, env_scope)
             }
-            ast::ExprKind::AnchoredPath { .. }
+            ast::ExprKind::Error
+            | ast::ExprKind::AnchoredPath { .. }
             | ast::ExprKind::TypeNode(_)
             | ast::ExprKind::Integer(_)
             | ast::ExprKind::Float(_)

@@ -1026,6 +1026,156 @@ type Bad = .util.Kind;
     }
 
     #[test]
+    fn recovers_defer_statement_missing_semicolon_inside_block() {
+        let source = r#"
+fn main() void {
+    defer cleanup()
+    run();
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            !session.diagnostics.is_empty(),
+            "expected missing semicolon diagnostic"
+        );
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+        assert_eq!(stmts.len(), 2);
+        let ast::StmtKind::ExprStmt(first) = &stmts[0].kind else {
+            panic!("expected defer statement");
+        };
+        assert!(matches!(first.kind, ast::ExprKind::Defer { .. }));
+        let ast::StmtKind::ExprStmt(second) = &stmts[1].kind else {
+            panic!("expected following expression statement");
+        };
+        assert!(matches!(second.kind, ast::ExprKind::Call { .. }));
+    }
+
+    #[test]
+    fn recovers_missing_block_close_at_eof() {
+        let source = r#"
+fn main() void {
+    run();
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            !session.diagnostics.is_empty(),
+            "expected unclosed block diagnostic"
+        );
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected recovered block body");
+        };
+        assert_eq!(stmts.len(), 1);
+    }
+
+    #[test]
+    fn recovers_missing_expression_in_let_initializer() {
+        let source = r#"
+fn main() void {
+    let value = ;
+    run();
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            !session.diagnostics.is_empty(),
+            "expected missing expression diagnostic"
+        );
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+        assert_eq!(stmts.len(), 2);
+        let ast::StmtKind::ExprStmt(first) = &stmts[0].kind else {
+            panic!("expected let statement");
+        };
+        let ast::ExprKind::Let { init, .. } = &first.kind else {
+            panic!("expected let expression");
+        };
+        assert!(matches!(init.kind, ast::ExprKind::Error));
+        let ast::StmtKind::ExprStmt(second) = &stmts[1].kind else {
+            panic!("expected following expression statement");
+        };
+        assert!(matches!(second.kind, ast::ExprKind::Call { .. }));
+    }
+
+    #[test]
+    fn recovers_missing_defer_expression() {
+        let source = r#"
+fn main() void {
+    defer ;
+    run();
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            !session.diagnostics.is_empty(),
+            "expected missing expression diagnostic"
+        );
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+        assert_eq!(stmts.len(), 2);
+        let ast::StmtKind::ExprStmt(first) = &stmts[0].kind else {
+            panic!("expected defer statement");
+        };
+        let ast::ExprKind::Defer { expr } = &first.kind else {
+            panic!("expected defer expression");
+        };
+        assert!(matches!(expr.kind, ast::ExprKind::Error));
+    }
+
+    #[test]
+    fn recovers_missing_type_after_prefix() {
+        let source = r#"
+type Bad = *;
+type Good = i32;
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            !session.diagnostics.is_empty(),
+            "expected missing type diagnostic"
+        );
+        assert_eq!(module.decls.len(), 2);
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[0].kind else {
+            panic!("expected type alias");
+        };
+        let ast::TypeKind::Pointer { elem, .. } = &target.kind else {
+            panic!("expected recovered pointer type");
+        };
+        assert!(matches!(elem.kind, ast::TypeKind::Error));
+    }
+
+    #[test]
     fn casts_bind_after_prefix_unary_operators() {
         let source = "fn main() i32 { return #array as i32 - 1; }";
         let (_session, module) = parse_module(source);

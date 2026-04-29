@@ -20,6 +20,7 @@ struct ResolvedPatternField {
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn resolve_namespace_expr(&mut self, expr: &Expr) -> Option<TypeId> {
         let ty = match &expr.kind {
+            ast::ExprKind::Error => return None,
             ast::ExprKind::Grouped { expr: inner } => self.resolve_namespace_expr(inner)?,
             ast::ExprKind::TypeNode(type_node) => self.evaluate_dynamic_typeof(type_node),
             ast::ExprKind::Identifier(name) => {

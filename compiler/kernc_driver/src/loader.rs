@@ -498,7 +498,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             ast::TypeKind::TypeOf(expr) => {
                 Self::collect_expr_alias_references(expr, alias_names, referenced);
             }
-            ast::TypeKind::Infer
+            ast::TypeKind::Error
+            | ast::TypeKind::Infer
             | ast::TypeKind::SelfType
             | ast::TypeKind::Never
             | ast::TypeKind::Void => {}
@@ -522,6 +523,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         referenced: &mut FastHashSet<SymbolId>,
     ) {
         match &expr.kind {
+            ast::ExprKind::Error => {}
             ast::ExprKind::Let {
                 pattern,
                 init,

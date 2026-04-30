@@ -514,7 +514,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             let Some(summary) = self.ctx.analysis.escape_summaries.get(&check.callee) else {
                 continue;
             };
-            if !summary.escaping_params.contains(&check.arg_index) {
+            if !summary.stored_params.contains(&check.arg_index) {
                 continue;
             }
             self.ctx
@@ -522,9 +522,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     check.address_span,
                     "address of temporary value escapes through function call",
                 )
-                .with_hint(
-                    "the callee stores or returns the parameter receiving this temporary address",
-                )
+                .with_hint("the callee stores the parameter receiving this temporary address")
                 .with_hint("bind the value to stable storage before taking its address")
                 .emit();
         }
@@ -823,7 +821,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             let body_eval_ty = checker.check_expr(body_expr, Some(ret_ty));
             checker.finalize_numeric_inference(body_eval_ty)
         };
-        let escaping_params = checker.escaping_parameters.clone();
+        let stored_params = checker.stored_parameters.clone();
         if let Some(expr_started) = expr_started {
             self.body_timings.function_expr += expr_started.elapsed();
         }
@@ -854,7 +852,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         self.ctx
             .analysis
             .escape_summaries
-            .insert(f.id, EscapeSummary { escaping_params });
+            .insert(f.id, EscapeSummary { stored_params });
 
         self.ctx.analysis.active_bounds.truncate(prev_bounds_len); // Drop bounds introduced by this function scope.
         self.ctx.clear_active_bound_caches();

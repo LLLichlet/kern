@@ -52,7 +52,7 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) touched_bindings: Vec<(ScopeId, SymbolId)>,
     pub(crate) pointer_origin_bindings:
         FastHashMap<(ScopeId, SymbolId), FastHashSet<PointerOrigin>>,
-    pub(crate) escaping_parameters: FastHashSet<usize>,
+    pub(crate) stored_parameters: FastHashSet<usize>,
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -108,7 +108,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             touched_expr_nodes: Vec::new(),
             touched_bindings: Vec::new(),
             pointer_origin_bindings: FastHashMap::default(),
-            escaping_parameters: FastHashSet::default(),
+            stored_parameters: FastHashSet::default(),
         }
     }
 
@@ -350,7 +350,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn reject_temporary_address_escape(&mut self, expr: &Expr, destination: &str) {
         let origins = self.pointer_origins(expr);
         self.reject_temporary_origins(&origins, destination);
-        self.record_parameter_escape_from_origins(&origins);
+        if destination == "static storage" {
+            self.record_parameter_store_from_origins(&origins);
+        }
     }
 
     fn reject_temporary_origins(
@@ -376,10 +378,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .emit();
     }
 
-    fn record_parameter_escape_from_origins(&mut self, origins: &FastHashSet<PointerOrigin>) {
+    fn record_parameter_store_from_origins(&mut self, origins: &FastHashSet<PointerOrigin>) {
         for origin in origins {
             if let PointerOrigin::Parameter(index) = origin {
-                self.escaping_parameters.insert(*index);
+                self.stored_parameters.insert(*index);
             }
         }
     }

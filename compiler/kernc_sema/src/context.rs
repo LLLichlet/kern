@@ -99,7 +99,7 @@ pub struct SemaAnalysisState {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct EscapeSummary {
-    pub(crate) escaping_params: FastHashSet<usize>,
+    pub(crate) stored_params: FastHashSet<usize>,
 }
 
 #[derive(Debug, Clone)]

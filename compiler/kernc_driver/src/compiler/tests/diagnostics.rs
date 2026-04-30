@@ -415,7 +415,7 @@ fn rejects_temporary_address_passed_to_storing_function() {
 }
 
 #[test]
-fn rejects_temporary_address_passed_to_returning_function() {
+fn permits_temporary_address_passed_to_returning_function_when_result_is_ignored() {
     let artifact = analyze_source_for_diagnostics(
         "kern_temp_addr_call_return_escape",
         concat!(
@@ -430,15 +430,15 @@ fn rejects_temporary_address_passed_to_returning_function() {
         ),
     );
 
-    assert!(!artifact.succeeded);
-    assert!(artifact.session.diagnostics.iter().any(|diag| {
-        diag.message
-            .contains("address of temporary value escapes through function call")
-    }));
+    assert!(
+        artifact.succeeded,
+        "unexpected diagnostics: {:?}",
+        artifact.session.diagnostics
+    );
 }
 
 #[test]
-fn rejects_temporary_address_passed_to_aggregate_returning_function() {
+fn permits_temporary_address_passed_to_aggregate_returning_function_when_result_is_ignored() {
     let artifact = analyze_source_for_diagnostics(
         "kern_temp_addr_call_return_aggregate_escape",
         concat!(
@@ -454,11 +454,11 @@ fn rejects_temporary_address_passed_to_aggregate_returning_function() {
         ),
     );
 
-    assert!(!artifact.succeeded);
-    assert!(artifact.session.diagnostics.iter().any(|diag| {
-        diag.message
-            .contains("address of temporary value escapes through function call")
-    }));
+    assert!(
+        artifact.succeeded,
+        "unexpected diagnostics: {:?}",
+        artifact.session.diagnostics
+    );
 }
 
 #[test]

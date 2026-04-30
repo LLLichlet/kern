@@ -19,6 +19,8 @@ fn main() i32 {
 mod alloc;
 #[path = "stdlib/bundle.rs"]
 mod bundle;
+#[path = "stdlib/num.rs"]
+mod num;
 #[path = "stdlib/runtime.rs"]
 mod runtime;
 #[path = "stdlib/support.rs"]

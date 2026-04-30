@@ -18,13 +18,13 @@ struct ResolvedPatternField {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
-    fn resolve_namespace_expr(&mut self, expr: &Expr) -> Option<TypeId> {
+    pub(crate) fn resolve_namespace_expr(&mut self, expr: &Expr) -> Option<TypeId> {
         let ty = match &expr.kind {
             ast::ExprKind::Error => return None,
             ast::ExprKind::Grouped { expr: inner } => self.resolve_namespace_expr(inner)?,
             ast::ExprKind::TypeNode(type_node) => self.evaluate_dynamic_typeof(type_node),
             ast::ExprKind::Identifier(name) => {
-                let info = self.ctx.scopes.resolve(*name)?.clone();
+                let info = self.ctx.scopes.resolve_namespace_symbol(*name)?.clone();
                 if info.kind != SymbolKind::Module && !Self::symbol_is_type_namespace(info.kind) {
                     return None;
                 }
@@ -32,7 +32,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             ast::ExprKind::AnchoredPath { anchor, name, .. } => {
                 let (owner_module, start_scope) = self.anchored_start_scope(*anchor, expr.span)?;
-                let info = self.ctx.scopes.resolve_in(start_scope, *name)?.clone();
+                let info = self
+                    .ctx
+                    .scopes
+                    .resolve_namespace_in(start_scope, *name)?
+                    .clone();
                 if info.kind != SymbolKind::Module && !Self::symbol_is_type_namespace(info.kind) {
                     return None;
                 }
@@ -82,7 +86,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return Some(TypeId::ERROR);
                 };
 
-                let target_info = self.ctx.scopes.resolve_in(module.scope_id, *field)?.clone();
+                let target_info = self
+                    .ctx
+                    .scopes
+                    .resolve_namespace_in(module.scope_id, *field)?
+                    .clone();
                 if target_info.kind != SymbolKind::Module
                     && !Self::symbol_is_type_namespace(target_info.kind)
                 {
@@ -136,6 +144,33 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
         Some(ty)
+    }
+
+    pub(crate) fn expr_starts_with_value_namespace(&mut self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ast::ExprKind::Grouped { expr } => self.expr_starts_with_value_namespace(expr),
+            ast::ExprKind::Identifier(name) => {
+                self.ctx.scopes.resolve_value_symbol(*name).is_some()
+            }
+            ast::ExprKind::AnchoredPath { anchor, name, .. } => self
+                .anchored_start_scope(*anchor, expr.span)
+                .is_some_and(|(_, scope)| self.ctx.scopes.resolve_value_in(scope, *name).is_some()),
+            ast::ExprKind::FieldAccess { lhs, .. } => self.expr_starts_with_value_namespace(lhs),
+            ast::ExprKind::GenericInstantiation { target, .. } => {
+                self.expr_starts_with_value_namespace(target)
+            }
+            ast::ExprKind::TypeNode(_) => false,
+            _ => true,
+        }
+    }
+
+    pub(crate) fn check_value_or_namespace_expr(&mut self, expr: &Expr) -> TypeId {
+        if self.expr_starts_with_value_namespace(expr) {
+            self.check_expr(expr, None)
+        } else {
+            self.resolve_namespace_expr(expr)
+                .unwrap_or_else(|| self.check_expr(expr, None))
+        }
     }
 
     fn define_local_symbol(
@@ -193,7 +228,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     fn pattern_binds_name(&self, name: SymbolId, entered_scope: bool) -> bool {
-        !self.is_discard_name(name) && (!entered_scope || self.ctx.scopes.resolve(name).is_some())
+        !self.is_discard_name(name)
+            && (!entered_scope || self.ctx.scopes.resolve_value_symbol(name).is_some())
     }
 
     fn pattern_needs_scope_extension(&self, pattern: &ast::Pattern, entered_scope: bool) -> bool {
@@ -763,7 +799,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn check_identifier(&mut self, name: SymbolId, span: Span) -> TypeId {
-        if let Some(info) = self.ctx.scopes.resolve(name).cloned() {
+        if let Some(info) = self.ctx.scopes.resolve_value_symbol(name).cloned() {
+            self.resolved_symbol_type(&info, span)
+        } else if let Some(info) = self.ctx.scopes.resolve_namespace_symbol(name).cloned() {
             self.resolved_symbol_type(&info, span)
         } else {
             let name_str = self.ctx.resolve(name).to_string();
@@ -784,7 +822,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let Some((owner_module, start_scope)) = self.anchored_start_scope(anchor, span) else {
             return TypeId::ERROR;
         };
-        let Some(info) = self.ctx.scopes.resolve_in(start_scope, name).cloned() else {
+        let Some(info) = self.ctx.scopes.resolve_value_in(start_scope, name).cloned() else {
+            if let Some(info) = self
+                .ctx
+                .scopes
+                .resolve_namespace_in(start_scope, name)
+                .cloned()
+            {
+                return self.resolved_symbol_type(&info, span);
+            }
             self.ctx
                 .struct_error(
                     span,
@@ -818,9 +864,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let self_var = self.ctx.intern("self");
         let self_type = self.ctx.intern("Self");
 
-        if let Some(info) = self.ctx.scopes.resolve(self_var) {
+        if let Some(info) = self.ctx.scopes.resolve_value_symbol(self_var) {
             info.type_id
-        } else if let Some(info) = self.ctx.scopes.resolve(self_type) {
+        } else if let Some(info) = self.ctx.scopes.resolve_type_symbol(self_type) {
             info.type_id
         } else {
             self.ctx
@@ -1091,6 +1137,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn expr_is_type_namespace(&mut self, expr: &Expr) -> bool {
+        if self.expr_starts_with_value_namespace(expr) {
+            return false;
+        }
         self.resolve_type_namespace_expr(expr).is_some()
     }
 
@@ -1216,9 +1265,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field_span: Span,
         span: Span,
     ) -> TypeId {
-        let lhs_ty = self
-            .resolve_type_namespace_expr(lhs)
-            .unwrap_or_else(|| self.check_expr(lhs, None));
+        let lhs_ty = self.check_value_or_namespace_expr(lhs);
         if lhs_ty == TypeId::ERROR {
             return TypeId::ERROR;
         }
@@ -1241,7 +1288,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 );
                 return TypeId::ERROR;
             };
-            if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field).cloned() {
+            let target_info = self
+                .ctx
+                .scopes
+                .resolve_value_in(mod_scope, field)
+                .or_else(|| self.ctx.scopes.resolve_namespace_in(mod_scope, field))
+                .cloned();
+
+            if let Some(target_info) = target_info {
                 let current_module_id = self.cached_current_module_id();
                 if !self.ctx.visibility_allows_access(
                     target_info.vis,
@@ -1400,9 +1454,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field_span: Span,
         span: Span,
     ) -> Option<TypeId> {
-        let lhs_ty = self
-            .resolve_type_namespace_expr(lhs)
-            .unwrap_or_else(|| self.check_expr(lhs, None));
+        let lhs_ty = self.check_value_or_namespace_expr(lhs);
         if lhs_ty == TypeId::ERROR {
             return Some(TypeId::ERROR);
         }

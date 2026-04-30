@@ -8,7 +8,7 @@ pub use subst::{Substituter, substitute_associated_types};
 
 use crate::context::{EscapeSummary, SemaContext};
 use crate::def::{Def, DefId, FunctionDef, GlobalDef, ImplDef};
-use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
+use crate::scope::{ScopeId, SymbolInfo, SymbolKind, SymbolNamespace};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
 use kernc_ast::{self as ast, Visibility};
@@ -269,7 +269,11 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         .resolve_local(unsafe { (*g).name })
                         .is_some()
                     {
-                        self.ctx.scopes.update_type(unsafe { (*g).name }, init_ty);
+                        self.ctx.scopes.update_type_in_namespace(
+                            unsafe { (*g).name },
+                            SymbolNamespace::Value,
+                            init_ty,
+                        );
                     }
 
                     // Once the type is known, run constexpr validation as well.
@@ -372,9 +376,11 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                         .resolve_local(unsafe { (*global).name })
                         .is_some()
                     {
-                        self.ctx
-                            .scopes
-                            .update_type(unsafe { (*global).name }, init_ty);
+                        self.ctx.scopes.update_type_in_namespace(
+                            unsafe { (*global).name },
+                            SymbolNamespace::Value,
+                            init_ty,
+                        );
                     }
 
                     if had_type_errors {

@@ -75,7 +75,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let ExprKind::Identifier(name) = arg.kind else {
             return false;
         };
-        let Some(info) = self.ctx.scopes.resolve(name) else {
+        let Some(info) = self.ctx.scopes.resolve_value_symbol(name) else {
             return false;
         };
         info.kind == SymbolKind::ConstParam

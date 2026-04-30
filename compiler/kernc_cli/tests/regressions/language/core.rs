@@ -88,6 +88,77 @@ fn main() i32 {
 }
 
 #[test]
+fn module_value_member_can_share_name_with_child_module() {
+    let output = compile_source_tree(
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod proc;
+
+fn main() i32 {
+    return proc.args();
+}
+"#,
+            ),
+            (
+                "proc/init.rn",
+                r#"
+pub mod args;
+
+pub fn args() i32 {
+    return 0;
+}
+"#,
+            ),
+            (
+                "proc/args.rn",
+                r#"
+pub const VALUE = 1;
+"#,
+            ),
+        ],
+    );
+
+    assert_success(
+        &output,
+        "expected module function and child module to share a name",
+    );
+}
+
+#[test]
+fn function_and_type_names_are_separate_where_context_disambiguates() {
+    let output = build_and_run_source(
+        r#"
+type Thing = struct {
+    value: i32,
+};
+
+fn Thing() i32 {
+    return 4;
+}
+
+fn take(value: Thing) i32 {
+    return value.value;
+}
+
+fn main() i32 {
+    let item = Thing.{ value: Thing() + 3 };
+    return take(item) - 7;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn string_literals_do_not_implicitly_type_as_arrays() {
     let output = compile_source(
         r#"

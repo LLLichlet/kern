@@ -25,6 +25,33 @@ pub enum SymbolKind {
     TypeParam,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SymbolNamespace {
+    Value,
+    Type,
+    Module,
+}
+
+impl SymbolKind {
+    pub fn namespace(self) -> SymbolNamespace {
+        match self {
+            SymbolKind::Var
+            | SymbolKind::Const
+            | SymbolKind::ConstParam
+            | SymbolKind::Static
+            | SymbolKind::Function => SymbolNamespace::Value,
+            SymbolKind::Struct
+            | SymbolKind::Union
+            | SymbolKind::Enum
+            | SymbolKind::Trait
+            | SymbolKind::TypeAlias
+            | SymbolKind::AssociatedType
+            | SymbolKind::TypeParam => SymbolNamespace::Type,
+            SymbolKind::Module => SymbolNamespace::Module,
+        }
+    }
+}
+
 /// Semantic information tracked for one scoped symbol.
 #[derive(Debug, Clone)]
 pub struct SymbolInfo {
@@ -43,7 +70,7 @@ pub struct Scope {
     pub id: ScopeId,
     /// Parent scope. Module roots may point to the builtin scope or be absent.
     pub parent: Option<ScopeId>,
-    pub symbols: FastHashMap<SymbolId, SymbolInfo>,
+    pub symbols: FastHashMap<(SymbolId, SymbolNamespace), SymbolInfo>,
 }
 
 impl Scope {
@@ -139,21 +166,68 @@ impl SymbolTable {
         };
         let current_scope = &mut self.scopes[current_id.0];
 
-        if let Some(existing) = current_scope.symbols.get(&name) {
+        let key = (name, info.kind.namespace());
+        if let Some(existing) = current_scope.symbols.get(&key) {
             // Preserve the previous symbol for "previous definition is here" diagnostics.
             return Err(existing.clone());
         }
-        current_scope.symbols.insert(name, info);
+        current_scope.symbols.insert(key, info);
         Ok(())
+    }
+
+    fn namespace_priority() -> [SymbolNamespace; 3] {
+        [
+            SymbolNamespace::Value,
+            SymbolNamespace::Type,
+            SymbolNamespace::Module,
+        ]
+    }
+
+    fn namespace_priority_for_namespaces() -> [SymbolNamespace; 2] {
+        [SymbolNamespace::Module, SymbolNamespace::Type]
     }
 
     /// Resolve a symbol by walking outward through lexical parents.
     pub fn resolve(&self, name: SymbolId) -> Option<&SymbolInfo> {
+        for namespace in Self::namespace_priority() {
+            if let Some(info) = self.resolve_in_namespace(name, namespace) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    pub fn resolve_namespace_symbol(&self, name: SymbolId) -> Option<&SymbolInfo> {
+        for namespace in Self::namespace_priority_for_namespaces() {
+            if let Some(info) = self.resolve_in_namespace(name, namespace) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    pub fn resolve_type_symbol(&self, name: SymbolId) -> Option<&SymbolInfo> {
+        self.resolve_in_namespace(name, SymbolNamespace::Type)
+    }
+
+    pub fn resolve_module_symbol(&self, name: SymbolId) -> Option<&SymbolInfo> {
+        self.resolve_in_namespace(name, SymbolNamespace::Module)
+    }
+
+    pub fn resolve_value_symbol(&self, name: SymbolId) -> Option<&SymbolInfo> {
+        self.resolve_in_namespace(name, SymbolNamespace::Value)
+    }
+
+    pub fn resolve_in_namespace(
+        &self,
+        name: SymbolId,
+        namespace: SymbolNamespace,
+    ) -> Option<&SymbolInfo> {
         let mut curr = self.current_scope;
 
         while let Some(id) = curr {
             let scope = &self.scopes[id.0];
-            if let Some(info) = scope.symbols.get(&name) {
+            if let Some(info) = scope.symbols.get(&(name, namespace)) {
                 return Some(info);
             }
             curr = scope.parent; // Continue searching outward.
@@ -162,11 +236,42 @@ impl SymbolTable {
     }
 
     pub fn resolve_from(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
+        for namespace in Self::namespace_priority() {
+            if let Some(info) = self.resolve_from_namespace(scope_id, name, namespace) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    pub fn resolve_namespace_from(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
+        for namespace in Self::namespace_priority_for_namespaces() {
+            if let Some(info) = self.resolve_from_namespace(scope_id, name, namespace) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    pub fn resolve_type_from(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
+        self.resolve_from_namespace(scope_id, name, SymbolNamespace::Type)
+    }
+
+    pub fn resolve_module_from(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
+        self.resolve_from_namespace(scope_id, name, SymbolNamespace::Module)
+    }
+
+    pub fn resolve_from_namespace(
+        &self,
+        scope_id: ScopeId,
+        name: SymbolId,
+        namespace: SymbolNamespace,
+    ) -> Option<&SymbolInfo> {
         let mut curr = Some(scope_id);
 
         while let Some(id) = curr {
             let scope = &self.scopes[id.0];
-            if let Some(info) = scope.symbols.get(&name) {
+            if let Some(info) = scope.symbols.get(&(name, namespace)) {
                 return Some(info);
             }
             curr = scope.parent;
@@ -178,13 +283,53 @@ impl SymbolTable {
     /// Resolve only within the current scope.
     pub fn resolve_local(&self, name: SymbolId) -> Option<&SymbolInfo> {
         let current_id = self.current_scope?;
-        self.scopes[current_id.0].symbols.get(&name)
+        self.resolve_in_scope_with_priority(current_id, name, &Self::namespace_priority())
     }
 
     /// Resolve a symbol directly inside the specified scope without walking parents.
     /// This is used for imports such as `use std.math.add`.
     pub fn resolve_in(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
-        self.scopes[scope_id.0].symbols.get(&name)
+        self.resolve_in_scope_with_priority(scope_id, name, &Self::namespace_priority())
+    }
+
+    pub fn resolve_namespace_in(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
+        self.resolve_in_scope_with_priority(
+            scope_id,
+            name,
+            &Self::namespace_priority_for_namespaces(),
+        )
+    }
+
+    pub fn resolve_type_in(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
+        self.scopes[scope_id.0]
+            .symbols
+            .get(&(name, SymbolNamespace::Type))
+    }
+
+    pub fn resolve_module_in(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
+        self.scopes[scope_id.0]
+            .symbols
+            .get(&(name, SymbolNamespace::Module))
+    }
+
+    pub fn resolve_value_in(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
+        self.scopes[scope_id.0]
+            .symbols
+            .get(&(name, SymbolNamespace::Value))
+    }
+
+    fn resolve_in_scope_with_priority(
+        &self,
+        scope_id: ScopeId,
+        name: SymbolId,
+        namespaces: &[SymbolNamespace],
+    ) -> Option<&SymbolInfo> {
+        for namespace in namespaces {
+            if let Some(info) = self.scopes[scope_id.0].symbols.get(&(name, *namespace)) {
+                return Some(info);
+            }
+        }
+        None
     }
 
     pub fn symbols_in_scope(
@@ -194,7 +339,7 @@ impl SymbolTable {
         self.scopes[scope_id.0]
             .symbols
             .iter()
-            .map(|(name, info)| (*name, info))
+            .map(|((name, _), info)| (*name, info))
     }
 
     pub fn distance_to_ancestor(&self, scope_id: ScopeId, ancestor: ScopeId) -> Option<usize> {
@@ -224,7 +369,27 @@ impl SymbolTable {
         // Update the scope where the symbol was originally defined.
         while let Some(id) = curr {
             let scope = &mut self.scopes[id.0];
-            if let Some(info) = scope.symbols.get_mut(&name) {
+            for namespace in Self::namespace_priority() {
+                if let Some(info) = scope.symbols.get_mut(&(name, namespace)) {
+                    info.type_id = ty;
+                    return;
+                }
+            }
+            curr = scope.parent;
+        }
+    }
+
+    pub fn update_type_in_namespace(
+        &mut self,
+        name: SymbolId,
+        namespace: SymbolNamespace,
+        ty: TypeId,
+    ) {
+        let mut curr = self.current_scope;
+
+        while let Some(id) = curr {
+            let scope = &mut self.scopes[id.0];
+            if let Some(info) = scope.symbols.get_mut(&(name, namespace)) {
                 info.type_id = ty;
                 return;
             }
@@ -233,18 +398,22 @@ impl SymbolTable {
     }
 
     pub fn update_type_in_scope(&mut self, scope_id: ScopeId, name: SymbolId, ty: TypeId) -> bool {
-        if let Some(info) = self.scopes[scope_id.0].symbols.get_mut(&name) {
-            info.type_id = ty;
-            return true;
+        for namespace in Self::namespace_priority() {
+            if let Some(info) = self.scopes[scope_id.0].symbols.get_mut(&(name, namespace)) {
+                info.type_id = ty;
+                return true;
+            }
         }
 
         false
     }
 
     pub fn update_span_in_scope(&mut self, scope_id: ScopeId, name: SymbolId, span: Span) -> bool {
-        if let Some(info) = self.scopes[scope_id.0].symbols.get_mut(&name) {
-            info.span = span;
-            return true;
+        for namespace in Self::namespace_priority() {
+            if let Some(info) = self.scopes[scope_id.0].symbols.get_mut(&(name, namespace)) {
+                info.span = span;
+                return true;
+            }
         }
 
         false
@@ -253,6 +422,6 @@ impl SymbolTable {
     pub fn all_symbols(&self) -> impl Iterator<Item = (SymbolId, &SymbolInfo)> + '_ {
         self.scopes
             .iter()
-            .flat_map(|scope| scope.symbols.iter().map(|(name, info)| (*name, info)))
+            .flat_map(|scope| scope.symbols.iter().map(|((name, _), info)| (*name, info)))
     }
 }

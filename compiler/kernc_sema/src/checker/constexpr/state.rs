@@ -234,9 +234,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     pub(super) fn resolve_symbol_info(&self, name: SymbolId) -> Option<crate::scope::SymbolInfo> {
         if let Some(&scope_id) = self.const_scopes.last() {
-            self.ctx.scopes.resolve_from(scope_id, name).cloned()
+            self.ctx
+                .scopes
+                .resolve_from_namespace(scope_id, name, crate::scope::SymbolNamespace::Value)
+                .cloned()
         } else {
-            self.ctx.scopes.resolve(name).cloned()
+            self.ctx.scopes.resolve_value_symbol(name).cloned()
         }
     }
 
@@ -250,7 +253,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         match &expr.kind {
             ExprKind::Identifier(name) => {
-                let info = self.resolve_symbol_info(*name)?;
+                let info = self.ctx.scopes.resolve_module_symbol(*name)?.clone();
                 if info.kind != SymbolKind::Module {
                     return None;
                 }
@@ -262,7 +265,11 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             ExprKind::FieldAccess { lhs, field, .. } => {
                 let mod_scope = self.module_scope_from_expr(lhs)?;
-                let info = self.ctx.scopes.resolve_in(mod_scope, *field)?.clone();
+                let info = self
+                    .ctx
+                    .scopes
+                    .resolve_module_in(mod_scope, *field)?
+                    .clone();
                 if info.kind != SymbolKind::Module {
                     return None;
                 }
@@ -281,7 +288,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::TypeNode(_) => true,
             ExprKind::Grouped { expr: inner } => self.expr_is_type_namespace(inner),
             ExprKind::Identifier(name) => self
-                .resolve_symbol_info(*name)
+                .ctx
+                .scopes
+                .resolve_namespace_symbol(*name)
                 .map(|info| Self::symbol_is_type_namespace(info.kind))
                 .unwrap_or(false),
             ExprKind::GenericInstantiation { target, .. } => self.expr_is_type_namespace(target),
@@ -292,7 +301,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
                 self.ctx
                     .scopes
-                    .resolve_in(mod_scope, *field)
+                    .resolve_namespace_in(mod_scope, *field)
                     .map(|info| Self::symbol_is_type_namespace(info.kind))
                     .unwrap_or(false)
             }
@@ -313,7 +322,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         match &callee.kind {
             ExprKind::Identifier(name) => {
-                let info = self.resolve_symbol_info(*name)?;
+                let info = self.ctx.scopes.resolve_value_symbol(*name)?.clone();
                 if info.kind == SymbolKind::Function {
                     Some((info.def_id?, Vec::new()))
                 } else {
@@ -361,7 +370,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             ExprKind::FieldAccess { lhs, field, .. } => {
                 let mod_scope = self.module_scope_from_expr(lhs)?;
-                let info = self.ctx.scopes.resolve_in(mod_scope, *field)?.clone();
+                let info = self.ctx.scopes.resolve_value_in(mod_scope, *field)?.clone();
                 if info.kind == SymbolKind::Function {
                     Some((info.def_id?, Vec::new()))
                 } else {

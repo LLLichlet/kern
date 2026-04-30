@@ -1,4 +1,5 @@
 use super::*;
+use crate::scope::SymbolNamespace;
 
 use kernc_utils::FastHashMap;
 
@@ -192,7 +193,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             .parent
             .is_some_and(|p_id| matches!(self.ctx.defs[p_id.0 as usize], Def::Impl(_)));
         if !is_impl_method {
-            self.ctx.scopes.update_type(f.name, fn_def_ty);
+            self.ctx
+                .scopes
+                .update_type_in_namespace(f.name, SymbolNamespace::Value, fn_def_ty);
         }
     }
 
@@ -217,7 +220,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             .type_registry
             .intern(TypeKind::Def(item_id, Vec::new()));
         self.ctx.scopes.set_current_scope(parent_scope);
-        self.ctx.scopes.update_type(s.name, struct_ty);
+        self.ctx
+            .scopes
+            .update_type_in_namespace(s.name, SymbolNamespace::Type, struct_ty);
     }
 
     fn resolve_union_item(&mut self, item_id: DefId, u: &UnionDef, parent_scope: ScopeId) {
@@ -241,7 +246,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             .type_registry
             .intern(TypeKind::Def(item_id, Vec::new()));
         self.ctx.scopes.set_current_scope(parent_scope);
-        self.ctx.scopes.update_type(u.name, union_ty);
+        self.ctx
+            .scopes
+            .update_type_in_namespace(u.name, SymbolNamespace::Type, union_ty);
     }
 
     fn resolve_trait_item(&mut self, item_id: DefId, t: &TraitDef, parent_scope: ScopeId) {
@@ -291,7 +298,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         self.ctx.scopes.exit_scope();
         self.ctx.scopes.set_current_scope(parent_scope);
-        self.ctx.scopes.update_type(t.name, target_ty);
+        self.ctx
+            .scopes
+            .update_type_in_namespace(t.name, SymbolNamespace::Type, target_ty);
     }
 
     fn resolve_impl_item(&mut self, i: &ImplDef, parent_scope: ScopeId) {
@@ -412,6 +421,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             .intern(TypeKind::Enum(item_id, Vec::new()));
 
         self.ctx.scopes.set_current_scope(parent_scope);
-        self.ctx.scopes.update_type(a.name, adt_ty);
+        self.ctx
+            .scopes
+            .update_type_in_namespace(a.name, SymbolNamespace::Type, adt_ty);
     }
 }

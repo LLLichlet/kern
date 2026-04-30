@@ -507,7 +507,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         );
                         return Err(ConstEvalError);
                     };
-                    if let Some(info) = self.ctx.scopes.resolve_in(mod_scope, *field).cloned() {
+                    if let Some(info) = self.ctx.scopes.resolve_value_in(mod_scope, *field).cloned()
+                    {
                         if info.kind == SymbolKind::Const {
                             if let Some(def_id) = info.def_id {
                                 self.eval_const_def(def_id, depth)
@@ -1103,9 +1104,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         let sym_info = if let Some(&scope_id) = self.const_scopes.last() {
-            self.ctx.scopes.resolve_from(scope_id, name).cloned()
+            self.ctx
+                .scopes
+                .resolve_from_namespace(scope_id, name, crate::scope::SymbolNamespace::Value)
+                .cloned()
         } else {
-            self.ctx.scopes.resolve(name).cloned()
+            self.ctx.scopes.resolve_value_symbol(name).cloned()
         };
 
         if let Some(info) = sym_info {

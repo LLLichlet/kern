@@ -113,7 +113,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         (
                             self.ctx
                                 .scopes
-                                .resolve_in(curr_scope, segment.name)
+                                .resolve_namespace_in(curr_scope, segment.name)
                                 .cloned(),
                             false,
                         )
@@ -124,7 +124,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     (
                         self.ctx
                             .scopes
-                            .resolve_in(curr_scope, segment.name)
+                            .resolve_namespace_in(curr_scope, segment.name)
                             .cloned(),
                         false,
                     )
@@ -253,7 +253,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let mut skipped_hidden_assoc = false;
 
         while let Some(scope_id) = curr {
-            if let Some(info) = self.ctx.scopes.resolve_in(scope_id, name).cloned() {
+            if let Some(info) = self
+                .ctx
+                .scopes
+                .resolve_namespace_in(scope_id, name)
+                .cloned()
+            {
                 // While resolving `type Assoc = ...` inside an impl, bare references to the
                 // impl's own associated type placeholders would create self-referential aliases.
                 // Skip them so callers diagnose that case explicitly.
@@ -633,9 +638,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         for (index, segment) in segments[..segments.len() - 1].iter().enumerate() {
             let symbol = if index == 0 && anchor.is_none() {
-                self.ctx.scopes.resolve_from(current_scope, segment.name)
+                self.ctx
+                    .scopes
+                    .resolve_namespace_from(current_scope, segment.name)
             } else {
-                self.ctx.scopes.resolve_in(current_scope, segment.name)
+                self.ctx
+                    .scopes
+                    .resolve_namespace_in(current_scope, segment.name)
             };
             let Some(symbol) = symbol.cloned() else {
                 return false;
@@ -880,7 +889,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         // Trait qualification after a receiver type still resolves in the caller's lexical
         // scope chain, not inside the receiver's module namespace.
         self.ctx.scopes.set_current_scope(env_scope);
-        let symbol = self.ctx.scopes.resolve(name).cloned()?;
+        let symbol = self.ctx.scopes.resolve_type_symbol(name).cloned()?;
         if symbol.kind != SymbolKind::Trait {
             return None;
         }

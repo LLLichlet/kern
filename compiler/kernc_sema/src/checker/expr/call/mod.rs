@@ -260,9 +260,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         };
 
-        let receiver_ty = self
-            .resolve_type_namespace_expr(lhs)
-            .unwrap_or_else(|| self.check_expr(lhs, None));
+        let receiver_ty = self.check_value_or_namespace_expr(lhs);
         if receiver_ty == TypeId::ERROR {
             return Some(TypeId::ERROR);
         }

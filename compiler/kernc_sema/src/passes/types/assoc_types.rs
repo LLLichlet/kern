@@ -1,4 +1,5 @@
 use super::*;
+use crate::scope::SymbolNamespace;
 
 struct ImplAssocTypeContract<'a> {
     trait_def_id: DefId,
@@ -454,7 +455,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             self.ctx.scopes.exit_scope();
             if let Some(resolved_target) = resolved_target {
                 self.ctx.scopes.set_current_scope(scope);
-                self.ctx.scopes.update_type(assoc_def.name, resolved_target);
+                self.ctx.scopes.update_type_in_namespace(
+                    assoc_def.name,
+                    SymbolNamespace::Type,
+                    resolved_target,
+                );
                 resolved_impl_assoc_targets.insert(assoc_def.name, resolved_target);
             }
             if let Def::AssociatedType(updated) = &mut self.ctx.defs[assoc_id.0 as usize] {

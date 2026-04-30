@@ -392,7 +392,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Identifier(name) => self
                 .ctx
                 .scopes
-                .resolve(*name)
+                .resolve_value_symbol(*name)
                 .is_some_and(|info| info.kind == crate::scope::SymbolKind::Static),
             ExprKind::FieldAccess { lhs, .. }
             | ExprKind::IndexAccess { lhs, .. }
@@ -1378,12 +1378,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return false;
         }
 
-        self.ctx.scopes.resolve(segment.name).is_some_and(|info| {
-            matches!(
-                info.kind,
-                crate::scope::SymbolKind::ConstParam | crate::scope::SymbolKind::Const
-            )
-        })
+        self.ctx
+            .scopes
+            .resolve_value_symbol(segment.name)
+            .is_some_and(|info| {
+                matches!(
+                    info.kind,
+                    crate::scope::SymbolKind::ConstParam | crate::scope::SymbolKind::Const
+                )
+            })
     }
 
     fn type_arg_is_payloadless_enum_value_ref(
@@ -1416,9 +1419,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         for (index, segment) in segments[..segments.len() - 1].iter().enumerate() {
             let symbol = if index == 0 && anchor.is_none() {
-                self.ctx.scopes.resolve_from(current_scope, segment.name)
+                self.ctx
+                    .scopes
+                    .resolve_namespace_from(current_scope, segment.name)
             } else {
-                self.ctx.scopes.resolve_in(current_scope, segment.name)
+                self.ctx
+                    .scopes
+                    .resolve_namespace_in(current_scope, segment.name)
             };
             let Some(symbol) = symbol.cloned() else {
                 return false;
@@ -1778,7 +1785,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         };
 
-        let ty = if !matches!(expr.kind, ExprKind::TypeNode(_)) && self.expr_is_type_namespace(expr)
+        let norm_ty = self.resolve_tv(ty);
+        let ty = if !matches!(expr.kind, ExprKind::TypeNode(_))
+            && !matches!(self.ctx.type_registry.get(norm_ty), TypeKind::FnDef(..))
+            && self.expr_is_type_namespace(expr)
         {
             self.reject_resolved_type_namespace_value_expr(expr.span, ty)
         } else if self.allow_uninstantiated_generic_function_items {

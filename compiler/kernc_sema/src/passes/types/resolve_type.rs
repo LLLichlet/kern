@@ -173,7 +173,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::TypeKind::SelfType => {
                 self.ctx.scopes.set_current_scope(env_scope);
                 let self_sym = self.ctx.intern("Self");
-                if let Some(info) = self.ctx.scopes.resolve(self_sym) {
+                if let Some(info) = self.ctx.scopes.resolve_type_symbol(self_sym) {
                     info.type_id
                 } else {
                     self.ctx

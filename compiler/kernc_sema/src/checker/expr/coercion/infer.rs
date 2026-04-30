@@ -7,7 +7,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Error => false,
             ExprKind::Grouped { expr: inner } => self.is_lvalue_mutable(inner),
             ExprKind::Identifier(name) => {
-                if let Some(info) = self.ctx.scopes.resolve(*name) {
+                if let Some(info) = self.ctx.scopes.resolve_value_symbol(*name) {
                     info.is_mut
                 } else {
                     false

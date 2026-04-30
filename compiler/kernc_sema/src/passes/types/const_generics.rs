@@ -30,7 +30,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.set_current_scope(env_scope);
         match &expr.kind {
             ast::ExprKind::Identifier(name) => {
-                let Some(info) = self.ctx.scopes.resolve(*name).cloned() else {
+                let Some(info) = self.ctx.scopes.resolve_value_symbol(*name).cloned() else {
                     self.ctx
                         .struct_error(
                             expr.span,
@@ -538,7 +538,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::Identifier(name) => self
                 .ctx
                 .scopes
-                .resolve(*name)
+                .resolve_value_symbol(*name)
                 .is_some_and(|info| info.kind == SymbolKind::ConstParam),
             ast::ExprKind::Binary { lhs, rhs, .. } => {
                 self.expr_references_const_param(lhs, env_scope)

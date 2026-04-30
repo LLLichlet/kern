@@ -560,6 +560,18 @@ fn main() i32 {
         return 7;
     }
 
+    let mut fmt_storage = [96]u8.{undef};
+    let mut fmt = fixed_buffer(fmt_storage..[0 .. 96]);
+    let fmt_writer = *mut Writer.{ fmt..& };
+    format_to(
+        fmt_writer,
+        "p={:02} r={:>4} l={:<4} c={:^5} z={:0>3} bad={:x}",
+        .{ 7, "go", "go", "go", 7, 7, },
+    );
+    if (fmt..&.as_slice() != "p=07 r=  go l=go   c= go   z=007 bad={:x}") {
+        return 8;
+    }
+
     return 0;
 }
 "#,

@@ -1,4 +1,150 @@
 use ..traits.{Printable, Writer};
+use ..writers.{counting_writer, null_writer};
+
+const ALIGN_LEFT = u8.{0};
+const ALIGN_RIGHT = u8.{1};
+const ALIGN_CENTER = u8.{2};
+
+type FormatSpec = struct {
+    fill: u8 = b' ',
+    align: u8 = ALIGN_RIGHT,
+    width: usize = 0,
+};
+
+fn is_digit(byte: u8) bool {
+    return byte >= b'0' and byte <= b'9';
+}
+
+fn align_for_byte(byte: u8) ?u8 {
+    if (byte == b'<') return .{ Some: ALIGN_LEFT };
+    if (byte == b'>') return .{ Some: ALIGN_RIGHT };
+    if (byte == b'^') return .{ Some: ALIGN_CENTER };
+    return .None;
+}
+
+fn parse_width(spec: []u8, start: usize) ?usize {
+    if (start >= #spec) {
+        return .{ Some: usize.{0} };
+    }
+
+    let mut width = usize.{0};
+    let mut i = start;
+    while (i < #spec) {
+        let byte = spec.[i];
+        if (!is_digit(byte)) {
+            return .None;
+        }
+
+        let next = width * 10 + ((byte - b'0') as usize);
+        if (next < width) {
+            return .None;
+        }
+        width = next;
+        i += 1;
+    }
+    return .{ Some: width };
+}
+
+fn parse_format_spec(spec: []u8) ?FormatSpec {
+    if (#spec == 0) {
+        return .{ Some: FormatSpec.{} };
+    }
+
+    let mut out = FormatSpec.{};
+    let mut i = usize.{0};
+
+    if (#spec >= 2) {
+        match (align_for_byte(spec.[1])) {
+            .{ Some: align } => {
+                out.fill = spec.[0];
+                out.align = align;
+                i = 2;
+            },
+            .None => {},
+        }
+    }
+
+    if (i == 0) {
+        match (align_for_byte(spec.[0])) {
+            .{ Some: align } => {
+                out.align = align;
+                i = 1;
+            },
+            .None => {},
+        }
+    }
+
+    if (i == 0 and #spec >= 2 and spec.[0] == b'0' and is_digit(spec.[1])) {
+        out.fill = b'0';
+        out.align = ALIGN_RIGHT;
+        i = 1;
+    }
+
+    let .{ Some: width } = parse_width(spec, i) else return .None;
+    out.width = width;
+    return .{ Some: out };
+}
+
+fn find_placeholder_end(fmt: []u8, start: usize) ?usize {
+    let mut i = start;
+    while (i < #fmt) {
+        if (fmt.[i] == b'}') {
+            return .{ Some: i };
+        }
+        if (fmt.[i] == b'{') {
+            return .None;
+        }
+        i += 1;
+    }
+    return .None;
+}
+
+fn rendered_len(arg: *Printable) usize {
+    let mut sink = null_writer();
+    let sink_writer = *mut Writer.{ sink..& };
+    let mut counter = counting_writer(sink_writer);
+    let counter_writer = *mut Writer.{ counter..& };
+    arg.fmt(counter_writer);
+    return counter..&.bytes_written();
+}
+
+fn write_fill(writer: *mut Writer, fill: u8, count: usize) void {
+    let mut buf = [1]u8.{undef};
+    buf.[0] = fill;
+
+    let mut i = usize.{0};
+    while (i < count) {
+        _ = writer.write(buf.[0 .. 1]);
+        i += 1;
+    }
+}
+
+fn write_formatted_arg(writer: *mut Writer, arg: *Printable, spec: FormatSpec) void {
+    let len = rendered_len(arg);
+    if (spec.width <= len) {
+        arg.fmt(writer);
+        return;
+    }
+
+    let padding = spec.width - len;
+    if (spec.align == ALIGN_LEFT) {
+        arg.fmt(writer);
+        write_fill(writer, spec.fill, padding);
+        return;
+    }
+
+    if (spec.align == ALIGN_CENTER) {
+        let left = padding / 2;
+        let right = padding - left;
+        write_fill(writer, spec.fill, left);
+        arg.fmt(writer);
+        write_fill(writer, spec.fill, right);
+        return;
+    }
+
+    write_fill(writer, spec.fill, padding);
+    arg.fmt(writer);
+}
 
 /// Formats text and placeholders into the given writer.
 ///
@@ -23,19 +169,36 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     last_pos = i;
                     continue;
                 }
-                // Handles the placeholder `{}`.
-                else if (fmt.[i + 1] == b'}') {
+                // Handles placeholders such as `{}`, `{:>8}`, and `{:02}`.
+                else if (fmt.[i + 1] == b'}' or fmt.[i + 1] == b':') {
+                    let mut end = i + 1;
+                    let mut spec = FormatSpec.{};
+                    if (fmt.[i + 1] == b':') {
+                        let .{ Some: found_end } = find_placeholder_end(fmt, i + 2)
+                            else {
+                                i += usize.{1};
+                                continue;
+                            };
+                        let .{ Some: parsed } = parse_format_spec(fmt.[i + 2 .. found_end])
+                            else {
+                                i += usize.{1};
+                                continue;
+                            };
+                        spec = parsed;
+                        end = found_end;
+                    }
+
                     if (i > last_pos) {
                         let text_slice = fmt.[last_pos .. i];
                         _ = writer.write(text_slice);
                     }
                     if (arg_idx < #args) {
-                        args.[arg_idx].fmt(writer);
+                        write_formatted_arg(writer, args.[arg_idx], spec);
                         arg_idx += usize.{1};
                     } else {
                         _ = writer.write("<missing>");
                     }
-                    i += usize.{2};
+                    i = end + usize.{1};
                     last_pos = i;
                     continue;
                 }

@@ -577,6 +577,8 @@ impl[T] *List[T] : Printable
 }
 ```
 
+`format_to(writer, fmt, args)` renders `Printable` values through `{}` placeholders. Kern's format spec is written directly inside the braces: `{8}` sets a minimum width, `{02}` uses zero padding, `{>8}` right-aligns, `{<8}` left-aligns, `{^8}` centers, and `{0>8}` combines an explicit fill byte with alignment. `{.12}` limits output to 12 bytes, and it can be combined with width as `{>8.12}`. Literal braces are written as `{{` and `}}`.
+
 **Type Declarations with Constraints:**
 `where` clauses are also used when defining generic data structures to enforce invariants at the type level.
 

@@ -9,6 +9,12 @@ type FormatSpec = struct {
     fill: u8 = b' ',
     align: u8 = ALIGN_RIGHT,
     width: usize = 0,
+    limit: ?usize = .None,
+};
+
+type LimitWriter = struct {
+    inner: *mut Writer,
+    remaining: usize,
 };
 
 fn is_digit(byte: u8) bool {
@@ -22,27 +28,41 @@ fn align_for_byte(byte: u8) ?u8 {
     return .None;
 }
 
-fn parse_width(spec: []u8, start: usize) ?usize {
-    if (start >= #spec) {
+fn parse_number(spec: []u8, start: usize, end: usize, empty_ok: bool) ?usize {
+    if (start >= end) {
+        if (!empty_ok) {
+            return .None;
+        }
         return .{ Some: usize.{0} };
     }
 
-    let mut width = usize.{0};
+    let mut value = usize.{0};
     let mut i = start;
-    while (i < #spec) {
+    while (i < end) {
         let byte = spec.[i];
         if (!is_digit(byte)) {
             return .None;
         }
 
-        let next = width * 10 + ((byte - b'0') as usize);
-        if (next < width) {
+        let next = value * 10 + ((byte - b'0') as usize);
+        if (next < value) {
             return .None;
         }
-        width = next;
+        value = next;
         i += 1;
     }
-    return .{ Some: width };
+    return .{ Some: value };
+}
+
+fn find_limit_marker(spec: []u8, start: usize) ?usize {
+    let mut i = start;
+    while (i < #spec) {
+        if (spec.[i] == b'.') {
+            return .{ Some: i };
+        }
+        i += 1;
+    }
+    return .None;
 }
 
 fn parse_format_spec(spec: []u8) ?FormatSpec {
@@ -80,7 +100,18 @@ fn parse_format_spec(spec: []u8) ?FormatSpec {
         i = 1;
     }
 
-    let .{ Some: width } = parse_width(spec, i) else return .None;
+    let mut width_end = #spec;
+    match (find_limit_marker(spec, i)) {
+        .{ Some: marker } => {
+            width_end = marker;
+            let .{ Some: limit } = parse_number(spec, marker + 1, #spec, false)
+                else return .None;
+            out.limit = .{ Some: limit };
+        },
+        .None => {},
+    }
+
+    let .{ Some: width } = parse_number(spec, i, width_end, true) else return .None;
     out.width = width;
     return .{ Some: out };
 }
@@ -119,16 +150,62 @@ fn write_fill(writer: *mut Writer, fill: u8, count: usize) void {
     }
 }
 
+impl *mut LimitWriter : Writer {
+    pub fn write(buf: []u8) usize {
+        if (#buf == 0 or self.remaining == 0) {
+            return 0;
+        }
+
+        let mut count = #buf;
+        if (count > self.remaining) {
+            count = self.remaining;
+        }
+
+        let written = self.inner.write(buf.[0 .. count]);
+        self.remaining -= written;
+        return written;
+    }
+}
+
+fn write_limited_arg(writer: *mut Writer, arg: *Printable, spec: FormatSpec) void {
+    match (spec.limit) {
+        .{ Some: limit } => {
+            let mut limited = LimitWriter.{ inner: writer, remaining: limit };
+            let limited_writer = *mut Writer.{ limited..& };
+            arg.fmt(limited_writer);
+        },
+        .None => arg.fmt(writer),
+    }
+}
+
+fn limited_rendered_len(arg: *Printable, limit: usize) usize {
+    let mut sink = null_writer();
+    let sink_writer = *mut Writer.{ sink..& };
+    let mut counter = counting_writer(sink_writer);
+    let counter_writer = *mut Writer.{ counter..& };
+    let mut limited = LimitWriter.{ inner: counter_writer, remaining: limit };
+    let limited_writer = *mut Writer.{ limited..& };
+    arg.fmt(limited_writer);
+    return counter..&.bytes_written();
+}
+
+fn formatted_len(arg: *Printable, spec: FormatSpec) usize {
+    match (spec.limit) {
+        .{ Some: limit } => return limited_rendered_len(arg, limit),
+        .None => return rendered_len(arg),
+    }
+}
+
 fn write_formatted_arg(writer: *mut Writer, arg: *Printable, spec: FormatSpec) void {
-    let len = rendered_len(arg);
+    let len = formatted_len(arg, spec);
     if (spec.width <= len) {
-        arg.fmt(writer);
+        write_limited_arg(writer, arg, spec);
         return;
     }
 
     let padding = spec.width - len;
     if (spec.align == ALIGN_LEFT) {
-        arg.fmt(writer);
+        write_limited_arg(writer, arg, spec);
         write_fill(writer, spec.fill, padding);
         return;
     }
@@ -137,13 +214,13 @@ fn write_formatted_arg(writer: *mut Writer, arg: *Printable, spec: FormatSpec) v
         let left = padding / 2;
         let right = padding - left;
         write_fill(writer, spec.fill, left);
-        arg.fmt(writer);
+        write_limited_arg(writer, arg, spec);
         write_fill(writer, spec.fill, right);
         return;
     }
 
     write_fill(writer, spec.fill, padding);
-    arg.fmt(writer);
+    write_limited_arg(writer, arg, spec);
 }
 
 /// Formats text and placeholders into the given writer.
@@ -169,17 +246,18 @@ pub/ fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     last_pos = i;
                     continue;
                 }
-                // Handles placeholders such as `{}`, `{:>8}`, and `{:02}`.
-                else if (fmt.[i + 1] == b'}' or fmt.[i + 1] == b':') {
+                // Handles placeholders such as `{}`, `{>8}`, `{02}`, and `{0>8}`.
+                else {
                     let mut end = i + 1;
                     let mut spec = FormatSpec.{};
-                    if (fmt.[i + 1] == b':') {
-                        let .{ Some: found_end } = find_placeholder_end(fmt, i + 2)
+
+                    if (fmt.[i + 1] != b'}') {
+                        let .{ Some: found_end } = find_placeholder_end(fmt, i + 1)
                             else {
                                 i += usize.{1};
                                 continue;
                             };
-                        let .{ Some: parsed } = parse_format_spec(fmt.[i + 2 .. found_end])
+                        let .{ Some: parsed } = parse_format_spec(fmt.[i + 1 .. found_end])
                             else {
                                 i += usize.{1};
                                 continue;

@@ -560,15 +560,15 @@ fn main() i32 {
         return 7;
     }
 
-    let mut fmt_storage = [96]u8.{undef};
-    let mut fmt = fixed_buffer(fmt_storage..[0 .. 96]);
+    let mut fmt_storage = [160]u8.{undef};
+    let mut fmt = fixed_buffer(fmt_storage..[0 .. 160]);
     let fmt_writer = *mut Writer.{ fmt..& };
     format_to(
         fmt_writer,
-        "p={:02} r={:>4} l={:<4} c={:^5} z={:0>3} bad={:x}",
-        .{ 7, "go", "go", "go", 7, 7, },
+        "p={02} r={>4} l={<4} c={^5} z={0>3} f={_>4} cut={.3} mix={>6.2} left={<6.2} zero={0>5.2} bad={x} old={:02}",
+        .{ 7, "go", "go", "go", 7, 7, "abcdef", "abcdef", "abcdef", 12345, },
     );
-    if (fmt..&.as_slice() != "p=07 r=  go l=go   c= go   z=007 bad={:x}") {
+    if (fmt..&.as_slice() != "p=07 r=  go l=go   c= go   z=007 f=___7 cut=abc mix=    ab left=ab     zero=00012 bad={x} old={:02}") {
         return 8;
     }
 

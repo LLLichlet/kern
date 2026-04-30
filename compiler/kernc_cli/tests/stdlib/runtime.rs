@@ -74,10 +74,7 @@ fn main(argc: i32, argv: **u8) i32 {
         return 1;
     }
     let _ = args.len();
-    let _ = args.contains("--help");
-    let _ = args.position("--help");
-    let _ = args.value_after("--target");
-    let _ = args.find_prefixed("--profile=");
+    for (_: args.iter()) {}
     let mut saw_entry = false;
 
     let visited = env.visit(.[saw_entry = saw_entry..&](entry: env.Var) bool {
@@ -521,32 +518,26 @@ fn main(argc: i32, argv: **u8) i32 {
     if (third != "beta gamma") {
         return 4;
     }
-    let alpha_pos = match (args.position("alpha")) {
-        .{ Some: index } => index,
-        .None => return 5,
-    };
-    if (alpha_pos != 1) {
+    let mut seen = usize.{0};
+    let mut saw_alpha = false;
+    let mut saw_spaced = false;
+    for (arg: args.iter()) {
+        if (seen == 1 and arg == "alpha") {
+            saw_alpha = true;
+        }
+        if (seen == 2 and arg == "beta gamma") {
+            saw_spaced = true;
+        }
+        seen += 1;
+    }
+    if (seen != args.len()) {
+        return 5;
+    }
+    if (!saw_alpha) {
         return 6;
     }
-    if (!args.contains("--name") or args.contains("--missing")) {
+    if (!saw_spaced) {
         return 7;
-    }
-    let name = match (args.value_after("--name")) {
-        .{ Some: value } => value,
-        .None => return 8,
-    };
-    if (name != "kern") {
-        return 9;
-    }
-    let cfg = match (args.find_prefixed("--cfg=")) {
-        .{ Some: value } => value,
-        .None => return 10,
-    };
-    if (cfg != "fast") {
-        return 11;
-    }
-    if (args.value_after("--cfg=fast").is_some()) {
-        return 12;
     }
     return 0;
 }

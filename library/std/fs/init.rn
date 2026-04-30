@@ -53,7 +53,11 @@ pub use .file.{
 pub use .dir.{
     create_dir,
     create_dir_if_missing,
+    OwnedDirEntry,
+    DirEntries,
     read_dir,
+    read_dir_entries,
+    read_dir_entries_into,
     walk_dir,
     walk_files,
     walk_dirs,

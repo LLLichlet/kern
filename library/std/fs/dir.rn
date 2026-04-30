@@ -4,12 +4,111 @@
 //! keep traversal explicit, return visited counts, and leave path ownership with the caller.
 
 use sys.os;
+use base.coll.{List, String};
 use base.mem.array_layout_of;
 use base.mem.alloc.Allocator;
+use base.num.checked_add_usize;
 use ..types.{Error, FileType, DirEntry};
 use ..path.{is_path_separator, root_prefix_len, trim_trailing_separators, build_child_path};
 use ..c_path.{alloc_c_path, free_c_path};
 use ..file.{metadata, is_dir, remove_file};
+
+/// An owned directory entry whose name remains valid until deinitialized.
+pub/ type OwnedDirEntry = struct {
+    //// The entry name without the parent path.
+    pub name: []u8,
+    file_type: FileType,
+};
+
+/// A reusable owned buffer of directory entries.
+pub/ type DirEntries = struct {
+    raw: List[OwnedDirEntry] = List[OwnedDirEntry].{},
+    names: String = String.{},
+};
+
+impl OwnedDirEntry {
+    /// Returns `true` when the entry is a regular file.
+    pub fn is_file() bool {
+        return self.file_type == .File;
+    }
+
+    /// Returns `true` when the entry is a directory.
+    pub fn is_dir() bool {
+        return self.file_type == .Directory;
+    }
+}
+
+impl *mut DirEntries {
+    /// Removes all entries while retaining backing capacity for reuse.
+    pub fn clear() void {
+        self.raw..&.clear();
+        self.names..&.clear();
+    }
+
+    /// Releases every backing buffer.
+    pub fn deinit(alloc: *mut Allocator) void {
+        self.raw..&.deinit(alloc);
+        self.names..&.deinit(alloc);
+    }
+
+    /// Returns a mutable slice of owned entries.
+    pub fn as_mut_slice() []mut OwnedDirEntry {
+        return self.raw..&.as_mut_slice();
+    }
+
+    fn reserve(alloc: *mut Allocator, entry_count: usize, name_bytes: usize) bool {
+        if (!self.raw..&.reserve_exact(alloc, entry_count)) {
+            return false;
+        }
+        if (name_bytes > self.names.&.capacity()) {
+            let additional = name_bytes - self.names.&.len();
+            if (!self.names..&.reserve(alloc, additional)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn can_push_reserved(name_len: usize) bool {
+        let .{ Some: needed } = checked_add_usize(self.names.&.len(), name_len) else {
+            return false;
+        };
+        return needed <= self.names.&.capacity();
+    }
+
+    fn push_copy_reserved(alloc: *mut Allocator, entry: DirEntry) bool {
+        if (!self.can_push_reserved(#entry.name)) {
+            return false;
+        }
+        let start = self.names.&.len();
+        if (!self.names..&.push_str(alloc, entry.name)) {
+            return false;
+        }
+        let end = self.names.&.len();
+        let name = self.names.&.as_str().[start .. end];
+        if (!self.raw..&.push(alloc, OwnedDirEntry.{ name: name, file_type: entry.file_type() })) {
+            return false;
+        }
+        return true;
+    }
+}
+
+impl *DirEntries {
+    /// Returns an immutable slice of owned entries.
+    pub fn as_slice() []OwnedDirEntry {
+        return self.raw.&.as_slice();
+    }
+
+    /// Returns the number of owned entries.
+    pub fn len() usize {
+        return self.raw.&.len();
+    }
+
+    /// Returns `true` when there are no owned entries.
+    pub fn is_empty() bool {
+        return self.raw.&.is_empty();
+    }
+}
 
 fn wrap_os_error(err: os.Error) Error {
     return .{ Os: err };
@@ -165,6 +264,94 @@ pub/ fn read_dir(alloc: *mut Allocator, path: []u8, visitor: *Fn(DirEntry) bool)
     free_c_path(alloc, path, c_path);
     free_dir_search_path(alloc, path, search_c_path);
     return result;
+}
+
+/// Reads the direct children of a directory into a reusable owned buffer.
+///
+/// Existing entries in `entries` are cleared first. Entry names remain valid
+/// until the next `clear`, `deinit`, or successful `read_dir_entries_into` call
+/// on the same buffer.
+///
+/// Returns:
+/// the number of owned child entries.
+pub/ fn read_dir_entries_into(
+    alloc: *mut Allocator,
+    path: []u8,
+    entries: *mut DirEntries,
+) usize!Error {
+    entries.clear();
+
+    let mut entry_count = usize.{0};
+    let mut name_bytes = usize.{0};
+    let mut size_err = false;
+    let count_sizes = .[
+        entry_count = entry_count..&,
+        name_bytes = name_bytes..&,
+        size_err = size_err..&
+    ](entry: DirEntry) bool {
+        let .{ Some: next_entries } = checked_add_usize(entry_count.*, 1) else {
+            size_err.* = true;
+            return false;
+        };
+        let .{ Some: next_bytes } = checked_add_usize(name_bytes.*, #entry.name) else {
+            size_err.* = true;
+            return false;
+        };
+        entry_count.* = next_entries;
+        name_bytes.* = next_bytes;
+        return true;
+    };
+
+    let counted = match (read_dir(alloc, path, count_sizes)) {
+        .{ Ok: count } => count,
+        .{ Err: err } => return .{ Err: err },
+    };
+    if (size_err or counted != entry_count) {
+        return .{ Err: .OutOfMemory };
+    }
+
+    if (!entries.reserve(alloc, entry_count, name_bytes)) {
+        return .{ Err: .OutOfMemory };
+    }
+
+    let mut copy_err = ?Error.None;
+    let copy = .[alloc, entries, copy_err = copy_err..&](entry: DirEntry) bool {
+        if (!entries.push_copy_reserved(alloc, entry)) {
+            copy_err.* = .{ Some: .OutOfMemory };
+            return false;
+        }
+        return true;
+    };
+
+    let visited = match (read_dir(alloc, path, copy)) {
+        .{ Ok: count } => count,
+        .{ Err: err } => {
+            entries.clear();
+            return .{ Err: err };
+        },
+    };
+
+    match (copy_err) {
+        .{ Some: err } => {
+            entries.clear();
+            return .{ Err: err };
+        },
+        .None => {},
+    }
+
+    return .{ Ok: visited };
+}
+
+/// Reads the direct children of a directory into a newly owned entry buffer.
+pub/ fn read_dir_entries(alloc: *mut Allocator, path: []u8) DirEntries!Error {
+    let mut entries = DirEntries.{};
+    match (read_dir_entries_into(alloc, path, entries..&)) {
+        .{ Ok: _ } => return .{ Ok: entries },
+        .{ Err: err } => {
+            entries..&.deinit(alloc);
+            return .{ Err: err };
+        },
+    }
 }
 
 fn walk_dir_inner(

@@ -345,6 +345,122 @@ fn main() i32 {{
 }
 
 #[test]
+fn runs_hosted_program_using_std_fs_owned_dir_entries_and_errors() {
+    let temp_root = unique_temp_path("kernc_std_fs_owned_dir_entries", "dir");
+    let alpha_dir = temp_root.join("alpha");
+    let file_a = temp_root.join("a.txt");
+    let file_b = temp_root.join("b.txt");
+    let root_path = kern_string_literal(&temp_root);
+    let alpha_path = kern_string_literal(&alpha_dir);
+    let file_a_path = kern_string_literal(&file_a);
+    let file_b_path = kern_string_literal(&file_b);
+
+    let _ = fs::remove_file(&file_a);
+    let _ = fs::remove_file(&file_b);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use base.cmp.Ordering;
+use std.{{fs, io}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn entry_cmp(left: fs.OwnedDirEntry, right: fs.OwnedDirEntry) Ordering {{
+    return left.name.lex_cmp(right.name);
+}}
+
+fn main() i32 {{
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
+
+    match (fs.create_dir_all(gpa, "{alpha_path}")) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
+    }}
+    match (fs.write_all(gpa, "{file_b_path}", "B")) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 2,
+    }}
+    match (fs.write_all(gpa, "{file_a_path}", "A")) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 3,
+    }}
+
+    let mut entries = match (fs.read_dir_entries(gpa, "{root_path}")) {{
+        .{{ Ok: entries }} => entries,
+        .{{ Err: _ }} => return 4,
+    }};
+    defer entries..&.deinit(gpa);
+
+    if (entries.&.len() != 3) {{
+        return 5;
+    }}
+
+    entries..&.as_mut_slice().sort_by(entry_cmp);
+    let items = entries.&.as_slice();
+    if (items.[0].name != "a.txt" or !items.[0].is_file()) {{
+        return 6;
+    }}
+    if (items.[1].name != "alpha" or !items.[1].is_dir()) {{
+        return 7;
+    }}
+    if (items.[2].name != "b.txt" or !items.[2].is_file()) {{
+        return 8;
+    }}
+
+    let count = match (fs.read_dir_entries_into(gpa, "{alpha_path}", entries..&)) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 9,
+    }};
+    if (count != 0 or !entries.&.is_empty()) {{
+        return 10;
+    }}
+
+    let err = match (fs.metadata(gpa, "{root_path}/missing.txt")) {{
+        .{{ Ok: _ }} => return 11,
+        .{{ Err: err }} => err,
+    }};
+    if (err.kind() != "not_found") {{
+        return 12;
+    }}
+    if (err.message() != "not found") {{
+        return 13;
+    }}
+    if (err.os_code().is_none()) {{
+        return 14;
+    }}
+    if (!err.is_not_found() or err.is_already_exists()) {{
+        return 15;
+    }}
+    io.println("fs error: {{}}", .{{err}});
+
+    return 0;
+}}
+"#,
+        root_path = root_path,
+        alpha_path = alpha_path,
+        file_a_path = file_a_path,
+        file_b_path = file_b_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("fs error: not found (os code "),
+        "expected printable fs error in stdout, got:\n{}",
+        stdout
+    );
+
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn runs_hosted_program_using_std_fs_remove_dir_all() {
     let temp_root = unique_temp_path("kernc_std_fs_remove_dir_all", "dir");
     let nested_dir = temp_root.join("one").join("two");

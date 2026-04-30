@@ -532,6 +532,7 @@ impl AnalysisEngine {
         let resolved = self.resolve_analysis(target_uri)?;
         let dirty_documents = self
             .dirty_documents_snapshot()
+            .filter_for_resolved(&resolved)
             .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
         let driver = self.driver_for_resolved(&resolved);

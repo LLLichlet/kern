@@ -48,6 +48,36 @@ impl DirtyDocumentsSnapshot {
             hashed_overrides,
         }
     }
+
+    pub(super) fn filter_for_resolved(&self, resolved: &ResolvedAnalysis) -> Self {
+        if self.overrides.is_empty() {
+            return self.clone();
+        }
+
+        let roots = related_analysis_roots(resolved);
+        let overrides = self
+            .overrides
+            .iter()
+            .filter_map(|(path, text)| {
+                let normalized = super::normalize_path(path);
+                roots
+                    .iter()
+                    .any(|root| path_belongs_to_analysis_root(root, &normalized))
+                    .then(|| (normalized, text.clone()))
+            })
+            .collect::<SourceOverrides>();
+
+        let mut hashed_overrides = overrides
+            .iter()
+            .map(|(path, text)| (super::normalize_path(path), hash_source_text(text)))
+            .collect::<Vec<_>>();
+        hashed_overrides.sort();
+
+        Self {
+            overrides,
+            hashed_overrides,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -162,4 +192,46 @@ pub(super) fn hash_source_text(text: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
     hasher.finish()
+}
+
+fn related_analysis_roots(resolved: &ResolvedAnalysis) -> Vec<PathBuf> {
+    let mut roots = vec![super::normalize_path(&resolved.input_file)];
+    roots.extend(
+        resolved
+            .compile_options
+            .module_aliases
+            .values()
+            .map(PathBuf::from)
+            .map(|path| super::normalize_path(&path)),
+    );
+    roots.extend(
+        resolved
+            .compile_options
+            .module_interface_aliases
+            .values()
+            .map(PathBuf::from)
+            .map(|path| super::normalize_path(&path)),
+    );
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+fn path_belongs_to_analysis_root(root: &PathBuf, path: &PathBuf) -> bool {
+    if root == path {
+        return true;
+    }
+
+    let Some(parent) = root.parent() else {
+        return false;
+    };
+    let Some(stem) = root.file_stem() else {
+        return false;
+    };
+    let module_dir = parent.join(stem);
+    if path.starts_with(&module_dir) {
+        return true;
+    }
+
+    path.starts_with(parent)
 }

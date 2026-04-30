@@ -109,6 +109,68 @@ root = "src/main.rn"
 }
 
 #[test]
+fn unrelated_dirty_package_file_does_not_force_lexical_fallback_for_library() {
+    let root = unique_temp_dir("dirty_unrelated_example_project");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("examples")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "raylike"
+version = "0.1.0"
+kern = "{CURRENT_KERN_VERSION}"
+
+[lib]
+root = "src/lib.rn"
+"#
+        ),
+    )
+    .unwrap();
+    let lib_source = "pub fn helper() i32 { return 1; }\n";
+    let lib_path = root.join("src/lib.rn");
+    fs::write(&lib_path, lib_source).unwrap();
+    let example_path = root.join("examples/new_window.rn");
+    let example_source = "fn main() i32 { return 0; }\n";
+
+    let mut analysis = AnalysisEngine::default();
+    let lib_uri = file_path_to_uri(&lib_path).unwrap();
+    let example_uri = file_path_to_uri(&example_path).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: lib_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: lib_source.to_string(),
+        },
+    });
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: example_uri,
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: example_source.to_string(),
+        },
+    });
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let tokens = analysis.semantic_tokens(&lib_uri).unwrap();
+    let hover = analysis
+        .hover(&lib_uri, position_of_nth(lib_source, "helper", 0, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(!tokens.data.is_empty());
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert!(
+        hover.contents.value.contains("fn helper"),
+        "{}",
+        hover.contents.value
+    );
+}
+
+#[test]
 fn source_overrides_only_include_dirty_documents() {
     let uri = temp_file_uri("analysis_dirty_overrides", "fn main() void {}\n");
     let path = uri_to_file_path(&uri).unwrap();

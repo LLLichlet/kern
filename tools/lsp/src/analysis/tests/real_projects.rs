@@ -16,16 +16,72 @@ fn stdlib_document_symbols_render_real_impl_target_types() {
 }
 
 #[test]
-fn raylib_api_compile_survives_discard_assignment_queries() {
-    let mut analysis = AnalysisEngine::default();
-    let path = workspace_root()
-        .parent()
-        .unwrap()
-        .join("raylib-kern/tests/api_compile.rn");
-    if !path.is_file() {
-        return;
+fn package_api_compile_survives_discard_assignment_queries() {
+    let root = unique_temp_dir("analysis_package_api_compile");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("tests")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "graphics"
+version = "0.1.0"
+kern = "{CURRENT_KERN_VERSION}"
+
+[lib]
+root = "src/lib.rn"
+
+[test]
+roots = ["tests/api_compile.rn"]
+"#
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.rn"),
+        "\
+pub type Vector2 = struct {
+    x: f32,
+    y: f32,
+};
+
+pub fn vector2(x: f32, y: f32) Vector2 {
+    return Vector2.{ x: x, y: y };
+}
+
+pub fn window_should_close() bool {
+    return false;
+}
+
+pub fn get_time() f64 {
+    return 0.0;
+}
+",
+    )
+    .unwrap();
+    let test_source = "\
+use graphics;
+
+fn use_window_api() void {
+    let _ = graphics.window_should_close();
+    _ = graphics.get_time();
+    let _ = graphics.vector2(10.0, 20.0);
+}
+
+fn main() i32 {
+    if (false) {
+        use_window_api();
     }
-    let (uri, source) = open_workspace_document(&mut analysis, &path);
+    return 0;
+}
+";
+    let test_path = root.join("tests/api_compile.rn");
+    fs::write(&test_path, test_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let (uri, source) = open_workspace_document(&mut analysis, &test_path);
 
     let diagnostics = analysis.analyze_document_uri(&uri);
     let semantic_tokens = analysis.semantic_tokens(&uri).unwrap();
@@ -33,7 +89,7 @@ fn raylib_api_compile_survives_discard_assignment_queries() {
         .hover(&uri, position_of_nth(&source, "window_should_close", 0, 1))
         .unwrap();
     let completion = analysis
-        .completion(&uri, position_of_nth(&source, "raylib.get_time", 0, 7))
+        .completion(&uri, position_of_nth(&source, "graphics.get_time", 0, 9))
         .unwrap();
 
     assert!(!diagnostics.bundles.is_empty());

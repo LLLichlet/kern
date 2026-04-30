@@ -288,6 +288,45 @@ root = \"src/lib.rn\"
 }
 
 #[test]
+fn package_file_outside_declared_targets_uses_file_as_analysis_root() {
+    let root = temp_dir("craft-project-undeclared-example-analysis");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("examples")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        "\
+[package]
+name = \"raylike\"
+version = \"0.1.0\"
+kern = \"0.7.2\"
+
+[lib]
+root = \"src/lib.rn\"
+",
+    )
+    .unwrap();
+    fs::write(root.join("src/lib.rn"), "pub fn helper() void {}\n").unwrap();
+    fs::write(
+        root.join("examples/new_window.rn"),
+        "fn local_example() i32 { return 0; }\n",
+    )
+    .unwrap();
+
+    let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+    let resolved = project.resolve_for_file(
+        &root.join("examples/new_window.rn"),
+        &CompileOptions::default(),
+    );
+
+    assert_eq!(
+        normalize_test_path(&resolved.input_file),
+        normalize_test_path(&root.join("examples/new_window.rn"))
+    );
+    assert_eq!(resolved.compile_options.root_module_name, None);
+}
+
+#[test]
 fn test_analysis_applies_runtime_section_to_tests() {
     let root = temp_dir("craft-project-test-runtime-analysis");
     fs::create_dir_all(root.join("tests")).unwrap();

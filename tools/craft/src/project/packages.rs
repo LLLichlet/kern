@@ -39,7 +39,9 @@ impl AnalysisPackage {
             return root.clone();
         }
 
-        if let Some(root) = &self.lib_root {
+        if let Some(root) = &self.lib_root
+            && target_match_score(root, file).is_some()
+        {
             return root.clone();
         }
 

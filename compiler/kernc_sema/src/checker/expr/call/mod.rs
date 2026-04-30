@@ -194,7 +194,43 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 stats.call_arguments += elapsed;
             });
         }
+        self.record_pending_temporary_address_escape_checks(
+            inferred_callee_ty.unwrap_or(norm_callee),
+            args,
+            is_method,
+        );
         final_ret
+    }
+
+    fn record_pending_temporary_address_escape_checks(
+        &mut self,
+        callee_ty: TypeId,
+        args: &[Expr],
+        is_method: bool,
+    ) {
+        let norm_callee = self.resolve_tv(callee_ty);
+        let TypeKind::FnDef(def_id, _) = self.ctx.type_registry.get(norm_callee).clone() else {
+            return;
+        };
+        let param_offset = if is_method { 1 } else { 0 };
+
+        for (arg_index, arg) in args.iter().enumerate() {
+            let origins = self.pointer_origins(arg);
+            let param_index = arg_index + param_offset;
+            for origin in origins {
+                let crate::checker::expr::PointerOrigin::Temporary(address_span) = origin else {
+                    continue;
+                };
+                self.ctx
+                    .analysis
+                    .pending_escape_checks
+                    .push(crate::context::PendingEscapeCheck {
+                        callee: def_id,
+                        arg_index: param_index,
+                        address_span,
+                    });
+            }
+        }
     }
 
     fn check_method_callee_expr(&mut self, callee: &Expr) -> Option<TypeId> {

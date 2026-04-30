@@ -119,6 +119,10 @@ impl SymbolTable {
         self.current_scope
     }
 
+    pub fn parent_scope_id(&self, scope_id: ScopeId) -> Option<ScopeId> {
+        self.scopes.get(scope_id.0).and_then(|scope| scope.parent)
+    }
+
     /// Define a symbol in the current scope.
     /// On conflicts, return the previous symbol info so callers can build diagnostics.
     pub fn define(&mut self, name: SymbolId, info: SymbolInfo) -> Result<(), SymbolInfo> {

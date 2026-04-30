@@ -1,4 +1,5 @@
 use super::*;
+use crate::AnalysisArtifact;
 
 #[test]
 fn analysis_artifact_exposes_unused_private_items() {
@@ -152,4 +153,383 @@ fn analysis_artifact_exposes_dead_stores() {
     }
 
     let _ = fs::remove_dir_all(&root);
+}
+
+fn analyze_source_for_diagnostics(name: &str, source: &str) -> AnalysisArtifact {
+    let root = std::env::temp_dir().join(format!(
+        "{}_{}_{}",
+        name,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let artifact = driver.analyze_artifact(main.to_str().unwrap(), &SourceOverrides::new());
+    let _ = fs::remove_dir_all(&root);
+    artifact
+}
+
+#[test]
+fn rejects_temporary_address_stored_into_static() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_static",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "static mut sink = 0 as *mut Holder;\n",
+            "fn install() void {\n",
+            "    sink = Holder.{ value: true }..&;\n",
+            "}\n",
+            "extern fn main() i32 { install(); return 0; }\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes into static storage")
+    }));
+}
+
+#[test]
+fn rejects_temporary_address_return_value() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_return",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "fn make() *mut Holder {\n",
+            "    return Holder.{ value: true }..&;\n",
+            "}\n",
+            "extern fn main() i32 { let _ = make(); return 0; }\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes into a return value")
+    }));
+}
+
+#[test]
+fn rejects_local_temporary_address_return_value() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_local_temp_addr_return",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "fn make() *mut Holder {\n",
+            "    let p = Holder.{ value: true }..&;\n",
+            "    return p;\n",
+            "}\n",
+            "extern fn main() i32 { let _ = make(); return 0; }\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes into a return value")
+    }));
+}
+
+#[test]
+fn rejects_local_temporary_address_stored_into_static() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_local_temp_addr_static",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "static mut sink = 0 as *mut Holder;\n",
+            "fn install() void {\n",
+            "    let p = Holder.{ value: true }..&;\n",
+            "    sink = p;\n",
+            "}\n",
+            "extern fn main() i32 { install(); return 0; }\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes into static storage")
+    }));
+}
+
+#[test]
+fn rejects_assigned_local_temporary_address_stored_into_static() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_assigned_local_temp_addr_static",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "static mut sink = 0 as *mut Holder;\n",
+            "fn install() void {\n",
+            "    let p = Holder.{ value: true }..&;\n",
+            "    let q = p;\n",
+            "    sink = q;\n",
+            "}\n",
+            "extern fn main() i32 { install(); return 0; }\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes into static storage")
+    }));
+}
+
+#[test]
+fn rejects_temporary_address_inside_returned_aggregate() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_return_aggregate",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "type Wrapper = struct { ptr: *mut Holder };\n",
+            "fn make() Wrapper {\n",
+            "    return Wrapper.{ ptr: Holder.{ value: true }..& };\n",
+            "}\n",
+            "extern fn main() i32 { let _ = make(); return 0; }\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes into a return value")
+    }));
+}
+
+#[test]
+fn rejects_temporary_address_inside_static_aggregate() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_static_aggregate",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "type Wrapper = struct { ptr: *mut Holder };\n",
+            "static mut sink = Wrapper.{ ptr: 0 as *mut Holder };\n",
+            "fn install() void {\n",
+            "    sink = Wrapper.{ ptr: Holder.{ value: true }..& };\n",
+            "}\n",
+            "extern fn main() i32 { install(); return 0; }\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes into static storage")
+    }));
+}
+
+#[test]
+fn permits_temporary_address_as_call_argument() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_call_arg",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "fn consume(_: *mut Holder) void {}\n",
+            "extern fn main() i32 {\n",
+            "    consume(Holder.{ value: true }..&);\n",
+            "    return 0;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(
+        artifact.succeeded,
+        "unexpected diagnostics: {:?}",
+        artifact.session.diagnostics
+    );
+}
+
+#[test]
+fn permits_temporary_array_address_as_extern_call_argument() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_array_addr_extern_call_arg",
+        concat!(
+            "extern {\n",
+            "    fn write(fd: i32, buf: *mut [5]u8, len: usize) isize;\n",
+            "}\n",
+            "extern fn main() i32 {\n",
+            "    let _ = write(1, [5]u8.{ b'h', b'e', b'l', b'l', b'o' }..&, 5);\n",
+            "    return 0;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(
+        artifact.succeeded,
+        "unexpected diagnostics: {:?}",
+        artifact.session.diagnostics
+    );
+}
+
+#[test]
+fn permits_unrelated_destructured_field_from_temporary_pointer_aggregate() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_destructure_unrelated_field",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "type Pair = struct { ptr: *mut Holder, value: bool };\n",
+            "fn make_value() bool {\n",
+            "    let .{ value: v } = Pair.{ ptr: Holder.{ value: true }..&, value: false };\n",
+            "    return v;\n",
+            "}\n",
+            "extern fn main() i32 { let _ = make_value(); return 0; }\n",
+        ),
+    );
+
+    assert!(
+        artifact.succeeded,
+        "unexpected diagnostics: {:?}",
+        artifact.session.diagnostics
+    );
+}
+
+#[test]
+fn rejects_temporary_address_passed_to_storing_function() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_call_static_escape",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "static mut sink = 0 as *mut Holder;\n",
+            "fn store(p: *mut Holder) void {\n",
+            "    sink = p;\n",
+            "}\n",
+            "extern fn main() i32 {\n",
+            "    store(Holder.{ value: true }..&);\n",
+            "    return 0;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes through function call")
+    }));
+}
+
+#[test]
+fn rejects_temporary_address_passed_to_returning_function() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_call_return_escape",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "fn identity(p: *mut Holder) *mut Holder {\n",
+            "    return p;\n",
+            "}\n",
+            "extern fn main() i32 {\n",
+            "    let _ = identity(Holder.{ value: true }..&);\n",
+            "    return 0;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes through function call")
+    }));
+}
+
+#[test]
+fn rejects_temporary_address_passed_to_aggregate_returning_function() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_call_return_aggregate_escape",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "type Wrapper = struct { ptr: *mut Holder };\n",
+            "fn wrap(p: *mut Holder) Wrapper {\n",
+            "    return Wrapper.{ ptr: p };\n",
+            "}\n",
+            "extern fn main() i32 {\n",
+            "    let _ = wrap(Holder.{ value: true }..&);\n",
+            "    return 0;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes through function call")
+    }));
+}
+
+#[test]
+fn rejects_temporary_address_passed_to_aggregate_storing_function() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_call_static_aggregate_escape",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "type Wrapper = struct { ptr: *mut Holder };\n",
+            "static mut sink = Wrapper.{ ptr: 0 as *mut Holder };\n",
+            "fn store(p: *mut Holder) void {\n",
+            "    sink = Wrapper.{ ptr: p };\n",
+            "}\n",
+            "extern fn main() i32 {\n",
+            "    store(Holder.{ value: true }..&);\n",
+            "    return 0;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes through function call")
+    }));
+}
+
+#[test]
+fn rejects_local_temporary_address_passed_to_storing_function() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_local_temp_addr_call_static_escape",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "static mut sink = 0 as *mut Holder;\n",
+            "fn store(p: *mut Holder) void {\n",
+            "    sink = p;\n",
+            "}\n",
+            "extern fn main() i32 {\n",
+            "    let p = Holder.{ value: true }..&;\n",
+            "    store(p);\n",
+            "    return 0;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(!artifact.succeeded);
+    assert!(artifact.session.diagnostics.iter().any(|diag| {
+        diag.message
+            .contains("address of temporary value escapes through function call")
+    }));
+}
+
+#[test]
+fn permits_temporary_address_passed_to_non_escaping_function() {
+    let artifact = analyze_source_for_diagnostics(
+        "kern_temp_addr_call_non_escape",
+        concat!(
+            "type Holder = struct { value: bool };\n",
+            "fn consume(p: *mut Holder) bool {\n",
+            "    return p.value;\n",
+            "}\n",
+            "extern fn main() i32 {\n",
+            "    let _ = consume(Holder.{ value: true }..&);\n",
+            "    return 0;\n",
+            "}\n",
+        ),
+    );
+
+    assert!(
+        artifact.succeeded,
+        "unexpected diagnostics: {:?}",
+        artifact.session.diagnostics
+    );
 }

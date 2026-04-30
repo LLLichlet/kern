@@ -975,6 +975,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         self.check_pattern(node_id, &pattern.pattern, init_ty);
+        self.record_pointer_origins_from_pattern(&pattern.pattern, init);
         TypeId::VOID
     }
 
@@ -986,6 +987,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ty: Option<TypeId>,
         span: Span,
     ) -> TypeId {
+        self.reject_temporary_address_escape(init, "static storage");
+
         let init_ty = self.check_expr(init, expected_ty);
         let norm_init = self.resolve_tv(init_ty);
         if matches!(
@@ -1010,6 +1013,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             is_mut: pattern.is_mut,
         };
         self.define_local_symbol(pattern.name, info, SemanticSymbolKind::Static);
+        self.record_pointer_origins_from_static(pattern, init);
 
         TypeId::VOID
     }

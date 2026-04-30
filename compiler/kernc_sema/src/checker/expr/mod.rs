@@ -6,8 +6,8 @@ use crate::ty::{
     AnonymousEnum, AnonymousVariant, BuiltinAnonymousEnumKind, ConstExprKind, ConstGeneric,
     GenericArg, TypeId, TypeKind,
 };
-use kernc_ast::{self as ast, Expr, ExprKind};
-use kernc_utils::{FastHashMap, NodeId, Span, SymbolId};
+use kernc_ast::{self as ast, AssignmentOperator, Expr, ExprKind, UnaryOperator};
+use kernc_utils::{FastHashMap, FastHashSet, NodeId, Span, SymbolId};
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::time::{Duration, Instant};
@@ -32,6 +32,12 @@ pub(crate) struct NumericInferenceState {
     pub(crate) candidates: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum PointerOrigin {
+    Temporary(Span),
+    Parameter(usize),
+}
+
 pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) ctx: &'a mut SemaContext<'ctx>,
     pub(crate) current_return_type: Option<TypeId>,
@@ -44,6 +50,9 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) allow_uninstantiated_generic_function_items: bool,
     pub(crate) touched_expr_nodes: Vec<NodeId>,
     pub(crate) touched_bindings: Vec<(ScopeId, SymbolId)>,
+    pub(crate) pointer_origin_bindings:
+        FastHashMap<(ScopeId, SymbolId), FastHashSet<PointerOrigin>>,
+    pub(crate) escaping_parameters: FastHashSet<usize>,
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -98,6 +107,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             allow_uninstantiated_generic_function_items: false,
             touched_expr_nodes: Vec::new(),
             touched_bindings: Vec::new(),
+            pointer_origin_bindings: FastHashMap::default(),
+            escaping_parameters: FastHashSet::default(),
         }
     }
 
@@ -107,6 +118,297 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             NumericInferenceKind::FloatLiteral => Self::NUMERIC_CAND_ALL_FLOATS,
         };
         NumericInferenceState { kind, candidates }
+    }
+
+    pub(crate) fn pointer_origins(&self, expr: &Expr) -> FastHashSet<PointerOrigin> {
+        let mut origins = FastHashSet::default();
+        self.collect_pointer_origins(expr, &mut origins);
+        origins
+    }
+
+    fn collect_pointer_origins(&self, expr: &Expr, out: &mut FastHashSet<PointerOrigin>) {
+        match &expr.kind {
+            ExprKind::Grouped { expr: inner } => self.collect_pointer_origins(inner, out),
+            ExprKind::Unary {
+                op: UnaryOperator::MutAddressOf,
+                operand,
+            } if self.can_materialize_mut_temporary(operand) => {
+                out.insert(PointerOrigin::Temporary(expr.span));
+            }
+            ExprKind::Unary {
+                op: UnaryOperator::PointerDeRef,
+                ..
+            } => {}
+            ExprKind::Unary { operand, .. }
+            | ExprKind::Propagate { operand, .. }
+            | ExprKind::Defer { expr: operand }
+            | ExprKind::As { lhs: operand, .. } => self.collect_pointer_origins(operand, out),
+            ExprKind::GenericInstantiation { target, .. } => {
+                self.collect_pointer_origins(target, out)
+            }
+            ExprKind::Binary { .. }
+            | ExprKind::Assign { .. }
+            | ExprKind::FieldAccess { .. }
+            | ExprKind::IndexAccess { .. } => {}
+            ExprKind::Call { .. } => {}
+            ExprKind::DataInit { literal, .. } => {
+                self.collect_pointer_origins_in_literal(literal, out);
+            }
+            ExprKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.collect_pointer_origins(then_branch, out);
+                if let Some(else_branch) = else_branch {
+                    self.collect_pointer_origins(else_branch, out);
+                }
+            }
+            ExprKind::Match { arms, .. } => {
+                for arm in arms {
+                    self.collect_pointer_origins(&arm.body, out);
+                }
+            }
+            ExprKind::Block { result, .. } => {
+                if let Some(result) = result {
+                    self.collect_pointer_origins(result, out);
+                }
+            }
+            ExprKind::While { .. } => {}
+            ExprKind::SliceOp { .. } => {}
+            ExprKind::Return(value) => {
+                if let Some(value) = value {
+                    self.collect_pointer_origins(value, out);
+                }
+            }
+            ExprKind::Let { init, .. } | ExprKind::Static { init, .. } => {
+                self.collect_pointer_origins(init, out);
+            }
+            ExprKind::Closure { captures, .. } => {
+                for capture in captures {
+                    self.collect_pointer_origins(&capture.value, out);
+                }
+            }
+            ExprKind::Identifier(_)
+            | ExprKind::Error
+            | ExprKind::Integer(_)
+            | ExprKind::Float(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Char(_)
+            | ExprKind::ByteChar(_)
+            | ExprKind::String(_)
+            | ExprKind::AnchoredPath { .. }
+            | ExprKind::TypeNode(_)
+            | ExprKind::EnumLiteral { .. }
+            | ExprKind::Break
+            | ExprKind::Continue
+            | ExprKind::Undef
+            | ExprKind::Infer
+            | ExprKind::SelfValue => {
+                self.collect_direct_pointer_origins(expr, out);
+            }
+        }
+    }
+
+    fn collect_pointer_origins_in_literal(
+        &self,
+        literal: &ast::DataLiteralKind,
+        out: &mut FastHashSet<PointerOrigin>,
+    ) {
+        match literal {
+            ast::DataLiteralKind::Struct(fields) => {
+                for field in fields {
+                    self.collect_pointer_origins(&field.value, out);
+                }
+            }
+            ast::DataLiteralKind::Array(items) => {
+                for item in items {
+                    self.collect_pointer_origins(item, out);
+                }
+            }
+            ast::DataLiteralKind::Repeat { value, count } => {
+                self.collect_pointer_origins(value, out);
+                self.collect_pointer_origins(count, out);
+            }
+            ast::DataLiteralKind::Scalar(value) => self.collect_pointer_origins(value, out),
+        }
+    }
+
+    fn collect_direct_pointer_origins(&self, expr: &Expr, out: &mut FastHashSet<PointerOrigin>) {
+        match &expr.kind {
+            ExprKind::Grouped { expr } => self.collect_direct_pointer_origins(expr, out),
+            ExprKind::Identifier(name) => {
+                if let Some(origins) = self.pointer_origin_binding_set(*name) {
+                    out.extend(origins);
+                }
+            }
+            ExprKind::As { lhs, .. } => self.collect_direct_pointer_origins(lhs, out),
+            _ => {}
+        }
+    }
+
+    fn pointer_origin_binding_set(&self, name: SymbolId) -> Option<FastHashSet<PointerOrigin>> {
+        let mut curr = self.ctx.scopes.current_scope_id();
+        while let Some(scope_id) = curr {
+            if let Some(origins) = self.pointer_origin_bindings.get(&(scope_id, name)) {
+                return Some(origins.clone());
+            }
+            curr = self.ctx.scopes.parent_scope_id(scope_id);
+        }
+        None
+    }
+
+    pub(crate) fn record_pointer_origin_binding(
+        &mut self,
+        name: SymbolId,
+        origins: FastHashSet<PointerOrigin>,
+    ) {
+        if origins.is_empty() {
+            return;
+        }
+        let Some(scope_id) = self.ctx.scopes.current_scope_id() else {
+            return;
+        };
+        self.pointer_origin_bindings
+            .insert((scope_id, name), origins);
+    }
+
+    pub(crate) fn record_parameter_binding(&mut self, name: SymbolId, param_index: usize) {
+        let mut origins = FastHashSet::default();
+        origins.insert(PointerOrigin::Parameter(param_index));
+        self.record_pointer_origin_binding(name, origins);
+    }
+
+    pub(crate) fn record_pointer_origins_from_pattern(
+        &mut self,
+        pattern: &ast::Pattern,
+        init: &Expr,
+    ) {
+        self.record_pointer_origin_pattern_bindings_from_expr(pattern, init);
+    }
+
+    fn record_pointer_origin_pattern_bindings_from_expr(
+        &mut self,
+        pattern: &ast::Pattern,
+        init: &Expr,
+    ) {
+        let origins = self.pointer_origins(init);
+        self.record_pointer_origin_pattern_bindings(pattern, init, &origins);
+    }
+
+    fn record_pointer_origin_pattern_bindings(
+        &mut self,
+        pattern: &ast::Pattern,
+        init: &Expr,
+        origins: &FastHashSet<PointerOrigin>,
+    ) {
+        match &pattern.kind {
+            ast::PatternKind::Binding(binding) => {
+                if self.ctx.resolve(binding.name) != "_" {
+                    self.record_pointer_origin_binding(binding.name, origins.clone());
+                }
+            }
+            ast::PatternKind::Destructure(destructure) => {
+                if let ExprKind::DataInit {
+                    literal: ast::DataLiteralKind::Struct(init_fields),
+                    ..
+                } = &init.kind
+                {
+                    for field in &destructure.fields {
+                        if let Some(init_field) = init_fields
+                            .iter()
+                            .find(|init_field| init_field.name == field.name)
+                        {
+                            self.record_pointer_origin_pattern_bindings_from_expr(
+                                &field.pattern,
+                                &init_field.value,
+                            );
+                        }
+                    }
+                    return;
+                }
+                for field in &destructure.fields {
+                    self.record_pointer_origin_pattern_bindings(&field.pattern, init, origins);
+                }
+            }
+            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+        }
+    }
+
+    pub(crate) fn record_pointer_origins_from_static(
+        &mut self,
+        pattern: &ast::BindingPattern,
+        init: &Expr,
+    ) {
+        if self.ctx.resolve(pattern.name) == "_" {
+            return;
+        }
+        let origins = self.pointer_origins(init);
+        self.record_pointer_origin_binding(pattern.name, origins);
+    }
+
+    pub(crate) fn reject_temporary_address_escape(&mut self, expr: &Expr, destination: &str) {
+        let origins = self.pointer_origins(expr);
+        self.reject_temporary_origins(&origins, destination);
+        self.record_parameter_escape_from_origins(&origins);
+    }
+
+    fn reject_temporary_origins(
+        &mut self,
+        origins: &FastHashSet<PointerOrigin>,
+        destination: &str,
+    ) {
+        for origin in origins {
+            if let PointerOrigin::Temporary(address_span) = origin {
+                self.emit_temporary_address_escape(*address_span, destination);
+            }
+        }
+    }
+
+    fn emit_temporary_address_escape(&mut self, address_span: Span, destination: &str) {
+        self.ctx
+            .struct_error(
+                address_span,
+                format!("address of temporary value escapes into {}", destination),
+            )
+            .with_hint("`..&` may materialize a temporary that is only valid in the current scope")
+            .with_hint("bind the value to stable storage before taking its address")
+            .emit();
+    }
+
+    fn record_parameter_escape_from_origins(&mut self, origins: &FastHashSet<PointerOrigin>) {
+        for origin in origins {
+            if let PointerOrigin::Parameter(index) = origin {
+                self.escaping_parameters.insert(*index);
+            }
+        }
+    }
+
+    pub(crate) fn assignment_targets_static_storage(&self, lhs: &Expr) -> bool {
+        match &lhs.kind {
+            ExprKind::Grouped { expr } => self.assignment_targets_static_storage(expr),
+            ExprKind::Identifier(name) => self
+                .ctx
+                .scopes
+                .resolve(*name)
+                .is_some_and(|info| info.kind == crate::scope::SymbolKind::Static),
+            ExprKind::FieldAccess { lhs, .. }
+            | ExprKind::IndexAccess { lhs, .. }
+            | ExprKind::SliceOp { lhs, .. } => self.assignment_targets_static_storage(lhs),
+            ExprKind::Unary {
+                op: UnaryOperator::PointerDeRef,
+                operand,
+            } => self.assignment_targets_static_storage(operand),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn assignment_may_store_long_lived_pointer(
+        &self,
+        lhs: &Expr,
+        op: AssignmentOperator,
+    ) -> bool {
+        op == AssignmentOperator::Assign && self.assignment_targets_static_storage(lhs)
     }
 
     pub(crate) fn numeric_candidates_for_type(ty: TypeId) -> u16 {

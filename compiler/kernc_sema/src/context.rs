@@ -93,6 +93,20 @@ pub struct SemaAnalysisState {
     pub(crate) query_caches: SemaQueryCacheState,
     pub(crate) recursive_reports: RecursiveReportState,
     pub(crate) semantic_index: SemanticIndexState,
+    pub(crate) escape_summaries: FastHashMap<DefId, EscapeSummary>,
+    pub(crate) pending_escape_checks: Vec<PendingEscapeCheck>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct EscapeSummary {
+    pub(crate) escaping_params: FastHashSet<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PendingEscapeCheck {
+    pub(crate) callee: DefId,
+    pub(crate) arg_index: usize,
+    pub(crate) address_span: Span,
 }
 
 #[derive(Clone, Default)]
@@ -327,6 +341,8 @@ impl<'a> SemaContext<'a> {
         self.analysis.query_caches.clear_all();
         self.clear_active_bound_caches();
         self.analysis.semantic_index.clear();
+        self.analysis.escape_summaries.clear();
+        self.analysis.pending_escape_checks.clear();
     }
 
     pub fn clear_active_bound_caches(&mut self) {

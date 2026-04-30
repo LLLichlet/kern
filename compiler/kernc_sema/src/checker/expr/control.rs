@@ -1295,6 +1295,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let expected_ret = self.current_return_type.unwrap_or(TypeId::VOID);
 
         if let Some(v) = val {
+            self.reject_temporary_address_escape(v, "a return value");
+
             // Thread the function's expected return type into the returned expression.
             let val_ty = self.check_expr(v, Some(expected_ret));
 

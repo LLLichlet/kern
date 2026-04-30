@@ -6,7 +6,7 @@ pub use constexpr::{ConstEvaluator, ConstValue, ScriptHost};
 pub(crate) use expr::ExprChecker;
 pub use subst::{Substituter, substitute_associated_types};
 
-use crate::context::SemaContext;
+use crate::context::{EscapeSummary, SemaContext};
 use crate::def::{Def, DefId, FunctionDef, GlobalDef, ImplDef};
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::semantic::SemanticSymbolKind;
@@ -441,12 +441,14 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             self.ctx.scopes.set_current_scope(parent_scope);
             self.check_item(def_id, parent_scope);
         }
+        self.emit_pending_temporary_address_escape_checks();
         self.body_timings
     }
 
     fn check_global_initializer(&mut self, scope_id: ScopeId, global: &GlobalDef) -> TypeId {
         self.ctx.scopes.set_current_scope(scope_id);
         let mut checker = ExprChecker::new(self.ctx, None);
+        checker.reject_temporary_address_escape(&global.value, "static storage");
         let init_ty = {
             let init_ty = checker.check_expr(&global.value, None);
             checker.finalize_numeric_inference(init_ty)
@@ -503,6 +505,28 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 ),
                 _ => {}
             }
+        }
+    }
+
+    fn emit_pending_temporary_address_escape_checks(&mut self) {
+        let pending = std::mem::take(&mut self.ctx.analysis.pending_escape_checks);
+        for check in pending {
+            let Some(summary) = self.ctx.analysis.escape_summaries.get(&check.callee) else {
+                continue;
+            };
+            if !summary.escaping_params.contains(&check.arg_index) {
+                continue;
+            }
+            self.ctx
+                .struct_error(
+                    check.address_span,
+                    "address of temporary value escapes through function call",
+                )
+                .with_hint(
+                    "the callee stores or returns the parameter receiving this temporary address",
+                )
+                .with_hint("bind the value to stable storage before taking its address")
+                .emit();
         }
     }
 
@@ -782,11 +806,24 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
         // 4. Run the expression checker on the body.
         let expr_started = collect_timings.then(Instant::now);
+        let parameter_bindings = f
+            .params
+            .iter()
+            .enumerate()
+            .filter_map(|(i, param_ast)| {
+                (self.ctx.resolve(param_ast.pattern.name) != "_")
+                    .then_some((param_ast.pattern.name, i))
+            })
+            .collect::<Vec<_>>();
         let mut checker = ExprChecker::new(self.ctx, Some(ret_ty));
+        for (name, index) in parameter_bindings {
+            checker.record_parameter_binding(name, index);
+        }
         let body_eval_ty = {
             let body_eval_ty = checker.check_expr(body_expr, Some(ret_ty));
             checker.finalize_numeric_inference(body_eval_ty)
         };
+        let escaping_params = checker.escaping_parameters.clone();
         if let Some(expr_started) = expr_started {
             self.body_timings.function_expr += expr_started.elapsed();
         }
@@ -814,6 +851,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         if let Some(return_started) = return_started {
             self.body_timings.function_return += return_started.elapsed();
         }
+        self.ctx
+            .analysis
+            .escape_summaries
+            .insert(f.id, EscapeSummary { escaping_params });
 
         self.ctx.analysis.active_bounds.truncate(prev_bounds_len); // Drop bounds introduced by this function scope.
         self.ctx.clear_active_bound_caches();

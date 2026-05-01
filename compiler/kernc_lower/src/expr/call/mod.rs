@@ -73,7 +73,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         .type_registry
                         .get(self.ctx.type_registry.normalize(field.ty))
                     {
-                        TypeKind::Slice { .. } => self.lower_string_literal_slice(&file_text, span),
+                        TypeKind::Slice { .. } => {
+                            self.lower_static_u8_slice(file_text.as_bytes(), span)
+                        }
                         _ => MastExprKind::StringLiteral(file_text.clone()),
                     };
                     MastExpr::new(field.ty, kind, span)

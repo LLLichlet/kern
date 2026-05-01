@@ -82,11 +82,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | ExprKind::Bool(_)
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
+            | ExprKind::String(_)
             | ExprKind::Call { .. } => {
                 true // Materialized temporaries are owned by the current scope.
-            }
-            ExprKind::String(_) => {
-                false // String literals live in `.rodata` and cannot be mutably borrowed.
             }
 
             _ => false,
@@ -112,8 +110,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 op: UnaryOperator::PointerDeRef,
                 ..
             } => false,
-
-            ExprKind::String(_) => false,
 
             ExprKind::Let { .. }
             | ExprKind::Static { .. }

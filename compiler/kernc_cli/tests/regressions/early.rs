@@ -1131,8 +1131,8 @@ fn main() i32 {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains(".str.root"),
-        "expected anonymous string literal backing storage, got:\n{}",
+        !stdout.contains(".str.root"),
+        "const string unexpectedly emitted anonymous backing storage:\n{}",
         stdout
     );
     assert!(

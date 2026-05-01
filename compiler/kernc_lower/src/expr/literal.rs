@@ -228,9 +228,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         ))
     }
 
-    pub(crate) fn lower_string_literal_slice(&mut self, s: &str, span: Span) -> MastExprKind {
+    pub(crate) fn lower_string_literal_array(&mut self, s: &str, span: Span) -> MastExprKind {
+        MastExprKind::ArrayInit(
+            s.as_bytes()
+                .iter()
+                .map(|byte| MastExpr::new(TypeId::U8, MastExprKind::Integer(*byte as u128), span))
+                .collect(),
+        )
+    }
+
+    pub(crate) fn lower_static_u8_slice(&mut self, bytes: &[u8], span: Span) -> MastExprKind {
         let global_id = self.new_mono_id();
-        let len = s.len() as u64;
+        let len = bytes.len() as u64;
         let array_ty = self.ctx.type_registry.intern(TypeKind::Array {
             elem: TypeId::U8,
             len: self.usize_const_generic(len),
@@ -238,14 +247,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         self.module.globals.push(MastGlobal {
             id: global_id,
-            name: format!(".str.{}.{}", self.module.name, global_id.0),
+            name: format!(".bytes.{}.{}", self.module.name, global_id.0),
             span,
             linkage: MastLinkage::Internal,
             ty: array_ty,
             is_mut: false,
             init: Some(MastExpr::new(
                 array_ty,
-                MastExprKind::StringLiteral(s.to_string()),
+                MastExprKind::ArrayInit(
+                    bytes
+                        .iter()
+                        .map(|byte| {
+                            MastExpr::new(TypeId::U8, MastExprKind::Integer(*byte as u128), span)
+                        })
+                        .collect(),
+                ),
                 span,
             )),
             is_extern: false,

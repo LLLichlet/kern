@@ -73,7 +73,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .type_registry
                     .get(self.ctx.type_registry.normalize(ty))
                 {
-                    TypeKind::Slice { .. } => self.lower_string_literal_slice(s, span),
+                    TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } => {
+                        self.lower_string_literal_array(s, span)
+                    }
                     _ => MastExprKind::StringLiteral(s.clone()),
                 };
                 Some(MastExpr::new(ty, kind, span))

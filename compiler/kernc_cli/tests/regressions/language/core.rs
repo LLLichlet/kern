@@ -51,7 +51,7 @@ fn main() i32 {
 }
 
 #[test]
-fn string_literals_are_immutable_byte_slices() {
+fn string_literals_are_byte_arrays_with_slice_decay() {
     let output = build_and_run_source(
         r#"
 const TITLE = "abc\0";
@@ -73,6 +73,11 @@ fn main() i32 {
     }
     if (take_slice("hello") != 5) {
         return 4;
+    }
+    let mut local = "abc";
+    local.[0] = b'z';
+    if (local.[0] != b'z') {
+        return 5;
     }
     return 0;
 }
@@ -159,29 +164,36 @@ fn main() i32 {
 }
 
 #[test]
-fn string_literals_do_not_implicitly_type_as_arrays() {
-    let output = compile_source(
+fn string_literals_are_array_syntax_sugar() {
+    let output = build_and_run_source(
         r#"
 fn take_array(value: [5]u8) u8 {
     return value.[4];
 }
 
+fn take_slice(value: []u8) usize {
+    return #value;
+}
+
 fn main() i32 {
-    return take_array("abcd\0") as i32;
+    let explicit = [5]u8.{ b'a', b'b', b'c', b'd', 0 };
+    if ("abcd\0" != explicit) {
+        return 1;
+    }
+    if (take_array("abcd\0") != 0) {
+        return 2;
+    }
+    if (take_slice("hello") != 5) {
+        return 3;
+    }
+    return 0;
 }
 "#,
     );
 
     assert!(
-        !output.status.success(),
-        "program unexpectedly compiled:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("expected `[5]u8`")
-            && String::from_utf8_lossy(&output.stderr).contains("found `[]u8`"),
-        "unexpected diagnostic:\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

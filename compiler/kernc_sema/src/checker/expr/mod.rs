@@ -56,10 +56,13 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
-    fn string_literal_type(&mut self) -> TypeId {
-        self.ctx.type_registry.intern(TypeKind::Slice {
+    fn string_literal_type(&mut self, value: &str) -> TypeId {
+        self.ctx.type_registry.intern(TypeKind::Array {
             elem: TypeId::U8,
-            is_mut: false,
+            len: ConstGeneric::Value(crate::ty::ConstGenericValue {
+                ty: TypeId::USIZE,
+                kind: crate::ty::ConstGenericValueKind::Int(value.len() as i128),
+            }),
         })
     }
 
@@ -1499,7 +1502,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Bool(_) => TypeId::BOOL,
             ExprKind::Char(_) => TypeId::U32,
             ExprKind::ByteChar(_) => TypeId::U8,
-            ExprKind::String(_) => self.string_literal_type(),
+            ExprKind::String(value) => self.string_literal_type(value),
 
             // === 2. Identifiers and variables ===
             ExprKind::Identifier(name) => {

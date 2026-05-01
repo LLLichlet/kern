@@ -3,6 +3,28 @@
 use base.io.{Printable, Writer};
 use sys.os;
 
+static ERROR_KIND_OUT_OF_MEMORY = "out_of_memory";
+static ERROR_KIND_INVALID_OPTIONS = "invalid_options";
+static ERROR_KIND_INVALID_PATH = "invalid_path";
+static ERROR_KIND_NOT_DIRECTORY = "not_directory";
+static ERROR_KIND_INVALID_SEEK = "invalid_seek";
+static ERROR_KIND_UNEXPECTED_EOF = "unexpected_eof";
+static ERROR_KIND_WRITE_ZERO = "write_zero";
+static ERROR_KIND_NOT_FOUND = "not_found";
+static ERROR_KIND_ALREADY_EXISTS = "already_exists";
+static ERROR_KIND_OS_ERROR = "os_error";
+
+static ERROR_MESSAGE_OUT_OF_MEMORY = "out of memory";
+static ERROR_MESSAGE_INVALID_OPTIONS = "invalid options";
+static ERROR_MESSAGE_INVALID_PATH = "invalid path";
+static ERROR_MESSAGE_NOT_DIRECTORY = "not a directory";
+static ERROR_MESSAGE_INVALID_SEEK = "invalid seek";
+static ERROR_MESSAGE_UNEXPECTED_EOF = "unexpected end of file";
+static ERROR_MESSAGE_WRITE_ZERO = "write returned zero";
+static ERROR_MESSAGE_NOT_FOUND = "not found";
+static ERROR_MESSAGE_ALREADY_EXISTS = "already exists";
+static ERROR_MESSAGE_OS_ERROR = "os error";
+
 /// Filesystem errors used by `std.fs`.
 pub/ type Error = enum {
     OutOfMemory,
@@ -19,21 +41,21 @@ impl Error {
     /// Returns a stable machine-oriented error kind.
     pub fn kind() []u8 {
         match (self) {
-            .OutOfMemory => return "out_of_memory",
-            .InvalidOptions => return "invalid_options",
-            .InvalidPath => return "invalid_path",
-            .NotDirectory => return "not_directory",
-            .InvalidSeek => return "invalid_seek",
-            .UnexpectedEof => return "unexpected_eof",
-            .WriteZero => return "write_zero",
+            .OutOfMemory => return ERROR_KIND_OUT_OF_MEMORY,
+            .InvalidOptions => return ERROR_KIND_INVALID_OPTIONS,
+            .InvalidPath => return ERROR_KIND_INVALID_PATH,
+            .NotDirectory => return ERROR_KIND_NOT_DIRECTORY,
+            .InvalidSeek => return ERROR_KIND_INVALID_SEEK,
+            .UnexpectedEof => return ERROR_KIND_UNEXPECTED_EOF,
+            .WriteZero => return ERROR_KIND_WRITE_ZERO,
             .{ Os: err } => {
                 if (os.is_not_found(err)) {
-                    return "not_found";
+                    return ERROR_KIND_NOT_FOUND;
                 }
                 if (os.is_already_exists(err)) {
-                    return "already_exists";
+                    return ERROR_KIND_ALREADY_EXISTS;
                 }
-                return "os_error";
+                return ERROR_KIND_OS_ERROR;
             },
         }
     }
@@ -41,21 +63,21 @@ impl Error {
     /// Returns a stable human-readable error message.
     pub fn message() []u8 {
         match (self) {
-            .OutOfMemory => return "out of memory",
-            .InvalidOptions => return "invalid options",
-            .InvalidPath => return "invalid path",
-            .NotDirectory => return "not a directory",
-            .InvalidSeek => return "invalid seek",
-            .UnexpectedEof => return "unexpected end of file",
-            .WriteZero => return "write returned zero",
+            .OutOfMemory => return ERROR_MESSAGE_OUT_OF_MEMORY,
+            .InvalidOptions => return ERROR_MESSAGE_INVALID_OPTIONS,
+            .InvalidPath => return ERROR_MESSAGE_INVALID_PATH,
+            .NotDirectory => return ERROR_MESSAGE_NOT_DIRECTORY,
+            .InvalidSeek => return ERROR_MESSAGE_INVALID_SEEK,
+            .UnexpectedEof => return ERROR_MESSAGE_UNEXPECTED_EOF,
+            .WriteZero => return ERROR_MESSAGE_WRITE_ZERO,
             .{ Os: err } => {
                 if (os.is_not_found(err)) {
-                    return "not found";
+                    return ERROR_MESSAGE_NOT_FOUND;
                 }
                 if (os.is_already_exists(err)) {
-                    return "already exists";
+                    return ERROR_MESSAGE_ALREADY_EXISTS;
                 }
-                return "os error";
+                return ERROR_MESSAGE_OS_ERROR;
             },
         }
     }

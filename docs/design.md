@@ -168,9 +168,11 @@ Pointer arithmetic stays explicit:
       * `arr..[a .. b]` is `[]mut T` only when the access path to `arr` is mutable.
       * Field access composes normally: mutability flows through `obj.field.[i]` from the full storage path, not from a special array-element type qualifier.
       * Passing `[N]T` across a boundary may decay to `[]T` freely, but decay to `[]mut T` still requires a mutable source location.
-  * **String Literals**: `"Hello"` evaluates to `[]u8` (an immutable slice).
-      * A string literal is not a fixed array expression. Passing a string to `[N]u8` requires an explicit array value such as `[N]u8.{ ... }`.
-      * When a string literal is used at runtime, the compiler may materialize anonymous read-only backing bytes for the slice pointer. That backing storage belongs to the literal, not to any `const` name that refers to it.
+  * **String Literals**: `"Hello"` evaluates to `[5]u8`.
+      * A string literal is syntax sugar for the equivalent byte array expression, such as `[5]u8.{ b'H', b'e', b'l', b'l', b'o' }`.
+      * String literals do not include an implicit trailing NUL byte. Write `"\0"` explicitly when a NUL byte is part of the value.
+      * Passing a string literal to a `[]u8` parameter uses the ordinary array-to-slice decay path.
+      * Storage follows the normal expression context. `static NAME = "Hello";` creates static array storage, while a call such as `write("Hello")` materializes an array value at the call site before slice decay.
   * **Fat-Pointer State Extractor (`#`)**: The unary `#` operator is a universal primitive used to extract the implicit runtime metadata (or state) from a fat pointer or a container.
       * For Arrays and Slices, `#` evaluates to the length (`usize`).
       * For Closures (`*Fn`), `#` evaluates to the captured state's raw pointer (`*mut void` / `*void`).

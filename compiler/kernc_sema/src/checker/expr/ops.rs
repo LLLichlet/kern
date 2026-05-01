@@ -792,19 +792,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         span,
                         "cannot take mutable address `..&` of immutable memory",
                     );
-                    if matches!(operand.kind, ExprKind::String(_)) {
-                        diag = diag
-                            .with_hint(
-                                "string literals live in read-only `.rodata` and cannot be mutably borrowed",
-                            )
-                            .with_hint(
-                                "move the bytes into writable storage first if you need `..&`",
-                            );
-                    } else {
-                        diag = diag.with_hint(
-                            "declare the variable with `let mut`, or use a value expression that can be materialized as a stack temporary",
-                        );
-                    }
+                    diag = diag.with_hint(
+                        "declare the variable with `let mut`, or use a value expression that can be materialized as a stack temporary",
+                    );
                     diag.emit();
                 }
 

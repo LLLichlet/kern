@@ -155,9 +155,9 @@ call sites and the code is semantically operating on one stack-local object.
 Do not force stack mode for one or two isolated calls. In short stretches,
 `value..&.method(...)` is often clearer.
 
-String literals are not stack materialization sites. If you need a mutable byte
-buffer, allocate or construct one explicitly instead of trying to take a mutable
-address of rodata.
+String literals are byte-array value expressions. Use them directly when the
+code wants fixed bytes or ordinary array-to-slice decay; bind the value first
+when a longer-lived slice or repeated mutation needs a named storage location.
 
 ### 7. Prefer explicit module visibility over forwarding boilerplate
 

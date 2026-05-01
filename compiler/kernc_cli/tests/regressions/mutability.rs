@@ -251,28 +251,22 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_mut_address_of_string_literal_with_explicit_rodata_hint() {
-    let output = compile_source(
+fn allows_mut_address_of_string_literal_temporary() {
+    let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let _ = "hi"..&;
-    return 0;
+    let ptr = "hi"..&;
+    ptr.*.[0] = b'b';
+    return (ptr.*.[0] != b'b') as i32;
 }
 "#,
     );
 
     assert!(
-        !output.status.success(),
-        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("string literals live in read-only `.rodata`"),
-        "unexpected stderr:\n{}",
-        stderr
     );
 }
 

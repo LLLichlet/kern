@@ -29,8 +29,8 @@ pub enum MastExprKind {
     Integer(u128),
     Float(f64),
     Bool(bool),
-    /// String literal bytes. String expressions have slice type; lowering may
-    /// materialize anonymous read-only backing storage for the slice pointer.
+    /// Compiler-owned string bytes used by internal synthetic values.
+    /// Source string literals lower to ordinary byte array values.
     StringLiteral(String),
 
     // --- 2. References ---

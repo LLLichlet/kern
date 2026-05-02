@@ -365,7 +365,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 "#,
         )
         .unwrap();
@@ -380,7 +380,7 @@ kern = "0.7.2"
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 "#,
         )
         .unwrap();
@@ -450,7 +450,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [dependencies]
 log = { git = "https://example.com/log.git", tag = "v1" }
@@ -514,7 +514,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 "#,
         )
         .unwrap();
@@ -584,7 +584,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 "#,
         )
         .unwrap();
@@ -632,7 +632,7 @@ kern = "0.7.2"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [features]
 default = ["missing"]
@@ -671,7 +671,7 @@ default = ["missing"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [lib]
 root = "src/lib.rn"

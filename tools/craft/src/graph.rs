@@ -449,7 +449,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [dependencies]
 util = { path = "../util" }
@@ -463,7 +463,7 @@ toml = { git = "https://example.com/toml.git", tag = "v0.1.0" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 "#,
         )
         .unwrap();
@@ -524,7 +524,7 @@ shared = { git = "https://example.com/shared.git", rev = "abc123" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [dependencies]
 shared = { workspace = true, features = ["simd"] }
@@ -589,7 +589,7 @@ shared = { path = "shared" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [dependencies]
 shared = { workspace = true }
@@ -602,7 +602,7 @@ shared = { workspace = true }
 [package]
 name = "shared"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [lib]
 root = "src/lib.rn"
@@ -653,7 +653,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [dependencies]
 shared = { workspace = true }

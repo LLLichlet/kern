@@ -37,7 +37,7 @@ fn write_minimal_bin_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "demo"
@@ -56,7 +56,7 @@ fn write_minimal_lib_package(root: &Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [lib]
 root = "src/lib.rn"
@@ -74,7 +74,7 @@ fn write_publishable_bin_package(root: &Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 description = "Demo package"
 license = "MIT"
 authors = ["Demo <demo@example.com>"]
@@ -158,7 +158,7 @@ fn write_arg_check_bin_package(root: &std::path::Path, first: &str, second: &str
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "demo"
@@ -177,7 +177,7 @@ fn write_arg_check_test_package(root: &std::path::Path, first: &str, second: &st
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [test]
 roots = ["tests/smoke.rn"]
@@ -196,7 +196,7 @@ fn write_bin_and_test_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "demo"
@@ -220,7 +220,7 @@ fn write_bin_and_example_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "demo"
@@ -247,7 +247,7 @@ fn write_multi_bin_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "demo"
@@ -277,7 +277,7 @@ fn write_workspace_with_member_test_package(root: &std::path::Path) -> PathBuf {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [test]
 roots = ["tests/smoke.rn"]
@@ -420,7 +420,7 @@ fn write_generated_build_script_package(root: &std::path::Path) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "demo"
@@ -1240,7 +1240,7 @@ fn summarize_source_security_respects_allowlists_and_warn_mode() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [craft]
 release-source-policy = "warn"
@@ -2003,7 +2003,7 @@ fn build_command_uses_workspace_root_outputs_for_member_paths() {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "member"
@@ -2045,7 +2045,7 @@ fn build_command_member_path_does_not_build_workspace_root_package() {
 [package]
 name = "rootpkg"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "rootpkg"
@@ -2063,7 +2063,7 @@ members = ["member"]
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "member"
@@ -2208,7 +2208,7 @@ fn build_auto_syncs_lockfile_and_rebuilds_without_clean() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "demo"
@@ -2264,7 +2264,7 @@ fn build_updates_lockfile_after_manifest_changes() {
 [package]
 name = "demo"
 version = "0.2.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "demo"
@@ -2304,7 +2304,7 @@ fn member_build_recreates_deleted_workspace_lockfile() {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "member"
@@ -2348,7 +2348,7 @@ fn publish_auto_syncs_release_lock_and_checks_metadata() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 description = "Demo package"
 license = "MIT"
 authors = ["Demo <demo@example.com>"]
@@ -2416,7 +2416,7 @@ repository = "https://example.com/workspace"
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "member"

@@ -10,7 +10,7 @@ fn builds_and_executes_test_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [test]
 roots = ["tests/smoke.rn"]
@@ -63,7 +63,7 @@ fn builds_and_executes_release_thinlto_test_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [profile.release]
 opt = 3
@@ -123,7 +123,7 @@ fn tests_can_import_their_own_package_library() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [lib]
 root = "src/lib.rn"
@@ -192,7 +192,7 @@ fn package_runtime_applies_to_test_targets() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [runtime]
 entry = "rt"
@@ -259,7 +259,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [test]
 roots = ["tests/cwd.rn"]
@@ -342,7 +342,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [test]
 roots = ["tests/env.rn"]

@@ -13,7 +13,7 @@ fn craft_bin_compile_options_support_builtin_simd_types() {
 [package]
 name = "simd_probe"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "simd_probe"
@@ -107,7 +107,7 @@ fn craft_build_supports_builtin_simd_types_in_bin_targets() {
 [package]
 name = "simd_probe"
 version = "0.1.0"
-kern = "0.7.2"
+kern = "0.7.3"
 
 [[bin]]
 name = "simd_probe"

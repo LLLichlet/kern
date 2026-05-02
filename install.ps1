@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$DefaultVersion = "v0.7.2"
+$DefaultVersion = "v0.7.3"
 $HostTools = @("kernc", "craft", "kern-lsp")
 
 function Fail([string]$Message) {

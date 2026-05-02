@@ -15,7 +15,7 @@
   <a href="#documentation">Documentation</a>
 </p>
 
-> Status: v0.7.2, experimental. Kern is pre-1.0 and deliberately removes
+> Status: v0.7.3, experimental. Kern is pre-1.0 and deliberately removes
 > historical syntax or toolchain baggage when the current design becomes clear.
 
 Kern is designed for low-level software that still wants modern language

@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "craft"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_driver",
  "kernc_sema",
@@ -44,7 +44,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "kern-lsp"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "craft",
  "kernc_driver",
@@ -58,14 +58,14 @@ dependencies = [
 
 [[package]]
 name = "kernc_ast"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_utils",
 ]
 
 [[package]]
 name = "kernc_cli"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_driver",
  "kernc_utils",
@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_codegen"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "cc",
  "kernc_ast",
@@ -88,11 +88,11 @@ dependencies = [
 
 [[package]]
 name = "kernc_db"
-version = "0.7.2"
+version = "0.7.3"
 
 [[package]]
 name = "kernc_driver"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_ast",
  "kernc_codegen",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_flow"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_sema",
  "kernc_utils",
@@ -118,14 +118,14 @@ dependencies = [
 
 [[package]]
 name = "kernc_lexer"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_utils",
 ]
 
 [[package]]
 name = "kernc_lower"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_ast",
  "kernc_flow",
@@ -137,7 +137,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_mast"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_ast",
  "kernc_mono",
@@ -147,7 +147,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_mir"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_ast",
  "kernc_mono",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_mir_lower"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_ast",
  "kernc_mast",
@@ -169,14 +169,14 @@ dependencies = [
 
 [[package]]
 name = "kernc_mono"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_sema",
 ]
 
 [[package]]
 name = "kernc_parser"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_ast",
  "kernc_lexer",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_sema"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "kernc_ast",
  "kernc_parser",
@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_utils"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "target-lexicon",
 ]
@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "shared_cli"
-version = "0.7.2"
+version = "0.7.3"
 
 [[package]]
 name = "shlex"

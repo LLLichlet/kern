@@ -55,6 +55,7 @@ These documents sit between public behavior and implementation detail.
 These documents are useful context for maintainers, but they should not be
 quoted as if they were current product guarantees.
 
+- [`docs/lsp-roadmap.md`](./lsp-roadmap.md): active `kern-lsp` responsiveness and dirty-analysis stabilization plan
 - [`docs/sdk-rebuild-plan.md`](./sdk-rebuild-plan.md): active release-engineering / SDK restructuring plan
 - [`docs/stdlib-enhancement-plan.md`](./stdlib-enhancement-plan.md): active standard-library gap and enhancement plan
 

@@ -493,6 +493,20 @@ pub(super) fn keyword_completion_labels(
         .collect()
 }
 
+pub(super) fn fallback_keyword_completion_labels(
+    context: CompletionContext,
+    member_access: bool,
+) -> Vec<&'static str> {
+    if member_access {
+        return Vec::new();
+    }
+
+    match context {
+        CompletionContext::Value => VALUE_KEYWORD_COMPLETIONS.to_vec(),
+        CompletionContext::Type => TYPE_KEYWORD_COMPLETIONS.to_vec(),
+    }
+}
+
 fn classify_completion_context(tokens: &[Token]) -> CompletionContext {
     let Some(last) = tokens.last() else {
         return CompletionContext::Value;

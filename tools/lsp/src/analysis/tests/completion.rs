@@ -174,6 +174,64 @@ fn completion_in_incomplete_let_binding_name_keeps_keyword_snippets() {
 }
 
 #[test]
+fn completion_in_incomplete_declaration_names_stays_lightweight() {
+    for (name, source, needle, char_offset, expected_label) in [
+        (
+            "let_mut",
+            "fn main() void {\n    let mut n\n}\n",
+            "let mut n",
+            9,
+            "let",
+        ),
+        (
+            "const",
+            "fn main() void {\n    const N\n}\n",
+            "const N",
+            7,
+            "const",
+        ),
+        (
+            "static",
+            "fn main() void {\n    static VALUE\n}\n",
+            "static VALUE",
+            12,
+            "static",
+        ),
+    ] {
+        let mut analysis = AnalysisEngine::default();
+        let uri = temp_file_uri(&format!("completion_incomplete_decl_{name}"), source);
+
+        let _ = analysis.open_document(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                _language_id: "kern".to_string(),
+                version: 1,
+                text: source.to_string(),
+            },
+        });
+        analysis.parse_cache.borrow_mut().clear();
+        analysis.surface_cache.borrow_mut().clear();
+        analysis.structure_cache.borrow_mut().clear();
+        analysis.artifact_cache.borrow_mut().clear();
+
+        let items = analysis
+            .completion(&uri, position_of_nth(source, needle, 0, char_offset))
+            .unwrap();
+        let labels = completion_labels(&items);
+
+        assert!(
+            labels.contains(&expected_label.to_string()),
+            "{name}: {labels:?}"
+        );
+        assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+        assert!(analysis.parse_cache.borrow().is_empty(), "{name}");
+        assert!(analysis.surface_cache.borrow().is_empty(), "{name}");
+        assert!(analysis.structure_cache.borrow().is_empty(), "{name}");
+        assert!(analysis.artifact_cache.borrow().is_empty(), "{name}");
+    }
+}
+
+#[test]
 fn completion_after_block_statements_includes_prior_bindings() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

@@ -79,6 +79,36 @@ fn verbose_trace_reports_workspace_refresh_latency() {
 }
 
 #[test]
+fn verbose_trace_marks_exceeded_workspace_refresh_budget() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    state.request_budget_policy.workspace_refresh_ms = 0;
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_workspace_refresh_budget_trace", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": []
+            })),
+        },
+    );
+
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh completed"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| verbose.contains("budget=exceeded"))
+    }));
+}
+
+#[test]
 fn verbose_trace_marks_exceeded_diagnostics_budget() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;

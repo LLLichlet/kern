@@ -487,3 +487,52 @@ fn verbose_trace_reports_dirty_code_actions_as_parse_only() {
     assert!(verbose.contains("budget=ok"), "{verbose}");
     assert!(verbose.contains("lane=Interactive"), "{verbose}");
 }
+
+#[test]
+fn verbose_trace_reports_dirty_signature_help_as_clean_semantic() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let clean = concat!(
+        "fn helper(first: i32, second: i32) i32 {\n",
+        "    return first + second;\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{2};\n",
+        "    return helper(1, value);\n",
+        "}\n",
+    );
+    let dirty = concat!(
+        "fn helper(first: i32, second: i32) i32 {\n",
+        "    return first + second;\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{2}\n",
+        "    return helper(1, value);\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("server_dirty_signature_help_trace", clean);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, clean, 1));
+    assert!(dispatch_messages(&mut state, did_change_message(&uri, dirty, 2)).is_empty());
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(3103)),
+            method: Some("textDocument/signatureHelp".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 5, "character": 22 }
+            })),
+        },
+    );
+
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["id"], json!(3103));
+    assert_eq!(messages[1]["method"], "$/logTrace");
+    assert_eq!(messages[1]["params"]["message"], "analysis tier selected");
+    let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("tier=clean-semantic"), "{verbose}");
+    assert!(verbose.contains("budget=ok"), "{verbose}");
+    assert!(verbose.contains("lane=Interactive"), "{verbose}");
+}

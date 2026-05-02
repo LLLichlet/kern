@@ -481,13 +481,16 @@ impl AnalysisEngine {
     ) -> Result<Rc<AnalysisArtifact>, String> {
         let context = self.resolve_analysis_context(target_uri)?;
         if context.dirty_documents.is_clean() {
+            self.record_analysis_tier(AnalysisTier::CleanSemantic);
             return Ok(self.analyze_artifact_for_context(&context));
         }
 
         if !context.resolved.input_file.is_file() {
+            self.record_analysis_tier(AnalysisTier::DirtySemantic);
             return Ok(self.analyze_artifact_for_context(&context));
         }
 
+        self.record_analysis_tier(AnalysisTier::CleanSemantic);
         Ok(self.analyze_clean_artifact_for_context(&context))
     }
 

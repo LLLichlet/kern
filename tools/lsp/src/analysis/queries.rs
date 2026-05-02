@@ -5,10 +5,16 @@ impl AnalysisEngine {
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<DocumentSymbol>, String> {
         let context = self.resolve_analysis_context(uri)?;
         let surface = match self.analyze_surface_artifact(uri) {
-            Ok(surface) => surface,
+            Ok(surface) => {
+                self.record_analysis_tier(AnalysisTier::Surface);
+                surface
+            }
             Err(_) if !context.dirty_documents.is_clean() => {
                 match self.analyze_clean_surface_for_context(&context) {
-                    Some(surface) => surface,
+                    Some(surface) => {
+                        self.record_analysis_tier(AnalysisTier::Surface);
+                        surface
+                    }
                     None => return Ok(Vec::new()),
                 }
             }

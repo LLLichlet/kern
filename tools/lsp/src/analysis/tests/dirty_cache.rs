@@ -284,6 +284,10 @@ fn dirty_complex_hover_uses_clean_analysis() {
         .unwrap();
 
     assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::CleanSemantic)
+    );
 }
 
 #[test]

@@ -71,6 +71,7 @@ fn document_symbols_use_clean_surface_when_dirty_body_is_incomplete() {
 
     assert!(names.contains(&"helper"));
     assert!(names.contains(&"main"));
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Surface));
 }
 
 #[test]

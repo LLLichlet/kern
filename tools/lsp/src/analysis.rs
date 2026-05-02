@@ -101,12 +101,24 @@ pub enum DocumentSyncAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AnalysisTier {
+pub(crate) enum AnalysisTier {
     Lexical,
     ParseOnly,
     Surface,
     CleanSemantic,
     DirtySemantic,
+}
+
+impl AnalysisTier {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Lexical => "lexical",
+            Self::ParseOnly => "parse-only",
+            Self::Surface => "surface",
+            Self::CleanSemantic => "clean-semantic",
+            Self::DirtySemantic => "dirty-semantic",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -369,8 +381,7 @@ impl AnalysisEngine {
         self.dirty_documents_snapshot().overrides.clone()
     }
 
-    #[cfg(test)]
-    fn last_analysis_tier(&self) -> Option<AnalysisTier> {
+    pub(crate) fn last_analysis_tier(&self) -> Option<AnalysisTier> {
         *self.last_analysis_tier.borrow()
     }
 

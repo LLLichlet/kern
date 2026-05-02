@@ -63,6 +63,39 @@ fn completion_request_returns_kern_keyword_snippets() {
 }
 
 #[test]
+fn verbose_trace_reports_completion_analysis_tier() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn main() void {\n    let m\n}\n";
+    let uri = temp_file_uri("server_completion_tier_trace", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(37)),
+            method: Some("textDocument/completion".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 9 }
+            })),
+        },
+    );
+
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["id"], json!(37));
+    assert_eq!(messages[1]["method"], "$/logTrace");
+    assert_eq!(messages[1]["params"]["message"], "analysis tier selected");
+    assert!(
+        messages[1]["params"]["verbose"]
+            .as_str()
+            .unwrap()
+            .contains("tier=lexical")
+    );
+}
+
+#[test]
 fn completion_request_returns_top_level_extern_snippet() {
     let mut state = initialized_state();
     let source = "ex\n";

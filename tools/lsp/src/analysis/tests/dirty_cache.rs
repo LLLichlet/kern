@@ -291,6 +291,37 @@ fn dirty_complex_hover_uses_clean_analysis() {
 }
 
 #[test]
+fn dirty_complex_navigation_uses_clean_analysis() {
+    let (clean, dirty) = dirty_complex_sources();
+    let (uri, analysis) = dirty_complex_analysis_after_change(clean, dirty);
+
+    let _definition = analysis
+        .goto_definition(&uri, position_of_nth(dirty, "make_point", 1, 1))
+        .unwrap();
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::CleanSemantic)
+    );
+
+    let _references = analysis
+        .references(&uri, position_of_nth(dirty, "make_point", 1, 1), true)
+        .unwrap();
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::CleanSemantic)
+    );
+
+    let _highlights = analysis
+        .document_highlights(&uri, position_of_nth(dirty, "make_point", 1, 1))
+        .unwrap();
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::CleanSemantic)
+    );
+}
+
+#[test]
 fn dirty_complex_signature_help_uses_clean_analysis() {
     let clean = concat!(
         "fn helper(first: i32, second: i32) i32 {\n",

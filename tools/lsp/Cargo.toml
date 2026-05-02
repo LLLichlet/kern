@@ -9,6 +9,7 @@ license.workspace = true
 craft = { path = "../craft" }
 kernc_driver = { workspace = true }
 kernc_lexer = { workspace = true }
+kernc_parser = { workspace = true }
 kernc_utils = { workspace = true }
 shared_cli = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }

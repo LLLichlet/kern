@@ -46,7 +46,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<Location>, String> {
-        let artifact = match self.analyze_artifact(uri) {
+        let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
         };
@@ -72,7 +72,7 @@ impl AnalysisEngine {
         position: Position,
         include_declaration: bool,
     ) -> Result<Vec<Location>, String> {
-        let artifact = match self.analyze_artifact(uri) {
+        let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(Vec::new()),
         };
@@ -99,7 +99,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Vec<DocumentHighlight>, String> {
-        let artifact = match self.analyze_artifact(uri) {
+        let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(Vec::new()),
         };
@@ -121,7 +121,7 @@ impl AnalysisEngine {
     }
 
     pub fn hover(&self, uri: &str, position: Position) -> Result<Option<Hover>, String> {
-        let artifact = match self.analyze_artifact(uri) {
+        let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
         };
@@ -144,7 +144,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<SignatureHelp>, String> {
-        let artifact = match self.analyze_artifact(uri) {
+        let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
         };
@@ -177,31 +177,30 @@ impl AnalysisEngine {
         let member_access = completion_is_member_access(&target_doc.text, offset);
 
         let analysis_context = self.resolve_analysis_context(uri)?;
-        let mut items = if let Some(surface) =
-            self.analyze_surface_artifact(uri).ok().or_else(|| {
-                (!analysis_context.dirty_documents.is_clean())
-                    .then(|| self.analyze_clean_surface_for_context(&analysis_context))
-                    .flatten()
-            }) {
+        let is_dirty = !analysis_context.dirty_documents.is_clean();
+        let surface = if is_dirty {
+            self.analyze_clean_surface_for_context(&analysis_context)
+        } else {
+            self.analyze_surface_artifact(uri).ok()
+        };
+        let mut items = if let Some(surface) = surface {
             if !surface.requires_body_completion(&target_path, offset) {
                 surface.completion_items(&target_path, offset)
             } else {
-                let artifact = self.analyze_artifact_for_context(&analysis_context);
-                if artifact.succeeded || analysis_context.dirty_documents.is_clean() {
-                    artifact.completion_items(&target_path, offset)
-                } else {
+                let artifact = if is_dirty {
                     self.analyze_clean_artifact_for_context(&analysis_context)
-                        .completion_items(&target_path, offset)
-                }
+                } else {
+                    self.analyze_artifact_for_context(&analysis_context)
+                };
+                artifact.completion_items(&target_path, offset)
             }
         } else {
-            let artifact = self.analyze_artifact_for_context(&analysis_context);
-            if artifact.succeeded || analysis_context.dirty_documents.is_clean() {
-                artifact.completion_items(&target_path, offset)
-            } else {
+            let artifact = if is_dirty {
                 self.analyze_clean_artifact_for_context(&analysis_context)
-                    .completion_items(&target_path, offset)
-            }
+            } else {
+                self.analyze_artifact_for_context(&analysis_context)
+            };
+            artifact.completion_items(&target_path, offset)
         };
         if !prefix.is_empty() {
             items.retain(|item| item.label.starts_with(prefix));
@@ -240,7 +239,7 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<PrepareRenameResult>, String> {
-        let artifact = match self.analyze_artifact(uri) {
+        let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
         };
@@ -275,7 +274,7 @@ impl AnalysisEngine {
         }
 
         let artifact = self
-            .analyze_artifact(uri)
+            .analyze_interactive_artifact(uri)
             .map_err(|message| format!("rename analysis failed: {message}"))?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested rename for a document that is not open".to_string());
@@ -321,11 +320,12 @@ impl AnalysisEngine {
             return Ok(tokens.clone());
         }
 
-        let clean_key = AnalysisCacheKey::clean(&context.resolved);
-        let should_use_lexical_fallback = !context.dirty_documents.is_clean()
-            && !self.artifact_cache.borrow().contains_key(&clean_key)
-            && self.project_for_path(&target_doc.path).is_some();
-        let tokens = if should_use_lexical_fallback {
+        let tokens = if !context.dirty_documents.is_clean()
+            || !self
+                .artifact_cache
+                .borrow()
+                .contains_key(&AnalysisCacheKey::clean(&context.resolved))
+        {
             semantic::lexical_semantic_tokens(&file)
         } else {
             let artifact = self.analyze_artifact_for_context(&context);
@@ -338,20 +338,22 @@ impl AnalysisEngine {
     }
 
     pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<CodeAction>, String> {
-        let artifact = match self.analyze_artifact(uri) {
-            Ok(artifact) => artifact,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let analysis_context = self.resolve_analysis_context(uri)?;
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested code actions for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
+        let (diagnostics_session, artifact) = if analysis_context.dirty_documents.is_clean() {
+            let artifact = self.analyze_artifact_for_context(&analysis_context);
+            (artifact.session.clone(), Some(artifact))
+        } else {
+            (self.parse_open_document_session(uri)?, None)
+        };
 
         let mut actions = Vec::new();
         let mut seen = BTreeSet::new();
-        for diagnostic in &artifact.session.diagnostics {
-            let Some(path) = artifact
-                .session
+        for diagnostic in &diagnostics_session.diagnostics {
+            let Some(path) = diagnostics_session
                 .source_manager
                 .get_file_path(diagnostic.primary_span.file)
             else {
@@ -362,14 +364,17 @@ impl AnalysisEngine {
             }
 
             let lsp_diagnostic =
-                convert_diagnostic_for_document(&artifact.session, diagnostic, target_doc);
+                convert_diagnostic_for_document(&diagnostics_session, diagnostic, target_doc);
             if !ranges_overlap(&lsp_diagnostic.range, &range) {
                 continue;
             }
 
-            let Some(action) =
-                quick_fix_for_diagnostic(uri, &artifact, diagnostic, lsp_diagnostic.clone())
-            else {
+            let action = if let Some(artifact) = &artifact {
+                quick_fix_for_diagnostic(uri, artifact, diagnostic, lsp_diagnostic.clone())
+            } else {
+                lightweight_quick_fix_for_diagnostic(uri, diagnostic, lsp_diagnostic.clone())
+            };
+            let Some(action) = action else {
                 continue;
             };
 

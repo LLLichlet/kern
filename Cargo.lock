@@ -49,6 +49,7 @@ dependencies = [
  "craft",
  "kernc_driver",
  "kernc_lexer",
+ "kernc_parser",
  "kernc_utils",
  "serde",
  "serde_json",

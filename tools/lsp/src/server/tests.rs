@@ -7,7 +7,9 @@ mod scheduler;
 pub(super) use super::*;
 pub(super) use crate::analysis::{AnalysisOutcome, DiagnosticBundle};
 pub(super) use crate::protocol::{
-    DidOpenTextDocumentParams, IncomingMessage, InitializeResultOptions, JSONRPC_VERSION,
+    DidChangeTextDocumentParams, DidOpenTextDocumentParams, IncomingMessage,
+    InitializeResultOptions, JSONRPC_VERSION, TextDocumentContentChangeEvent,
+    VersionedTextDocumentIdentifier,
 };
 pub(super) use crate::transport::{MessageReader, MessageWriter};
 pub(super) use serde_json::{Value, json};

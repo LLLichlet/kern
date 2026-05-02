@@ -1,6 +1,6 @@
 use super::{
-    AnalysisEngine, AnalysisGeneration, INVALID_REQUEST, RequestContext, SchedulerLane,
-    ServerError, ServerState, lifecycle::emit_trace,
+    AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, INVALID_REQUEST, RequestContext,
+    SchedulerLane, ServerError, ServerState, lifecycle::emit_trace,
 };
 use crate::analysis::{AnalysisOutcome, DocumentSyncAction, cleared_uris};
 use crate::protocol::{error_response, null_response, publish_diagnostics, success_response};
@@ -88,14 +88,17 @@ pub(super) fn flush_diagnostics_lane(
         emit_trace(state, writer, reason, None, true)?;
     } else {
         let targets = std::mem::take(&mut state.pending_diagnostics_targets);
-        for target_uri in targets {
+        for (target_uri, mode) in targets {
             let generation = state
                 .latest_generation_by_target
                 .get(&target_uri)
                 .copied()
                 .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
-            let outcome = match catch_unwind(AssertUnwindSafe(|| {
-                state.analysis.analyze_document_uri(&target_uri)
+            let outcome = match catch_unwind(AssertUnwindSafe(|| match mode {
+                DiagnosticsAnalysisMode::Structure => {
+                    state.analysis.analyze_document_structure_uri(&target_uri)
+                }
+                DiagnosticsAnalysisMode::Full => state.analysis.analyze_document_uri(&target_uri),
             })) {
                 Ok(outcome) => outcome,
                 Err(payload) => crate::analysis::single_server_diagnostic(
@@ -143,11 +146,11 @@ where
     let generation = state.begin_target_analysis(target_uri);
     let result = catch_unwind(AssertUnwindSafe(|| action(&mut state.analysis)));
     match result {
-        Ok(DocumentSyncAction::ScheduleTarget(uri)) => {
+        Ok(DocumentSyncAction::ScheduleTarget { uri, mode }) => {
             state
                 .latest_generation_by_target
                 .insert(uri.clone(), generation);
-            state.queue_target_diagnostics_task(uri);
+            state.queue_target_diagnostics_task(uri, mode);
         }
         Ok(DocumentSyncAction::Immediate(outcome)) => {
             state.queue_diagnostics_publish(target_uri.to_string(), generation, outcome);

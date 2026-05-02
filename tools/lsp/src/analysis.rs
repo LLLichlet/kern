@@ -13,7 +13,10 @@ mod text;
 use self::cache::{
     AnalysisCacheKey, DirtyDocumentsSnapshot, SemanticTokensCacheKey, hash_source_text,
 };
-use self::code_actions::{quick_fix_for_diagnostic, ranges_overlap, workspace_edit_key};
+use self::code_actions::{
+    lightweight_quick_fix_for_diagnostic, quick_fix_for_diagnostic, ranges_overlap,
+    workspace_edit_key,
+};
 use self::completion::{completion_sort_key, keyword_completion_item};
 pub use self::diagnostics::cleared_uris;
 use self::diagnostics::{
@@ -40,6 +43,7 @@ use crate::protocol::{
     PrepareRenameResult, Range, SemanticTokens, SignatureHelp, TextDocumentContentChangeEvent,
     WorkspaceEdit,
 };
+use crate::server::DiagnosticsAnalysisMode;
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{
     AnalysisArtifact, AnalysisReport, AnalysisSurfaceArtifact, CompilerDriver,
@@ -88,7 +92,10 @@ pub struct AnalysisOutcome {
 }
 
 pub enum DocumentSyncAction {
-    ScheduleTarget(String),
+    ScheduleTarget {
+        uri: String,
+        mode: DiagnosticsAnalysisMode,
+    },
     Immediate(AnalysisOutcome),
 }
 
@@ -185,6 +192,42 @@ impl AnalysisEngine {
                 .map(|(uri, diagnostics)| DiagnosticBundle { uri, diagnostics })
                 .collect(),
         }
+    }
+
+    fn analyze_document_structure(&self, target_uri: &str) -> AnalysisOutcome {
+        let Ok(session) = self.parse_open_document_session(target_uri) else {
+            return single_server_diagnostic(
+                target_uri.to_string(),
+                "received analysis request for a document that is not open",
+            );
+        };
+
+        let mut bundles_by_uri = diagnostics_from_session(&session, &self.documents);
+        bundles_by_uri.entry(target_uri.to_string()).or_default();
+        self.retain_publishable_bundles(target_uri, &mut bundles_by_uri);
+
+        AnalysisOutcome {
+            bundles: bundles_by_uri
+                .into_iter()
+                .map(|(uri, diagnostics)| DiagnosticBundle { uri, diagnostics })
+                .collect(),
+        }
+    }
+
+    fn parse_open_document_session(&self, target_uri: &str) -> Result<Session, String> {
+        let target_doc = self
+            .documents
+            .get(target_uri)
+            .ok_or_else(|| "document is not open".to_string())?;
+        let mut session = kernc_utils::Session::new();
+        session.apply_options(&self.settings.compile_options);
+        let file_id = session.source_manager.add_file(
+            target_doc.path.to_string_lossy().to_string(),
+            target_doc.text.clone(),
+        );
+        let mut parser = kernc_parser::Parser::new(&target_doc.text, file_id, &mut session);
+        let _ = parser.parse_module();
+        Ok(session)
     }
 
     fn analyze_targeted_dirty_outcome(
@@ -390,9 +433,20 @@ impl AnalysisEngine {
         })
     }
 
-    fn analyze_artifact(&self, target_uri: &str) -> Result<Rc<AnalysisArtifact>, String> {
+    fn analyze_interactive_artifact(
+        &self,
+        target_uri: &str,
+    ) -> Result<Rc<AnalysisArtifact>, String> {
         let context = self.resolve_analysis_context(target_uri)?;
-        Ok(self.analyze_artifact_for_context(&context))
+        if context.dirty_documents.is_clean() {
+            return Ok(self.analyze_artifact_for_context(&context));
+        }
+
+        if !context.resolved.input_file.is_file() {
+            return Ok(self.analyze_artifact_for_context(&context));
+        }
+
+        Ok(self.analyze_clean_artifact_for_context(&context))
     }
 
     fn analyze_artifact_for_context(

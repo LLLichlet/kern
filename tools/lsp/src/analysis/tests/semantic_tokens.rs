@@ -38,7 +38,7 @@ fn semantic_tokens_for_dirty_documents_fall_back_to_lexical_tokens() {
 }
 
 #[test]
-fn semantic_tokens_for_valid_dirty_documents_keep_semantic_classes() {
+fn semantic_tokens_for_valid_dirty_documents_use_lexical_fallback() {
     let mut analysis = AnalysisEngine::default();
     let clean_source = "fn main() i32 {\n    let value = 1;\n    return value;\n}\n";
     let dirty_source = "fn main() i32 {\n\n    let value = 1;\n    return value;\n}\n";
@@ -64,18 +64,14 @@ fn semantic_tokens_for_valid_dirty_documents_keep_semantic_classes() {
         }],
     });
 
+    let cached_artifacts = analysis.artifact_cache.borrow().len();
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
-    assert_token(
-        &decoded,
-        position_of_nth(dirty_source, "value", 0, 0),
-        SemanticTokenTypes::VARIABLE,
-        SemanticModifiers::DECLARATION | SemanticModifiers::READONLY,
-    );
-    assert_token(
-        &decoded,
-        position_of_nth(dirty_source, "value", 1, 0),
-        SemanticTokenTypes::VARIABLE,
-        SemanticModifiers::READONLY,
+    assert!(!decoded.is_empty());
+    assert_eq!(analysis.artifact_cache.borrow().len(), cached_artifacts);
+    assert!(
+        decoded
+            .iter()
+            .any(|token| token.2 == SemanticTokenTypes::KEYWORD)
     );
 }
 
@@ -98,6 +94,7 @@ fn semantic_tokens_classify_keywords_types_and_functions() {
             text: source.to_string(),
         },
     });
+    warm_clean_semantic_artifact(&analysis, &uri, source);
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
@@ -164,6 +161,7 @@ fn semantic_tokens_classify_prefixed_and_qualified_type_contexts() {
             text: source.to_string(),
         },
     });
+    warm_clean_semantic_artifact(&analysis, &uri, source);
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
@@ -216,6 +214,7 @@ fn semantic_tokens_prefer_symbol_kinds_and_modifiers_for_references() {
             text: source.to_string(),
         },
     });
+    warm_clean_semantic_artifact(&analysis, &uri, source);
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
@@ -268,6 +267,7 @@ fn semantic_tokens_classify_enum_variant_references() {
             text: source.to_string(),
         },
     });
+    warm_clean_semantic_artifact(&analysis, &uri, source);
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
@@ -331,6 +331,7 @@ fn semantic_tokens_classify_local_let_bindings() {
             text: source.to_string(),
         },
     });
+    warm_clean_semantic_artifact(&analysis, &uri, source);
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
@@ -367,6 +368,7 @@ fn semantic_tokens_classify_mutable_bindings_and_params() {
             text: source.to_string(),
         },
     });
+    warm_clean_semantic_artifact(&analysis, &uri, source);
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
@@ -425,6 +427,7 @@ fn semantic_tokens_classify_imported_function_references_in_submodules() {
             text: use_helper_source.to_string(),
         },
     });
+    warm_clean_semantic_artifact(&analysis, &uri, use_helper_source);
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 
@@ -460,6 +463,7 @@ fn semantic_tokens_classify_variant_let_else_payload_bindings() {
             text: source.to_string(),
         },
     });
+    warm_clean_semantic_artifact(&analysis, &uri, source);
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
 

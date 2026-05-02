@@ -26,6 +26,24 @@ pub(super) fn quick_fix_for_diagnostic(
     fallback_text_quick_fix(uri, artifact, diagnostic, lsp_diagnostic)
 }
 
+pub(super) fn lightweight_quick_fix_for_diagnostic(
+    uri: &str,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    if diagnostic.level == kernc_utils::DiagnosticLevel::Warning {
+        return None;
+    }
+    if let Some(action) = structured_text_quick_fix(uri, diagnostic, lsp_diagnostic.clone()) {
+        return Some(action);
+    }
+    if diagnostic.code.is_some() {
+        return None;
+    }
+
+    fallback_insert_text_quick_fix(uri, diagnostic, lsp_diagnostic)
+}
+
 fn structured_quick_fix(
     uri: &str,
     artifact: &AnalysisArtifact,
@@ -33,56 +51,13 @@ fn structured_quick_fix(
     lsp_diagnostic: Diagnostic,
 ) -> Option<CodeAction> {
     match diagnostic.code {
-        Some(DiagnosticCode::ExpectedSemicolon) => Some(insert_text_code_action(
-            uri,
-            "Insert `;`",
-            ";",
-            Range {
-                start: lsp_diagnostic.range.start.clone(),
-                end: lsp_diagnostic.range.start.clone(),
-            },
-            lsp_diagnostic,
-        )),
-        Some(DiagnosticCode::UnclosedParen) => Some(insert_text_code_action(
-            uri,
-            "Insert `)`",
-            ")",
-            Range {
-                start: lsp_diagnostic.range.start.clone(),
-                end: lsp_diagnostic.range.start.clone(),
-            },
-            lsp_diagnostic,
-        )),
-        Some(DiagnosticCode::UnclosedBracket) => Some(insert_text_code_action(
-            uri,
-            "Insert `]`",
-            "]",
-            Range {
-                start: lsp_diagnostic.range.start.clone(),
-                end: lsp_diagnostic.range.start.clone(),
-            },
-            lsp_diagnostic,
-        )),
-        Some(DiagnosticCode::UnclosedBlock) => Some(insert_text_code_action(
-            uri,
-            "Insert `}`",
-            "}",
-            Range {
-                start: lsp_diagnostic.range.start.clone(),
-                end: lsp_diagnostic.range.start.clone(),
-            },
-            lsp_diagnostic,
-        )),
-        Some(DiagnosticCode::IgnoredNonvoidValue) => Some(insert_text_code_action(
-            uri,
-            "Discard value with `let _ =`",
-            "let _ = ",
-            Range {
-                start: lsp_diagnostic.range.start.clone(),
-                end: lsp_diagnostic.range.start.clone(),
-            },
-            lsp_diagnostic,
-        )),
+        Some(
+            DiagnosticCode::ExpectedSemicolon
+            | DiagnosticCode::UnclosedParen
+            | DiagnosticCode::UnclosedBracket
+            | DiagnosticCode::UnclosedBlock
+            | DiagnosticCode::IgnoredNonvoidValue,
+        ) => structured_text_quick_fix(uri, diagnostic, lsp_diagnostic),
         Some(DiagnosticCode::RequiresLetMut) => {
             let_mut_code_action(uri, artifact, diagnostic, lsp_diagnostic)
         }
@@ -96,80 +71,56 @@ fn structured_quick_fix(
     }
 }
 
+fn structured_text_quick_fix(
+    uri: &str,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    match diagnostic.code {
+        Some(DiagnosticCode::ExpectedSemicolon) => Some(insert_text_at_diagnostic_start(
+            uri,
+            "Insert `;`",
+            ";",
+            lsp_diagnostic,
+        )),
+        Some(DiagnosticCode::UnclosedParen) => Some(insert_text_at_diagnostic_start(
+            uri,
+            "Insert `)`",
+            ")",
+            lsp_diagnostic,
+        )),
+        Some(DiagnosticCode::UnclosedBracket) => Some(insert_text_at_diagnostic_start(
+            uri,
+            "Insert `]`",
+            "]",
+            lsp_diagnostic,
+        )),
+        Some(DiagnosticCode::UnclosedBlock) => Some(insert_text_at_diagnostic_start(
+            uri,
+            "Insert `}`",
+            "}",
+            lsp_diagnostic,
+        )),
+        Some(DiagnosticCode::IgnoredNonvoidValue) => Some(insert_text_at_diagnostic_start(
+            uri,
+            "Discard value with `let _ =`",
+            "let _ = ",
+            lsp_diagnostic,
+        )),
+        _ => None,
+    }
+}
+
 fn fallback_text_quick_fix(
     uri: &str,
     artifact: &AnalysisArtifact,
     diagnostic: &kernc_utils::Diagnostic,
     lsp_diagnostic: Diagnostic,
 ) -> Option<CodeAction> {
-    let insertion_range = Range {
-        start: lsp_diagnostic.range.start.clone(),
-        end: lsp_diagnostic.range.start.clone(),
-    };
+    if let Some(action) = fallback_insert_text_quick_fix(uri, diagnostic, lsp_diagnostic.clone()) {
+        return Some(action);
+    }
 
-    if diagnostic.message == "Expected semicolon"
-        || diagnostic
-            .hints
-            .iter()
-            .any(|hint| hint == "consider adding a `;` here")
-    {
-        return Some(insert_text_code_action(
-            uri,
-            "Insert `;`",
-            ";",
-            insertion_range,
-            lsp_diagnostic,
-        ));
-    }
-    if diagnostic
-        .hints
-        .iter()
-        .any(|hint| hint == "unclosed parenthesis")
-    {
-        return Some(insert_text_code_action(
-            uri,
-            "Insert `)`",
-            ")",
-            insertion_range,
-            lsp_diagnostic,
-        ));
-    }
-    if diagnostic
-        .hints
-        .iter()
-        .any(|hint| hint == "unclosed bracket")
-    {
-        return Some(insert_text_code_action(
-            uri,
-            "Insert `]`",
-            "]",
-            insertion_range,
-            lsp_diagnostic,
-        ));
-    }
-    if diagnostic.hints.iter().any(|hint| hint == "unclosed block") {
-        return Some(insert_text_code_action(
-            uri,
-            "Insert `}`",
-            "}",
-            insertion_range,
-            lsp_diagnostic,
-        ));
-    }
-    if diagnostic.message == "ignored non-void return value"
-        || diagnostic
-            .hints
-            .iter()
-            .any(|hint| hint == "in Kern, use `let _ = ...;` to explicitly discard the value")
-    {
-        return Some(insert_text_code_action(
-            uri,
-            "Discard value with `let _ =`",
-            "let _ = ",
-            insertion_range,
-            lsp_diagnostic,
-        ));
-    }
     if diagnostic.hints.iter().any(suggests_let_mut_fix) {
         return let_mut_code_action(uri, artifact, diagnostic, lsp_diagnostic);
     }
@@ -193,6 +144,91 @@ fn fallback_text_quick_fix(
     }
 
     None
+}
+
+fn fallback_insert_text_quick_fix(
+    uri: &str,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    if diagnostic.message == "Expected semicolon"
+        || diagnostic
+            .hints
+            .iter()
+            .any(|hint| hint == "consider adding a `;` here")
+    {
+        return Some(insert_text_at_diagnostic_start(
+            uri,
+            "Insert `;`",
+            ";",
+            lsp_diagnostic,
+        ));
+    }
+    if diagnostic
+        .hints
+        .iter()
+        .any(|hint| hint == "unclosed parenthesis")
+    {
+        return Some(insert_text_at_diagnostic_start(
+            uri,
+            "Insert `)`",
+            ")",
+            lsp_diagnostic,
+        ));
+    }
+    if diagnostic
+        .hints
+        .iter()
+        .any(|hint| hint == "unclosed bracket")
+    {
+        return Some(insert_text_at_diagnostic_start(
+            uri,
+            "Insert `]`",
+            "]",
+            lsp_diagnostic,
+        ));
+    }
+    if diagnostic.hints.iter().any(|hint| hint == "unclosed block") {
+        return Some(insert_text_at_diagnostic_start(
+            uri,
+            "Insert `}`",
+            "}",
+            lsp_diagnostic,
+        ));
+    }
+    if diagnostic.message == "ignored non-void return value"
+        || diagnostic
+            .hints
+            .iter()
+            .any(|hint| hint == "in Kern, use `let _ = ...;` to explicitly discard the value")
+    {
+        return Some(insert_text_at_diagnostic_start(
+            uri,
+            "Discard value with `let _ =`",
+            "let _ = ",
+            lsp_diagnostic,
+        ));
+    }
+
+    None
+}
+
+fn insert_text_at_diagnostic_start(
+    uri: &str,
+    title: &str,
+    text: &str,
+    diagnostic: Diagnostic,
+) -> CodeAction {
+    insert_text_code_action(
+        uri,
+        title,
+        text,
+        Range {
+            start: diagnostic.range.start.clone(),
+            end: diagnostic.range.start.clone(),
+        },
+        diagnostic,
+    )
 }
 
 fn fact_driven_quick_fix(

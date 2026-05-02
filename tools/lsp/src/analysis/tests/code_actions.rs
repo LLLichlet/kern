@@ -199,7 +199,7 @@ fn code_actions_offer_let_mut_fix() {
 #[test]
 fn code_actions_keep_untitled_uri_for_same_file_fix() {
     let mut analysis = AnalysisEngine::default();
-    let source = "fn main() void {\n    let value = 1;\n    value = 2;\n}\n";
+    let source = "fn main() i32 {\n    let value = 1\n    return value;\n}\n";
     let uri = untitled_uri("Untitled-CodeAction");
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -217,11 +217,11 @@ fn code_actions_keep_untitled_uri_for_same_file_fix() {
             Range {
                 start: Position {
                     line: 2,
-                    character: 4,
+                    character: 0,
                 },
                 end: Position {
                     line: 2,
-                    character: 13,
+                    character: 20,
                 },
             },
         )
@@ -229,10 +229,58 @@ fn code_actions_keep_untitled_uri_for_same_file_fix() {
 
     let action = actions
         .iter()
-        .find(|action| action.title == "Change to `let mut`")
+        .find(|action| action.title == "Insert `;`")
         .unwrap();
     let edit = action.edit.as_ref().unwrap();
     assert!(edit.changes.contains_key(&uri));
+}
+
+#[test]
+fn code_actions_on_dirty_documents_use_lightweight_fixes_without_full_analysis() {
+    let mut analysis = AnalysisEngine::default();
+    let clean_source = "fn main() i32 {\n    let value = 1;\n    return value;\n}\n";
+    let dirty_source = "fn main() i32 {\n    let value = 1\n    return value;\n}\n";
+    let uri = temp_file_uri("code_action_dirty_semicolon", clean_source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean_source.to_string(),
+        },
+    });
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty_source.to_string(),
+        }],
+    });
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 2,
+                    character: 0,
+                },
+                end: Position {
+                    line: 2,
+                    character: 20,
+                },
+            },
+        )
+        .unwrap();
+
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert!(actions.iter().any(|action| action.title == "Insert `;`"));
 }
 
 #[test]

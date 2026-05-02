@@ -14,14 +14,7 @@ fn diagnostics_include_native_doc_lints_as_warnings() {
     );
     let uri = temp_file_uri("doc_lints", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -67,14 +60,7 @@ fn diagnostics_include_native_doc_lints_for_impl_methods() {
     );
     let uri = temp_file_uri("doc_lints_impl_method", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -104,14 +90,7 @@ fn diagnostics_warn_for_unreachable_private_function_chain() {
     );
     let uri = temp_file_uri("unused_private_chain", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -136,14 +115,7 @@ fn diagnostics_warn_for_unreachable_private_constant() {
     let source = concat!("const helper = 1;\n", "fn main() i32 { return 0; }\n",);
     let uri = temp_file_uri("unused_private_const", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -163,14 +135,7 @@ fn diagnostics_warn_for_unreachable_private_static() {
     let source = concat!("static helper = 1;\n", "fn main() i32 { return 0; }\n",);
     let uri = temp_file_uri("unused_private_static", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -196,14 +161,7 @@ fn diagnostics_warn_for_unused_parameter_and_local_binding() {
     );
     let uri = temp_file_uri("unused_bindings", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -243,14 +201,7 @@ fn diagnostics_warn_for_dead_store_assignment() {
     );
     let uri = temp_file_uri("dead_store_assignment", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -277,14 +228,7 @@ fn diagnostics_warn_for_dead_initializer() {
     );
     let uri = temp_file_uri("dead_initializer", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -314,14 +258,7 @@ fn diagnostics_mark_flow_and_reachability_warnings_as_unnecessary() {
     );
     let uri = temp_file_uri("unnecessary_warning_tags", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -362,14 +299,7 @@ fn diagnostics_expose_structured_code_for_missing_semicolon() {
     let source = "fn helper() i32 {\n    let value = 1\n    return value;\n}\n";
     let uri = temp_file_uri("diagnostic_code_missing_semicolon", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -400,14 +330,7 @@ fn diagnostics_expose_structured_code_for_nonexhaustive_match() {
     );
     let uri = temp_file_uri("diagnostic_code_nonexhaustive_match", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -443,14 +366,7 @@ fn diagnostics_warn_for_unreachable_private_item_chain() {
     );
     let uri = temp_file_uri("unused_private_item_chain", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -479,14 +395,7 @@ fn public_reexport_marks_private_function_as_reachable_root() {
     );
     let uri = temp_file_uri("unused_private_reexport_root", source);
 
-    let outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: source.to_string(),
-        },
-    });
+    let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
 
     let bundle = outcome
         .bundles
@@ -515,14 +424,7 @@ fn body_only_change_recomputes_unused_private_function_warning() {
     );
     let uri = temp_file_uri("unused_private_incremental", initial);
 
-    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: initial.to_string(),
-        },
-    });
+    let open_outcome = open_document_for_full_diagnostics(&mut analysis, &uri, initial);
     let open_bundle = open_outcome
         .bundles
         .iter()
@@ -534,16 +436,7 @@ fn body_only_change_recomputes_unused_private_function_warning() {
             .contains("private function `helper` is never used")
     }));
 
-    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
-        text_document: VersionedTextDocumentIdentifier {
-            uri: uri.clone(),
-            version: 2,
-        },
-        content_changes: vec![TextDocumentContentChangeEvent {
-            range: None,
-            text: updated.to_string(),
-        }],
-    });
+    let change_outcome = change_document_for_full_diagnostics(&mut analysis, &uri, 2, updated);
     let change_bundle = change_outcome
         .bundles
         .iter()
@@ -565,14 +458,7 @@ fn body_only_change_recomputes_unused_private_constant_warning() {
     let updated = concat!("const helper = 1;\n", "fn main() i32 { return helper; }\n",);
     let uri = temp_file_uri("unused_private_const_incremental", initial);
 
-    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: initial.to_string(),
-        },
-    });
+    let open_outcome = open_document_for_full_diagnostics(&mut analysis, &uri, initial);
     let open_bundle = open_outcome
         .bundles
         .iter()
@@ -584,16 +470,7 @@ fn body_only_change_recomputes_unused_private_constant_warning() {
             .contains("private constant `helper` is never used")
     }));
 
-    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
-        text_document: VersionedTextDocumentIdentifier {
-            uri: uri.clone(),
-            version: 2,
-        },
-        content_changes: vec![TextDocumentContentChangeEvent {
-            range: None,
-            text: updated.to_string(),
-        }],
-    });
+    let change_outcome = change_document_for_full_diagnostics(&mut analysis, &uri, 2, updated);
     let change_bundle = change_outcome
         .bundles
         .iter()
@@ -615,14 +492,7 @@ fn body_only_change_recomputes_unused_private_static_warning() {
     let updated = concat!("static helper = 1;\n", "fn main() i32 { return helper; }\n",);
     let uri = temp_file_uri("unused_private_static_incremental", initial);
 
-    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: initial.to_string(),
-        },
-    });
+    let open_outcome = open_document_for_full_diagnostics(&mut analysis, &uri, initial);
     let open_bundle = open_outcome
         .bundles
         .iter()
@@ -634,16 +504,7 @@ fn body_only_change_recomputes_unused_private_static_warning() {
             .contains("private static `helper` is never used")
     }));
 
-    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
-        text_document: VersionedTextDocumentIdentifier {
-            uri: uri.clone(),
-            version: 2,
-        },
-        content_changes: vec![TextDocumentContentChangeEvent {
-            range: None,
-            text: updated.to_string(),
-        }],
-    });
+    let change_outcome = change_document_for_full_diagnostics(&mut analysis, &uri, 2, updated);
     let change_bundle = change_outcome
         .bundles
         .iter()
@@ -678,14 +539,7 @@ fn body_only_change_recomputes_unused_binding_warnings() {
     );
     let uri = temp_file_uri("unused_bindings_incremental", initial);
 
-    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: initial.to_string(),
-        },
-    });
+    let open_outcome = open_document_for_full_diagnostics(&mut analysis, &uri, initial);
     let open_bundle = open_outcome
         .bundles
         .iter()
@@ -702,16 +556,7 @@ fn body_only_change_recomputes_unused_binding_warnings() {
             .contains("local variable `unused_local` is never used")
     }));
 
-    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
-        text_document: VersionedTextDocumentIdentifier {
-            uri: uri.clone(),
-            version: 2,
-        },
-        content_changes: vec![TextDocumentContentChangeEvent {
-            range: None,
-            text: updated.to_string(),
-        }],
-    });
+    let change_outcome = change_document_for_full_diagnostics(&mut analysis, &uri, 2, updated);
     let change_bundle = change_outcome
         .bundles
         .iter()
@@ -757,14 +602,7 @@ fn body_only_change_recomputes_dead_store_warnings() {
     );
     let uri = temp_file_uri("dead_store_incremental", initial);
 
-    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            _language_id: "kern".to_string(),
-            version: 1,
-            text: initial.to_string(),
-        },
-    });
+    let open_outcome = open_document_for_full_diagnostics(&mut analysis, &uri, initial);
     let open_bundle = open_outcome
         .bundles
         .iter()
@@ -776,16 +614,7 @@ fn body_only_change_recomputes_dead_store_warnings() {
             .contains("value assigned to `value` is never read")
     }));
 
-    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
-        text_document: VersionedTextDocumentIdentifier {
-            uri: uri.clone(),
-            version: 2,
-        },
-        content_changes: vec![TextDocumentContentChangeEvent {
-            range: None,
-            text: updated.to_string(),
-        }],
-    });
+    let change_outcome = change_document_for_full_diagnostics(&mut analysis, &uri, 2, updated);
     let change_bundle = change_outcome
         .bundles
         .iter()

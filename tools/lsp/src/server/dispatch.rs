@@ -180,7 +180,15 @@ pub(super) fn handle_message(
             )?;
         }
         "textDocument/didSave" => {
-            let _ = required_params::<DidSaveTextDocumentParams>(message.params)?;
+            let params = required_params::<DidSaveTextDocumentParams>(message.params)?;
+            let target_uri = params.text_document.uri.clone();
+            execute_document_diagnostics(
+                state,
+                writer,
+                &target_uri,
+                SchedulerLane::Diagnostics,
+                |analysis| analysis.save_document_state(params.text_document.uri),
+            )?;
         }
         "textDocument/documentSymbol" => {
             let id = message.id.ok_or_else(|| {

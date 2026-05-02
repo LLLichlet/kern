@@ -12,7 +12,7 @@ pub(super) struct ServerState {
     pub(super) next_analysis_generation: u64,
     pub(super) latest_generation_by_target: BTreeMap<String, AnalysisGeneration>,
     pub(super) canceled_request_ids: Vec<Value>,
-    pub(super) pending_diagnostics_targets: BTreeSet<String>,
+    pub(super) pending_diagnostics_targets: BTreeMap<String, DiagnosticsAnalysisMode>,
     pub(super) pending_workspace_refresh_reason: Option<String>,
     pub(super) pending_diagnostics: BTreeMap<String, ScheduledDiagnosticsPublish>,
     pub(super) published_by_target: BTreeMap<String, BTreeSet<String>>,
@@ -37,6 +37,21 @@ pub(super) enum SchedulerLane {
 pub(super) struct ScheduledDiagnosticsPublish {
     pub(super) generation: AnalysisGeneration,
     pub(super) outcome: AnalysisOutcome,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum DiagnosticsAnalysisMode {
+    Structure,
+    Full,
+}
+
+impl DiagnosticsAnalysisMode {
+    fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Full, _) | (_, Self::Full) => Self::Full,
+            _ => Self::Structure,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +106,7 @@ impl ServerState {
             next_analysis_generation: 0,
             latest_generation_by_target: BTreeMap::new(),
             canceled_request_ids: Vec::new(),
-            pending_diagnostics_targets: BTreeSet::new(),
+            pending_diagnostics_targets: BTreeMap::new(),
             pending_workspace_refresh_reason: None,
             pending_diagnostics: BTreeMap::new(),
             published_by_target: BTreeMap::new(),
@@ -193,11 +208,18 @@ impl ServerState {
         );
     }
 
-    pub(super) fn queue_target_diagnostics_task(&mut self, target_uri: String) {
+    pub(super) fn queue_target_diagnostics_task(
+        &mut self,
+        target_uri: String,
+        mode: DiagnosticsAnalysisMode,
+    ) {
         if self.pending_workspace_refresh_reason.is_some() {
             return;
         }
-        self.pending_diagnostics_targets.insert(target_uri);
+        self.pending_diagnostics_targets
+            .entry(target_uri)
+            .and_modify(|existing| *existing = existing.merge(mode))
+            .or_insert(mode);
     }
 
     pub(super) fn queue_workspace_refresh_task(&mut self, reason: String) {

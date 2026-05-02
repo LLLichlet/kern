@@ -9,6 +9,7 @@ use self::dispatch::{
     handle_message as dispatch_handle_message,
     report_message_error as dispatch_report_message_error,
 };
+pub(crate) use self::state::DiagnosticsAnalysisMode;
 use self::state::{AnalysisGeneration, RequestContext, SchedulerLane, ServerState};
 use crate::analysis::AnalysisEngine;
 use crate::protocol::{IncomingMessage, error_response};

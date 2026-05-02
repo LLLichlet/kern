@@ -5,6 +5,8 @@ use kernc_utils::{Session, SourceFile, Span};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+const MAX_DIAGNOSTICS_PER_URI: usize = 200;
+
 #[derive(Debug, Clone, Copy)]
 struct OffsetReplacement {
     clean_start: usize,
@@ -31,18 +33,39 @@ pub(super) fn diagnostics_from_session(
             .get(&uri)
             .map(|document| SourceFile::new(document.path.clone(), document.text.clone()));
 
-        bundles
-            .entry(uri)
-            .or_default()
-            .push(convert_diagnostic_with_fallback(
+        push_bounded_diagnostic(
+            bundles.entry(uri).or_default(),
+            convert_diagnostic_with_fallback(
                 session,
                 diag,
                 fallback_file.as_ref(),
                 Some(&uri_by_path),
-            ));
+            ),
+        );
     }
 
     bundles
+}
+
+fn push_bounded_diagnostic(bundle: &mut Vec<Diagnostic>, diagnostic: Diagnostic) {
+    if bundle.len() < MAX_DIAGNOSTICS_PER_URI {
+        bundle.push(diagnostic);
+        return;
+    }
+
+    if bundle.len() == MAX_DIAGNOSTICS_PER_URI {
+        bundle.push(Diagnostic {
+            range: crate::analysis::text::empty_range(),
+            severity: 2,
+            source: "kern-lsp",
+            message: format!(
+                "diagnostic output truncated after {MAX_DIAGNOSTICS_PER_URI} entries to keep the editor responsive"
+            ),
+            code: None,
+            tags: None,
+            related_information: None,
+        });
+    }
 }
 
 fn diagnostic_uri(

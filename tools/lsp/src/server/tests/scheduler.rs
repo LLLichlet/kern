@@ -76,11 +76,119 @@ fn diagnostics_lane_coalesces_target_analysis_tasks() {
     let mut state = initialized_state();
     let uri = temp_file_uri("server_diagnostics_task_queue", "fn main() void {}\n");
 
-    state.queue_target_diagnostics_task(uri.clone());
-    state.queue_target_diagnostics_task(uri.clone());
+    state.queue_target_diagnostics_task(uri.clone(), DiagnosticsAnalysisMode::Structure);
+    state.queue_target_diagnostics_task(uri.clone(), DiagnosticsAnalysisMode::Structure);
 
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
-    assert!(state.pending_diagnostics_targets.contains(&uri));
+    assert!(state.pending_diagnostics_targets.contains_key(&uri));
+}
+
+#[test]
+fn diagnostics_lane_upgrades_coalesced_target_to_full_analysis() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_diagnostics_task_upgrade", "fn main() void {}\n");
+
+    state.queue_target_diagnostics_task(uri.clone(), DiagnosticsAnalysisMode::Structure);
+    state.queue_target_diagnostics_task(uri.clone(), DiagnosticsAnalysisMode::Full);
+
+    assert_eq!(state.pending_diagnostics_targets.len(), 1);
+    assert_eq!(
+        state.pending_diagnostics_targets.get(&uri),
+        Some(&DiagnosticsAnalysisMode::Full)
+    );
+}
+
+#[test]
+fn dirty_open_queues_structure_diagnostics() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_dirty_open_structure", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    execute_document_diagnostics(
+        &mut state,
+        &mut writer,
+        &uri,
+        SchedulerLane::Diagnostics,
+        |analysis| {
+            analysis.open_document_state(DidOpenTextDocumentParams {
+                text_document: crate::protocol::TextDocumentItem {
+                    uri: uri.clone(),
+                    _language_id: "kern".to_string(),
+                    version: 1,
+                    text: "fn main() void {\n}\n".to_string(),
+                },
+            })
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        state.pending_diagnostics_targets.get(&uri),
+        Some(&DiagnosticsAnalysisMode::Structure)
+    );
+}
+
+#[test]
+fn dirty_save_keeps_structure_diagnostics() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_dirty_save_structure", "fn main() void {}\n");
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    execute_document_diagnostics(
+        &mut state,
+        &mut writer,
+        &uri,
+        SchedulerLane::Diagnostics,
+        |analysis| {
+            analysis.open_document_state(DidOpenTextDocumentParams {
+                text_document: crate::protocol::TextDocumentItem {
+                    uri: uri.clone(),
+                    _language_id: "kern".to_string(),
+                    version: 1,
+                    text: "fn main() void {}\n".to_string(),
+                },
+            })
+        },
+    )
+    .unwrap();
+    state.pending_diagnostics_targets.clear();
+
+    execute_document_diagnostics(
+        &mut state,
+        &mut writer,
+        &uri,
+        SchedulerLane::Diagnostics,
+        |analysis| {
+            analysis.change_document_state(DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri: uri.clone(),
+                    version: 2,
+                },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    text: "fn main() void {\n}\n".to_string(),
+                }],
+            })
+        },
+    )
+    .unwrap();
+    state.pending_diagnostics_targets.clear();
+
+    execute_document_diagnostics(
+        &mut state,
+        &mut writer,
+        &uri,
+        SchedulerLane::Diagnostics,
+        |analysis| analysis.save_document_state(uri.clone()),
+    )
+    .unwrap();
+
+    assert_eq!(
+        state.pending_diagnostics_targets.get(&uri),
+        Some(&DiagnosticsAnalysisMode::Structure)
+    );
 }
 
 #[test]
@@ -110,7 +218,7 @@ fn diagnostics_execution_defers_publish_until_scheduler_drain() {
     }
 
     assert!(output.is_empty());
-    assert!(state.pending_diagnostics_targets.contains(&uri));
+    assert!(state.pending_diagnostics_targets.contains_key(&uri));
 
     {
         let mut writer = MessageWriter::new(&mut output);

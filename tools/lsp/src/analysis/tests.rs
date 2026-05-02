@@ -15,11 +15,13 @@ use super::{
     file_path_to_uri, hash_source_text, normalize_path, position_to_byte_offset,
     uri_to_analysis_path, uri_to_file_path,
 };
+use crate::analysis::DocumentSyncAction;
 use crate::protocol::{
     DiagnosticTag, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, Position, Range, SemanticTokens, TextDocumentContentChangeEvent,
     TextDocumentItem, VersionedTextDocumentIdentifier,
 };
+use crate::server::DiagnosticsAnalysisMode;
 use craft::analysis_context;
 use kernc_utils::SourceFile;
 use kernc_utils::config::{CompileOptions, LibraryBundle};
@@ -89,6 +91,47 @@ fn open_workspace_document(analysis: &mut AnalysisEngine, path: &PathBuf) -> (St
     });
 
     (uri, source)
+}
+
+fn open_document_for_full_diagnostics(
+    analysis: &mut AnalysisEngine,
+    uri: &str,
+    source: &str,
+) -> super::AnalysisOutcome {
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.to_string(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    analysis.analyze_document_uri(uri)
+}
+
+fn change_document_for_full_diagnostics(
+    analysis: &mut AnalysisEngine,
+    uri: &str,
+    version: i64,
+    source: &str,
+) -> super::AnalysisOutcome {
+    let _ = analysis.change_document_state(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.to_string(),
+            version,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: source.to_string(),
+        }],
+    });
+    analysis.analyze_document_uri(uri)
+}
+
+fn warm_clean_semantic_artifact(analysis: &AnalysisEngine, uri: &str, source: &str) {
+    let _ = analysis
+        .hover(uri, position_of_nth(source, "fn", 0, 1))
+        .unwrap();
 }
 
 fn position_of_nth(source: &str, needle: &str, occurrence: usize, char_offset: u32) -> Position {

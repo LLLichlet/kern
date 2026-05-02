@@ -165,8 +165,7 @@ pub struct DidCloseTextDocumentParams {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DidSaveTextDocumentParams {
-    #[serde(rename = "textDocument")]
-    pub _text_document: TextDocumentIdentifier,
+    pub text_document: TextDocumentIdentifier,
 }
 
 #[derive(Debug, Deserialize)]

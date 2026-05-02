@@ -74,7 +74,7 @@ fn analysis_reuses_driver_for_repeated_requests_on_same_document() {
             text: source.to_string(),
         },
     });
-    assert_eq!(analysis.cached_driver_count(), 1);
+    assert_eq!(analysis.cached_driver_count(), 0);
 
     let _ = analysis.analyze_document_uri(&uri);
     assert_eq!(analysis.cached_driver_count(), 1);

@@ -4,7 +4,10 @@ impl AnalysisEngine {
     #[cfg(test)]
     pub fn open_document(&mut self, params: DidOpenTextDocumentParams) -> AnalysisOutcome {
         match self.open_document_state(params) {
-            DocumentSyncAction::ScheduleTarget(uri) => self.analyze_document(&uri),
+            DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
+                DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
+                DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
+            },
             DocumentSyncAction::Immediate(outcome) => outcome,
         }
     }
@@ -19,10 +22,11 @@ impl AnalysisEngine {
             ));
         };
 
+        let is_dirty = Self::document_differs_from_disk(&path, &doc.text);
         self.documents.insert(
             uri.clone(),
             OpenDocument {
-                is_dirty: Self::document_differs_from_disk(&path, &doc.text),
+                is_dirty,
                 text_hash: hash_source_text(&doc.text),
                 path,
                 version: doc.version,
@@ -33,13 +37,19 @@ impl AnalysisEngine {
         self.invalidate_dirty_document_snapshot();
         self.invalidate_render_caches();
 
-        DocumentSyncAction::ScheduleTarget(uri)
+        DocumentSyncAction::ScheduleTarget {
+            uri,
+            mode: DiagnosticsAnalysisMode::Structure,
+        }
     }
 
     #[cfg(test)]
     pub fn change_document(&mut self, params: DidChangeTextDocumentParams) -> AnalysisOutcome {
         match self.change_document_state(params) {
-            DocumentSyncAction::ScheduleTarget(uri) => self.analyze_document(&uri),
+            DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
+                DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
+                DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
+            },
             DocumentSyncAction::Immediate(outcome) => outcome,
         }
     }
@@ -72,13 +82,19 @@ impl AnalysisEngine {
         self.invalidate_dirty_document_snapshot();
         self.invalidate_render_caches();
 
-        DocumentSyncAction::ScheduleTarget(params.text_document.uri)
+        DocumentSyncAction::ScheduleTarget {
+            uri: params.text_document.uri,
+            mode: DiagnosticsAnalysisMode::Structure,
+        }
     }
 
     #[cfg(test)]
     pub fn close_document(&mut self, params: DidCloseTextDocumentParams) -> AnalysisOutcome {
         match self.close_document_state(params) {
-            DocumentSyncAction::ScheduleTarget(uri) => self.analyze_document(&uri),
+            DocumentSyncAction::ScheduleTarget { uri, mode } => match mode {
+                DiagnosticsAnalysisMode::Structure => self.analyze_document_structure(&uri),
+                DiagnosticsAnalysisMode::Full => self.analyze_document(&uri),
+            },
             DocumentSyncAction::Immediate(outcome) => outcome,
         }
     }
@@ -103,6 +119,28 @@ impl AnalysisEngine {
         })
     }
 
+    pub fn save_document_state(&mut self, uri: String) -> DocumentSyncAction {
+        let Some(doc) = self.documents.get_mut(&uri) else {
+            return DocumentSyncAction::Immediate(single_server_diagnostic(
+                uri,
+                "received didSave for a document that is not open",
+            ));
+        };
+
+        let is_dirty = Self::document_differs_from_disk(&doc.path, &doc.text);
+        doc.is_dirty = is_dirty;
+        self.invalidate_dirty_document_snapshot();
+
+        DocumentSyncAction::ScheduleTarget {
+            uri,
+            mode: if is_dirty {
+                DiagnosticsAnalysisMode::Structure
+            } else {
+                DiagnosticsAnalysisMode::Full
+            },
+        }
+    }
+
     pub fn refresh_workspace(&mut self) -> Vec<(String, AnalysisOutcome)> {
         self.project_cache.get_mut().clear();
         self.driver_cache.get_mut().clear();
@@ -112,7 +150,15 @@ impl AnalysisEngine {
             .keys()
             .cloned()
             .map(|uri| {
-                let outcome = self.analyze_document(&uri);
+                let outcome = if self
+                    .documents
+                    .get(&uri)
+                    .is_some_and(|document| document.is_dirty)
+                {
+                    self.analyze_document_structure(&uri)
+                } else {
+                    self.analyze_document(&uri)
+                };
                 (uri, outcome)
             })
             .collect()
@@ -124,5 +170,9 @@ impl AnalysisEngine {
 
     pub fn analyze_document_uri(&self, target_uri: &str) -> AnalysisOutcome {
         self.analyze_document(target_uri)
+    }
+
+    pub fn analyze_document_structure_uri(&self, target_uri: &str) -> AnalysisOutcome {
+        self.analyze_document_structure(target_uri)
     }
 }

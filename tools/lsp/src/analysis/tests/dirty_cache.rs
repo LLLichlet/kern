@@ -28,10 +28,12 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
             text: result_source.to_string(),
         },
     });
-    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.structure_cache.borrow().len(), 0);
     assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 
-    let _ = analysis.semantic_tokens(&result_uri).unwrap();
+    let _ = analysis
+        .hover(&result_uri, position_of_nth(result_source, "Result", 0, 1))
+        .unwrap();
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
     assert_eq!(analysis.artifact_cache.borrow().len(), 1);
 
@@ -46,9 +48,17 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
     assert_eq!(analysis.artifact_cache.borrow().len(), 1);
 
-    let _ = analysis.semantic_tokens(&result_uri).unwrap();
+    let _ = analysis
+        .hover(&result_uri, position_of_nth(result_source, "Result", 0, 1))
+        .unwrap();
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert!(
+        analysis
+            .artifact_cache
+            .borrow()
+            .keys()
+            .all(AnalysisCacheKey::is_clean)
+    );
 }
 
 #[test]
@@ -88,7 +98,7 @@ root = "src/main.rn"
         },
     });
     let _ = analysis.semantic_tokens(&uri).unwrap();
-    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 
     let _ = analysis.change_document(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -106,6 +116,270 @@ root = "src/main.rn"
 
     assert!(!tokens.data.is_empty());
     assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+}
+
+#[test]
+fn dirty_interactive_requests_after_complex_error_avoid_full_dirty_analysis() {
+    let (clean, dirty) = dirty_complex_sources();
+    let uri = open_dirty_complex_document(clean);
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.semantic_tokens(&uri).unwrap();
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let _ = analysis.semantic_tokens(&uri).unwrap();
+    let _ = analysis
+        .completion(&uri, position_of_nth(dirty, "Shape.Dot", 0, 9))
+        .unwrap();
+    let _ = analysis
+        .hover(&uri, position_of_nth(dirty, "make_point", 1, 1))
+        .unwrap();
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 7,
+                    character: 0,
+                },
+                end: Position {
+                    line: 8,
+                    character: 16,
+                },
+            },
+        )
+        .unwrap();
+
+    assert!(!actions.is_empty());
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+}
+
+#[test]
+fn dirty_complex_change_only_stays_lightweight() {
+    let (clean, dirty) = dirty_complex_sources();
+    let (_uri, analysis) = dirty_complex_analysis_after_change(clean, dirty);
+
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+}
+
+#[test]
+fn dirty_complex_open_only_finishes() {
+    let (clean, _) = dirty_complex_sources();
+    let uri = open_dirty_complex_document(clean);
+    let mut analysis = AnalysisEngine::default();
+
+    let action = analysis.open_document_state(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri,
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    assert!(matches!(action, DocumentSyncAction::ScheduleTarget { .. }));
+}
+
+#[test]
+fn dirty_complex_clean_semantic_tokens_finish() {
+    let (clean, _) = dirty_complex_sources();
+    let uri = open_dirty_complex_document(clean);
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.semantic_tokens(&uri).unwrap();
+}
+
+#[test]
+fn dirty_complex_change_state_only_finishes() {
+    let (clean, dirty) = dirty_complex_sources();
+    let uri = open_dirty_complex_document(clean);
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.semantic_tokens(&uri).unwrap();
+    let action = analysis.change_document_state(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+
+    assert!(matches!(
+        action,
+        DocumentSyncAction::ScheduleTarget {
+            mode: DiagnosticsAnalysisMode::Structure,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn dirty_complex_semantic_tokens_stay_lexical() {
+    let (clean, dirty) = dirty_complex_sources();
+    let (uri, analysis) = dirty_complex_analysis_after_change(clean, dirty);
+
+    let tokens = analysis.semantic_tokens(&uri).unwrap();
+
+    assert!(!tokens.data.is_empty());
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+}
+
+#[test]
+fn dirty_complex_completion_uses_clean_analysis() {
+    let (clean, dirty) = dirty_complex_sources();
+    let (uri, analysis) = dirty_complex_analysis_after_change(clean, dirty);
+
+    let _ = analysis
+        .completion(&uri, position_of_nth(dirty, "Shape.Dot", 0, 9))
+        .unwrap();
+
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+}
+
+#[test]
+fn dirty_complex_hover_uses_clean_analysis() {
+    let (clean, dirty) = dirty_complex_sources();
+    let (uri, analysis) = dirty_complex_analysis_after_change(clean, dirty);
+
+    let _ = analysis
+        .hover(&uri, position_of_nth(dirty, "make_point", 1, 1))
+        .unwrap();
+
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+}
+
+#[test]
+fn dirty_complex_code_actions_use_lightweight_diagnostics() {
+    let (clean, dirty) = dirty_complex_sources();
+    let (uri, analysis) = dirty_complex_analysis_after_change(clean, dirty);
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 7,
+                    character: 0,
+                },
+                end: Position {
+                    line: 8,
+                    character: 16,
+                },
+            },
+        )
+        .unwrap();
+
+    assert!(!actions.is_empty());
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+}
+
+fn dirty_complex_sources() -> (&'static str, &'static str) {
+    let clean = concat!(
+        "type Point = struct { x: i32, y: i32 };\n",
+        "type Shape = enum { Dot: Point, Empty };\n",
+        "fn make_point(x: i32, y: i32) Point {\n",
+        "    return Point.{ x: x, y: y };\n",
+        "}\n",
+        "fn main(flag: bool) i32 {\n",
+        "    let point = make_point(1, 2);\n",
+        "    let shape = Shape.Dot(point);\n",
+        "    match shape {\n",
+        "        Shape.Dot(p) => return p.x;\n",
+        "        Shape.Empty => return 0;\n",
+        "    }\n",
+        "}\n",
+    );
+    let dirty = concat!(
+        "type Point = struct { x: i32, y: i32 };\n",
+        "type Shape = enum { Dot: Point, Empty };\n",
+        "fn make_point(x: i32, y: i32) Point {\n",
+        "    return Point.{ x: x, y: y };\n",
+        "}\n",
+        "fn main(flag: bool) i32 {\n",
+        "    let point = make_point(1, 2)\n",
+        "    let shape = Shape.Dot(point;\n",
+        "    match shape {\n",
+        "        Shape.Dot(p) => return p.x;\n",
+        "        Shape.Empty => return 0;\n",
+        "    }\n",
+        "}\n",
+    );
+
+    (clean, dirty)
+}
+
+fn open_dirty_complex_document(clean: &str) -> String {
+    temp_file_uri("dirty_complex_interactive_requests", clean)
+}
+
+fn dirty_complex_analysis_after_change(
+    clean: &'static str,
+    dirty: &'static str,
+) -> (String, AnalysisEngine) {
+    let uri = open_dirty_complex_document(clean);
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.semantic_tokens(&uri).unwrap();
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+
+    (uri, analysis)
 }
 
 #[test]
@@ -289,7 +563,9 @@ fn opening_clean_sibling_document_keeps_cached_artifact() {
         },
     });
 
-    let _ = analysis.semantic_tokens(&result_uri).unwrap();
+    let _ = analysis
+        .hover(&result_uri, position_of_nth(result_source, "Result", 0, 1))
+        .unwrap();
     let resolved = analysis.resolve_analysis(&result_uri).unwrap();
     let cache_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let cached_before = analysis
@@ -349,7 +625,9 @@ fn reverting_dirty_document_reuses_clean_caches() {
         },
     });
 
-    let _ = analysis.semantic_tokens(&uri).unwrap();
+    let _ = analysis
+        .hover(&uri, position_of_nth(&original, "main", 0, 1))
+        .unwrap();
     let resolved = analysis.resolve_analysis(&uri).unwrap();
     let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let clean_artifact = analysis
@@ -425,7 +703,12 @@ fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
         },
     });
 
-    let _ = analysis.semantic_tokens(&uri).unwrap();
+    let _ = analysis
+        .hover(
+            &uri,
+            position_of_nth("fn main() i32 { return i32.{1}; }\n", "main", 0, 1),
+        )
+        .unwrap();
     let resolved = analysis.resolve_analysis(&uri).unwrap();
     let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
     let clean_structure = analysis
@@ -512,9 +795,9 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
         bundle
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("unused-private-item"))
+            .all(|diagnostic| diagnostic.source == "kernc")
     );
-    assert_eq!(analysis.structure_cache.borrow().len(), 2);
+    assert_eq!(analysis.structure_cache.borrow().len(), 0);
     assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 }
 
@@ -545,8 +828,20 @@ fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
             text: fs::read_to_string(root.join("good.rn")).unwrap(),
         },
     });
+    let _ = analysis
+        .hover(
+            &bad_uri,
+            position_of_nth("fn broken() i32 { return missing; }\n", "broken", 0, 1),
+        )
+        .unwrap();
+    let _ = analysis
+        .hover(
+            &good_uri,
+            position_of_nth("fn main() i32 { return i32.{1}; }\n", "main", 0, 1),
+        )
+        .unwrap();
 
-    let outcome = analysis.change_document(DidChangeTextDocumentParams {
+    let _ = analysis.change_document_state(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
             uri: good_uri.clone(),
             version: 2,
@@ -557,6 +852,7 @@ fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
                 .to_string(),
         }],
     });
+    let outcome = analysis.analyze_document(&good_uri);
 
     let good_bundle = outcome
         .bundles
@@ -599,8 +895,11 @@ fn function_body_fast_path_preserves_clean_target_diagnostics_outside_changed_ow
             text: original.to_string(),
         },
     });
+    let _ = analysis
+        .hover(&uri, position_of_nth(original, "main", 0, 1))
+        .unwrap();
 
-    let outcome = analysis.change_document(DidChangeTextDocumentParams {
+    let _ = analysis.change_document_state(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
             uri: uri.clone(),
             version: 2,
@@ -610,6 +909,7 @@ fn function_body_fast_path_preserves_clean_target_diagnostics_outside_changed_ow
             text: dirty.to_string(),
         }],
     });
+    let outcome = analysis.analyze_document(&uri);
 
     let bundle = outcome
         .bundles
@@ -627,7 +927,7 @@ fn function_body_fast_path_preserves_clean_target_diagnostics_outside_changed_ow
         position_of_nth(dirty, "missing", 0, 0)
     );
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
 }
 
 #[test]
@@ -650,6 +950,9 @@ fn function_body_fast_path_replaces_overlapping_clean_target_diagnostics() {
             text: original.to_string(),
         },
     });
+    let _ = analysis
+        .hover(&uri, position_of_nth(original, "missing", 0, 1))
+        .unwrap();
 
     let outcome = analysis.change_document(DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
@@ -670,5 +973,5 @@ fn function_body_fast_path_replaces_overlapping_clean_target_diagnostics() {
 
     assert!(bundle.diagnostics.is_empty());
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
-    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
 }

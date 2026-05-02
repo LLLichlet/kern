@@ -8,6 +8,7 @@ use crate::transport::MessageWriter;
 use serde_json::Value;
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::time::Instant;
 
 pub(super) fn publish_analysis_outcome(
     state: &mut ServerState,
@@ -200,7 +201,9 @@ where
     }
 
     state.analysis.clear_last_analysis_tier();
+    let started_at = Instant::now();
     let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis)));
+    let elapsed_ms = started_at.elapsed().as_millis();
     match result {
         Ok(Ok(result)) => {
             write_success_response(state, writer, &request, serde_json::to_value(result)?)
@@ -217,7 +220,7 @@ where
             ),
         ),
     }?;
-    emit_analysis_tier_trace(state, writer, target_uri, lane)
+    emit_analysis_tier_trace(state, writer, target_uri, lane, elapsed_ms)
 }
 
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
@@ -248,7 +251,9 @@ where
     }
 
     state.analysis.clear_last_analysis_tier();
+    let started_at = Instant::now();
     let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis)));
+    let elapsed_ms = started_at.elapsed().as_millis();
     match result {
         Ok(Ok(Some(result))) => {
             write_success_response(state, writer, &request, serde_json::to_value(result)?)
@@ -266,7 +271,7 @@ where
             ),
         ),
     }?;
-    emit_analysis_tier_trace(state, writer, target_uri, lane)
+    emit_analysis_tier_trace(state, writer, target_uri, lane, elapsed_ms)
 }
 
 fn emit_analysis_tier_trace(
@@ -274,6 +279,7 @@ fn emit_analysis_tier_trace(
     writer: &mut MessageWriter<impl io::Write>,
     target_uri: &str,
     lane: SchedulerLane,
+    elapsed_ms: u128,
 ) -> Result<(), ServerError> {
     let Some(tier) = state.analysis.last_analysis_tier() else {
         return Ok(());
@@ -283,8 +289,9 @@ fn emit_analysis_tier_trace(
         writer,
         "analysis tier selected",
         Some(format!(
-            "tier={} lane={:?} target={}",
+            "tier={} elapsed_ms={} lane={:?} target={}",
             tier.as_str(),
+            elapsed_ms,
             lane,
             target_uri
         )),

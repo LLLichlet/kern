@@ -194,12 +194,16 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::Eof) {
+            let before = self.peek().span;
             match self.parse_decl() {
                 Ok(Some(decl)) => decls.push(decl),
                 Ok(None) => {} // Skipped
                 Err(_) => {
                     self.synchronize();
                 }
+            }
+            if self.peek().span == before && !self.check(TokenType::Eof) {
+                self.advance();
             }
         }
         Ok(Module {

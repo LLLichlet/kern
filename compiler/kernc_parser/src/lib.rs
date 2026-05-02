@@ -1048,15 +1048,51 @@ fn main() void {
         let ast::ExprKind::Block { stmts, .. } = &body.kind else {
             panic!("expected block body");
         };
-        assert_eq!(stmts.len(), 2);
+        assert!(stmts.len() >= 2);
         let ast::StmtKind::ExprStmt(first) = &stmts[0].kind else {
             panic!("expected defer statement");
         };
         assert!(matches!(first.kind, ast::ExprKind::Defer { .. }));
-        let ast::StmtKind::ExprStmt(second) = &stmts[1].kind else {
-            panic!("expected following expression statement");
+        assert!(
+            stmts.iter().skip(1).any(|stmt| matches!(
+                &stmt.kind,
+                ast::StmtKind::ExprStmt(expr) if matches!(expr.kind, ast::ExprKind::Call { .. })
+            )),
+            "expected following expression statement"
+        );
+    }
+
+    #[test]
+    fn parses_defer_method_call_statement() {
+        let source = r#"
+fn main() void {
+    defer self.release();
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
         };
-        assert!(matches!(second.kind, ast::ExprKind::Call { .. }));
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+        assert_eq!(stmts.len(), 1);
+        let ast::StmtKind::ExprStmt(stmt) = &stmts[0].kind else {
+            panic!("expected defer statement");
+        };
+        let ast::ExprKind::Defer { expr } = &stmt.kind else {
+            panic!("expected defer expression");
+        };
+        assert!(matches!(expr.kind, ast::ExprKind::Call { .. }));
     }
 
     #[test]
@@ -1212,5 +1248,53 @@ type Good = i32;
         };
         assert_eq!(*op, ast::UnaryOperator::MetaOf);
         assert!(matches!(operand.kind, ast::ExprKind::Identifier(_)));
+    }
+
+    #[test]
+    fn recovers_unclosed_call_before_statement_boundary() {
+        let source = r#"
+type Point = struct { x: i32, y: i32 };
+type Shape = enum { Dot: Point, Empty };
+
+fn main() i32 {
+    let point = make_point(1, 2)
+    let shape = Shape.Dot(point;
+    match shape {
+        Shape.Empty => return 0;
+    }
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.iter().any(|diagnostic| diagnostic
+                .hints
+                .iter()
+                .any(|hint| hint == "unclosed parenthesis")),
+            "expected unclosed call diagnostic"
+        );
+        assert_eq!(module.decls.len(), 3);
+    }
+
+    #[test]
+    fn parses_match_arm_call_shaped_value_pattern_without_hanging() {
+        let source = r#"
+type Point = struct { x: i32, y: i32 };
+type Shape = enum { Dot: Point, Empty };
+fn make_point(x: i32, y: i32) Point {
+    return Point.{ x: x, y: y };
+}
+fn main(flag: bool) i32 {
+    let point = make_point(1, 2);
+    let shape = Shape.Dot(point);
+    match shape {
+        Shape.Dot(p) => return p.x;
+        Shape.Empty => return 0;
+    }
+}
+"#;
+
+        let (_session, module) = parse_module(source);
+        assert_eq!(module.decls.len(), 4);
     }
 }

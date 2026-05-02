@@ -245,6 +245,25 @@ impl<'a> Parser<'a> {
         fallback_span
     }
 
+    fn skip_balanced_group(&mut self, open: TokenType, close: TokenType) {
+        if !self.check(open) {
+            return;
+        }
+
+        let mut depth = 0usize;
+        while !self.check(TokenType::Eof) {
+            let tag = self.advance().tag;
+            if tag == open {
+                depth += 1;
+            } else if tag == close {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return;
+                }
+            }
+        }
+    }
+
     fn intern_token(&mut self, token: Token) -> SymbolId {
         let source = self.source;
         let text = source.get(token.span.start..token.span.end).unwrap_or("");

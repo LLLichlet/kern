@@ -121,6 +121,13 @@ fn expr_can_prefix_data_init_type(expr: &Expr) -> bool {
     }
 }
 
+fn token_ends_unclosed_call_argument_list(token: TokenType) -> bool {
+    matches!(
+        token,
+        TokenType::Semicolon | TokenType::RBrace | TokenType::Eof
+    )
+}
+
 impl<'a> Parser<'a> {
     fn token_can_end_missing_expr(tag: TokenType) -> bool {
         matches!(
@@ -360,7 +367,7 @@ impl<'a> Parser<'a> {
                     })),
                 })
             }
-            TokenType::LParen => self.parse_call_expr(left),
+            TokenType::LParen => self.parse_call_expr(left, token.span),
             TokenType::DotStar => Ok(Expr {
                 id: self.new_id(),
                 span: left.span.to(token.span),
@@ -465,20 +472,30 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_call_expr(&mut self, left: Expr) -> ParseResult<Expr> {
+    fn parse_call_expr(&mut self, left: Expr, open_span: kernc_utils::Span) -> ParseResult<Expr> {
         let mut args = Vec::new();
         if !self.check(TokenType::RParen) {
             loop {
+                if token_ends_unclosed_call_argument_list(self.peek().tag) {
+                    break;
+                }
                 args.push(self.parse_expression(Precedence::Lowest)?);
+                if token_ends_unclosed_call_argument_list(self.peek().tag) {
+                    break;
+                }
                 if !self.continue_after_comma(&[TokenType::RParen]) {
                     break;
                 }
             }
         }
-        let end = self.expect(TokenType::RParen)?;
+        let end = self.recover_missing_closing_delimiter(
+            TokenType::RParen,
+            open_span,
+            self.stream.prev_span(),
+        );
         Ok(Expr {
             id: self.new_id(),
-            span: left.span.to(end.span),
+            span: left.span.to(end),
             kind: ExprKind::Call {
                 callee: Box::new(left),
                 args,

@@ -19,16 +19,23 @@ impl<'a> Parser<'a> {
         let mut result = None;
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let before = self.peek().span;
             let attributes = self.parse_attributes(false).unwrap_or_default();
             if self.check(TokenType::Defer) {
                 if self.parse_defer_stmt(&mut stmts, attributes).is_err() {
                     self.synchronize();
+                }
+                if self.peek().span == before && !self.check(TokenType::Eof) {
+                    self.advance();
                 }
                 continue;
             }
             if self.check(TokenType::Use) {
                 if self.parse_use_stmt(&mut stmts, attributes).is_err() {
                     self.synchronize();
+                }
+                if self.peek().span == before && !self.check(TokenType::Eof) {
+                    self.advance();
                 }
                 continue;
             }
@@ -37,6 +44,9 @@ impl<'a> Parser<'a> {
                 Ok(e) => e,
                 Err(_) => {
                     self.synchronize();
+                    if self.peek().span == before && !self.check(TokenType::Eof) {
+                        self.advance();
+                    }
                     continue;
                 }
             };
@@ -57,6 +67,9 @@ impl<'a> Parser<'a> {
                 let span = self.peek().span;
                 self.report_expected_semicolon(span);
                 self.push_expr_stmt(&mut stmts, attributes, expr);
+            }
+            if self.peek().span == before && !self.check(TokenType::Eof) {
+                self.advance();
             }
         }
 
@@ -345,7 +358,9 @@ impl<'a> Parser<'a> {
             let t = self.advance();
             self.parse_block_expr(t.span)
         } else {
-            self.parse_expression(Precedence::Lowest)
+            let expr = self.parse_expression(Precedence::Lowest)?;
+            self.match_token(&[TokenType::Semicolon]);
+            Ok(expr)
         }
     }
 
@@ -357,7 +372,16 @@ impl<'a> Parser<'a> {
 
         let mut arms = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            arms.push(self.parse_match_arm()?);
+            let before = self.peek().span;
+            match self.parse_match_arm() {
+                Ok(arm) => arms.push(arm),
+                Err(_) => {
+                    self.synchronize_match_arm();
+                    if self.peek().span == before && !self.check(TokenType::Eof) {
+                        self.advance();
+                    }
+                }
+            }
         }
 
         let rb = self.expect(TokenType::RBrace)?;
@@ -369,6 +393,16 @@ impl<'a> Parser<'a> {
                 arms,
             },
         })
+    }
+
+    fn synchronize_match_arm(&mut self) {
+        self.panic_mode = false;
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            if self.match_token(&[TokenType::Comma]) {
+                return;
+            }
+            self.advance();
+        }
     }
 
     fn parse_match_arm(&mut self) -> ParseResult<MatchArm> {
@@ -413,8 +447,13 @@ impl<'a> Parser<'a> {
     fn parse_match_patterns(&mut self) -> ParseResult<Vec<MatchPattern>> {
         let mut patterns = Vec::new();
         loop {
+            let before = self.peek().span;
             patterns.push(self.parse_single_match_pattern()?);
             if !self.continue_after_comma(&[TokenType::Arrow]) {
+                break;
+            }
+            if self.peek().span == before && !self.check(TokenType::Eof) {
+                self.advance();
                 break;
             }
         }
@@ -424,6 +463,23 @@ impl<'a> Parser<'a> {
     fn parse_single_match_pattern(&mut self) -> ParseResult<MatchPattern> {
         let pat_start = self.peek().span;
 
+        if self.looks_like_call_shaped_payload_pattern() {
+            let expr = self.parse_dotted_value_pattern_expr()?;
+            let span = self.peek().span;
+            self.session
+                .struct_error(
+                    span,
+                    "enum payload patterns must use braced destructuring syntax",
+                )
+                .with_hint("write this as `.{ Variant: value }` or `Type.{ Variant: value }`")
+                .emit();
+            self.skip_balanced_group(TokenType::LParen, TokenType::RParen);
+            return Ok(MatchPattern {
+                span: pat_start.to(expr.span),
+                kind: MatchPatternKind::Value(Box::new(expr)),
+            });
+        }
+
         if let Some(lead) = self.classify_match_pattern_lead() {
             let pattern = self.parse_pattern_from_lead(pat_start, lead)?;
             return Ok(MatchPattern {
@@ -432,7 +488,7 @@ impl<'a> Parser<'a> {
             });
         }
 
-        let expr = self.parse_expression(Precedence::Lowest)?;
+        let expr = self.parse_match_value_pattern_expr()?;
         if self.match_token(&[TokenType::DotDot]) {
             let end_expr = self.parse_expression(Precedence::Lowest)?;
             return Ok(MatchPattern {
@@ -471,6 +527,47 @@ impl<'a> Parser<'a> {
             kind: MatchPatternKind::Value(Box::new(expr.clone())),
             span: expr.span,
         })
+    }
+
+    fn parse_match_value_pattern_expr(&mut self) -> ParseResult<Expr> {
+        let expr = self.parse_expression(Precedence::Lowest)?;
+        if self.check(TokenType::LParen) {
+            let span = self.peek().span;
+            self.session
+                .struct_error(
+                    span,
+                    "enum payload patterns must use braced destructuring syntax",
+                )
+                .with_hint("write this as `.{ Variant: value }` or `Type.{ Variant: value }`")
+                .emit();
+            self.skip_balanced_group(TokenType::LParen, TokenType::RParen);
+        }
+        Ok(expr)
+    }
+
+    fn parse_dotted_value_pattern_expr(&mut self) -> ParseResult<Expr> {
+        let first = self.expect(TokenType::Identifier)?;
+        let mut expr = Expr {
+            id: self.new_id(),
+            span: first.span,
+            kind: ExprKind::Identifier(self.intern_token(first)),
+        };
+
+        while self.match_token(&[TokenType::Dot]) {
+            let field = self.expect(TokenType::Identifier)?;
+            let field_id = self.intern_token(field);
+            expr = Expr {
+                id: self.new_id(),
+                span: expr.span.to(field.span),
+                kind: ExprKind::FieldAccess {
+                    lhs: Box::new(expr),
+                    field: field_id,
+                    field_span: field.span,
+                },
+            };
+        }
+
+        Ok(expr)
     }
 
     fn classify_match_pattern_lead(&mut self) -> Option<PatternLead> {
@@ -832,6 +929,14 @@ impl<'a> Parser<'a> {
 
         self.stream.peek_tag_nth(index) == TokenType::DotLBrace
             && self.lookahead_destructure_pattern_end(index + 1).is_some()
+    }
+
+    fn looks_like_call_shaped_payload_pattern(&mut self) -> bool {
+        let Some((index, segments)) = self.lookahead_type_path_end(0) else {
+            return false;
+        };
+
+        segments >= 2 && self.stream.peek_tag_nth(index) == TokenType::LParen
     }
 
     pub(super) fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {

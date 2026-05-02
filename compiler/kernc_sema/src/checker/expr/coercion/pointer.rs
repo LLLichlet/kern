@@ -360,6 +360,78 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
+    pub(super) fn is_anonymous_aggregate_coercible(
+        &mut self,
+        expected: TypeId,
+        actual: TypeId,
+    ) -> bool {
+        let exp_kind = self.ctx.type_registry.get(expected).clone();
+        let act_kind = self.ctx.type_registry.get(actual).clone();
+        let (
+            TypeKind::AnonymousStruct(exp_is_extern, mut exp_fields),
+            TypeKind::AnonymousStruct(act_is_extern, mut act_fields),
+        ) = (exp_kind, act_kind)
+        else {
+            return false;
+        };
+
+        if exp_is_extern != act_is_extern || exp_fields.len() != act_fields.len() {
+            return false;
+        }
+
+        exp_fields.sort_by_key(|field| field.name);
+        act_fields.sort_by_key(|field| field.name);
+        exp_fields
+            .iter()
+            .zip(act_fields.iter())
+            .all(|(exp, act)| exp.name == act.name && self.type_is_field_coercible(exp.ty, act.ty))
+    }
+
+    fn type_is_field_coercible(&mut self, expected: TypeId, actual: TypeId) -> bool {
+        let exp = self.resolve_tv(expected);
+        let act = self.resolve_tv(actual);
+        if exp == act || exp == TypeId::ERROR || act == TypeId::ERROR {
+            return true;
+        }
+
+        match (
+            self.ctx.type_registry.get(exp).clone(),
+            self.ctx.type_registry.get(act).clone(),
+        ) {
+            (
+                TypeKind::Slice {
+                    is_mut: exp_mut,
+                    elem: exp_elem,
+                },
+                TypeKind::Slice {
+                    is_mut: act_mut,
+                    elem: act_elem,
+                },
+            ) => (!exp_mut || act_mut) && self.resolve_tv(exp_elem) == self.resolve_tv(act_elem),
+            (
+                TypeKind::Slice {
+                    is_mut: false,
+                    elem: exp_elem,
+                },
+                TypeKind::Array { elem: act_elem, .. },
+            ) => self.resolve_tv(exp_elem) == self.resolve_tv(act_elem),
+            (
+                TypeKind::AnonymousStruct(exp_is_extern, mut exp_fields),
+                TypeKind::AnonymousStruct(act_is_extern, mut act_fields),
+            ) => {
+                if exp_is_extern != act_is_extern || exp_fields.len() != act_fields.len() {
+                    return false;
+                }
+                exp_fields.sort_by_key(|field| field.name);
+                act_fields.sort_by_key(|field| field.name);
+                exp_fields.iter().zip(act_fields.iter()).all(|(exp, act)| {
+                    exp.name == act.name && self.type_is_field_coercible(exp.ty, act.ty)
+                })
+            }
+            _ => false,
+        }
+    }
+
     fn compare_named_fields_to_anonymous(
         &mut self,
         generics: &[kernc_ast::GenericParam],

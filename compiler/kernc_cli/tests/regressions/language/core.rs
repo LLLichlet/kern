@@ -625,6 +625,10 @@ fn runs_explicit_loc_intrinsic_and_const_loc_values() {
         r#"
 const GLOBAL = @loc();
 
+fn file_len[N: usize](file: [N]u8) usize {
+    return #file;
+}
+
 fn take(loc: struct { file: []u8, line: usize, col: usize }) usize {
     return loc.line;
 }
@@ -643,7 +647,10 @@ fn main() i32 {
     if (#local.file == 0) {
         return 14;
     }
-    if (local.line != 9) {
+    if (file_len(local.file) != #local.file) {
+        return 18;
+    }
+    if (local.line != 13) {
         return 15;
     }
     if (local.col == 0) {
@@ -651,6 +658,12 @@ fn main() i32 {
     }
     if (take(@loc()) == 0) {
         return 17;
+    }
+    if (take(local) == 0) {
+        return 19;
+    }
+    if (take(GLOBAL) == 0) {
+        return 20;
     }
     return 0;
 }

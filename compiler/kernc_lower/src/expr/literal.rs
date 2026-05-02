@@ -237,57 +237,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         )
     }
 
-    pub(crate) fn lower_static_u8_slice(&mut self, bytes: &[u8], span: Span) -> MastExprKind {
-        let global_id = self.new_mono_id();
-        let len = bytes.len() as u64;
-        let array_ty = self.ctx.type_registry.intern(TypeKind::Array {
-            elem: TypeId::U8,
-            len: self.usize_const_generic(len),
-        });
-
-        self.module.globals.push(MastGlobal {
-            id: global_id,
-            name: format!(".bytes.{}.{}", self.module.name, global_id.0),
-            span,
-            linkage: MastLinkage::Internal,
-            ty: array_ty,
-            is_mut: false,
-            init: Some(MastExpr::new(
-                array_ty,
-                MastExprKind::ArrayInit(
-                    bytes
-                        .iter()
-                        .map(|byte| {
-                            MastExpr::new(TypeId::U8, MastExprKind::Integer(*byte as u128), span)
-                        })
-                        .collect(),
-                ),
-                span,
-            )),
-            is_extern: false,
-            attributes: vec![],
-        });
-
-        let data_ptr = MastExpr::new(
-            self.ctx.type_registry.intern(TypeKind::Pointer {
-                is_mut: false,
-                elem: array_ty,
-            }),
-            MastExprKind::AddressOf(Box::new(MastExpr::new(
-                array_ty,
-                MastExprKind::GlobalRef(global_id),
-                span,
-            ))),
-            span,
-        );
-        let meta = MastExpr::new(TypeId::USIZE, MastExprKind::Integer(len as u128), span);
-
-        MastExprKind::ConstructFatPointer {
-            data_ptr: Box::new(data_ptr),
-            meta: Box::new(meta),
-        }
-    }
-
     pub(crate) fn lower_static_decl(
         &mut self,
         name: SymbolId,

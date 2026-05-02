@@ -3,7 +3,7 @@ use crate::LayoutEngine;
 use crate::checker::{ConstEvaluator, ConstValue};
 use crate::def::DefId;
 use crate::scope::ScopeId;
-use crate::ty::{TypeId, TypeKind};
+use crate::ty::{ConstGenericValue, ConstGenericValueKind, TypeId, TypeKind};
 use kernc_ast::Expr;
 use kernc_utils::{AtomicOrdering, Span};
 
@@ -18,6 +18,44 @@ mod simd_check;
 mod simd_eval;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    pub(crate) fn loc_intrinsic_result_type(&mut self, span: Span) -> TypeId {
+        let file_name = self.ctx.intern("file");
+        let line_name = self.ctx.intern("line");
+        let col_name = self.ctx.intern("col");
+        let file = self
+            .ctx
+            .sess
+            .source_manager
+            .get_file_path(span.file)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let file_ty = self.ctx.type_registry.intern(TypeKind::Array {
+            elem: TypeId::U8,
+            len: crate::ty::ConstGeneric::Value(ConstGenericValue {
+                ty: TypeId::USIZE,
+                kind: ConstGenericValueKind::Int(file.len() as i128),
+            }),
+        });
+
+        self.ctx.type_registry.intern(TypeKind::AnonymousStruct(
+            false,
+            vec![
+                crate::ty::AnonymousField {
+                    name: file_name,
+                    ty: file_ty,
+                },
+                crate::ty::AnonymousField {
+                    name: line_name,
+                    ty: TypeId::USIZE,
+                },
+                crate::ty::AnonymousField {
+                    name: col_name,
+                    ty: TypeId::USIZE,
+                },
+            ],
+        ))
+    }
+
     pub(crate) fn check_bit_intrinsic_target_type(
         &mut self,
         ty: TypeId,

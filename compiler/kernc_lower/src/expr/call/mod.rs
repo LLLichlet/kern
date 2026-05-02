@@ -12,7 +12,7 @@ mod intrinsic;
 
 use kernc_sema::def::{Def, DefId};
 use kernc_sema::query::MemberQuery;
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{AnonymousField, TypeId, TypeKind};
 use kernc_utils::{AtomicOrdering, AtomicRmwOp, NodeId, Span, SymbolId};
 
 pub(crate) struct DynamicDispatchCall {
@@ -35,8 +35,7 @@ pub(crate) struct MethodCallSite {
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_loc_intrinsic(&mut self, result_ty: TypeId, span: Span) -> MastExprKind {
         let norm_result_ty = self.ctx.type_registry.normalize(result_ty);
-        let TypeKind::AnonymousStruct(_, fields) =
-            self.ctx.type_registry.get(norm_result_ty).clone()
+        let TypeKind::AnonymousStruct(_, _) = self.ctx.type_registry.get(norm_result_ty).clone()
         else {
             self.ctx
                 .struct_error(
@@ -47,7 +46,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return MastExprKind::Trap;
         };
 
-        let struct_id = self.instantiate_anon_struct(norm_result_ty);
         let file_text = self
             .ctx
             .sess
@@ -63,23 +61,45 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .map(|loc| (loc.line, loc.col))
             .unwrap_or((0, 0));
 
-        let mut field_exprs = Vec::with_capacity(fields.len());
-        for field in &fields {
+        let file_name = self.ctx.intern("file");
+        let line_name = self.ctx.intern("line");
+        let col_name = self.ctx.intern("col");
+        let file_ty = self.ctx.type_registry.intern(TypeKind::Array {
+            elem: TypeId::U8,
+            len: self.usize_const_generic(file_text.len() as u64),
+        });
+        let natural_fields = vec![
+            AnonymousField {
+                name: file_name,
+                ty: file_ty,
+            },
+            AnonymousField {
+                name: line_name,
+                ty: TypeId::USIZE,
+            },
+            AnonymousField {
+                name: col_name,
+                ty: TypeId::USIZE,
+            },
+        ];
+        let natural_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::AnonymousStruct(false, natural_fields.clone()));
+        let struct_id = self.instantiate_anon_struct(natural_ty);
+        let (_, physical_to_ast) =
+            self.cached_anon_struct_mapping(natural_ty, false, &natural_fields);
+
+        let mut field_exprs = Vec::with_capacity(natural_fields.len());
+        for &ast_idx in &physical_to_ast {
+            let field = &natural_fields[ast_idx];
             let name = self.ctx.resolve(field.name);
             let expr = match name {
-                "file" => {
-                    let kind = match self
-                        .ctx
-                        .type_registry
-                        .get(self.ctx.type_registry.normalize(field.ty))
-                    {
-                        TypeKind::Slice { .. } => {
-                            self.lower_static_u8_slice(file_text.as_bytes(), span)
-                        }
-                        _ => MastExprKind::StringLiteral(file_text.clone()),
-                    };
-                    MastExpr::new(field.ty, kind, span)
-                }
+                "file" => MastExpr::new(
+                    field.ty,
+                    self.lower_string_literal_array(&file_text, span),
+                    span,
+                ),
                 "line" => MastExpr::new(field.ty, MastExprKind::Integer(line as u128), span),
                 "col" => MastExpr::new(field.ty, MastExprKind::Integer(col as u128), span),
                 _ => {
@@ -98,10 +118,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             field_exprs.push(expr);
         }
 
-        MastExprKind::StructInit {
+        let natural_kind = MastExprKind::StructInit {
             struct_id,
             fields: field_exprs,
-        }
+        };
+
+        self.apply_implicit_cast(natural_kind, natural_ty, result_ty, span)
+            .kind
     }
 
     fn receiver_search_types(&mut self, receiver_ty: TypeId) -> Vec<TypeId> {

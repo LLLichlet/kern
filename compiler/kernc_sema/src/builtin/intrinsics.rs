@@ -561,31 +561,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub(super) fn inject_loc(&mut self) {
-        let file_name = self.ctx.intern("file");
-        let line_name = self.ctx.intern("line");
-        let col_name = self.ctx.intern("col");
-        let file_ty = self.ctx.type_registry.intern(TypeKind::Slice {
-            is_mut: false,
-            elem: TypeId::U8,
-        });
-        let ret_ty = self.ctx.type_registry.intern(TypeKind::AnonymousStruct(
-            false,
-            vec![
-                crate::ty::AnonymousField {
-                    name: file_name,
-                    ty: file_ty,
-                },
-                crate::ty::AnonymousField {
-                    name: line_name,
-                    ty: TypeId::USIZE,
-                },
-                crate::ty::AnonymousField {
-                    name: col_name,
-                    ty: TypeId::USIZE,
-                },
-            ],
-        ));
-        self.inject_builtin_function("@loc", vec![], vec![], ret_ty);
+        // `@loc` has a call-site result type because `file` is `[N]u8`.
+        self.inject_builtin_function("@loc", vec![], vec![], TypeId::VOID);
     }
 
     pub(super) fn inject_atomic_rmw(&mut self, name: &str) {

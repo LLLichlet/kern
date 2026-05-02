@@ -153,6 +153,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     args,
                     params,
                 );
+                if intrinsic_name == "@loc" {
+                    final_ret = self.loc_intrinsic_result_type(span);
+                }
                 let bit_ret = self.check_bit_intrinsic_call(
                     intrinsic_name.as_str(),
                     inferred_callee_ty.unwrap_or(norm_callee),

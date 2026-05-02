@@ -131,6 +131,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         fn_id: DefId,
         callee_ty: TypeId,
+        result_ty: TypeId,
         args: &[Expr],
         arg_masts: &mut Vec<MastExpr>,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
@@ -151,7 +152,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let name_str = self.ctx.resolve(name_id);
         match name_str {
             "@loc" => {
-                let result_ty = self.intrinsic_return_type(fn_id, callee_ty);
+                let _ = callee_ty;
                 Some(self.lower_loc_intrinsic(result_ty, span))
             }
             "@sizeOf" => {

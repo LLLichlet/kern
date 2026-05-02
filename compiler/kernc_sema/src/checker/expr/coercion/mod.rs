@@ -38,6 +38,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if self.is_anonymous_aggregate_equivalent(exp, act) {
             return true;
         }
+        if self.is_anonymous_aggregate_coercible(exp, act) {
+            return true;
+        }
 
         // 3. Handle pointer decay and trait-object packing.
         if self.check_pointer_coercions(expr, exp, act, &exp_kind, &act_kind) {

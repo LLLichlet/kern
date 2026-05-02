@@ -8,6 +8,7 @@ struct PlainFnCallLowering<'a> {
     fn_args: Vec<kernc_sema::ty::GenericArg>,
     subst_map: &'a HashMap<SymbolId, kernc_sema::ty::GenericArg>,
     span: Span,
+    result_ty: TypeId,
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -260,7 +261,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             })
         } else {
             let kind = self.measure_phase("            lower_call_plain_dispatch", |this| {
-                this.lower_normal_call(callee, args, arg_masts, subst_map)
+                this.lower_normal_call(callee, args, arg_masts, subst_map, result_ty)
             });
             MastExpr::new(result_ty, kind, span)
         }
@@ -488,6 +489,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 this.lower_intrinsic_call(
                     call.fn_id,
                     call.callee_mast.ty,
+                    call.result_ty,
                     call.args,
                     &mut call.arg_masts,
                     call.subst_map,
@@ -712,6 +714,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         args: &[Expr],
         arg_masts: Vec<MastExpr>,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+        result_ty: TypeId,
     ) -> MastExprKind {
         let callee_mast = self.lower_plain_callee(callee, subst_map);
         let norm_callee = self.ctx.type_registry.normalize(callee_mast.ty);
@@ -744,6 +747,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 fn_args,
                 subst_map,
                 span: callee.span,
+                result_ty,
             })
         } else {
             self.lower_plain_direct_call(callee_mast, arg_masts)

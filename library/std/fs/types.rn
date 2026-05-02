@@ -3,27 +3,19 @@
 use base.io.{Printable, Writer};
 use sys.os;
 
-static ERROR_KIND_OUT_OF_MEMORY = "out_of_memory";
-static ERROR_KIND_INVALID_OPTIONS = "invalid_options";
-static ERROR_KIND_INVALID_PATH = "invalid_path";
-static ERROR_KIND_NOT_DIRECTORY = "not_directory";
-static ERROR_KIND_INVALID_SEEK = "invalid_seek";
-static ERROR_KIND_UNEXPECTED_EOF = "unexpected_eof";
-static ERROR_KIND_WRITE_ZERO = "write_zero";
-static ERROR_KIND_NOT_FOUND = "not_found";
-static ERROR_KIND_ALREADY_EXISTS = "already_exists";
-static ERROR_KIND_OS_ERROR = "os_error";
-
-static ERROR_MESSAGE_OUT_OF_MEMORY = "out of memory";
-static ERROR_MESSAGE_INVALID_OPTIONS = "invalid options";
-static ERROR_MESSAGE_INVALID_PATH = "invalid path";
-static ERROR_MESSAGE_NOT_DIRECTORY = "not a directory";
-static ERROR_MESSAGE_INVALID_SEEK = "invalid seek";
-static ERROR_MESSAGE_UNEXPECTED_EOF = "unexpected end of file";
-static ERROR_MESSAGE_WRITE_ZERO = "write returned zero";
-static ERROR_MESSAGE_NOT_FOUND = "not found";
-static ERROR_MESSAGE_ALREADY_EXISTS = "already exists";
-static ERROR_MESSAGE_OS_ERROR = "os error";
+/// Stable filesystem error categories.
+pub/ type ErrorKind = enum {
+    OutOfMemory,
+    InvalidOptions,
+    InvalidPath,
+    NotDirectory,
+    InvalidSeek,
+    UnexpectedEof,
+    WriteZero,
+    NotFound,
+    AlreadyExists,
+    Os,
+};
 
 /// Filesystem errors used by `std.fs`.
 pub/ type Error = enum {
@@ -38,46 +30,24 @@ pub/ type Error = enum {
 };
 
 impl Error {
-    /// Returns a stable machine-oriented error kind.
-    pub fn kind() []u8 {
+    /// Returns a stable machine-oriented error category.
+    pub fn kind() ErrorKind {
         match (self) {
-            .OutOfMemory => return ERROR_KIND_OUT_OF_MEMORY,
-            .InvalidOptions => return ERROR_KIND_INVALID_OPTIONS,
-            .InvalidPath => return ERROR_KIND_INVALID_PATH,
-            .NotDirectory => return ERROR_KIND_NOT_DIRECTORY,
-            .InvalidSeek => return ERROR_KIND_INVALID_SEEK,
-            .UnexpectedEof => return ERROR_KIND_UNEXPECTED_EOF,
-            .WriteZero => return ERROR_KIND_WRITE_ZERO,
+            .OutOfMemory => return .OutOfMemory,
+            .InvalidOptions => return .InvalidOptions,
+            .InvalidPath => return .InvalidPath,
+            .NotDirectory => return .NotDirectory,
+            .InvalidSeek => return .InvalidSeek,
+            .UnexpectedEof => return .UnexpectedEof,
+            .WriteZero => return .WriteZero,
             .{ Os: err } => {
                 if (os.is_not_found(err)) {
-                    return ERROR_KIND_NOT_FOUND;
+                    return .NotFound;
                 }
                 if (os.is_already_exists(err)) {
-                    return ERROR_KIND_ALREADY_EXISTS;
+                    return .AlreadyExists;
                 }
-                return ERROR_KIND_OS_ERROR;
-            },
-        }
-    }
-
-    /// Returns a stable human-readable error message.
-    pub fn message() []u8 {
-        match (self) {
-            .OutOfMemory => return ERROR_MESSAGE_OUT_OF_MEMORY,
-            .InvalidOptions => return ERROR_MESSAGE_INVALID_OPTIONS,
-            .InvalidPath => return ERROR_MESSAGE_INVALID_PATH,
-            .NotDirectory => return ERROR_MESSAGE_NOT_DIRECTORY,
-            .InvalidSeek => return ERROR_MESSAGE_INVALID_SEEK,
-            .UnexpectedEof => return ERROR_MESSAGE_UNEXPECTED_EOF,
-            .WriteZero => return ERROR_MESSAGE_WRITE_ZERO,
-            .{ Os: err } => {
-                if (os.is_not_found(err)) {
-                    return ERROR_MESSAGE_NOT_FOUND;
-                }
-                if (os.is_already_exists(err)) {
-                    return ERROR_MESSAGE_ALREADY_EXISTS;
-                }
-                return ERROR_MESSAGE_OS_ERROR;
+                return .Os;
             },
         }
     }
@@ -107,10 +77,47 @@ impl Error {
     }
 }
 
+impl ErrorKind : Printable {
+    pub fn fmt(writer: *mut Writer) void {
+        match (self) {
+            .OutOfMemory => {
+                _ = writer.write("out of memory");
+            },
+            .InvalidOptions => {
+                _ = writer.write("invalid options");
+            },
+            .InvalidPath => {
+                _ = writer.write("invalid path");
+            },
+            .NotDirectory => {
+                _ = writer.write("not a directory");
+            },
+            .InvalidSeek => {
+                _ = writer.write("invalid seek");
+            },
+            .UnexpectedEof => {
+                _ = writer.write("unexpected end of file");
+            },
+            .WriteZero => {
+                _ = writer.write("write returned zero");
+            },
+            .NotFound => {
+                _ = writer.write("not found");
+            },
+            .AlreadyExists => {
+                _ = writer.write("already exists");
+            },
+            .Os => {
+                _ = writer.write("os error");
+            },
+        }
+    }
+}
+
 impl *Error : Printable {
     pub fn fmt(writer: *mut Writer) void {
         let err = self.*;
-        _ = writer.write(err.message());
+        err.kind().fmt(writer);
         match (err.os_code()) {
             .{ Some: code } => {
                 _ = writer.write(" (os code ");

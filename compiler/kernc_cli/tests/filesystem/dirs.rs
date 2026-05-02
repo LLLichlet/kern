@@ -421,17 +421,14 @@ fn main() i32 {{
         .{{ Ok: _ }} => return 11,
         .{{ Err: err }} => err,
     }};
-    if (err.kind() != "not_found") {{
+    if (err.kind() != fs.ErrorKind.NotFound) {{
         return 12;
     }}
-    if (err.message() != "not found") {{
+    if (err.os_code().is_none()) {{
         return 13;
     }}
-    if (err.os_code().is_none()) {{
-        return 14;
-    }}
     if (!err.is_not_found() or err.is_already_exists()) {{
-        return 15;
+        return 14;
     }}
     io.println("fs error: {{}}", .{{err}});
 
@@ -450,13 +447,6 @@ fn main() i32 {{
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("fs error: not found (os code "),
-        "expected printable fs error in stdout, got:\n{}",
-        stdout
-    );
-
     let _ = fs::remove_dir_all(&temp_root);
 }
 

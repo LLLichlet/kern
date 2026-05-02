@@ -291,6 +291,62 @@ fn dirty_complex_hover_uses_clean_analysis() {
 }
 
 #[test]
+fn dirty_complex_signature_help_uses_clean_analysis() {
+    let clean = concat!(
+        "fn helper(first: i32, second: i32) i32 {\n",
+        "    return first + second;\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{2};\n",
+        "    return helper(1, value);\n",
+        "}\n",
+    );
+    let dirty = concat!(
+        "fn helper(first: i32, second: i32) i32 {\n",
+        "    return first + second;\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{2}\n",
+        "    return helper(1, value);\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("dirty_signature_help_clean_fallback", clean);
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    warm_clean_semantic_artifact(&analysis, &uri, clean);
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+
+    let help = analysis
+        .signature_help(&uri, position_of_nth(dirty, "value", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(help.active_parameter, 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(
+        analysis.last_analysis_tier(),
+        Some(AnalysisTier::CleanSemantic)
+    );
+}
+
+#[test]
 fn dirty_complex_code_actions_use_lightweight_diagnostics() {
     let (clean, dirty) = dirty_complex_sources();
     let (uri, analysis) = dirty_complex_analysis_after_change(clean, dirty);

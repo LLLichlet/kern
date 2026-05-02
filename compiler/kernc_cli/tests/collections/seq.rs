@@ -49,12 +49,13 @@ fn arrays_satisfy_trait_based_equality() {
 use base.test;
 
 fn main() i32 {
+    let mut ctx = test.silent();
     let values = [4]i32.{ 1, 2, 3, 4 };
     if (values.len() != 4) {
         return 1;
     }
-    test.eq([4]i32.{ 1, 2, 3, 4 }, [4]i32.{ 1, 2, 3, 4 });
-    test.not_eq([4]i32.{ 1, 2, 3, 4 }, [4]i32.{ 1, 2, 3, 5 });
+    ctx..&.eq(@loc(), [4]i32.{ 1, 2, 3, 4 }, [4]i32.{ 1, 2, 3, 4 }, "expected arrays to be equal", .{});
+    ctx..&.not_eq(@loc(), [4]i32.{ 1, 2, 3, 4 }, [4]i32.{ 1, 2, 3, 5 }, "expected arrays to differ", .{});
     return 0;
 }
 "#,

@@ -94,7 +94,8 @@ Planned additions:
 
 `base.test` has core freestanding assertions. Failure reporting is explicit:
 callers use a `test.Context` with any `base.io.Writer` when diagnostics should
-be printed. Module-level helpers remain trap-only for tiny smoke tests.
+be printed, and every assertion/expect helper takes an explicit `@loc()` plus
+message format.
 
 Planned additions:
 
@@ -103,9 +104,8 @@ Planned additions:
 
 Status:
 
-- Message-bearing variants are available for equality and option/result helpers.
-  Context methods print through their writer and then trap; module-level
-  helpers trap without assuming any ambient writer.
+- Context helpers print through their writer and then trap. `test.silent()`
+  remains available for trap-only smoke tests without a diagnostic writer.
 - Option/result predicate assertions are available as `assert_some`,
   `assert_none`, `assert_ok`, and `assert_err`.
 

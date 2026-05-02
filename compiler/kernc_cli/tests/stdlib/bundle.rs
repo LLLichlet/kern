@@ -63,17 +63,17 @@ fn main() i32 {
     let mut sink = null_writer();
     let mut ctx = test.context(*mut Writer.{ sink..& });
 
-    ctx..&.assert(true, "should not fail", .{});
-    ctx..&.eq(usize.{4}, usize.{4});
-    ctx..&.not_eq(usize.{4}, usize.{5});
-    let value = ctx..&.expect_some(?usize.{ Some: 7 });
-    ctx..&.eq(value, usize.{7});
-    ctx..&.expect_none(?usize.None);
+    ctx..&.assert(@loc(), true, "should not fail", .{});
+    ctx..&.eq(@loc(), usize.{4}, usize.{4}, "expected values to be equal", .{});
+    ctx..&.not_eq(@loc(), usize.{4}, usize.{5}, "expected values to differ", .{});
+    let value = ctx..&.expect_some(@loc(), ?usize.{ Some: 7 }, "expected option to contain a value", .{});
+    ctx..&.eq(@loc(), value, usize.{7}, "expected option payload", .{});
+    ctx..&.expect_none(@loc(), ?usize.None, "expected option to be empty", .{});
 
     let mut local_sink = null_writer();
     let mut local_ctx = test.context(*mut Writer.{ local_sink..& });
-    local_ctx..&.eq(usize.{8}, usize.{8});
-    local_ctx..&.assert_ok(usize!i32.{ Ok: 9 });
+    local_ctx..&.eq(@loc(), usize.{8}, usize.{8}, "expected values to be equal", .{});
+    local_ctx..&.assert_ok(@loc(), usize!i32.{ Ok: 9 }, "expected result to be ok", .{});
     return 0;
 }
 "#,

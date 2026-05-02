@@ -87,11 +87,11 @@ fn main() i32 {
     let mut err = io.stderr();
     let mut ctx = test.context(*mut Writer.{ err..& });
 
-    ctx..&.assert(true, "should not fail", .{});
-    ctx..&.eq(usize.{4}, usize.{4});
-    ctx..&.not_eq(usize.{4}, usize.{5});
-    ctx..&.eq_msg(usize.{8}, usize.{8}, "should not fail {}", .{ 8, });
-    ctx..&.not_eq_msg(usize.{8}, usize.{9}, "should not fail {}", .{ 9, });
+    ctx..&.assert(@loc(), true, "should not fail", .{});
+    ctx..&.eq(@loc(), usize.{4}, usize.{4}, "expected values to be equal", .{});
+    ctx..&.not_eq(@loc(), usize.{4}, usize.{5}, "expected values to differ", .{});
+    ctx..&.eq(@loc(), usize.{8}, usize.{8}, "should not fail {}", .{ 8, });
+    ctx..&.not_eq(@loc(), usize.{8}, usize.{9}, "should not fail {}", .{ 9, });
     return 0;
 }
 "#,
@@ -123,7 +123,7 @@ fn main() i32 {
     let mut err = io.stderr();
     let mut ctx = test.context(*mut Writer.{ err..& });
 
-    ctx..&.eq(usize.{4}, usize.{5});
+    ctx..&.eq(@loc(), usize.{4}, usize.{5}, "expected values to be equal", .{});
     return 0;
 }
 "#,
@@ -167,8 +167,8 @@ fn main() i32 {
     let mut err = io.stderr();
     let mut ctx = test.context(*mut Writer.{ err..& });
 
-    ctx..&.eq(Mode.Fast, Mode.Fast);
-    ctx..&.not_eq(Mode.Fast, Mode.Slow);
+    ctx..&.eq(@loc(), Mode.Fast, Mode.Fast, "expected enum values to be equal", .{});
+    ctx..&.not_eq(@loc(), Mode.Fast, Mode.Slow, "expected enum values to differ", .{});
     return 0;
 }
 "#,
@@ -207,30 +207,30 @@ fn main() i32 {
     let mut err = io.stderr();
     let mut ctx = test.context(*mut Writer.{ err..& });
 
-    let some = ctx..&.expect_some(?usize.{ Some: 9 });
-    ctx..&.eq(some, usize.{9});
-    ctx..&.expect_none(?usize.None);
-    ctx..&.assert_some(?usize.{ Some: 11 });
-    ctx..&.assert_some_msg(?usize.{ Some: 13 }, "expected configured option {}", .{ 13, });
-    ctx..&.assert_none(?usize.None);
-    ctx..&.assert_none_msg(?usize.None, "expected missing option {}", .{ 17, });
-    let some_msg = ctx..&.expect_some_msg(?usize.{ Some: 19 }, "expected option {}", .{ 19, });
-    ctx..&.eq(some_msg, usize.{19});
-    ctx..&.expect_none_msg(?usize.None, "expected none {}", .{ 23, });
+    let some = ctx..&.expect_some(@loc(), ?usize.{ Some: 9 }, "expected option to contain a value", .{});
+    ctx..&.eq(@loc(), some, usize.{9}, "expected option payload", .{});
+    ctx..&.expect_none(@loc(), ?usize.None, "expected option to be empty", .{});
+    ctx..&.assert_some(@loc(), ?usize.{ Some: 11 }, "expected option to contain a value", .{});
+    ctx..&.assert_some(@loc(), ?usize.{ Some: 13 }, "expected configured option {}", .{ 13, });
+    ctx..&.assert_none(@loc(), ?usize.None, "expected option to be empty", .{});
+    ctx..&.assert_none(@loc(), ?usize.None, "expected missing option {}", .{ 17, });
+    let some_msg = ctx..&.expect_some(@loc(), ?usize.{ Some: 19 }, "expected option {}", .{ 19, });
+    ctx..&.eq(@loc(), some_msg, usize.{19}, "expected option payload", .{});
+    ctx..&.expect_none(@loc(), ?usize.None, "expected none {}", .{ 23, });
 
-    let ok = ctx..&.expect_ok(parse(true));
-    ctx..&.eq(ok, usize.{7});
-    ctx..&.assert_ok(parse(true));
-    ctx..&.assert_ok_msg(parse(true), "expected parse ok {}", .{ 29, });
-    let ok_msg = ctx..&.expect_ok_msg(parse(true), "expected parse ok {}", .{ 31, });
-    ctx..&.eq(ok_msg, usize.{7});
+    let ok = ctx..&.expect_ok(@loc(), parse(true), "expected result to be ok", .{});
+    ctx..&.eq(@loc(), ok, usize.{7}, "expected ok payload", .{});
+    ctx..&.assert_ok(@loc(), parse(true), "expected result to be ok", .{});
+    ctx..&.assert_ok(@loc(), parse(true), "expected parse ok {}", .{ 29, });
+    let ok_msg = ctx..&.expect_ok(@loc(), parse(true), "expected parse ok {}", .{ 31, });
+    ctx..&.eq(@loc(), ok_msg, usize.{7}, "expected ok payload", .{});
 
-    let err = ctx..&.expect_err(parse(false));
-    ctx..&.eq(err, i32.{-1});
-    ctx..&.assert_err(parse(false));
-    ctx..&.assert_err_msg(parse(false), "expected parse err {}", .{ 37, });
-    let err_msg = ctx..&.expect_err_msg(parse(false), "expected parse err {}", .{ 41, });
-    ctx..&.eq(err_msg, i32.{-1});
+    let err = ctx..&.expect_err(@loc(), parse(false), "expected result to be err", .{});
+    ctx..&.eq(@loc(), err, i32.{-1}, "expected err payload", .{});
+    ctx..&.assert_err(@loc(), parse(false), "expected result to be err", .{});
+    ctx..&.assert_err(@loc(), parse(false), "expected parse err {}", .{ 37, });
+    let err_msg = ctx..&.expect_err(@loc(), parse(false), "expected parse err {}", .{ 41, });
+    ctx..&.eq(@loc(), err_msg, i32.{-1}, "expected err payload", .{});
     return 0;
 }
 "#,
@@ -262,7 +262,7 @@ fn main() i32 {
     let mut err = io.stderr();
     let mut ctx = test.context(*mut Writer.{ err..& });
 
-    ctx..&.eq_msg(usize.{4}, usize.{5}, "mismatch at {}", .{ 7, });
+    ctx..&.eq(@loc(), usize.{4}, usize.{5}, "mismatch at {}", .{ 7, });
     return 0;
 }
 "#,
@@ -272,7 +272,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         !run_output.status.success(),
-        "expected base.test context eq_msg failure to abort with a diagnostic:\nstdout:\n{}\nstderr:\n{}",
+        "expected base.test context eq failure to abort with a diagnostic:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -280,6 +280,45 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&run_output.stderr);
     assert!(
         stderr.contains("test failed: mismatch at 7"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn test_message_assertion_failure_can_report_source_location() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_test_loc_fail",
+        r#"
+use base.test;
+use base.io.Writer;
+use std.io;
+
+fn main() i32 {
+    let mut err = io.stderr();
+    let mut ctx = test.context(*mut Writer.{ err..& });
+
+    ctx..&.eq(@loc(), usize.{4}, usize.{5}, "located {}", .{ 42, });
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        !run_output.status.success(),
+        "expected base.test context located eq failure to abort with a diagnostic:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&run_output.stderr);
+    assert!(
+        stderr.contains(".rn:") && stderr.contains("test failed: located 42"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -301,7 +340,7 @@ fn main() i32 {
     let mut err = io.stderr();
     let mut ctx = test.context(*mut Writer.{ err..& });
 
-    let _ = ctx..&.expect_some(?usize.None);
+    let _ = ctx..&.expect_some(@loc(), ?usize.None, "expected option to contain a value", .{});
     return 0;
 }
 "#,
@@ -775,7 +814,7 @@ fn main() i32 {
     let mut err = io.stderr();
     let mut ctx = test.context(*mut Writer.{ err..& });
 
-    let _ = ctx..&.expect_err(usize!i32.{ Ok: 3 });
+    let _ = ctx..&.expect_err(@loc(), usize!i32.{ Ok: 3 }, "expected result to be err", .{});
     return 0;
 }
 "#,

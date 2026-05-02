@@ -66,6 +66,46 @@ impl CompilerDriver {
         AnalysisReport { session, succeeded }
     }
 
+    pub fn analyze_structure_report(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+    ) -> AnalysisReport {
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+
+        match self.try_analyze_structure(session, input_file, source_overrides) {
+            Ok(structure) => AnalysisReport {
+                session: structure.session,
+                succeeded: true,
+            },
+            Err(session) => AnalysisReport {
+                session: *session,
+                succeeded: false,
+            },
+        }
+    }
+
+    pub fn parse_report(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+    ) -> AnalysisReport {
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+
+        match self.try_parse_modules(session, input_file, source_overrides) {
+            Ok(parsed) => AnalysisReport {
+                session: parsed.session,
+                succeeded: true,
+            },
+            Err(session) => AnalysisReport {
+                session: *session,
+                succeeded: false,
+            },
+        }
+    }
+
     pub fn analyze_report_from_structure_and_parsed(
         &self,
         structure: &StructureArtifact,

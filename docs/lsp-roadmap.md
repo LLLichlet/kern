@@ -46,11 +46,15 @@ cheap:
 - preserve clean-artifact completion for valid body positions
 - record selected analysis tiers so hot-path tests and verbose trace can assert
   behavior directly
+- trace interactive and diagnostics request latency under `trace=verbose`
+- drop stale diagnostics tasks before analysis when a newer document generation
+  already exists
 - keep `analysis::tests::dirty_cache` as the main regression target
 
 ## Later Milestones
 
-1. Add explicit request budgets and trace logs for analysis tier selection.
+1. Add explicit request budgets beyond the current trace logs for analysis tier
+   selection and request latency.
 2. Coalesce diagnostics and workspace refresh work by document generation.
 3. Add cancellation or stale-generation checks before expensive analysis stages.
 4. Move heavy analysis off the main dispatch path.

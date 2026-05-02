@@ -185,6 +185,10 @@ impl AnalysisEngine {
         self.last_analysis_tier.borrow_mut().replace(tier);
     }
 
+    pub(crate) fn clear_last_analysis_tier(&self) {
+        self.last_analysis_tier.borrow_mut().take();
+    }
+
     fn analyze_document(&self, target_uri: &str) -> AnalysisOutcome {
         if let Ok(Some(outcome)) = self.analyze_targeted_dirty_outcome(target_uri) {
             return outcome;

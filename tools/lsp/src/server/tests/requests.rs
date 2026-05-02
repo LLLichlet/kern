@@ -113,6 +113,53 @@ fn code_action_request_skips_analysis_for_non_quickfix_filters() {
 }
 
 #[test]
+fn non_analyzing_request_does_not_trace_stale_analysis_tier() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn main() void {\n    let m\n}\n";
+    let uri = temp_file_uri("server_stale_tier_trace", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let completion_messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(1230)),
+            method: Some("textDocument/completion".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 9 }
+            })),
+        },
+    );
+    assert_eq!(completion_messages.len(), 2);
+
+    let code_action_messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(1231)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 2, "character": 1 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["refactor"]
+                }
+            })),
+        },
+    );
+
+    assert_eq!(code_action_messages.len(), 1);
+    assert_eq!(code_action_messages[0]["id"], json!(1231));
+    assert_eq!(code_action_messages[0]["result"], json!([]));
+}
+
+#[test]
 fn rename_request_returns_workspace_edit() {
     let mut state = initialized_state();
     let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";

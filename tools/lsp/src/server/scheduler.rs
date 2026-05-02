@@ -199,6 +199,7 @@ where
         return Ok(());
     }
 
+    state.analysis.clear_last_analysis_tier();
     let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis)));
     match result {
         Ok(Ok(result)) => {
@@ -246,6 +247,7 @@ where
         return Ok(());
     }
 
+    state.analysis.clear_last_analysis_tier();
     let result = catch_unwind(AssertUnwindSafe(|| analysis(&state.analysis)));
     match result {
         Ok(Ok(Some(result))) => {

@@ -169,6 +169,7 @@
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.27.4",
     "vscode-languageclient": "^9.0.1",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "yazl": "^2.5.1"
   }
 }

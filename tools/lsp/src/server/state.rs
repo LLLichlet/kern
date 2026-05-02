@@ -12,7 +12,7 @@ pub(super) struct ServerState {
     pub(super) next_analysis_generation: u64,
     pub(super) latest_generation_by_target: BTreeMap<String, AnalysisGeneration>,
     pub(super) canceled_request_ids: Vec<Value>,
-    pub(super) pending_diagnostics_targets: BTreeMap<String, DiagnosticsAnalysisMode>,
+    pub(super) pending_diagnostics_targets: BTreeMap<String, ScheduledDiagnosticsTask>,
     pub(super) pending_workspace_refresh_reason: Option<String>,
     pub(super) pending_diagnostics: BTreeMap<String, ScheduledDiagnosticsPublish>,
     pub(super) published_by_target: BTreeMap<String, BTreeSet<String>>,
@@ -37,6 +37,11 @@ pub(super) enum SchedulerLane {
 pub(super) struct ScheduledDiagnosticsPublish {
     pub(super) generation: AnalysisGeneration,
     pub(super) outcome: AnalysisOutcome,
+}
+
+pub(super) struct ScheduledDiagnosticsTask {
+    pub(super) generation: AnalysisGeneration,
+    pub(super) mode: DiagnosticsAnalysisMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -211,15 +216,21 @@ impl ServerState {
     pub(super) fn queue_target_diagnostics_task(
         &mut self,
         target_uri: String,
+        generation: AnalysisGeneration,
         mode: DiagnosticsAnalysisMode,
     ) {
-        if self.pending_workspace_refresh_reason.is_some() {
+        if self.pending_workspace_refresh_reason.is_some()
+            || !self.is_current_generation(&target_uri, generation)
+        {
             return;
         }
         self.pending_diagnostics_targets
             .entry(target_uri)
-            .and_modify(|existing| *existing = existing.merge(mode))
-            .or_insert(mode);
+            .and_modify(|existing| {
+                existing.generation = generation;
+                existing.mode = existing.mode.merge(mode);
+            })
+            .or_insert(ScheduledDiagnosticsTask { generation, mode });
     }
 
     pub(super) fn queue_workspace_refresh_task(&mut self, reason: String) {

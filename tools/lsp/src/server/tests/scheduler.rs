@@ -75,27 +75,32 @@ fn diagnostics_lane_coalesces_latest_publish_per_target() {
 fn diagnostics_lane_coalesces_target_analysis_tasks() {
     let mut state = initialized_state();
     let uri = temp_file_uri("server_diagnostics_task_queue", "fn main() void {}\n");
+    let first = state.begin_target_analysis(&uri);
+    let second = state.begin_target_analysis(&uri);
 
-    state.queue_target_diagnostics_task(uri.clone(), DiagnosticsAnalysisMode::Structure);
-    state.queue_target_diagnostics_task(uri.clone(), DiagnosticsAnalysisMode::Structure);
+    state.queue_target_diagnostics_task(uri.clone(), first, DiagnosticsAnalysisMode::Structure);
+    state.queue_target_diagnostics_task(uri.clone(), second, DiagnosticsAnalysisMode::Structure);
 
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
-    assert!(state.pending_diagnostics_targets.contains_key(&uri));
+    let task = state.pending_diagnostics_targets.get(&uri).unwrap();
+    assert_eq!(task.generation, second);
+    assert_eq!(task.mode, DiagnosticsAnalysisMode::Structure);
 }
 
 #[test]
 fn diagnostics_lane_upgrades_coalesced_target_to_full_analysis() {
     let mut state = initialized_state();
     let uri = temp_file_uri("server_diagnostics_task_upgrade", "fn main() void {}\n");
+    let first = state.begin_target_analysis(&uri);
+    let second = state.begin_target_analysis(&uri);
 
-    state.queue_target_diagnostics_task(uri.clone(), DiagnosticsAnalysisMode::Structure);
-    state.queue_target_diagnostics_task(uri.clone(), DiagnosticsAnalysisMode::Full);
+    state.queue_target_diagnostics_task(uri.clone(), first, DiagnosticsAnalysisMode::Structure);
+    state.queue_target_diagnostics_task(uri.clone(), second, DiagnosticsAnalysisMode::Full);
 
     assert_eq!(state.pending_diagnostics_targets.len(), 1);
-    assert_eq!(
-        state.pending_diagnostics_targets.get(&uri),
-        Some(&DiagnosticsAnalysisMode::Full)
-    );
+    let task = state.pending_diagnostics_targets.get(&uri).unwrap();
+    assert_eq!(task.generation, second);
+    assert_eq!(task.mode, DiagnosticsAnalysisMode::Full);
 }
 
 #[test]
@@ -124,8 +129,11 @@ fn dirty_open_queues_structure_diagnostics() {
     .unwrap();
 
     assert_eq!(
-        state.pending_diagnostics_targets.get(&uri),
-        Some(&DiagnosticsAnalysisMode::Structure)
+        state
+            .pending_diagnostics_targets
+            .get(&uri)
+            .map(|task| task.mode),
+        Some(DiagnosticsAnalysisMode::Structure)
     );
 }
 
@@ -186,8 +194,11 @@ fn dirty_save_keeps_structure_diagnostics() {
     .unwrap();
 
     assert_eq!(
-        state.pending_diagnostics_targets.get(&uri),
-        Some(&DiagnosticsAnalysisMode::Structure)
+        state
+            .pending_diagnostics_targets
+            .get(&uri)
+            .map(|task| task.mode),
+        Some(DiagnosticsAnalysisMode::Structure)
     );
 }
 
@@ -228,6 +239,42 @@ fn diagnostics_execution_defers_publish_until_scheduler_drain() {
     let messages = read_all_messages(&output);
     assert!(!messages.is_empty());
     assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+}
+
+#[test]
+fn stale_diagnostics_task_skips_analysis_work() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_stale_diagnostics_task", "fn main() void {}\n");
+    let stale = state.begin_target_analysis(&uri);
+    let _newer = state.begin_target_analysis(&uri);
+    state.pending_diagnostics_targets.insert(
+        uri.clone(),
+        super::super::state::ScheduledDiagnosticsTask {
+            generation: stale,
+            mode: DiagnosticsAnalysisMode::Full,
+        },
+    );
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    flush_diagnostics_lane(&mut state, &mut writer).unwrap();
+
+    assert!(output.is_empty());
+    assert!(state.pending_diagnostics_targets.is_empty());
+    assert!(state.pending_diagnostics.is_empty());
+    assert_eq!(state.analysis.last_analysis_tier(), None);
+}
+
+#[test]
+fn stale_diagnostics_task_is_not_queued() {
+    let mut state = initialized_state();
+    let uri = temp_file_uri("server_stale_diagnostics_queue", "fn main() void {}\n");
+    let stale = state.begin_target_analysis(&uri);
+    let _newer = state.begin_target_analysis(&uri);
+
+    state.queue_target_diagnostics_task(uri, stale, DiagnosticsAnalysisMode::Full);
+
+    assert!(state.pending_diagnostics_targets.is_empty());
 }
 
 #[test]

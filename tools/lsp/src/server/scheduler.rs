@@ -94,12 +94,12 @@ pub(super) fn flush_diagnostics_lane(
         state.pending_diagnostics_targets.clear();
     } else {
         let targets = std::mem::take(&mut state.pending_diagnostics_targets);
-        for (target_uri, mode) in targets {
-            let generation = state
-                .latest_generation_by_target
-                .get(&target_uri)
-                .copied()
-                .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
+        for (target_uri, task) in targets {
+            let mode = task.mode;
+            let generation = task.generation;
+            if !state.is_current_generation(&target_uri, generation) {
+                continue;
+            }
             state.analysis.clear_last_analysis_tier();
             let started_at = Instant::now();
             let outcome = match catch_unwind(AssertUnwindSafe(|| match mode {
@@ -160,7 +160,7 @@ where
             state
                 .latest_generation_by_target
                 .insert(uri.clone(), generation);
-            state.queue_target_diagnostics_task(uri, mode);
+            state.queue_target_diagnostics_task(uri, generation, mode);
         }
         Ok(DocumentSyncAction::Immediate(outcome)) => {
             state.queue_diagnostics_publish(target_uri.to_string(), generation, outcome);

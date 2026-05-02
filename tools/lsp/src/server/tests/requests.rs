@@ -415,3 +415,73 @@ fn semantic_tokens_request_returns_encoded_token_data() {
     assert!(!data.is_empty());
     assert_eq!(data.len() % 5, 0);
 }
+
+#[test]
+fn verbose_trace_reports_dirty_semantic_tokens_as_lexical() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let clean = "fn main() i32 {\n    return 0;\n}\n";
+    let dirty = "fn main() i32 {\n    let value = 0\n}\n";
+    let uri = temp_file_uri("server_dirty_semantic_tokens_trace", clean);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, clean, 1));
+    assert!(dispatch_messages(&mut state, did_change_message(&uri, dirty, 2)).is_empty());
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(3101)),
+            method: Some("textDocument/semanticTokens/full".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["id"], json!(3101));
+    assert_eq!(messages[1]["method"], "$/logTrace");
+    assert_eq!(messages[1]["params"]["message"], "analysis tier selected");
+    let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("tier=lexical"), "{verbose}");
+    assert!(verbose.contains("lane=Interactive"), "{verbose}");
+}
+
+#[test]
+fn verbose_trace_reports_dirty_code_actions_as_parse_only() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let clean = "fn main() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
+    let dirty = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let uri = temp_file_uri("server_dirty_code_action_trace", clean);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, clean, 1));
+    assert!(dispatch_messages(&mut state, did_change_message(&uri, dirty, 2)).is_empty());
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(3102)),
+            method: Some("textDocument/codeAction".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": 2, "character": 0 },
+                    "end": { "line": 2, "character": 20 }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["quickfix"]
+                }
+            })),
+        },
+    );
+
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["id"], json!(3102));
+    assert_eq!(messages[1]["method"], "$/logTrace");
+    assert_eq!(messages[1]["params"]["message"], "analysis tier selected");
+    let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("tier=parse-only"), "{verbose}");
+    assert!(verbose.contains("lane=Interactive"), "{verbose}");
+}

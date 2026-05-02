@@ -63,6 +63,37 @@ fn completion_request_returns_kern_keyword_snippets() {
 }
 
 #[test]
+fn completion_request_on_incomplete_declaration_name_is_nonempty() {
+    let mut state = initialized_state();
+    let source = "fn main() void {\n    let mut n\n}\n";
+    let uri = temp_file_uri("server_completion_incomplete_decl", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let response = dispatch_single_response(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(3501)),
+            method: Some("textDocument/completion".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 13 }
+            })),
+        },
+    );
+
+    assert_eq!(response["id"], json!(3501));
+    let labels = response["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["label"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(labels.contains(&"let"), "{labels:?}");
+    assert!(labels.contains(&"return"), "{labels:?}");
+}
+
+#[test]
 fn verbose_trace_reports_completion_analysis_tier() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;

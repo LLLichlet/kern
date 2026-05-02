@@ -30,6 +30,7 @@ fn semantic_tokens_for_dirty_documents_fall_back_to_lexical_tokens() {
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
     assert!(!decoded.is_empty());
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
     assert!(
         decoded
             .iter()
@@ -67,6 +68,7 @@ fn semantic_tokens_for_valid_dirty_documents_use_lexical_fallback() {
     let cached_artifacts = analysis.artifact_cache.borrow().len();
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
     assert!(!decoded.is_empty());
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
     assert_eq!(analysis.artifact_cache.borrow().len(), cached_artifacts);
     assert!(
         decoded

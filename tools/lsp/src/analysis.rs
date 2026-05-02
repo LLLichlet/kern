@@ -100,6 +100,15 @@ pub enum DocumentSyncAction {
     Immediate(AnalysisOutcome),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnalysisTier {
+    Lexical,
+    ParseOnly,
+    Surface,
+    CleanSemantic,
+    DirtySemantic,
+}
+
 #[derive(Debug, Clone)]
 struct RenameTarget {
     query_span: Span,
@@ -133,6 +142,7 @@ pub struct AnalysisEngine {
     semantic_tokens_cache: RefCell<BTreeMap<SemanticTokensCacheKey, SemanticTokens>>,
     dirty_documents_snapshot: RefCell<Option<Rc<DirtyDocumentsSnapshot>>>,
     open_uri_by_path: RefCell<Option<Rc<BTreeMap<PathBuf, String>>>>,
+    last_analysis_tier: RefCell<Option<AnalysisTier>>,
 }
 
 impl Default for AnalysisEngine {
@@ -155,7 +165,12 @@ impl AnalysisEngine {
             semantic_tokens_cache: RefCell::new(BTreeMap::new()),
             dirty_documents_snapshot: RefCell::new(None),
             open_uri_by_path: RefCell::new(None),
+            last_analysis_tier: RefCell::new(None),
         }
+    }
+
+    fn record_analysis_tier(&self, tier: AnalysisTier) {
+        self.last_analysis_tier.borrow_mut().replace(tier);
     }
 
     fn analyze_document(&self, target_uri: &str) -> AnalysisOutcome {
@@ -216,6 +231,7 @@ impl AnalysisEngine {
     }
 
     fn parse_open_document_session(&self, target_uri: &str) -> Result<Session, String> {
+        self.record_analysis_tier(AnalysisTier::ParseOnly);
         let target_doc = self
             .documents
             .get(target_uri)
@@ -314,6 +330,7 @@ impl AnalysisEngine {
         bundles_by_uri.insert(target_uri.to_string(), target_diagnostics);
         self.retain_publishable_bundles(target_uri, &mut bundles_by_uri);
 
+        self.record_analysis_tier(AnalysisTier::DirtySemantic);
         Ok(Some(AnalysisOutcome {
             bundles: bundles_by_uri
                 .into_iter()
@@ -337,15 +354,24 @@ impl AnalysisEngine {
         };
 
         let parsed = self.parse_modules_for_context(&context)?;
-        Ok(context
+        let report = context
             .driver
             .analyze_report_from_structure_and_parsed(&clean_structure, &parsed)
-            .filter(|_| !context.dirty_documents.is_clean()))
+            .filter(|_| !context.dirty_documents.is_clean());
+        if report.is_some() {
+            self.record_analysis_tier(AnalysisTier::DirtySemantic);
+        }
+        Ok(report)
     }
 
     #[cfg(test)]
     fn source_overrides(&self) -> SourceOverrides {
         self.dirty_documents_snapshot().overrides.clone()
+    }
+
+    #[cfg(test)]
+    fn last_analysis_tier(&self) -> Option<AnalysisTier> {
+        *self.last_analysis_tier.borrow()
     }
 
     fn dirty_documents_snapshot(&self) -> Rc<DirtyDocumentsSnapshot> {

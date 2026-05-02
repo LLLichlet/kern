@@ -44,6 +44,7 @@ cheap:
 - keep code actions parse-only when a document is dirty
 - avoid full analysis for incomplete binding-name completion
 - preserve clean-artifact completion for valid body positions
+- record selected analysis tiers so hot-path tests can assert behavior directly
 - keep `analysis::tests::dirty_cache` as the main regression target
 
 ## Later Milestones

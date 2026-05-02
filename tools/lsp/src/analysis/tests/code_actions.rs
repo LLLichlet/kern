@@ -280,6 +280,7 @@ fn code_actions_on_dirty_documents_use_lightweight_fixes_without_full_analysis()
         .unwrap();
 
     assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::ParseOnly));
     assert!(actions.iter().any(|action| action.title == "Insert `;`"));
 }
 

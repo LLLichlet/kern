@@ -128,6 +128,7 @@ fn completion_in_incomplete_let_binding_name_stays_lightweight() {
         )
         .unwrap();
 
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
     assert!(analysis.parse_cache.borrow().is_empty());
     assert!(analysis.surface_cache.borrow().is_empty());
     assert!(analysis.structure_cache.borrow().is_empty());
@@ -165,6 +166,7 @@ fn completion_in_incomplete_let_binding_name_keeps_keyword_snippets() {
     let labels = completion_labels(&items);
 
     assert!(labels.contains(&"mut".to_string()));
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
     assert!(analysis.parse_cache.borrow().is_empty());
     assert!(analysis.surface_cache.borrow().is_empty());
     assert!(analysis.structure_cache.borrow().is_empty());

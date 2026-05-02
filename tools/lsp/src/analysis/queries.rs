@@ -176,6 +176,7 @@ impl AnalysisEngine {
         let context = completion_context(&target_doc.text, offset);
         let member_access = completion_is_member_access(&target_doc.text, offset);
         if completion_is_binding_name_context(&target_doc.text, offset) {
+            self.record_analysis_tier(AnalysisTier::Lexical);
             return Ok(keyword_completion_labels(prefix, context, member_access)
                 .into_iter()
                 .map(keyword_completion_item)
@@ -191,19 +192,24 @@ impl AnalysisEngine {
         };
         let mut items = if let Some(surface) = surface {
             if !surface.requires_body_completion(&target_path, offset) {
+                self.record_analysis_tier(AnalysisTier::Surface);
                 surface.completion_items(&target_path, offset)
             } else {
                 let artifact = if is_dirty {
+                    self.record_analysis_tier(AnalysisTier::CleanSemantic);
                     self.analyze_clean_artifact_for_context(&analysis_context)
                 } else {
+                    self.record_analysis_tier(AnalysisTier::CleanSemantic);
                     self.analyze_artifact_for_context(&analysis_context)
                 };
                 artifact.completion_items(&target_path, offset)
             }
         } else {
             let artifact = if is_dirty {
+                self.record_analysis_tier(AnalysisTier::CleanSemantic);
                 self.analyze_clean_artifact_for_context(&analysis_context)
             } else {
+                self.record_analysis_tier(AnalysisTier::CleanSemantic);
                 self.analyze_artifact_for_context(&analysis_context)
             };
             artifact.completion_items(&target_path, offset)
@@ -332,8 +338,10 @@ impl AnalysisEngine {
                 .borrow()
                 .contains_key(&AnalysisCacheKey::clean(&context.resolved))
         {
+            self.record_analysis_tier(AnalysisTier::Lexical);
             semantic::lexical_semantic_tokens(&file)
         } else {
+            self.record_analysis_tier(AnalysisTier::CleanSemantic);
             let artifact = self.analyze_artifact_for_context(&context);
             semantic::semantic_tokens(&artifact, &file, &target_path)
         };
@@ -350,9 +358,11 @@ impl AnalysisEngine {
         };
         let target_path = normalize_path(&target_doc.path);
         let (diagnostics_session, artifact) = if analysis_context.dirty_documents.is_clean() {
+            self.record_analysis_tier(AnalysisTier::CleanSemantic);
             let artifact = self.analyze_artifact_for_context(&analysis_context);
             (artifact.session.clone(), Some(artifact))
         } else {
+            self.record_analysis_tier(AnalysisTier::ParseOnly);
             (self.parse_open_document_session(uri)?, None)
         };
 

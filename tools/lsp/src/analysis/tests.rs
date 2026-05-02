@@ -11,8 +11,8 @@ mod semantic_tokens;
 use super::cache::AnalysisCacheKey;
 use super::semantic::{SemanticModifiers, SemanticTokenTypes};
 use super::{
-    AnalysisEngine, AnalysisSettings, DiagnosticBundle, byte_offset_to_position, cleared_uris,
-    file_path_to_uri, hash_source_text, normalize_path, position_to_byte_offset,
+    AnalysisEngine, AnalysisSettings, AnalysisTier, DiagnosticBundle, byte_offset_to_position,
+    cleared_uris, file_path_to_uri, hash_source_text, normalize_path, position_to_byte_offset,
     uri_to_analysis_path, uri_to_file_path,
 };
 use crate::analysis::DocumentSyncAction;

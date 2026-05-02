@@ -445,6 +445,68 @@ root = "src/lib.rn"
 }
 
 #[test]
+fn dirty_bin_root_does_not_force_lexical_fallback_for_library_tokens() {
+    let root = unique_temp_dir("dirty_bin_root_not_library");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "{CURRENT_KERN_VERSION}"
+
+[lib]
+root = "src/lib.rn"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+"#
+        ),
+    )
+    .unwrap();
+    let lib_source = "pub type Bitmap = struct {};\npub fn make() Bitmap { return Bitmap.{}; }\n";
+    let main_source = "fn main() i32 { return 0; }\n";
+    let dirty_main_source = "fn main() i32 {\n    return 0;\n}\n";
+    let lib_path = root.join("src/lib.rn");
+    let main_path = root.join("src/main.rn");
+    fs::write(&lib_path, lib_source).unwrap();
+    fs::write(&main_path, main_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let lib_uri = file_path_to_uri(&lib_path).unwrap();
+    let main_uri = file_path_to_uri(&main_path).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: lib_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: lib_source.to_string(),
+        },
+    });
+    warm_clean_semantic_artifact(&analysis, &lib_uri, lib_source);
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: main_uri,
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: dirty_main_source.to_string(),
+        },
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&lib_uri).unwrap());
+
+    assert_token_with_length(
+        &decoded,
+        position_of_nth(lib_source, "Bitmap", 0, 0),
+        6,
+        SemanticTokenTypes::STRUCT,
+    );
+}
+
+#[test]
 fn source_overrides_only_include_dirty_documents() {
     let uri = temp_file_uri("analysis_dirty_overrides", "fn main() void {}\n");
     let path = uri_to_file_path(&uri).unwrap();

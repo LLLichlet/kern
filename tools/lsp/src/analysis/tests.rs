@@ -213,3 +213,22 @@ fn assert_token(
         position
     );
 }
+
+fn assert_token_with_length(
+    tokens: &[(Position, u32, u32, u32)],
+    position: Position,
+    expected_length: u32,
+    expected_type: u32,
+) {
+    assert!(
+        tokens.iter().any(
+            |(token_position, length, token_type, _)| *token_position == position
+                && *length == expected_length
+                && *token_type == expected_type
+        ),
+        "missing semantic token {:?} with length {:?} at {:?}",
+        expected_type,
+        expected_length,
+        position
+    );
+}

@@ -62,7 +62,9 @@ impl DirtyDocumentsSnapshot {
                 let normalized = super::normalize_path(path);
                 roots
                     .iter()
-                    .any(|root| path_belongs_to_analysis_root(root, &normalized))
+                    .any(|root| {
+                        path_belongs_to_analysis_root(root, &normalized, &resolved.target_roots)
+                    })
                     .then(|| (normalized, text.clone()))
             })
             .collect::<SourceOverrides>();
@@ -217,9 +219,17 @@ fn related_analysis_roots(resolved: &ResolvedAnalysis) -> Vec<PathBuf> {
     roots
 }
 
-fn path_belongs_to_analysis_root(root: &PathBuf, path: &PathBuf) -> bool {
+fn path_belongs_to_analysis_root(root: &PathBuf, path: &PathBuf, target_roots: &[PathBuf]) -> bool {
     if root == path {
         return true;
+    }
+
+    if target_roots
+        .iter()
+        .map(|target_root| super::normalize_path(target_root))
+        .any(|target_root| target_root == *path)
+    {
+        return false;
     }
 
     let Some(parent) = root.parent() else {

@@ -188,6 +188,37 @@ fn semantic_tokens_classify_prefixed_and_qualified_type_contexts() {
 }
 
 #[test]
+fn lexical_semantic_tokens_classify_full_impl_target_name() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "impl Bitmap {\n",
+        "    pub fn get(index: usize) bool {\n",
+        "        return false;\n",
+        "    }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("semantic_tokens_impl_target", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+    assert_token_with_length(
+        &decoded,
+        position_of_nth(source, "Bitmap", 0, 0),
+        6,
+        SemanticTokenTypes::TYPE,
+    );
+}
+
+#[test]
 fn semantic_tokens_prefer_symbol_kinds_and_modifiers_for_references() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

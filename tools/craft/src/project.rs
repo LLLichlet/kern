@@ -41,6 +41,7 @@ pub struct ResolvedAnalysis {
     pub input_file: PathBuf,
     pub compile_options: CompileOptions,
     pub source_path_aliases: BTreeMap<PathBuf, PathBuf>,
+    pub target_roots: Vec<PathBuf>,
 }
 
 struct AnalysisFileMatch<'a> {
@@ -103,6 +104,7 @@ impl AnalysisProject {
         let mut resolved_target_kind = None;
         let mut matched_values = None;
         let mut source_path_aliases = BTreeMap::new();
+        let mut target_roots = Vec::new();
 
         if let Some(script_root) = self.script_root_for_file(file) {
             input_file = script_root.root.clone();
@@ -116,6 +118,7 @@ impl AnalysisProject {
             input_file = matched.input_file.clone();
             matched_values = Some(matched.compile_time_values);
             source_path_aliases = matched.source_path_aliases;
+            target_roots = matched.package.target_roots.clone();
             resolved_package = Some(matched.package);
             resolved_target_kind = Some(matched.target_kind);
             for (name, path) in &matched.package.module_aliases {
@@ -131,6 +134,7 @@ impl AnalysisProject {
             compile_options.metadata_package_name = Some(matched.package.id.name.clone());
         } else if let Some(package) = self.package_for_file(file) {
             resolved_package = Some(package);
+            target_roots = package.target_roots.clone();
             input_file = package.analysis_root_for(file);
             for (name, path) in &package.module_aliases {
                 compile_options
@@ -177,6 +181,7 @@ impl AnalysisProject {
             input_file,
             compile_options,
             source_path_aliases,
+            target_roots,
         }
     }
 

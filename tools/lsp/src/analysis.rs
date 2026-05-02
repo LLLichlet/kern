@@ -630,6 +630,7 @@ impl AnalysisEngine {
             input_file: self.infer_standalone_analysis_root(&target_doc.path),
             compile_options,
             source_path_aliases: BTreeMap::new(),
+            target_roots: Vec::new(),
         })
     }
 

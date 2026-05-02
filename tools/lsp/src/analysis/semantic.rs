@@ -526,7 +526,11 @@ fn is_type_context_identifier(tokens: &[Token], index: usize) -> bool {
     };
 
     match previous.tag {
-        TokenType::Colon | TokenType::Arrow | TokenType::As | TokenType::Question => return true,
+        TokenType::Colon
+        | TokenType::Arrow
+        | TokenType::As
+        | TokenType::Question
+        | TokenType::Impl => return true,
         TokenType::Dot => {
             let Some(dot_index) = previous_significant_token_index(tokens, index) else {
                 return false;
@@ -605,7 +609,7 @@ fn is_nested_in_type_context(tokens: &[Token], index: usize) -> bool {
             TokenType::LParen => paren_depth = paren_depth.saturating_sub(1),
             TokenType::RBracket => bracket_depth += 1,
             TokenType::LBracket => bracket_depth = bracket_depth.saturating_sub(1),
-            TokenType::Colon | TokenType::Arrow | TokenType::As
+            TokenType::Colon | TokenType::Arrow | TokenType::As | TokenType::Impl
                 if paren_depth == 0 && bracket_depth == 0 =>
             {
                 return true;

@@ -56,9 +56,12 @@ pub(super) fn flush_diagnostics_lane(
     if let Some(reason) = state.pending_workspace_refresh_reason.take() {
         let generations = state.begin_workspace_refresh();
         let fallback_targets = state.analysis.document_uris();
+        let started_at = Instant::now();
         let refresh = catch_unwind(AssertUnwindSafe(|| state.analysis.refresh_workspace()));
+        let elapsed_ms = started_at.elapsed().as_millis();
         match refresh {
             Ok(outcomes) => {
+                let target_count = outcomes.len();
                 for (target_uri, outcome) in outcomes {
                     let generation = generations
                         .get(&target_uri)
@@ -66,9 +69,11 @@ pub(super) fn flush_diagnostics_lane(
                         .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
                     state.queue_diagnostics_publish(target_uri, generation, outcome);
                 }
+                emit_workspace_refresh_trace(state, writer, &reason, target_count, elapsed_ms)?;
             }
             Err(payload) => {
                 let message = panic_message(payload.as_ref());
+                let target_count = fallback_targets.len();
                 for target_uri in fallback_targets {
                     let generation = generations
                         .get(&target_uri)
@@ -83,10 +88,10 @@ pub(super) fn flush_diagnostics_lane(
                         ),
                     );
                 }
+                emit_workspace_refresh_trace(state, writer, &reason, target_count, elapsed_ms)?;
             }
         }
         state.pending_diagnostics_targets.clear();
-        emit_trace(state, writer, reason, None, true)?;
     } else {
         let targets = std::mem::take(&mut state.pending_diagnostics_targets);
         for (target_uri, mode) in targets {
@@ -95,6 +100,8 @@ pub(super) fn flush_diagnostics_lane(
                 .get(&target_uri)
                 .copied()
                 .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
+            state.analysis.clear_last_analysis_tier();
+            let started_at = Instant::now();
             let outcome = match catch_unwind(AssertUnwindSafe(|| match mode {
                 DiagnosticsAnalysisMode::Structure => {
                     state.analysis.analyze_document_structure_uri(&target_uri)
@@ -110,6 +117,8 @@ pub(super) fn flush_diagnostics_lane(
                     ),
                 ),
             };
+            let elapsed_ms = started_at.elapsed().as_millis();
+            emit_diagnostics_analysis_trace(state, writer, &target_uri, mode, elapsed_ms)?;
             state.queue_diagnostics_publish(target_uri, generation, outcome);
         }
     }
@@ -294,6 +303,58 @@ fn emit_analysis_tier_trace(
             elapsed_ms,
             lane,
             target_uri
+        )),
+        true,
+    )
+}
+
+fn emit_diagnostics_analysis_trace(
+    state: &ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    target_uri: &str,
+    mode: DiagnosticsAnalysisMode,
+    elapsed_ms: u128,
+) -> Result<(), ServerError> {
+    let tier = state
+        .analysis
+        .last_analysis_tier()
+        .map(|tier| tier.as_str());
+    let mut verbose = format!(
+        "mode={:?} elapsed_ms={} lane={:?} target={}",
+        mode,
+        elapsed_ms,
+        SchedulerLane::Diagnostics,
+        target_uri
+    );
+    if let Some(tier) = tier {
+        verbose.insert_str(0, &format!("tier={} ", tier));
+    }
+    emit_trace(
+        state,
+        writer,
+        "diagnostics analysis completed",
+        Some(verbose),
+        true,
+    )
+}
+
+fn emit_workspace_refresh_trace(
+    state: &ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    reason: &str,
+    target_count: usize,
+    elapsed_ms: u128,
+) -> Result<(), ServerError> {
+    emit_trace(
+        state,
+        writer,
+        "workspace refresh completed",
+        Some(format!(
+            "reason={} targets={} elapsed_ms={} lane={:?}",
+            reason,
+            target_count,
+            elapsed_ms,
+            SchedulerLane::Diagnostics
         )),
         true,
     )

@@ -22,6 +22,61 @@ fn did_open_publishes_related_information_and_hints() {
 }
 
 #[test]
+fn verbose_trace_reports_diagnostics_lane_analysis() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let uri = temp_file_uri("server_diagnostics_lane_trace", source);
+
+    let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["method"], "$/logTrace");
+    assert_eq!(
+        messages[0]["params"]["message"],
+        "diagnostics analysis completed"
+    );
+    let verbose = messages[0]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("tier=parse-only"), "{verbose}");
+    assert!(verbose.contains("mode=Structure"), "{verbose}");
+    assert!(verbose.contains("elapsed_ms="), "{verbose}");
+    assert_eq!(messages[1]["method"], "textDocument/publishDiagnostics");
+}
+
+#[test]
+fn verbose_trace_reports_workspace_refresh_latency() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_workspace_refresh_trace", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": []
+            })),
+        },
+    );
+
+    assert!(messages.iter().any(|message| {
+        message["method"] == "$/logTrace"
+            && message["params"]["message"] == "workspace refresh completed"
+            && message["params"]["verbose"]
+                .as_str()
+                .is_some_and(|verbose| {
+                    verbose.contains("reason=workspace files changed")
+                        && verbose.contains("targets=")
+                        && verbose.contains("elapsed_ms=")
+                })
+    }));
+}
+
+#[test]
 fn did_change_republishes_empty_diagnostics_after_fix() {
     let mut state = initialized_state();
     let invalid_source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";

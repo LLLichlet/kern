@@ -40,6 +40,7 @@ fn verbose_trace_reports_diagnostics_lane_analysis() {
     assert!(verbose.contains("tier=parse-only"), "{verbose}");
     assert!(verbose.contains("mode=Structure"), "{verbose}");
     assert!(verbose.contains("elapsed_ms="), "{verbose}");
+    assert!(verbose.contains("budget=ok"), "{verbose}");
     assert_eq!(messages[1]["method"], "textDocument/publishDiagnostics");
 }
 
@@ -72,8 +73,23 @@ fn verbose_trace_reports_workspace_refresh_latency() {
                     verbose.contains("reason=workspace files changed")
                         && verbose.contains("targets=")
                         && verbose.contains("elapsed_ms=")
+                        && verbose.contains("budget=ok")
                 })
     }));
+}
+
+#[test]
+fn verbose_trace_marks_exceeded_diagnostics_budget() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    state.request_budget_policy.diagnostics_ms = 0;
+    let source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+    let uri = temp_file_uri("server_diagnostics_budget_trace", source);
+
+    let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+
+    let verbose = messages[0]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("budget=exceeded"), "{verbose}");
 }
 
 #[test]

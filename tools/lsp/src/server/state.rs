@@ -8,6 +8,7 @@ pub(super) struct ServerState {
     pub(super) shutdown_requested: bool,
     pub(super) trace: TraceValue,
     pub(super) diagnostics_flush_policy: DiagnosticsFlushPolicy,
+    pub(super) request_budget_policy: RequestBudgetPolicy,
     pub(super) analysis: AnalysisEngine,
     pub(super) next_analysis_generation: u64,
     pub(super) latest_generation_by_target: BTreeMap<String, AnalysisGeneration>,
@@ -32,6 +33,13 @@ pub(super) struct RequestContext {
 pub(super) enum SchedulerLane {
     Interactive,
     Diagnostics,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RequestBudgetKind {
+    Interactive,
+    Diagnostics,
+    WorkspaceRefresh,
 }
 
 pub(super) struct ScheduledDiagnosticsPublish {
@@ -65,9 +73,22 @@ pub(super) struct DiagnosticsFlushPolicy {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RequestBudgetPolicy {
+    pub(super) interactive_ms: u128,
+    pub(super) diagnostics_ms: u128,
+    pub(super) workspace_refresh_ms: u128,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SchedulerDrainDecision {
     Drain,
     Defer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RequestBudgetStatus {
+    Ok,
+    Exceeded,
 }
 
 impl DiagnosticsFlushPolicy {
@@ -95,6 +116,41 @@ impl DiagnosticsFlushPolicy {
     }
 }
 
+impl RequestBudgetPolicy {
+    pub(super) fn new() -> Self {
+        Self {
+            interactive_ms: 100,
+            diagnostics_ms: 500,
+            workspace_refresh_ms: 2_000,
+        }
+    }
+
+    pub(super) fn budget_ms(self, kind: RequestBudgetKind) -> u128 {
+        match kind {
+            RequestBudgetKind::Interactive => self.interactive_ms,
+            RequestBudgetKind::Diagnostics => self.diagnostics_ms,
+            RequestBudgetKind::WorkspaceRefresh => self.workspace_refresh_ms,
+        }
+    }
+
+    pub(super) fn status(self, kind: RequestBudgetKind, elapsed_ms: u128) -> RequestBudgetStatus {
+        if elapsed_ms >= self.budget_ms(kind) {
+            RequestBudgetStatus::Exceeded
+        } else {
+            RequestBudgetStatus::Ok
+        }
+    }
+}
+
+impl RequestBudgetStatus {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Exceeded => "exceeded",
+        }
+    }
+}
+
 impl ServerState {
     #[cfg(test)]
     pub(super) fn new() -> Self {
@@ -107,6 +163,7 @@ impl ServerState {
             shutdown_requested: false,
             trace: TraceValue::Off,
             diagnostics_flush_policy: DiagnosticsFlushPolicy::new(),
+            request_budget_policy: RequestBudgetPolicy::new(),
             analysis,
             next_analysis_generation: 0,
             latest_generation_by_target: BTreeMap::new(),

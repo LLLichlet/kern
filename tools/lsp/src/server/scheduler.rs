@@ -1,3 +1,4 @@
+use super::state::RequestBudgetKind;
 use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, INVALID_REQUEST, RequestContext,
     SchedulerLane, ServerError, ServerState, lifecycle::emit_trace,
@@ -293,14 +294,19 @@ fn emit_analysis_tier_trace(
     let Some(tier) = state.analysis.last_analysis_tier() else {
         return Ok(());
     };
+    let budget_status = state
+        .request_budget_policy
+        .status(RequestBudgetKind::Interactive, elapsed_ms)
+        .as_str();
     emit_trace(
         state,
         writer,
         "analysis tier selected",
         Some(format!(
-            "tier={} elapsed_ms={} lane={:?} target={}",
+            "tier={} elapsed_ms={} budget={} lane={:?} target={}",
             tier.as_str(),
             elapsed_ms,
+            budget_status,
             lane,
             target_uri
         )),
@@ -320,9 +326,13 @@ fn emit_diagnostics_analysis_trace(
         .last_analysis_tier()
         .map(|tier| tier.as_str());
     let mut verbose = format!(
-        "mode={:?} elapsed_ms={} lane={:?} target={}",
+        "mode={:?} elapsed_ms={} budget={} lane={:?} target={}",
         mode,
         elapsed_ms,
+        state
+            .request_budget_policy
+            .status(RequestBudgetKind::Diagnostics, elapsed_ms)
+            .as_str(),
         SchedulerLane::Diagnostics,
         target_uri
     );
@@ -350,10 +360,14 @@ fn emit_workspace_refresh_trace(
         writer,
         "workspace refresh completed",
         Some(format!(
-            "reason={} targets={} elapsed_ms={} lane={:?}",
+            "reason={} targets={} elapsed_ms={} budget={} lane={:?}",
             reason,
             target_count,
             elapsed_ms,
+            state
+                .request_budget_policy
+                .status(RequestBudgetKind::WorkspaceRefresh, elapsed_ms)
+                .as_str(),
             SchedulerLane::Diagnostics
         )),
         true,

@@ -444,6 +444,7 @@ fn verbose_trace_reports_dirty_semantic_tokens_as_lexical() {
     assert_eq!(messages[1]["params"]["message"], "analysis tier selected");
     let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
     assert!(verbose.contains("tier=lexical"), "{verbose}");
+    assert!(verbose.contains("budget=ok"), "{verbose}");
     assert!(verbose.contains("lane=Interactive"), "{verbose}");
 }
 
@@ -483,5 +484,6 @@ fn verbose_trace_reports_dirty_code_actions_as_parse_only() {
     assert_eq!(messages[1]["params"]["message"], "analysis tier selected");
     let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
     assert!(verbose.contains("tier=parse-only"), "{verbose}");
+    assert!(verbose.contains("budget=ok"), "{verbose}");
     assert!(verbose.contains("lane=Interactive"), "{verbose}");
 }

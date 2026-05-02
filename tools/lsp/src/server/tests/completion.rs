@@ -99,6 +99,12 @@ fn verbose_trace_reports_completion_analysis_tier() {
             .unwrap()
             .contains("elapsed_ms=")
     );
+    assert!(
+        messages[1]["params"]["verbose"]
+            .as_str()
+            .unwrap()
+            .contains("budget=ok")
+    );
 }
 
 #[test]

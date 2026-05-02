@@ -523,6 +523,44 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_local_static_struct_initializers() {
+    let output = build_and_run_source(
+        r#"
+type Writer = struct {
+    serial: bool,
+};
+
+static mut SELECTED = 0 as *mut Writer;
+
+fn init() void {
+    static mut main_writer = Writer.{ serial: false };
+    static mut debug_writer = Writer.{ serial: true };
+    if (debug_writer.serial) {
+        SELECTED = debug_writer..&;
+    } else {
+        SELECTED = main_writer..&;
+    }
+}
+
+fn main() i32 {
+    init();
+    if (SELECTED.*.serial) {
+        return 0;
+    }
+    return 1;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "local static struct initializer binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_defer_after_return_value_evaluation() {
     let output = build_and_run_source(
         r#"

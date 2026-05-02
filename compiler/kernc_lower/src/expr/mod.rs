@@ -130,13 +130,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             ExprKind::Static { pattern, init } => {
                 self.measure_phase("        lower_expr_binding", |this| {
-                    this.lower_static_decl(
-                        pattern.name,
-                        init,
-                        subst_map,
-                        concrete_ty,
-                        pattern.is_mut,
-                    )
+                    let raw_static_ty = this.resolve_expr_type(init);
+                    let static_ty = this.substitute_type_with_map(raw_static_ty, subst_map);
+                    this.lower_static_decl(pattern.name, init, subst_map, static_ty, pattern.is_mut)
                 })
             }
 

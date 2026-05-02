@@ -456,6 +456,22 @@ pub(super) fn completion_is_member_access(text: &str, offset: usize) -> bool {
     text.as_bytes().get(start - 1) == Some(&b'.')
 }
 
+pub(super) fn completion_is_binding_name_context(text: &str, offset: usize) -> bool {
+    let prefix_start = completion_prefix_start(text, offset);
+    let mut tokenizer = Tokenizer::new(&text[..prefix_start], FileId(0));
+    let mut tokens = Vec::new();
+
+    loop {
+        let token = tokenizer.next_token();
+        if token.tag == TokenType::Eof {
+            break;
+        }
+        tokens.push(token);
+    }
+
+    binding_name_context_from_tokens(&tokens)
+}
+
 pub(super) fn keyword_completion_labels(
     prefix: &str,
     context: CompletionContext,
@@ -488,6 +504,41 @@ fn classify_completion_context(tokens: &[Token]) -> CompletionContext {
         TokenType::Assign if assign_prefers_type_context(tokens) => CompletionContext::Type,
         _ => CompletionContext::Value,
     }
+}
+
+fn binding_name_context_from_tokens(tokens: &[Token]) -> bool {
+    let Some(decl_index) = tokens.iter().rposition(|token| {
+        matches!(
+            token.tag,
+            TokenType::Let | TokenType::Const | TokenType::Static
+        )
+    }) else {
+        return false;
+    };
+    let decl_token = tokens[decl_index];
+
+    for token in &tokens[decl_index + 1..] {
+        match token.tag {
+            TokenType::Assign | TokenType::Semicolon | TokenType::LBrace | TokenType::RBrace => {
+                return false;
+            }
+            _ => {}
+        }
+    }
+
+    let mut index = decl_index + 1;
+    if decl_token.tag != TokenType::Static
+        && tokens
+            .get(index)
+            .is_some_and(|token| token.tag == TokenType::Mut)
+    {
+        index += 1;
+    }
+
+    matches!(
+        tokens.get(index).map(|token| token.tag),
+        None | Some(TokenType::Identifier | TokenType::Underscore)
+    ) && tokens.len() <= index + 1
 }
 
 fn colon_prefers_type_context(tokens: &[Token]) -> bool {

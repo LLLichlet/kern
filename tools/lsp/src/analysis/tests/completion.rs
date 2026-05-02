@@ -81,6 +81,97 @@ fn completion_uses_clean_artifact_when_dirty_body_is_incomplete() {
 }
 
 #[test]
+fn completion_in_incomplete_let_binding_name_stays_lightweight() {
+    let mut analysis = AnalysisEngine::default();
+    let clean = "fn main() void {\n}\n";
+    let dirty = "fn main() void {\n    let a\n}\n";
+    let uri = temp_file_uri("completion_incomplete_let_name", clean);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    analysis.parse_cache.borrow_mut().clear();
+    analysis.surface_cache.borrow_mut().clear();
+    analysis.structure_cache.borrow_mut().clear();
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let action = analysis.change_document_state(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+    assert!(matches!(
+        action,
+        DocumentSyncAction::ScheduleTarget {
+            mode: DiagnosticsAnalysisMode::Structure,
+            ..
+        }
+    ));
+
+    let _items = analysis
+        .completion(
+            &uri,
+            Position {
+                line: 1,
+                character: 9,
+            },
+        )
+        .unwrap();
+
+    assert!(analysis.parse_cache.borrow().is_empty());
+    assert!(analysis.surface_cache.borrow().is_empty());
+    assert!(analysis.structure_cache.borrow().is_empty());
+    assert!(analysis.artifact_cache.borrow().is_empty());
+}
+
+#[test]
+fn completion_in_incomplete_let_binding_name_keeps_keyword_snippets() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() void {\n    let m\n}\n";
+    let uri = temp_file_uri("completion_incomplete_let_name_keywords", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    analysis.parse_cache.borrow_mut().clear();
+    analysis.surface_cache.borrow_mut().clear();
+    analysis.structure_cache.borrow_mut().clear();
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let items = analysis
+        .completion(
+            &uri,
+            Position {
+                line: 1,
+                character: 9,
+            },
+        )
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"mut".to_string()));
+    assert!(analysis.parse_cache.borrow().is_empty());
+    assert!(analysis.surface_cache.borrow().is_empty());
+    assert!(analysis.structure_cache.borrow().is_empty());
+    assert!(analysis.artifact_cache.borrow().is_empty());
+}
+
+#[test]
 fn completion_after_block_statements_includes_prior_bindings() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

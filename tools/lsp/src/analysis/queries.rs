@@ -175,6 +175,12 @@ impl AnalysisEngine {
         let has_call_paren = has_following_call_paren(&target_doc.text, offset);
         let context = completion_context(&target_doc.text, offset);
         let member_access = completion_is_member_access(&target_doc.text, offset);
+        if completion_is_binding_name_context(&target_doc.text, offset) {
+            return Ok(keyword_completion_labels(prefix, context, member_access)
+                .into_iter()
+                .map(keyword_completion_item)
+                .collect());
+        }
 
         let analysis_context = self.resolve_analysis_context(uri)?;
         let is_dirty = !analysis_context.dirty_documents.is_clean();

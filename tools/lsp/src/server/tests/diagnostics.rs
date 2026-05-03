@@ -109,6 +109,34 @@ fn verbose_trace_marks_exceeded_workspace_refresh_budget() {
 }
 
 #[test]
+fn workspace_refresh_reuses_diagnostics_budget_yielding() {
+    let mut state = initialized_state();
+    state.request_budget_policy.diagnostics_ms = 0;
+    let source = "fn main() void {}\n";
+    let uri_a = temp_file_uri("server_workspace_budget_yield_a", source);
+    let uri_b = temp_file_uri("server_workspace_budget_yield_b", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri_a, source, 1));
+    let _ = dispatch_messages(&mut state, did_open_message(&uri_b, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("workspace/didChangeWatchedFiles".to_string()),
+            params: Some(json!({
+                "changes": []
+            })),
+        },
+    );
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+    assert_eq!(state.pending_diagnostics_targets.len(), 1);
+    assert!(state.has_pending_diagnostics_work());
+}
+
+#[test]
 fn verbose_trace_marks_exceeded_diagnostics_budget() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;

@@ -183,17 +183,6 @@ impl ServerState {
         generation
     }
 
-    pub(super) fn begin_workspace_refresh(&mut self) -> BTreeMap<String, AnalysisGeneration> {
-        self.analysis
-            .document_uris()
-            .into_iter()
-            .map(|target_uri| {
-                let generation = self.begin_target_analysis(&target_uri);
-                (target_uri, generation)
-            })
-            .collect()
-    }
-
     pub(super) fn is_current_generation(
         &self,
         target_uri: &str,

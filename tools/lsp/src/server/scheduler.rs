@@ -55,31 +55,26 @@ pub(super) fn flush_diagnostics_lane(
     writer: &mut MessageWriter<impl io::Write>,
 ) -> Result<(), ServerError> {
     if let Some(reason) = state.pending_workspace_refresh_reason.take() {
-        let generations = state.begin_workspace_refresh();
-        let fallback_targets = state.analysis.document_uris();
         let started_at = Instant::now();
-        let refresh = catch_unwind(AssertUnwindSafe(|| state.analysis.refresh_workspace()));
+        let refresh = catch_unwind(AssertUnwindSafe(|| {
+            state.analysis.refresh_workspace_targets()
+        }));
         let elapsed_ms = started_at.elapsed().as_millis();
         match refresh {
-            Ok(outcomes) => {
-                let target_count = outcomes.len();
-                for (target_uri, outcome) in outcomes {
-                    let generation = generations
-                        .get(&target_uri)
-                        .copied()
-                        .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
-                    state.queue_diagnostics_publish(target_uri, generation, outcome);
+            Ok(targets) => {
+                let target_count = targets.len();
+                for (target_uri, mode) in targets {
+                    let generation = state.begin_target_analysis(&target_uri);
+                    state.queue_target_diagnostics_task(target_uri, generation, mode);
                 }
                 emit_workspace_refresh_trace(state, writer, &reason, target_count, elapsed_ms)?;
             }
             Err(payload) => {
                 let message = panic_message(payload.as_ref());
+                let fallback_targets = state.analysis.document_uris();
                 let target_count = fallback_targets.len();
                 for target_uri in fallback_targets {
-                    let generation = generations
-                        .get(&target_uri)
-                        .copied()
-                        .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
+                    let generation = state.begin_target_analysis(&target_uri);
                     state.queue_diagnostics_publish(
                         target_uri.clone(),
                         generation,
@@ -92,8 +87,8 @@ pub(super) fn flush_diagnostics_lane(
                 emit_workspace_refresh_trace(state, writer, &reason, target_count, elapsed_ms)?;
             }
         }
-        state.pending_diagnostics_targets.clear();
-    } else {
+    }
+    if state.pending_workspace_refresh_reason.is_none() {
         let mut targets = std::mem::take(&mut state.pending_diagnostics_targets);
         while let Some((target_uri, task)) = targets.pop_first() {
             let mode = task.mode;

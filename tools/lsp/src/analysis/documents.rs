@@ -141,25 +141,20 @@ impl AnalysisEngine {
         }
     }
 
-    pub fn refresh_workspace(&mut self) -> Vec<(String, AnalysisOutcome)> {
+    pub fn refresh_workspace_targets(&mut self) -> Vec<(String, DiagnosticsAnalysisMode)> {
         self.project_cache.get_mut().clear();
         self.driver_cache.get_mut().clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
         self.documents
-            .keys()
-            .cloned()
-            .map(|uri| {
-                let outcome = if self
-                    .documents
-                    .get(&uri)
-                    .is_some_and(|document| document.is_dirty)
-                {
-                    self.analyze_document_structure(&uri)
+            .iter()
+            .map(|(uri, document)| {
+                let mode = if document.is_dirty {
+                    DiagnosticsAnalysisMode::Structure
                 } else {
-                    self.analyze_document(&uri)
+                    DiagnosticsAnalysisMode::Full
                 };
-                (uri, outcome)
+                (uri.clone(), mode)
             })
             .collect()
     }

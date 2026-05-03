@@ -66,7 +66,7 @@ fn verbose_trace_reports_workspace_refresh_latency() {
 
     assert!(messages.iter().any(|message| {
         message["method"] == "$/logTrace"
-            && message["params"]["message"] == "workspace refresh completed"
+            && message["params"]["message"] == "workspace refresh queued"
             && message["params"]["verbose"]
                 .as_str()
                 .is_some_and(|verbose| {
@@ -101,7 +101,7 @@ fn verbose_trace_marks_exceeded_workspace_refresh_budget() {
 
     assert!(messages.iter().any(|message| {
         message["method"] == "$/logTrace"
-            && message["params"]["message"] == "workspace refresh completed"
+            && message["params"]["message"] == "workspace refresh queued"
             && message["params"]["verbose"]
                 .as_str()
                 .is_some_and(|verbose| verbose.contains("budget=exceeded"))

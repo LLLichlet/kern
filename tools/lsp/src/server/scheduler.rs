@@ -67,7 +67,13 @@ pub(super) fn flush_diagnostics_lane(
                     let generation = state.begin_target_analysis(&target_uri);
                     state.queue_target_diagnostics_task(target_uri, generation, mode);
                 }
-                emit_workspace_refresh_trace(state, writer, &reason, target_count, elapsed_ms)?;
+                emit_workspace_refresh_queued_trace(
+                    state,
+                    writer,
+                    &reason,
+                    target_count,
+                    elapsed_ms,
+                )?;
             }
             Err(payload) => {
                 let message = panic_message(payload.as_ref());
@@ -84,7 +90,13 @@ pub(super) fn flush_diagnostics_lane(
                         ),
                     );
                 }
-                emit_workspace_refresh_trace(state, writer, &reason, target_count, elapsed_ms)?;
+                emit_workspace_refresh_queued_trace(
+                    state,
+                    writer,
+                    &reason,
+                    target_count,
+                    elapsed_ms,
+                )?;
             }
         }
     }
@@ -355,7 +367,7 @@ fn emit_diagnostics_analysis_trace(
     )
 }
 
-fn emit_workspace_refresh_trace(
+fn emit_workspace_refresh_queued_trace(
     state: &ServerState,
     writer: &mut MessageWriter<impl io::Write>,
     reason: &str,
@@ -365,7 +377,7 @@ fn emit_workspace_refresh_trace(
     emit_trace(
         state,
         writer,
-        "workspace refresh completed",
+        "workspace refresh queued",
         Some(format!(
             "reason={} targets={} elapsed_ms={} budget={} lane={:?}",
             reason,

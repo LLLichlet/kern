@@ -52,6 +52,7 @@ cheap:
   already exists
 - yield remaining diagnostics tasks to the next scheduler drain after an
   exceeded diagnostics budget
+- cap diagnostics targets processed by a single scheduler drain
 - route workspace refresh through coalesced diagnostics tasks instead of
   analyzing every open document synchronously
 - keep `analysis::tests::dirty_cache` as the main regression target

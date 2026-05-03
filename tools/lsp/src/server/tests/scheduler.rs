@@ -308,6 +308,43 @@ fn diagnostics_lane_yields_remaining_tasks_after_exceeded_budget() {
 }
 
 #[test]
+fn diagnostics_lane_respects_per_drain_target_budget() {
+    let mut state = initialized_state();
+    state.diagnostics_flush_policy.target_task_budget = 2;
+    let uris = ["a", "b", "c"]
+        .into_iter()
+        .map(|suffix| {
+            temp_file_uri(
+                &format!("server_per_drain_budget_{suffix}"),
+                "fn main() void {}\n",
+            )
+        })
+        .collect::<Vec<_>>();
+    for uri in &uris {
+        let generation = state.begin_target_analysis(uri);
+        state.queue_target_diagnostics_task(
+            uri.clone(),
+            generation,
+            DiagnosticsAnalysisMode::Structure,
+        );
+    }
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    flush_diagnostics_lane(&mut state, &mut writer).unwrap();
+
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 2);
+    assert!(
+        messages
+            .iter()
+            .all(|message| message["method"] == "textDocument/publishDiagnostics")
+    );
+    assert_eq!(state.pending_diagnostics_targets.len(), 1);
+    assert!(state.has_pending_diagnostics_work());
+}
+
+#[test]
 fn did_save_is_an_explicit_scheduler_drain_boundary() {
     let state = initialized_state();
     assert!(

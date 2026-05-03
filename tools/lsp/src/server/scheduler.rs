@@ -89,6 +89,8 @@ pub(super) fn flush_diagnostics_lane(
         }
     }
     if state.pending_workspace_refresh_reason.is_none() {
+        let target_task_budget = state.diagnostics_flush_policy.target_task_budget.max(1);
+        let mut analyzed_targets = 0;
         let mut targets = std::mem::take(&mut state.pending_diagnostics_targets);
         while let Some((target_uri, task)) = targets.pop_first() {
             let mode = task.mode;
@@ -117,9 +119,12 @@ pub(super) fn flush_diagnostics_lane(
             let budget_status = state
                 .request_budget_policy
                 .status(RequestBudgetKind::Diagnostics, elapsed_ms);
+            analyzed_targets += 1;
             emit_diagnostics_analysis_trace(state, writer, &target_uri, mode, elapsed_ms)?;
             state.queue_diagnostics_publish(target_uri, generation, outcome);
-            if budget_status == RequestBudgetStatus::Exceeded {
+            if budget_status == RequestBudgetStatus::Exceeded
+                || analyzed_targets >= target_task_budget
+            {
                 state.pending_diagnostics_targets.extend(targets);
                 break;
             }

@@ -50,12 +50,14 @@ cheap:
 - trace interactive and diagnostics request latency under `trace=verbose`
 - drop stale diagnostics tasks before analysis when a newer document generation
   already exists
+- yield remaining diagnostics tasks to the next scheduler drain after an
+  exceeded diagnostics budget
 - keep `analysis::tests::dirty_cache` as the main regression target
 
 ## Later Milestones
 
-1. Add explicit request budgets beyond the current trace logs for analysis tier
-   selection and request latency.
+1. Extend explicit request budgets beyond diagnostics-lane yielding into
+   interactive tier selection and long request degradation.
 2. Coalesce diagnostics and workspace refresh work by document generation.
 3. Add cancellation or stale-generation checks before expensive analysis stages.
 4. Move heavy analysis off the main dispatch path.

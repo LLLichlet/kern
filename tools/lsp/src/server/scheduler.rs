@@ -1,4 +1,4 @@
-use super::state::RequestBudgetKind;
+use super::state::{RequestBudgetKind, RequestBudgetStatus};
 use super::{
     AnalysisEngine, AnalysisGeneration, DiagnosticsAnalysisMode, INVALID_REQUEST, RequestContext,
     SchedulerLane, ServerError, ServerState, lifecycle::emit_trace,
@@ -94,8 +94,8 @@ pub(super) fn flush_diagnostics_lane(
         }
         state.pending_diagnostics_targets.clear();
     } else {
-        let targets = std::mem::take(&mut state.pending_diagnostics_targets);
-        for (target_uri, task) in targets {
+        let mut targets = std::mem::take(&mut state.pending_diagnostics_targets);
+        while let Some((target_uri, task)) = targets.pop_first() {
             let mode = task.mode;
             let generation = task.generation;
             if !state.is_current_generation(&target_uri, generation) {
@@ -119,8 +119,15 @@ pub(super) fn flush_diagnostics_lane(
                 ),
             };
             let elapsed_ms = started_at.elapsed().as_millis();
+            let budget_status = state
+                .request_budget_policy
+                .status(RequestBudgetKind::Diagnostics, elapsed_ms);
             emit_diagnostics_analysis_trace(state, writer, &target_uri, mode, elapsed_ms)?;
             state.queue_diagnostics_publish(target_uri, generation, outcome);
+            if budget_status == RequestBudgetStatus::Exceeded {
+                state.pending_diagnostics_targets.extend(targets);
+                break;
+            }
         }
     }
 

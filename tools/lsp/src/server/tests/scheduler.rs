@@ -278,6 +278,36 @@ fn stale_diagnostics_task_is_not_queued() {
 }
 
 #[test]
+fn diagnostics_lane_yields_remaining_tasks_after_exceeded_budget() {
+    let mut state = initialized_state();
+    state.request_budget_policy.diagnostics_ms = 0;
+    let uri_a = temp_file_uri("server_budget_yield_a", "fn main() void {}\n");
+    let uri_b = temp_file_uri("server_budget_yield_b", "fn main() void {}\n");
+    let generation_a = state.begin_target_analysis(&uri_a);
+    let generation_b = state.begin_target_analysis(&uri_b);
+    state.queue_target_diagnostics_task(
+        uri_a.clone(),
+        generation_a,
+        DiagnosticsAnalysisMode::Structure,
+    );
+    state.queue_target_diagnostics_task(
+        uri_b.clone(),
+        generation_b,
+        DiagnosticsAnalysisMode::Structure,
+    );
+    let mut output = Vec::new();
+    let mut writer = MessageWriter::new(&mut output);
+
+    flush_diagnostics_lane(&mut state, &mut writer).unwrap();
+
+    let messages = read_all_messages(&output);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+    assert_eq!(state.pending_diagnostics_targets.len(), 1);
+    assert!(state.has_pending_diagnostics_work());
+}
+
+#[test]
 fn did_save_is_an_explicit_scheduler_drain_boundary() {
     let state = initialized_state();
     assert!(

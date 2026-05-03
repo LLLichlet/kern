@@ -46,6 +46,7 @@ cheap:
 - preserve clean-artifact completion for valid body positions
 - record selected analysis tiers so hot-path tests and verbose trace can assert
   behavior directly
+- trace dirty navigation and signature-help requests as clean-semantic fallbacks
 - trace interactive and diagnostics request latency under `trace=verbose`
 - drop stale diagnostics tasks before analysis when a newer document generation
   already exists

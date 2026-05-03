@@ -536,3 +536,100 @@ fn verbose_trace_reports_dirty_signature_help_as_clean_semantic() {
     assert!(verbose.contains("budget=ok"), "{verbose}");
     assert!(verbose.contains("lane=Interactive"), "{verbose}");
 }
+
+#[test]
+fn verbose_trace_reports_dirty_definition_as_clean_semantic() {
+    let messages = dirty_navigation_trace_messages(
+        "server_dirty_definition_trace",
+        3104,
+        "textDocument/definition",
+        json!({ "line": 3, "character": 11 }),
+        None,
+    );
+
+    assert_dirty_navigation_trace(messages, 3104);
+}
+
+#[test]
+fn verbose_trace_reports_dirty_references_as_clean_semantic() {
+    let messages = dirty_navigation_trace_messages(
+        "server_dirty_references_trace",
+        3105,
+        "textDocument/references",
+        json!({ "line": 3, "character": 11 }),
+        Some(json!({ "includeDeclaration": true })),
+    );
+
+    assert_dirty_navigation_trace(messages, 3105);
+}
+
+#[test]
+fn verbose_trace_reports_dirty_document_highlights_as_clean_semantic() {
+    let messages = dirty_navigation_trace_messages(
+        "server_dirty_document_highlight_trace",
+        3106,
+        "textDocument/documentHighlight",
+        json!({ "line": 3, "character": 11 }),
+        None,
+    );
+
+    assert_dirty_navigation_trace(messages, 3106);
+}
+
+fn dirty_navigation_trace_messages(
+    prefix: &str,
+    id: i64,
+    method: &str,
+    position: Value,
+    context: Option<Value>,
+) -> Vec<Value> {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let clean = concat!(
+        "fn helper() i32 { return 1; }\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{1};\n",
+        "    return helper() + helper();\n",
+        "}\n",
+    );
+    let dirty = concat!(
+        "fn helper() i32 { return 1; }\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{1}\n",
+        "    return helper() + helper();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri(prefix, clean);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, clean, 1));
+    assert!(dispatch_messages(&mut state, did_change_message(&uri, dirty, 2)).is_empty());
+
+    let mut params = json!({
+        "textDocument": { "uri": uri },
+        "position": position,
+    });
+    if let Some(context) = context {
+        params["context"] = context;
+    }
+
+    dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(id)),
+            method: Some(method.to_string()),
+            params: Some(params),
+        },
+    )
+}
+
+fn assert_dirty_navigation_trace(messages: Vec<Value>, id: i64) {
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["id"], json!(id));
+    assert_eq!(messages[1]["method"], "$/logTrace");
+    assert_eq!(messages[1]["params"]["message"], "analysis tier selected");
+    let verbose = messages[1]["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("tier=clean-semantic"), "{verbose}");
+    assert!(verbose.contains("budget=ok"), "{verbose}");
+    assert!(verbose.contains("lane=Interactive"), "{verbose}");
+}

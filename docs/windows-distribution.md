@@ -79,7 +79,55 @@ not hidden libc baggage in Kern's language model.
 
 ### Local Development Build
 
-For local development on Windows:
+For local development on Windows, a plain Cargo build is allowed, but it still
+needs a complete LLVM development prefix. The installed end-user Kern SDK is not
+enough for this because it intentionally omits `llvm-config.exe`, LLVM headers,
+LLVM libraries, `clang++.exe`, and other source-build assets.
+
+Install or unpack the LLVM 21 toolchain first. The current 0.7.3 source tree
+uses `llvm-sys = "211.0.0"`, so the expected LLVM major version is 21. CI uses
+LLVM 21.1.8.
+
+The Windows source-build environment must provide:
+
+- Rust for the MSVC target, normally through `rustup`
+- Visual Studio Build Tools with the MSVC C++ toolchain
+- a full LLVM 21 development prefix containing `bin/llvm-config.exe`,
+  `bin/clang.exe`, `bin/clang++.exe`, `bin/lld-link.exe`, `bin/llvm-lib.exe`,
+  LLVM headers, and LLVM libraries
+- `libxml2` for the LLVM Windows libraries, available to the linker as
+  `libxml2s.lib` or otherwise copied into the LLVM library directory
+
+If LLVM is unpacked at `C:\LLVM-21`, configure the current PowerShell session:
+
+```powershell
+$env:LLVM_SYS_211_PREFIX = "C:\LLVM-21"
+$env:KERN_TOOLCHAIN_ROOT = "C:\LLVM-21"
+$env:Path = "$env:LLVM_SYS_211_PREFIX\bin;$env:Path"
+```
+
+Verify that Cargo can find the LLVM development tools:
+
+```powershell
+llvm-config --version
+clang --version
+lld-link --version
+llvm-lib /?
+```
+
+If the build fails with a missing `libxml2.lib` or `libxml2s.lib`, install the
+static vcpkg package and copy it into the LLVM library directory under the name
+LLVM expects:
+
+```powershell
+vcpkg install libxml2:x64-windows-static
+Copy-Item `
+  "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib\libxml2.lib" `
+  "$env:LLVM_SYS_211_PREFIX\lib\libxml2s.lib" `
+  -Force
+```
+
+Then build from the repository root:
 
 ```powershell
 cargo build --release
@@ -91,7 +139,9 @@ This produces binaries under:
 target/release/
 ```
 
-This is valid for local work, but it is not the authoritative release path.
+This builds `kernc`, `craft`, and `kern-lsp` for local work. It is not the
+authoritative release path, and it may still depend on the MSVC redistributable
+DLLs.
 
 ### Official-Style Windows Release Build
 
@@ -253,6 +303,36 @@ First ask:
 
 If it was a local plain MSVC release build, dynamic CRT dependency is the first
 thing to suspect.
+
+### Source Build Fails With Missing `libxml2.lib` Or `libxml2s.lib`
+
+This is a host LLVM dependency issue, not a Kern source error. The Rust
+`llvm-sys` crate links against the local LLVM development libraries, and the
+Windows LLVM archive expects libxml2 support to be available at link time.
+
+First check that the source-build environment points at a full LLVM 21
+development prefix:
+
+```powershell
+echo $env:LLVM_SYS_211_PREFIX
+llvm-config --libdir
+```
+
+Then install the static vcpkg package and place the library where the LLVM
+linker search path can find it:
+
+```powershell
+vcpkg install libxml2:x64-windows-static
+Copy-Item `
+  "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib\libxml2.lib" `
+  "$env:LLVM_SYS_211_PREFIX\lib\libxml2s.lib" `
+  -Force
+```
+
+If `VCPKG_INSTALLATION_ROOT` is unset, use the actual vcpkg checkout path
+instead. The important point is that the LLVM library directory used by
+`LLVM_SYS_211_PREFIX` must contain the libxml2 import/static library name that
+the LLVM libraries request.
 
 ### The Package Script Says Success But The Archive Is Wrong
 

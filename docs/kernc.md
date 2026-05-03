@@ -338,6 +338,8 @@ For the host tools:
 
 - a plain `cargo build --release` on `x86_64-pc-windows-msvc` may still produce
   binaries that depend on `VCRUNTIME140*.dll` and the UCRT redistributable set
+- a source build still needs a full LLVM 21 development prefix; the installed
+  end-user SDK intentionally does not contain all source-build LLVM assets
 - official Windows release packaging must therefore build with
   `-C target-feature=+crt-static`
 - that static-CRT policy removes the VC++ redistributable dependency for the
@@ -362,6 +364,10 @@ Or, equivalently, use the repository Python packaging entrypoint:
 ```powershell
 py -3 -m ops release package --version v0.7.3 --target x86_64-windows-msvc
 ```
+
+For the local source-build environment, including `LLVM_SYS_211_PREFIX` and the
+Windows `libxml2s.lib`/vcpkg setup, see
+[Windows Distribution Guide](./windows-distribution.md#local-development-build).
 
 Two Windows-specific details are easy to miss:
 

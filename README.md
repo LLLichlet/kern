@@ -205,6 +205,11 @@ cargo test
 
 This builds `kernc`, `craft`, and `kern-lsp` under `target/release/`.
 
+Windows source builds require a full LLVM 21 development prefix, not only the
+installed end-user SDK. If `cargo build` reports missing LLVM libraries such as
+`libxml2.lib` or `libxml2s.lib`, follow the Windows source-build setup in
+[Windows Distribution](docs/windows-distribution.md#local-development-build).
+
 If you want a local SDK install that remains usable after deleting the source
 checkout, package and install a local archive instead of copying
 `target/release` by hand. See

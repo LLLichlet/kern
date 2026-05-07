@@ -254,18 +254,81 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 Self::collect_expr_alias_references(value, alias_names, referenced);
             }
             ast::DeclKind::TypeAlias {
-                bounds,
                 where_clauses,
                 target,
                 ..
             } => {
-                for bound in bounds {
-                    Self::collect_type_alias_references(bound, alias_names, referenced);
-                }
                 for clause in where_clauses {
                     Self::collect_where_clause_alias_references(clause, alias_names, referenced);
                 }
                 Self::collect_type_alias_references(target, alias_names, referenced);
+            }
+            ast::DeclKind::Struct {
+                where_clauses,
+                fields,
+                ..
+            }
+            | ast::DeclKind::Union {
+                where_clauses,
+                fields,
+                ..
+            } => {
+                for clause in where_clauses {
+                    Self::collect_where_clause_alias_references(clause, alias_names, referenced);
+                }
+                for field in fields {
+                    Self::collect_struct_field_alias_references(field, alias_names, referenced);
+                }
+            }
+            ast::DeclKind::Enum {
+                where_clauses,
+                backing_type,
+                variants,
+                ..
+            } => {
+                for clause in where_clauses {
+                    Self::collect_where_clause_alias_references(clause, alias_names, referenced);
+                }
+                if let Some(backing_type) = backing_type {
+                    Self::collect_type_alias_references(backing_type, alias_names, referenced);
+                }
+                for variant in variants {
+                    if let Some(payload_type) = &variant.payload_type {
+                        Self::collect_type_alias_references(payload_type, alias_names, referenced);
+                    }
+                    if let Some(value) = &variant.value {
+                        Self::collect_expr_alias_references(value, alias_names, referenced);
+                    }
+                }
+            }
+            ast::DeclKind::Trait {
+                where_clauses,
+                supertraits,
+                assoc_types,
+                methods,
+                ..
+            } => {
+                for clause in where_clauses {
+                    Self::collect_where_clause_alias_references(clause, alias_names, referenced);
+                }
+                for supertrait in supertraits {
+                    Self::collect_type_alias_references(supertrait, alias_names, referenced);
+                }
+                for assoc in assoc_types {
+                    for bound in &assoc.bounds {
+                        Self::collect_type_alias_references(bound, alias_names, referenced);
+                    }
+                    for clause in &assoc.where_clauses {
+                        Self::collect_where_clause_alias_references(
+                            clause,
+                            alias_names,
+                            referenced,
+                        );
+                    }
+                }
+                for method in methods {
+                    Self::collect_struct_field_alias_references(method, alias_names, referenced);
+                }
             }
             ast::DeclKind::ModDecl => {}
             ast::DeclKind::Use {

@@ -7,7 +7,7 @@ extern fn start() ! {
     let state = Option[i32].{ Some: 7 };
     let anon = struct { left: i32, right: i32 }.{ left: 1, right: 2 };
     let flag = enum: u8 { Off = 0, On = 1 }.On;
-    let callback = .[ptr = counter..&](value: i32) i32 {
+    let callback = [ptr = counter..&](value: i32) i32 {
         ptr.* += value;
         return ptr.*;
     };
@@ -24,33 +24,33 @@ extern fn start() ! {
     };
 
     let byte = device.buffer.[0];
-    let view = device.buffer..[0 .. 4];
-    let io = *mut Writer.{ device..& };
-    let heap_cb = *mut Fn(i32) i32.{ callback };
-    _ = io.write(view as []u8);
+    let view = device.buffer..&[0 .. 4];
+    let io = &mut Writer.{ device..& };
+    let heap_cb = &mut Fn(i32) i32.{ callback };
+    _ = io.write(view as &[u8]);
     _ = heap_cb(anon.left + (flag as i32));
     @unreachable();
 }
 
-type Writer = trait {
-    write: fn(bytes: []u8) i32,
+trait Writer {
+    fn write(bytes: &[u8]) i32;
 };
 
-pub type Option[T] = enum {
+pub enum Option[T] {
     Some: T,
     None,
 };
 
-type SerialPort = struct {
+struct SerialPort {
     port: u16 = 0x3F8,
     buffer: [16]u8 = [16]u8.{ undef },
 };
 
-type Printable = trait {
-    render: fn() void,
+trait Printable {
+    fn render() void;
 };
 
-impl[T] *Option[T] : Printable {
+impl[T] &Option[T] : Printable {
     pub fn render() void {
         _ = match (self.*) {
             .{ Some: value } => value,

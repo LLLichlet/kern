@@ -1,28 +1,28 @@
 // exit: 0
 
-type Base[T] = trait {
-    value: fn() T,
+trait Base[T] {
+    fn value() T;
 };
 
-type Derived: Base[Apply[i32]] = trait {
+trait Derived: Base[Apply[i32]] {
     type Apply[T];
 };
 
-type Id = struct {};
+struct Id {};
 
-impl *Id: Base[i32] {
+impl &Id: Base[i32] {
     fn value() i32 {
         return 7;
     }
 }
 
-impl *Id: Derived {
+impl &Id: Derived {
     type Apply[T] = T;
 }
 
 fn main() i32 {
     let id = Id.{};
-    let derived = *Derived.{ id.& };
-    let base = *Base[i32].{ derived };
+    let derived = &Derived.{ id.& };
+    let base = &Base[i32].{ derived };
     return base.value() - 7;
 }

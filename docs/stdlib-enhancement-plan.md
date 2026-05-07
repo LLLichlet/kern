@@ -39,7 +39,7 @@ Status:
 
 ### 2. Generic IO Adapters
 
-`base.io` has `Reader`, `Writer`, in-memory readers, in-memory writers, and the
+`base.io` has `Read`, `Write`, in-memory readers, in-memory writers, and the
 common glue needed to assemble pipelines.
 
 Planned additions:
@@ -52,8 +52,9 @@ Planned additions:
 
 Status:
 
-- `copy`, `copy_n`, `LimitReader`, `CountingWriter`, and `NullWriter` are
-  available in `base.io`.
+- Copying and bounded copying are available as `Read` methods:
+  `reader.copy_to(writer)` and `reader.copy_n_to(writer, limit)`.
+- `LimitReader`, `CountingWriter`, and `NullWriter` are available in `base.io`.
 
 ### 3. Filesystem Safety Helpers
 
@@ -62,16 +63,16 @@ still need safer replacement-style writes.
 
 Planned additions:
 
-- `write_all_atomic_tmp(alloc, path, tmp_path, buf)`, using a caller-provided
-  temporary path
-- `write_all_atomic(alloc, path, buf)`, using an automatically generated
+- `path.path().write_all_atomic_tmp(alloc, tmp_path, buf)`, using a
+  caller-provided temporary path
+- `path.path().write_all_atomic(alloc, buf)`, using an automatically generated
   same-directory temporary path
 
 Status:
 
-- `write_all_atomic_tmp` is available in `std.fs`.
-- `write_all_atomic` is available in `std.fs`; it uses process identifiers and
-  bounded collision retries for its generated temporary path.
+- Atomic replacement writes are available as `fs.Path` methods.
+- `write_all_atomic` uses process identifiers and bounded collision retries for
+  its generated temporary path.
 - Windows rename now uses replace-existing semantics so replacement-style writes
   have the same public contract across supported hosted targets.
 - `std.proc.process_id()` is available as the process-level primitive used by
@@ -92,22 +93,34 @@ Planned additions:
 
 ### 5. Test Ergonomics
 
-`base.test` has core freestanding assertions. Failure reporting is explicit:
-callers use a `test.Context` with any `base.io.Writer` when diagnostics should
-be printed, and every assertion/expect helper takes an explicit `@loc()` plus
-message format.
+`base.test` has core freestanding assertions. The default test target style is
+postfixed on the checked value and ends by reporting to a local test report:
+
+```kern
+let t = test.report(io.stderr())..&;
+
+"42".parse[i32]().should_ok().eq(42).sum(@loc(), t);
+value.is_valid().should().sum(@loc(), t);
+```
+
+The report owns its writer value, so `test.report(io.stderr())` is safe and does
+not require exposing trait-object construction at the call site. `sum(@loc(), t)`
+keeps source locations explicit without a caller-location attribute.
 
 Planned additions:
 
 - richer equality helpers once formatting can render more value categories
-- optional runner-level test reporting layered above `base.test`
+- optional runner-level test aggregation layered above `base.test`
 
 Status:
 
-- Context helpers print through their writer and then trap. `test.silent()`
-  remains available for trap-only smoke tests without a diagnostic writer.
-- Option/result predicate assertions are available as `assert_some`,
-  `assert_none`, `assert_ok`, and `assert_err`.
+- `test.report(writer)` builds a local reporter with no global or static test
+  state.
+- `bool.should()`, `?T.should_some/should_none`, and
+  `T!E.should_ok/should_err` provide the ordinary assertion vocabulary.
+- `parse[T]()` and `parse_radix[T](radix)` are the preferred integer parsing
+  surface; the older concrete parse helpers remain internal implementation
+  details during the transition.
 
 ## Current Execution Order
 

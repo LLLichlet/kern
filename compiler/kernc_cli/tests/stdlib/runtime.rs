@@ -67,7 +67,7 @@ fn compile_cross_target_std_object(prefix: &str, target: &str) -> std::process::
 use std.env;
 use std.proc;
 
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let args = proc.args(argc, argv);
     let pid = proc.process_id();
     if (pid == 0) {
@@ -77,7 +77,7 @@ fn main(argc: i32, argv: **u8) i32 {
     for (_: args.iter()) {}
     let mut saw_entry = false;
 
-    let visited = env.visit(.[saw_entry = saw_entry..&](entry: env.Var) bool {
+    let visited = env.vars().visit([saw_entry = saw_entry..&](entry: env.Var) bool {
         let _ = entry.name;
         let _ = entry.value;
         saw_entry.* = true;
@@ -113,7 +113,7 @@ fn links_hosted_program_with_std_and_crt_startup() {
 use std.io;
 
 fn main() i32 {
-    io.println("hosted std", .{});
+    "hosted std".println();
     return 0;
 }
 "#,
@@ -176,11 +176,11 @@ fn runs_hosted_program_using_export_name_slice_abi_without_main_special_casing()
 mod bridge_mod;
 
 extern {
-    fn bridge(args: [][]u8) i32;
+    fn bridge(args: &[&[u8]]) i32;
 }
 
 fn main() i32 {
-    let argv = [2][]u8.{ "alpha", "beta gamma", };
+    let argv = [2]&[u8].{ "alpha", "beta gamma", };
     return bridge(argv);
 }
 "#,
@@ -191,7 +191,7 @@ fn main() i32 {
         &bridge_source,
         r#"
 #[export_name("bridge")]
-extern fn bridge_impl(args: [][]u8) i32 {
+extern fn bridge_impl(args: &[&[u8]]) i32 {
     if (#args != 2) {
         return 1;
     }
@@ -310,7 +310,7 @@ fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut capture = match (proc.shell_capture(gpa, "echo shell_capture")) {
+    let mut capture = match ("echo shell_capture".shell_capture(gpa)) {
         .{ Ok: value } => value,
         .{ Err: _ } => return 10,
     };
@@ -326,7 +326,7 @@ fn main() i32 {
         return 40;
     }
 
-    let status = match (proc.shell_status(gpa, "echo status_only")) {
+    let status = match ("echo status_only".shell_status(gpa)) {
         .{ Ok: value } => value,
         .{ Err: _ } => return 50,
     };
@@ -334,7 +334,7 @@ fn main() i32 {
         return 60;
     }
 
-    let success = match (proc.shell_success(gpa, "echo success_only")) {
+    let success = match ("echo success_only".shell_success(gpa)) {
         .{ Ok: value } => value,
         .{ Err: _ } => return 70,
     };
@@ -492,7 +492,7 @@ fn runs_hosted_program_with_indexed_command_line_arguments() {
         r#"
 use std.proc;
 
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let args = proc.args(argc, argv);
     if (args.len() != 6) {
         return 1;
@@ -573,7 +573,7 @@ use std.time;
 use base.cmp.{LESS, EQUAL, GREATER};
 
 fn main() i32 {
-    let fixed = time.from_millis(1500);
+    let fixed = u64.{1500}.millis();
     if (fixed.as_secs() != 1) {
         return 1;
     }
@@ -589,37 +589,38 @@ fn main() i32 {
     if (fixed.saturating_mul(2).as_secs() != 3) {
         return 5;
     }
-    if (fixed.saturating_add(time.from_millis(600)).as_millis() != 2100) {
+    if (fixed.saturating_add(u64.{600}.millis()).as_millis() != 2100) {
         return 6;
     }
-    if (fixed.saturating_sub(time.from_secs(2)).as_nanos() != 0) {
+    if (fixed.saturating_sub(u64.{2}.secs()).as_nanos() != 0) {
         return 7;
     }
-    if (time.from_secs(2).units_per_sec(400) != 200) {
+    if (u64.{2}.secs().units_per_sec(400) != 200) {
         return 8;
     }
-    if (!(time.from_secs(1) == time.from_millis(1000))) {
+    if (!(u64.{1}.secs() == u64.{1000}.millis())) {
         return 13;
     }
-    if (time.from_secs(1) == time.from_millis(999)) {
+    if (u64.{1}.secs() == u64.{999}.millis()) {
         return 14;
     }
-    if (time.from_millis(1).cmp(time.from_secs(1)) != LESS) {
+    if (u64.{1}.millis().cmp(u64.{1}.secs()) != LESS) {
         return 15;
     }
-    if (time.from_secs(1).cmp(time.from_millis(1000)) != EQUAL) {
+    if (u64.{1}.secs().cmp(u64.{1000}.millis()) != EQUAL) {
         return 16;
     }
-    if (time.from_secs(2).cmp(time.from_secs(1)) != GREATER) {
+    if (u64.{2}.secs().cmp(u64.{1}.secs()) != GREATER) {
         return 17;
     }
-    let _ = time.from_micros(250).hash();
+    let _ = u64.{250}.micros().hash();
 
-    let start = time.now();
-    time.sleep_nanos(1);
-    time.sleep_micros(1);
-    time.sleep_millis(10);
-    time.sleep_secs(0);
+    let clock = time.monotonic();
+    let start = clock.now();
+    u64.{1}.nanos().sleep();
+    u64.{1}.micros().sleep();
+    u64.{10}.millis().sleep();
+    u64.{0}.secs().sleep();
     let elapsed = start.elapsed();
     if (elapsed.as_millis() < 5) {
         return 9;
@@ -633,7 +634,7 @@ fn main() i32 {
     if (elapsed.units_per_sec(2) == 0) {
         return 12;
     }
-    let end = time.now();
+    let end = clock.now();
     if (end.cmp(start) == LESS) {
         return 18;
     }
@@ -665,11 +666,11 @@ fn runs_std_term_convenience_helpers() {
 use std.term;
 
 fn main() i32 {
-    let _ = term.stdin_is_terminal();
-    let _ = term.stdout_is_terminal();
-    let _ = term.stderr_is_terminal();
+    let _ = term.stdin().is_terminal();
+    let _ = term.stdout().is_terminal();
+    let _ = term.stderr().is_terminal();
 
-    let out_size = term.stdout_size();
+    let out_size = term.stdout().size();
     if (out_size.is_ok()) {
         let size = match (out_size) {
             .{ Ok: size } => size,
@@ -680,10 +681,10 @@ fn main() i32 {
         }
     }
 
-    let _ = term.stdin_size();
-    let _ = term.stderr_size();
-    let _ = term.stdout_rows();
-    let _ = term.stdout_columns();
+    let _ = term.stdin().size();
+    let _ = term.stderr().size();
+    let _ = term.stdout().rows();
+    let _ = term.stdout().columns();
     return 0;
 }
 "#,
@@ -918,7 +919,7 @@ fn main(value: i32) i32 {
     );
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .contains("program `main` accepts either zero parameters or exactly `(i32, **u8)`"),
+            .contains("program `main` accepts either zero parameters or exactly `(i32, &&u8)`"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -935,7 +936,7 @@ fn runs_windows_rt_program_with_quoted_command_line_arguments() {
         r#"
 use std.proc;
 
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let args = proc.args(argc, argv);
     if (args.len() != 4) {
         return 1;
@@ -995,7 +996,7 @@ fn runs_windows_rt_program_with_unicode_command_line_arguments() {
         r#"
 use std.proc;
 
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let args = proc.args(argc, argv);
     if (args.len() != 4) {
         return 1;
@@ -1105,14 +1106,14 @@ fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    if (!env.has(gpa, "KERN_STD_ENV_TEST")) {
+    if (!"KERN_STD_ENV_TEST".env().has(gpa)) {
         return 10;
     }
-    if (env.has(gpa, "KERN_STD_ENV_MISSING")) {
+    if ("KERN_STD_ENV_MISSING".env().has(gpa)) {
         return 11;
     }
 
-    let mut found = match (env.get(gpa, "KERN_STD_ENV_TEST")) {
+    let mut found = match ("KERN_STD_ENV_TEST".env().get(gpa)) {
         .{ Some: value } => value,
         .None => return 1,
     };
@@ -1121,17 +1122,17 @@ fn main() i32 {
     if (found.& != "alpha-beta") {
         return 2;
     }
-    if (!env.value_equals("KERN_STD_ENV_TEST", "alpha-beta")) {
+    if (!"KERN_STD_ENV_TEST".env().equals("alpha-beta")) {
         return 20;
     }
-    if (env.value_equals("KERN_STD_ENV_TEST", "wrong")) {
+    if ("KERN_STD_ENV_TEST".env().equals("wrong")) {
         return 21;
     }
-    if (env.value_equals("KERN_STD_ENV_MISSING", "alpha-beta")) {
+    if ("KERN_STD_ENV_MISSING".env().equals("alpha-beta")) {
         return 22;
     }
     let mut visited_value = false;
-    let found_value = env.visit_value("KERN_STD_ENV_TEST", .[visited_value = visited_value..&](value: []u8) bool {
+    let found_value = "KERN_STD_ENV_TEST".env().visit([visited_value = visited_value..&](value: &[u8]) bool {
         if (value != "alpha-beta") {
             return false;
         }
@@ -1141,18 +1142,18 @@ fn main() i32 {
     if (!found_value or !visited_value) {
         return 23;
     }
-    if (env.visit_value("KERN_STD_ENV_MISSING", .[](value: []u8) bool {
+    if ("KERN_STD_ENV_MISSING".env().visit([](value: &[u8]) bool {
         let _ = value;
         return false;
     })) {
         return 24;
     }
 
-    if (env.get(gpa, "KERN_STD_ENV_MISSING").is_some()) {
+    if ("KERN_STD_ENV_MISSING".env().get(gpa).is_some()) {
         return 3;
     }
 
-    let mut fallback = match (env.get_or_clone(gpa, "KERN_STD_ENV_MISSING", "fallback")) {
+    let mut fallback = match ("KERN_STD_ENV_MISSING".env().get_or(gpa, "fallback")) {
         .{ Some: value } => value,
         .None => return 4,
     };
@@ -1161,7 +1162,7 @@ fn main() i32 {
         return 5;
     }
 
-    let mut empty = match (env.get_or_empty(gpa, "KERN_STD_ENV_MISSING")) {
+    let mut empty = match ("KERN_STD_ENV_MISSING".env().get_or_empty(gpa)) {
         .{ Some: value } => value,
         .None => return 6,
     };
@@ -1171,7 +1172,7 @@ fn main() i32 {
     }
 
     let mut saw_target = false;
-    let visited = env.visit(.[saw_target = saw_target..&](entry: env.Var) bool {
+    let visited = env.vars().visit([saw_target = saw_target..&](entry: env.Var) bool {
         if (entry.name_eq("KERN_STD_ENV_TEST")) {
             if (!entry.value_eq("alpha-beta") or !entry.eq("KERN_STD_ENV_TEST", "alpha-beta")) {
                 return false;

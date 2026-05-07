@@ -1,8 +1,8 @@
 use base.mem.alloc.Allocator;
 use ..{Editor, Key, TAB_STOP};
 
-impl *mut Editor {
-    fn set_message(alloc: *mut Allocator, text: []u8) void {
+impl &mut Editor {
+    fn set_message(alloc: &mut Allocator, text: &[u8]) void {
         _ = self.message..&.clone_from(alloc, text);
     }
 
@@ -33,14 +33,14 @@ impl *mut Editor {
         return count;
     }
 
-    fn active_pane_label() []u8 {
+    fn active_pane_label() &[u8] {
         match (self.active_pane) {
             .Editor => return "EDITOR",
             .Output => return "OUTPUT",
         }
     }
 
-    fn insert_tab(alloc: *mut Allocator) void {
+    fn insert_tab(alloc: &mut Allocator) void {
         let cursor = self.active_cursor();
         let text_buffer = self.active_buffer_mut();
         let spaces = TAB_STOP - (cursor.col % TAB_STOP);
@@ -56,7 +56,7 @@ impl *mut Editor {
         self.remember_preferred_col();
     }
 
-    fn toggle_pane(alloc: *mut Allocator) void {
+    fn toggle_pane(alloc: &mut Allocator) void {
         self.pending_normal = .None;
         self.clear_pending_count();
         if (!self.has_output) {
@@ -74,7 +74,7 @@ impl *mut Editor {
         }
     }
 
-    fn handle_pending_normal_key(alloc: *mut Allocator, key: Key) bool {
+    fn handle_pending_normal_key(alloc: &mut Allocator, key: Key) bool {
         match (self.pending_normal) {
             .None => return false,
             .G => {
@@ -396,7 +396,7 @@ impl *mut Editor {
         }
     }
 
-    fn handle_normal_key(alloc: *mut Allocator, key: Key) void {
+    fn handle_normal_key(alloc: &mut Allocator, key: Key) void {
         if (self.active_pane == .Output and self.has_output) {
             self.handle_output_key(alloc, key);
             return;
@@ -744,7 +744,7 @@ impl *mut Editor {
         }
     }
 
-    fn handle_output_key(alloc: *mut Allocator, key: Key) void {
+    fn handle_output_key(alloc: &mut Allocator, key: Key) void {
         if (self.handle_pending_normal_key(alloc, key)) {
             return;
         }
@@ -931,7 +931,7 @@ impl *mut Editor {
         }
     }
 
-    fn handle_insert_key(alloc: *mut Allocator, key: Key) void {
+    fn handle_insert_key(alloc: &mut Allocator, key: Key) void {
         match (key) {
             .Escape => {
                 self.pending_normal = .None;
@@ -991,7 +991,7 @@ impl *mut Editor {
     }
 
     /// Dispatches one normalized key into the current editor mode.
-    pub fn handle_key(alloc: *mut Allocator, key: Key) void {
+    pub fn handle_key(alloc: &mut Allocator, key: Key) void {
         match (self.mode) {
             .Normal => self.handle_normal_key(alloc, key),
             .Insert => self.handle_insert_key(alloc, key),
@@ -1003,7 +1003,7 @@ impl *mut Editor {
     }
 
     /// Returns one visible buffer line.
-    pub fn line(row: usize) []u8 {
+    pub fn line(row: usize) &[u8] {
         return self.active_buffer().line(row);
     }
 }

@@ -25,17 +25,17 @@ use ..base.{
 /// The minimum number of keys a non-root node may keep.
 const MIN_KEYS = usize.{7};
 
-impl[K, V] *mut Tree[K, V]
+impl[K, V] &mut Tree[K, V]
     where K: Ord[K],
 {
     /// Releases one node allocation.
-    fn delete_free_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
+    fn delete_free_node(alloc: &mut Allocator, node: &mut Node[K, V]) void {
         let .{ Some: node_layout } = array_layout_of[Node[K, V]](1) else return;
-        alloc.free(node as *mut u8, node_layout);
+        alloc.free(node as &mut u8, node_layout);
     }
 
     /// Returns the first slot whose key is greater than or equal to `key`.
-    fn delete_search_slot(node: *mut Node[K, V], key: K) usize {
+    fn delete_search_slot(node: &mut Node[K, V], key: K) usize {
         let mut index = usize.{0};
                 while (index < node.len) {
             if (key_at[K, V](node, index).cmp(key) >= 0) {
@@ -48,7 +48,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Removes one key-value pair from a leaf and compacts the tail.
-    fn delete_remove_from_leaf(node: *mut Node[K, V], index: usize) V {
+    fn delete_remove_from_leaf(node: &mut Node[K, V], index: usize) V {
         let removed = value_at[K, V](node, index);
 
         let mut i = index + 1;
@@ -66,7 +66,7 @@ impl[K, V] *mut Tree[K, V]
     /// Rotates one key from the left sibling through `parent` into `child`.
     ///
     /// This restores one missing key without changing subtree order.
-    fn delete_borrow_from_prev(parent: *mut Node[K, V], index: usize) void {
+    fn delete_borrow_from_prev(parent: &mut Node[K, V], index: usize) void {
         let child = child_at[K, V](parent, index);
         let sibling = child_at[K, V](parent, index - 1);
 
@@ -101,7 +101,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Rotates one key from the right sibling through `parent` into `child`.
-    fn delete_borrow_from_next(parent: *mut Node[K, V], index: usize) void {
+    fn delete_borrow_from_next(parent: &mut Node[K, V], index: usize) void {
         let child = child_at[K, V](parent, index);
         let sibling = child_at[K, V](parent, index + 1);
 
@@ -140,7 +140,7 @@ impl[K, V] *mut Tree[K, V]
     ///
     /// After the merge the separator key lives in the left subtree, so callers
     /// can continue descending into the returned node.
-    fn delete_merge_children(alloc: *mut Allocator, parent: *mut Node[K, V], index: usize) *mut Node[K, V] {
+    fn delete_merge_children(alloc: &mut Allocator, parent: &mut Node[K, V], index: usize) &mut Node[K, V] {
         let left = child_at[K, V](parent, index);
         let right = child_at[K, V](parent, index + 1);
 
@@ -192,11 +192,11 @@ impl[K, V] *mut Tree[K, V]
     /// child that already has spare capacity. Only when both sides are at the
     /// minimum size do we merge and continue recursively.
     fn delete_remove_from_internal(
-        alloc: *mut Allocator,
-        node: *mut Node[K, V],
+        alloc: &mut Allocator,
+        node: &mut Node[K, V],
         index: usize,
         key: K,
-        removed: *mut ?V,
+        removed: &mut ?V,
     ) bool {
         removed.* = .{ Some: value_at[K, V](node, index) };
 
@@ -243,10 +243,10 @@ impl[K, V] *mut Tree[K, V]
 
     /// Removes `key` from `node`, preserving the B-tree occupancy invariant.
     fn delete_remove_from_node(
-        alloc: *mut Allocator,
-        node: *mut Node[K, V],
+        alloc: &mut Allocator,
+        node: &mut Node[K, V],
         key: K,
-        removed: *mut ?V,
+        removed: &mut ?V,
     ) bool {
         let index = self.delete_search_slot(node, key);
 
@@ -290,7 +290,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Removes the value stored for `key`.
-    pub fn remove(alloc: *mut Allocator, key: K) ?V {
+    pub fn remove(alloc: &mut Allocator, key: K) ?V {
         let root = self.root.?;
 
         let mut removed_value = ?V.None;

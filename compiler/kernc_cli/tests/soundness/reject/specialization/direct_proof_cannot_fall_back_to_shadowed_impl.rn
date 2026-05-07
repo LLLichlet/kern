@@ -3,11 +3,11 @@
 // stderr: type does not satisfy trait bounds
 // stderr: X: HasOut[4, Out = i32]
 
-type HasOut[N: usize] = trait {
+trait HasOut[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl[N: usize] X: HasOut[N] {
     type Out = i32;

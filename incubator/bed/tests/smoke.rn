@@ -5,7 +5,7 @@ use base.test;
 use sys.mem.Page;
 use bed.{buffer, command, editor, input};
 
-fn contains(text: []u8, needle: []u8) bool {
+fn contains(text: &[u8], needle: &[u8]) bool {
     if (#needle == 0) {
         return true;
     }
@@ -31,7 +31,7 @@ fn contains(text: []u8, needle: []u8) bool {
     return false;
 }
 
-fn find_index(text: []u8, needle: []u8) usize {
+fn find_index(text: &[u8], needle: &[u8]) usize {
     if (#needle == 0 or #needle > #text) {
         return #text;
     }
@@ -54,7 +54,7 @@ fn find_index(text: []u8, needle: []u8) usize {
     return #text;
 }
 
-fn find_byte(text: []u8, needle: u8) usize {
+fn find_byte(text: &[u8], needle: u8) usize {
     let mut i = usize.{0};
     while (i < #text) {
         if (text.[i] == needle) {
@@ -65,13 +65,13 @@ fn find_byte(text: []u8, needle: u8) usize {
     return #text;
 }
 
-fn line_slice(text: []u8, line_index: usize) []u8 {
+fn line_slice(text: &[u8], line_index: usize) &[u8] {
     let mut start = usize.{0};
     let mut current = usize.{0};
     let mut i = usize.{0};
     while (i < #text) {
         if (current == line_index and text.[i] == b'\n') {
-            return text.[start .. i];
+            return text.&[start .. i];
         }
         if (text.[i] == b'\n') {
             current += 1;
@@ -80,12 +80,12 @@ fn line_slice(text: []u8, line_index: usize) []u8 {
         i += 1;
     }
     if (current == line_index and start <= #text) {
-        return text.[start .. #text];
+        return text.&[start .. #text];
     }
     return "";
 }
 
-fn find_line_with(text: []u8, needle: []u8, max_lines: usize) usize {
+fn find_line_with(text: &[u8], needle: &[u8], max_lines: usize) usize {
     let mut line = usize.{0};
     while (line < max_lines) {
         if (contains(line_slice(text, line), needle)) {
@@ -96,7 +96,7 @@ fn find_line_with(text: []u8, needle: []u8, max_lines: usize) usize {
     return max_lines;
 }
 
-fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
+fn type_text(state: &mut editor.Editor, gpa: &mut GPA, text: &[u8]) void {
     let mut i = usize.{0};
     while (i < #text) {
         state.handle_key(gpa, input.Key.{ Byte: text.[i] });
@@ -104,38 +104,38 @@ fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
     }
 }
 
-fn ctrl_w(state: *mut editor.Editor, gpa: *mut GPA, key: u8) void {
+fn ctrl_w(state: &mut editor.Editor, gpa: &mut GPA, key: u8) void {
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: key });
 }
 
-fn expect_cursor(state: *mut editor.Editor, row: usize, col: usize, label: []u8) void {
+fn expect_cursor(state: &mut editor.Editor, row: usize, col: usize, label: &[u8]) void {
     _ = label;
     test.assert(state.cursor_row() == row);
     test.assert(state.cursor_col() == col);
 }
 
-fn run_ex_command(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
+fn run_ex_command(state: &mut editor.Editor, gpa: &mut GPA, text: &[u8]) void {
     state.handle_key(gpa, .{ Byte: b':' });
     type_text(state, gpa, text);
     state.handle_key(gpa, .Enter);
 }
 
-fn smoke_temp_root(gpa: *mut GPA) String {
+fn smoke_temp_root(gpa: &mut GPA) String {
     let root = String.{}..&;
     test.assert(root.push_str(gpa, "t"));
-    _ = test.expect_ok(fs.create_dir_all(gpa, root.as_str()));
+    _ = test.expect_ok(root.as_str().path().create_dir_all(gpa));
     return root.*;
 }
 
-fn smoke_temp_path(gpa: *mut GPA, name: []u8) String {
+fn smoke_temp_path(gpa: &mut GPA, name: &[u8]) String {
     let root = smoke_temp_root(gpa)..&;
     defer root.deinit(gpa);
     let path = test.expect_ok(fs.join(gpa, root.as_str(), name))..&;
     return path.*;
 }
 
-fn run_edit_command(state: *mut editor.Editor, gpa: *mut GPA, path: []u8) void {
+fn run_edit_command(state: &mut editor.Editor, gpa: &mut GPA, path: &[u8]) void {
     let command = String.{}..&;
     defer command.deinit(gpa);
     test.assert(command.push_str(gpa, "e "));
@@ -509,17 +509,17 @@ fn check_split_window_keeps_window_local_buffers() void {
     defer path_a.deinit(gpa);
     defer path_b.deinit(gpa);
 
-    _ = fs.remove_file_if_exists(gpa, path_a.as_str());
-    _ = fs.remove_file_if_exists(gpa, path_b.as_str());
+    _ = path_a.as_str().path().remove_file_if_exists(gpa);
+    _ = path_b.as_str().path().remove_file_if_exists(gpa);
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_a.as_str());
+        _ = path_a.as_str().path().remove_file_if_exists(gpa);
     };
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_b.as_str());
+        _ = path_b.as_str().path().remove_file_if_exists(gpa);
     };
 
-    _ = test.expect_ok(fs.write_all(gpa, path_a.as_str(), "alpha\none"));
-    _ = test.expect_ok(fs.write_all(gpa, path_b.as_str(), "beta\ntwo"));
+    _ = test.expect_ok(path_a.as_str().path().write_all(gpa, "alpha\none"));
+    _ = test.expect_ok(path_b.as_str().path().write_all(gpa, "beta\ntwo"));
 
     let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
     defer state.deinit(gpa);
@@ -687,17 +687,17 @@ fn check_vsplit_layout_and_window_resize_commands() void {
     defer path_a.deinit(gpa);
     defer path_b.deinit(gpa);
 
-    _ = fs.remove_file_if_exists(gpa, path_a.as_str());
-    _ = fs.remove_file_if_exists(gpa, path_b.as_str());
+    _ = path_a.as_str().path().remove_file_if_exists(gpa);
+    _ = path_b.as_str().path().remove_file_if_exists(gpa);
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_a.as_str());
+        _ = path_a.as_str().path().remove_file_if_exists(gpa);
     };
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_b.as_str());
+        _ = path_b.as_str().path().remove_file_if_exists(gpa);
     };
 
-    _ = test.expect_ok(fs.write_all(gpa, path_a.as_str(), "left"));
-    _ = test.expect_ok(fs.write_all(gpa, path_b.as_str(), "right"));
+    _ = test.expect_ok(path_a.as_str().path().write_all(gpa, "left"));
+    _ = test.expect_ok(path_b.as_str().path().write_all(gpa, "right"));
 
     let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
     defer state.deinit(gpa);
@@ -760,22 +760,22 @@ fn check_nested_split_tree_layout() void {
     defer path_top.deinit(gpa);
     defer path_bottom.deinit(gpa);
 
-    _ = fs.remove_file_if_exists(gpa, path_left.as_str());
-    _ = fs.remove_file_if_exists(gpa, path_top.as_str());
-    _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
+    _ = path_left.as_str().path().remove_file_if_exists(gpa);
+    _ = path_top.as_str().path().remove_file_if_exists(gpa);
+    _ = path_bottom.as_str().path().remove_file_if_exists(gpa);
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_left.as_str());
+        _ = path_left.as_str().path().remove_file_if_exists(gpa);
     };
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_top.as_str());
+        _ = path_top.as_str().path().remove_file_if_exists(gpa);
     };
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
+        _ = path_bottom.as_str().path().remove_file_if_exists(gpa);
     };
 
-    _ = test.expect_ok(fs.write_all(gpa, path_left.as_str(), "L0\nL1\nL2\nL3"));
-    _ = test.expect_ok(fs.write_all(gpa, path_top.as_str(), "T0\nT1"));
-    _ = test.expect_ok(fs.write_all(gpa, path_bottom.as_str(), "B0\nB1"));
+    _ = test.expect_ok(path_left.as_str().path().write_all(gpa, "L0\nL1\nL2\nL3"));
+    _ = test.expect_ok(path_top.as_str().path().write_all(gpa, "T0\nT1"));
+    _ = test.expect_ok(path_bottom.as_str().path().write_all(gpa, "B0\nB1"));
 
     let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
     defer state.deinit(gpa);
@@ -811,22 +811,22 @@ fn check_ctrl_w_rearrange_commands() void {
     defer path_top.deinit(gpa);
     defer path_bottom.deinit(gpa);
 
-    _ = fs.remove_file_if_exists(gpa, path_left.as_str());
-    _ = fs.remove_file_if_exists(gpa, path_top.as_str());
-    _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
+    _ = path_left.as_str().path().remove_file_if_exists(gpa);
+    _ = path_top.as_str().path().remove_file_if_exists(gpa);
+    _ = path_bottom.as_str().path().remove_file_if_exists(gpa);
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_left.as_str());
+        _ = path_left.as_str().path().remove_file_if_exists(gpa);
     };
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_top.as_str());
+        _ = path_top.as_str().path().remove_file_if_exists(gpa);
     };
     defer {
-        _ = fs.remove_file_if_exists(gpa, path_bottom.as_str());
+        _ = path_bottom.as_str().path().remove_file_if_exists(gpa);
     };
 
-    _ = test.expect_ok(fs.write_all(gpa, path_left.as_str(), "L0\nL1\nL2\nL3"));
-    _ = test.expect_ok(fs.write_all(gpa, path_top.as_str(), "T0\nT1"));
-    _ = test.expect_ok(fs.write_all(gpa, path_bottom.as_str(), "B0\nB1"));
+    _ = test.expect_ok(path_left.as_str().path().write_all(gpa, "L0\nL1\nL2\nL3"));
+    _ = test.expect_ok(path_top.as_str().path().write_all(gpa, "T0\nT1"));
+    _ = test.expect_ok(path_bottom.as_str().path().write_all(gpa, "B0\nB1"));
 
     let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
     defer state.deinit(gpa);

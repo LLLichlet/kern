@@ -52,6 +52,7 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) touched_bindings: Vec<(ScopeId, SymbolId)>,
     pub(crate) pointer_origin_bindings:
         FastHashMap<(ScopeId, SymbolId), FastHashSet<PointerOrigin>>,
+    pub(crate) pointer_origin_exprs: FastHashMap<NodeId, FastHashSet<PointerOrigin>>,
     pub(crate) stored_parameters: FastHashSet<usize>,
 }
 
@@ -111,6 +112,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             touched_expr_nodes: Vec::new(),
             touched_bindings: Vec::new(),
             pointer_origin_bindings: FastHashMap::default(),
+            pointer_origin_exprs: FastHashMap::default(),
             stored_parameters: FastHashSet::default(),
         }
     }
@@ -130,6 +132,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     fn collect_pointer_origins(&self, expr: &Expr, out: &mut FastHashSet<PointerOrigin>) {
+        if let Some(expr_origins) = self.pointer_origin_exprs.get(&expr.id) {
+            out.extend(expr_origins);
+        }
+
         match &expr.kind {
             ExprKind::Grouped { expr: inner } => self.collect_pointer_origins(inner, out),
             ExprKind::Unary {
@@ -276,6 +282,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .insert((scope_id, name), origins);
     }
 
+    pub(crate) fn record_pointer_origin_expr(
+        &mut self,
+        node_id: NodeId,
+        origin: PointerOrigin,
+    ) {
+        self.pointer_origin_exprs
+            .entry(node_id)
+            .or_default()
+            .insert(origin);
+    }
+
     pub(crate) fn record_parameter_binding(&mut self, name: SymbolId, param_index: usize) {
         let mut origins = FastHashSet::default();
         origins.insert(PointerOrigin::Parameter(param_index));
@@ -336,18 +353,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
         }
-    }
-
-    pub(crate) fn record_pointer_origins_from_static(
-        &mut self,
-        pattern: &ast::BindingPattern,
-        init: &Expr,
-    ) {
-        if self.ctx.resolve(pattern.name) == "_" {
-            return;
-        }
-        let origins = self.pointer_origins(init);
-        self.record_pointer_origin_binding(pattern.name, origins);
     }
 
     pub(crate) fn reject_temporary_address_escape(&mut self, expr: &Expr, destination: &str) {

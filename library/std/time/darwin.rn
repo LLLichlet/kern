@@ -5,20 +5,20 @@ const EINTR = i32.{4};
 const NS_PER_SEC = u64.{1_000_000_000};
 const U64_MAX = ~u64.{0};
 
-extern type Timespec = struct {
+extern struct Timespec {
     tv_sec: i64,
     tv_nsec: isize,
 };
 
 extern {
     #[export_name("clock_gettime")]
-    fn system_clock_gettime(clock_id: i32, tp: *mut Timespec) i32;
+    fn system_clock_gettime(clock_id: i32, tp: &mut Timespec) i32;
 
     #[export_name("nanosleep")]
-    fn system_nanosleep(req: *Timespec, rem: *mut Timespec) i32;
+    fn system_nanosleep(req: &Timespec, rem: &mut Timespec) i32;
 
     #[export_name("__error")]
-    fn system_errno() *mut i32;
+    fn system_errno() &mut i32;
 }
 
 fn timespec_to_nanos(ts: Timespec) u64 {

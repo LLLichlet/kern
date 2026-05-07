@@ -80,11 +80,11 @@ impl Error {
             ),
             Self::ScriptValidation { path, .. } => match path.file_name().and_then(|name| name.to_str()) {
                 Some("craft.rn") => Some(
-                    "declare `pub fn craft(p: *mut plan.Plan) void` and import `craft.plan`"
+                    "declare `pub fn craft(p: &mut plan.Plan) void` and import `craft.plan`"
                         .to_string(),
                 ),
                 Some("build.rn") => Some(
-                    "declare `pub fn build(b: *mut builder.Builder) void` and import `craft.builder`"
+                    "declare `pub fn build(b: &mut builder.Builder) void` and import `craft.builder`"
                         .to_string(),
                 ),
                 _ => None,
@@ -228,7 +228,7 @@ mod tests {
         };
         assert_eq!(
             err.hint().as_deref(),
-            Some("declare `pub fn craft(p: *mut plan.Plan) void` and import `craft.plan`")
+            Some("declare `pub fn craft(p: &mut plan.Plan) void` and import `craft.plan`")
         );
     }
 

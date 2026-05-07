@@ -6,13 +6,12 @@ fn runs_hosted_program_using_gpa_alignment_and_arena() {
         "kernc_std_alloc",
         r#"
 use base.mem.Layout;
-use base.mem.alloc.{GPA, Arena};
-use sys.mem.Page;
+use base.mem.alloc.{arena, gpa};
+use sys.mem.page;
 
 fn main() i32 {
-    let page = Page.{}..&;
-
-    let gpa = GPA.{ backing: page }..&;
+    let page = page()..&;
+    let gpa = gpa().on(page)..&;
     defer gpa.deinit();
 
     let aligned = Layout.{ size: 33, align: 256 };
@@ -45,10 +44,10 @@ fn main() i32 {
     }
     gpa.free(ptr_c, aligned);
 
-    let arena = Arena.{ backing: page }..&;
-    defer arena.deinit();
+    let scratch = arena().on(page)..&;
+    defer scratch.deinit();
 
-    let arena_a = match (arena.alloc(Layout.{ size: 24, align: 16 })) {
+    let arena_a = match (scratch.alloc(Layout.{ size: 24, align: 16 })) {
         .{ Some: ptr } => ptr,
         .None => return 7,
     };
@@ -56,7 +55,7 @@ fn main() i32 {
         return 8;
     }
 
-    let arena_b = match (arena.alloc(Layout.{ size: 40, align: 32 })) {
+    let arena_b = match (scratch.alloc(Layout.{ size: 40, align: 32 })) {
         .{ Some: ptr } => ptr,
         .None => return 9,
     };
@@ -67,9 +66,9 @@ fn main() i32 {
         return 11;
     }
 
-    arena.reset();
+    scratch.reset();
 
-    let arena_reused = match (arena.alloc(Layout.{ size: 24, align: 16 })) {
+    let arena_reused = match (scratch.alloc(Layout.{ size: 24, align: 16 })) {
         .{ Some: ptr } => ptr,
         .None => return 12,
     };
@@ -77,7 +76,7 @@ fn main() i32 {
         return 13;
     }
 
-    let grow = Arena.{ backing: page }..&;
+    let grow = arena().on(page)..&;
     defer grow.deinit();
 
     let bump_a = match (grow.alloc(Layout.{ size: 12, align: 8 })) {
@@ -180,13 +179,13 @@ use base.mem.alloc.Allocator;
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
-type Pair = struct {
+struct Pair {
     left: i32,
     right: i32,
 };
 
-fn sum(items: []i32) i32 {
-    return items.fold[i32, i32](0, .[](accum: i32, value: i32) i32 {
+fn sum(items: &[i32]) i32 {
+    return items.fold[i32, i32](0, [](accum: i32, value: i32) i32 {
         return accum + value;
     });
 }
@@ -194,7 +193,7 @@ fn sum(items: []i32) i32 {
 fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let alloc = (*mut Allocator).{ gpa };
+    let alloc = (&mut Allocator).{ gpa };
     defer gpa.deinit();
 
     let pair = match (alloc.alloc_one[Pair]()) {
@@ -226,7 +225,7 @@ fn main() i32 {
     alloc.free_array[i32](items);
 
     let source = [4]i32.{ 7, 8, 9, 10 };
-    let clone = match (alloc.clone_array[i32](source.[0 .. 4])) {
+    let clone = match (alloc.clone_array[i32](source.&[0 .. 4])) {
         .{ Some: slice } => slice,
         .None => return 6,
     };

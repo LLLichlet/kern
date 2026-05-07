@@ -2,17 +2,17 @@
 // source: trait-object upcasts through supertraits must substitute const generic arguments when matching the target trait
 // exit: 0
 
-type Base[N: usize] = trait {
-    value: fn() i32,
+trait Base[N: usize] {
+    fn value() i32;
 };
 
-type Derived[N: usize]: Base[N] = trait {};
+trait Derived[N: usize]: Base[N] {};
 
-type X = struct {};
+struct X {};
 
-impl *X: Derived[4] {}
+impl &X: Derived[4] {}
 
-impl *X: Base[4] {
+impl &X: Base[4] {
     fn value() i32 {
         return 7;
     }
@@ -20,7 +20,7 @@ impl *X: Base[4] {
 
 fn main() i32 {
     let x = X.{};
-    let derived = *Derived[4].{ x.& };
-    let base = *Base[4].{ derived };
+    let derived = &Derived[4].{ x.& };
+    let base = &Base[4].{ derived };
     return base.value() - 7;
 }

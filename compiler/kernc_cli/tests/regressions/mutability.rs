@@ -43,7 +43,7 @@ fn main() i32 {
 fn compiles_const_fn_mutating_local_struct_fields_and_array_elements() {
     let output = compile_source(
         r#"
-type Pair = struct {
+struct Pair {
     left: i32,
     right: i32,
 };
@@ -80,7 +80,7 @@ fn main() i32 {
 fn compiles_const_fn_mutating_local_through_pointer() {
     let output = compile_source(
         r#"
-const fn bump(ptr: *mut i32) void {
+const fn bump(ptr: &mut i32) void {
     ptr.* += 1;
 }
 
@@ -110,7 +110,7 @@ fn main() i32 {
 fn compiles_mut_pointer_to_array_whole_value_assignment() {
     let output = compile_source(
         r#"
-fn replace(buf: *mut [4]u8) void {
+fn replace(buf: &mut [4]u8) void {
     buf.* = [4]u8.{ 1, 2, 3, 4 };
 }
 
@@ -132,7 +132,7 @@ fn main() i32 {
 fn compiles_pointer_to_mut_array_element_assignment() {
     let output = compile_source(
         r#"
-fn write(buf: *mut [4]u8, index: usize, value: u8) void {
+fn write(buf: &mut [4]u8, index: usize, value: u8) void {
     buf.*.[index] = value;
 }
 
@@ -154,7 +154,7 @@ fn main() i32 {
 fn rejects_element_assignment_through_shared_pointer_to_array() {
     let output = compile_source(
         r#"
-fn write(buf: *[4]u8, index: usize, value: u8) void {
+fn write(buf: &[4]u8, index: usize, value: u8) void {
     buf.*.[index] = value;
 }
 
@@ -183,11 +183,11 @@ fn main() i32 {
 fn compiles_const_fn_mutating_struct_field_through_pointer_auto_deref() {
     let output = compile_source(
         r#"
-type Counter = struct {
+struct Counter {
     value: i32,
 };
 
-const fn bump(counter: *mut Counter) void {
+const fn bump(counter: &mut Counter) void {
     counter.value += 3;
 }
 
@@ -217,7 +217,7 @@ fn main() i32 {
 fn compiles_mut_address_of_materialized_stack_temporaries() {
     let output = compile_source(
         r#"
-fn bump(ptr: *mut i32) i32 {
+fn bump(ptr: &mut i32) i32 {
     ptr.* += 1;
     return ptr.*;
 }
@@ -296,7 +296,7 @@ fn allows_mutable_slice_from_mut_array_binding() {
         r#"
 fn main() i32 {
     let mut arr = [3]u8.{ b'a', b'b', b'c' };
-    let view = arr..[0 .. 3];
+    let view = arr..&[0 .. 3];
     view.[0] = b'Z';
     return 0;
 }
@@ -315,7 +315,7 @@ fn main() i32 {
 fn allows_assignment_through_mut_array_field_path() {
     let output = compile_source(
         r#"
-type Holder = struct {
+struct Holder {
     items: [3]u8,
 };
 
@@ -339,13 +339,13 @@ fn main() i32 {
 fn allows_mutable_slice_from_mut_array_field_path() {
     let output = compile_source(
         r#"
-type Holder = struct {
+struct Holder {
     items: [3]u8,
 };
 
 fn main() i32 {
     let mut holder = Holder.{ items: [3]u8.{ b'a', b'b', b'c' } };
-    let view = holder.items..[0 .. 3];
+    let view = holder.items..&[0 .. 3];
     view.[0] = b'Z';
     return 0;
 }
@@ -391,13 +391,13 @@ fn main() i32 {
 fn rejects_mutable_closure_borrow_from_immutable_closure_binding() {
     let output = compile_source(
         r#"
-fn takes_mut(cb: *mut Fn() i32) i32 {
+fn takes_mut(cb: &mut Fn() i32) i32 {
     let _ = cb;
     return 0;
 }
 
 fn main() i32 {
-    let closure = .[base = i32.{7}]() i32 {
+    let closure = [base = i32.{7}]() i32 {
         return base;
     };
     return takes_mut(closure);
@@ -415,7 +415,7 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains(
-            "cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`"
+            "cannot implicitly borrow an immutable closure as a mutable closure `&mut Fn`"
         ),
         "unexpected stderr:\n{}",
         stderr
@@ -427,11 +427,11 @@ fn rejects_mutable_closure_object_from_immutable_pointer() {
     let output = compile_source(
         r#"
 fn main() i32 {
-    let closure = .[]() i32 {
+    let closure = []() i32 {
         return 7;
     };
     let ptr = closure.&;
-    let _ = *mut Fn() i32.{ ptr };
+    let _ = &mut Fn() i32.{ ptr };
     return 0;
 }
 "#,
@@ -456,11 +456,11 @@ fn main() i32 {
 fn rejects_mutable_trait_object_from_immutable_pointer() {
     let output = compile_source(
         r#"
-type Ops = trait {
-    run: fn() i32,
+trait Ops {
+    fn run() i32;
 };
 
-impl *i32 : Ops {
+impl &i32 : Ops {
     fn run() i32 {
         return self.*;
     }
@@ -469,7 +469,7 @@ impl *i32 : Ops {
 fn main() i32 {
     let value = i32.{7};
     let ptr = value.&;
-    let _ = *mut Ops.{ ptr };
+    let _ = &mut Ops.{ ptr };
     return 0;
 }
 "#,
@@ -494,16 +494,16 @@ fn main() i32 {
 fn rejects_immutable_trait_object_from_mut_only_pointer_impl() {
     let output = compile_source(
         r#"
-type Base = trait {
-    set: fn(i32) void,
-    get: fn() i32,
+trait Base {
+    fn set(_: i32) void;
+    fn get() i32;
 };
 
-type Cell = struct {
+struct Cell {
     value: i32,
 };
 
-impl *mut Cell : Base {
+impl &mut Cell : Base {
     pub fn set(value: i32) void {
         self.value = value;
     }
@@ -515,7 +515,7 @@ impl *mut Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 1 };
-    let obj = *Base.{ cell..& };
+    let obj = &Base.{ cell..& };
     obj.set(42);
     return cell.value;
 }
@@ -541,15 +541,15 @@ fn main() i32 {
 fn accepts_immutable_trait_object_from_mut_pointer_when_shared_impl_exists() {
     let output = build_and_run_source(
         r#"
-type Base = trait {
-    get: fn() i32,
+trait Base {
+    fn get() i32;
 };
 
-type Cell = struct {
+struct Cell {
     value: i32,
 };
 
-impl *Cell : Base {
+impl &Cell : Base {
     pub fn get() i32 {
         return self.value;
     }
@@ -557,7 +557,7 @@ impl *Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 7 };
-    let obj = *Base.{ cell..& };
+    let obj = &Base.{ cell..& };
     return obj.get() - 7;
 }
 "#,
@@ -575,16 +575,16 @@ fn main() i32 {
 fn accepts_mutable_trait_object_from_mut_pointer_impl() {
     let output = build_and_run_source(
         r#"
-type Base = trait {
-    set: fn(i32) void,
-    get: fn() i32,
+trait Base {
+    fn set(_: i32) void;
+    fn get() i32;
 };
 
-type Cell = struct {
+struct Cell {
     value: i32,
 };
 
-impl *mut Cell : Base {
+impl &mut Cell : Base {
     pub fn set(value: i32) void {
         self.value = value;
     }
@@ -596,7 +596,7 @@ impl *mut Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 1 };
-    let obj = *mut Base.{ cell..& };
+    let obj = &mut Base.{ cell..& };
     obj.set(42);
     return cell.value - obj.get();
 }
@@ -615,16 +615,16 @@ fn main() i32 {
 fn rejects_implicit_immutable_trait_object_from_mut_only_pointer_impl() {
     let output = compile_source(
         r#"
-type Base = trait {
-    set: fn(i32) void,
-    get: fn() i32,
+trait Base {
+    fn set(_: i32) void;
+    fn get() i32;
 };
 
-type Cell = struct {
+struct Cell {
     value: i32,
 };
 
-impl *mut Cell : Base {
+impl &mut Cell : Base {
     pub fn set(value: i32) void {
         self.value = value;
     }
@@ -634,7 +634,7 @@ impl *mut Cell : Base {
     }
 }
 
-fn use_base(obj: *Base) void {
+fn use_base(obj: &Base) void {
     obj.set(42);
 }
 
@@ -666,21 +666,21 @@ fn main() i32 {
 fn accepts_implicit_immutable_trait_object_from_mut_pointer_when_shared_impl_exists() {
     let output = build_and_run_source(
         r#"
-type Base = trait {
-    get: fn() i32,
+trait Base {
+    fn get() i32;
 };
 
-type Cell = struct {
+struct Cell {
     value: i32,
 };
 
-impl *Cell : Base {
+impl &Cell : Base {
     pub fn get() i32 {
         return self.value;
     }
 }
 
-fn use_base(obj: *Base) i32 {
+fn use_base(obj: &Base) i32 {
     return obj.get();
 }
 
@@ -703,23 +703,23 @@ fn main() i32 {
 fn rejects_coercing_let_mut_trait_object_handle_to_mutable_trait_object() {
     let output = compile_source(
         r#"
-type Ops = trait {
-    run: fn() i32,
+trait Ops {
+    fn run() i32;
 };
 
-impl *i32 : Ops {
+impl &i32 : Ops {
     fn run() i32 {
         return self.*;
     }
 }
 
-fn takes_mut(value: *mut Ops) void {
+fn takes_mut(value: &mut Ops) void {
     let _ = value;
 }
 
 fn main() i32 {
     let number = i32.{7};
-    let mut ops = *Ops.{ number.& };
+    let mut ops = &Ops.{ number.& };
     takes_mut(ops);
     return 0;
 }
@@ -735,7 +735,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("expected `*mut Ops`"),
+        stderr.contains("expected `&mut Ops`"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -745,11 +745,11 @@ fn main() i32 {
 fn rejects_coercing_let_mut_closure_handle_to_mutable_closure() {
     let output = compile_source(
         r#"
-fn takes_shared(cb: *Fn() i32) *Fn() i32 {
+fn takes_shared(cb: &Fn() i32) &Fn() i32 {
     return cb;
 }
 
-fn takes_mut(cb: *mut Fn() i32) i32 {
+fn takes_mut(cb: &mut Fn() i32) i32 {
     let _ = cb;
     return 0;
 }
@@ -774,7 +774,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("expected `*mut Fn() i32`"),
+        stderr.contains("expected `&mut Fn() i32`"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -848,7 +848,7 @@ fn main() i32 {
             (
                 "data.rn",
                 r#"
-pub type Bag = struct {
+pub struct Bag {
     secret: i32,
     pub open: i32,
 };
@@ -889,7 +889,7 @@ fn main() i32 {
             (
                 "data.rn",
                 r#"
-pub type Bag = struct {
+pub struct Bag {
     secret: i32,
     pub open: i32,
 };

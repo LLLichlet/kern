@@ -2,16 +2,16 @@
 // source: an impl-associated type target may use a concrete type with the same name without getting shadowed by the impl placeholder
 // exit: 0
 
-type Step = trait {
+trait Step {
     type Mid;
 };
 
-type Finish = trait {
+trait Finish {
     type Out;
 };
 
-type Mid = struct {};
-type Bytes = []u8;
+struct Mid {};
+type Bytes = &[u8];
 
 impl Bytes: Step {
     type Mid = Mid;

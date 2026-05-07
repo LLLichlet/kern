@@ -3,22 +3,18 @@
 //! Runtime-independent formatting traits and adapters live in `base.io`.
 //! This hosted module adds OS-backed standard streams and convenience printing.
 
-mod fmt;
-
-use base.io.{Reader, Writer};
+use base.io.{Format, Formatable, Read, Write};
 use std.fs;
 use sys.os;
 
-pub use .fmt.{eprint, eprintln, print, println};
-
 /// A writable handle backed by `std.fs.File`.
-pub type File = struct {
+pub struct File {
     inner: fs.File,
 };
 
-impl *mut File : Writer {
+impl &mut File : Write {
     /// Writes the provided bytes to the underlying file handle.
-    pub fn write(buf: []u8) usize {
+    pub fn write(buf: &[u8]) usize {
         let len = #buf;
         if (len == 0) return 0;
 
@@ -26,9 +22,9 @@ impl *mut File : Writer {
     }
 }
 
-impl *mut File : Reader {
+impl &mut File : Read {
     /// Reads bytes from the underlying file handle.
-    pub fn read(buf: []mut u8) usize {
+    pub fn read(buf: &mut [u8]) usize {
         let len = #buf;
         if (len == 0) return 0;
 
@@ -47,4 +43,102 @@ pub fn stdout() File {
 /// Returns a writer for standard error.
 pub fn stderr() File {
     return .{ inner: fs.stderr() };
+}
+
+impl[T] &T
+    where &T: Formatable,
+{
+    /// Writes this value to standard output.
+    pub fn print() void {
+        let mut out_file = stdout();
+        let writer = &mut Write.{ out_file..& };
+        self.write_to(writer);
+    }
+
+    /// Writes this value to standard output followed by a newline.
+    pub fn println() void {
+        let mut out_file = stdout();
+        let writer = &mut Write.{ out_file..& };
+        self.write_to(writer);
+        _ = writer.write("\n");
+    }
+
+    /// Writes this value to standard error.
+    pub fn eprint() void {
+        let mut err_file = stderr();
+        let writer = &mut Write.{ err_file..& };
+        self.write_to(writer);
+    }
+
+    /// Writes this value to standard error followed by a newline.
+    pub fn eprintln() void {
+        let mut err_file = stderr();
+        let writer = &mut Write.{ err_file..& };
+        self.write_to(writer);
+        _ = writer.write("\n");
+    }
+}
+
+impl Format {
+    /// Writes this formatted value to standard output.
+    pub fn print() void {
+        let mut out_file = stdout();
+        let writer = &mut Write.{ out_file..& };
+        self.write_to(writer);
+    }
+
+    /// Writes this formatted value to standard output followed by a newline.
+    pub fn println() void {
+        let mut out_file = stdout();
+        let writer = &mut Write.{ out_file..& };
+        self.write_to(writer);
+        _ = writer.write("\n");
+    }
+
+    /// Writes this formatted value to standard error.
+    pub fn eprint() void {
+        let mut err_file = stderr();
+        let writer = &mut Write.{ err_file..& };
+        self.write_to(writer);
+    }
+
+    /// Writes this formatted value to standard error followed by a newline.
+    pub fn eprintln() void {
+        let mut err_file = stderr();
+        let writer = &mut Write.{ err_file..& };
+        self.write_to(writer);
+        _ = writer.write("\n");
+    }
+}
+
+impl[N: usize] [N]u8 {
+    /// Writes this byte string to standard output.
+    pub fn print() void {
+        let mut out_file = stdout();
+        let writer = &mut Write.{ out_file..& };
+        _ = writer.write(self.&[0 .. N]);
+    }
+
+    /// Writes this byte string to standard output followed by a newline.
+    pub fn println() void {
+        let mut out_file = stdout();
+        let writer = &mut Write.{ out_file..& };
+        _ = writer.write(self.&[0 .. N]);
+        _ = writer.write("\n");
+    }
+
+    /// Writes this byte string to standard error.
+    pub fn eprint() void {
+        let mut err_file = stderr();
+        let writer = &mut Write.{ err_file..& };
+        _ = writer.write(self.&[0 .. N]);
+    }
+
+    /// Writes this byte string to standard error followed by a newline.
+    pub fn eprintln() void {
+        let mut err_file = stderr();
+        let writer = &mut Write.{ err_file..& };
+        _ = writer.write(self.&[0 .. N]);
+        _ = writer.write("\n");
+    }
 }

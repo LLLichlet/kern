@@ -39,17 +39,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         );
         let is_f_ptr = is_f_fn
             || matches!(
-            self.ctx.type_registry.get(f_norm),
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
-        );
+                self.ctx.type_registry.get(f_norm),
+                TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+            );
         let is_t_ptr = is_t_fn
             || matches!(
-            self.ctx.type_registry.get(t_norm),
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
-        );
+                self.ctx.type_registry.get(t_norm),
+                TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+            );
 
-        // 1. Allow thin pointer reinterpretation such as `*i32 as *u8`
-        // and `fn(...) T as *void`.
+        // 1. Allow thin pointer reinterpretation such as `&i32 as &u8`
+        // and `&fn(...) T as &void`.
         if is_f_ptr && is_t_ptr {
             if !is_t_fn {
                 let Some(t_inner) = self.ctx.type_registry.get_elem_type(t_norm) else {

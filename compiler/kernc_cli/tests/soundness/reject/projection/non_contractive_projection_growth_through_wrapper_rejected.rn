@@ -3,15 +3,15 @@
 // stderr: recursive associated type projection cycle detected
 // stderr: projection repeatedly re-enters the same impl-associated type
 
-type Loop = trait {
+trait Loop {
     type Out;
 };
 
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
-type X = struct {};
+struct X {};
 
 impl X: Loop {
     type Out = Wrap[X.Loop.Out];

@@ -166,7 +166,7 @@ fn main() i32 {
 fn rejects_simd_rotate_with_non_constant_amount() {
     let output = compile_source(
         r#"
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let _ = @simdRotateLeft(i32x4.{ 1, 2, 3, 4 }, argc as usize);
     return 0;
 }

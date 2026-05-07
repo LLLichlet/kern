@@ -1,6 +1,6 @@
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_arg_path("-T", "link/kernel.ld");
 
     let kernel = b.primary_artifact();

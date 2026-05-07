@@ -49,7 +49,7 @@ fn serial_write_byte(byte: u8) void {
     outb(COM1, byte);
 }
 
-fn serial_write(text: []u8) void {
+fn serial_write(text: &[u8]) void {
     let mut i = usize.{0};
     while (i < #text) {
         serial_write_byte(text.[i]);
@@ -57,7 +57,7 @@ fn serial_write(text: []u8) void {
     }
 }
 
-fn debug_write(text: []u8) void {
+fn debug_write(text: &[u8]) void {
     let mut i = usize.{0};
     while (i < #text) {
         outb(DEBUGCON, text.[i]);

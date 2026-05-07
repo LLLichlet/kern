@@ -155,7 +155,7 @@ fn emits_ir_for_simd_shuffle_load_store_and_target_features() {
 use base.mem;
 
 #[target_feature("avx2,fma")]
-fn remix(ptr: *mut f32) f32 {
+fn remix(ptr: &mut f32) f32 {
     let a = @simdLoad[f32x4](ptr, 4);
     let b = @simdLoad[f32x4](ptr + usize.{4}, 4);
     let mixed = @simdShuffle(a, b, [4]u32.{ 0, 5, 2, 7 });

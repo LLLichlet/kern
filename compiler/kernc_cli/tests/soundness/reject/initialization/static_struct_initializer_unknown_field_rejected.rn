@@ -3,7 +3,7 @@
 // stderr: field `b` does not exist in `pair`
 // timeout-ms: 2000
 
-type pair = struct {
+struct pair {
     a: u64,
 };
 

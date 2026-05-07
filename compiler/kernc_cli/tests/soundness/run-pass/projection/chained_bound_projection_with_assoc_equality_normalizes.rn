@@ -2,16 +2,16 @@
 // source: a chained generic projection should normalize when the intermediate trait bound fixes the final associated result
 // exit: 0
 
-type Step = trait {
+trait Step {
     type Mid;
 };
 
-type Finish = trait {
+trait Finish {
     type Out;
 };
 
-type Shell = struct {};
-type X = struct {};
+struct Shell {};
+struct X {};
 
 impl X: Step {
     type Mid = Shell;

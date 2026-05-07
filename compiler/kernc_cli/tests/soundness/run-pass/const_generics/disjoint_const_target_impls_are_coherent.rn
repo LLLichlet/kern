@@ -2,11 +2,11 @@
 // source: impls that differ only in target const arguments are disjoint, not overlapping
 // exit: 0
 
-type Flag = trait {
-    value: fn() i32,
+trait Flag {
+    fn value() i32;
 };
 
-type Box[N: usize] = struct {};
+struct Box[N: usize] {};
 
 impl Box[1]: Flag {
     fn value() i32 {

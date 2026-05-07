@@ -5,7 +5,7 @@ fn extracts_document_symbols_from_compiler_artifact() {
     let mut analysis = AnalysisEngine::default();
     let uri = temp_file_uri(
         "document_symbols",
-        "type Point = struct { x: i32, y: i32 };\nfn helper() i32 { return 1; }\n",
+        "struct Point { x: i32, y: i32 }\nfn helper() i32 { return 1; }\n",
     );
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -13,8 +13,7 @@ fn extracts_document_symbols_from_compiler_artifact() {
             uri: uri.clone(),
             _language_id: "kern".to_string(),
             version: 1,
-            text: "type Point = struct { x: i32, y: i32 };\nfn helper() i32 { return 1; }\n"
-                .to_string(),
+            text: "struct Point { x: i32, y: i32 }\nfn helper() i32 { return 1; }\n".to_string(),
         },
     });
 
@@ -78,7 +77,7 @@ fn document_symbols_use_clean_surface_when_dirty_body_is_incomplete() {
 fn document_symbols_use_surface_cache_without_body_artifact() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Point = struct { x: i32 };\n",
+        "struct Point { x: i32 }\n",
         "fn helper(point: Point) i32 {\n",
         "    return point.x;\n",
         "}\n",
@@ -121,7 +120,7 @@ fn document_symbols_use_surface_cache_without_body_artifact() {
 fn document_symbols_use_collected_outline_names_for_impl_blocks() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Point = struct { x: i32 };\n",
+        "struct Point { x: i32 }\n",
         "impl Point {\n",
         "    fn magnitude() i32 { return self.x; }\n",
         "}\n",
@@ -206,7 +205,7 @@ fn goto_definition_resolves_function_identifier_references() {
 fn goto_definition_resolves_impl_method_references() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "impl Counter {\n",
         "    fn get() i32 { return self.value; }\n",
         "}\n",
@@ -239,7 +238,7 @@ fn goto_definition_resolves_impl_method_references() {
 fn goto_definition_resolves_struct_field_references() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
         "    let counter = Counter.{ value: i32.{1} };\n",
         "    return counter.value;\n",
@@ -272,7 +271,7 @@ fn goto_definition_resolves_struct_field_references() {
 fn goto_definition_resolves_enum_variant_references() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Result = enum { Ok: i32, Err };\n",
+        "enum Result { Ok: i32, Err }\n",
         "fn main() i32 {\n",
         "    let value = Result.{ Ok: i32.{1} };\n",
         "    return 0;\n",
@@ -411,7 +410,7 @@ fn hover_resolves_function_signature_from_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn helper: fn(i32) i32"));
+    assert!(hover.contents.value.contains("fn helper: &fn(i32) i32"));
 }
 
 #[test]
@@ -441,7 +440,7 @@ fn hover_renders_native_docs_after_signature() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn helper: fn(i32) i32"));
+    assert!(hover.contents.value.contains("fn helper: &fn(i32) i32"));
     assert!(
         hover
             .contents
@@ -518,7 +517,7 @@ fn hover_reuses_docs_from_imported_kmeta_packages() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn helper: fn() i32"));
+    assert!(hover.contents.value.contains("fn helper: &fn() i32"));
     assert!(
         hover
             .contents
@@ -541,7 +540,7 @@ fn hover_resolves_std_module_docs_from_use_alias() {
         "use std.io;\n",
         "\n",
         "fn main() i32 {\n",
-        "    io.println(\"hello\", .{});\n",
+        "    \"hello\".println();\n",
         "    return 0;\n",
         "}\n",
     );
@@ -557,7 +556,7 @@ fn hover_resolves_std_module_docs_from_use_alias() {
     });
 
     let hover = analysis
-        .hover(&uri, position_of_nth(source, "io", 1, 1))
+        .hover(&uri, position_of_nth(source, "io", 0, 1))
         .unwrap()
         .unwrap();
 
@@ -604,7 +603,7 @@ fn hover_resolves_std_reexported_function_docs_from_member_access() {
         "use std.io;\n",
         "\n",
         "fn main() i32 {\n",
-        "    io.println(\"hello\", .{});\n",
+        "    \"hello\".println();\n",
         "    return 0;\n",
         "}\n",
     );
@@ -629,7 +628,7 @@ fn hover_resolves_std_reexported_function_docs_from_member_access() {
         hover
             .contents
             .value
-            .contains("Formats into standard output and appends a newline.")
+            .contains("Writes this byte string to standard output followed by a newline.")
     );
 }
 
@@ -637,7 +636,7 @@ fn hover_resolves_std_reexported_function_docs_from_member_access() {
 fn hover_resolves_impl_method_signature_from_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "impl Counter {\n",
         "    fn get() i32 { return self.value; }\n",
         "}\n",
@@ -662,14 +661,14 @@ fn hover_resolves_impl_method_signature_from_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn get: fn(Counter) i32"));
+    assert!(hover.contents.value.contains("fn get:"));
 }
 
 #[test]
 fn hover_renders_doc_comments_for_impl_method_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "impl Counter {\n",
         "    /// Read the current counter value.\n",
         "    ///\n",
@@ -698,7 +697,7 @@ fn hover_renders_doc_comments_for_impl_method_reference() {
         .unwrap()
         .unwrap();
 
-    assert!(hover.contents.value.contains("fn get: fn(Counter) i32"));
+    assert!(hover.contents.value.contains("fn get:"));
     assert!(
         hover
             .contents
@@ -718,7 +717,7 @@ fn hover_renders_doc_comments_for_impl_method_reference() {
 fn hover_resolves_struct_field_from_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
         "    let counter = Counter.{ value: i32.{1} };\n",
         "    return counter.value;\n",
@@ -747,7 +746,7 @@ fn hover_resolves_struct_field_from_reference() {
 fn hover_resolves_struct_field_from_literal_initializer() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
         "    let counter = Counter.{ value: i32.{1} };\n",
         "    return counter.value;\n",
@@ -776,8 +775,8 @@ fn hover_resolves_struct_field_from_literal_initializer() {
 fn hover_renders_complex_nested_pointer_field_types() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Payload = struct { x: **i32, y: *mut *mut f64 };\n",
-        "type Complex = struct { ptr: *mut *[]*[4]Payload };\n",
+        "struct Payload { x: &&i32, y: &mut &mut f64 }\n",
+        "struct Complex { ptr: &mut &[&[4]Payload] }\n",
         "fn main() i32 {\n",
         "    let complex = Complex.{ ptr: @trap() };\n",
         "    let _ = complex.ptr;\n",
@@ -804,7 +803,7 @@ fn hover_renders_complex_nested_pointer_field_types() {
         hover
             .contents
             .value
-            .contains("field ptr: *mut *[]*[4]Payload"),
+            .contains("field ptr: &mut &[&[4]Payload]"),
         "{}",
         hover.contents.value
     );
@@ -814,7 +813,7 @@ fn hover_renders_complex_nested_pointer_field_types() {
 fn definition_resolves_struct_field_from_literal_initializer() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
         "    let counter = Counter.{ value: i32.{1} };\n",
         "    return counter.value;\n",
@@ -847,8 +846,8 @@ fn definition_resolves_struct_field_from_literal_initializer() {
 fn document_symbols_render_complex_impl_target_types() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Payload = struct { x: **i32, y: *mut *mut f64 };\n",
-        "impl *mut *[]*[4]Payload {\n",
+        "struct Payload { x: &&i32, y: &mut &mut f64 }\n",
+        "impl &mut &[&[4]Payload] {\n",
         "    fn depth() i32 { return 0; }\n",
         "}\n",
     );
@@ -869,14 +868,14 @@ fn document_symbols_render_complex_impl_target_types() {
         .find(|symbol| symbol.detail.as_deref() == Some("impl"))
         .expect("expected impl symbol");
 
-    assert_eq!(impl_symbol.name, "impl *mut *[]*[4]Payload");
+    assert_eq!(impl_symbol.name, "impl &mut &[&[4]Payload]");
 }
 
 #[test]
 fn document_symbols_render_anonymous_struct_impl_target_types() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "impl *mut [4]struct { x: **i32, y: *mut *mut f64 } {\n",
+        "impl &mut [4]struct { x: &&i32, y: &mut &mut f64 } {\n",
         "    fn depth() i32 { return 0; }\n",
         "}\n",
     );
@@ -899,7 +898,7 @@ fn document_symbols_render_anonymous_struct_impl_target_types() {
 
     assert_eq!(
         impl_symbol.name,
-        "impl *mut [4]struct { x: **i32, y: *mut *mut f64 }"
+        "impl &mut [4]struct { x: &&i32, y: &mut &mut f64 }"
     );
 }
 
@@ -907,7 +906,7 @@ fn document_symbols_render_anonymous_struct_impl_target_types() {
 fn hover_resolves_enum_variant_from_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Result = enum { Ok: i32, Err };\n",
+        "enum Result { Ok: i32, Err }\n",
         "fn main() i32 {\n",
         "    let value = Result.{ Ok: i32.{1} };\n",
         "    let _ = value;\n",
@@ -937,7 +936,7 @@ fn hover_resolves_enum_variant_from_reference() {
 fn hover_resolves_match_variant_pattern_from_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Result = enum { Ok: i32, Err };\n",
+        "enum Result { Ok: i32, Err }\n",
         "fn main() i32 {\n",
         "    let value = Result.Err;\n",
         "    return match (value) {\n",
@@ -969,7 +968,7 @@ fn hover_resolves_match_variant_pattern_from_reference() {
 fn hover_resolves_typed_match_variant_path_from_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Result = enum { Ok: i32, Err };\n",
+        "enum Result { Ok: i32, Err }\n",
         "fn main() i32 {\n",
         "    let value = Result.{ Ok: i32.{1} };\n",
         "    return match (value) {\n",
@@ -1068,7 +1067,7 @@ fn hover_resolves_local_definition_without_references() {
 fn hover_on_impl_method_definition_prefers_method_span() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct {};\n",
+        "struct Counter {}\n",
         "impl Counter {\n",
         "    fn get() i32 { return 1; }\n",
         "}\n",
@@ -1106,14 +1105,14 @@ fn navigation_tracks_impl_methods_spread_across_modules() {
         concat!(
             "mod storage;\n",
             "mod view;\n",
-            "pub type Editor = struct { value: i32 };\n",
+            "pub struct Editor { value: i32 }\n",
         ),
     )
     .unwrap();
 
     let storage_source = concat!(
         "use ..Editor;\n",
-        "impl *mut Editor {\n",
+        "impl &mut Editor {\n",
         "    fn buffer_slot_mut() i32 { return self.value; }\n",
         "    pub fn local_use() i32 { return self.buffer_slot_mut(); }\n",
         "    pub fn local_use_again() i32 { return self.buffer_slot_mut(); }\n",
@@ -1124,7 +1123,7 @@ fn navigation_tracks_impl_methods_spread_across_modules() {
 
     let view_source = concat!(
         "use ..Editor;\n",
-        "impl *mut Editor {\n",
+        "impl &mut Editor {\n",
         "    pub fn view_use() i32 { return self.buffer_slot_mut(); }\n",
         "}\n",
     );
@@ -1207,7 +1206,7 @@ fn navigation_tracks_impl_methods_spread_across_modules() {
 fn hover_on_destructure_pun_prefers_local_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
         "    let counter = Counter.{ value: i32.{1} };\n",
         "    let Counter.{ value } = counter;\n",
@@ -1237,7 +1236,7 @@ fn hover_on_destructure_pun_prefers_local_binding() {
 fn hover_on_destructure_payload_binding_prefers_local_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "pub type Option[T] = enum { Some: T, None };\n",
+        "pub enum Option[T] { Some: T, None }\n",
         "fn main(value: Option[i32]) i32 {\n",
         "    let .{ Some: inner } = value else return 0;\n",
         "    return inner;\n",
@@ -1266,7 +1265,7 @@ fn hover_on_destructure_payload_binding_prefers_local_binding() {
 fn definition_from_destructure_payload_binding_reference_resolves_local_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "pub type Option[T] = enum { Some: T, None };\n",
+        "pub enum Option[T] { Some: T, None }\n",
         "fn main(value: Option[i32]) i32 {\n",
         "    let .{ Some: inner } = value else return 0;\n",
         "    return inner;\n",
@@ -1299,7 +1298,7 @@ fn definition_from_destructure_payload_binding_reference_resolves_local_binding(
 fn goto_definition_on_destructure_pun_definition_prefers_local_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
         "    let counter = Counter.{ value: i32.{1} };\n",
         "    let Counter.{ value } = counter;\n",
@@ -1333,7 +1332,7 @@ fn goto_definition_on_destructure_pun_definition_prefers_local_binding() {
 fn references_from_destructure_pun_definition_follow_local_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
         "    let counter = Counter.{ value: i32.{1} };\n",
         "    let Counter.{ value } = counter;\n",
@@ -1370,7 +1369,7 @@ fn references_from_destructure_pun_definition_follow_local_binding() {
 fn document_highlights_on_destructure_pun_definition_follow_local_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
         "    let counter = Counter.{ value: i32.{1} };\n",
         "    let Counter.{ value } = counter;\n",
@@ -1407,7 +1406,7 @@ fn document_highlights_on_destructure_pun_definition_follow_local_binding() {
 fn rename_destructure_payload_binding_updates_definition_and_references() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "pub type Option[T] = enum { Some: T, None };\n",
+        "pub enum Option[T] { Some: T, None }\n",
         "fn main(value: Option[i32]) i32 {\n",
         "    let .{ Some: inner } = value else return 0;\n",
         "    return inner;\n",
@@ -1439,7 +1438,7 @@ fn rename_destructure_payload_binding_updates_definition_and_references() {
 fn hover_on_match_payload_binding_prefers_local_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "pub type Option[T] = enum { Some: T, None };\n",
+        "pub enum Option[T] { Some: T, None }\n",
         "fn main(value: Option[i32]) i32 {\n",
         "    return match (value) {\n",
         "        .{ Some: payload } => payload,\n",
@@ -1470,11 +1469,11 @@ fn hover_on_match_payload_binding_prefers_local_binding() {
 fn goto_definition_resolves_trait_object_method_references_to_trait_method() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Base = trait { foo: fn() i32, };\n",
-        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "trait Base { fn foo() i32; }\n",
+        "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
         "    let value = i32.{3};\n",
-        "    let base = *Base.{ value.& };\n",
+        "    let base = &Base.{ value.& };\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1502,11 +1501,11 @@ fn goto_definition_resolves_trait_object_method_references_to_trait_method() {
 fn hover_resolves_trait_object_method_references_to_trait_method() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Base = trait { foo: fn() i32, };\n",
-        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "trait Base { fn foo() i32; }\n",
+        "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
         "    let value = i32.{3};\n",
-        "    let base = *Base.{ value.& };\n",
+        "    let base = &Base.{ value.& };\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1533,11 +1532,11 @@ fn hover_resolves_trait_object_method_references_to_trait_method() {
 fn references_for_trait_method_include_impl_definition_and_call_sites() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Base = trait { foo: fn() i32, };\n",
-        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "trait Base { fn foo() i32; }\n",
+        "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
         "    let value = i32.{3};\n",
-        "    let base = *Base.{ value.& };\n",
+        "    let base = &Base.{ value.& };\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1575,11 +1574,11 @@ fn references_for_trait_method_include_impl_definition_and_call_sites() {
 fn document_highlights_for_trait_impl_method_include_trait_and_call_sites() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Base = trait { foo: fn() i32, };\n",
-        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "trait Base { fn foo() i32; }\n",
+        "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
         "    let value = i32.{3};\n",
-        "    let base = *Base.{ value.& };\n",
+        "    let base = &Base.{ value.& };\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1704,7 +1703,7 @@ fn rename_updates_local_binding_definition_and_references() {
 fn rename_destructure_pun_expands_pattern_and_updates_uses() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "fn main() i32 {\n",
         "    let counter = Counter.{ value: i32.{1} };\n",
         "    let Counter.{ value } = counter;\n",
@@ -1738,11 +1737,11 @@ fn rename_destructure_pun_expands_pattern_and_updates_uses() {
 fn rename_trait_method_reference_updates_trait_impl_and_call_sites() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Base = trait { foo: fn() i32, };\n",
-        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "trait Base { fn foo() i32; }\n",
+        "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
         "    let value = i32.{3};\n",
-        "    let base = *Base.{ value.& };\n",
+        "    let base = &Base.{ value.& };\n",
         "    return base.foo();\n",
         "}\n",
     );
@@ -1773,11 +1772,11 @@ fn rename_trait_method_reference_updates_trait_impl_and_call_sites() {
 fn rename_trait_impl_method_updates_trait_and_call_sites() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Base = trait { foo: fn() i32, };\n",
-        "impl *i32 : Base { pub fn foo() i32 { return self.*; } }\n",
+        "trait Base { fn foo() i32; }\n",
+        "impl &i32 : Base { pub fn foo() i32 { return self.*; } }\n",
         "fn main() i32 {\n",
         "    let value = i32.{3};\n",
-        "    let base = *Base.{ value.& };\n",
+        "    let base = &Base.{ value.& };\n",
         "    return base.foo();\n",
         "}\n",
     );

@@ -23,9 +23,9 @@ use std::collections::HashMap;
 type LowerResult<T> = Result<T, MirLowerError>;
 
 #[derive(Debug, Clone)]
-struct MirLowerError {
-    span: Span,
-    message: String,
+pub struct MirLowerError {
+    pub span: Span,
+    pub message: String,
 }
 
 impl MirLowerError {
@@ -142,44 +142,34 @@ pub(super) fn lower_simd_reduce_kind(kind: SimdReduceKind) -> MirSimdReduceKind 
     }
 }
 
-pub(crate) fn build_from_mast_unoptimized(module: &MastModule) -> MirBuildReport {
+pub(crate) fn build_from_mast_unoptimized(module: &MastModule) -> LowerResult<MirBuildReport> {
     let globals = module
         .globals
         .iter()
-        .map(|global| MirGlobal {
-            id: global.id,
-            name: global.name.clone(),
-            span: global.span,
-            linkage: lower_linkage(global.linkage),
-            ty: global.ty,
-            is_mut: global.is_mut,
-            init: global
+        .map(|global| {
+            let init = global
                 .init
                 .as_ref()
                 .map(static_init::lower_static_init)
-                .transpose()
-                .unwrap_or_else(|error| {
-                    panic!(
-                        "Kern ICE (MIR Lower): failed to lower global `{}` initializer at {:?}: {}",
-                        global.name, error.span, error.message
-                    )
-                }),
-            is_extern: global.is_extern,
-            attributes: global.attributes.clone(),
+                .transpose()?;
+            Ok(MirGlobal {
+                id: global.id,
+                name: global.name.clone(),
+                span: global.span,
+                linkage: lower_linkage(global.linkage),
+                ty: global.ty,
+                is_mut: global.is_mut,
+                init,
+                is_extern: global.is_extern,
+                attributes: global.attributes.clone(),
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<LowerResult<Vec<_>>>()?;
     let functions = module
         .functions
         .iter()
-        .map(|function| {
-            MirFunctionBuilder::build(function).unwrap_or_else(|error| {
-                panic!(
-                    "Kern ICE (MIR Lower): failed to lower function `{}` at {:?}: {}",
-                    function.name, error.span, error.message
-                )
-            })
-        })
-        .collect::<Vec<_>>();
+        .map(MirFunctionBuilder::build)
+        .collect::<LowerResult<Vec<_>>>()?;
 
     let module = MirModule {
         name: module.name.clone(),
@@ -191,12 +181,12 @@ pub(crate) fn build_from_mast_unoptimized(module: &MastModule) -> MirBuildReport
     kernc_mir::verify_module(&module).expect("Kern ICE (MIR): built invalid MIR.");
     let workload = module.workload_stats();
     let summary = module.summary_index();
-    MirBuildReport {
+    Ok(MirBuildReport {
         module,
         workload,
         summary,
         pass_pipeline: kernc_mir::MirPassPipelineReport::default(),
-    }
+    })
 }
 
 #[derive(Debug, Clone, Copy)]

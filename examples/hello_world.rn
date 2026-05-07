@@ -2,6 +2,6 @@ use std.io;
 
 fn main() i32 {
     // Hosted examples use the standard runtime and can print to stdout.
-    io.println("hello, {}!", .{"world",});
+    "hello, {}!".fmt(.{"world"}).println();
     return 0;
 }

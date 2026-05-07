@@ -4,38 +4,38 @@ use super::*;
 fn accepts_acyclic_supertrait_hierarchy_with_changed_generic_arguments() {
     let output = build_and_run_source(
         r#"
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
-type Base[T] = trait {
-    get: fn() T,
+trait Base[T] {
+    fn get() T;
 };
 
-type Derived[T]: Base[Wrap[T]] = trait {
-    bonus: fn(T) T,
+trait Derived[T]: Base[Wrap[T]] {
+    fn bonus(_: T) T;
 };
 
-impl *i32 : Base[Wrap[i32]] {
+impl &i32 : Base[Wrap[i32]] {
     fn get() Wrap[i32] {
         return Wrap[i32].{ inner: self.* };
     }
 }
 
-impl *i32 : Derived[i32] {
+impl &i32 : Derived[i32] {
     fn bonus(v: i32) i32 {
         return self.* + v;
     }
 }
 
-fn takes_base(x: *Base[Wrap[i32]]) i32 {
+fn takes_base(x: &Base[Wrap[i32]]) i32 {
     return x.get().inner;
 }
 
 fn main() i32 {
     let value = i32.{5};
-    let derived = *Derived[i32].{ value.& };
-    let base = *Base[Wrap[i32]].{ derived };
+    let derived = &Derived[i32].{ value.& };
+    let base = &Base[Wrap[i32]].{ derived };
     if (base.get().inner + takes_base(derived) + derived.bonus(4) == 19) {
         return 0;
     }
@@ -57,17 +57,17 @@ fn main() i32 {
 fn accepts_const_generic_supertrait_object_upcast() {
     let output = build_and_run_source(
         r#"
-type Base[N: usize] = trait {
-    value: fn() i32,
+trait Base[N: usize] {
+    fn value() i32;
 };
 
-type Derived[N: usize]: Base[N] = trait {};
+trait Derived[N: usize]: Base[N] {};
 
-type X = struct {};
+struct X {};
 
-impl *X: Derived[4] {}
+impl &X: Derived[4] {}
 
-impl *X: Base[4] {
+impl &X: Base[4] {
     fn value() i32 {
         return 7;
     }
@@ -75,8 +75,8 @@ impl *X: Base[4] {
 
 fn main() i32 {
     let x = X.{};
-    let derived = *Derived[4].{ x.& };
-    let base = *Base[4].{ derived };
+    let derived = &Derived[4].{ x.& };
+    let base = &Base[4].{ derived };
     return base.value() - 7;
 }
 "#,
@@ -94,17 +94,17 @@ fn main() i32 {
 fn dispatches_inherited_const_supertrait_method_from_generic_trait_object_impl() {
     let output = build_and_run_source(
         r#"
-type Base[N: usize] = trait {
-    value: fn() i32,
+trait Base[N: usize] {
+    fn value() i32;
 };
 
-type Derived[N: usize]: Base[N] = trait {};
+trait Derived[N: usize]: Base[N] {};
 
-type X = struct {};
+struct X {};
 
-impl[N: usize] *X: Derived[N] {}
+impl[N: usize] &X: Derived[N] {}
 
-impl[N: usize] *X: Base[N] {
+impl[N: usize] &X: Base[N] {
     fn value() i32 {
         return N as i32;
     }
@@ -112,7 +112,7 @@ impl[N: usize] *X: Base[N] {
 
 fn main() i32 {
     let x = X.{};
-    let derived = *Derived[4].{ x.& };
+    let derived = &Derived[4].{ x.& };
     return derived.value() - 4;
 }
 "#,
@@ -130,36 +130,36 @@ fn main() i32 {
 fn preserves_specialized_assoc_bindings_while_lowering_supertrait_trait_objects() {
     let output = build_and_run_source(
         r#"
-type Width[N: usize] = trait {
-    width: fn() i32,
+trait Width[N: usize] {
+    fn width() i32;
 };
 
-type Label = trait {
-    label: fn() i32,
+trait Label {
+    fn label() i32;
 };
 
-type Mapped[N: usize]: Width[N] + Label = trait {
-    fold: fn() i32,
+trait Mapped[N: usize]: Width[N] + Label {
+    fn fold() i32;
 };
 
-type Check[N: usize] = trait {
+trait Check[N: usize] {
     type Ty: Mapped[N];
-    make: fn() Ty,
+    fn make() Ty;
 };
 
-type RichCheck[N: usize]: Check[N] + Width[N] = trait {
-    prove: fn() i32,
+trait RichCheck[N: usize]: Check[N] + Width[N] {
+    fn prove() i32;
 };
 
-type Data = struct {
+struct Data {
     seed: i32,
 };
 
-type GenericProof[N: usize] = struct {
+struct GenericProof[N: usize] {
     seed: i32,
 };
 
-type QuadProof = struct {
+struct QuadProof {
     seed: i32,
     bonus: i32,
 };
@@ -200,13 +200,13 @@ impl QuadProof: Mapped[4] {
     }
 }
 
-impl[N: usize] *Data: Width[N] {
+impl[N: usize] &Data: Width[N] {
     fn width() i32 {
         return N as i32;
     }
 }
 
-impl[N: usize] *Data: Check[N] {
+impl[N: usize] &Data: Check[N] {
     type Ty = GenericProof[N];
 
     fn make() Ty {
@@ -214,7 +214,7 @@ impl[N: usize] *Data: Check[N] {
     }
 }
 
-impl *Data: Check[4] {
+impl &Data: Check[4] {
     type Ty = QuadProof;
 
     fn make() Ty {
@@ -222,16 +222,16 @@ impl *Data: Check[4] {
     }
 }
 
-impl[N: usize] *Data: RichCheck[N]
-    where *Data: Check[N],
+impl[N: usize] &Data: RichCheck[N]
+    where &Data: Check[N],
 {
     fn prove() i32 {
         return self.make().fold() + self.width();
     }
 }
 
-fn via_object(value: *Data) i32 {
-    let rich = *RichCheck[4].{ value };
+fn via_object(value: &Data) i32 {
+    let rich = &RichCheck[4].{ value };
     return rich.prove() + rich.width();
 }
 
@@ -254,17 +254,17 @@ fn main() i32 {
 fn rejects_self_recursive_supertrait_hierarchy() {
     let output = compile_source(
         r#"
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
-type A[T]: A[Wrap[T]] = trait {
-    value: fn() i32,
+trait A[T]: A[Wrap[T]] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
-impl *X: A[i32] {
+impl &X: A[i32] {
     fn value() i32 {
         return 1;
     }
@@ -272,7 +272,7 @@ impl *X: A[i32] {
 
 fn main() i32 {
     let x = X.{};
-    let a = *A[i32].{ x.& };
+    let a = &A[i32].{ x.& };
     return a.value();
 }
 "#,
@@ -307,27 +307,27 @@ fn main() i32 {
 fn rejects_mutually_recursive_supertrait_hierarchy() {
     let output = compile_source(
         r#"
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
-type A[T]: B[Wrap[T]] = trait {
-    a: fn() i32,
+trait A[T]: B[Wrap[T]] {
+    fn a() i32;
 };
 
-type B[T]: A[Wrap[T]] = trait {
-    b: fn() i32,
+trait B[T]: A[Wrap[T]] {
+    fn b() i32;
 };
 
-type X = struct {};
+struct X {};
 
-impl *X: A[i32] {
+impl &X: A[i32] {
     fn a() i32 {
         return 1;
     }
 }
 
-impl *X: B[Wrap[i32]] {
+impl &X: B[Wrap[i32]] {
     fn b() i32 {
         return 2;
     }
@@ -335,7 +335,7 @@ impl *X: B[Wrap[i32]] {
 
 fn main() i32 {
     let x = X.{};
-    let a = *A[i32].{ x.& };
+    let a = &A[i32].{ x.& };
     return a.a();
 }
 "#,
@@ -375,8 +375,8 @@ fn main() i32 {
 fn rejects_equal_size_supertrait_cycles() {
     let output = compile_source(
         r#"
-type A[T]: B[T] = trait {};
-type B[T]: A[T] = trait {};
+trait A[T]: B[T] {};
+trait B[T]: A[T] {};
 
 fn main() i32 {
     return 0;

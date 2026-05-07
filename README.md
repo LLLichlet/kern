@@ -15,7 +15,7 @@
   <a href="#documentation">Documentation</a>
 </p>
 
-> Status: v0.7.3, experimental. Kern is pre-1.0 and deliberately removes
+> Status: v0.7.5, experimental. Kern is pre-1.0 and deliberately removes
 > historical syntax or toolchain baggage when the current design becomes clear.
 
 Kern is designed for low-level software that still wants modern language
@@ -125,7 +125,7 @@ For full compiler-driver usage, see [docs/kernc.md](docs/kernc.md).
 ```kern
 use std.io;
 
-type ParseResult = enum {
+enum ParseResult {
     Number: i32,
     Missing,
 };
@@ -146,7 +146,7 @@ fn main() i32 {
 Kern syntax keeps ownership of effects visible:
 
 - `let mut value` makes storage mutable.
-- `*T`, `*mut T`, `^T`, and `^mut T` are explicit pointer values.
+- `&T`, `&mut T`, `^T`, and `^mut T` are explicit pointer values.
 - `?T` and `T!E` are built-in enum forms, not implicit nullable references or
   exceptions.
 - `match` is exhaustive.

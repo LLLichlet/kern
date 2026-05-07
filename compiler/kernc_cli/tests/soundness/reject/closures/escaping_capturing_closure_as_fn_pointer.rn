@@ -1,11 +1,11 @@
 // class: escaping-stack-state
 // source: analogous to Rust closure/fndef return-type soundness bugs such as rust-lang/rust#84366
-// stderr: cannot return a capturing closure as `*Fn(i32) i32`
+// stderr: cannot return a capturing closure as `&Fn(i32) i32`
 // stderr: closure environment would escape the current stack frame
 
-fn make() *Fn(i32) i32 {
+fn make() &Fn(i32) i32 {
     let base = i32.{7};
-    return .[base](x: i32) i32 {
+    return [base](x: i32) i32 {
         return x + base;
     };
 }

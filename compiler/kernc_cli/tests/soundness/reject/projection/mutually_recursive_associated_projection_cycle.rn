@@ -2,15 +2,15 @@
 // stderr: recursive associated type projection cycle detected
 // stderr: projection cycle: X.A.Out -> X.B.Out -> X.A.Out
 
-type A = trait {
+trait A {
     type Out;
 };
 
-type B = trait {
+trait B {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: A {
     type Out = X.B.Out;

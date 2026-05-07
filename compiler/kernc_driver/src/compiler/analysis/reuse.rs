@@ -265,17 +265,60 @@ fn normalize_decl_for_reuse_comparison(decl: &mut ast::Decl) {
         ast::DeclKind::Var { value, .. } => normalize_expr_for_body_only_comparison(value),
         ast::DeclKind::TypeAlias {
             generics,
-            bounds,
             where_clauses,
             target,
             ..
         } => {
             normalize_generics_for_body_only_comparison(generics);
-            for bound in bounds {
-                normalize_type_for_body_only_comparison(bound);
-            }
             normalize_where_clauses_for_body_only_comparison(where_clauses);
             normalize_type_for_body_only_comparison(target);
+        }
+        ast::DeclKind::Struct {
+            generics,
+            where_clauses,
+            fields,
+            ..
+        }
+        | ast::DeclKind::Union {
+            generics,
+            where_clauses,
+            fields,
+            ..
+        } => {
+            normalize_generics_for_body_only_comparison(generics);
+            normalize_where_clauses_for_body_only_comparison(where_clauses);
+            for field in fields {
+                normalize_struct_field_for_body_only_comparison(field);
+            }
+        }
+        ast::DeclKind::Enum {
+            generics,
+            where_clauses,
+            backing_type,
+            variants,
+        } => {
+            normalize_generics_for_body_only_comparison(generics);
+            normalize_where_clauses_for_body_only_comparison(where_clauses);
+            if let Some(backing_type) = backing_type {
+                normalize_type_for_body_only_comparison(backing_type);
+            }
+            for variant in variants {
+                normalize_enum_variant_for_body_only_comparison(variant);
+            }
+        }
+        ast::DeclKind::Trait {
+            generics,
+            where_clauses,
+            supertraits,
+            assoc_types,
+            methods,
+        } => {
+            normalize_generics_for_body_only_comparison(generics);
+            normalize_where_clauses_for_body_only_comparison(where_clauses);
+            for supertrait in supertraits {
+                normalize_type_for_body_only_comparison(supertrait);
+            }
+            normalize_trait_items_for_body_only_comparison(assoc_types, methods);
         }
         ast::DeclKind::Use { target, .. } => normalize_use_target_for_body_only_comparison(target),
         ast::DeclKind::ExternBlock { decls, .. } => {
@@ -368,26 +411,10 @@ fn rebind_decl_sequence<'a>(
                     return false;
                 };
                 let name = match &ctx.defs[def_id.0 as usize] {
-                    kernc_sema::def::Def::Struct(struct_def) => struct_def.name,
-                    kernc_sema::def::Def::Union(union_def) => union_def.name,
-                    kernc_sema::def::Def::Enum(enum_def) => enum_def.name,
-                    kernc_sema::def::Def::Trait(trait_def) => trait_def.name,
                     kernc_sema::def::Def::TypeAlias(alias_def) => alias_def.name,
                     _ => return false,
                 };
                 match (&mut ctx.defs[def_id.0 as usize], &target.kind) {
-                    (kernc_sema::def::Def::Struct(struct_def), ast::TypeKind::Struct { .. }) => {
-                        struct_def.span = decl.span;
-                    }
-                    (kernc_sema::def::Def::Union(union_def), ast::TypeKind::Union { .. }) => {
-                        union_def.span = decl.span;
-                    }
-                    (kernc_sema::def::Def::Enum(enum_def), ast::TypeKind::Enum { .. }) => {
-                        enum_def.span = decl.span;
-                    }
-                    (kernc_sema::def::Def::Trait(trait_def), ast::TypeKind::Trait { .. }) => {
-                        trait_def.span = decl.span;
-                    }
                     (kernc_sema::def::Def::TypeAlias(alias_def), _) => {
                         alias_def.span = decl.span;
                     }
@@ -395,6 +422,36 @@ fn rebind_decl_sequence<'a>(
                         return false;
                     }
                 }
+                let _ = ctx
+                    .scopes
+                    .update_span_in_scope(module_scope, name, decl.name_span);
+            }
+            ast::DeclKind::Struct { .. }
+            | ast::DeclKind::Union { .. }
+            | ast::DeclKind::Enum { .. }
+            | ast::DeclKind::Trait { .. } => {
+                let Some(def_id) = item_ids.next().copied() else {
+                    return false;
+                };
+                let name = match &mut ctx.defs[def_id.0 as usize] {
+                    kernc_sema::def::Def::Struct(def) => {
+                        def.span = decl.span;
+                        def.name
+                    }
+                    kernc_sema::def::Def::Union(def) => {
+                        def.span = decl.span;
+                        def.name
+                    }
+                    kernc_sema::def::Def::Enum(def) => {
+                        def.span = decl.span;
+                        def.name
+                    }
+                    kernc_sema::def::Def::Trait(def) => {
+                        def.span = decl.span;
+                        def.name
+                    }
+                    _ => return false,
+                };
                 let _ = ctx
                     .scopes
                     .update_span_in_scope(module_scope, name, decl.name_span);
@@ -495,17 +552,60 @@ fn normalize_decl_for_body_only_comparison(decl: &mut ast::Decl) {
         }
         ast::DeclKind::TypeAlias {
             generics,
-            bounds,
             where_clauses,
             target,
             ..
         } => {
             normalize_generics_for_body_only_comparison(generics);
-            for bound in bounds {
-                normalize_type_for_body_only_comparison(bound);
-            }
             normalize_where_clauses_for_body_only_comparison(where_clauses);
             normalize_type_for_body_only_comparison(target);
+        }
+        ast::DeclKind::Struct {
+            generics,
+            where_clauses,
+            fields,
+            ..
+        }
+        | ast::DeclKind::Union {
+            generics,
+            where_clauses,
+            fields,
+            ..
+        } => {
+            normalize_generics_for_body_only_comparison(generics);
+            normalize_where_clauses_for_body_only_comparison(where_clauses);
+            for field in fields {
+                normalize_struct_field_for_body_only_comparison(field);
+            }
+        }
+        ast::DeclKind::Enum {
+            generics,
+            where_clauses,
+            backing_type,
+            variants,
+        } => {
+            normalize_generics_for_body_only_comparison(generics);
+            normalize_where_clauses_for_body_only_comparison(where_clauses);
+            if let Some(backing_type) = backing_type {
+                normalize_type_for_body_only_comparison(backing_type);
+            }
+            for variant in variants {
+                normalize_enum_variant_for_body_only_comparison(variant);
+            }
+        }
+        ast::DeclKind::Trait {
+            generics,
+            where_clauses,
+            supertraits,
+            assoc_types,
+            methods,
+        } => {
+            normalize_generics_for_body_only_comparison(generics);
+            normalize_where_clauses_for_body_only_comparison(where_clauses);
+            for supertrait in supertraits {
+                normalize_type_for_body_only_comparison(supertrait);
+            }
+            normalize_trait_items_for_body_only_comparison(assoc_types, methods);
         }
         ast::DeclKind::Use { target, .. } => normalize_use_target_for_body_only_comparison(target),
         ast::DeclKind::ExternBlock { decls, .. } => {
@@ -716,6 +816,35 @@ fn normalize_struct_field_for_body_only_comparison(field: &mut ast::StructFieldD
     field.name_span = Span::default();
     normalize_type_for_body_only_comparison(&mut field.type_node);
     field.default_value = None;
+}
+
+fn normalize_enum_variant_for_body_only_comparison(variant: &mut ast::EnumVariant) {
+    variant.span = Span::default();
+    variant.name_span = Span::default();
+    if let Some(payload_type) = &mut variant.payload_type {
+        normalize_type_for_body_only_comparison(payload_type);
+    }
+    if let Some(value) = &mut variant.value {
+        normalize_expr_for_body_only_comparison(value);
+    }
+}
+
+fn normalize_trait_items_for_body_only_comparison(
+    assoc_types: &mut [ast::AssociatedTypeDecl],
+    methods: &mut [ast::StructFieldDef],
+) {
+    for assoc in assoc_types {
+        assoc.name_span = Span::default();
+        assoc.span = Span::default();
+        normalize_generics_for_body_only_comparison(&mut assoc.generics);
+        for bound in &mut assoc.bounds {
+            normalize_type_for_body_only_comparison(bound);
+        }
+        normalize_where_clauses_for_body_only_comparison(&mut assoc.where_clauses);
+    }
+    for method in methods {
+        normalize_struct_field_for_body_only_comparison(method);
+    }
 }
 
 fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {

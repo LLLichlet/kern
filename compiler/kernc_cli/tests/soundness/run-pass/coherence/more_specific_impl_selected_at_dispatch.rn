@@ -1,17 +1,17 @@
 // class: specialization-dispatch
 // exit: 0
 
-type Score = trait {
-    value: fn() i32,
+trait Score {
+    fn value() i32;
 };
 
-impl[T] []T : Score {
+impl[T] &[T] : Score {
     fn value() i32 {
         return 1;
     }
 }
 
-impl []u8 : Score {
+impl &[u8] : Score {
     fn value() i32 {
         return 2;
     }

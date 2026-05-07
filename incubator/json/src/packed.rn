@@ -31,23 +31,23 @@ use ..number.{
 };
 use ..parser.{parse_literal, parse_number_end, parse_string_end, skip_ws};
 
-type PackedText = struct {
+struct PackedText {
     start: usize = 0,
     len: usize = 0,
 };
 
-type PackedValueNode = struct {
+struct PackedValueNode {
     kind: Kind = Kind.Null,
     data0: usize = 0,
     data1: usize = 0,
 };
 
-type PackedObjectEntryNode = struct {
+struct PackedObjectEntryNode {
     key: PackedText = PackedText.{},
     value: usize = 0,
 };
 
-type PackedDocumentState = struct {
+struct PackedDocumentState {
     page: Page,
     arena: Arena,
     strings: String = String.{},
@@ -58,41 +58,41 @@ type PackedDocumentState = struct {
     root: usize = 0,
 };
 
-pub/ type PackedDocument = struct {
-    state: ?*mut PackedDocumentState = .None,
+pub/ struct PackedDocument {
+    state: ?&mut PackedDocumentState = .None,
 };
 
-pub/ type PackedValue = struct {
-    state: ?*PackedDocumentState = .None,
+pub/ struct PackedValue {
+    state: ?&PackedDocumentState = .None,
     index: usize = 0,
 };
 
-pub/ type PackedObjectEntry = struct {
-    pub key: []u8 = "",
+pub/ struct PackedObjectEntry {
+    pub key: &[u8] = "",
     pub value: PackedValue = PackedValue.{},
 };
 
-pub/ type PackedIndexedObjectDocument = struct {
-    state: ?*mut PackedDocumentState = .None,
+pub/ struct PackedIndexedObjectDocument {
+    state: ?&mut PackedDocumentState = .None,
 };
 
-pub/ type PackedIndexedObjectView = struct {
-    state: ?*PackedDocumentState = .None,
+pub/ struct PackedIndexedObjectView {
+    state: ?&PackedDocumentState = .None,
     start: usize = 0,
     count: usize = 0,
 };
 
-fn require_packed_document_state(state: ?*mut PackedDocumentState) *mut PackedDocumentState {
+fn require_packed_document_state(state: ?&mut PackedDocumentState) &mut PackedDocumentState {
     let .{ Some: state } = state else @trap();
     return state;
 }
 
-fn require_packed_document_state_view(state: ?*PackedDocumentState) *PackedDocumentState {
+fn require_packed_document_state_view(state: ?&PackedDocumentState) &PackedDocumentState {
     let .{ Some: state } = state else @trap();
     return state;
 }
 
-fn wrap_packed_value(state: *PackedDocumentState, index: usize) PackedValue {
+fn wrap_packed_value(state: &PackedDocumentState, index: usize) PackedValue {
     return PackedValue.{ state: .{ Some: state }, index: index };
 }
 
@@ -101,12 +101,12 @@ fn packed_value_node(value: PackedValue) PackedValueNode {
     return state.values.&.as_slice().[value.index];
 }
 
-fn packed_text_slice(state: *PackedDocumentState, span: PackedText) []u8 {
+fn packed_text_slice(state: &PackedDocumentState, span: PackedText) &[u8] {
     let text = state.strings.&.as_str();
-    return text.[span.start .. span.start + span.len];
+    return text.&[span.start .. span.start + span.len];
 }
 
-fn append_raw_text(state: *mut PackedDocumentState, text: []u8) ?PackedText {
+fn append_raw_text(state: &mut PackedDocumentState, text: &[u8]) ?PackedText {
     let start = state.*.strings.&.len();
     let len = #text;
     if (len == 0) {
@@ -114,13 +114,13 @@ fn append_raw_text(state: *mut PackedDocumentState, text: []u8) ?PackedText {
     }
     let .{ Some: out } = state.*.strings..&.append_uninit(state.*.arena..&, len)
         else return .None;
-    @memcpy(out.[0].& as *mut u8, text.[0].& as *u8, len);
+    @memcpy(out.[0].& as &mut u8, text.[0].& as &u8, len);
     return .{ Some: PackedText.{ start: start, len: len } };
 }
 
 fn append_decoded_parsed_text_raw(
-    state: *mut PackedDocumentState,
-    raw: []u8,
+    state: &mut PackedDocumentState,
+    raw: &[u8],
 ) PackedText!StringDecodeError {
     let start = state.*.strings.&.len();
     if (#raw < 2) {
@@ -153,7 +153,7 @@ fn append_decoded_parsed_text_raw(
 }
 
 fn append_value_node(
-    state: *mut PackedDocumentState,
+    state: &mut PackedDocumentState,
     node: PackedValueNode,
 ) usize!MaterializeError {
     let index = state.*.values.&.len();
@@ -163,16 +163,16 @@ fn append_value_node(
     return .{ Ok: index };
 }
 
-type PackedParsedValue = struct {
+struct PackedParsedValue {
     index: usize = 0,
     next: usize = 0,
 };
 
 fn parse_packed_scalar_literal(
-    state: *mut PackedDocumentState,
-    text: []u8,
+    state: &mut PackedDocumentState,
+    text: &[u8],
     start: usize,
-    literal: []u8,
+    literal: &[u8],
     kind: Kind,
     node: PackedValueNode,
 ) PackedParsedValue!MaterializeError {
@@ -188,15 +188,15 @@ fn parse_packed_scalar_literal(
 }
 
 fn parse_packed_number(
-    state: *mut PackedDocumentState,
-    text: []u8,
+    state: &mut PackedDocumentState,
+    text: &[u8],
     start: usize,
 ) PackedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_number_end(text, start)
         else {
             .{ Err: err } => return .{ Err: .{ Parse: err } },
         };
-    let .{ Some: span } = append_raw_text(state, text.[start .. next])
+    let .{ Some: span } = append_raw_text(state, text.&[start .. next])
         else return .{ Err: MaterializeError.OutOfMemory };
     let .{ Ok: index } = append_value_node(
         state,
@@ -208,15 +208,15 @@ fn parse_packed_number(
 }
 
 fn parse_packed_string(
-    state: *mut PackedDocumentState,
-    text: []u8,
+    state: &mut PackedDocumentState,
+    text: &[u8],
     start: usize,
 ) PackedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_string_end(text, start)
         else {
             .{ Err: err } => return .{ Err: .{ Parse: err } },
         };
-    let .{ Ok: span } = append_decoded_parsed_text_raw(state, text.[start .. next])
+    let .{ Ok: span } = append_decoded_parsed_text_raw(state, text.&[start .. next])
         else {
             .{ Err: err } => return .{ Err: .{ String: err } },
         };
@@ -230,9 +230,9 @@ fn parse_packed_string(
 }
 
 fn parse_packed_array(
-    state: *mut PackedDocumentState,
-    scratch: *mut Allocator,
-    text: []u8,
+    state: &mut PackedDocumentState,
+    scratch: &mut Allocator,
+    text: &[u8],
     start: usize,
 ) PackedParsedValue!MaterializeError {
     let .{ Ok: index } = append_value_node(state, PackedValueNode.{ kind: Kind.Array })
@@ -290,9 +290,9 @@ fn parse_packed_array(
 }
 
 fn parse_packed_object(
-    state: *mut PackedDocumentState,
-    scratch: *mut Allocator,
-    text: []u8,
+    state: &mut PackedDocumentState,
+    scratch: &mut Allocator,
+    text: &[u8],
     start: usize,
 ) PackedParsedValue!MaterializeError {
     let .{ Ok: index } = append_value_node(state, PackedValueNode.{ kind: Kind.Object })
@@ -325,7 +325,7 @@ fn parse_packed_object(
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
             };
-        let .{ Ok: key } = append_decoded_parsed_text_raw(state, text.[field_start .. key_end])
+        let .{ Ok: key } = append_decoded_parsed_text_raw(state, text.&[field_start .. key_end])
             else {
                 .{ Err: err } => return .{ Err: .{ String: err } },
             };
@@ -375,9 +375,9 @@ fn parse_packed_object(
 }
 
 fn parse_packed_value_from_start(
-    state: *mut PackedDocumentState,
-    scratch: *mut Allocator,
-    text: []u8,
+    state: &mut PackedDocumentState,
+    scratch: &mut Allocator,
+    text: &[u8],
     start: usize,
 ) PackedParsedValue!MaterializeError {
     if (start >= #text) {
@@ -419,7 +419,7 @@ fn wrap_float_error(err: FloatDecodeError) FieldDecodeError {
     return .{ Float: err };
 }
 
-fn wrap_packed_entry(state: *PackedDocumentState, entry_index: usize) PackedObjectEntry {
+fn wrap_packed_entry(state: &PackedDocumentState, entry_index: usize) PackedObjectEntry {
     let entry = state.object_entries.&.as_slice().[entry_index];
     let key = packed_text_slice(state, entry.key);
     return PackedObjectEntry.{
@@ -428,8 +428,8 @@ fn wrap_packed_entry(state: *PackedDocumentState, entry_index: usize) PackedObje
     };
 }
 
-fn deinit_packed_index(state: *mut PackedDocumentState) void {
-    let free_bucket = .[state](hash: u64, bucket: *mut List[usize]) void {
+fn deinit_packed_index(state: &mut PackedDocumentState) void {
+    let free_bucket = [state](hash: u64, bucket: &mut List[usize]) void {
         _ = hash;
         bucket.deinit(state.arena..&);
     };
@@ -437,23 +437,23 @@ fn deinit_packed_index(state: *mut PackedDocumentState) void {
     state.index..&.deinit(state.arena..&);
 }
 
-fn deinit_packed_state(state: *mut PackedDocumentState) void {
+fn deinit_packed_state(state: &mut PackedDocumentState) void {
     deinit_packed_index(state);
     state.arena..&.deinit();
 }
 
-fn destroy_packed_state(state: *mut PackedDocumentState) void {
+fn destroy_packed_state(state: &mut PackedDocumentState) void {
     let page = Page.{}..&;
     let layout = layout_of[PackedDocumentState]();
     deinit_packed_state(state);
-    page.free(state as *mut u8, layout);
+    page.free(state as &mut u8, layout);
 }
 
-fn create_packed_document_state() (*mut PackedDocumentState)!MaterializeError {
+fn create_packed_document_state() (&mut PackedDocumentState)!MaterializeError {
     let page = Page.{}..&;
     let layout = layout_of[PackedDocumentState]();
     let raw = page.alloc(layout).ok_or(MaterializeError.OutOfMemory).!;
-    let state = raw as *mut PackedDocumentState;
+    let state = raw as &mut PackedDocumentState;
     state.page = Page.{};
     state.arena = Arena.{ backing: state.page..& };
     state.strings = String.{};
@@ -465,7 +465,7 @@ fn create_packed_document_state() (*mut PackedDocumentState)!MaterializeError {
     return .{ Ok: state };
 }
 
-fn parse_packed_document_state(text: []u8) (*mut PackedDocumentState)!MaterializeError {
+fn parse_packed_document_state(text: &[u8]) (&mut PackedDocumentState)!MaterializeError {
     let start = skip_ws(text, 0);
     if (start >= #text) {
         return .{ Err: .{ Parse: ParseError.EmptyInput } };
@@ -495,7 +495,7 @@ fn parse_packed_document_state(text: []u8) (*mut PackedDocumentState)!Materializ
 }
 
 fn finish_packed_indexed_state(
-    state: *mut PackedDocumentState,
+    state: &mut PackedDocumentState,
 ) PackedIndexedObjectDocument!PackedIndexedObjectDocumentError {
     if (!wrap_packed_value(state, state.root).is_object()) {
         destroy_packed_state(state);
@@ -508,7 +508,7 @@ fn finish_packed_indexed_state(
     return .{ Ok: PackedIndexedObjectDocument.{ state: .{ Some: state } } };
 }
 
-fn build_root_packed_index(state: *mut PackedDocumentState) void!IndexBuildError {
+fn build_root_packed_index(state: &mut PackedDocumentState) void!IndexBuildError {
     let root = wrap_packed_value(state, state.root);
     let node = packed_value_node(root);
     if (node.kind != Kind.Object) {
@@ -541,11 +541,11 @@ fn packed_require_bool_value(value: PackedValue) bool!FieldDecodeError {
     return value.bool_value().ok_or(packed_unexpected_kind(value));
 }
 
-fn packed_require_number_text_value(value: PackedValue) ([]u8)!FieldDecodeError {
+fn packed_require_number_text_value(value: PackedValue) (&[u8])!FieldDecodeError {
     return value.number_text().ok_or(packed_unexpected_kind(value));
 }
 
-fn packed_require_string_value(value: PackedValue) ([]u8)!FieldDecodeError {
+fn packed_require_string_value(value: PackedValue) (&[u8])!FieldDecodeError {
     return value.string_text().ok_or(packed_unexpected_kind(value));
 }
 
@@ -623,7 +623,7 @@ fn packed_require_f32_value(value: PackedValue) f32!FieldDecodeError {
     return out.ok_or(packed_unexpected_kind(value));
 }
 
-pub/ fn parse_packed_document(text: []u8) PackedDocument!MaterializeError {
+pub/ fn parse_packed_document(text: &[u8]) PackedDocument!MaterializeError {
     let .{ Ok: state } = parse_packed_document_state(text)
         else {
             .{ Err: err } => return .{ Err: err },
@@ -632,7 +632,7 @@ pub/ fn parse_packed_document(text: []u8) PackedDocument!MaterializeError {
 }
 
 pub/ fn parse_packed_indexed_object_document(
-    text: []u8,
+    text: &[u8],
 ) PackedIndexedObjectDocument!PackedIndexedObjectDocumentError {
     let .{ Ok: state } = parse_packed_document_state(text)
         else {
@@ -641,14 +641,14 @@ pub/ fn parse_packed_indexed_object_document(
     return finish_packed_indexed_state(state);
 }
 
-impl *PackedDocument {
+impl &PackedDocument {
     pub fn root() PackedValue {
         let state = require_packed_document_state(self.state);
         return wrap_packed_value(state, state.root);
     }
 }
 
-impl *mut PackedDocument {
+impl &mut PackedDocument {
     pub fn deinit() void {
         let .{ Some: state } = self.*.state else return;
         destroy_packed_state(state);
@@ -656,7 +656,7 @@ impl *mut PackedDocument {
     }
 }
 
-impl *PackedIndexedObjectDocument {
+impl &PackedIndexedObjectDocument {
     pub fn root() PackedValue {
         let state = require_packed_document_state(self.state);
         return wrap_packed_value(state, state.root);
@@ -673,7 +673,7 @@ impl *PackedIndexedObjectDocument {
     }
 }
 
-impl *mut PackedIndexedObjectDocument {
+impl &mut PackedIndexedObjectDocument {
     pub fn deinit() void {
         let .{ Some: state } = self.*.state else return;
         destroy_packed_state(state);
@@ -682,11 +682,11 @@ impl *mut PackedIndexedObjectDocument {
 }
 
 impl PackedIndexedObjectView {
-    fn state_ptr() *PackedDocumentState {
+    fn state_ptr() &PackedDocumentState {
         return require_packed_document_state_view(self.state);
     }
 
-    fn bucket(name: []u8) ?List[usize] {
+    fn bucket(name: &[u8]) ?List[usize] {
         return self.state_ptr().index.&.get(hash_bytes(name));
     }
 
@@ -705,7 +705,7 @@ impl PackedIndexedObjectView {
         return .{ Some: wrap_packed_entry(self.state_ptr(), self.start + index) };
     }
 
-    pub fn get_field(name: []u8) ?PackedObjectEntry {
+    pub fn get_field(name: &[u8]) ?PackedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
         let mut i = usize.{0};
         while (i < bucket.len()) {
@@ -723,7 +723,7 @@ impl PackedIndexedObjectView {
         return .None;
     }
 
-    pub fn get_last_field(name: []u8) ?PackedObjectEntry {
+    pub fn get_last_field(name: &[u8]) ?PackedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
         let mut found = ?PackedObjectEntry.None;
         let mut i = usize.{0};
@@ -742,7 +742,7 @@ impl PackedIndexedObjectView {
         return found;
     }
 
-    pub fn count_fields(name: []u8) usize {
+    pub fn count_fields(name: &[u8]) usize {
         let .{ Some: bucket } = self.bucket(name) else return usize.{0};
         let mut total = usize.{0};
         let mut i = usize.{0};
@@ -761,7 +761,7 @@ impl PackedIndexedObjectView {
         return total;
     }
 
-    pub fn collect_fields(name: []u8, out: []mut PackedObjectEntry) usize {
+    pub fn collect_fields(name: &[u8], out: &mut [PackedObjectEntry]) usize {
         let .{ Some: bucket } = self.bucket(name) else return usize.{0};
         let mut total = usize.{0};
         let mut i = usize.{0};
@@ -785,101 +785,101 @@ impl PackedIndexedObjectView {
         return total;
     }
 
-    fn get_value(name: []u8) ?PackedValue {
+    fn get_value(name: &[u8]) ?PackedValue {
         let .{ Some: entry } = self.get_field(name) else return .None;
         return .{ Some: entry.value };
     }
 
-    pub fn get_bool(name: []u8) ?bool {
+    pub fn get_bool(name: &[u8]) ?bool {
         let .{ Some: value } = self.get_value(name) else return .None;
         return value.bool_value();
     }
 
-    pub fn get_number_text(name: []u8) ?[]u8 {
+    pub fn get_number_text(name: &[u8]) ?&[u8] {
         let .{ Some: value } = self.get_value(name) else return .None;
         return value.number_text();
     }
 
-    pub fn get_string(name: []u8) ?[]u8 {
+    pub fn get_string(name: &[u8]) ?&[u8] {
         let .{ Some: value } = self.get_value(name) else return .None;
         return value.string_text();
     }
 
-    pub fn get_array(name: []u8) ?PackedValue {
+    pub fn get_array(name: &[u8]) ?PackedValue {
         let .{ Some: value } = self.get_value(name) else return .None;
         return if (value.is_array()) .{ Some: value } else .None;
     }
 
-    pub fn get_object(name: []u8) ?PackedValue {
+    pub fn get_object(name: &[u8]) ?PackedValue {
         let .{ Some: value } = self.get_value(name) else return .None;
         return if (value.is_object()) .{ Some: value } else .None;
     }
 
-    pub fn get_u64(name: []u8) ?u64!NumberDecodeError {
+    pub fn get_u64(name: &[u8]) ?u64!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u64_value();
     }
 
-    pub fn get_u32(name: []u8) ?u32!NumberDecodeError {
+    pub fn get_u32(name: &[u8]) ?u32!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u32_value();
     }
 
-    pub fn get_u16(name: []u8) ?u16!NumberDecodeError {
+    pub fn get_u16(name: &[u8]) ?u16!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u16_value();
     }
 
-    pub fn get_u8(name: []u8) ?u8!NumberDecodeError {
+    pub fn get_u8(name: &[u8]) ?u8!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u8_value();
     }
 
-    pub fn get_i64(name: []u8) ?i64!NumberDecodeError {
+    pub fn get_i64(name: &[u8]) ?i64!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i64_value();
     }
 
-    pub fn get_i32(name: []u8) ?i32!NumberDecodeError {
+    pub fn get_i32(name: &[u8]) ?i32!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i32_value();
     }
 
-    pub fn get_i16(name: []u8) ?i16!NumberDecodeError {
+    pub fn get_i16(name: &[u8]) ?i16!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i16_value();
     }
 
-    pub fn get_i8(name: []u8) ?i8!NumberDecodeError {
+    pub fn get_i8(name: &[u8]) ?i8!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i8_value();
     }
 
-    pub fn get_usize(name: []u8) ?usize!NumberDecodeError {
+    pub fn get_usize(name: &[u8]) ?usize!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.usize_value();
     }
 
-    pub fn get_isize(name: []u8) ?isize!NumberDecodeError {
+    pub fn get_isize(name: &[u8]) ?isize!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.isize_value();
     }
 
-    pub fn get_f64(name: []u8) ?f64!FloatDecodeError {
+    pub fn get_f64(name: &[u8]) ?f64!FloatDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.f64_value();
     }
 
-    pub fn get_f32(name: []u8) ?f32!FloatDecodeError {
+    pub fn get_f32(name: &[u8]) ?f32!FloatDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.f32_value();
     }
 
-    pub fn has_field(name: []u8) bool {
+    pub fn has_field(name: &[u8]) bool {
         return self.get_value(name).is_some();
     }
 
-    pub fn require_value(name: []u8) PackedValue!FieldDecodeError {
+    pub fn require_value(name: &[u8]) PackedValue!FieldDecodeError {
         let .{ Some: bucket } = self.bucket(name) else return .{ Err: .Missing };
         let mut found = PackedValue.{};
         let mut total = usize.{0};
@@ -910,7 +910,7 @@ impl PackedIndexedObjectView {
         return .{ Ok: found };
     }
 
-    pub fn require_bool(name: []u8) bool!FieldDecodeError {
+    pub fn require_bool(name: &[u8]) bool!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -918,7 +918,7 @@ impl PackedIndexedObjectView {
         return packed_require_bool_value(value);
     }
 
-    pub fn require_number_text(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_number_text(name: &[u8]) (&[u8])!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -926,7 +926,7 @@ impl PackedIndexedObjectView {
         return packed_require_number_text_value(value);
     }
 
-    pub fn require_string(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_string(name: &[u8]) (&[u8])!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -934,7 +934,7 @@ impl PackedIndexedObjectView {
         return packed_require_string_value(value);
     }
 
-    pub fn require_array(name: []u8) PackedValue!FieldDecodeError {
+    pub fn require_array(name: &[u8]) PackedValue!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -942,7 +942,7 @@ impl PackedIndexedObjectView {
         return packed_require_array_value(value);
     }
 
-    pub fn require_object(name: []u8) PackedValue!FieldDecodeError {
+    pub fn require_object(name: &[u8]) PackedValue!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -950,7 +950,7 @@ impl PackedIndexedObjectView {
         return packed_require_object_value(value);
     }
 
-    pub fn require_u64(name: []u8) u64!FieldDecodeError {
+    pub fn require_u64(name: &[u8]) u64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -958,7 +958,7 @@ impl PackedIndexedObjectView {
         return packed_require_u64_value(value);
     }
 
-    pub fn require_u32(name: []u8) u32!FieldDecodeError {
+    pub fn require_u32(name: &[u8]) u32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -966,7 +966,7 @@ impl PackedIndexedObjectView {
         return packed_require_u32_value(value);
     }
 
-    pub fn require_u16(name: []u8) u16!FieldDecodeError {
+    pub fn require_u16(name: &[u8]) u16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -974,7 +974,7 @@ impl PackedIndexedObjectView {
         return packed_require_u16_value(value);
     }
 
-    pub fn require_u8(name: []u8) u8!FieldDecodeError {
+    pub fn require_u8(name: &[u8]) u8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -982,7 +982,7 @@ impl PackedIndexedObjectView {
         return packed_require_u8_value(value);
     }
 
-    pub fn require_i64(name: []u8) i64!FieldDecodeError {
+    pub fn require_i64(name: &[u8]) i64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -990,7 +990,7 @@ impl PackedIndexedObjectView {
         return packed_require_i64_value(value);
     }
 
-    pub fn require_i32(name: []u8) i32!FieldDecodeError {
+    pub fn require_i32(name: &[u8]) i32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -998,7 +998,7 @@ impl PackedIndexedObjectView {
         return packed_require_i32_value(value);
     }
 
-    pub fn require_i16(name: []u8) i16!FieldDecodeError {
+    pub fn require_i16(name: &[u8]) i16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1006,7 +1006,7 @@ impl PackedIndexedObjectView {
         return packed_require_i16_value(value);
     }
 
-    pub fn require_i8(name: []u8) i8!FieldDecodeError {
+    pub fn require_i8(name: &[u8]) i8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1014,7 +1014,7 @@ impl PackedIndexedObjectView {
         return packed_require_i8_value(value);
     }
 
-    pub fn require_usize(name: []u8) usize!FieldDecodeError {
+    pub fn require_usize(name: &[u8]) usize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1022,7 +1022,7 @@ impl PackedIndexedObjectView {
         return packed_require_usize_value(value);
     }
 
-    pub fn require_isize(name: []u8) isize!FieldDecodeError {
+    pub fn require_isize(name: &[u8]) isize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1030,7 +1030,7 @@ impl PackedIndexedObjectView {
         return packed_require_isize_value(value);
     }
 
-    pub fn require_f64(name: []u8) f64!FieldDecodeError {
+    pub fn require_f64(name: &[u8]) f64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1038,7 +1038,7 @@ impl PackedIndexedObjectView {
         return packed_require_f64_value(value);
     }
 
-    pub fn require_f32(name: []u8) f32!FieldDecodeError {
+    pub fn require_f32(name: &[u8]) f32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1048,7 +1048,7 @@ impl PackedIndexedObjectView {
 }
 
 impl PackedObjectEntry {
-    pub fn key_eq(name: []u8) bool {
+    pub fn key_eq(name: &[u8]) bool {
         return self.key == name;
     }
 
@@ -1056,11 +1056,11 @@ impl PackedObjectEntry {
         return self.value.bool_value();
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         return self.value.number_text();
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         return self.value.string_text();
     }
 
@@ -1114,7 +1114,7 @@ impl PackedObjectEntry {
 }
 
 impl PackedValue {
-    fn state_ptr() *PackedDocumentState {
+    fn state_ptr() &PackedDocumentState {
         return require_packed_document_state_view(self.state);
     }
 
@@ -1154,7 +1154,7 @@ impl PackedValue {
         return .{ Some: node.data0 != usize.{0} };
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         let node = packed_value_node(self);
         if (node.kind != Kind.Number) {
             return .None;
@@ -1162,7 +1162,7 @@ impl PackedValue {
         return .{ Some: packed_text_slice(self.state_ptr(), PackedText.{ start: node.data0, len: node.data1 }) };
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         let node = packed_value_node(self);
         if (node.kind != Kind.String) {
             return .None;
@@ -1298,7 +1298,7 @@ impl PackedValue {
         return .{ Some: wrap_packed_value(state, items.[node.data0 + index]) };
     }
 
-    pub fn get_field(name: []u8) ?PackedObjectEntry {
+    pub fn get_field(name: &[u8]) ?PackedObjectEntry {
         let node = packed_value_node(self);
         if (node.kind != Kind.Object) {
             return .None;
@@ -1320,7 +1320,7 @@ impl PackedValue {
         return .None;
     }
 
-    pub fn get_last_field(name: []u8) ?PackedObjectEntry {
+    pub fn get_last_field(name: &[u8]) ?PackedObjectEntry {
         let node = packed_value_node(self);
         if (node.kind != Kind.Object) {
             return .None;
@@ -1343,7 +1343,7 @@ impl PackedValue {
         return found;
     }
 
-    pub fn count_fields(name: []u8) ?usize {
+    pub fn count_fields(name: &[u8]) ?usize {
         let node = packed_value_node(self);
         if (node.kind != Kind.Object) {
             return .None;
@@ -1362,7 +1362,7 @@ impl PackedValue {
         return .{ Some: total };
     }
 
-    pub fn collect_fields(name: []u8, out: []mut PackedObjectEntry) ?usize {
+    pub fn collect_fields(name: &[u8], out: &mut [PackedObjectEntry]) ?usize {
         let node = packed_value_node(self);
         if (node.kind != Kind.Object) {
             return .None;
@@ -1390,96 +1390,96 @@ impl PackedValue {
         return .{ Some: total };
     }
 
-    pub fn get_bool(name: []u8) ?bool {
+    pub fn get_bool(name: &[u8]) ?bool {
         let .{ Some: entry } = self.get_field(name) else return .None;
         return entry.value.bool_value();
     }
 
-    pub fn get_number_text(name: []u8) ?[]u8 {
+    pub fn get_number_text(name: &[u8]) ?&[u8] {
         let .{ Some: entry } = self.get_field(name) else return .None;
         return entry.value.number_text();
     }
 
-    pub fn get_string(name: []u8) ?[]u8 {
+    pub fn get_string(name: &[u8]) ?&[u8] {
         let .{ Some: entry } = self.get_field(name) else return .None;
         return entry.value.string_text();
     }
 
-    pub fn get_array(name: []u8) ?PackedValue {
+    pub fn get_array(name: &[u8]) ?PackedValue {
         let .{ Some: entry } = self.get_field(name) else return .None;
         return if (entry.value.is_array()) .{ Some: entry.value } else .None;
     }
 
-    pub fn get_object(name: []u8) ?PackedValue {
+    pub fn get_object(name: &[u8]) ?PackedValue {
         let .{ Some: entry } = self.get_field(name) else return .None;
         return if (entry.value.is_object()) .{ Some: entry.value } else .None;
     }
 
-    pub fn get_u64(name: []u8) ?u64!NumberDecodeError {
+    pub fn get_u64(name: &[u8]) ?u64!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.u64_value();
     }
 
-    pub fn get_u32(name: []u8) ?u32!NumberDecodeError {
+    pub fn get_u32(name: &[u8]) ?u32!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.u32_value();
     }
 
-    pub fn get_u16(name: []u8) ?u16!NumberDecodeError {
+    pub fn get_u16(name: &[u8]) ?u16!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.u16_value();
     }
 
-    pub fn get_u8(name: []u8) ?u8!NumberDecodeError {
+    pub fn get_u8(name: &[u8]) ?u8!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.u8_value();
     }
 
-    pub fn get_i64(name: []u8) ?i64!NumberDecodeError {
+    pub fn get_i64(name: &[u8]) ?i64!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.i64_value();
     }
 
-    pub fn get_i32(name: []u8) ?i32!NumberDecodeError {
+    pub fn get_i32(name: &[u8]) ?i32!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.i32_value();
     }
 
-    pub fn get_i16(name: []u8) ?i16!NumberDecodeError {
+    pub fn get_i16(name: &[u8]) ?i16!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.i16_value();
     }
 
-    pub fn get_i8(name: []u8) ?i8!NumberDecodeError {
+    pub fn get_i8(name: &[u8]) ?i8!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.i8_value();
     }
 
-    pub fn get_usize(name: []u8) ?usize!NumberDecodeError {
+    pub fn get_usize(name: &[u8]) ?usize!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.usize_value();
     }
 
-    pub fn get_isize(name: []u8) ?isize!NumberDecodeError {
+    pub fn get_isize(name: &[u8]) ?isize!NumberDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.isize_value();
     }
 
-    pub fn get_f64(name: []u8) ?f64!FloatDecodeError {
+    pub fn get_f64(name: &[u8]) ?f64!FloatDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.f64_value();
     }
 
-    pub fn get_f32(name: []u8) ?f32!FloatDecodeError {
+    pub fn get_f32(name: &[u8]) ?f32!FloatDecodeError {
         let .{ Some: entry } = self.get_field(name) else return .{ Ok: .None };
         return entry.value.f32_value();
     }
 
-    pub fn has_field(name: []u8) bool {
+    pub fn has_field(name: &[u8]) bool {
         return self.get_field(name).is_some();
     }
 
-    pub fn require_value(name: []u8) PackedValue!FieldDecodeError {
+    pub fn require_value(name: &[u8]) PackedValue!FieldDecodeError {
         let .{ Some: total } = self.count_fields(name) else return .{ Err: packed_unexpected_kind(self) };
         if (total == 0) {
             return .{ Err: FieldDecodeError.Missing };
@@ -1491,7 +1491,7 @@ impl PackedValue {
         return .{ Ok: entry.value };
     }
 
-    pub fn require_bool(name: []u8) bool!FieldDecodeError {
+    pub fn require_bool(name: &[u8]) bool!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1499,7 +1499,7 @@ impl PackedValue {
         return packed_require_bool_value(value);
     }
 
-    pub fn require_number_text(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_number_text(name: &[u8]) (&[u8])!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1507,7 +1507,7 @@ impl PackedValue {
         return packed_require_number_text_value(value);
     }
 
-    pub fn require_string(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_string(name: &[u8]) (&[u8])!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1515,7 +1515,7 @@ impl PackedValue {
         return packed_require_string_value(value);
     }
 
-    pub fn require_array(name: []u8) PackedValue!FieldDecodeError {
+    pub fn require_array(name: &[u8]) PackedValue!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1523,7 +1523,7 @@ impl PackedValue {
         return packed_require_array_value(value);
     }
 
-    pub fn require_object(name: []u8) PackedValue!FieldDecodeError {
+    pub fn require_object(name: &[u8]) PackedValue!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1531,7 +1531,7 @@ impl PackedValue {
         return packed_require_object_value(value);
     }
 
-    pub fn require_u64(name: []u8) u64!FieldDecodeError {
+    pub fn require_u64(name: &[u8]) u64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1539,7 +1539,7 @@ impl PackedValue {
         return packed_require_u64_value(value);
     }
 
-    pub fn require_u32(name: []u8) u32!FieldDecodeError {
+    pub fn require_u32(name: &[u8]) u32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1547,7 +1547,7 @@ impl PackedValue {
         return packed_require_u32_value(value);
     }
 
-    pub fn require_u16(name: []u8) u16!FieldDecodeError {
+    pub fn require_u16(name: &[u8]) u16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1555,7 +1555,7 @@ impl PackedValue {
         return packed_require_u16_value(value);
     }
 
-    pub fn require_u8(name: []u8) u8!FieldDecodeError {
+    pub fn require_u8(name: &[u8]) u8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1563,7 +1563,7 @@ impl PackedValue {
         return packed_require_u8_value(value);
     }
 
-    pub fn require_i64(name: []u8) i64!FieldDecodeError {
+    pub fn require_i64(name: &[u8]) i64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1571,7 +1571,7 @@ impl PackedValue {
         return packed_require_i64_value(value);
     }
 
-    pub fn require_i32(name: []u8) i32!FieldDecodeError {
+    pub fn require_i32(name: &[u8]) i32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1579,7 +1579,7 @@ impl PackedValue {
         return packed_require_i32_value(value);
     }
 
-    pub fn require_i16(name: []u8) i16!FieldDecodeError {
+    pub fn require_i16(name: &[u8]) i16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1587,7 +1587,7 @@ impl PackedValue {
         return packed_require_i16_value(value);
     }
 
-    pub fn require_i8(name: []u8) i8!FieldDecodeError {
+    pub fn require_i8(name: &[u8]) i8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1595,7 +1595,7 @@ impl PackedValue {
         return packed_require_i8_value(value);
     }
 
-    pub fn require_usize(name: []u8) usize!FieldDecodeError {
+    pub fn require_usize(name: &[u8]) usize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1603,7 +1603,7 @@ impl PackedValue {
         return packed_require_usize_value(value);
     }
 
-    pub fn require_isize(name: []u8) isize!FieldDecodeError {
+    pub fn require_isize(name: &[u8]) isize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1611,7 +1611,7 @@ impl PackedValue {
         return packed_require_isize_value(value);
     }
 
-    pub fn require_f64(name: []u8) f64!FieldDecodeError {
+    pub fn require_f64(name: &[u8]) f64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1619,7 +1619,7 @@ impl PackedValue {
         return packed_require_f64_value(value);
     }
 
-    pub fn require_f32(name: []u8) f32!FieldDecodeError {
+    pub fn require_f32(name: &[u8]) f32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },

@@ -16,6 +16,7 @@ pub use .types.{
     Error,
     ErrorKind,
     File,
+    Path,
     FileType,
     Metadata,
     DirEntry,
@@ -24,48 +25,14 @@ pub use .types.{
 };
 
 pub use .file.{
-    open,
-    create,
-    create_new,
-    open_read,
-    open_write,
-    open_append,
-    rename,
-    metadata,
-    exists,
-    is_file,
-    is_dir,
-    file_size,
-    is_empty_file,
-    remove_file,
-    remove_file_if_exists,
     stdin,
     stdout,
     stderr,
-    read_all,
-    read_to_string,
-    write_all,
-    write_all_atomic,
-    write_all_atomic_tmp,
-    append_all,
-    copy,
 };
 
 pub use .dir.{
-    create_dir,
-    create_dir_if_missing,
     OwnedDirEntry,
     DirEntries,
-    read_dir,
-    read_dir_entries,
-    read_dir_entries_into,
-    walk_dir,
-    walk_files,
-    walk_dirs,
-    create_dir_all,
-    remove_dir,
-    remove_dir_if_exists,
-    remove_dir_all,
 };
 
 pub use .path.{

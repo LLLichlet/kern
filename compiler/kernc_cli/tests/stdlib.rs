@@ -10,7 +10,7 @@ const HOSTED_HELLO_WORLD_SOURCE: &str = r#"
 use std.io;
 
 fn main() i32 {
-    io.println("hello, {}!", .{"world",});
+    "hello, {}!".fmt(.{"world"}).println();
     return 0;
 }
 "#;

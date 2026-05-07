@@ -2,11 +2,11 @@
 // source: concrete associated projections must substitute const impl arguments before layout
 // exit: 0
 
-type HasOut = trait {
+trait HasOut {
     type Out;
 };
 
-type Buf[N: usize] = struct {};
+struct Buf[N: usize] {};
 
 impl[N: usize] Buf[N]: HasOut {
     type Out = [N]u8;

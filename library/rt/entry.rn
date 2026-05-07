@@ -26,7 +26,7 @@ use sys.os.{
 };
 
 extern {
-    fn __kern_main_adapter(argc: i32, argv: **u8) i32;
+    fn __kern_main_adapter(argc: i32, argv: &&u8) i32;
 }
 
 #[if(os == "windows")]
@@ -56,22 +56,22 @@ extern fn _start_linux() void {
 
 #[if(runtime_entry == "rt" and os == "darwin")]
 #[export_name("start")]
-extern fn _start_darwin(argc: usize, argv: **u8) void {
+extern fn _start_darwin(argc: usize, argv: &&u8) void {
     os.exit(kern_entry_posix(argc as i32, argv))
 }
 
 #[if(runtime_entry == "rt" and os == "linux")]
-extern fn kern_entry_linux(argc: i32, argv: **u8) void {
+extern fn kern_entry_linux(argc: i32, argv: &&u8) void {
     os.exit(kern_entry_posix(argc, argv));
 }
 
 #[if((runtime_entry == "crt" or rt_role == "entry") and (os == "linux" or os == "darwin"))]
-extern fn main(argc: i32, argv: **u8) i32 {
+extern fn main(argc: i32, argv: &&u8) i32 {
     return kern_entry_posix(argc, argv);
 }
 
 #[if(os == "linux" or os == "darwin")]
-fn kern_entry_posix(argc: i32, argv: **u8) i32 {
+fn kern_entry_posix(argc: i32, argv: &&u8) i32 {
     os.init_process_env(argc, argv);
     return __kern_main_adapter(argc, argv);
 }
@@ -116,12 +116,12 @@ extern fn _start_windows() void {
 }
 
 #[if((runtime_entry == "crt" or rt_role == "entry") and os == "windows")]
-extern fn main(_: i32, _: **u8) i32 {
+extern fn main(_: i32, _: &&u8) i32 {
     return kern_entry_windows();
 }
 
 #[if(os == "windows")]
-fn build_windows_utf8_argv(argc: usize, argv_wide: *mut *mut u16) i32 {
+fn build_windows_utf8_argv(argc: usize, argv_wide: &mut &mut u16) i32 {
     let mut utf8_argc = usize.{0};
     let mut out_len = usize.{0};
 
@@ -134,8 +134,8 @@ fn build_windows_utf8_argv(argc: usize, argv_wide: *mut *mut u16) i32 {
         let arg_wide = (argv_wide + utf8_argc).*;
         let arg_len = utf16_z_len(arg_wide);
         let written = match (wide_to_utf8_into(
-            arg_wide.[0 .. arg_len],
-            WINDOWS_ARG_BUF..[out_len .. 32767]
+            arg_wide.&[0 .. arg_len],
+            WINDOWS_ARG_BUF..&[out_len .. 32767]
         )) {
             .{ Ok: len } => len,
             .{ Err: _ } => break,
@@ -161,12 +161,12 @@ fn kern_entry_windows() i32 {
     let argv_wide = CommandLineToArgvW(cmd_line, wide_argc..&);
     if ((argv_wide as usize) == 0) {
         WINDOWS_ARGV_PTRS.[0] = 0;
-        return __kern_main_adapter(0, WINDOWS_ARGV_PTRS.[0]..& as **u8);
+        return __kern_main_adapter(0, WINDOWS_ARGV_PTRS.[0]..& as &&u8);
     }
     defer {
-        _ = LocalFree(argv_wide as *mut void);
+        _ = LocalFree(argv_wide as &mut void);
     };
 
     let argc = build_windows_utf8_argv(wide_argc as usize, argv_wide);
-    return __kern_main_adapter(argc, WINDOWS_ARGV_PTRS.[0]..& as **u8);
+    return __kern_main_adapter(argc, WINDOWS_ARGV_PTRS.[0]..& as &&u8);
 }

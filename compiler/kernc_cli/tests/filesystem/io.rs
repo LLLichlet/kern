@@ -20,7 +20,7 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    let mut writer = match (fs.create(gpa, "{path}")) {{
+    let mut writer = match ("{path}".path().create(gpa)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 1,
     }};
@@ -43,7 +43,8 @@ fn main() i32 {{
 
     assert!(
         output.status.success(),
-        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        "hosted std binary failed with status {:?}:\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -66,7 +67,7 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    let written = match (fs.write_all(gpa, "{path}", "abc123")) {{
+    let written = match ("{path}".path().write_all(gpa, "abc123")) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 1,
     }};
@@ -74,35 +75,35 @@ fn main() i32 {{
         return 2;
     }}
 
-    let exists = match (fs.exists(gpa, "{path}")) {{
+    let exists = match ("{path}".path().exists(gpa)) {{
         .{{ Ok: value }} => value,
         .{{ Err: _ }} => return 20,
     }};
     if (!exists) {{
         return 21;
     }}
-    let is_file = match (fs.is_file(gpa, "{path}")) {{
+    let is_file = match ("{path}".path().is_file(gpa)) {{
         .{{ Ok: value }} => value,
         .{{ Err: _ }} => return 22,
     }};
     if (!is_file) {{
         return 23;
     }}
-    let is_dir = match (fs.is_dir(gpa, "{path}")) {{
+    let is_dir = match ("{path}".path().is_dir(gpa)) {{
         .{{ Ok: value }} => value,
         .{{ Err: _ }} => return 24,
     }};
     if (is_dir) {{
         return 25;
     }}
-    let size = match (fs.file_size(gpa, "{path}")) {{
+    let size = match ("{path}".path().file_size(gpa)) {{
         .{{ Ok: value }} => value,
         .{{ Err: _ }} => return 26,
     }};
     if (size != 6) {{
         return 27;
     }}
-    let empty = match (fs.is_empty_file(gpa, "{path}")) {{
+    let empty = match ("{path}".path().is_empty_file(gpa)) {{
         .{{ Ok: value }} => value,
         .{{ Err: _ }} => return 28,
     }};
@@ -110,7 +111,7 @@ fn main() i32 {{
         return 29;
     }}
 
-    let mut text = match (fs.read_to_string(gpa, "{path}")) {{
+    let mut text = match ("{path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 3,
     }};
@@ -120,17 +121,17 @@ fn main() i32 {{
         return 4;
     }}
 
-    match (fs.remove_file(gpa, "{path}")) {{
+    match ("{path}".path().remove_file(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 5,
     }}
 
-    let missing = fs.open_read(gpa, "{path}");
+    let missing = "{path}".path().open_read(gpa);
     if (!missing.is_err()) {{
         return 6;
     }}
 
-    let missing_exists = match (fs.exists(gpa, "{path}")) {{
+    let missing_exists = match ("{path}".path().exists(gpa)) {{
         .{{ Ok: value }} => value,
         .{{ Err: _ }} => return 30,
     }};
@@ -146,10 +147,144 @@ fn main() i32 {{
 
     assert!(
         output.status.success(),
-        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        "hosted std binary failed with status {:?}:\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn runs_hosted_program_using_std_fs_path_view_methods() {
+    let temp_file = unique_temp_path("kernc_std_fs_path_view", "txt");
+    let temp_path = kern_string_literal(&temp_file);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {{
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
+    let path = "{path}".path();
+
+    let written = match (path.write_all(gpa, "via path")) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 1,
+    }};
+    if (written != 8) {{
+        return 2;
+    }}
+
+    let exists = match (path.exists(gpa)) {{
+        .{{ Ok: value }} => value,
+        .{{ Err: _ }} => return 3,
+    }};
+    if (!exists) {{
+        return 4;
+    }}
+
+    let mut text = match (path.read_to_string(gpa)) {{
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 5,
+    }};
+    defer text..&.deinit(gpa);
+    if (text.& != "via path") {{
+        return 6;
+    }}
+
+    match (path.remove_file(gpa)) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 7,
+    }}
+
+    return 0;
+}}
+"#,
+        path = temp_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed with status {:?}:\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&temp_file);
+}
+
+#[test]
+fn runs_hosted_program_using_owned_string_path_view_methods() {
+    let temp_dir = unique_temp_path("kernc_std_fs_owned_string_path", "dir");
+    let root_path = kern_string_literal(&temp_dir);
+
+    let _ = fs::remove_file(temp_dir.join("joined.txt"));
+    let _ = fs::remove_dir_all(&temp_dir);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {{
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
+    let root = "{root_path}".path();
+
+    match (root.create_dir_all(gpa)) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
+    }}
+
+    let mut joined = match (root.join(gpa, "joined.txt")) {{
+        .{{ Ok: path }} => path,
+        .{{ Err: _ }} => return 2,
+    }};
+    defer joined..&.deinit(gpa);
+
+    let written = match (joined.&.path().write_all(gpa, "owned path")) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 3,
+    }};
+    if (written != 10) {{
+        return 4;
+    }}
+
+    let mut text = match (joined.&.path().read_to_string(gpa)) {{
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 5,
+    }};
+    defer text..&.deinit(gpa);
+    if (text.& != "owned path") {{
+        return 6;
+    }}
+
+    match (root.remove_dir_all(gpa)) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 7,
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = root_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed with status {:?}:\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(temp_dir.join("joined.txt"));
+    let _ = fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
@@ -167,7 +302,7 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    let mut writer = match (fs.create(gpa, "{path}")) {{
+    let mut writer = match ("{path}".path().create(gpa)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 1,
     }};
@@ -183,7 +318,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 4,
     }}
 
-    let mut reader = match (fs.open_read(gpa, "{path}")) {{
+    let mut reader = match ("{path}".path().open_read(gpa)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 5,
     }};
@@ -201,7 +336,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 8,
     }}
 
-    let missing = fs.open_read(gpa, "{path}.missing");
+    let missing = "{path}.missing".path().open_read(gpa);
     if (!missing.is_err()) {{
         return 9;
     }}
@@ -237,7 +372,7 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    let written = match (fs.write_all(gpa, "{path}", "abcdef")) {{
+    let written = match ("{path}".path().write_all(gpa, "abcdef")) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 1,
     }};
@@ -245,7 +380,7 @@ fn main() i32 {{
         return 2;
     }}
 
-    let mut bytes = match (fs.read_all(gpa, "{path}")) {{
+    let mut bytes = match ("{path}".path().read_all(gpa)) {{
         .{{ Ok: bytes }} => bytes,
         .{{ Err: _ }} => return 3,
     }};
@@ -254,18 +389,18 @@ fn main() i32 {{
         return 4;
     }}
 
-    let mut file = match (fs.open_read(gpa, "{path}")) {{
+    let mut file = match ("{path}".path().open_read(gpa)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 5,
     }};
     defer file..&.deinit();
 
     let mut first = [3]u8.{{undef}};
-    match (file..&.read_exact(first..[0 .. 3])) {{
+    match (file..&.read_exact(first..&[0 .. 3])) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 6,
     }}
-    if (first.[0 .. 3] != "abc") {{
+    if (first.&[0 .. 3] != "abc") {{
         return 7;
     }}
 
@@ -279,13 +414,13 @@ fn main() i32 {{
     }}
 
     let mut empty = [0]u8.{{}};
-    match (file..&.read_exact(empty..[0 .. 0])) {{
+    match (file..&.read_exact(empty..&[0 .. 0])) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 10,
     }}
 
     let mut too_much = [1]u8.{{undef}};
-    match (file..&.read_exact(too_much..[0 .. 1])) {{
+    match (file..&.read_exact(too_much..&[0 .. 1])) {{
         .{{ Ok: _ }} => return 11,
         .{{ Err: err }} => match (err) {{
             .UnexpectedEof => {{}},
@@ -330,7 +465,7 @@ fn main() i32 {{
         create: true,
         truncate: true,
     }};
-    let mut file = match (fs.open(gpa, "{path}", options.&)) {{
+    let mut file = match ("{path}".path().open(gpa, options.&)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 1,
     }};
@@ -385,11 +520,11 @@ fn main() i32 {{
         return 9;
     }}
     let mut all = [6]u8.{{undef}};
-    match (file..&.read_exact(all..[0 .. 6])) {{
+    match (file..&.read_exact(all..&[0 .. 6])) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 10,
     }}
-    if (all.[0 .. 6] != "abXYef") {{
+    if (all.&[0 .. 6] != "abXYef") {{
         return 11;
     }}
 
@@ -401,11 +536,11 @@ fn main() i32 {{
         return 12;
     }}
     let mut tail = [2]u8.{{undef}};
-    match (file..&.read_exact(tail..[0 .. 2])) {{
+    match (file..&.read_exact(tail..&[0 .. 2])) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 13,
     }}
-    if (tail.[0 .. 2] != "ef") {{
+    if (tail.&[0 .. 2] != "ef") {{
         return 14;
     }}
 
@@ -460,7 +595,7 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    let mut created = match (fs.create_new(gpa, "{path}")) {{
+    let mut created = match ("{path}".path().create_new(gpa)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 1,
     }};
@@ -474,12 +609,12 @@ fn main() i32 {{
     }}
     created..&.deinit();
 
-    let created_again = fs.create_new(gpa, "{path}");
+    let created_again = "{path}".path().create_new(gpa);
     if (!created_again.is_err()) {{
         return 4;
     }}
 
-    let mut appended = match (fs.open_append(gpa, "{path}")) {{
+    let mut appended = match ("{path}".path().open_append(gpa)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 5,
     }};
@@ -493,7 +628,7 @@ fn main() i32 {{
     }}
     appended..&.deinit();
 
-    let mut writer = match (fs.open_write(gpa, "{path}")) {{
+    let mut writer = match ("{path}".path().open_write(gpa)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 8,
     }};
@@ -507,7 +642,7 @@ fn main() i32 {{
     }}
     writer..&.deinit();
 
-    let mut text = match (fs.read_to_string(gpa, "{path}")) {{
+    let mut text = match ("{path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 11,
     }};
@@ -562,12 +697,12 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    match (fs.create_dir_all(gpa, "{old_dir_path}")) {{
+    match ("{old_dir_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 1,
     }}
 
-    match (fs.write_all(gpa, "{old_file_path}", "rename-me")) {{
+    match ("{old_file_path}".path().write_all(gpa, "rename-me")) {{
         .{{ Ok: count }} => {{
             if (count != 9) {{
                 return 2;
@@ -576,12 +711,12 @@ fn main() i32 {{
         .{{ Err: _ }} => return 3,
     }}
 
-    match (fs.rename(gpa, "{old_file_path}", "{renamed_file_path}")) {{
+    match ("{old_file_path}".path().rename(gpa, "{renamed_file_path}")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 4,
     }}
 
-    let old_file_exists = match (fs.exists(gpa, "{old_file_path}")) {{
+    let old_file_exists = match ("{old_file_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 5,
     }};
@@ -589,7 +724,7 @@ fn main() i32 {{
         return 6;
     }}
 
-    let mut text = match (fs.read_to_string(gpa, "{renamed_file_path}")) {{
+    let mut text = match ("{renamed_file_path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 7,
     }};
@@ -598,12 +733,12 @@ fn main() i32 {{
         return 8;
     }}
 
-    match (fs.rename(gpa, "{old_dir_path}", "{new_dir_path}")) {{
+    match ("{old_dir_path}".path().rename(gpa, "{new_dir_path}")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 9,
     }}
 
-    let old_dir_exists = match (fs.exists(gpa, "{old_dir_path}")) {{
+    let old_dir_exists = match ("{old_dir_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 10,
     }};
@@ -611,7 +746,7 @@ fn main() i32 {{
         return 11;
     }}
 
-    let new_dir_is_dir = match (fs.is_dir(gpa, "{new_dir_path}")) {{
+    let new_dir_is_dir = match ("{new_dir_path}".path().is_dir(gpa)) {{
         .{{ Ok: yes }} => yes,
         .{{ Err: _ }} => return 12,
     }};
@@ -619,7 +754,7 @@ fn main() i32 {{
         return 13;
     }}
 
-    let new_file_exists = match (fs.exists(gpa, "{new_file_path}")) {{
+    let new_file_exists = match ("{new_file_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 14,
     }};
@@ -672,7 +807,7 @@ fn runs_hosted_program_using_std_fs_atomic_tmp_write() {
         r#"
 use std.fs;
 use std.proc;
-use base.io.{{Writer, format_to, string_writer}};
+use base.io.Write;
 use base.coll.String;
 use base.mem.alloc.GPA;
 use sys.mem.Page;
@@ -681,12 +816,12 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    match (fs.create_dir_all(gpa, "{root_path}")) {{
+    match ("{root_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 1,
     }}
 
-    match (fs.write_all(gpa, "{target_path}", "old")) {{
+    match ("{target_path}".path().write_all(gpa, "old")) {{
         .{{ Ok: count }} => {{
             if (count != 3) {{
                 return 2;
@@ -695,7 +830,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 3,
     }}
 
-    let written = match (fs.write_all_atomic_tmp(gpa, "{target_path}", "{tmp_path}", "new-data")) {{
+    let written = match ("{target_path}".path().write_all_atomic_tmp(gpa, "{tmp_path}", "new-data")) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 4,
     }};
@@ -703,7 +838,7 @@ fn main() i32 {{
         return 5;
     }}
 
-    let tmp_exists = match (fs.exists(gpa, "{tmp_path}")) {{
+    let tmp_exists = match ("{tmp_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 6,
     }};
@@ -711,7 +846,7 @@ fn main() i32 {{
         return 7;
     }}
 
-    let mut text = match (fs.read_to_string(gpa, "{target_path}")) {{
+    let mut text = match ("{target_path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 8,
     }};
@@ -720,12 +855,12 @@ fn main() i32 {{
         return 9;
     }}
 
-    let failed = fs.write_all_atomic_tmp(gpa, "{bad_target_path}", "{bad_tmp_path}", "bad");
+    let failed = "{bad_target_path}".path().write_all_atomic_tmp(gpa, "{bad_tmp_path}", "bad");
     if (!failed.is_err()) {{
         return 10;
     }}
 
-    let bad_tmp_exists = match (fs.exists(gpa, "{bad_tmp_path}")) {{
+    let bad_tmp_exists = match ("{bad_tmp_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 11,
     }};
@@ -733,7 +868,7 @@ fn main() i32 {{
         return 12;
     }}
 
-    let mut after_failure = match (fs.read_to_string(gpa, "{target_path}")) {{
+    let mut after_failure = match ("{target_path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 13,
     }};
@@ -745,9 +880,9 @@ fn main() i32 {{
     let mut auto_tmp0 = String.{{}};
     defer auto_tmp0..&.deinit(gpa);
     {{
-        let mut sink = string_writer(gpa, auto_tmp0..&);
-        let writer = *mut Writer.{{ sink..& }};
-        format_to(writer, "{{}}.tmp.{{}}.{{}}", .{{ "{auto_target_path}", proc.process_id(), usize.{{0}}, }});
+        let mut sink = auto_tmp0..&.writer(gpa);
+        let writer = &mut Write.{{ sink..& }};
+        "{{}}.tmp.{{}}.{{}}".fmt(.{{ "{auto_target_path}", proc.process_id(), usize.{{0}}, }}).write_to(writer);
         if (sink..&.did_fail()) {{
             return 15;
         }}
@@ -756,15 +891,15 @@ fn main() i32 {{
     let mut auto_tmp1 = String.{{}};
     defer auto_tmp1..&.deinit(gpa);
     {{
-        let mut sink = string_writer(gpa, auto_tmp1..&);
-        let writer = *mut Writer.{{ sink..& }};
-        format_to(writer, "{{}}.tmp.{{}}.{{}}", .{{ "{auto_target_path}", proc.process_id(), usize.{{1}}, }});
+        let mut sink = auto_tmp1..&.writer(gpa);
+        let writer = &mut Write.{{ sink..& }};
+        "{{}}.tmp.{{}}.{{}}".fmt(.{{ "{auto_target_path}", proc.process_id(), usize.{{1}}, }}).write_to(writer);
         if (sink..&.did_fail()) {{
             return 16;
         }}
     }}
 
-    match (fs.write_all(gpa, auto_tmp0.&.as_str(), "blocked")) {{
+    match (auto_tmp0.&.as_str().path().write_all(gpa, "blocked")) {{
         .{{ Ok: count }} => {{
             if (count != 7) {{
                 return 17;
@@ -773,7 +908,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 18,
     }}
 
-    let auto_written = match (fs.write_all_atomic(gpa, "{auto_target_path}", "auto-data")) {{
+    let auto_written = match ("{auto_target_path}".path().write_all_atomic(gpa, "auto-data")) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 19,
     }};
@@ -781,7 +916,7 @@ fn main() i32 {{
         return 20;
     }}
 
-    let mut auto_text = match (fs.read_to_string(gpa, "{auto_target_path}")) {{
+    let mut auto_text = match ("{auto_target_path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 21,
     }};
@@ -790,7 +925,7 @@ fn main() i32 {{
         return 22;
     }}
 
-    let mut collision_text = match (fs.read_to_string(gpa, auto_tmp0.&.as_str())) {{
+    let mut collision_text = match (auto_tmp0.&.as_str().path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 23,
     }};
@@ -799,7 +934,7 @@ fn main() i32 {{
         return 24;
     }}
 
-    let tmp1_exists = match (fs.exists(gpa, auto_tmp1.&.as_str())) {{
+    let tmp1_exists = match (auto_tmp1.&.as_str().path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 25,
     }};
@@ -854,12 +989,12 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    match (fs.create_dir_all(gpa, "{root_path}")) {{
+    match ("{root_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 1,
     }}
 
-    let written = match (fs.write_all(gpa, "{from_path}", "kern")) {{
+    let written = match ("{from_path}".path().write_all(gpa, "kern")) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 2,
     }};
@@ -867,7 +1002,7 @@ fn main() i32 {{
         return 3;
     }}
 
-    let copied = match (fs.copy(gpa, "{from_path}", "{to_path}")) {{
+    let copied = match ("{from_path}".path().copy_to(gpa, "{to_path}")) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 4,
     }};
@@ -875,7 +1010,7 @@ fn main() i32 {{
         return 5;
     }}
 
-    let appended = match (fs.append_all(gpa, "{to_path}", "-lang")) {{
+    let appended = match ("{to_path}".path().append_all(gpa, "-lang")) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 6,
     }};
@@ -883,7 +1018,7 @@ fn main() i32 {{
         return 7;
     }}
 
-    let mut text = match (fs.read_to_string(gpa, "{to_path}")) {{
+    let mut text = match ("{to_path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 8,
     }};
@@ -892,13 +1027,13 @@ fn main() i32 {{
         return 9;
     }}
 
-    let mut src = match (fs.open_read(gpa, "{from_path}")) {{
+    let mut src = match ("{from_path}".path().open_read(gpa)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 10,
     }};
     defer src..&.deinit();
 
-    let mut dst = match (fs.create(gpa, "{to_path}")) {{
+    let mut dst = match ("{to_path}".path().create(gpa)) {{
         .{{ Ok: file }} => file,
         .{{ Err: _ }} => return 11,
     }};
@@ -912,7 +1047,7 @@ fn main() i32 {{
         return 13;
     }}
 
-    let mut text2 = match (fs.read_to_string(gpa, "{to_path}")) {{
+    let mut text2 = match ("{to_path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 14,
     }};

@@ -178,7 +178,7 @@ pub enum TypeKind {
         lanes: u16,
     },
 
-    /// Raw pointer, `*T` or `*mut T`.
+    /// Raw pointer, `&T` or `&mut T`.
     Pointer {
         is_mut: bool,
         elem: TypeId,
@@ -201,7 +201,7 @@ pub enum TypeKind {
         elem: TypeId,
     },
 
-    /// Slice type, `[]T` or `[]mut T`.
+    /// Slice type, `&[T]` or `&mut [T]`.
     Slice {
         is_mut: bool,
         elem: TypeId,

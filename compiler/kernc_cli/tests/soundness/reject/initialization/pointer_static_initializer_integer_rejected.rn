@@ -1,12 +1,12 @@
 // class: static-initializer-type-mismatch
 // source: kernel request structs often store raw pointers; integer literals must not silently coerce into pointer fields
 // stderr: mismatched types
-// stderr: expected `*u8`
+// stderr: expected `&u8`
 // stderr: found `i32`
 // timeout-ms: 2000
 
-type framebuffer_request = struct {
-    response: *u8,
+struct framebuffer_request {
+    response: &u8,
 };
 
 static REQUEST = framebuffer_request.{ response: 0 };

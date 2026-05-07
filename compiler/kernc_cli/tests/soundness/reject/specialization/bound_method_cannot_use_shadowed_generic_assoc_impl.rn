@@ -2,16 +2,16 @@
 // specific impl matches, method availability cannot fall back to the shadowed
 // generic impl's associated type equality.
 // stderr: type does not satisfy trait bounds
-// stderr: *X: Factory[4, Out = i32]
+// stderr: &X: Factory[4, Out = i32]
 
-type Factory[N: usize] = trait {
+trait Factory[N: usize] {
     type Out;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type X = struct {};
+struct X {};
 
-impl[N: usize] *X: Factory[N] {
+impl[N: usize] &X: Factory[N] {
     type Out = i32;
 
     fn make() Out {
@@ -19,7 +19,7 @@ impl[N: usize] *X: Factory[N] {
     }
 }
 
-impl *X: Factory[4] {
+impl &X: Factory[4] {
     type Out = i64;
 
     fn make() Out {
@@ -27,8 +27,8 @@ impl *X: Factory[4] {
     }
 }
 
-fn call[N: usize](x: *X) i32
-    where *X: Factory[N, Out = i32],
+fn call[N: usize](x: &X) i32
+    where &X: Factory[N, Out = i32],
 {
     _ = x.make();
     return 0;

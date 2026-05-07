@@ -1,13 +1,13 @@
 // stderr: cannot infer generic argument(s) `T` for function `take`
 
-type Base[N: usize] = trait {
+trait Base[N: usize] {
     type Out;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type X = struct {};
+struct X {};
 
-impl *X: Base[4] {
+impl &X: Base[4] {
     type Out = i64;
 
     fn make() Out {
@@ -15,15 +15,15 @@ impl *X: Base[4] {
     }
 }
 
-fn erase(value: *Base[4]) *Base[4] {
+fn erase(value: &Base[4]) &Base[4] {
     return value;
 }
 
-fn take[T](value: *Base[4, Out = T]) T {
+fn take[T](value: &Base[4, Out = T]) T {
     return value.make();
 }
 
 fn main() i32 {
     let x = X.{};
-    return (take(erase(*Base[4].{ x.& })) as i32) - 7;
+    return (take(erase(&Base[4].{ x.& })) as i32) - 7;
 }

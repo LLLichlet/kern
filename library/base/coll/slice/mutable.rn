@@ -7,7 +7,7 @@ use base.mem.{layout_of, memmove};
 use base.coll.SliceMutIter;
 use base.cmp.{Ord, Ordering, GREATER};
 
-impl[T] []mut T {
+impl[T] &mut [T] {
     /// Returns the number of elements in the slice.
     pub fn len() usize {
         return #self;
@@ -34,7 +34,7 @@ impl[T] []mut T {
     }
 
     /// Swaps every element with the matching position in `other`.
-    pub fn swap_with_slice(other: []mut T) bool {
+    pub fn swap_with_slice(other: &mut [T]) bool {
         if (#self != #other) {
             return false;
         }
@@ -61,7 +61,7 @@ impl[T] []mut T {
     }
 
     /// Visits every element mutably.
-    pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
+    pub fn for_each_mut(visitor: &Fn(&mut T) void) void {
                 let mut i = usize.{0};
         while (i < #self) {
             visitor(self.[i]..&);
@@ -71,7 +71,7 @@ impl[T] []mut T {
     }
 
     /// Copies all elements from `source` into `self`.
-    pub fn copy_from(source: []T) bool {
+    pub fn copy_from(source: &[T]) bool {
         if (#self != #source) {
             return false;
         }
@@ -85,7 +85,7 @@ impl[T] []mut T {
         }
 
         let bytes = #self * elem_size;
-        _ = memmove(self.[0]..& as *mut u8, source.[0].& as *u8, bytes);
+        _ = memmove(self.[0]..& as &mut u8, source.[0].& as &u8, bytes);
         return true;
     }
 
@@ -159,7 +159,7 @@ impl[T] []mut T {
         }
 
         let bytes = count * elem_size;
-        _ = memmove(self.[dest_start]..& as *mut u8, self.[src_start].& as *u8, bytes);
+        _ = memmove(self.[dest_start]..& as &mut u8, self.[src_start].& as &u8, bytes);
         return true;
     }
 
@@ -169,7 +169,7 @@ impl[T] []mut T {
     /// this uses insertion sort so the implementation stays compact and does
     /// not allocate. It is intended as a small foundation helper rather than a
     /// high-throughput sorting policy.
-    pub fn sort_by(compare: *Fn(T, T) Ordering) void {
+    pub fn sort_by(compare: &Fn(T, T) Ordering) void {
         let mut i = usize.{1};
         while (i < #self) {
             let value = self.[i];
@@ -184,12 +184,12 @@ impl[T] []mut T {
     }
 }
 
-impl[T] []mut T
+impl[T] &mut [T]
     where T: Ord[T],
 {
     /// Sorts the slice in nondecreasing order.
     pub fn sort() void {
-        self.sort_by(.[](lhs: T, rhs: T) Ordering {
+        self.sort_by([](lhs: T, rhs: T) Ordering {
             return lhs.cmp(rhs);
         });
     }

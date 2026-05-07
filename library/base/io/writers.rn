@@ -3,33 +3,33 @@
 use base.coll.String;
 use base.mem.alloc.Allocator;
 use base.num;
-use ..traits.Writer;
+use ..traits.Write;
 
 /// Writes into a caller-provided byte slice.
-pub/ type FixedBufferWriter = struct {
-    buffer: []mut u8,
+pub/ struct FixedBufferWriter {
+    buffer: &mut [u8],
     written: usize = 0,
     overflowed: bool = false,
 };
 
 /// Writes into an owned `String` using a caller-provided allocator.
-pub/ type StringWriter = struct {
-    alloc: *mut Allocator,
-    string: *mut String,
+pub/ struct StringWriter {
+    alloc: &mut Allocator,
+    string: &mut String,
     failed: bool = false,
 };
 
 /// Counts bytes successfully written through another writer.
-pub/ type CountingWriter = struct {
-    inner: *mut Writer,
+pub/ struct CountingWriter {
+    inner: &mut Write,
     written: usize = 0,
 };
 
 /// Discards every byte written to it.
-pub/ type NullWriter = struct {};
+pub/ struct NullWriter {};
 
-impl *mut FixedBufferWriter : Writer {
-    pub fn write(buf: []u8) usize {
+impl &mut FixedBufferWriter : Write {
+    pub fn write(buf: &[u8]) usize {
         if (#buf == 0) {
             return 0;
         }
@@ -39,9 +39,9 @@ impl *mut FixedBufferWriter : Writer {
         }
 
         let available = #self.buffer - self.written;
-        let count = num.min[usize](available, #buf);
-        let out = (self.buffer.[0]..& + self.written)..[0 .. count];
-        _ = out.copy_from(buf.[0 .. count]);
+        let count = available.min(#buf);
+        let out = (self.buffer.[0]..& + self.written)..&[0 .. count];
+        _ = out.copy_from(buf.&[0 .. count]);
         self.written += count;
         if (count < #buf) {
             self.overflowed = true;
@@ -50,8 +50,8 @@ impl *mut FixedBufferWriter : Writer {
     }
 }
 
-impl *mut StringWriter : Writer {
-    pub fn write(buf: []u8) usize {
+impl &mut StringWriter : Write {
+    pub fn write(buf: &[u8]) usize {
         if (#buf == 0) {
             return 0;
         }
@@ -66,24 +66,24 @@ impl *mut StringWriter : Writer {
     }
 }
 
-impl *mut CountingWriter : Writer {
-    pub fn write(buf: []u8) usize {
+impl &mut CountingWriter : Write {
+    pub fn write(buf: &[u8]) usize {
         let n = self.inner.write(buf);
         self.written += n;
         return n;
     }
 }
 
-impl *mut NullWriter : Writer {
-    pub fn write(buf: []u8) usize {
+impl &mut NullWriter : Write {
+    pub fn write(buf: &[u8]) usize {
         return #buf;
     }
 }
 
-impl *mut FixedBufferWriter {
+impl &FixedBufferWriter {
     /// Returns all bytes successfully written so far.
-    pub fn as_slice() []u8 {
-        return self.buffer.[0 .. self.written];
+    pub fn as_slice() &[u8] {
+        return self.buffer.&[0 .. self.written];
     }
 
     /// Returns the remaining capacity in bytes.
@@ -97,49 +97,55 @@ impl *mut FixedBufferWriter {
     }
 }
 
-impl *mut StringWriter {
+impl &StringWriter {
     /// Returns `true` when an allocation failure prevented a full write.
     pub fn did_fail() bool {
         return self.failed;
     }
 }
 
-impl *mut CountingWriter {
+impl &CountingWriter {
     /// Returns how many bytes have been successfully forwarded.
     pub fn bytes_written() usize {
         return self.written;
     }
 }
 
-/// Creates a writer over `buffer`.
-pub/ fn fixed_buffer(buffer: []mut u8) FixedBufferWriter {
-    return .{ buffer: buffer };
-}
-
-/// Creates a writer that appends to `string`.
-pub/ fn string_writer(alloc: *mut Allocator, string: *mut String) StringWriter {
-    return .{ alloc: alloc, string: string };
-}
-
-/// Creates a writer that forwards to `writer` and counts successful bytes.
-pub/ fn counting_writer(writer: *mut Writer) CountingWriter {
-    return .{ inner: writer };
+impl &mut [u8] {
+    /// Creates a writer over this mutable byte slice.
+    pub fn writer() FixedBufferWriter {
+        return .{ buffer: self };
+    }
 }
 
 /// Creates a writer that discards all bytes.
-pub/ fn null_writer() NullWriter {
+pub fn discard() NullWriter {
     return .{};
 }
 
-/// Writes the full byte slice unless the writer reports no forward progress.
-pub/ fn write_all(writer: *mut Writer, buf: []u8) bool {
-    let mut written = usize.{0};
-    while (written < #buf) {
-        let n = writer.write(buf.[written .. #buf]);
-        if (n == 0) {
-            return false;
-        }
-        written += n;
+impl &mut String {
+    /// Creates a writer that appends to this string.
+    pub fn writer(alloc: &mut Allocator) StringWriter {
+        return .{ alloc: alloc, string: self };
     }
-    return true;
+}
+
+impl &mut Write {
+    /// Creates a writer that forwards to this writer and counts successful bytes.
+    pub fn counting() CountingWriter {
+        return .{ inner: self };
+    }
+
+    /// Repeatedly writes until the full buffer has been accepted.
+    pub fn write_all(buf: &[u8]) bool {
+        let mut written = usize.{0};
+        while (written < #buf) {
+            let n = self.write(buf.&[written .. #buf]);
+            if (n == 0) {
+                return false;
+            }
+            written += n;
+        }
+        return true;
+    }
 }

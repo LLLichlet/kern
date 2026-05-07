@@ -3,11 +3,11 @@
 // specialization of the receiver.
 // stderr: mismatched types
 
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
-type Lift[T]: TypeIs[T, Is = T] = trait {};
+trait Lift[T]: TypeIs[T, Is = T] {};
 
 impl[S, T] S: TypeIs[T] {
     type Is = T;
@@ -15,7 +15,7 @@ impl[S, T] S: TypeIs[T] {
 
 impl[S, T] S: Lift[T] {}
 
-type FakeProof[L, R] = struct {};
+struct FakeProof[L, R] {};
 
 impl[L, R] FakeProof[L, R]: TypeIs[R] {
     type Is = L;
@@ -36,10 +36,10 @@ fn seed() i32 {
 }
 
 fn forge[R]() R {
-    return cast[fn() i32, R](seed);
+    return cast[&fn() i32, R](seed);
 }
 
 fn main() i32 {
-    let forged = forge[fn(i32, i32) i32]();
+    let forged = forge[&fn(i32, i32) i32]();
     return forged(100, 200) - 11;
 }

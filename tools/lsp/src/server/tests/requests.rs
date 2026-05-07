@@ -284,7 +284,7 @@ fn hover_request_returns_signature_markup() {
     assert_eq!(response["id"], json!(27));
     assert_eq!(response["result"]["contents"]["kind"], "markdown");
     let contents = response["result"]["contents"]["value"].as_str().unwrap();
-    assert!(contents.contains("fn helper: fn(i32) i32"));
+    assert!(contents.contains("fn helper: &fn(i32) i32"));
 }
 
 #[test]
@@ -356,7 +356,7 @@ fn prepare_rename_request_returns_placeholder_and_range() {
 fn document_symbol_request_returns_top_level_symbols() {
     let mut state = initialized_state();
     let source = concat!(
-        "type Point = struct { x: i32 };\n",
+        "struct Point { x: i32 }\n",
         "fn helper(point: Point) i32 {\n",
         "    return point.x;\n",
         "}\n",
@@ -390,7 +390,7 @@ fn document_symbol_request_returns_top_level_symbols() {
 fn semantic_tokens_request_returns_encoded_token_data() {
     let mut state = initialized_state();
     let source = concat!(
-        "type Point = struct { x: i32 };\n",
+        "struct Point { x: i32 }\n",
         "fn helper(point: Point) i32 {\n",
         "    return point.x;\n",
         "}\n",

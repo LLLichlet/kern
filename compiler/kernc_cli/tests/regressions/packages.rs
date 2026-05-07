@@ -198,8 +198,8 @@ fn rejects_orphan_impl_of_imported_trait_for_foreign_primitive() {
     fs::write(
         &lib_entry,
         r#"
-pub type Foreign = trait {
-    ping: fn() i32,
+pub trait Foreign {
+    fn ping() i32;
 };
 "#,
     )
@@ -285,8 +285,8 @@ fn allows_impl_of_imported_trait_for_pointer_to_local_type() {
     fs::write(
         &lib_entry,
         r#"
-pub type Foreign = trait {
-    ping: fn() i32,
+pub trait Foreign {
+    fn ping() i32;
 };
 "#,
     )
@@ -307,11 +307,11 @@ pub type Foreign = trait {
     fs::write(
         &main_source,
         r#"
-type Local = struct {
+struct Local {
     value: i32,
 };
 
-impl *Local : dep.Foreign {
+impl &Local : dep.Foreign {
     fn ping() i32 {
         return self.value;
     }
@@ -319,7 +319,7 @@ impl *Local : dep.Foreign {
 
 fn main() i32 {
     let local = Local.{ value: 7 };
-    let obj = *dep.Foreign.{ local.& };
+    let obj = &dep.Foreign.{ local.& };
     return if (obj.ping() == 7) { 0 } else { 1 };
 }
 "#,
@@ -369,8 +369,8 @@ fn rejects_orphan_impl_of_source_tree_trait_for_foreign_primitive() {
     fs::write(
         &dep_entry,
         r#"
-pub type Foreign = trait {
-    ping: fn() i32,
+pub trait Foreign {
+    fn ping() i32;
 };
 "#,
     )
@@ -630,28 +630,28 @@ fn main() i32 {
 fn compiles_generic_supertrait_method_lookup() {
     let output = compile_source(
         r#"
-type Base = trait {
-    foo: fn() i32,
+trait Base {
+    fn foo() i32;
 };
 
-type Derived[U]: Base = trait {
-    add: fn(U) i32,
+trait Derived[U]: Base {
+    fn add(_: U) i32;
 };
 
-impl *i32 : Base {
+impl &i32 : Base {
     pub fn foo() i32 {
         return self.*;
     }
 }
 
-impl *i32 : Derived[i32] {
+impl &i32 : Derived[i32] {
     pub fn add(v: i32) i32 {
         return self.* + v;
     }
 }
 
-fn use_it[T](value: *T) i32
-    where *T: Derived[i32],
+fn use_it[T](value: &T) i32
+    where &T: Derived[i32],
 {
     return value.foo() + value.add(2);
 }
@@ -679,7 +679,7 @@ use base.coll.String;
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
-fn make_text(alloc: *mut base.mem.alloc.Allocator, text: []u8) String!i32 {
+fn make_text(alloc: &mut base.mem.alloc.Allocator, text: &[u8]) String!i32 {
     let mut out = String.{};
     if (!out..&.push_str(alloc, text)) {
         return .{ Err: 1 };

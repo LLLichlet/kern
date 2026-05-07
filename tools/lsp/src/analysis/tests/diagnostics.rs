@@ -50,7 +50,7 @@ fn diagnostics_include_native_doc_lints_as_warnings() {
 fn diagnostics_include_native_doc_lints_for_impl_methods() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "impl Counter {\n",
         "    /// Read the counter.\n",
         "    /// Args:\n",

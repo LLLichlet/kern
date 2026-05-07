@@ -72,8 +72,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             };
 
             // Fat pointers already encode whether the erased receiver/storage was borrowed as
-            // mutable or immutable. `let mut obj: *Trait` only makes the two-word handle
-            // rebindable; it must not silently upgrade the underlying borrow to `*mut Trait`.
+            // mutable or immutable. `let mut obj: &Trait` only makes the two-word handle
+            // rebindable; it must not silently upgrade the underlying borrow to `&mut Trait`.
             if !actual_fat_pointer_value
                 && self.check_pointer_to_pointer_coercion(*e_mut, e_norm, act, act_kind)
             {
@@ -212,7 +212,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx
                 .struct_error(
                     expr.span,
-                    "cannot implicitly borrow an immutable value as a mutable trait object `*mut Trait`",
+                    "cannot implicitly borrow an immutable value as a mutable trait object `&mut Trait`",
                 )
                 .with_code(DiagnosticCode::RequiresLetMut)
                 .with_hint(
@@ -575,7 +575,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.ctx
                         .struct_error(
                             span,
-                            "cannot implicitly convert an immutable array location to a mutable slice `[]mut T`",
+                            "cannot implicitly convert an immutable array location to a mutable slice `&mut [T]`",
                         )
                         .with_hint(
                             "mutable slice decay requires a mutable array binding, mutable field path, or mutable pointer dereference",
@@ -583,9 +583,39 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                     return Err(());
                 }
+                if self.array_decay_uses_temporary_storage(expr) {
+                    self.record_pointer_origin_expr(
+                        expr.id,
+                        crate::checker::expr::PointerOrigin::Temporary(expr.span),
+                    );
+                }
                 return Ok(true);
             }
         }
         Ok(false)
+    }
+
+    fn array_decay_uses_temporary_storage(&self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ExprKind::Grouped { expr: inner } => self.array_decay_uses_temporary_storage(inner),
+            ExprKind::Identifier(name) => self
+                .ctx
+                .scopes
+                .resolve_value_symbol(*name)
+                .is_none_or(|info| {
+                    !matches!(
+                        info.kind,
+                        crate::scope::SymbolKind::Var | crate::scope::SymbolKind::Static
+                    )
+                }),
+            ExprKind::SelfValue
+            | ExprKind::FieldAccess { .. }
+            | ExprKind::IndexAccess { .. }
+            | ExprKind::Unary {
+                op: UnaryOperator::PointerDeRef,
+                ..
+            } => false,
+            _ => true,
+        }
     }
 }

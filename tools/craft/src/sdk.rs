@@ -60,8 +60,8 @@ mod tests {
         let sdk = root.join("lib").join("kern").join("craft");
         fs::create_dir_all(&sdk).unwrap();
         fs::write(sdk.join("init.rn"), "pub mod builder;\npub mod plan;\n").unwrap();
-        fs::write(sdk.join("builder.rn"), "pub type Builder = struct {};\n").unwrap();
-        fs::write(sdk.join("plan.rn"), "pub type Plan = struct {};\n").unwrap();
+        fs::write(sdk.join("builder.rn"), "pub struct Builder {};\n").unwrap();
+        fs::write(sdk.join("plan.rn"), "pub struct Plan {};\n").unwrap();
 
         let exe = root.join("bin").join("craft");
         fs::create_dir_all(exe.parent().unwrap()).unwrap();

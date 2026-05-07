@@ -531,7 +531,6 @@ impl CachedAstRebinder<'_> {
             ast::DeclKind::Var { value, .. } => self.rebind_expr(value),
             ast::DeclKind::TypeAlias {
                 generics,
-                bounds,
                 where_clauses,
                 target,
                 ..
@@ -539,13 +538,86 @@ impl CachedAstRebinder<'_> {
                 for generic in generics {
                     self.rebind_generic_param(generic);
                 }
-                for bound in bounds {
-                    self.rebind_type_node(bound);
-                }
                 for clause in where_clauses {
                     self.rebind_where_clause(clause);
                 }
                 self.rebind_type_node(target);
+            }
+            ast::DeclKind::Struct {
+                generics,
+                where_clauses,
+                fields,
+                ..
+            }
+            | ast::DeclKind::Union {
+                generics,
+                where_clauses,
+                fields,
+                ..
+            } => {
+                for generic in generics {
+                    self.rebind_generic_param(generic);
+                }
+                for clause in where_clauses {
+                    self.rebind_where_clause(clause);
+                }
+                for field in fields {
+                    self.rebind_struct_field_def(field);
+                }
+            }
+            ast::DeclKind::Enum {
+                generics,
+                where_clauses,
+                backing_type,
+                variants,
+            } => {
+                for generic in generics {
+                    self.rebind_generic_param(generic);
+                }
+                for clause in where_clauses {
+                    self.rebind_where_clause(clause);
+                }
+                if let Some(backing_type) = backing_type {
+                    self.rebind_type_node(backing_type);
+                }
+                for variant in variants {
+                    self.rebind_enum_variant(variant);
+                }
+            }
+            ast::DeclKind::Trait {
+                generics,
+                where_clauses,
+                supertraits,
+                assoc_types,
+                methods,
+            } => {
+                for generic in generics {
+                    self.rebind_generic_param(generic);
+                }
+                for clause in where_clauses {
+                    self.rebind_where_clause(clause);
+                }
+                for supertrait in supertraits {
+                    self.rebind_type_node(supertrait);
+                }
+                for assoc in assoc_types {
+                    assoc.name = self.rebind_symbol(assoc.name);
+                    self.rebind_span(&mut assoc.name_span);
+                    self.rebind_doc_block(assoc.docs.as_mut());
+                    for generic in &mut assoc.generics {
+                        self.rebind_generic_param(generic);
+                    }
+                    for bound in &mut assoc.bounds {
+                        self.rebind_type_node(bound);
+                    }
+                    for clause in &mut assoc.where_clauses {
+                        self.rebind_where_clause(clause);
+                    }
+                    self.rebind_span(&mut assoc.span);
+                }
+                for method in methods {
+                    self.rebind_struct_field_def(method);
+                }
             }
             ast::DeclKind::ModDecl => {}
             ast::DeclKind::Use { path, target, .. } => {
@@ -1243,7 +1315,7 @@ mod tests {
 
         db.set_source_override(
             path.clone(),
-            "type Mode = enum { Fast, Safe };\ntype Setting[M: Mode] = struct {};\n".to_string(),
+            "enum Mode { Fast, Safe };\nstruct SettingDef[M: Mode] {};\ntype Setting[M: Mode] = SettingDef[M];\n".to_string(),
         );
 
         let _ = db
@@ -1259,7 +1331,7 @@ mod tests {
 
         assert_eq!(db.uncached_parse_count(), parse_count_after_first_load);
 
-        let ast::DeclKind::TypeAlias { generics, .. } = &second.ast.decls[1].kind else {
+        let ast::DeclKind::TypeAlias { generics, .. } = &second.ast.decls[2].kind else {
             panic!("expected cached type alias");
         };
         let ast::GenericParamKind::Const { ty } = &generics[0].kind else {

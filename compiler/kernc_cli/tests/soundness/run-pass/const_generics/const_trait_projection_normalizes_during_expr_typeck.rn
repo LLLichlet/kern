@@ -2,11 +2,11 @@
 // source: expression type checking must normalize associated projections that carry const trait arguments
 // exit: 0
 
-type HasOut[N: usize] = trait {
+trait HasOut[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: HasOut[1] {
     type Out = i32;

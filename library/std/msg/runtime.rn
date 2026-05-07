@@ -1,56 +1,56 @@
 //! Runtime diagnostics and fail-fast helpers.
-//!
-//! Design:
-//! keep failure reporting small, explicit, and available even before richer runtime services exist.
 
-use base.io.{Printable, Writer, format_to};
+use base.io.{Format, Write};
 use std.io.stderr;
 
-fn write_line(prefix: []u8, fmt: []u8, args: []*Printable) void {
+fn write_text_line(prefix: &[u8], text: &[u8]) void {
     let mut err_file = stderr();
-    let writer = *mut Writer.{ err_file..& };
+    let writer = &mut Write.{ err_file..& };
     _ = writer.write(prefix);
-    format_to(writer, fmt, args);
+    _ = writer.write(text);
     _ = writer.write("\n");
 }
 
-/// Prints one formatted diagnostic and traps.
-pub/ fn fail(prefix: []u8, fmt: []u8, args: []*Printable) ! {
-    write_line(prefix, fmt, args);
-    @trap();
+fn write_format_line(prefix: &[u8], value: Format) void {
+    let mut err_file = stderr();
+    let writer = &mut Write.{ err_file..& };
+    _ = writer.write(prefix);
+    value.write_to(writer);
+    _ = writer.write("\n");
 }
 
-/// Prints a panic message to standard error and traps.
-///
-/// This is the intended boundary for unrecoverable user-visible failures in
-/// low-level code that still wants a formatted diagnostic.
-///
-/// Note:
-/// formatting arguments are passed as list literals such as `.{ value }` or
-/// `.{ left, right }`.
-pub/ fn panic(fmt: []u8, args: []*Printable) ! {
-    fail("panic: ", fmt, args);
+impl &[u8] {
+    /// Prints this panic message to standard error and traps.
+    pub fn panic() ! {
+        write_text_line("panic: ", self);
+        @trap();
+    }
+
+    /// Writes this log line to standard error.
+    pub fn log() void {
+        write_text_line("log: ", self);
+    }
+
+    /// Writes this debug line to standard error.
+    pub fn debug() void {
+        write_text_line("debug: ", self);
+    }
 }
 
-/// Writes a log line to standard error.
-///
-/// This is a lightweight diagnostic channel intended for ad hoc runtime output.
-///
-/// Note:
-/// formatting arguments are passed as list literals such as `.{ value }` or
-/// `.{ left, right }`.
-pub/ fn log(fmt: []u8, args: []*Printable) void {
-    write_line("log: ", fmt, args);
-}
+impl Format {
+    /// Prints this panic message to standard error and traps.
+    pub fn panic() ! {
+        write_format_line("panic: ", self);
+        @trap();
+    }
 
-/// Writes a debug line to standard error.
-///
-/// `debug` uses the same output path as `log`, but keeps a separate prefix so
-/// tooling and humans can distinguish intent.
-///
-/// Note:
-/// formatting arguments are passed as list literals such as `.{ value }` or
-/// `.{ left, right }`.
-pub/ fn debug(fmt: []u8, args: []*Printable) void {
-    write_line("debug: ", fmt, args);
+    /// Writes this log line to standard error.
+    pub fn log() void {
+        write_format_line("log: ", self);
+    }
+
+    /// Writes this debug line to standard error.
+    pub fn debug() void {
+        write_format_line("debug: ", self);
+    }
 }

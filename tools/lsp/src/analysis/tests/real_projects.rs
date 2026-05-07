@@ -12,7 +12,7 @@ fn stdlib_document_symbols_render_real_impl_target_types() {
         .find(|symbol| symbol.detail.as_deref() == Some("impl"))
         .expect("expected std.io impl symbol");
 
-    assert_eq!(impl_symbol.name, "impl *mut File : Writer");
+    assert_eq!(impl_symbol.name, "impl &mut File : Write");
 }
 
 #[test]
@@ -42,10 +42,10 @@ roots = ["tests/api_compile.rn"]
     fs::write(
         root.join("src/lib.rn"),
         "\
-pub type Vector2 = struct {
+pub struct Vector2 {
     x: f32,
     y: f32,
-};
+}
 
 pub fn vector2(x: f32, y: f32) Vector2 {
     return Vector2.{ x: x, y: y };
@@ -110,7 +110,7 @@ fn bitio_hover_renders_real_optional_mut_pointer_field() {
         .unwrap();
 
     assert!(
-        hover.contents.value.contains("field ptr: ?*mut u8"),
+        hover.contents.value.contains("field ptr: ?&mut u8"),
         "{}",
         hover.contents.value
     );

@@ -2,16 +2,16 @@
 // source: normalize a two-step concrete associated projection through an intermediate concrete type
 // exit: 0
 
-type Step = trait {
+trait Step {
     type Mid;
 };
 
-type Finish = trait {
+trait Finish {
     type Out;
 };
 
-type Shell = struct {};
-type Bytes = []u8;
+struct Shell {};
+type Bytes = &[u8];
 
 impl Bytes: Step {
     type Mid = Shell;

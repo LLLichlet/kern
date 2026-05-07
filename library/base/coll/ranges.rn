@@ -3,29 +3,43 @@
 //! Ranges are ordinary library values. The `..` syntax remains reserved for
 //! slice bounds and match patterns rather than becoming expression sugar.
 
-use base.coll.Iterator;
+use base.coll.{
+    Iterator,
+};
+use ..iter.{
+    consume_all,
+    consume_any,
+    consume_count,
+    consume_find,
+    consume_find_map,
+    consume_fold,
+    consume_for_each,
+    consume_last,
+    consume_nth,
+    consume_position,
+};
 
 /// A left-closed, right-open range `[start, end)`.
-pub/ type Range[T] = struct {
+pub/ struct Range[T] {
     start: T,
     end: T,
 };
 
 /// A closed range `[start, end]`.
-pub/ type RangeInclusive[T] = struct {
+pub/ struct RangeInclusive[T] {
     start: T,
     end: T,
     done: bool = false,
 };
 
 /// A descending left-closed, right-open range `(end, start]`.
-pub/ type RangeDown[T] = struct {
+pub/ struct RangeDown[T] {
     start: T,
     end: T,
 };
 
 /// A descending closed range `[end, start]`.
-pub/ type RangeDownInclusive[T] = struct {
+pub/ struct RangeDownInclusive[T] {
     start: T,
     end: T,
     done: bool = false,
@@ -69,7 +83,7 @@ pub/ fn range_down_inclusive[T](start: T, end: T) RangeDownInclusive[T]
     return .{ start: start, end: end };
 }
 
-impl[T] *mut Range[T] : Iterator
+impl[T] &mut Range[T] : Iterator
     where T: Integer + Lt[T] + Add[T, Out = T],
 {
     type Item = T;
@@ -83,7 +97,51 @@ impl[T] *mut Range[T] : Iterator
     }
 }
 
-impl[T] *mut RangeDown[T] : Iterator
+impl[T] &mut Range[T]
+    where T: Integer + Lt[T] + Add[T, Out = T],
+{
+    pub fn count() usize {
+        return consume_count[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn nth(n: usize) ?T {
+        return consume_nth[T](&mut Iterator[Item = T].{ self }, n);
+    }
+
+    pub fn last() ?T {
+        return consume_last[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn for_each(visitor: &Fn(T) void) void {
+        consume_for_each[T](&mut Iterator[Item = T].{ self }, visitor);
+    }
+
+    pub fn fold[U](init: U, step: &Fn(U, T) U) U {
+        return consume_fold[T, U](&mut Iterator[Item = T].{ self }, init, step);
+    }
+
+    pub fn any(pred: &Fn(T) bool) bool {
+        return consume_any[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn all(pred: &Fn(T) bool) bool {
+        return consume_all[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find(pred: &Fn(T) bool) ?T {
+        return consume_find[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn position(pred: &Fn(T) bool) ?usize {
+        return consume_position[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
+        return consume_find_map[T, U](&mut Iterator[Item = T].{ self }, call_back);
+    }
+}
+
+impl[T] &mut RangeDown[T] : Iterator
     where T: Integer + Gt[T] + Sub[T, Out = T],
 {
     type Item = T;
@@ -97,7 +155,51 @@ impl[T] *mut RangeDown[T] : Iterator
     }
 }
 
-impl[T] *mut RangeInclusive[T] : Iterator
+impl[T] &mut RangeDown[T]
+    where T: Integer + Gt[T] + Sub[T, Out = T],
+{
+    pub fn count() usize {
+        return consume_count[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn nth(n: usize) ?T {
+        return consume_nth[T](&mut Iterator[Item = T].{ self }, n);
+    }
+
+    pub fn last() ?T {
+        return consume_last[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn for_each(visitor: &Fn(T) void) void {
+        consume_for_each[T](&mut Iterator[Item = T].{ self }, visitor);
+    }
+
+    pub fn fold[U](init: U, step: &Fn(U, T) U) U {
+        return consume_fold[T, U](&mut Iterator[Item = T].{ self }, init, step);
+    }
+
+    pub fn any(pred: &Fn(T) bool) bool {
+        return consume_any[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn all(pred: &Fn(T) bool) bool {
+        return consume_all[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find(pred: &Fn(T) bool) ?T {
+        return consume_find[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn position(pred: &Fn(T) bool) ?usize {
+        return consume_position[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
+        return consume_find_map[T, U](&mut Iterator[Item = T].{ self }, call_back);
+    }
+}
+
+impl[T] &mut RangeInclusive[T] : Iterator
     where T: Integer + Eq[T] + Le[T] + Add[T, Out = T],
 {
     type Item = T;
@@ -119,7 +221,51 @@ impl[T] *mut RangeInclusive[T] : Iterator
     }
 }
 
-impl[T] *mut RangeDownInclusive[T] : Iterator
+impl[T] &mut RangeInclusive[T]
+    where T: Integer + Eq[T] + Le[T] + Add[T, Out = T],
+{
+    pub fn count() usize {
+        return consume_count[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn nth(n: usize) ?T {
+        return consume_nth[T](&mut Iterator[Item = T].{ self }, n);
+    }
+
+    pub fn last() ?T {
+        return consume_last[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn for_each(visitor: &Fn(T) void) void {
+        consume_for_each[T](&mut Iterator[Item = T].{ self }, visitor);
+    }
+
+    pub fn fold[U](init: U, step: &Fn(U, T) U) U {
+        return consume_fold[T, U](&mut Iterator[Item = T].{ self }, init, step);
+    }
+
+    pub fn any(pred: &Fn(T) bool) bool {
+        return consume_any[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn all(pred: &Fn(T) bool) bool {
+        return consume_all[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find(pred: &Fn(T) bool) ?T {
+        return consume_find[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn position(pred: &Fn(T) bool) ?usize {
+        return consume_position[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
+        return consume_find_map[T, U](&mut Iterator[Item = T].{ self }, call_back);
+    }
+}
+
+impl[T] &mut RangeDownInclusive[T] : Iterator
     where T: Integer + Eq[T] + Ge[T] + Sub[T, Out = T],
 {
     type Item = T;
@@ -138,5 +284,49 @@ impl[T] *mut RangeDownInclusive[T] : Iterator
             self.start -= T.{1};
         }
         return .{ Some: item };
+    }
+}
+
+impl[T] &mut RangeDownInclusive[T]
+    where T: Integer + Eq[T] + Ge[T] + Sub[T, Out = T],
+{
+    pub fn count() usize {
+        return consume_count[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn nth(n: usize) ?T {
+        return consume_nth[T](&mut Iterator[Item = T].{ self }, n);
+    }
+
+    pub fn last() ?T {
+        return consume_last[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn for_each(visitor: &Fn(T) void) void {
+        consume_for_each[T](&mut Iterator[Item = T].{ self }, visitor);
+    }
+
+    pub fn fold[U](init: U, step: &Fn(U, T) U) U {
+        return consume_fold[T, U](&mut Iterator[Item = T].{ self }, init, step);
+    }
+
+    pub fn any(pred: &Fn(T) bool) bool {
+        return consume_any[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn all(pred: &Fn(T) bool) bool {
+        return consume_all[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find(pred: &Fn(T) bool) ?T {
+        return consume_find[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn position(pred: &Fn(T) bool) ?usize {
+        return consume_position[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
+        return consume_find_map[T, U](&mut Iterator[Item = T].{ self }, call_back);
     }
 }

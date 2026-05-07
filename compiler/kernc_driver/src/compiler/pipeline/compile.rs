@@ -180,7 +180,14 @@ impl CompilerDriver {
         let mast_module = lowered.module;
         let mast_workload = mast_module.workload_stats();
         let mir_started = Instant::now();
-        let mir_report = kernc_mir_lower::build_from_mast(&mast_module);
+        let mir_report = match kernc_mir_lower::try_build_from_mast(&mast_module) {
+            Ok(report) => report,
+            Err(error) => {
+                ctx.sess.emit_error(error.span, error.message);
+                Self::print_buffered_diagnostics(ctx.sess);
+                return None;
+            }
+        };
         let mir_workload = mir_report.workload;
         phase_timings.push(PhaseTiming {
             name: "  mir_build",

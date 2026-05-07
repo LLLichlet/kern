@@ -10,7 +10,7 @@ use ..{Editor, LayoutAxis, LayoutNode, WindowRect, WindowState};
 const MIN_WINDOW_ROWS = usize.{3};
 const MIN_WINDOW_COLS = usize.{16};
 
-impl *mut Editor {
+impl &mut Editor {
     fn reset_layout_weights() void {
         let nodes = self.layout_nodes..&.as_mut_slice();
         let mut i = usize.{0};
@@ -39,7 +39,7 @@ impl *mut Editor {
         }
     }
 
-    fn split_window(alloc: *mut Allocator, axis: LayoutAxis) void {
+    fn split_window(alloc: &mut Allocator, axis: LayoutAxis) void {
         if (!self.can_split(axis)) {
             self.set_message(alloc, "window limit reached");
             return;
@@ -126,7 +126,7 @@ impl *mut Editor {
         self.set_message(alloc, "split window");
     }
 
-    fn close_active_window(alloc: *mut Allocator) void {
+    fn close_active_window(alloc: &mut Allocator) void {
         if (self.window_count <= 1) {
             self.set_message(alloc, "last window");
             return;
@@ -172,7 +172,7 @@ impl *mut Editor {
         self.set_message(alloc, "closed window");
     }
 
-    fn only_window(alloc: *mut Allocator) void {
+    fn only_window(alloc: &mut Allocator) void {
         if (self.window_count <= 1) {
             self.set_message(alloc, "already only");
             return;

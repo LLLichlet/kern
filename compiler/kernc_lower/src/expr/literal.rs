@@ -246,7 +246,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         is_mut: bool,
     ) -> MastExprKind {
         let global_id = self.new_mono_id();
-        let lower_init = self.lower_expr(init, subst_map, Some(concrete_ty));
+        let lower_init = {
+            let mut evaluator = ConstEvaluator::new(self.ctx).with_type_substs(subst_map);
+            match evaluator.eval_inner(init, 0) {
+                Ok(value) => self
+                    .lower_const_value_expr(&value, concrete_ty, init.span)
+                    .unwrap_or_else(|| self.lower_expr(init, subst_map, Some(concrete_ty))),
+                Err(_) => self.lower_expr(init, subst_map, Some(concrete_ty)),
+            }
+        };
 
         self.module.globals.push(MastGlobal {
             id: global_id,

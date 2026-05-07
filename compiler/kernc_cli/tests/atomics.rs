@@ -122,7 +122,7 @@ fn main() i32 {
 
     let mut left = usize.{1};
     let mut right = usize.{2};
-    let mut ptr = atomic[*mut usize](left..&);
+    let mut ptr = atomic[&mut usize](left..&);
     if (ptr..&.load[ACQUIRE]() != left..&) {
         return 15;
     }
@@ -167,7 +167,7 @@ fn runs_base_sync_spin_lock_helpers() {
         r#"
 use sync.spin_lock;
 
-type Pair = struct {
+struct Pair {
     left: i32,
     right: i32,
 };
@@ -178,7 +178,7 @@ fn main() i32 {
         return 1;
     }
 
-    let first = counter..&.with_lock[i32](.[](value: *mut i32) i32 {
+    let first = counter..&.with_lock[i32]([](value: &mut i32) i32 {
         value.* += 1;
         return value.*;
     });
@@ -189,7 +189,7 @@ fn main() i32 {
         return 3;
     }
 
-    let next = match (counter..&.try_with_lock[i32](.[](value: *mut i32) i32 {
+    let next = match (counter..&.try_with_lock[i32]([](value: &mut i32) i32 {
         value.* += 4;
         return value.*;
     })) {
@@ -200,11 +200,11 @@ fn main() i32 {
         return 5;
     }
 
-    let reentrant_blocked = counter..&.with_lock[bool](.[lock = counter..&](value: *mut i32) bool {
+    let reentrant_blocked = counter..&.with_lock[bool]([lock = counter..&](value: &mut i32) bool {
         if (!lock.is_locked()) {
             return false;
         }
-        let nested = lock.try_with_lock[i32](.[](inner: *mut i32) i32 {
+        let nested = lock.try_with_lock[i32]([](inner: &mut i32) i32 {
             inner.* = 99;
             return inner.*;
         });
@@ -219,7 +219,7 @@ fn main() i32 {
         return 6;
     }
 
-    let final_counter = counter..&.with_lock[i32](.[](value: *mut i32) i32 {
+    let final_counter = counter..&.with_lock[i32]([](value: &mut i32) i32 {
         return value.*;
     });
     if (final_counter != 11) {
@@ -227,7 +227,7 @@ fn main() i32 {
     }
 
     let mut pair = spin_lock[Pair](Pair.{ left: 2, right: 3 });
-    let total = pair..&.with_lock[i32](.[](value: *mut Pair) i32 {
+    let total = pair..&.with_lock[i32]([](value: &mut Pair) i32 {
         value.left *= 5;
         value.right += 7;
         return value.left + value.right;
@@ -269,7 +269,7 @@ fn main() i32 {
     }
 
     let mut hits = i32.{0};
-    gate..&.call_once(.[hits = hits..&]() void {
+    gate..&.call_once([hits = hits..&]() void {
         hits.* += 1;
     });
     if (!gate..&.is_completed()) {
@@ -279,14 +279,14 @@ fn main() i32 {
         return 3;
     }
 
-    gate..&.call_once(.[hits = hits..&]() void {
+    gate..&.call_once([hits = hits..&]() void {
         hits.* += 10;
     });
     if (hits != 1) {
         return 4;
     }
 
-    let ran_after_done = gate..&.try_call_once(.[hits = hits..&]() void {
+    let ran_after_done = gate..&.try_call_once([hits = hits..&]() void {
         hits.* += 100;
     });
     if (ran_after_done or hits != 1) {
@@ -294,7 +294,7 @@ fn main() i32 {
     }
 
     let mut second = once();
-    let won = second..&.try_call_once(.[hits = hits..&]() void {
+    let won = second..&.try_call_once([hits = hits..&]() void {
         hits.* += 7;
     });
     if (!won or hits != 8) {
@@ -303,7 +303,7 @@ fn main() i32 {
     if (!second..&.is_completed()) {
         return 7;
     }
-    let lost = second..&.try_call_once(.[hits = hits..&]() void {
+    let lost = second..&.try_call_once([hits = hits..&]() void {
         hits.* += 70;
     });
     if (lost or hits != 8) {
@@ -353,7 +353,7 @@ fn main() i32 {
     let _ = @atomicRmwUMax[usize](value..&, 8, SEQ_CST);
 
     let mut ptr = value..&;
-    let _ = @atomicXchg[*mut usize](ptr..&, value..&, SEQ_CST);
+    let _ = @atomicXchg[&mut usize](ptr..&, value..&, SEQ_CST);
 
     @fence(RELEASE);
     return 0;

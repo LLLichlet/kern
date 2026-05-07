@@ -14,7 +14,7 @@ pub.. const FULL = u8.{2};
 pub.. const MIN_CAPACITY = usize.{8};
 
 /// A single occupied hash-map slot.
-pub.. type Entry[K, V] = struct {
+pub.. struct Entry[K, V] {
     /// The cached 64-bit hash of `key`.
     pub hash64: u64,
     /// The stored key.
@@ -24,27 +24,27 @@ pub.. type Entry[K, V] = struct {
 };
 
 /// A raw table allocation used during rebuilds.
-pub.. type Table[K, V] = struct {
+pub.. struct Table[K, V] {
     /// Control bytes describing whether each slot is empty, deleted, or full.
-    pub ctrl: *mut u8,
+    pub ctrl: &mut u8,
     /// Entry storage parallel to `ctrl`.
-    pub entries: *mut Entry[K, V],
+    pub entries: &mut Entry[K, V],
     /// The total number of addressable slots.
     pub capacity: usize,
 };
 
 /// Reads a control byte.
-pub.. fn ctrl_at(ctrl: *u8, index: usize) u8 {
+pub.. fn ctrl_at(ctrl: &u8, index: usize) u8 {
     return (ctrl + index).*;
 }
 
 /// Writes a control byte.
-pub.. fn set_ctrl(ctrl: *mut u8, index: usize, value: u8) void {
+pub.. fn set_ctrl(ctrl: &mut u8, index: usize, value: u8) void {
     (ctrl + index).* = value;
 }
 
 /// Returns a pointer to the entry slot at `index`.
-pub.. fn entry_ptr[K, V](entries: *mut Entry[K, V], index: usize) *mut Entry[K, V] {
+pub.. fn entry_ptr[K, V](entries: &mut Entry[K, V], index: usize) &mut Entry[K, V] {
     return entries + index;
 }
 
@@ -52,7 +52,7 @@ pub.. fn entry_ptr[K, V](entries: *mut Entry[K, V], index: usize) *mut Entry[K, 
 ///
 /// Returns:
 /// the number of occupied entries observed, including the last delivered one.
-pub.. fn visit_full[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, visitor: *Fn(*mut Entry[K, V]) bool) usize {
+pub.. fn visit_full[K, V](ctrl: &u8, entries: &mut Entry[K, V], capacity: usize, visitor: &Fn(&mut Entry[K, V]) bool) usize {
     let mut total = usize.{0};
         let mut i = usize.{0};
     while (i < capacity) {
@@ -89,7 +89,7 @@ pub.. fn keys_equal[K](lhs: K, rhs: K) bool
 ///
 /// The search stops at the first `EMPTY` slot, so deleted tombstones do not
 /// terminate probing.
-pub.. fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, key: K, hash: u64) ?usize
+pub.. fn find_index_with_hash[K, V](ctrl: &u8, entries: &mut Entry[K, V], capacity: usize, key: K, hash: u64) ?usize
     where K: Eq[K] + Hash[K],
 {
     let mask = capacity - 1;
@@ -128,9 +128,9 @@ pub.. fn max_occupied(capacity: usize) usize {
 ///
 /// `Map` stores keys and values in parallel slot arrays and uses linear probing
 /// with tombstones for deletions.
-pub.. type Map[K, V] where K: Eq[K] + Hash[K] = struct {
-    pub ctrl: *mut u8 = usize.{1}.as_mut_ptr[u8](),
-    pub entries: *mut Entry[K, V] = usize.{1}.as_mut_ptr[Entry[K, V]](),
+pub.. struct Map[K, V] where K: Eq[K] + Hash[K] {
+    pub ctrl: &mut u8 = usize.{1}.as_mut_ptr[u8](),
+    pub entries: &mut Entry[K, V] = usize.{1}.as_mut_ptr[Entry[K, V]](),
     /// The number of allocated slots.
     pub capacity: usize = 0,
     /// The number of live entries.
@@ -139,7 +139,7 @@ pub.. type Map[K, V] where K: Eq[K] + Hash[K] = struct {
     pub tombstones: usize = 0,
 };
 
-pub.. fn set_len[K, V](map: *mut Map[K, V], len: usize) void
+pub.. fn set_len[K, V](map: &mut Map[K, V], len: usize) void
     where K: Eq[K] + Hash[K],
 {
     map.len = len;
@@ -159,7 +159,7 @@ impl[K, V] Map[K, V]
     }
 }
 
-impl[K, V] *Map[K, V]
+impl[K, V] &Map[K, V]
     where K: Eq[K] + Hash[K],
 {
     /// Returns the number of live entries.

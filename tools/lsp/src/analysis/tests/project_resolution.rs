@@ -117,7 +117,7 @@ root = \"src/lib.rn\"
     fs::write(app_dir.join("src/lib.rn"), "pub fn helper() void {}\n").unwrap();
     fs::write(
         app_dir.join("craft.rn"),
-        "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
+        "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
     )
     .unwrap();
 
@@ -171,7 +171,7 @@ root = \"src/main.rn\"
     .unwrap();
     fs::write(
         root.join("src/main.rn"),
-        "use std.io;\n\nfn main() i32 {\n    io.println(\"Hello Kern!\", .{});\n    return 0;\n}\n",
+        "use std.io;\n\nfn main() i32 {\n    \"Hello Kern!\".println();\n    return 0;\n}\n",
     )
     .unwrap();
 
@@ -232,7 +232,7 @@ root = \"src/main.rn\"
     .unwrap();
     fs::write(
         root.join("src/lock.rn"),
-        "pub type SpinLock = struct {};\npub const SPIN_UNLOCKED = SpinLock.{};\n",
+        "pub struct SpinLock {};\npub const SPIN_UNLOCKED = SpinLock.{}\n",
     )
     .unwrap();
     fs::write(root.join("src/mem/init.rn"), "mod bitmap;\n").unwrap();
@@ -297,7 +297,7 @@ root = \"src/main.rn\"
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {{
+pub fn build(b: &mut builder.Builder) void {{
     if (b.feature_enabled(\"experimental\")) {{
         b.cfg_bool(\"enable_telemetry\", true);
         b.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
@@ -313,7 +313,7 @@ use std.io;
 
 #[if(enable_telemetry)]
 fn init_telemetry() void {
-    io.println(\"[Telemetry] Enabled\", .{});
+    \"[Telemetry] Enabled\".println();
 }
 
 fn main() i32 {
@@ -404,7 +404,7 @@ root = \"src/main.rn\"
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {{
+pub fn build(b: &mut builder.Builder) void {{
     if (b.feature_enabled(\"experimental\")) {{
         b.cfg_bool(\"enable_telemetry\", true);
         b.define_string(\"GREETING_MSG\", \"Hello from the experimental future!\");
@@ -420,12 +420,12 @@ use std.io;
 
 #[if(enable_telemetry)]
 fn init_telemetry() void {
-    io.println(\"[Telemetry] Enabled\", .{});
+    \"[Telemetry] Enabled\".println();
 }
 
 #[if(!enable_telemetry)]
 fn init_telemetry() void {
-    io.println(\"[Telemetry] Disabled\", .{});
+    \"[Telemetry] Disabled\".println();
 }
 
 fn main() i32 {
@@ -512,7 +512,7 @@ root = \"src/placeholder.rn\"
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     let generated = b.emit_generated(
         \"src/main.rn\",
         \"#[if(generated)]\\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\\n\"
@@ -635,7 +635,7 @@ fn main() i32 {
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     let main = b.stage_copy_package_file(\"src/main.rn\", \"src/main.rn\");
     let _ = b.stage_generated(
         \"src/build_info.rn\",
@@ -722,12 +722,12 @@ fn resolve_analysis_prefers_nearest_init_module_root_without_manifest() {
     .unwrap();
     fs::write(
         dbg_dir.join("option.rn"),
-        "pub type Option[T] = enum { Some: T, None };\n",
+        "pub enum Option[T] { Some: T, None }\n",
     )
     .unwrap();
     fs::write(
         dbg_dir.join("result.rn"),
-        "use ..Option;\npub type Result[T] = enum { Ok: T, Err: Option[T] };\n",
+        "use ..Option;\npub enum Result[T] { Ok: T, Err: Option[T] }\n",
     )
     .unwrap();
 
@@ -765,10 +765,10 @@ fn standalone_submodule_analysis_does_not_treat_parent_import_as_root_error() {
     .unwrap();
     fs::write(
         dbg_dir.join("option.rn"),
-        "pub type Option[T] = enum { Some: T, None };\n",
+        "pub enum Option[T] { Some: T, None }\n",
     )
     .unwrap();
-    let result_source = "use ..Option;\npub type Result[T] = enum { Ok: T, Err: Option[T] };\n";
+    let result_source = "use ..Option;\npub enum Result[T] { Ok: T, Err: Option[T] }\n";
     fs::write(dbg_dir.join("result.rn"), result_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();

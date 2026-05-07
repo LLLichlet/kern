@@ -9,33 +9,33 @@ use std.fs;
 fn main() i32 {
     let path = "/tmp/kern/archive.tar";
 
-    if (!fs.file_name(path).is_some_and(.[](name: []u8) bool {
+    if (!fs.file_name(path).is_some_and([](name: &[u8]) bool {
         return name == "archive.tar";
     })) {
         return 1;
     }
-    if (!fs.parent(path).is_some_and(.[](dir: []u8) bool {
+    if (!fs.parent(path).is_some_and([](dir: &[u8]) bool {
         return dir == "/tmp/kern";
     })) {
         return 2;
     }
-    if (!fs.extension(path).is_some_and(.[](ext: []u8) bool {
+    if (!fs.extension(path).is_some_and([](ext: &[u8]) bool {
         return ext == "tar";
     })) {
         return 3;
     }
-    if (!fs.file_stem(path).is_some_and(.[](stem: []u8) bool {
+    if (!fs.file_stem(path).is_some_and([](stem: &[u8]) bool {
         return stem == "archive";
     })) {
         return 4;
     }
 
-    if (!fs.parent("/tmp/kern/").is_some_and(.[](dir: []u8) bool {
+    if (!fs.parent("/tmp/kern/").is_some_and([](dir: &[u8]) bool {
         return dir == "/tmp";
     })) {
         return 5;
     }
-    if (!fs.parent("/tmp").is_some_and(.[](dir: []u8) bool {
+    if (!fs.parent("/tmp").is_some_and([](dir: &[u8]) bool {
         return dir == "/";
     })) {
         return 6;
@@ -50,7 +50,7 @@ fn main() i32 {
         return 9;
     }
 
-    if (!fs.file_stem(".gitignore").is_some_and(.[](stem: []u8) bool {
+    if (!fs.file_stem(".gitignore").is_some_and([](stem: &[u8]) bool {
         return stem == ".gitignore";
     })) {
         return 10;
@@ -58,7 +58,7 @@ fn main() i32 {
     if (fs.extension(".gitignore").is_some()) {
         return 11;
     }
-    if (!fs.file_stem("config.").is_some_and(.[](stem: []u8) bool {
+    if (!fs.file_stem("config.").is_some_and([](stem: &[u8]) bool {
         return stem == "config";
     })) {
         return 12;
@@ -253,6 +253,92 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_std_fs_path_combinators() {
+    let output = build_and_run_hosted(
+        r#"
+use std.fs;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    let path = "/tmp/kern/archive.tar".path();
+
+    if (!path.file_name().is_some_and([](name: &[u8]) bool {
+        return name == "archive.tar";
+    })) {
+        return 1;
+    }
+
+    if (!path.parent().is_some_and([](dir: &[u8]) bool {
+        return dir == "/tmp/kern";
+    })) {
+        return 2;
+    }
+
+    if (!path.extension().is_some_and([](ext: &[u8]) bool {
+        return ext == "tar";
+    })) {
+        return 3;
+    }
+
+    if (!path.file_stem().is_some_and([](stem: &[u8]) bool {
+        return stem == "archive";
+    })) {
+        return 4;
+    }
+
+    let mut joined = match ("/tmp/kern".path().join(gpa, "src/main.rn")) {
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 5,
+    };
+    defer joined..&.deinit(gpa);
+    if (joined.& != "/tmp/kern/src/main.rn") {
+        return 6;
+    }
+
+    let mut normalized = match ("/tmp/./kern//src/../out/file.txt".path().normalize(gpa)) {
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 7,
+    };
+    defer normalized..&.deinit(gpa);
+    if (normalized.& != "/tmp/kern/out/file.txt") {
+        return 8;
+    }
+
+    let mut renamed = match (path.with_file_name(gpa, "lib.rn")) {
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 9,
+    };
+    defer renamed..&.deinit(gpa);
+    if (renamed.& != "/tmp/kern/lib.rn") {
+        return 10;
+    }
+
+    let mut reext = match (path.with_extension(gpa, "zip")) {
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 11,
+    };
+    defer reext..&.deinit(gpa);
+    if (reext.& != "/tmp/kern/archive.zip") {
+        return 12;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_std_fs_windows_path_semantics() {
     if !cfg!(windows) {
         return;
@@ -268,7 +354,7 @@ fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    if (!fs.parent("C:\\kern\\src\\main.rn").is_some_and(.[](dir: []u8) bool {
+    if (!fs.parent("C:\\kern\\src\\main.rn").is_some_and([](dir: &[u8]) bool {
         return dir == "C:\\kern\\src";
     })) {
         return 1;
@@ -276,7 +362,7 @@ fn main() i32 {
     if (fs.parent("C:\\").is_some()) {
         return 2;
     }
-    if (!fs.file_name("C:\\kern\\main.rn").is_some_and(.[](name: []u8) bool {
+    if (!fs.file_name("C:\\kern\\main.rn").is_some_and([](name: &[u8]) bool {
         return name == "main.rn";
     })) {
         return 3;
@@ -345,7 +431,7 @@ fn main() i32 {
         return 17;
     }
 
-    if (!fs.parent("\\\\server\\share\\out\\file.txt").is_some_and(.[](dir: []u8) bool {
+    if (!fs.parent("\\\\server\\share\\out\\file.txt").is_some_and([](dir: &[u8]) bool {
         return dir == "\\\\server\\share\\out";
     })) {
         return 18;
@@ -389,12 +475,12 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    match (fs.create_dir_all(gpa, "{root_path}")) {{
+    match ("{root_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 1,
     }}
 
-    match (fs.write_all(gpa, "{file_path}", "unicode-ok")) {{
+    match ("{file_path}".path().write_all(gpa, "unicode-ok")) {{
         .{{ Ok: count }} => {{
             if (count != 10) {{
                 return 2;
@@ -403,7 +489,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 3,
     }}
 
-    let mut text = match (fs.read_to_string(gpa, "{file_path}")) {{
+    let mut text = match ("{file_path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 4,
     }};
@@ -413,7 +499,7 @@ fn main() i32 {{
     }}
 
     let mut hits = usize.{{0}};
-    let visited = match (fs.read_dir(gpa, "{root_path}", .[
+    let visited = match ("{root_path}".path().read_dir(gpa, [
         hits = hits..&
     ](entry: fs.DirEntry) bool {{
         if (entry.name == "{expected_name}") {{

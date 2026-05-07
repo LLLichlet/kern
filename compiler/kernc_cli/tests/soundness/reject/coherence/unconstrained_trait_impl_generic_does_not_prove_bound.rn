@@ -2,9 +2,9 @@
 // stderr: type does not satisfy trait bounds
 // stderr: required bound: `X: Marker`
 
-type Marker = trait {};
+trait Marker {};
 
-type X = struct {};
+struct X {};
 
 impl[T] X: Marker {}
 

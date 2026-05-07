@@ -4,7 +4,7 @@ use base.coll.String;
 use base.mem.alloc.Allocator;
 
 /// Appends one unsigned decimal number.
-pub fn push_usize(out: *mut String, alloc: *mut Allocator, value: usize) bool {
+pub fn push_usize(out: &mut String, alloc: &mut Allocator, value: usize) bool {
     if (value == 0) {
         return out.push_char(alloc, b'0');
     }
@@ -28,62 +28,62 @@ pub fn push_usize(out: *mut String, alloc: *mut Allocator, value: usize) bool {
 }
 
 /// Enters the alternate screen buffer.
-pub fn enter_alt_screen(out: *mut String, alloc: *mut Allocator) bool {
+pub fn enter_alt_screen(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[?1049h");
 }
 
 /// Leaves the alternate screen buffer.
-pub fn leave_alt_screen(out: *mut String, alloc: *mut Allocator) bool {
+pub fn leave_alt_screen(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[?1049l");
 }
 
 /// Hides the terminal cursor.
-pub fn hide_cursor(out: *mut String, alloc: *mut Allocator) bool {
+pub fn hide_cursor(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[?25l");
 }
 
 /// Shows the terminal cursor.
-pub fn show_cursor(out: *mut String, alloc: *mut Allocator) bool {
+pub fn show_cursor(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[?25h");
 }
 
 /// Selects a steady block cursor shape.
-pub fn cursor_block(out: *mut String, alloc: *mut Allocator) bool {
+pub fn cursor_block(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[2 q");
 }
 
 /// Selects a steady thin bar cursor shape.
-pub fn cursor_bar(out: *mut String, alloc: *mut Allocator) bool {
+pub fn cursor_bar(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[6 q");
 }
 
 /// Restores the terminal default cursor shape.
-pub fn reset_cursor_shape(out: *mut String, alloc: *mut Allocator) bool {
+pub fn reset_cursor_shape(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[0 q");
 }
 
 /// Clears the full visible screen and homes the cursor.
-pub fn clear_screen(out: *mut String, alloc: *mut Allocator) bool {
+pub fn clear_screen(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[2J\x1b[H");
 }
 
 /// Homes the cursor without clearing the full screen.
-pub fn home_cursor(out: *mut String, alloc: *mut Allocator) bool {
+pub fn home_cursor(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[H");
 }
 
 /// Clears from the cursor to the end of the current line.
-pub fn clear_line(out: *mut String, alloc: *mut Allocator) bool {
+pub fn clear_line(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\x1b[K");
 }
 
 /// Advances to the next terminal row and returns to column one.
-pub fn new_line(out: *mut String, alloc: *mut Allocator) bool {
+pub fn new_line(out: &mut String, alloc: &mut Allocator) bool {
     return out.push_str(alloc, "\r\n");
 }
 
 /// Moves the cursor to a 1-based row and column.
-pub fn move_cursor(out: *mut String, alloc: *mut Allocator, row: usize, col: usize) bool {
+pub fn move_cursor(out: &mut String, alloc: &mut Allocator, row: usize, col: usize) bool {
     if (!out.push_str(alloc, "\x1b[")) {
         return false;
     }

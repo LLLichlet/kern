@@ -1,6 +1,6 @@
 # Runtime And Library Architecture
 
-This document defines the runtime and library split used by the current 0.7.3 toolchain.
+This document defines the runtime and library split used by the current 0.7.5 toolchain.
 
 This document describes the current split that keeps Kern freestanding by
 default while making hosted startup, toolchain-owned startup, libc usage, and
@@ -109,7 +109,7 @@ The only legal entry signatures are:
 
 ```kern
 fn main() i32
-fn main(argc: i32, argv: **u8) i32
+fn main(argc: i32, argv: &&u8) i32
 ```
 
 Rules:

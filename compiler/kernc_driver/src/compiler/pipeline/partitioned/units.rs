@@ -21,13 +21,14 @@ impl CompilerDriver {
                 .enumerate()
                 .map(|(index, unit)| {
                     let unit_module = materialize_codegen_unit(mast_module, unit);
-                    PartitionedMirUnitReport {
+                    Ok(PartitionedMirUnitReport {
                         index,
                         unit_name: unit.name.clone(),
-                        mir_report: kernc_mir_lower::build_from_mast(&unit_module),
-                    }
+                        mir_report: kernc_mir_lower::try_build_from_mast(&unit_module)
+                            .map_err(format_mir_lower_error)?,
+                    })
                 })
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<_>, String>>()?;
             return Ok(MirUnitBatch {
                 reports,
                 wall_duration: started.elapsed(),
@@ -50,7 +51,8 @@ impl CompilerDriver {
                         Ok::<_, String>((
                             index,
                             unit.name.clone(),
-                            kernc_mir_lower::build_from_mast(&unit_module),
+                            kernc_mir_lower::try_build_from_mast(&unit_module)
+                                .map_err(format_mir_lower_error)?,
                         ))
                     }));
                 }
@@ -341,4 +343,8 @@ impl CompilerDriver {
         }
         Self::ensure_output_dir(path, label)
     }
+}
+
+fn format_mir_lower_error(error: kernc_mir_lower::MirLowerError) -> String {
+    format!("{} at {:?}", error.message, error.span)
 }

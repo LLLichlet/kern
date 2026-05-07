@@ -11,9 +11,9 @@ fn analysis_cache_reuses_shared_module_root_between_requests() {
         "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
     )
     .unwrap();
-    let option_source = "pub type Option[T] = enum { Some: T, None };\n";
+    let option_source = "pub enum Option[T] { Some: T, None }\n";
     fs::write(dbg_dir.join("option.rn"), option_source).unwrap();
-    let result_source = "use ..Option;\npub type Result[T] = enum { Ok: T, Err: Option[T] };\n";
+    let result_source = "use ..Option;\npub enum Result[T] { Ok: T, Err: Option[T] }\n";
     fs::write(dbg_dir.join("result.rn"), result_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();
@@ -404,8 +404,8 @@ fn dirty_complex_code_actions_use_lightweight_diagnostics() {
 
 fn dirty_complex_sources() -> (&'static str, &'static str) {
     let clean = concat!(
-        "type Point = struct { x: i32, y: i32 };\n",
-        "type Shape = enum { Dot: Point, Empty };\n",
+        "struct Point { x: i32, y: i32 }\n",
+        "enum Shape { Dot: Point, Empty }\n",
         "fn make_point(x: i32, y: i32) Point {\n",
         "    return Point.{ x: x, y: y };\n",
         "}\n",
@@ -419,8 +419,8 @@ fn dirty_complex_sources() -> (&'static str, &'static str) {
         "}\n",
     );
     let dirty = concat!(
-        "type Point = struct { x: i32, y: i32 };\n",
-        "type Shape = enum { Dot: Point, Empty };\n",
+        "struct Point { x: i32, y: i32 }\n",
+        "enum Shape { Dot: Point, Empty }\n",
         "fn make_point(x: i32, y: i32) Point {\n",
         "    return Point.{ x: x, y: y };\n",
         "}\n",
@@ -558,7 +558,7 @@ root = "src/main.rn"
         ),
     )
     .unwrap();
-    let lib_source = "pub type Bitmap = struct {};\npub fn make() Bitmap { return Bitmap.{}; }\n";
+    let lib_source = "pub struct Bitmap {};\npub fn make() Bitmap { return Bitmap.{} }\n";
     let main_source = "fn main() i32 { return 0; }\n";
     let dirty_main_source = "fn main() i32 {\n    return 0;\n}\n";
     let lib_path = root.join("src/lib.rn");
@@ -698,9 +698,9 @@ fn opening_clean_sibling_document_keeps_cached_artifact() {
         "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
     )
     .unwrap();
-    let option_source = "pub type Option[T] = enum { Some: T, None };\n";
+    let option_source = "pub enum Option[T] { Some: T, None }\n";
     fs::write(dbg_dir.join("option.rn"), option_source).unwrap();
-    let result_source = "use ..Option;\npub type Result[T] = enum { Ok: T, Err: Option[T] };\n";
+    let result_source = "use ..Option;\npub enum Result[T] { Ok: T, Err: Option[T] }\n";
     fs::write(dbg_dir.join("result.rn"), result_source).unwrap();
 
     let mut analysis = AnalysisEngine::default();

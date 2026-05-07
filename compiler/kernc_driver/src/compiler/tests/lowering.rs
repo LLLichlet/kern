@@ -630,10 +630,10 @@ fn lowering_preserves_return_temp_when_scope_has_defer() {
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
     let source = concat!(
-        "type Guard = struct {\n",
-        "    ptr: *mut i32,\n",
+        "struct Guard {\n",
+        "    ptr: &mut i32,\n",
         "};\n",
-        "impl *mut Guard {\n",
+        "impl &mut Guard {\n",
         "    fn deinit() void {\n",
         "        self.ptr.* = 2;\n",
         "    }\n",
@@ -716,10 +716,10 @@ fn mir_lower_preserves_deferred_return_value_snapshot() {
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
     let source = concat!(
-        "type Guard = struct {\n",
-        "    ptr: *mut i32,\n",
+        "struct Guard {\n",
+        "    ptr: &mut i32,\n",
         "};\n",
-        "impl *mut Guard {\n",
+        "impl &mut Guard {\n",
         "    fn deinit() void {\n",
         "        self.ptr.* = 2;\n",
         "    }\n",
@@ -788,10 +788,10 @@ fn mir_passes_preserve_deferred_return_value_snapshot() {
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
     let source = concat!(
-        "type Guard = struct {\n",
-        "    ptr: *mut i32,\n",
+        "struct Guard {\n",
+        "    ptr: &mut i32,\n",
         "};\n",
-        "impl *mut Guard {\n",
+        "impl &mut Guard {\n",
         "    fn deinit() void {\n",
         "        self.ptr.* = 2;\n",
         "    }\n",
@@ -861,10 +861,10 @@ fn lowering_std_hello_world_prunes_unreachable_file_methods() {
         concat!(
             "use std.io;\n",
             "\n",
-            "extern fn main(argc: i32, argv: **u8) i32 {\n",
+            "extern fn main(argc: i32, argv: &&u8) i32 {\n",
             "    let _ = argc;\n",
             "    let _ = argv;\n",
-            "    io.println(\"hello, {}!\", .{\"world\",});\n",
+            "    \"hello, {}!\".fmt(.{\"world\"}).println();\n",
             "    return 0;\n",
             "}\n",
         ),

@@ -265,7 +265,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 span,
                                 "trait objects must be initialized with a single pointer",
                             )
-                            .with_hint("example: `*mut Reader.{ file_ptr }`")
+                            .with_hint("example: `&mut Reader.{ file_ptr }`")
                             .emit();
                         return TypeId::ERROR;
                     }
@@ -276,7 +276,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             .check_closure_object_init(inner, expected, elem_norm, is_mut, span);
                     } else {
                         self.ctx.struct_error(span, "invalid closure fat pointer construction")
-                            .with_hint("expected syntax: `*mut Fn(...).{ raw_pointer }` or `*Fn(...).{ raw_pointer }`")
+                            .with_hint("expected syntax: `&mut Fn(...).{ raw_pointer }` or `&Fn(...).{ raw_pointer }`")
                             .with_hint("the raw pointer must explicitly be a pointer to the closure's anonymous state")
                             .emit();
                         return TypeId::ERROR;
@@ -289,7 +289,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 "raw pointers cannot be initialized with `.{...}`",
                             )
                             .with_hint(
-                                "use a real pointer-producing operation, or cast an integer address explicitly with `as *T` / `as *mut T`",
+                                "use a real pointer-producing operation, or cast an integer address explicitly with `as &T` / `as &mut T`",
                         )
                             .emit();
                     return TypeId::ERROR;
@@ -635,7 +635,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             match self.ctx.type_registry.get(exp_norm) {
                 TypeKind::Array { elem, len } => (*elem, Some(*len), false),
                 TypeKind::ArrayInfer { elem } => (*elem, None, false),
-                // Explicit `[]T.{ ... }` stays slice-typed. Only contextual array inference
+                // Explicit `&[T].{ ... }` stays slice-typed. Only contextual array inference
                 // synthesizes a fresh `[N]T`.
                 TypeKind::Slice { elem, .. } => (*elem, None, true),
                 TypeKind::Simd { elem, lanes } => (

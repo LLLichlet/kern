@@ -10,7 +10,7 @@ fn builds_and_runs_hosted_package_with_generated_source_from_build_script() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -23,7 +23,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let path = b.emit_generated(
     "src/main.rn",
     "fn main() i32 { return 0; }\n"
@@ -70,7 +70,7 @@ fn builds_and_runs_hosted_package_with_copied_generated_source_from_build_script
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -88,7 +88,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let path = b.copy_package_file("templates/main.rn", "src/main.rn");
 b.set_source_root(path);
 }
@@ -131,7 +131,7 @@ fn removing_generated_helper_file_causes_rebuild_failure_instead_of_stale_succes
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -149,7 +149,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let main = b.emit_generated(
     "src/main.rn",
     "mod helper;\nfn main() i32 { return helper.answer(); }\n"
@@ -200,7 +200,7 @@ b.set_source_root(main);
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let main = b.emit_generated(
     "src/main.rn",
     "mod helper;\nfn main() i32 { return helper.answer(); }\n"
@@ -243,7 +243,7 @@ fn rebuild_restores_missing_generated_helper_file_without_cleaning_craft_dir() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -261,7 +261,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let main = b.emit_generated(
     "src/main.rn",
     "mod helper;\nfn main() i32 { return helper.answer(); }\n"
@@ -338,7 +338,7 @@ fn rebuild_recovers_from_corrupted_generated_helper_state_without_cleaning_craft
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -356,7 +356,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let main = b.emit_generated(
     "src/main.rn",
     "mod helper;\nfn main() i32 { return helper.answer(); }\n"
@@ -436,7 +436,7 @@ fn builds_and_runs_hosted_package_with_post_link_artifact_stage_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -459,7 +459,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_package_file_to_artifact("assets/config.json", "config/config.json");
 let _ = b.emit_artifact_file("notes/build.txt", "built by craft\n");
 }
@@ -513,7 +513,7 @@ fn removes_stale_artifact_outputs_when_build_script_plan_changes() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -536,7 +536,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_package_file_to_artifact("assets/config.json", "bundle/config.json");
 let _ = b.emit_artifact_file("notes/old.txt", "old\n");
 }
@@ -582,7 +582,7 @@ let _ = b.emit_artifact_file("notes/old.txt", "old\n");
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.emit_artifact_file("notes/new.txt", "new\n");
 }
 "#,
@@ -636,7 +636,7 @@ fn stale_artifact_cleanup_preserves_kept_directory_output_cache_hits() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -664,7 +664,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
 let _ = b.emit_artifact_file("notes/old.txt", "old\n");
 }
@@ -707,7 +707,7 @@ let _ = b.emit_artifact_file("notes/old.txt", "old\n");
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
 }
 "#,
@@ -750,7 +750,7 @@ fn directory_stage_rebuilds_when_source_adds_empty_subdirectory() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -773,7 +773,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
 }
 "#,
@@ -844,7 +844,7 @@ fn post_link_directory_stage_rejects_symlink_entries() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -872,7 +872,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
 }
 "#,
@@ -910,7 +910,7 @@ fn builds_and_runs_hosted_package_with_post_link_directory_stage_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -938,7 +938,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
 }
 "#,
@@ -999,7 +999,7 @@ fn builds_and_runs_hosted_package_with_copied_primary_artifact_in_stage_tree() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -1017,7 +1017,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let artifact = b.primary_artifact();
 let _ = b.copy_output_to_artifact(artifact, "bundle/demo");
 }
@@ -1086,7 +1086,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -1102,7 +1102,7 @@ codegen = { path = "../tool", package = "tool" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.rn", .{});
 b.set_source_root(generated);
 b.define_string("tool_path", b.tool_path("codegen", "codegen"));
@@ -1116,7 +1116,7 @@ b.define_string("tool_path", b.tool_path("codegen", "codegen"));
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "codegen"
@@ -1128,11 +1128,11 @@ root = "src/main.rn"
         tool_dir.join("src").join("main.rn"),
         r#"
 use std.io;
-use base.io.Writer;
+use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = *mut Writer.{ out..& };
+let writer = &mut Write.{ out..& };
 let _ = writer.write("fn main() i32 { return 0; }\n");
 return 0;
 }
@@ -1197,7 +1197,7 @@ fn check_builds_runnable_host_tool_for_generated_source() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -1213,7 +1213,7 @@ codegen = { path = "../tool", package = "tool" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.rn", .{});
 b.set_source_root(generated);
 }
@@ -1226,7 +1226,7 @@ b.set_source_root(generated);
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "codegen"
@@ -1238,11 +1238,11 @@ root = "src/main.rn"
         tool_dir.join("src").join("main.rn"),
         r#"
 use std.io;
-use base.io.Writer;
+use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = *mut Writer.{ out..& };
+let writer = &mut Write.{ out..& };
 let _ = writer.write("fn main() i32 { return 0; }\n");
 return 0;
 }
@@ -1293,7 +1293,7 @@ fn builds_and_runs_hosted_package_with_explicit_staged_dependencies() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -1306,7 +1306,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let helper = b.stage_generated("tmp/main.template.rn", "fn main() i32 { return 0; }\n");
 let source = b.stage_copy_output(helper, "src/main.rn");
 b.set_source_root_from(source);
@@ -1357,7 +1357,7 @@ fn builds_and_runs_hosted_package_with_generated_source_from_external_host_tool(
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -1373,7 +1373,7 @@ codegen = { path = "vendor/codegen", version = "1" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.rn", .{});
 b.set_source_root(generated);
 }
@@ -1386,7 +1386,7 @@ b.set_source_root(generated);
 [package]
 name = "codegen"
 version = "1"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "codegen"
@@ -1398,11 +1398,11 @@ root = "src/main.rn"
         tool_root.join("src").join("main.rn"),
         r#"
 use std.io;
-use base.io.Writer;
+use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = *mut Writer.{ out..& };
+let writer = &mut Write.{ out..& };
 let _ = writer.write("fn main() i32 { return 0; }\n");
 return 0;
 }
@@ -1463,7 +1463,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -1479,7 +1479,7 @@ tool = { path = "../tool", package = "tool" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let note = b.stage_artifact_file_from_tool("tool", "artifact-note", "notes/build.txt", .{});
 let bundle = b.stage_copy_output_to_artifact(b.primary_artifact(), "bundle/app");
 b.depend(note, bundle);
@@ -1494,7 +1494,7 @@ b.depend(note, bundle);
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "artifact-note"
@@ -1506,11 +1506,11 @@ root = "src/main.rn"
         tool_dir.join("src/main.rn"),
         r#"
 use std.io;
-use base.io.Writer;
+use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = *mut Writer.{ out..& };
+let writer = &mut Write.{ out..& };
 let _ = writer.write("built by tool\n");
 return 0;
 }
@@ -1586,7 +1586,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -1602,7 +1602,7 @@ tool = { path = "../tool", package = "tool" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let bundle = b.stage_copy_package_file_to_artifact("assets/message.txt", "bundle/message.txt");
 let note = b.stage_artifact_file_from_tool(
     "tool",
@@ -1623,7 +1623,7 @@ b.depend(note, bundle);
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "artifact-note"
@@ -1639,12 +1639,12 @@ use std.fs;
 use std.proc;
 use sys.mem.Page;
 
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
 let page = Page.{}..&;
 let gpa = GPA.{ backing: page }..&;
 let args = proc.args(argc, argv);
 let .{ Some: path } = args.get(1) else return 1;
-let .{ Ok: text } = fs.read_to_string(gpa, path) else return 1;
+let .{ Ok: text } = path.path().read_to_string(gpa) else return 1;
 let mut text = text;
 let text = text..&;
 defer text.deinit(gpa);
@@ -1719,7 +1719,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -1735,7 +1735,7 @@ tool = { path = "../tool", package = "tool" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.stage_artifact_file_from_tool("tool", "artifact-note", "notes/build.txt", .{});
 }
 "#,
@@ -1748,7 +1748,7 @@ let _ = b.stage_artifact_file_from_tool("tool", "artifact-note", "notes/build.tx
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "artifact-note"
@@ -1760,15 +1760,15 @@ root = "src/main.rn"
         tool_dir.join("src/main.rn"),
         r#"
 use std.io;
-use base.io.Writer;
+use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let out_writer = *mut Writer.{ out..& };
+let out_writer = &mut Write.{ out..& };
 let _ = out_writer.write("partial stdout\n");
 
 let mut err = io.stderr();
-let err_writer = *mut Writer.{ err..& };
+let err_writer = &mut Write.{ err..& };
 let _ = err_writer.write("tool failed loudly\n");
 return 7;
 }
@@ -1829,7 +1829,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "rt"
@@ -1846,7 +1846,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b;
 b.set_source_root("src/real_main.rn");
 }
@@ -1864,7 +1864,7 @@ b.set_source_root("src/real_main.rn");
 use std.io;
 
 fn main() i32 {
-    io.println("member-source-root", .{});
+    "member-source-root".println();
     return 0;
 }
 "#,

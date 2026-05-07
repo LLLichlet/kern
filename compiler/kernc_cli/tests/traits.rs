@@ -8,16 +8,16 @@ fn compile_source(source: &str) -> std::process::Output {
 fn compiles_multi_supertrait_lookup_through_generic_bound() {
     let output = compile_source(
         r#"
-type A = trait { a: fn() i32, };
-type B = trait { b: fn() i32, };
-type C: A + B = trait { c: fn() i32, };
+trait A { fn a() i32; };
+trait B { fn b() i32; };
+trait C: A + B { fn c() i32; };
 
-impl *i32 : A { pub fn a() i32 { return self.*; } }
-impl *i32 : B { pub fn b() i32 { return self.* + 10; } }
-impl *i32 : C { pub fn c() i32 { return self.* + 100; } }
+impl &i32 : A { pub fn a() i32 { return self.*; } }
+impl &i32 : B { pub fn b() i32 { return self.* + 10; } }
+impl &i32 : C { pub fn c() i32 { return self.* + 100; } }
 
-fn use_it[T](x: *T) i32
-    where *T: C,
+fn use_it[T](x: &T) i32
+    where &T: C,
 {
     return x.a() + x.b() + x.c();
 }
@@ -41,15 +41,15 @@ fn main() i32 {
 fn compiles_supertrait_methods_on_trait_object() {
     let output = compile_source(
         r#"
-type Base = trait { foo: fn() i32, };
-type Derived: Base = trait { bar: fn() i32, };
+trait Base { fn foo() i32; };
+trait Derived: Base { fn bar() i32; };
 
-impl *i32 : Base { pub fn foo() i32 { return self.*; } }
-impl *i32 : Derived { pub fn bar() i32 { return self.* + 1; } }
+impl &i32 : Base { pub fn foo() i32 { return self.*; } }
+impl &i32 : Derived { pub fn bar() i32 { return self.* + 1; } }
 
 fn main() i32 {
     let v = i32.{3};
-    let d = *Derived.{ v.& };
+    let d = &Derived.{ v.& };
     return d.foo() + d.bar();
 }
 "#,
@@ -67,19 +67,19 @@ fn main() i32 {
 fn compiles_trait_object_from_concrete_pointer_via_constructor_and_bnc() {
     let output = compile_source(
         r#"
-type Base = trait { foo: fn() i32, };
+trait Base { fn foo() i32; };
 
-impl *i32 : Base {
+impl &i32 : Base {
     pub fn foo() i32 { return self.*; }
 }
 
-fn takes_base(x: *Base) i32 {
+fn takes_base(x: &Base) i32 {
     return x.foo();
 }
 
 fn main() i32 {
     let v = i32.{3};
-    let explicit = *Base.{ v.& };
+    let explicit = &Base.{ v.& };
     return explicit.foo() + takes_base(v.&);
 }
 "#,
@@ -97,20 +97,20 @@ fn main() i32 {
 fn compiles_trait_object_upcast_via_explicit_constructor_and_bnc() {
     let output = compile_source(
         r#"
-type Base = trait { foo: fn() i32, };
-type Derived: Base = trait { bar: fn() i32, };
+trait Base { fn foo() i32; };
+trait Derived: Base { fn bar() i32; };
 
-impl *i32 : Base { pub fn foo() i32 { return self.*; } }
-impl *i32 : Derived { pub fn bar() i32 { return self.* + 1; } }
+impl &i32 : Base { pub fn foo() i32 { return self.*; } }
+impl &i32 : Derived { pub fn bar() i32 { return self.* + 1; } }
 
-fn takes_base(x: *Base) i32 {
+fn takes_base(x: &Base) i32 {
     return x.foo();
 }
 
 fn main() i32 {
     let v = i32.{3};
-    let d = *Derived.{ v.& };
-    let b = *Base.{ d };
+    let d = &Derived.{ v.& };
+    let b = &Base.{ d };
     return b.foo() + takes_base(d) + d.bar();
 }
 "#,
@@ -128,27 +128,27 @@ fn main() i32 {
 fn compiles_multi_parent_trait_object_upcasts() {
     let output = compile_source(
         r#"
-type A = trait { a: fn() i32, };
-type B = trait { b: fn() i32, };
-type C: A + B = trait { c: fn() i32, };
+trait A { fn a() i32; };
+trait B { fn b() i32; };
+trait C: A + B { fn c() i32; };
 
-impl *i32 : A { pub fn a() i32 { return self.*; } }
-impl *i32 : B { pub fn b() i32 { return self.* + 10; } }
-impl *i32 : C { pub fn c() i32 { return self.* + 100; } }
+impl &i32 : A { pub fn a() i32 { return self.*; } }
+impl &i32 : B { pub fn b() i32 { return self.* + 10; } }
+impl &i32 : C { pub fn c() i32 { return self.* + 100; } }
 
-fn takes_a(x: *A) i32 {
+fn takes_a(x: &A) i32 {
     return x.a();
 }
 
-fn takes_b(x: *B) i32 {
+fn takes_b(x: &B) i32 {
     return x.b();
 }
 
 fn main() i32 {
     let v = i32.{3};
-    let c = *C.{ v.& };
-    let a = *A.{ c };
-    let b = *B.{ c };
+    let c = &C.{ v.& };
+    let a = &A.{ c };
+    let b = &B.{ c };
     return a.a() + b.b() + c.c() + takes_a(c) + takes_b(c);
 }
 "#,
@@ -166,25 +166,25 @@ fn main() i32 {
 fn compiles_generic_parent_trait_object_upcast() {
     let output = compile_source(
         r#"
-type Base[T] = trait { get: fn() T, };
-type Derived[T]: Base[T] = trait { add: fn(T) T, };
+trait Base[T] { fn get() T; };
+trait Derived[T]: Base[T] { fn add(_: T) T; };
 
-impl *i32 : Base[i32] {
+impl &i32 : Base[i32] {
     pub fn get() i32 { return self.*; }
 }
 
-impl *i32 : Derived[i32] {
+impl &i32 : Derived[i32] {
     pub fn add(v: i32) i32 { return self.* + v; }
 }
 
-fn takes_base(x: *Base[i32]) i32 {
+fn takes_base(x: &Base[i32]) i32 {
     return x.get();
 }
 
 fn main() i32 {
     let v = i32.{3};
-    let d = *Derived[i32].{ v.& };
-    let b = *Base[i32].{ d };
+    let d = &Derived[i32].{ v.& };
+    let b = &Base[i32].{ d };
     return b.get() + takes_base(d) + d.add(5);
 }
 "#,
@@ -202,17 +202,17 @@ fn main() i32 {
 fn rejects_ambiguous_inherited_trait_methods() {
     let output = compile_source(
         r#"
-type A = trait { foo: fn() i32, };
-type B = trait { foo: fn() i32, };
-type C: A + B = trait {};
+trait A { fn foo() i32; };
+trait B { fn foo() i32; };
+trait C: A + B {};
 
-impl *i32 : A { pub fn foo() i32 { return self.*; } }
-impl *i32 : B { pub fn foo() i32 { return self.* + 10; } }
-impl *i32 : C {}
+impl &i32 : A { pub fn foo() i32 { return self.*; } }
+impl &i32 : B { pub fn foo() i32 { return self.* + 10; } }
+impl &i32 : C {}
 
 fn main() i32 {
     let v = i32.{3};
-    let c = *C.{ v.& };
+    let c = &C.{ v.& };
     return c.foo();
 }
 "#,
@@ -237,20 +237,20 @@ fn main() i32 {
 fn rejects_ambiguous_inherited_trait_methods_from_same_parent_trait_with_different_args() {
     let output = compile_source(
         r#"
-type Base[T] = trait { get: fn() T, };
-type Left: Base[i32] = trait {};
-type Right: Base[bool] = trait {};
-type Both: Left + Right = trait {};
+trait Base[T] { fn get() T; };
+trait Left: Base[i32] {};
+trait Right: Base[bool] {};
+trait Both: Left + Right {};
 
-impl *i32 : Base[i32] { fn get() i32 { return self.*; } }
-impl *i32 : Base[bool] { fn get() bool { return true; } }
-impl *i32 : Left {}
-impl *i32 : Right {}
-impl *i32 : Both {}
+impl &i32 : Base[i32] { fn get() i32 { return self.*; } }
+impl &i32 : Base[bool] { fn get() bool { return true; } }
+impl &i32 : Left {}
+impl &i32 : Right {}
+impl &i32 : Both {}
 
 fn main() i32 {
     let v = i32.{3};
-    let both = *Both.{ v.& };
+    let both = &Both.{ v.& };
     return both.get();
 }
 "#,
@@ -280,7 +280,7 @@ fn main() i32 {
 fn rejects_duplicate_associated_type_definitions_in_trait() {
     let output = compile_source(
         r#"
-type Factory = trait {
+trait Factory {
     type Out;
     type Out;
 };
@@ -315,11 +315,11 @@ fn main() i32 {
 fn rejects_duplicate_associated_type_definitions_in_impl() {
     let output = compile_source(
         r#"
-type Factory = trait {
+trait Factory {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: Factory {
     type Out = i32;
@@ -356,19 +356,19 @@ fn main() i32 {
 fn rejects_ambiguous_inherited_trait_methods_from_same_parent_trait_in_generic_bound_lookup() {
     let output = compile_source(
         r#"
-type Base[T] = trait { get: fn() T, };
-type Left: Base[i32] = trait {};
-type Right: Base[bool] = trait {};
-type Both: Left + Right = trait {};
+trait Base[T] { fn get() T; };
+trait Left: Base[i32] {};
+trait Right: Base[bool] {};
+trait Both: Left + Right {};
 
-impl *i32 : Base[i32] { fn get() i32 { return self.*; } }
-impl *i32 : Base[bool] { fn get() bool { return true; } }
-impl *i32 : Left {}
-impl *i32 : Right {}
-impl *i32 : Both {}
+impl &i32 : Base[i32] { fn get() i32 { return self.*; } }
+impl &i32 : Base[bool] { fn get() bool { return true; } }
+impl &i32 : Left {}
+impl &i32 : Right {}
+impl &i32 : Both {}
 
-fn use_it[T](x: *T) i32
-    where *T: Both,
+fn use_it[T](x: &T) i32
+    where &T: Both,
 {
     return x.get();
 }
@@ -443,12 +443,12 @@ fn compiles_trait_impls_with_concrete_associated_types() {
     let output = build_and_run(
         "kernc_trait_assoc_concrete",
         r#"
-type Bump[Rhs] = trait {
+trait Bump[Rhs] {
     type Out;
-    bump: fn(Rhs) Out,
+    fn bump(_: Rhs) Out;
 };
 
-type Vec2 = struct {
+struct Vec2 {
     x: i32,
     y: i32,
 };
@@ -486,16 +486,16 @@ fn main() i32 {
 fn rejects_impl_associated_types_that_repeat_trait_bounds() {
     let output = compile_source(
         r#"
-type Trivial = trait {
-    f: fn() i32,
+trait Trivial {
+    fn f() i32;
 };
 
-type NeedsBound = trait {
+trait NeedsBound {
     type Out: Trivial;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type Bad = struct {};
+struct Bad {};
 
 impl Bad: NeedsBound {
     type Out: Trivial = Bad;
@@ -536,12 +536,12 @@ impl Bad: NeedsBound {
 fn rejects_trait_impls_missing_required_associated_types() {
     let output = compile_source(
         r#"
-type Bump[Rhs] = trait {
+trait Bump[Rhs] {
     type Out;
-    bump: fn(Rhs) Out,
+    fn bump(_: Rhs) Out;
 };
 
-type Vec2 = struct {
+struct Vec2 {
     x: i32,
     y: i32,
 };
@@ -573,16 +573,16 @@ impl Vec2: Add[i32] {
 fn rejects_impl_associated_type_targets_that_miss_trait_bounds() {
     let output = compile_source(
         r#"
-type Trivial = trait {
-    f: fn() i32,
+trait Trivial {
+    fn f() i32;
 };
 
-type NeedsBound = trait {
+trait NeedsBound {
     type Out: Trivial;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type Bad = struct {};
+struct Bad {};
 
 impl Bad: NeedsBound {
     type Out = i32;
@@ -619,16 +619,16 @@ fn compiles_impl_associated_type_targets_proved_by_impl_where_bounds() {
     let output = build_and_run(
         "kernc_trait_assoc_bound_from_impl_where",
         r#"
-type Trivial = trait {
-    f: fn() i32,
+trait Trivial {
+    fn f() i32;
 };
 
-type NeedsBound = trait {
+trait NeedsBound {
     type Out: Trivial;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type Good = struct {};
+struct Good {};
 
 impl Good: Trivial {
     fn f() i32 {
@@ -636,7 +636,7 @@ impl Good: Trivial {
     }
 }
 
-type Holder[T] = struct {
+struct Holder[T] {
     value: T,
 };
 
@@ -674,7 +674,7 @@ fn compiles_std_cmp_ord_bound_for_custom_impls() {
         r#"
 use base.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 
-type Key = struct {
+struct Key {
     raw: i32,
     bias: i32,
 };
@@ -733,8 +733,8 @@ fn main() i32 {
 fn value_and_pointer_impls_remain_distinct_trait_targets() {
     let output = compile_source(
         r#"
-type Marker = trait {
-    tag: fn() i32,
+trait Marker {
+    fn tag() i32;
 };
 
 impl i32 : Marker {
@@ -743,7 +743,7 @@ impl i32 : Marker {
     }
 }
 
-impl *i32 : Marker {
+impl &i32 : Marker {
     pub fn tag() i32 {
         return 2;
     }
@@ -755,8 +755,8 @@ fn value_tag[T](x: T) i32
     return x.tag();
 }
 
-fn pointer_tag[T](x: *T) i32
-    where *T: Marker,
+fn pointer_tag[T](x: &T) i32
+    where &T: Marker,
 {
     return x.tag();
 }
@@ -783,7 +783,7 @@ fn compiles_generic_builtin_eq_operator_bound() {
     let output = build_and_run(
         "kernc_builtin_eq_operator_bound",
         r#"
-type Mode = enum {
+enum Mode {
     Fast,
     Slow,
 };
@@ -864,7 +864,7 @@ fn runs_slice_array_eq_operator_impls() {
         r#"
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
+    let slice = array.&[0 .. 4];
 
     if (!(slice == [4]i32.{1, 2, 3, 4})) {
         return 1;
@@ -900,7 +900,7 @@ fn runs_slice_array_eq_method_impls() {
         r#"
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
+    let slice = array.&[0 .. 4];
 
     if (!slice.eq([4]i32.{1, 2, 3, 4})) {
         return 1;
@@ -928,11 +928,11 @@ fn runs_argument_inferred_generic_trait_method_impl() {
     let output = build_and_run(
         "kernc_argument_inferred_generic_trait_method_impl",
         r#"
-type Fits[Rhs] = trait {
-    fits: fn(Rhs) bool,
+trait Fits[Rhs] {
+    fn fits(_: Rhs) bool;
 };
 
-impl[T, N: usize] []T : Fits[[N]T] {
+impl[T, N: usize] &[T] : Fits[[N]T] {
     pub fn fits(other: [N]T) bool {
         return #self == N;
     }
@@ -940,7 +940,7 @@ impl[T, N: usize] []T : Fits[[N]T] {
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
+    let slice = array.&[0 .. 4];
 
     if (!slice.fits([4]i32.{1, 2, 3, 4})) {
         return 1;
@@ -968,11 +968,11 @@ fn runs_argument_inferred_trait_method_with_associated_return() {
     let output = build_and_run(
         "kernc_argument_inferred_trait_method_assoc_return",
         r#"
-type Score = trait {
-    score: fn() i32,
+trait Score {
+    fn score() i32;
 };
 
-type Wrap[N: usize] = struct {
+struct Wrap[N: usize] {
     value: i32,
 };
 
@@ -982,12 +982,12 @@ impl[N: usize] Wrap[N] : Score {
     }
 }
 
-type Make[Rhs] = trait {
+trait Make[Rhs] {
     type Out: Score;
-    make: fn(Rhs) Out,
+    fn make(_: Rhs) Out;
 };
 
-impl[T, N: usize] []T : Make[[N]T] {
+impl[T, N: usize] &[T] : Make[[N]T] {
     type Out = Wrap[N];
 
     pub fn make(other: [N]T) Out {
@@ -997,7 +997,7 @@ impl[T, N: usize] []T : Make[[N]T] {
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
+    let slice = array.&[0 .. 4];
     return slice.make([4]i32.{1, 2, 3, 4}).score() - 8;
 }
 "#,
@@ -1017,19 +1017,19 @@ fn runs_argument_inferred_method_with_supertrait_bound() {
     let output = build_and_run(
         "kernc_argument_inferred_method_supertrait_bound",
         r#"
-type Parent[Rhs] = trait {
-    parent: fn(Rhs) i32,
+trait Parent[Rhs] {
+    fn parent(_: Rhs) i32;
 };
 
-type Child[Rhs]: Parent[Rhs] = trait {};
+trait Child[Rhs]: Parent[Rhs] {};
 
-impl[T, N: usize] []T : Parent[[N]T] {
+impl[T, N: usize] &[T] : Parent[[N]T] {
     pub fn parent(other: [N]T) i32 {
         return (#self + N) as i32;
     }
 }
 
-impl[T, N: usize] []T : Child[[N]T] {}
+impl[T, N: usize] &[T] : Child[[N]T] {}
 
 fn use_child[S, T, N: usize](value: S, arg: [N]T) i32
     where S: Child[[N]T],
@@ -1039,8 +1039,8 @@ fn use_child[S, T, N: usize](value: S, arg: [N]T) i32
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
-    return use_child[[]i32, i32, 4](slice, [4]i32.{1, 2, 3, 4}) - 8;
+    let slice = array.&[0 .. 4];
+    return use_child[&[i32], i32, 4](slice, [4]i32.{1, 2, 3, 4}) - 8;
 }
 "#,
         &[],
@@ -1059,11 +1059,11 @@ fn runs_argument_inferred_method_after_where_bound_substitution() {
     let output = build_and_run(
         "kernc_argument_inferred_method_where_bound",
         r#"
-type Allowed = trait {
-    marker: fn() i32,
+trait Allowed {
+    fn marker() i32;
 };
 
-type Gate[Rhs] = struct {
+struct Gate[Rhs] {
     value: Rhs,
 };
 
@@ -1073,11 +1073,11 @@ impl Gate[[4]i32] : Allowed {
     }
 }
 
-type Checked[Rhs] = trait {
-    checked: fn(Rhs) i32,
+trait Checked[Rhs] {
+    fn checked(_: Rhs) i32;
 };
 
-impl[T, N: usize] []T : Checked[[N]T]
+impl[T, N: usize] &[T] : Checked[[N]T]
     where Gate[[N]T]: Allowed,
 {
     pub fn checked(other: [N]T) i32 {
@@ -1087,7 +1087,7 @@ impl[T, N: usize] []T : Checked[[N]T]
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
+    let slice = array.&[0 .. 4];
     return slice.checked([4]i32.{1, 2, 3, 4}) - 4;
 }
 "#,
@@ -1106,11 +1106,11 @@ fn main() i32 {
 fn rejects_argument_inferred_method_when_where_bound_is_unsatisfied() {
     let output = compile_source(
         r#"
-type Allowed = trait {
-    marker: fn() i32,
+trait Allowed {
+    fn marker() i32;
 };
 
-type Gate[Rhs] = struct {
+struct Gate[Rhs] {
     value: Rhs,
 };
 
@@ -1120,11 +1120,11 @@ impl Gate[[4]i32] : Allowed {
     }
 }
 
-type Checked[Rhs] = trait {
-    checked: fn(Rhs) i32,
+trait Checked[Rhs] {
+    fn checked(_: Rhs) i32;
 };
 
-impl[T, N: usize] []T : Checked[[N]T]
+impl[T, N: usize] &[T] : Checked[[N]T]
     where Gate[[N]T]: Allowed,
 {
     pub fn checked(other: [N]T) i32 {
@@ -1134,7 +1134,7 @@ impl[T, N: usize] []T : Checked[[N]T]
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
+    let slice = array.&[0 .. 4];
     return slice.checked([3]i32.{1, 2, 3});
 }
 "#,
@@ -1165,10 +1165,10 @@ fn main() i32 {
 fn rejects_argument_inferred_method_when_receiver_const_arg_disagrees() {
     let output = compile_source(
         r#"
-type Box[N: usize] = struct {};
+struct Box[N: usize] {};
 
-type Use[Rhs] = trait {
-    use_it: fn(Rhs) i32,
+trait Use[Rhs] {
+    fn use_it(_: Rhs) i32;
 };
 
 impl[N: usize] Box[N] : Use[[N]i32] {
@@ -1209,11 +1209,11 @@ fn runs_argument_inferred_method_with_associated_where_equality() {
     let output = build_and_run(
         "kernc_argument_inferred_method_assoc_where_equality",
         r#"
-type HasOut = trait {
+trait HasOut {
     type Out;
 };
 
-type Gate[N: usize] = struct {};
+struct Gate[N: usize] {};
 
 impl Gate[4] : HasOut {
     type Out = i32;
@@ -1223,11 +1223,11 @@ impl Gate[3] : HasOut {
     type Out = bool;
 }
 
-type Checked[Rhs] = trait {
-    checked: fn(Rhs) i32,
+trait Checked[Rhs] {
+    fn checked(_: Rhs) i32;
 };
 
-impl[T, N: usize] []T : Checked[[N]T]
+impl[T, N: usize] &[T] : Checked[[N]T]
     where Gate[N]: HasOut[Out = i32],
 {
     pub fn checked(other: [N]T) i32 {
@@ -1238,7 +1238,7 @@ impl[T, N: usize] []T : Checked[[N]T]
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
+    let slice = array.&[0 .. 4];
     return slice.checked([4]i32.{1, 2, 3, 4}) - 4;
 }
 "#,
@@ -1257,11 +1257,11 @@ fn main() i32 {
 fn rejects_argument_inferred_method_when_associated_where_equality_is_unsatisfied() {
     let output = compile_source(
         r#"
-type HasOut = trait {
+trait HasOut {
     type Out;
 };
 
-type Gate[N: usize] = struct {};
+struct Gate[N: usize] {};
 
 impl Gate[4] : HasOut {
     type Out = i32;
@@ -1271,11 +1271,11 @@ impl Gate[3] : HasOut {
     type Out = bool;
 }
 
-type Checked[Rhs] = trait {
-    checked: fn(Rhs) i32,
+trait Checked[Rhs] {
+    fn checked(_: Rhs) i32;
 };
 
-impl[T, N: usize] []T : Checked[[N]T]
+impl[T, N: usize] &[T] : Checked[[N]T]
     where Gate[N]: HasOut[Out = i32],
 {
     pub fn checked(other: [N]T) i32 {
@@ -1286,7 +1286,7 @@ impl[T, N: usize] []T : Checked[[N]T]
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
+    let slice = array.&[0 .. 4];
     return slice.checked([3]i32.{1, 2, 3});
 }
 "#,
@@ -1317,22 +1317,22 @@ fn main() i32 {
 fn rejects_ambiguous_argument_inferred_method_candidates() {
     let output = compile_source(
         r#"
-type Use[Rhs] = trait {
-    pick: fn(Rhs) i32,
+trait Use[Rhs] {
+    fn pick(_: Rhs) i32;
 };
 
-type AlsoUse[Rhs] = trait {
-    pick: fn(Rhs) i32,
+trait AlsoUse[Rhs] {
+    fn pick(_: Rhs) i32;
 };
 
-impl[T, N: usize] []T : Use[[N]T] {
+impl[T, N: usize] &[T] : Use[[N]T] {
     pub fn pick(other: [N]T) i32 {
         let _ = other;
         return 1;
     }
 }
 
-impl[T, N: usize] []T : AlsoUse[[N]T] {
+impl[T, N: usize] &[T] : AlsoUse[[N]T] {
     pub fn pick(other: [N]T) i32 {
         let _ = other;
         return 2;
@@ -1341,7 +1341,7 @@ impl[T, N: usize] []T : AlsoUse[[N]T] {
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.[0 .. 4];
+    let slice = array.&[0 .. 4];
     return slice.pick([4]i32.{1, 2, 3, 4});
 }
 "#,
@@ -1372,7 +1372,7 @@ fn argument_inferred_method_lookup_does_not_steal_callable_fields() {
     let output = build_and_run(
         "kernc_argument_inferred_method_callable_field",
         r#"
-type Other = struct {};
+struct Other {};
 
 impl Other {
     pub fn run(value: i32) i32 {
@@ -1380,8 +1380,8 @@ impl Other {
     }
 }
 
-type Runner = struct {
-    run: fn([2]i32) i32,
+struct Runner {
+    run: &fn([2]i32) i32,
 };
 
 fn sum(values: [2]i32) i32 {
@@ -1463,7 +1463,7 @@ fn main() i32 {
 fn rejects_explicit_impl_of_builtin_integer_marker_trait() {
     let output = compile_source(
         r#"
-impl *u8 : Integer {}
+impl &u8 : Integer {}
 
 fn main() i32 {
     return 0;
@@ -1490,11 +1490,11 @@ fn main() i32 {
 fn rejects_pointer_popcount_even_if_integer_marker_impl_is_attempted() {
     let output = compile_source(
         r#"
-impl *u8 : Integer {}
+impl &u8 : Integer {}
 
 fn main() i32 {
-    let p = 0 as *u8;
-    let _ = @popCount[*u8](p);
+    let p = 0 as &u8;
+    let _ = @popCount[&u8](p);
     return 0;
 }
 "#,
@@ -1662,7 +1662,7 @@ fn logical_operators_remain_short_circuit_control_flow() {
     let output = build_and_run(
         "kernc_logical_short_circuit",
         r#"
-fn mark(counter: *mut i32, value: bool) bool {
+fn mark(counter: &mut i32, value: bool) bool {
     counter.* += 1;
     return value;
 }
@@ -1742,7 +1742,7 @@ fn runs_custom_builtin_add_operator_impl() {
     let output = build_and_run(
         "kernc_builtin_add_operator_impl",
         r#"
-type Vec2 = struct {
+struct Vec2 {
     x: i32,
     y: i32,
 };
@@ -1788,12 +1788,12 @@ fn compiles_projection_return_types_from_generic_trait_bounds() {
     let output = build_and_run(
         "kernc_trait_projection_return_type",
         r#"
-type Bump[Rhs] = trait {
+trait Bump[Rhs] {
     type Out;
-    bump: fn(Rhs) Out,
+    fn bump(_: Rhs) Out;
 };
 
-type Vec2 = struct {
+struct Vec2 {
     x: i32,
     y: i32,
 };

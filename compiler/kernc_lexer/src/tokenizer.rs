@@ -85,9 +85,6 @@ impl<'a> Tokenizer<'a> {
                     } else if self.match_char(b'&') {
                         // Parse `..&` as mutable address-of.
                         self.make_token(TokenType::DotDotAmpersand)
-                    } else if self.match_char(b'[') {
-                        // Parse `..[` as mutable slicing.
-                        self.make_token(TokenType::DotDotLBracket)
                     } else {
                         self.make_token(TokenType::DotDot)
                     }

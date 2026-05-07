@@ -12,8 +12,8 @@ use base.cmp.{Ord, Ordering};
 mod query;
 
 /// A growable contiguous collection of `T`.
-pub/ type List[T] = struct {
-    ptr: *mut T = usize.{1}.as_mut_ptr[T](),
+pub/ struct List[T] {
+    ptr: &mut T = usize.{1}.as_mut_ptr[T](),
     /// The number of initialized elements in the list.
     len: usize = 0,
     cap: usize = 0,
@@ -21,8 +21,8 @@ pub/ type List[T] = struct {
 
 impl[T] List[T] {
     #[inline]
-    pub fn as_slice() []T {
-        return self.ptr.[0 .. self.len];
+    pub fn as_slice() &[T] {
+        return self.ptr.&[0 .. self.len];
     }
 
     #[inline]
@@ -36,7 +36,7 @@ impl[T] List[T] {
     }
 }
 
-impl[T] *mut List[T] {
+impl[T] &mut List[T] {
     #[inline]
     fn elem_size() usize {
         return @sizeOf[T]();
@@ -53,7 +53,7 @@ impl[T] *mut List[T] {
     }
 
     #[inline]
-    fn zst_ptr() *mut T {
+    fn zst_ptr() &mut T {
         return usize.{1}.as_mut_ptr[T]();
     }
 
@@ -76,7 +76,7 @@ impl[T] *mut List[T] {
 
     /// Ensures the backing buffer can store at least `required_cap` items.
     #[inline]
-    fn ensure_capacity(alloc: *mut Allocator, required_cap: usize) bool {
+    fn ensure_capacity(alloc: &mut Allocator, required_cap: usize) bool {
         if (self.cap >= required_cap) return true;
 
         let elem_size = @sizeOf[T]();
@@ -104,15 +104,15 @@ impl[T] *mut List[T] {
         let new_layout = self.fixed_layout(new_cap, elem_size);
         let .{ Some: new_ptr_u8 } = alloc.alloc(new_layout) else return false;
 
-        let new_ptr = new_ptr_u8 as *mut T;
+        let new_ptr = new_ptr_u8 as &mut T;
 
         if (self.cap > 0 and self.len > 0) {
             let old_layout = self.fixed_layout(self.cap, elem_size);
-            @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * elem_size);
-            alloc.free(self.ptr as *mut u8, old_layout);
+            @memcpy(new_ptr as &mut u8, self.ptr as &mut u8, self.len * elem_size);
+            alloc.free(self.ptr as &mut u8, old_layout);
         } else if (self.cap > 0) {
             let old_layout = self.fixed_layout(self.cap, elem_size);
-            alloc.free(self.ptr as *mut u8, old_layout);
+            alloc.free(self.ptr as &mut u8, old_layout);
         }
 
         self.ptr = new_ptr;
@@ -123,7 +123,7 @@ impl[T] *mut List[T] {
     /// Ensures the backing buffer can store exactly `required_cap` items
     /// when growth is needed, instead of applying geometric growth.
     #[inline]
-    fn ensure_capacity_exact(alloc: *mut Allocator, required_cap: usize) bool {
+    fn ensure_capacity_exact(alloc: &mut Allocator, required_cap: usize) bool {
         if (self.cap >= required_cap) return true;
 
         let elem_size = @sizeOf[T]();
@@ -140,15 +140,15 @@ impl[T] *mut List[T] {
 
         let new_layout = self.fixed_layout(required_cap, elem_size);
         let .{ Some: new_ptr_u8 } = alloc.alloc(new_layout) else return false;
-        let new_ptr = new_ptr_u8 as *mut T;
+        let new_ptr = new_ptr_u8 as &mut T;
 
         if (self.cap > 0 and self.len > 0) {
             let old_layout = self.fixed_layout(self.cap, elem_size);
-            @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * elem_size);
-            alloc.free(self.ptr as *mut u8, old_layout);
+            @memcpy(new_ptr as &mut u8, self.ptr as &mut u8, self.len * elem_size);
+            alloc.free(self.ptr as &mut u8, old_layout);
         } else if (self.cap > 0) {
             let old_layout = self.fixed_layout(self.cap, elem_size);
-            alloc.free(self.ptr as *mut u8, old_layout);
+            alloc.free(self.ptr as &mut u8, old_layout);
         }
 
         self.ptr = new_ptr;
@@ -157,7 +157,7 @@ impl[T] *mut List[T] {
     }
 
     #[inline]
-    fn ensure_capacity_in_arena(arena: *mut Arena, required_cap: usize) bool {
+    fn ensure_capacity_in_arena(arena: &mut Arena, required_cap: usize) bool {
         if (self.cap >= required_cap) return true;
 
         let elem_size = @sizeOf[T]();
@@ -183,10 +183,10 @@ impl[T] *mut List[T] {
 
         let new_layout = self.fixed_layout(new_cap, elem_size);
         let .{ Some: new_ptr_u8 } = arena.alloc(new_layout) else return false;
-        let new_ptr = new_ptr_u8 as *mut T;
+        let new_ptr = new_ptr_u8 as &mut T;
 
         if (self.cap > 0 and self.len > 0) {
-            @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * elem_size);
+            @memcpy(new_ptr as &mut u8, self.ptr as &mut u8, self.len * elem_size);
         }
 
         self.ptr = new_ptr;
@@ -195,7 +195,7 @@ impl[T] *mut List[T] {
     }
 
     #[inline]
-    fn ensure_capacity_exact_in_arena(arena: *mut Arena, required_cap: usize) bool {
+    fn ensure_capacity_exact_in_arena(arena: &mut Arena, required_cap: usize) bool {
         if (self.cap >= required_cap) return true;
 
         let elem_size = @sizeOf[T]();
@@ -212,10 +212,10 @@ impl[T] *mut List[T] {
 
         let new_layout = self.fixed_layout(required_cap, elem_size);
         let .{ Some: new_ptr_u8 } = arena.alloc(new_layout) else return false;
-        let new_ptr = new_ptr_u8 as *mut T;
+        let new_ptr = new_ptr_u8 as &mut T;
 
         if (self.cap > 0 and self.len > 0) {
-            @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * elem_size);
+            @memcpy(new_ptr as &mut u8, self.ptr as &mut u8, self.len * elem_size);
         }
 
         self.ptr = new_ptr;
@@ -225,7 +225,7 @@ impl[T] *mut List[T] {
 
     /// Reserves space for at least `additional` more items.
     #[inline]
-    pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
+    pub fn reserve(alloc: &mut Allocator, additional: usize) bool {
         if (additional > USIZE_MAX - self.len) {
             return false;
         }
@@ -234,7 +234,7 @@ impl[T] *mut List[T] {
 
     /// Reserves exactly enough space for `additional` more items when growth is needed.
     #[inline]
-    pub fn reserve_exact(alloc: *mut Allocator, additional: usize) bool {
+    pub fn reserve_exact(alloc: &mut Allocator, additional: usize) bool {
         if (additional > USIZE_MAX - self.len) {
             return false;
         }
@@ -242,7 +242,7 @@ impl[T] *mut List[T] {
     }
 
     #[inline]
-    pub fn reserve_in_arena(arena: *mut Arena, additional: usize) bool {
+    pub fn reserve_in_arena(arena: &mut Arena, additional: usize) bool {
         if (additional > USIZE_MAX - self.len) {
             return false;
         }
@@ -250,7 +250,7 @@ impl[T] *mut List[T] {
     }
 
     #[inline]
-    pub fn reserve_exact_in_arena(arena: *mut Arena, additional: usize) bool {
+    pub fn reserve_exact_in_arena(arena: &mut Arena, additional: usize) bool {
         if (additional > USIZE_MAX - self.len) {
             return false;
         }
@@ -259,7 +259,7 @@ impl[T] *mut List[T] {
 
     /// Appends one item to the end of the list.
     #[inline]
-    pub fn push(alloc: *mut Allocator, item: T) bool {
+    pub fn push(alloc: &mut Allocator, item: T) bool {
         if (self.len == USIZE_MAX) {
             return false;
         }
@@ -275,7 +275,7 @@ impl[T] *mut List[T] {
     }
 
     #[inline]
-    pub fn push_in_arena(arena: *mut Arena, item: T) bool {
+    pub fn push_in_arena(arena: &mut Arena, item: T) bool {
         if (self.len == USIZE_MAX) {
             return false;
         }
@@ -298,7 +298,7 @@ impl[T] *mut List[T] {
     }
 
     /// Inserts one item at `index`.
-    pub fn insert(alloc: *mut Allocator, index: usize, item: T) bool {
+    pub fn insert(alloc: &mut Allocator, index: usize, item: T) bool {
         if (index > self.len) return false;
         if (!self.reserve(alloc, 1)) return false;
 
@@ -310,7 +310,7 @@ impl[T] *mut List[T] {
         let moved = self.len - index;
         if (moved > 0) {
             let bytes = moved * self.elem_size();
-            _ = memmove((self.ptr + (index + usize.{1})) as *mut u8, (self.ptr + index) as *u8, bytes);
+            _ = memmove((self.ptr + (index + usize.{1})) as &mut u8, (self.ptr + index) as &u8, bytes);
         }
 
         (self.ptr + index).* = item;
@@ -319,7 +319,7 @@ impl[T] *mut List[T] {
     }
 
     /// Inserts every item from `slice` at `index`.
-    pub fn insert_slice(alloc: *mut Allocator, index: usize, slice: []T) bool {
+    pub fn insert_slice(alloc: &mut Allocator, index: usize, slice: &[T]) bool {
         if (index > self.len) {
             return false;
         }
@@ -340,7 +340,7 @@ impl[T] *mut List[T] {
         }
 
         let elem_size = self.elem_size();
-        let mut src_ptr = slice.[0].& as *T;
+        let mut src_ptr = slice.[0].& as &T;
         let mut temp_ptr = usize.{1}.as_mut_ptr[u8]();
         let mut temp_layout = Layout.{ size: 0, align: 1 };
 
@@ -354,8 +354,8 @@ impl[T] *mut List[T] {
             temp_layout = layout;
             let .{ Some: ptr } = alloc.alloc(temp_layout) else return false;
             temp_ptr = ptr;
-            @memcpy(temp_ptr, src_ptr as *u8, additional * elem_size);
-            src_ptr = temp_ptr as *T;
+            @memcpy(temp_ptr, src_ptr as &u8, additional * elem_size);
+            src_ptr = temp_ptr as &T;
         }
         defer {
             if ((temp_ptr as usize) != 0) {
@@ -367,11 +367,11 @@ impl[T] *mut List[T] {
         if (moved > 0) {
             // `memmove` keeps insertion correct even when source and target overlap.
             let move_bytes = moved * elem_size;
-            _ = memmove((self.ptr + index + additional) as *mut u8, (self.ptr + index) as *u8, move_bytes);
+            _ = memmove((self.ptr + index + additional) as &mut u8, (self.ptr + index) as &u8, move_bytes);
         }
 
         let copy_bytes = additional * elem_size;
-        _ = memmove((self.ptr + index) as *mut u8, src_ptr as *u8, copy_bytes);
+        _ = memmove((self.ptr + index) as &mut u8, src_ptr as &u8, copy_bytes);
         self.len = old_len + additional;
         return true;
     }
@@ -386,7 +386,7 @@ impl[T] *mut List[T] {
             let moved = self.len - index - 1;
             if (moved > 0) {
                 let bytes = moved * self.elem_size();
-                _ = memmove((self.ptr + index) as *mut u8, (self.ptr + (index + usize.{1})) as *u8, bytes);
+                _ = memmove((self.ptr + index) as &mut u8, (self.ptr + (index + usize.{1})) as &u8, bytes);
             }
         }
 
@@ -407,7 +407,7 @@ impl[T] *mut List[T] {
     }
 
     /// Releases the backing allocation.
-    pub fn deinit(alloc: *mut Allocator) void {
+    pub fn deinit(alloc: &mut Allocator) void {
         if (self.is_zst()) {
             self.ptr = self.zst_ptr();
             self.len = 0;
@@ -417,7 +417,7 @@ impl[T] *mut List[T] {
 
         if (self.cap > 0) {
             let .{ Some: layout } = self.buffer_layout(self.cap) else return;
-            alloc.free(self.ptr as *mut u8, layout);
+            alloc.free(self.ptr as &mut u8, layout);
             self.ptr = self.zst_ptr();
             self.len = 0;
             self.cap = 0;
@@ -426,7 +426,7 @@ impl[T] *mut List[T] {
 
     /// Returns a mutable pointer to the element at `index`.
     #[inline]
-    pub fn get_ptr(index: usize) ?*mut T {
+    pub fn get_ptr(index: usize) ?&mut T {
         if (index >= self.len) return .None;
         return .{ Some: self.ptr + index };
     }
@@ -447,7 +447,7 @@ impl[T] *mut List[T] {
     }
 
     /// Appends every element from `slice`.
-    pub fn append_slice(alloc: *mut Allocator, slice: []T) bool {
+    pub fn append_slice(alloc: &mut Allocator, slice: &[T]) bool {
         let additional = #slice;
         if (additional == 0) return true;
 
@@ -459,7 +459,7 @@ impl[T] *mut List[T] {
             return true;
         }
 
-        let mut src_ptr = slice.[0].& as *T;
+        let mut src_ptr = slice.[0].& as &T;
         let base_addr = self.ptr as usize;
         let end_addr = (self.ptr + old_len) as usize;
         let src_addr = src_ptr as usize;
@@ -472,13 +472,13 @@ impl[T] *mut List[T] {
 
         let target_ptr = self.ptr + old_len;
         let copy_bytes = additional * self.elem_size();
-        _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
+        _ = memmove(target_ptr as &mut u8, src_ptr as &u8, copy_bytes);
         self.len = old_len + additional;
         return true;
     }
 
     /// Appends every element from `slice`, growing exactly when reallocation is needed.
-    pub fn append_slice_exact(alloc: *mut Allocator, slice: []T) bool {
+    pub fn append_slice_exact(alloc: &mut Allocator, slice: &[T]) bool {
         let additional = #slice;
         if (additional == 0) return true;
 
@@ -490,7 +490,7 @@ impl[T] *mut List[T] {
             return true;
         }
 
-        let mut src_ptr = slice.[0].& as *T;
+        let mut src_ptr = slice.[0].& as &T;
         let base_addr = self.ptr as usize;
         let end_addr = (self.ptr + old_len) as usize;
         let src_addr = src_ptr as usize;
@@ -501,12 +501,12 @@ impl[T] *mut List[T] {
 
         let target_ptr = self.ptr + old_len;
         let copy_bytes = additional * self.elem_size();
-        _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
+        _ = memmove(target_ptr as &mut u8, src_ptr as &u8, copy_bytes);
         self.len = old_len + additional;
         return true;
     }
 
-    pub fn append_slice_exact_in_arena(arena: *mut Arena, slice: []T) bool {
+    pub fn append_slice_exact_in_arena(arena: &mut Arena, slice: &[T]) bool {
         let additional = #slice;
         if (additional == 0) return true;
 
@@ -518,7 +518,7 @@ impl[T] *mut List[T] {
             return true;
         }
 
-        let mut src_ptr = slice.[0].& as *T;
+        let mut src_ptr = slice.[0].& as &T;
         let base_addr = self.ptr as usize;
         let end_addr = (self.ptr + old_len) as usize;
         let src_addr = src_ptr as usize;
@@ -529,7 +529,7 @@ impl[T] *mut List[T] {
 
         let target_ptr = self.ptr + old_len;
         let copy_bytes = additional * self.elem_size();
-        _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
+        _ = memmove(target_ptr as &mut u8, src_ptr as &u8, copy_bytes);
         self.len = old_len + additional;
         return true;
     }
@@ -539,9 +539,9 @@ impl[T] *mut List[T] {
     /// Design:
     /// callers must initialize the returned elements before exposing them
     /// through safe higher-level APIs.
-    pub fn append_uninit(alloc: *mut Allocator, count: usize) ?[]mut T {
+    pub fn append_uninit(alloc: &mut Allocator, count: usize) ?&mut [T] {
         if (count == 0) {
-            return .{ Some: self.zst_ptr()..[0 .. 0] };
+            return .{ Some: self.zst_ptr()..&[0 .. 0] };
         }
 
         let old_len = self.len;
@@ -551,15 +551,15 @@ impl[T] *mut List[T] {
 
         self.len = old_len + count;
         if (self.is_zst()) {
-            return .{ Some: self.zst_ptr()..[0 .. count] };
+            return .{ Some: self.zst_ptr()..&[0 .. count] };
         }
-        return .{ Some: (self.ptr + old_len)..[0 .. count] };
+        return .{ Some: (self.ptr + old_len)..&[0 .. count] };
     }
 
     /// Grows the list by `count` items using exact growth when reallocation is needed.
-    pub fn append_uninit_exact(alloc: *mut Allocator, count: usize) ?[]mut T {
+    pub fn append_uninit_exact(alloc: &mut Allocator, count: usize) ?&mut [T] {
         if (count == 0) {
-            return .{ Some: self.zst_ptr()..[0 .. 0] };
+            return .{ Some: self.zst_ptr()..&[0 .. 0] };
         }
 
         let old_len = self.len;
@@ -569,15 +569,15 @@ impl[T] *mut List[T] {
 
         self.len = old_len + count;
         if (self.is_zst()) {
-            return .{ Some: self.zst_ptr()..[0 .. count] };
+            return .{ Some: self.zst_ptr()..&[0 .. count] };
         }
-        return .{ Some: (self.ptr + old_len)..[0 .. count] };
+        return .{ Some: (self.ptr + old_len)..&[0 .. count] };
     }
 
     #[inline]
-    pub fn append_uninit_exact_in_arena(arena: *mut Arena, count: usize) ?[]mut T {
+    pub fn append_uninit_exact_in_arena(arena: &mut Arena, count: usize) ?&mut [T] {
         if (count == 0) {
-            return .{ Some: self.zst_ptr()..[0 .. 0] };
+            return .{ Some: self.zst_ptr()..&[0 .. 0] };
         }
 
         if (count > USIZE_MAX - self.len) {
@@ -591,7 +591,7 @@ impl[T] *mut List[T] {
             if (@sizeOf[T]() != 0 and old_len == 0 and self.cap == 0) {
                 let layout = self.fixed_layout(count, @sizeOf[T]());
                 let new_ptr_u8 = arena.alloc(layout).?;
-                self.ptr = new_ptr_u8 as *mut T;
+                self.ptr = new_ptr_u8 as &mut T;
                 self.cap = count;
             } else if (!self.ensure_capacity_exact_in_arena(arena, new_len)) {
                 return .None;
@@ -600,23 +600,23 @@ impl[T] *mut List[T] {
 
         self.len = new_len;
         if (@sizeOf[T]() == 0) {
-            return .{ Some: self.zst_ptr()..[0 .. count] };
+            return .{ Some: self.zst_ptr()..&[0 .. count] };
         }
-        return .{ Some: (self.ptr + old_len)..[0 .. count] };
+        return .{ Some: (self.ptr + old_len)..&[0 .. count] };
     }
 
     /// Alias for `append_slice`.
-    pub fn extend(alloc: *mut Allocator, items: []T) bool {
+    pub fn extend(alloc: &mut Allocator, items: &[T]) bool {
         return self.append_slice(alloc, items);
     }
 
     /// Appends every element from another list.
-    pub fn extend_from_list(alloc: *mut Allocator, other: *List[T]) bool {
+    pub fn extend_from_list(alloc: &mut Allocator, other: &List[T]) bool {
         return self.append_slice(alloc, other.as_slice());
     }
 
     /// Appends `count` copies of `item`.
-    pub fn append_repeat(alloc: *mut Allocator, item: T, count: usize) bool {
+    pub fn append_repeat(alloc: &mut Allocator, item: T, count: usize) bool {
         if (!self.reserve(alloc, count)) {
             return false;
         }
@@ -638,7 +638,7 @@ impl[T] *mut List[T] {
     }
 
     /// Changes the list length, filling new elements with `fill`.
-    pub fn resize(alloc: *mut Allocator, new_len: usize, fill: T) bool {
+    pub fn resize(alloc: &mut Allocator, new_len: usize, fill: T) bool {
         if (new_len <= self.len) {
             self.truncate(new_len);
             return true;
@@ -648,24 +648,24 @@ impl[T] *mut List[T] {
     }
 
     /// Replaces the contents of the list with `items`.
-    pub fn clone_from(alloc: *mut Allocator, items: []T) bool {
+    pub fn clone_from(alloc: &mut Allocator, items: &[T]) bool {
         self.clear();
         return self.append_slice(alloc, items);
     }
 
     /// Replaces the contents of the list with `items`, using exact growth when needed.
-    pub fn clone_from_exact(alloc: *mut Allocator, items: []T) bool {
+    pub fn clone_from_exact(alloc: &mut Allocator, items: &[T]) bool {
         self.clear();
         return self.append_slice_exact(alloc, items);
     }
 
-    pub fn clone_from_exact_in_arena(arena: *mut Arena, items: []T) bool {
+    pub fn clone_from_exact_in_arena(arena: &mut Arena, items: &[T]) bool {
         self.clear();
         return self.append_slice_exact_in_arena(arena, items);
     }
 
     /// Shrinks capacity down to the current length.
-    pub fn shrink_to_fit(alloc: *mut Allocator) bool {
+    pub fn shrink_to_fit(alloc: &mut Allocator) bool {
         if (self.cap == self.len) return true;
         if (self.len == 0) {
             self.deinit(alloc);
@@ -679,11 +679,11 @@ impl[T] *mut List[T] {
         let .{ Some: exact_layout } = self.buffer_layout(self.len) else return false;
         let .{ Some: new_ptr_u8 } = alloc.alloc(exact_layout) else return false;
 
-        let new_ptr = new_ptr_u8 as *mut T;
+        let new_ptr = new_ptr_u8 as &mut T;
 
-        @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, exact_layout.size);
+        @memcpy(new_ptr as &mut u8, self.ptr as &mut u8, exact_layout.size);
         let .{ Some: old_layout } = self.buffer_layout(self.cap) else return false;
-        alloc.free(self.ptr as *mut u8, old_layout);
+        alloc.free(self.ptr as &mut u8, old_layout);
 
         self.ptr = new_ptr;
         self.cap = self.len;
@@ -716,12 +716,12 @@ impl[T] *mut List[T] {
     }
 
     /// Visits every element mutably.
-    pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
+    pub fn for_each_mut(visitor: &Fn(&mut T) void) void {
         self.as_mut_slice().for_each_mut(visitor);
     }
 
     /// Retains only the elements accepted by `pred`.
-    pub fn retain(pred: *Fn(T) bool) void {
+    pub fn retain(pred: &Fn(T) bool) void {
         if (self.len == 0) {
             return;
         }
@@ -760,7 +760,7 @@ impl[T] *mut List[T] {
     }
 
     /// Retains only the elements whose mutable references are accepted by `pred`.
-    pub fn retain_mut(pred: *Fn(*mut T) bool) void {
+    pub fn retain_mut(pred: &Fn(&mut T) bool) void {
         if (self.len == 0) {
             return;
         }
@@ -799,7 +799,7 @@ impl[T] *mut List[T] {
     }
 
     /// Removes consecutive duplicates according to `same`.
-    pub fn dedup_by(same: *Fn(T, T) bool) void {
+    pub fn dedup_by(same: &Fn(T, T) bool) void {
         if (self.len < 2) {
             return;
         }
@@ -826,13 +826,13 @@ impl[T] *mut List[T] {
     }
 
     /// Sorts the list in place with a caller-provided comparison function.
-    pub fn sort_by(compare: *Fn(T, T) Ordering) void {
+    pub fn sort_by(compare: &Fn(T, T) Ordering) void {
         self.as_mut_slice().sort_by(compare);
     }
 
     #[inline]
-    pub fn as_mut_slice() []mut T {
-        return self.ptr..[0 .. self.len];
+    pub fn as_mut_slice() &mut [T] {
+        return self.ptr..&[0 .. self.len];
     }
 
     #[inline]
@@ -841,18 +841,18 @@ impl[T] *mut List[T] {
     }
 }
 
-impl[T] *mut List[T]
+impl[T] &mut List[T]
     where T: Eq[T],
 {
     /// Removes consecutive equal elements.
     pub fn dedup() void {
-        self.dedup_by(.[](lhs: T, rhs: T) bool {
+        self.dedup_by([](lhs: T, rhs: T) bool {
             return lhs == rhs;
         });
     }
 }
 
-impl[T] *mut List[T]
+impl[T] &mut List[T]
     where T: Ord[T],
 {
     /// Sorts the list in nondecreasing order.
@@ -861,10 +861,10 @@ impl[T] *mut List[T]
     }
 }
 
-impl[T] *List[T] {
+impl[T] &List[T] {
     #[inline]
-    pub fn as_slice() []T {
-        return self.ptr.[0 .. self.len];
+    pub fn as_slice() &[T] {
+        return self.ptr.&[0 .. self.len];
     }
 
     #[inline]

@@ -8,8 +8,8 @@ fn runs_msg_logging_helpers() {
 use std.msg;
 
 fn main() i32 {
-    msg.log("boot {}", .{ 1, });
-    msg.debug("trace {}", .{ "ok", });
+    "boot {}".fmt(.{1}).log();
+    "trace {}".fmt(.{"ok"}).debug();
     return 0;
 }
 "#,
@@ -41,6 +41,52 @@ fn main() i32 {
 }
 
 #[test]
+fn base_abi_cstr_owned_tracks_pointer_and_length() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_base_abi_cstr_owned",
+        r#"
+use base.abi;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let .{ Some: owned } = abi.cstr.owned(gpa, "kern") else {
+        return 9;
+    };
+    let mut text = owned;
+    defer text..&.deinit(gpa);
+
+    if (text.&.len() != 4) {
+        return 1;
+    }
+    if (text.&.ptr().cstr_len() != 4) {
+        return 2;
+    }
+    if ((text.&.ptr() + 4).* != 0) {
+        return 3;
+    }
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected base abi cstr owned helper to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn msg_panic_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_msg_panic_fail",
@@ -48,7 +94,7 @@ fn msg_panic_aborts_with_message() {
 use std.msg;
 
 fn main() i32 {
-    msg.panic("boom {}", .{ 42, });
+    "boom {}".fmt(.{42}).panic();
     return 0;
 }
 "#,
@@ -58,7 +104,7 @@ fn main() i32 {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         !run_output.status.success(),
-        "expected msg.panic(...) to abort:\nstdout:\n{}\nstderr:\n{}",
+        "expected formatted panic to abort:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -80,18 +126,19 @@ fn runs_test_assertion_helpers() {
         "kernc_std_test_helpers",
         r#"
 use base.test;
-use base.io.Writer;
 use std.io;
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    ctx..&.assert(@loc(), true, "should not fail", .{});
-    ctx..&.eq(@loc(), usize.{4}, usize.{4}, "expected values to be equal", .{});
-    ctx..&.not_eq(@loc(), usize.{4}, usize.{5}, "expected values to differ", .{});
-    ctx..&.eq(@loc(), usize.{8}, usize.{8}, "should not fail {}", .{ 8, });
-    ctx..&.not_eq(@loc(), usize.{8}, usize.{9}, "should not fail {}", .{ 9, });
+    true.should().sum(@loc(), t);
+    (2 + 2 == 4).should().sum(@loc(), t);
+    "42".parse[i32]().should_ok().eq(42).sum(@loc(), t);
+    "ff".parse_radix[u8](16).should_ok().eq(u8.{255}).sum(@loc(), t);
+    i32!i32.{ Ok: 42 }.should_ok().eq(42).sum(@loc(), t);
+    i32!i32.{ Err: -7 }.should_err().eq(-7).sum(@loc(), t);
+    (?usize.{ Some: 7 }).should_some().eq(7).sum(@loc(), t);
+    (?usize.None).should_none().sum(@loc(), t);
     return 0;
 }
 "#,
@@ -116,14 +163,12 @@ fn test_eq_failure_aborts_with_message() {
         "kernc_std_test_eq_fail",
         r#"
 use base.test;
-use base.io.Writer;
 use std.io;
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    ctx..&.eq(@loc(), usize.{4}, usize.{5}, "expected values to be equal", .{});
+    (usize.{4} == usize.{5}).should().sum(@loc(), t);
     return 0;
 }
 "#,
@@ -140,7 +185,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&run_output.stderr);
     assert!(
-        stderr.contains("test failed: expected values to be equal"),
+        stderr.contains("test failed: expected condition to be true"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -155,20 +200,18 @@ fn test_eq_supports_payloadless_user_enums() {
         "kernc_std_test_enum_eq",
         r#"
 use base.test;
-use base.io.Writer;
 use std.io;
 
-type Mode = enum {
+enum Mode {
     Fast,
     Slow,
 };
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    ctx..&.eq(@loc(), Mode.Fast, Mode.Fast, "expected enum values to be equal", .{});
-    ctx..&.not_eq(@loc(), Mode.Fast, Mode.Slow, "expected enum values to differ", .{});
+    (Mode.Fast == Mode.Fast).should().sum(@loc(), t);
+    (Mode.Fast != Mode.Slow).should().sum(@loc(), t);
     return 0;
 }
 "#,
@@ -193,7 +236,6 @@ fn runs_test_option_and_result_helpers() {
         "kernc_std_test_option_result_helpers",
         r#"
 use base.test;
-use base.io.Writer;
 use std.io;
 
 fn parse(flag: bool) usize!i32 {
@@ -204,33 +246,21 @@ fn parse(flag: bool) usize!i32 {
 }
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    let some = ctx..&.expect_some(@loc(), ?usize.{ Some: 9 }, "expected option to contain a value", .{});
-    ctx..&.eq(@loc(), some, usize.{9}, "expected option payload", .{});
-    ctx..&.expect_none(@loc(), ?usize.None, "expected option to be empty", .{});
-    ctx..&.assert_some(@loc(), ?usize.{ Some: 11 }, "expected option to contain a value", .{});
-    ctx..&.assert_some(@loc(), ?usize.{ Some: 13 }, "expected configured option {}", .{ 13, });
-    ctx..&.assert_none(@loc(), ?usize.None, "expected option to be empty", .{});
-    ctx..&.assert_none(@loc(), ?usize.None, "expected missing option {}", .{ 17, });
-    let some_msg = ctx..&.expect_some(@loc(), ?usize.{ Some: 19 }, "expected option {}", .{ 19, });
-    ctx..&.eq(@loc(), some_msg, usize.{19}, "expected option payload", .{});
-    ctx..&.expect_none(@loc(), ?usize.None, "expected none {}", .{ 23, });
+    let some = ?usize.{ Some: 9 }.should_some().sum(@loc(), t);
+    (some == usize.{9}).should().sum(@loc(), t);
+    (?usize.None).should_none().sum(@loc(), t);
+    (?usize.{ Some: 11 }).should_some().eq(usize.{11}).sum(@loc(), t);
+    (?usize.None).should_none().sum(@loc(), t);
 
-    let ok = ctx..&.expect_ok(@loc(), parse(true), "expected result to be ok", .{});
-    ctx..&.eq(@loc(), ok, usize.{7}, "expected ok payload", .{});
-    ctx..&.assert_ok(@loc(), parse(true), "expected result to be ok", .{});
-    ctx..&.assert_ok(@loc(), parse(true), "expected parse ok {}", .{ 29, });
-    let ok_msg = ctx..&.expect_ok(@loc(), parse(true), "expected parse ok {}", .{ 31, });
-    ctx..&.eq(@loc(), ok_msg, usize.{7}, "expected ok payload", .{});
+    let ok = parse(true).should_ok().sum(@loc(), t);
+    (ok == usize.{7}).should().sum(@loc(), t);
+    parse(true).should_ok().eq(usize.{7}).sum(@loc(), t);
 
-    let err = ctx..&.expect_err(@loc(), parse(false), "expected result to be err", .{});
-    ctx..&.eq(@loc(), err, i32.{-1}, "expected err payload", .{});
-    ctx..&.assert_err(@loc(), parse(false), "expected result to be err", .{});
-    ctx..&.assert_err(@loc(), parse(false), "expected parse err {}", .{ 37, });
-    let err_msg = ctx..&.expect_err(@loc(), parse(false), "expected parse err {}", .{ 41, });
-    ctx..&.eq(@loc(), err_msg, i32.{-1}, "expected err payload", .{});
+    let err = parse(false).should_err().sum(@loc(), t);
+    (err == i32.{-1}).should().sum(@loc(), t);
+    parse(false).should_err().eq(i32.{-1}).sum(@loc(), t);
     return 0;
 }
 "#,
@@ -255,14 +285,12 @@ fn test_message_assertion_failure_uses_custom_format() {
         "kernc_std_test_msg_fail",
         r#"
 use base.test;
-use base.io.Writer;
 use std.io;
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    ctx..&.eq(@loc(), usize.{4}, usize.{5}, "mismatch at {}", .{ 7, });
+    let _ = usize!i32.{ Err: 7 }.should_ok().sum(@loc(), t);
     return 0;
 }
 "#,
@@ -279,7 +307,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&run_output.stderr);
     assert!(
-        stderr.contains("test failed: mismatch at 7"),
+        stderr.contains("test failed: expected result to be Ok"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -294,14 +322,12 @@ fn test_message_assertion_failure_can_report_source_location() {
         "kernc_std_test_loc_fail",
         r#"
 use base.test;
-use base.io.Writer;
 use std.io;
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    ctx..&.eq(@loc(), usize.{4}, usize.{5}, "located {}", .{ 42, });
+    false.should().sum(@loc(), t);
     return 0;
 }
 "#,
@@ -318,7 +344,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&run_output.stderr);
     assert!(
-        stderr.contains(".rn:") && stderr.contains("test failed: located 42"),
+        stderr.contains(".rn:") && stderr.contains("test failed: expected condition to be true"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -333,14 +359,12 @@ fn test_expect_some_failure_aborts_with_message() {
         "kernc_std_test_expect_some_fail",
         r#"
 use base.test;
-use base.io.Writer;
 use std.io;
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    let _ = ctx..&.expect_some(@loc(), ?usize.None, "expected option to contain a value", .{});
+    let _ = (?usize.None).should_some().sum(@loc(), t);
     return 0;
 }
 "#,
@@ -372,7 +396,7 @@ fn hosted_std_io_prints_base_string_and_list_values() {
         "kernc_std_printable_collections",
         r#"
 use std.io;
-use base.coll.{List, String};
+use base.coll.{List, list, String, string};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
@@ -380,13 +404,13 @@ fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let mut text = String.{};
+    let mut text = string();
     defer text..&.deinit(gpa);
     if (!text..&.push_str(gpa, "kern")) {
         return 1;
     }
 
-    let mut items = List[usize].{};
+    let mut items = list[usize]();
     defer items..&.deinit(gpa);
     if (!items..&.push(gpa, usize.{1})) {
         return 2;
@@ -395,7 +419,7 @@ fn main() i32 {
         return 3;
     }
 
-    io.println("{} {}", .{ text, items, });
+    "{} {}".fmt(.{ text, items, }).println();
     return 0;
 }
 "#,
@@ -431,12 +455,12 @@ use std.io;
 
 fn main() i32 {
     let values = [4]usize.{ 9, 1, 7, 3 };
-    let ordered = values.[0 .. 4];
+    let ordered = values.&[0 .. 4];
 
     let mut scratch = [3]usize.{ 5, 4, 6 };
-    let window = scratch.[0 .. 3];
+    let window = scratch.&[0 .. 3];
 
-    io.println("{} {}", .{ ordered, window, });
+    "{} {}".fmt(.{ ordered, window, }).println();
     return 0;
 }
 "#,
@@ -468,26 +492,26 @@ fn hosted_std_io_prints_custom_value_printable() {
         "kernc_std_printable_value_impl",
         r#"
 use std.io;
-use base.io.{Printable, Writer};
+use base.io.{Formatable, Write};
 
-type Pair = struct {
+struct Pair {
     left: usize,
     right: usize,
 };
 
-impl Pair : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl Pair : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         let _ = writer.write("(");
-        self.left.&.fmt(writer);
+        self.left.&.write_to(writer);
         let _ = writer.write(", ");
-        self.right.&.fmt(writer);
+        self.right.&.write_to(writer);
         let _ = writer.write(")");
     }
 }
 
 fn main() i32 {
     let pair = Pair.{ left: 2, right: 5 };
-    io.println("{}", .{ pair, });
+    "{}".fmt(.{ pair, }).println();
     return 0;
 }
 "#,
@@ -517,10 +541,10 @@ fn hosted_std_io_prints_to_stdout_and_stderr() {
 use std.io;
 
 fn main() i32 {
-    io.print("out {}", .{ 1, });
-    io.println(" line {}", .{ 2, });
-    io.eprint("err {}", .{ 3, });
-    io.eprintln(" line {}", .{ 4, });
+    "out {}".fmt(.{ 1, }).print();
+    " line {}".fmt(.{ 2, }).println();
+    "err {}".fmt(.{ 3, }).eprint();
+    " line {}".fmt(.{ 4, }).eprintln();
     return 0;
 }
 "#,
@@ -553,16 +577,16 @@ fn hosted_std_io_formats_to_memory_writers() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_io_memory_writers",
         r#"
-use base.io.{Writer, format_to, fixed_buffer, string_writer, write_all};
-use base.coll.String;
+use base.io.Write;
+use base.coll.{String, string};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
 fn main() i32 {
     let mut fixed_storage = [64]u8.{undef};
-    let mut fixed = fixed_buffer(fixed_storage..[0 .. 64]);
-    let fixed_writer = *mut Writer.{ fixed..& };
-    format_to(fixed_writer, "{}{} {{}} {}", .{ 12, "ab", false, });
+    let mut fixed = (fixed_storage..&[0 .. 64]).writer();
+    let fixed_writer = &mut Write.{ fixed..& };
+    "{}{} {{}} {}".fmt(.{ 12, "ab", false, }).write_to(fixed_writer);
     if (fixed..&.as_slice() != "12ab {} false") {
         return 1;
     }
@@ -571,9 +595,9 @@ fn main() i32 {
     }
 
     let mut small_storage = [5]u8.{undef};
-    let mut small = fixed_buffer(small_storage..[0 .. 5]);
-    let small_writer = *mut Writer.{ small..& };
-    if (write_all(small_writer, "abcdef")) {
+    let mut small = (small_storage..&[0 .. 5]).writer();
+    let small_writer = &mut Write.{ small..& };
+    if (small_writer.write_all("abcdef")) {
         return 3;
     }
     if (small..&.as_slice() != "abcde") {
@@ -587,11 +611,11 @@ fn main() i32 {
     let gpa = GPA.{ backing: page }..&;
     defer gpa.deinit();
 
-    let out = String.{}..&;
+    let out = string()..&;
     defer out.deinit(gpa);
-    let mut string_sink = string_writer(gpa, out);
-    let string_writer_obj = *mut Writer.{ string_sink..& };
-    format_to(string_writer_obj, "[{}{}] {{x}}", .{ "id-", usize.{7}, });
+    let mut string_sink = out.writer(gpa);
+    let sink_writer = &mut Write.{ string_sink..& };
+    "[{}{}] {{x}}".fmt(.{ "id-", usize.{7}, }).write_to(sink_writer);
     if (string_sink..&.did_fail()) {
         return 6;
     }
@@ -600,13 +624,11 @@ fn main() i32 {
     }
 
     let mut fmt_storage = [160]u8.{undef};
-    let mut fmt = fixed_buffer(fmt_storage..[0 .. 160]);
-    let fmt_writer = *mut Writer.{ fmt..& };
-    format_to(
-        fmt_writer,
-        "p={02} r={>4} l={<4} c={^5} z={0>3} f={_>4} cut={.3} mix={>6.2} left={<6.2} zero={0>5.2} bad={x} old={:02}",
-        .{ 7, "go", "go", "go", 7, 7, "abcdef", "abcdef", "abcdef", 12345, },
-    );
+    let mut fmt = (fmt_storage..&[0 .. 160]).writer();
+    let fmt_writer = &mut Write.{ fmt..& };
+    "p={02} r={>4} l={<4} c={^5} z={0>3} f={_>4} cut={.3} mix={>6.2} left={<6.2} zero={0>5.2} bad={x} old={:02}"
+        .fmt(.{ 7, "go", "go", "go", 7, 7, "abcdef", "abcdef", "abcdef", 12345, })
+        .write_to(fmt_writer);
     if (fmt..&.as_slice() != "p=07 r=  go l=go   c= go   z=007 f=___7 cut=abc mix=    ab left=ab     zero=00012 bad={x} old={:02}") {
         return 8;
     }
@@ -634,30 +656,30 @@ fn hosted_std_io_reads_from_memory_readers() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_io_memory_readers",
         r#"
-use base.io.{Reader, slice_reader, read_exact, read_to_end, skip};
+use base.io.Read;
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
 fn main() i32 {
-    let mut reader = slice_reader("abcdef");
-    let reader_obj = *mut Reader.{ reader..& };
+    let mut reader = "abcdef".reader();
+    let reader_obj = &mut Read.{ reader..& };
 
     let mut head = [2]u8.{undef};
-    if (!read_exact(reader_obj, head..[0 .. 2])) {
+    if (!reader_obj.read_exact(head..&[0 .. 2])) {
         return 1;
     }
-    if (head.[0 .. 2] != "ab") {
+    if (head.&[0 .. 2] != "ab") {
         return 2;
     }
     if (reader..&.remaining() != 4 or reader..&.remaining_slice() != "cdef") {
         return 3;
     }
-    if (skip(reader_obj, 2) != 2) {
+    if (reader_obj.skip(2) != 2) {
         return 4;
     }
 
     let mut tail = [3]u8.{undef};
-    if (read_exact(reader_obj, tail..[0 .. 3])) {
+    if (reader_obj.read_exact(tail..&[0 .. 3])) {
         return 5;
     }
     if (tail.[0] != b'e' or tail.[1] != b'f') {
@@ -671,9 +693,9 @@ fn main() i32 {
     let gpa = GPA.{ backing: page }..&;
     defer gpa.deinit();
 
-    let mut reader2 = slice_reader("kern-io");
-    let reader2_obj = *mut Reader.{ reader2..& };
-    let mut bytes = match (read_to_end(gpa, reader2_obj)) {
+    let mut reader2 = "kern-io".reader();
+    let reader2_obj = &mut Read.{ reader2..& };
+    let mut bytes = match (reader2_obj.read_to_end(gpa)) {
         .{ Some: list } => list,
         .None => return 8,
     };
@@ -681,7 +703,7 @@ fn main() i32 {
     if (bytes..&.as_slice() != "kern-io") {
         return 9;
     }
-    if (skip(reader2_obj, 1) != 0) {
+    if (reader2_obj.skip(1) != 0) {
         return 10;
     }
 
@@ -709,32 +731,25 @@ fn hosted_std_io_copies_between_generic_adapters() {
         "kernc_std_io_copy_adapters",
         r#"
 use base.io.{
-    Reader,
-    Writer,
-    slice_reader,
-    limit_reader,
-    fixed_buffer,
-    string_writer,
-    counting_writer,
-    null_writer,
-    copy,
-    copy_n,
+    Read,
+    Write,
+    discard,
 };
-use base.coll.String;
+use base.coll.{String, string};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
 fn main() i32 {
-    let mut source = slice_reader("abcdef");
-    let source_reader = *mut Reader.{ source..& };
+    let mut source = "abcdef".reader();
+    let source_reader = &mut Read.{ source..& };
 
     let mut storage = [8]u8.{undef};
-    let mut fixed = fixed_buffer(storage..[0 .. 8]);
-    let fixed_writer = *mut Writer.{ fixed..& };
-    let mut counted = counting_writer(fixed_writer);
-    let counted_writer = *mut Writer.{ counted..& };
+    let mut fixed = (storage..&[0 .. 8]).writer();
+    let fixed_writer = &mut Write.{ fixed..& };
+    let mut counted = fixed_writer.counting();
+    let counted_writer = &mut Write.{ counted..& };
 
-    let copied = copy_n(source_reader, counted_writer, 4);
+    let copied = source_reader.copy_n_to(counted_writer, 4);
     if (copied != 4) {
         return 1;
     }
@@ -752,16 +767,16 @@ fn main() i32 {
     let gpa = GPA.{ backing: page }..&;
     defer gpa.deinit();
 
-    let mut text = String.{};
+    let mut text = string();
     defer text..&.deinit(gpa);
-    let mut sink = string_writer(gpa, text..&);
-    let sink_writer = *mut Writer.{ sink..& };
+    let mut sink = text..&.writer(gpa);
+    let sink_writer = &mut Write.{ sink..& };
 
-    let mut source2 = slice_reader("0123456789");
-    let source2_reader = *mut Reader.{ source2..& };
-    let mut limited = limit_reader(source2_reader, 6);
-    let limited_reader = *mut Reader.{ limited..& };
-    let limited_copied = copy(limited_reader, sink_writer);
+    let mut source2 = "0123456789".reader();
+    let source2_reader = &mut Read.{ source2..& };
+    let mut limited = source2_reader.limit(6);
+    let limited_reader = &mut Read.{ limited..& };
+    let limited_copied = limited_reader.copy_to(sink_writer);
     if (limited_copied != 6) {
         return 5;
     }
@@ -772,11 +787,11 @@ fn main() i32 {
         return 7;
     }
 
-    let mut source3 = slice_reader("discard");
-    let source3_reader = *mut Reader.{ source3..& };
-    let mut null = null_writer();
-    let null_sink = *mut Writer.{ null..& };
-    if (copy(source3_reader, null_sink) != 7) {
+    let mut source3 = "discard".reader();
+    let source3_reader = &mut Read.{ source3..& };
+    let mut null = discard();
+    let null_sink = &mut Write.{ null..& };
+    if (source3_reader.copy_to(null_sink) != 7) {
         return 8;
     }
     if (!source3..&.is_empty()) {
@@ -807,14 +822,12 @@ fn test_expect_err_failure_aborts_with_message() {
         "kernc_std_test_expect_err_fail",
         r#"
 use base.test;
-use base.io.Writer;
 use std.io;
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    let _ = ctx..&.expect_err(@loc(), usize!i32.{ Ok: 3 }, "expected result to be err", .{});
+    let _ = usize!i32.{ Ok: 3 }.should_err().sum(@loc(), t);
     return 0;
 }
 "#,
@@ -831,7 +844,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&run_output.stderr);
     assert!(
-        stderr.contains("test failed: expected result to be err"),
+        stderr.contains("test failed: expected result to be Err"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -845,11 +858,11 @@ fn wrapped_fmt_helpers_accept_inline_integer_literals() {
     let output = build_and_run(
         "kernc_std_fmt_wrapper_literals",
         r#"
-use base.io.Printable;
+use base.io.Formatable;
 use std.io;
 
-fn wrap(fmt: []u8, args: []*Printable) void {
-    io.println(fmt, args);
+fn wrap(fmt: &[u8], args: &[&Formatable]) void {
+    fmt.fmt(args).println();
 }
 
 fn main() i32 {
@@ -876,11 +889,11 @@ fn wrapped_fmt_helpers_accept_call_results_inside_inline_argument_arrays() {
     let output = build_and_run(
         "kernc_std_fmt_wrapper_call_results",
         r#"
-use base.io.Printable;
+use base.io.Formatable;
 use std.io;
 
-fn wrap(fmt: []u8, args: []*Printable) void {
-    io.println(fmt, args);
+fn wrap(fmt: &[u8], args: &[&Formatable]) void {
+    fmt.fmt(args).println();
 }
 
 fn forty_two() i32 {
@@ -914,7 +927,7 @@ fn print_accepts_single_argument_list_without_trailing_comma() {
 use std.io;
 
 fn main() i32 {
-    io.println("value={}", .{ 42 });
+    "value={}".fmt(.{ 42 }).println();
     return 0;
 }
 "#,

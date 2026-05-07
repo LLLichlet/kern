@@ -1,28 +1,26 @@
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use std.fs;
 use std.io;
-use base.io.Writer;
 use base.test;
-use sys.mem.Page;
+use sys.mem.page;
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let page = page()..&;
+    let gpa = gpa().on(page)..&;
 
-    let path = ".craft/example-atomic-write.txt";
-    _ = fs.remove_file_if_exists(gpa, path);
+    let path = ".craft/example-atomic-write.txt".path();
+    _ = path.remove_file_if_exists(gpa);
 
-    let written = ctx..&.expect_ok(fs.write_all_atomic(gpa, path, "kern examples\n"));
-    ctx..&.eq(written, usize.{14});
+    let written = path.write_all_atomic(gpa, "kern examples\n").should_ok().sum(@loc(), t);
+    (written == usize.{14}).should().sum(@loc(), t);
 
-    let mut text = ctx..&.expect_ok(fs.read_to_string(gpa, path));
+    let mut text = path.read_to_string(gpa).should_ok().sum(@loc(), t);
     defer text..&.deinit(gpa);
-    ctx..&.eq(text.&.as_str(), "kern examples\n");
+    text.&.as_str().eq("kern examples\n").should().sum(@loc(), t);
 
-    _ = fs.remove_file_if_exists(gpa, path);
-    io.println("io_and_files: wrote and read {} bytes", .{written,});
+    _ = path.remove_file_if_exists(gpa);
+    "io_and_files: wrote and read {} bytes".fmt(.{written}).println();
     return 0;
 }

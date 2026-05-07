@@ -1,26 +1,24 @@
-use base.coll.String;
-use base.mem.alloc.GPA;
+use base.coll.{String, string};
+use base.mem.alloc.gpa;
 use std.io;
-use base.io.Writer;
 use base.test;
-use sys.mem.Page;
+use sys.mem.page;
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let page = page()..&;
+    let gpa = gpa().on(page)..&;
 
-    let text = String.{}..&;
+    let text = string()..&;
     defer text.deinit(gpa);
     
-    ctx..&.assert(text.push_str(gpa, "Hello"), "push_str should allocate", .{});
-    ctx..&.assert(text.push_str(gpa, ", "), "push_str should allocate", .{});
-    ctx..&.assert(text.push_str(gpa, "Kern"), "push_str should allocate", .{});
+    text.push_str(gpa, "Hello").should().sum(@loc(), t);
+    text.push_str(gpa, ", ").should().sum(@loc(), t);
+    text.push_str(gpa, "Kern").should().sum(@loc(), t);
     
-    ctx..&.eq(text.as_str(), "Hello, Kern");
-    io.println("string: {}", .{text,});
+    text.as_str().eq("Hello, Kern").should().sum(@loc(), t);
+    "string: {}".fmt(.{text}).println();
     
     return 0;
 }

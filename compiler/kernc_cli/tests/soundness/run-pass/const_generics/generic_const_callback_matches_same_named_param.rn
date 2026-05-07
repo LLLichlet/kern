@@ -1,7 +1,7 @@
 // source: callback coercion must accept same-named const parameters when both sides describe the same generic shape
 // exit: 0
 
-fn takes[N: usize](cb: *Fn([N]i32) i32, arr: [N]i32) i32 {
+fn takes[N: usize](cb: &Fn([N]i32) i32, arr: [N]i32) i32 {
     return cb(arr);
 }
 

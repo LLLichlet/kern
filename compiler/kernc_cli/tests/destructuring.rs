@@ -18,17 +18,17 @@ fn build_and_run_source(source: &str) -> Output {
 fn compiles_nested_let_destructuring_with_structs_and_enums() {
     let output = build_and_run_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
 
-type Point = struct {
+struct Point {
     x: i32,
     y: i32,
 };
 
-type Node = struct {
+struct Node {
     pos: Point,
     maybe: Option[i32],
 };
@@ -58,7 +58,7 @@ fn main() i32 {
 fn compiles_match_destructuring_with_field_puns() {
     let output = build_and_run_source(
         r#"
-type Pair = struct {
+struct Pair {
     left: i32,
     right: i32,
 };
@@ -88,22 +88,22 @@ fn main() i32 {
 fn compiles_fully_typed_nested_enum_struct_patterns_with_field_puns() {
     let output = build_and_run_source(
         r#"
-type Bit = enum {
+enum Bit {
     Zero,
     One,
 };
 
-type Leaf = enum {
+enum Leaf {
     Empty,
     Full: Bit,
 };
 
-type Node = struct {
+struct Node {
     left: Leaf,
     right: Leaf,
 };
 
-type Tree = enum {
+enum Tree {
     Nil,
     Branch: Node,
 };
@@ -151,7 +151,7 @@ fn main() i32 {
 fn compiles_typed_struct_initialization_with_field_puns() {
     let output = build_and_run_source(
         r#"
-type Point = struct {
+struct Point {
     x: i32,
     y: i32,
 };
@@ -178,7 +178,7 @@ fn main() i32 {
 fn compiles_mut_binding_inside_struct_pattern() {
     let output = build_and_run_source(
         r#"
-type Boxed = struct {
+struct Boxed {
     value: i32,
 };
 
@@ -203,7 +203,7 @@ fn main() i32 {
 fn rejects_unknown_struct_pattern_field() {
     let output = compile_source(
         r#"
-type Pair = struct {
+struct Pair {
     left: i32,
     right: i32,
 };
@@ -232,7 +232,7 @@ fn main() i32 {
 fn rejects_braced_payloadless_enum_pattern() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };

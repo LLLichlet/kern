@@ -5,7 +5,7 @@
 
 use base.mem.alloc.Allocator;
 use base.coll.{String, List};
-use ..types.Error;
+use ..types.{Error, Path};
 
 /// Returns `true` when `byte` is treated as a path separator on the current platform.
 pub/ fn is_path_separator(byte: u8) bool {
@@ -27,7 +27,7 @@ pub/ fn path_separator_byte() u8 {
     return b'/';
 }
 
-fn preferred_separator_byte(path: []u8) u8 {
+fn preferred_separator_byte(path: &[u8]) u8 {
     #[if(os == "windows")]
     {
                 let mut i = usize.{0};
@@ -52,7 +52,7 @@ fn preferred_separator_byte(path: []u8) u8 {
 ///
 /// Note:
 /// on Windows this includes drive prefixes and UNC roots.
-pub/ fn root_prefix_len(path: []u8) usize {
+pub/ fn root_prefix_len(path: &[u8]) usize {
     let len = #path;
     if (len == 0) {
         return usize.{0};
@@ -98,7 +98,7 @@ pub/ fn root_prefix_len(path: []u8) usize {
 }
 
 /// Removes trailing separators while preserving the root prefix.
-pub/ fn trim_trailing_separators(path: []u8) []u8 {
+pub/ fn trim_trailing_separators(path: &[u8]) &[u8] {
     let prefix_len = root_prefix_len(path);
     let mut end = #path;
         while (end > prefix_len) {
@@ -107,11 +107,11 @@ pub/ fn trim_trailing_separators(path: []u8) []u8 {
         }
         end -= 1;
     }
-    return path.[0 .. end];
+    return path.&[0 .. end];
 }
 
 /// Builds `base/name` using the preferred separator for `base`.
-pub/ fn build_child_path(alloc: *mut Allocator, base: []u8, name: []u8) String!Error {
+pub/ fn build_child_path(alloc: &mut Allocator, base: &[u8], name: &[u8]) String!Error {
     let mut out = String.{};
     let sep = preferred_separator_byte(base);
     if (!out..&.push_str(alloc, base)) {
@@ -134,11 +134,11 @@ pub/ fn build_child_path(alloc: *mut Allocator, base: []u8, name: []u8) String!E
 }
 
 fn append_path_segment(
-    out: *mut String,
-    alloc: *mut Allocator,
+    out: &mut String,
+    alloc: &mut Allocator,
     prefix_len: usize,
     sep: u8,
-    segment: []u8,
+    segment: &[u8],
 ) bool {
     let out_len = out.len();
     if (
@@ -154,7 +154,7 @@ fn append_path_segment(
     return out.push_str(alloc, segment);
 }
 
-fn last_separator(path: []u8) ?usize {
+fn last_separator(path: &[u8]) ?usize {
     let prefix_len = root_prefix_len(path);
         let mut index = #path;
     while (index > prefix_len) {
@@ -167,7 +167,7 @@ fn last_separator(path: []u8) ?usize {
 }
 
 /// Returns the final path component.
-pub/ fn file_name(path: []u8) ?[]u8 {
+pub/ fn file_name(path: &[u8]) ?&[u8] {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
     if (#trimmed == 0 or #trimmed == prefix_len) {
@@ -175,11 +175,11 @@ pub/ fn file_name(path: []u8) ?[]u8 {
     }
 
     let .{ Some: index } = last_separator(trimmed) else return .{ Some: trimmed };
-    return .{ Some: trimmed.[index + 1 .. #trimmed] };
+    return .{ Some: trimmed.&[index + 1 .. #trimmed] };
 }
 
 /// Returns the parent directory of a path.
-pub/ fn parent(path: []u8) ?[]u8 {
+pub/ fn parent(path: &[u8]) ?&[u8] {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
     if (#trimmed == 0 or #trimmed == prefix_len) {
@@ -188,15 +188,15 @@ pub/ fn parent(path: []u8) ?[]u8 {
 
     let .{ Some: index } = last_separator(trimmed) else {
         if (prefix_len > 0) {
-            return .{ Some: trimmed.[0 .. prefix_len] };
+            return .{ Some: trimmed.&[0 .. prefix_len] };
         }
         return .None;
     };
-    return .{ Some: trimmed.[0 .. index] };
+    return .{ Some: trimmed.&[0 .. index] };
 }
 
 /// Returns the extension of the final path component without the dot.
-pub/ fn extension(path: []u8) ?[]u8 {
+pub/ fn extension(path: &[u8]) ?&[u8] {
     let name = file_name(path).?;
 
         let mut index = #name;
@@ -208,14 +208,14 @@ pub/ fn extension(path: []u8) ?[]u8 {
         if (index == 0 or index + 1 == #name) {
             return .None;
         }
-        return .{ Some: name.[index + 1 .. #name] };
+        return .{ Some: name.&[index + 1 .. #name] };
     }
 
     return .None;
 }
 
 /// Returns the final path component without its extension.
-pub/ fn file_stem(path: []u8) ?[]u8 {
+pub/ fn file_stem(path: &[u8]) ?&[u8] {
     let name = file_name(path).?;
 
         let mut index = #name;
@@ -227,7 +227,7 @@ pub/ fn file_stem(path: []u8) ?[]u8 {
         if (index == 0) {
             return .{ Some: name };
         }
-        return .{ Some: name.[0 .. index] };
+        return .{ Some: name.&[0 .. index] };
     }
 
     return .{ Some: name };
@@ -237,7 +237,7 @@ pub/ fn file_stem(path: []u8) ?[]u8 {
 ///
 /// Note:
 /// absolute `child` paths replace `base`.
-pub/ fn join(alloc: *mut Allocator, base: []u8, child: []u8) String!Error {
+pub/ fn join(alloc: &mut Allocator, base: &[u8], child: &[u8]) String!Error {
     if (root_prefix_len(child) > 0) {
         let mut out = String.{};
         if (!out..&.push_str(alloc, child)) {
@@ -272,10 +272,10 @@ pub/ fn join(alloc: *mut Allocator, base: []u8, child: []u8) String!Error {
 ///
 /// This function does not consult the filesystem, so symbolic links and missing
 /// path segments are left uninterpreted.
-pub/ fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
+pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
     let prefix_len = root_prefix_len(path);
     let sep = preferred_separator_byte(path);
-    let segments = List[[]u8].{}..&;
+    let segments = List[&[u8]].{}..&;
     defer segments.deinit(alloc);
 
     let mut index = prefix_len;
@@ -289,14 +289,14 @@ pub/ fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
         let start = index;
                 while (index < #path and !is_path_separator(path.[index])) {            index += 1;
         }
-        let segment = path.[start .. index];
+        let segment = path.&[start .. index];
 
         if (segment == ".") {
             continue;
         }
 
         if (segment == "..") {
-            let can_pop = segments.last().is_some_and(.[](last: []u8) bool {
+            let can_pop = segments.last().is_some_and([](last: &[u8]) bool {
                 return last != "..";
             });
             if (can_pop) {
@@ -316,7 +316,7 @@ pub/ fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
 
     let mut out = String.{};
     if (prefix_len > 0) {
-        if (!out..&.push_str(alloc, path.[0 .. prefix_len])) {
+        if (!out..&.push_str(alloc, path.&[0 .. prefix_len])) {
             return .{ Err: .OutOfMemory };
         }
     }
@@ -352,7 +352,7 @@ pub/ fn normalize(alloc: *mut Allocator, path: []u8) String!Error {
 ///
 /// Errors:
 /// returns `InvalidPath` when `name` is empty.
-pub/ fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) String!Error {
+pub/ fn with_file_name(alloc: &mut Allocator, path: &[u8], name: &[u8]) String!Error {
     if (#name == 0) {
         return .{ Err: .InvalidPath };
     }
@@ -372,7 +372,7 @@ pub/ fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) String!Err
 /// Returns `path` with its extension replaced by `ext`.
 ///
 /// An empty `ext` removes the extension entirely.
-pub/ fn with_extension(alloc: *mut Allocator, path: []u8, ext: []u8) String!Error {
+pub/ fn with_extension(alloc: &mut Allocator, path: &[u8], ext: &[u8]) String!Error {
     let stem = file_stem(path).ok_or(.InvalidPath).!;
 
     let mut new_name = String.{};
@@ -394,4 +394,51 @@ pub/ fn with_extension(alloc: *mut Allocator, path: []u8, ext: []u8) String!Erro
     let result = with_file_name(alloc, path, new_name.&.as_str());
     new_name..&.deinit(alloc);
     return result;
+}
+
+impl Path {
+    /// Returns the raw path bytes.
+    pub fn as_str() &[u8] {
+        return self.raw;
+    }
+
+    /// Returns the final path component.
+    pub fn file_name() ?&[u8] {
+        return file_name(self.raw);
+    }
+
+    /// Returns the parent directory.
+    pub fn parent() ?&[u8] {
+        return parent(self.raw);
+    }
+
+    /// Returns the extension of the final path component without the dot.
+    pub fn extension() ?&[u8] {
+        return extension(self.raw);
+    }
+
+    /// Returns the final path component without its extension.
+    pub fn file_stem() ?&[u8] {
+        return file_stem(self.raw);
+    }
+
+    /// Joins this path with `child`.
+    pub fn join(alloc: &mut Allocator, child: &[u8]) String!Error {
+        return join(alloc, self.raw, child);
+    }
+
+    /// Normalizes `.` and `..` segments and collapses repeated separators.
+    pub fn normalize(alloc: &mut Allocator) String!Error {
+        return normalize(alloc, self.raw);
+    }
+
+    /// Returns this path with its final component replaced by `name`.
+    pub fn with_file_name(alloc: &mut Allocator, name: &[u8]) String!Error {
+        return with_file_name(alloc, self.raw, name);
+    }
+
+    /// Returns this path with its extension replaced by `ext`.
+    pub fn with_extension(alloc: &mut Allocator, ext: &[u8]) String!Error {
+        return with_extension(alloc, self.raw, ext);
+    }
 }

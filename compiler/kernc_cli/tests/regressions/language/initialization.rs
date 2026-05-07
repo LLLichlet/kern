@@ -3,7 +3,7 @@ use super::*;
 fn rejects_direct_recursive_struct_layout_cycle() {
     let output = compile_source(
         r#"
-type Bad = struct {
+struct Bad {
     inner: Bad,
 };
 
@@ -37,7 +37,7 @@ fn main() i32 {
 fn rejects_direct_recursive_enum_payload_layout_cycle() {
     let output = compile_source(
         r#"
-type Bad = enum {
+enum Bad {
     Loop: Bad,
 };
 
@@ -71,11 +71,11 @@ fn main() i32 {
 fn rejects_indirect_recursive_struct_layout_cycle_with_chain() {
     let output = compile_source(
         r#"
-type A = struct {
+struct A {
     b: B,
 };
 
-type B = struct {
+struct B {
     a: A,
 };
 
@@ -207,8 +207,8 @@ fn main() i32 {
 fn rejects_unresolved_optional_type_in_pointer_static_initializer_without_panicking() {
     let output = compile_source(
         r#"
-type FramebufferRequest = struct {
-    response: *u8,
+struct FramebufferRequest {
+    response: &u8,
 };
 
 static REQUEST = FramebufferRequest.{ response: ?T };
@@ -263,8 +263,8 @@ fn main() i32 {
 fn rejects_resolved_optional_type_in_pointer_static_initializer_without_panicking() {
     let output = compile_source(
         r#"
-type FramebufferRequest = struct {
-    response: *u8,
+struct FramebufferRequest {
+    response: &u8,
 };
 
 static REQUEST = FramebufferRequest.{ response: ?u8 };
@@ -315,11 +315,11 @@ fn main() i32 {
 fn accepts_optional_none_constructor_in_static_initializer() {
     let output = build_and_run_source(
         r#"
-type FramebufferRequest = struct {
-    response: ?*u8,
+struct FramebufferRequest {
+    response: ?&u8,
 };
 
-static REQUEST = FramebufferRequest.{ response: (?*u8).None };
+static REQUEST = FramebufferRequest.{ response: (?&u8).None };
 
 fn main() i32 {
     return match (REQUEST.response) {
@@ -343,9 +343,9 @@ fn main() i32 {
 fn accepts_optional_alias_none_constructor_in_static_initializer() {
     let output = build_and_run_source(
         r#"
-type MaybePtr = ?*u8;
+type MaybePtr = ?&u8;
 
-type FramebufferRequest = struct {
+struct FramebufferRequest {
     response: MaybePtr,
 };
 
@@ -373,25 +373,25 @@ fn main() i32 {
 fn accepts_integer_to_pointer_casts_in_static_initializer() {
     let output = build_and_run_source(
         r#"
-type FramebufferResponse = struct {
+struct FramebufferResponse {
     count: u64,
 };
 
-type FramebufferRequest = struct {
-    response: *FramebufferResponse,
-    mmio: *u8,
+struct FramebufferRequest {
+    response: &FramebufferResponse,
+    mmio: &u8,
 };
 
 static REQUEST = FramebufferRequest.{
-    response: 0 as *FramebufferResponse,
-    mmio: 0x1000 as *u8,
+    response: 0 as &FramebufferResponse,
+    mmio: 0x1000 as &u8,
 };
 
 fn main() i32 {
-    if (REQUEST.response != (0 as *FramebufferResponse)) {
+    if (REQUEST.response != (0 as &FramebufferResponse)) {
         return 1;
     }
-    if (REQUEST.mmio != (0x1000 as *u8)) {
+    if (REQUEST.mmio != (0x1000 as &u8)) {
         return 2;
     }
     return 0;
@@ -409,14 +409,234 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_string_literal_slice_fields_in_static_initializer() {
+    let output = build_and_run_source(
+        r#"
+struct Holder {
+    text: &[u8],
+};
+
+static HOLDER = Holder.{ text: "abc" };
+
+fn main() i32 {
+    if (#HOLDER.text != 3) {
+        return 1;
+    }
+    if (HOLDER.text.[0] != b'a' or HOLDER.text.[2] != b'c') {
+        return 2;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "string literal slice static initializer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn accepts_array_of_string_literal_slice_structs_in_static_initializer() {
+    let output = build_and_run_source(
+        r#"
+struct Entry {
+    name: &[u8],
+    value: u32,
+};
+
+static TABLE = [2]Entry.{
+    .{ name: "boot", value: 11 },
+    .{ name: "init", value: 31 },
+};
+
+fn main() i32 {
+    if (#TABLE.[0].name != 4 or #TABLE.[1].name != 4) {
+        return 1;
+    }
+    if (TABLE.[0].name.[0] != b'b' or TABLE.[1].name.[0] != b'i') {
+        return 2;
+    }
+    return (TABLE.[0].value + TABLE.[1].value) as i32 - 42;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "array of string slice static initializer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn accepts_nested_string_literal_slice_static_initializer() {
+    let output = build_and_run_source(
+        r#"
+struct Inner {
+    label: &[u8],
+};
+
+struct Outer {
+    inner: Inner,
+    count: usize,
+};
+
+static OUTER = Outer.{ inner: .{ label: "kern" }, count: 4 };
+
+fn main() i32 {
+    if (OUTER.count != #OUTER.inner.label) {
+        return 1;
+    }
+    if (OUTER.inner.label.[3] != b'n') {
+        return 2;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "nested string slice static initializer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_call_in_local_static_initializer_without_panicking() {
+    let output = compile_source(
+        r#"
+fn make() i32 {
+    return 42;
+}
+
+fn main() i32 {
+    static VALUE = make();
+    return VALUE;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("only `const fn` can be called in constant expressions"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("panicked at") && !stderr.contains("Kern Compiler Internal Error"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn accepts_const_fn_in_local_static_initializer() {
+    let output = build_and_run_source(
+        r#"
+const fn make() i32 {
+    return 42;
+}
+
+fn main() i32 {
+    static VALUE = make();
+    return VALUE - 42;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "const fn local static initializer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn accepts_local_static_string_literal_slice_field_initializer() {
+    let output = build_and_run_source(
+        r#"
+struct Holder {
+    text: &[u8],
+};
+
+fn main() i32 {
+    static HOLDER = Holder.{ text: "local" };
+    if (#HOLDER.text != 5) {
+        return 1;
+    }
+    if (HOLDER.text.[0] != b'l' or HOLDER.text.[4] != b'l') {
+        return 2;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "local string slice static initializer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn accepts_const_fn_struct_in_local_static_initializer() {
+    let output = build_and_run_source(
+        r#"
+struct Pair {
+    a: u32,
+    b: u32,
+};
+
+const fn pair() Pair {
+    return .{ a: 13, b: 29 };
+}
+
+fn main() i32 {
+    static VALUE = pair();
+    return (VALUE.a + VALUE.b) as i32 - 42;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "const fn struct local static initializer regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_integer_to_trait_object_pointer_static_initializer_without_panicking() {
     let output = compile_source(
         r#"
-type Writer = trait {
-    write: fn([]u8) usize,
+trait Write {
+    fn write(_: &[u8]) usize;
 };
 
-pub static mut WRITER = 0 as *mut Writer;
+pub static mut WRITER = 0 as &mut Write;
 
 fn main() i32 {
     return 0;
@@ -452,8 +672,8 @@ fn main() i32 {
 fn rejects_result_type_in_pointer_static_initializer_without_panicking() {
     let output = compile_source(
         r#"
-type FramebufferRequest = struct {
-    response: *u8,
+struct FramebufferRequest {
+    response: &u8,
 };
 
 static REQUEST = FramebufferRequest.{ response: i32!u8 };
@@ -499,8 +719,8 @@ fn rejects_optional_alias_in_pointer_static_initializer_without_panicking() {
         r#"
 type MaybeByte = ?u8;
 
-type FramebufferRequest = struct {
-    response: *u8,
+struct FramebufferRequest {
+    response: &u8,
 };
 
 static REQUEST = FramebufferRequest.{ response: MaybeByte };
@@ -544,8 +764,8 @@ fn rejects_result_alias_in_pointer_static_initializer_without_panicking() {
         r#"
 type ResultByte = i32!u8;
 
-type FramebufferRequest = struct {
-    response: *u8,
+struct FramebufferRequest {
+    response: &u8,
 };
 
 static REQUEST = FramebufferRequest.{ response: ResultByte };
@@ -589,8 +809,8 @@ fn main() i32 {
 fn rejects_integer_pointer_static_initializer_without_panicking() {
     let output = compile_source(
         r#"
-type FramebufferRequest = struct {
-    response: *u8,
+struct FramebufferRequest {
+    response: &u8,
 };
 
 static REQUEST = FramebufferRequest.{ response: 0 };
@@ -615,7 +835,7 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("expected `*u8`"),
+        stderr.contains("expected `&u8`"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -635,7 +855,7 @@ fn main() i32 {
 fn rejects_missing_struct_field_in_static_initializer_without_panicking() {
     let output = compile_source(
         r#"
-type Pair = struct {
+struct Pair {
     a: u64,
     b: u64,
 };
@@ -672,7 +892,7 @@ fn main() i32 {
 fn rejects_unknown_struct_field_in_static_initializer_without_panicking() {
     let output = compile_source(
         r#"
-type Pair = struct {
+struct Pair {
     a: u64,
 };
 
@@ -740,7 +960,7 @@ fn main() i32 {
 fn rejects_static_enum_initializer_with_multiple_variants_without_panicking() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -779,7 +999,7 @@ fn main() i32 {
 fn rejects_static_enum_initializer_payload_for_payloadless_variant_without_panicking() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -816,7 +1036,7 @@ fn main() i32 {
 fn rejects_static_enum_initializer_missing_payload_without_panicking() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };

@@ -81,7 +81,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx
                 .struct_error(
                     expr.span,
-                    "cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`",
+                    "cannot implicitly borrow an immutable closure as a mutable closure `&mut Fn`",
                 )
                 .with_code(DiagnosticCode::RequiresLetMut)
                 .with_hint(
@@ -437,11 +437,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 TypeKind::TraitObject(g_id, g_args, g_assoc_bindings),
                 TypeKind::TraitObject(c_id, c_args, c_assoc_bindings),
             ) if g_id == c_id => {
-                // Function-item/closure-to-`*Fn` coercions are exact ABI matches.
+                // Function-item/closure-to-`&Fn` coercions are exact ABI matches.
                 // They may instantiate generics, but they do not synthesize adapter thunks
                 // for trait-object upcasts or other signature reshaping. Keep this branch
                 // structurally exact so `take(fn returning *Derived)` does not silently
-                // masquerade as `*Fn() *Base`.
+                // masquerade as `&Fn() &Base`.
                 if g_args.len() != c_args.len() {
                     return false;
                 }

@@ -9,5 +9,5 @@ mod gpa;
 mod arena;
 
 pub use .allocator.Allocator;
-pub use .gpa.GPA;
-pub use .arena.{Arena, ArenaMark};
+pub use .gpa.{GPA, GpaBuilder, gpa};
+pub use .arena.{Arena, ArenaBuilder, ArenaMark, arena};

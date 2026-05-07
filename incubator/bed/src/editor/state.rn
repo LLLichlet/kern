@@ -11,7 +11,7 @@ pub.. const PROMPT_HISTORY_LIMIT = usize.{32};
 pub.. const OUTPUT_HISTORY_LIMIT = usize.{16};
 pub.. const TAB_STOP = usize.{4};
 
-pub.. type PendingNormal = enum {
+pub.. enum PendingNormal {
     None,
     G,
     Z,
@@ -22,28 +22,28 @@ pub.. type PendingNormal = enum {
     TillBackward,
 };
 
-pub.. type PromptKind = enum {
+pub.. enum PromptKind {
     Ex,
     Shell,
 };
 
-pub.. type Pane = enum {
+pub.. enum Pane {
     Editor,
     Output,
 };
 
-pub.. type FindDirection = enum {
+pub.. enum FindDirection {
     Forward,
     Backward,
 };
 
-pub.. type FindState = struct {
+pub.. struct FindState {
     pub direction: FindDirection = .Forward,
     pub till: bool = false,
     pub target: u8 = 0,
 };
 
-pub.. type ShellOutputEntry = struct {
+pub.. struct ShellOutputEntry {
     pub command: String = String.{},
     pub text: String = String.{},
     pub status: i32 = 0,
@@ -53,19 +53,19 @@ pub.. type ShellOutputEntry = struct {
 ///
 /// Multiple windows may point at the same slot after a split. The slot stays
 /// alive until the last window releases it.
-pub.. type BufferSlot = struct {
+pub.. struct BufferSlot {
     pub text: TextBuffer = TextBuffer.{},
     pub ref_count: usize = 0,
 };
 
 /// Per-window view state over one buffer slot.
-pub.. type EditorView = struct {
+pub.. struct EditorView {
     pub cursor: Cursor = Cursor.{ row: 0, col: 0 },
     pub preferred_col: usize = 0,
     pub scroll_row: usize = 0,
 };
 
-pub.. type LayoutAxis = enum {
+pub.. enum LayoutAxis {
     Rows,
     Cols,
 };
@@ -74,7 +74,7 @@ pub.. type LayoutAxis = enum {
 ///
 /// Leaf nodes point at one live window. Internal nodes split space between two
 /// child nodes along `axis`. Dead nodes are recycled through a free-list.
-pub.. type LayoutNode = struct {
+pub.. struct LayoutNode {
     pub alive: bool = true,
     pub free_next: ?usize = .None,
     pub has_parent: bool = false,
@@ -87,7 +87,7 @@ pub.. type LayoutNode = struct {
     pub window_index: usize = 0,
 };
 
-pub.. type WindowRect = struct {
+pub.. struct WindowRect {
     pub row: usize = 1,
     pub col: usize = 1,
     pub rows: usize = 0,
@@ -98,7 +98,7 @@ pub.. type WindowRect = struct {
 ///
 /// The window owns only local view state plus indexes into the shared buffer
 /// slot table and layout tree.
-pub.. type WindowState = struct {
+pub.. struct WindowState {
     pub alive: bool = true,
     pub free_next: ?usize = .None,
     pub view: EditorView = EditorView.{},
@@ -106,15 +106,15 @@ pub.. type WindowState = struct {
     pub layout_node: usize = 0,
 };
 
-impl *mut ShellOutputEntry {
-    fn deinit(alloc: *mut Allocator) void {
+impl &mut ShellOutputEntry {
+    fn deinit(alloc: &mut Allocator) void {
         self.command..&.deinit(alloc);
         self.text..&.deinit(alloc);
         self.* = ShellOutputEntry.{};
     }
 }
 
-fn deinit_string_list(alloc: *mut Allocator, items: *mut List[String]) void {
+fn deinit_string_list(alloc: &mut Allocator, items: &mut List[String]) void {
     let slice = items.as_mut_slice();
     let mut i = usize.{0};
     while (i < #slice) {
@@ -124,7 +124,7 @@ fn deinit_string_list(alloc: *mut Allocator, items: *mut List[String]) void {
     items.deinit(alloc);
 }
 
-pub.. fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], limit: usize) void {
+pub.. fn trim_string_history(alloc: &mut Allocator, items: &mut List[String], limit: usize) void {
     if (items.len() <= limit) {
         return;
     }
@@ -138,12 +138,12 @@ pub.. fn trim_string_history(alloc: *mut Allocator, items: *mut List[String], li
     let kept = items.len() - remove_count;
     if (kept > 0) {
         let bytes = kept * @sizeOf[String]();
-        _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);
+        _ = memmove(slice.[0].& as &mut u8, slice.[remove_count].& as &u8, bytes);
     }
     items.truncate(kept);
 }
 
-fn deinit_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry]) void {
+fn deinit_output_history(alloc: &mut Allocator, items: &mut List[ShellOutputEntry]) void {
     let slice = items.as_mut_slice();
     let mut i = usize.{0};
     while (i < #slice) {
@@ -153,7 +153,7 @@ fn deinit_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntr
     items.deinit(alloc);
 }
 
-pub.. fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutputEntry], limit: usize) void {
+pub.. fn trim_output_history(alloc: &mut Allocator, items: &mut List[ShellOutputEntry], limit: usize) void {
     if (items.len() <= limit) {
         return;
     }
@@ -167,7 +167,7 @@ pub.. fn trim_output_history(alloc: *mut Allocator, items: *mut List[ShellOutput
     let kept = items.len() - remove_count;
     if (kept > 0) {
         let bytes = kept * @sizeOf[ShellOutputEntry]();
-        _ = memmove(slice.[0].& as *mut u8, slice.[remove_count].& as *u8, bytes);
+        _ = memmove(slice.[0].& as &mut u8, slice.[remove_count].& as &u8, bytes);
     }
     items.truncate(kept);
 }
@@ -176,8 +176,8 @@ fn wrap_fs_error(err: fs.Error) BufferError {
     return .{ Fs: err };
 }
 
-pub.. fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
-    let exists = fs.exists(alloc, path)
+pub.. fn open_path(alloc: &mut Allocator, path: &[u8]) TextBuffer!BufferError {
+    let exists = path.path().exists(alloc)
         .map_err(wrap_fs_error).!;
     if (exists) {
         return buffer.open(alloc, path);
@@ -186,7 +186,7 @@ pub.. fn open_path(alloc: *mut Allocator, path: []u8) TextBuffer!BufferError {
 }
 
 /// The modal editor core plus split tree, prompt state, and temporary output pane.
-pub.. type Editor = struct {
+pub.. struct Editor {
     pub buffers: List[BufferSlot] = List[BufferSlot].{},
     pub windows: List[WindowState] = List[WindowState].{},
     pub first_free_window: ?usize = .None,
@@ -228,7 +228,7 @@ pub.. type Editor = struct {
     pub wants_quit: bool = false,
 };
 
-fn editor_with_buffer(alloc: *mut Allocator, text_buffer: TextBuffer) Editor!BufferError {
+fn editor_with_buffer(alloc: &mut Allocator, text_buffer: TextBuffer) Editor!BufferError {
     let mut editor = Editor.{};
     if (!editor.layout_nodes..&.push(alloc, .{ window_index: 0 })) {
         return .{ Err: .OutOfMemory };
@@ -248,20 +248,20 @@ fn editor_with_buffer(alloc: *mut Allocator, text_buffer: TextBuffer) Editor!Buf
 }
 
 /// Creates a new unnamed editor.
-pub.. fn empty(alloc: *mut Allocator) Editor!BufferError {
+pub.. fn empty(alloc: &mut Allocator) Editor!BufferError {
     let text_buffer = buffer.empty(alloc, "").!;
     return editor_with_buffer(alloc, text_buffer);
 }
 
 /// Opens one path into an editor, creating a new named buffer when absent.
-pub.. fn open(alloc: *mut Allocator, path: []u8) Editor!BufferError {
+pub.. fn open(alloc: &mut Allocator, path: &[u8]) Editor!BufferError {
     let text_buffer = open_path(alloc, path).!;
     return editor_with_buffer(alloc, text_buffer);
 }
 
-impl *mut Editor {
+impl &mut Editor {
     /// Releases the full editor state.
-    pub fn deinit(alloc: *mut Allocator) void {
+    pub fn deinit(alloc: &mut Allocator) void {
         let buffers = self.buffers..&.as_mut_slice();
         let mut i = usize.{0};
         while (i < #buffers) {

@@ -7,7 +7,7 @@ use ..{
     Value,
 };
 
-pub/ type ParsedSpan = struct {
+pub/ struct ParsedSpan {
     pub kind: Kind,
     pub next: usize,
 };
@@ -21,7 +21,7 @@ fn first_non_digit_mask_bits(chunk: u8x16) usize {
 }
 
 #[inline]
-pub/ fn skip_ws(text: []u8, start: usize) usize {
+pub/ fn skip_ws(text: &[u8], start: usize) usize {
     let len = #text;
     let mut index = start;
 
@@ -98,7 +98,7 @@ fn is_hex_digit(byte: u8) bool {
 }
 
 #[inline]
-fn scan_digits(text: []u8, start: usize) usize {
+fn scan_digits(text: &[u8], start: usize) usize {
     let len = #text;
     let mut index = start;
 
@@ -125,23 +125,23 @@ fn scan_digits(text: []u8, start: usize) usize {
     return index;
 }
 
-pub/ fn slice_string_text(raw: []u8) []u8 {
+pub/ fn slice_string_text(raw: &[u8]) &[u8] {
     if (#raw < 2) {
         return "";
     }
-    return raw.[1 .. #raw - 1];
+    return raw.&[1 .. #raw - 1];
 }
 
 pub/ fn parse_literal(
-    text: []u8,
+    text: &[u8],
     start: usize,
-    literal: []u8,
+    literal: &[u8],
     kind: Kind,
 ) ParsedSpan!ParseError {
     if (start + #literal > #text) {
         return .{ Err: ParseError.UnexpectedEof };
     }
-    if (text.[start .. start + #literal] != literal) {
+    if (text.&[start .. start + #literal] != literal) {
         return .{ Err: .{ InvalidLiteral: start } };
     }
     return .{ Ok: ParsedSpan.{
@@ -150,7 +150,7 @@ pub/ fn parse_literal(
     } };
 }
 
-pub/ fn parse_string_end(text: []u8, start: usize) usize!ParseError {
+pub/ fn parse_string_end(text: &[u8], start: usize) usize!ParseError {
     let mut index = start + 1;
     while (index < #text) {
         let byte = text.[index];
@@ -200,7 +200,7 @@ pub/ fn parse_string_end(text: []u8, start: usize) usize!ParseError {
     return .{ Err: .{ UnterminatedString: start } };
 }
 
-pub/ fn parse_number_end(text: []u8, start: usize) usize!ParseError {
+pub/ fn parse_number_end(text: &[u8], start: usize) usize!ParseError {
     let len = #text;
     let mut index = start;
     if (text.[index] == b'-') {
@@ -256,7 +256,7 @@ pub/ fn parse_number_end(text: []u8, start: usize) usize!ParseError {
     return .{ Ok: index };
 }
 
-fn parse_array_end(text: []u8, start: usize) usize!ParseError {
+fn parse_array_end(text: &[u8], start: usize) usize!ParseError {
     let mut index = skip_ws(text, start + 1);
     if (index >= #text) {
         return .{ Err: ParseError.UnexpectedEof };
@@ -288,7 +288,7 @@ fn parse_array_end(text: []u8, start: usize) usize!ParseError {
     }
 }
 
-fn parse_object_end(text: []u8, start: usize) usize!ParseError {
+fn parse_object_end(text: &[u8], start: usize) usize!ParseError {
     let mut index = skip_ws(text, start + 1);
     if (index >= #text) {
         return .{ Err: ParseError.UnexpectedEof };
@@ -339,7 +339,7 @@ fn parse_object_end(text: []u8, start: usize) usize!ParseError {
     }
 }
 
-pub/ fn parse_value_span_from_value_start(text: []u8, index: usize) ParsedSpan!ParseError {
+pub/ fn parse_value_span_from_value_start(text: &[u8], index: usize) ParsedSpan!ParseError {
     if (index >= #text) {
         return .{ Err: ParseError.UnexpectedEof };
     }
@@ -390,7 +390,7 @@ pub/ fn parse_value_span_from_value_start(text: []u8, index: usize) ParsedSpan!P
     };
 }
 
-pub/ fn parse_value_span(text: []u8, start: usize) ParsedSpan!ParseError {
+pub/ fn parse_value_span(text: &[u8], start: usize) ParsedSpan!ParseError {
     let index = skip_ws(text, start);
     if (index >= #text) {
         return if (start == 0) {
@@ -402,14 +402,14 @@ pub/ fn parse_value_span(text: []u8, start: usize) ParsedSpan!ParseError {
     return parse_value_span_from_value_start(text, index);
 }
 
-pub/ fn validate(text: []u8) void!ParseError {
+pub/ fn validate(text: &[u8]) void!ParseError {
     let .{ Ok: _ } = parse(text) else {
         .{ Err: err } => return .{ Err: err },
     };
     return .{ Ok: {} };
 }
 
-pub/ fn parse_prefix(text: []u8) ParsedPrefix!ParseError {
+pub/ fn parse_prefix(text: &[u8]) ParsedPrefix!ParseError {
     let start = skip_ws(text, 0);
     if (start >= #text) {
         return .{ Err: .EmptyInput };
@@ -421,17 +421,17 @@ pub/ fn parse_prefix(text: []u8) ParsedPrefix!ParseError {
     return .{ Ok: ParsedPrefix.{
         value: Value.{
             kind: span.kind,
-            raw: text.[start .. span.next],
+            raw: text.&[start .. span.next],
         },
-        remaining: text.[span.next .. #text],
+        remaining: text.&[span.next .. #text],
     } };
 }
 
-pub/ fn parse_value(text: []u8) ParsedValue!ParseError {
+pub/ fn parse_value(text: &[u8]) ParsedValue!ParseError {
     return parse_prefix(text);
 }
 
-pub/ fn parse(text: []u8) Value!ParseError {
+pub/ fn parse(text: &[u8]) Value!ParseError {
     let .{ Ok: parsed } = parse_prefix(text)
         else {
             .{ Err: err } => return .{ Err: err },
@@ -458,7 +458,7 @@ pub/ fn error_offset(err: ParseError) ?usize {
     };
 }
 
-pub/ fn locate_error(text: []u8, err: ParseError) ?ErrorLocation {
+pub/ fn locate_error(text: &[u8], err: ParseError) ?ErrorLocation {
     let offset =
         match (err) {
             .UnexpectedEof => #text,

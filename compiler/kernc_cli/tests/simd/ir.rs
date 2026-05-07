@@ -82,7 +82,7 @@ fn main() i32 {
 fn emits_ir_for_simd_abs_min_and_max() {
     let output = emit_llvm_ir(
         r#"
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let a = i32x4.{ argc, argc - 1, 0 - argc, 7 };
     let b = i32x4.{ 3, 7, 0 - 5, argc };
     let base = argc as f32;
@@ -136,7 +136,7 @@ fn main(argc: i32, argv: **u8) i32 {
 fn emits_ir_for_simd_clamp() {
     let output = emit_llvm_ir(
         r#"
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let ints = @simdClamp(
         i32x4.{ argc, argc - 1, 9, 5 },
         i32x4.{ 0 - 3, 3, 0, 4 },
@@ -182,7 +182,7 @@ fn main(argc: i32, argv: **u8) i32 {
 fn emits_ir_for_simd_float_math_intrinsics() {
     let output = emit_llvm_ir(
         r#"
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let base = argc as f32;
     let roots = @simdSqrt(f32x4.{ base + 1.0, base + 4.0, base + 9.0, base + 16.0 });
     let floors = @simdFloor(f32x4.{ base + 1.9, 0.0 - base, 2.0, -0.0 });
@@ -238,7 +238,7 @@ fn main(argc: i32, argv: **u8) i32 {
 fn emits_ir_for_simd_rearrangement_helpers() {
     let output = emit_llvm_ir(
         r#"
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let v = i32x4.{ argc, argc + 1, argc + 2, argc + 3 };
     let swz = @simdSwizzle(v, [4]u32.{ 3, 0, 2, 1 });
     let rev = @simdReverse(v);

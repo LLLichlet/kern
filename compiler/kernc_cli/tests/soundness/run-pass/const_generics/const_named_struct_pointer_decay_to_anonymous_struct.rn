@@ -2,11 +2,11 @@
 // source: named struct pointers should decay to equivalent anonymous struct pointers after const substitution
 // exit: 0
 
-type Buf[N: usize] = struct {
+struct Buf[N: usize] {
     data: [N]u8,
 };
 
-fn first(ptr: *struct { data: [4]u8 }) i32 {
+fn first(ptr: &struct { data: [4]u8 }) i32 {
     return ptr.data.[0] as i32;
 }
 

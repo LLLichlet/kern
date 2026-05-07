@@ -4,14 +4,14 @@ use super::*;
 fn runs_hosted_program_using_std_coll_tree() {
     let output = build_and_run_hosted(
         r#"
-use base.coll.Tree;
+use base.coll.{Tree, tree};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let map = Tree[i32, i32].{}..&;
+    let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
     let mut lazy_calls = i32.{0};
 
@@ -28,10 +28,10 @@ fn main() i32 {
         return 2;
     }
 
-    if (!map.get(7).is_some_and(.[](value: i32) bool { return value == 99; })) {
+    if (!map.get(7).is_some_and([](value: i32) bool { return value == 99; })) {
         return 3;
     }
-    if (!map.get(31).is_some_and(.[](value: i32) bool { return value == 62; })) {
+    if (!map.get(31).is_some_and([](value: i32) bool { return value == 62; })) {
         return 4;
     }
 
@@ -40,11 +40,11 @@ fn main() i32 {
         .None => return 5,
     };
     value_ptr.* = 123;
-    if (!map.get(7).is_some_and(.[](value: i32) bool { return value == 123; })) {
+    if (!map.get(7).is_some_and([](value: i32) bool { return value == 123; })) {
         return 6;
     }
 
-    let existing = match (map.get_or_insert_with(gpa, 7, .[calls = lazy_calls..&]() i32 {
+    let existing = match (map.get_or_insert_with(gpa, 7, [calls = lazy_calls..&]() i32 {
         calls.* += 1;
         return 700;
     })) {
@@ -66,7 +66,7 @@ fn main() i32 {
         return 11;
     }
 
-    let lazy_inserted = match (map.get_or_insert_with(gpa, 200, .[calls = lazy_calls..&]() i32 {
+    let lazy_inserted = match (map.get_or_insert_with(gpa, 200, [calls = lazy_calls..&]() i32 {
         calls.* += 1;
         return 900;
     })) {
@@ -104,12 +104,12 @@ fn main() i32 {
 fn runs_hosted_program_using_custom_ord_tree_key() {
     let output = build_and_run_hosted(
         r#"
-use base.coll.Tree;
+use base.coll.{Tree, tree};
 use base.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
-type Key = struct {
+struct Key {
     major: i32,
     minor: i32,
 };
@@ -135,7 +135,7 @@ impl Key : Ord[Key] {}
 fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let map = Tree[Key, i32].{}..&;
+    let map = tree[Key, i32]()..&;
     defer map.deinit(gpa);
 
     if (!map.insert(gpa, Key.{ major: 1, minor: 0 }, 10)) {
@@ -151,10 +151,10 @@ fn main() i32 {
         return 4;
     }
 
-    if (!map.get(Key.{ major: 1, minor: 0 }).is_some_and(.[](value: i32) bool { return value == 99; })) {
+    if (!map.get(Key.{ major: 1, minor: 0 }).is_some_and([](value: i32) bool { return value == 99; })) {
         return 5;
     }
-    if (!map.get(Key.{ major: 0, minor: 8 }).is_some_and(.[](value: i32) bool { return value == 8; })) {
+    if (!map.get(Key.{ major: 0, minor: 8 }).is_some_and([](value: i32) bool { return value == 8; })) {
         return 6;
     }
     if (map.contains(Key.{ major: 2, minor: 0 })) {
@@ -181,14 +181,14 @@ fn main() i32 {
 fn rejects_tree_key_without_ord() {
     let output = compile_source_with_std(
         r#"
-use base.coll.Tree;
+use base.coll.{Tree, tree};
 
-type Key = struct {
+struct Key {
     raw: i32,
 };
 
 fn main() i32 {
-    let map = Tree[Key, i32].{}..&;
+    let map = tree[Key, i32]()..&;
     let _ = map;
     return 0;
 }
@@ -214,14 +214,14 @@ fn main() i32 {
 fn runs_hosted_program_using_tree_ordered_traversal_helpers() {
     let output = build_and_run_hosted(
         r#"
-use base.coll.{Tree, String};
+use base.coll.{Tree, tree, String, string};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let map = Tree[i32, i32].{}..&;
+    let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
 
     if (!map.insert(gpa, 3, 30)) return 1;
@@ -229,31 +229,31 @@ fn main() i32 {
     if (!map.insert(gpa, 4, 40)) return 3;
     if (!map.insert(gpa, 2, 20)) return 4;
 
-    let order = String.{}..&;
+    let order = string()..&;
     defer order.deinit(gpa);
-    map.for_each(.[order, gpa](key: i32, _: i32) void {
+    map.for_each([order, gpa](key: i32, _: i32) void {
         let _ = order.push_char(gpa, (key as u8) + b'0');
     });
     if (order != "1234") {
         return 5;
     }
 
-    let weighted = map.fold(i32.{0}, .[](accum: i32, key: i32, value: i32) i32 {
+    let weighted = map.fold(i32.{0}, [](accum: i32, key: i32, value: i32) i32 {
         return accum + key * value;
     });
     if (weighted != 300) {
         return 6;
     }
 
-    map.for_each_mut(.[](key: i32, value: *mut i32) void {
+    map.for_each_mut([](key: i32, value: &mut i32) void {
         value.* += key;
     });
-    if (!map.get(1).is_some_and(.[](value: i32) bool { return value == 11; })) return 7;
-    if (!map.get(2).is_some_and(.[](value: i32) bool { return value == 22; })) return 8;
-    if (!map.get(3).is_some_and(.[](value: i32) bool { return value == 33; })) return 9;
-    if (!map.get(4).is_some_and(.[](value: i32) bool { return value == 44; })) return 10;
+    if (!map.get(1).is_some_and([](value: i32) bool { return value == 11; })) return 7;
+    if (!map.get(2).is_some_and([](value: i32) bool { return value == 22; })) return 8;
+    if (!map.get(3).is_some_and([](value: i32) bool { return value == 33; })) return 9;
+    if (!map.get(4).is_some_and([](value: i32) bool { return value == 44; })) return 10;
 
-    let updated = map.fold(i32.{0}, .[](accum: i32, key: i32, value: i32) i32 {
+    let updated = map.fold(i32.{0}, [](accum: i32, key: i32, value: i32) i32 {
         return accum + key + value;
     });
     if (updated != 120) {
@@ -277,14 +277,14 @@ fn main() i32 {
 fn runs_hosted_program_using_tree_boundary_queries() {
     let output = build_and_run_hosted(
         r#"
-use base.coll.Tree;
+use base.coll.{Tree, tree};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let map = Tree[i32, i32].{}..&;
+    let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
 
     if (!map.insert(gpa, 10, 100)) return 1;
@@ -292,21 +292,21 @@ fn main() i32 {
     if (!map.insert(gpa, 20, 200)) return 3;
     if (!map.insert(gpa, 40, 400)) return 4;
 
-    if (!map.first_key().is_some_and(.[](key: i32) bool { return key == 10; })) return 5;
-    if (!map.first().is_some_and(.[](value: i32) bool { return value == 100; })) return 6;
-    if (!map.last_key().is_some_and(.[](key: i32) bool { return key == 40; })) return 7;
-    if (!map.last().is_some_and(.[](value: i32) bool { return value == 400; })) return 8;
+    if (!map.first_key().is_some_and([](key: i32) bool { return key == 10; })) return 5;
+    if (!map.first().is_some_and([](value: i32) bool { return value == 100; })) return 6;
+    if (!map.last_key().is_some_and([](key: i32) bool { return key == 40; })) return 7;
+    if (!map.last().is_some_and([](value: i32) bool { return value == 400; })) return 8;
 
-    if (!map.ceil_key(5).is_some_and(.[](key: i32) bool { return key == 10; })) return 9;
-    if (!map.ceil(10).is_some_and(.[](value: i32) bool { return value == 100; })) return 10;
-    if (!map.ceil_key(21).is_some_and(.[](key: i32) bool { return key == 30; })) return 11;
-    if (!map.ceil(39).is_some_and(.[](value: i32) bool { return value == 400; })) return 12;
+    if (!map.ceil_key(5).is_some_and([](key: i32) bool { return key == 10; })) return 9;
+    if (!map.ceil(10).is_some_and([](value: i32) bool { return value == 100; })) return 10;
+    if (!map.ceil_key(21).is_some_and([](key: i32) bool { return key == 30; })) return 11;
+    if (!map.ceil(39).is_some_and([](value: i32) bool { return value == 400; })) return 12;
     if (map.ceil_key(41).is_some()) return 13;
 
     if (map.floor_key(9).is_some()) return 14;
-    if (!map.floor_key(10).is_some_and(.[](key: i32) bool { return key == 10; })) return 15;
-    if (!map.floor(29).is_some_and(.[](value: i32) bool { return value == 200; })) return 16;
-    if (!map.floor_key(40).is_some_and(.[](key: i32) bool { return key == 40; })) return 17;
+    if (!map.floor_key(10).is_some_and([](key: i32) bool { return key == 10; })) return 15;
+    if (!map.floor(29).is_some_and([](value: i32) bool { return value == 200; })) return 16;
+    if (!map.floor_key(40).is_some_and([](key: i32) bool { return key == 40; })) return 17;
 
     let first = match (map.first_ptr()) {
         .{ Some: ptr } => ptr,
@@ -329,12 +329,12 @@ fn main() i32 {
     };
     floor_mid.* += 4;
 
-    if (!map.get(10).is_some_and(.[](value: i32) bool { return value == 101; })) return 22;
-    if (!map.get(20).is_some_and(.[](value: i32) bool { return value == 204; })) return 23;
-    if (!map.get(30).is_some_and(.[](value: i32) bool { return value == 303; })) return 24;
-    if (!map.get(40).is_some_and(.[](value: i32) bool { return value == 402; })) return 25;
+    if (!map.get(10).is_some_and([](value: i32) bool { return value == 101; })) return 22;
+    if (!map.get(20).is_some_and([](value: i32) bool { return value == 204; })) return 23;
+    if (!map.get(30).is_some_and([](value: i32) bool { return value == 303; })) return 24;
+    if (!map.get(40).is_some_and([](value: i32) bool { return value == 402; })) return 25;
 
-    let empty = Tree[i32, i32].{}..&;
+    let empty = tree[i32, i32]()..&;
     defer empty.deinit(gpa);
     if (empty.first().is_some()) return 26;
     if (empty.last().is_some()) return 27;
@@ -358,14 +358,14 @@ fn main() i32 {
 fn runs_hosted_program_using_tree_remove() {
     let output = build_and_run_hosted(
         r#"
-use base.coll.{Tree, String};
+use base.coll.{Tree, tree, String, string};
 use base.mem.alloc.GPA;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
-    let map = Tree[i32, i32].{}..&;
+    let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
 
     let mut i = i32.{1};
@@ -407,15 +407,15 @@ fn main() i32 {
         return 9;
     }
 
-    if (!map.first_key().is_some_and(.[](key: i32) bool { return key == 2; })) return 10;
-    if (!map.last_key().is_some_and(.[](key: i32) bool { return key == 39; })) return 11;
-    if (!map.ceil_key(20).is_some_and(.[](key: i32) bool { return key == 21; })) return 12;
-    if (!map.floor_key(20).is_some_and(.[](key: i32) bool { return key == 19; })) return 13;
+    if (!map.first_key().is_some_and([](key: i32) bool { return key == 2; })) return 10;
+    if (!map.last_key().is_some_and([](key: i32) bool { return key == 39; })) return 11;
+    if (!map.ceil_key(20).is_some_and([](key: i32) bool { return key == 21; })) return 12;
+    if (!map.floor_key(20).is_some_and([](key: i32) bool { return key == 19; })) return 13;
 
     let mut count = i32.{0};
-    let mut ordered = String.{}..&;
+    let mut ordered = string()..&;
     defer ordered.deinit(gpa);
-    map.for_each(.[count = count..&, ordered, gpa](key: i32, _: i32) void {
+    map.for_each([count = count..&, ordered, gpa](key: i32, _: i32) void {
         count.* += 1;
         if (key >= 2 and key <= 9) {
             let _ = ordered.push_char(gpa, (key as u8) + b'0');
@@ -425,14 +425,14 @@ fn main() i32 {
         return 14;
     }
 
-    let small = Tree[i32, i32].{}..&;
+    let small = tree[i32, i32]()..&;
     defer small.deinit(gpa);
     if (!small.insert(gpa, 2, 20)) return 15;
     if (!small.insert(gpa, 1, 10)) return 16;
     if (!small.insert(gpa, 3, 30)) return 17;
-    if (!small.remove(gpa, 2).is_some_and(.[](value: i32) bool { return value == 20; })) return 18;
-    if (!small.remove(gpa, 1).is_some_and(.[](value: i32) bool { return value == 10; })) return 19;
-    if (!small.remove(gpa, 3).is_some_and(.[](value: i32) bool { return value == 30; })) return 20;
+    if (!small.remove(gpa, 2).is_some_and([](value: i32) bool { return value == 20; })) return 18;
+    if (!small.remove(gpa, 1).is_some_and([](value: i32) bool { return value == 10; })) return 19;
+    if (!small.remove(gpa, 3).is_some_and([](value: i32) bool { return value == 30; })) return 20;
     if (!small.is_empty()) return 21;
     if (small.first().is_some()) return 22;
     if (small.last().is_some()) return 23;

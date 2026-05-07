@@ -4,11 +4,11 @@
 // stderr: globally coherent
 // stderr: associated type projection ambiguous
 
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
-type Proof[L, R] = struct {};
+struct Proof[L, R] {};
 
 impl[L, R] Proof[L, R]: TypeIs[L] {
     type Is = L;

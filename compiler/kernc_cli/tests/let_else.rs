@@ -14,7 +14,7 @@ fn build_and_run_source(source: &str) -> Output {
 fn compiles_typed_variant_let_else_and_binds_payload() {
     let output = build_and_run_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -43,7 +43,7 @@ fn main() i32 {
 fn compiles_const_fn_using_let_else() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -73,7 +73,7 @@ fn main() i32 {
 fn rejects_unbraced_let_variant_payload_pattern() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -103,7 +103,7 @@ fn main() i32 {
 fn rejects_unbraced_match_variant_payload_pattern() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -135,7 +135,7 @@ fn main() i32 {
 fn rejects_refutable_let_without_else() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -190,7 +190,7 @@ fn main() i32 {
 fn rejects_non_diverging_let_else_branch() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -220,7 +220,7 @@ fn main() i32 {
 fn compiles_let_else_with_if_expression_failure_branch() {
     let output = build_and_run_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -249,7 +249,7 @@ fn main() i32 {
 fn compiles_let_else_with_failure_arm_block() {
     let output = build_and_run_source(
         r#"
-type Result[T, E] = enum {
+enum Result[T, E] {
     Ok: T,
     Err: E,
 };
@@ -280,7 +280,7 @@ fn main() i32 {
 fn compiles_const_fn_using_failure_arm_block() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -312,7 +312,7 @@ fn main() i32 {
 fn rejects_non_exhaustive_let_else_arm_block() {
     let output = compile_source(
         r#"
-type Result[T, E] = enum {
+enum Result[T, E] {
     Ok: T,
     Err: E,
     Pending,
@@ -345,7 +345,7 @@ fn main() i32 {
 fn preserves_plain_else_expression_starting_with_identifier() {
     let output = build_and_run_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -378,7 +378,7 @@ fn main() i32 {
 fn preserves_outer_binding_after_nested_let_else_shadowing() {
     let output = build_and_run_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -411,7 +411,7 @@ fn main() i32 {
 fn let_else_shadowing_does_not_capture_its_own_uninitialized_binding() {
     let output = build_and_run_source(
         r#"
-type Result[T, E] = enum {
+enum Result[T, E] {
     Ok: T,
     Err: E,
 };
@@ -449,7 +449,7 @@ fn main() i32 {
 fn compiles_nested_let_else_inside_failure_branch_block() {
     let output = build_and_run_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -487,7 +487,7 @@ fn main() i32 {
 fn compiles_nested_let_else_arm_blocks() {
     let output = build_and_run_source(
         r#"
-type Result[T, E] = enum {
+enum Result[T, E] {
     Ok: T,
     Err: E,
 };

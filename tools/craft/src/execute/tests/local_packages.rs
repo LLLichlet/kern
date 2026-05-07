@@ -9,7 +9,7 @@ fn release_build_dead_strips_unused_std_sections() {
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "hello"
@@ -24,7 +24,7 @@ root = "src/main.rn"
 use std.io;
 
 fn main() i32 {
-    io.println("hello", .{});
+    "hello".println();
     return 0;
 }
 "#,
@@ -116,7 +116,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -147,7 +147,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [lib]
 root = "src/lib.rn"
@@ -229,7 +229,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -267,7 +267,7 @@ fn main() i32 {
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [lib]
 root = "src/lib.rn"
@@ -278,7 +278,7 @@ root = "src/lib.rn"
     fs::write(
         util_dir.join("src/lib.rn"),
         r#"
-pub type Color = struct {
+pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
@@ -347,7 +347,7 @@ fn builds_and_runs_package_with_resource_c_source() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -363,7 +363,7 @@ native = { path = "vendor/native" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     let obj = b.cc_resource_config("native", "src/add.c", .{
         include_dirs: .{"src"},
         defines: .{},
@@ -446,7 +446,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -477,7 +477,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [lib]
 root = "src/lib.rn"
@@ -535,7 +535,7 @@ fn builds_library_package_with_runtime_section_without_requiring_main() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "rt"
@@ -600,7 +600,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -631,7 +631,7 @@ return 1;
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [lib]
 root = "src/lib.rn"
@@ -644,7 +644,7 @@ root = "src/lib.rn"
         r#"
 use base.coll;
 
-pub fn is_truthy(value: []u8) bool {
+pub fn is_truthy(value: &[u8]) bool {
 return value == "true";
 }
 "#,

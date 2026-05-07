@@ -19,47 +19,47 @@ use ..{
 };
 use ..owned.clone_owned_value_in_arena;
 
-type OwnedDocumentState = struct {
+struct OwnedDocumentState {
     page: Page,
     arena: Arena,
     root: OwnedValue,
 };
 
-type IndexedObjectDocumentState = struct {
+struct IndexedObjectDocumentState {
     page: Page,
     arena: Arena,
     root: OwnedValue,
     index: IndexedObjectView,
 };
 
-pub/ type OwnedDocument = struct {
-    state: ?*mut OwnedDocumentState = .None,
+pub/ struct OwnedDocument {
+    state: ?&mut OwnedDocumentState = .None,
 };
 
-pub/ type IndexedObjectDocument = struct {
-    state: ?*mut IndexedObjectDocumentState = .None,
+pub/ struct IndexedObjectDocument {
+    state: ?&mut IndexedObjectDocumentState = .None,
 };
 
-pub/ type DocumentValue = struct {
-    value: ?*mut OwnedValue = .None,
+pub/ struct DocumentValue {
+    value: ?&mut OwnedValue = .None,
 };
 
-pub/ type IndexedDocumentView = struct {
-    view: ?*IndexedObjectView = .None,
+pub/ struct IndexedDocumentView {
+    view: ?&IndexedObjectView = .None,
 };
 
-pub/ type DocumentValueMut = struct {
-    value: ?*mut OwnedValue = .None,
-    state: ?*mut OwnedDocumentState = .None,
+pub/ struct DocumentValueMut {
+    value: ?&mut OwnedValue = .None,
+    state: ?&mut OwnedDocumentState = .None,
 };
 
-pub/ type DocumentObjectEntryRef = struct {
-    pub key: []u8 = "",
+pub/ struct DocumentObjectEntryRef {
+    pub key: &[u8] = "",
     pub value: DocumentValue = DocumentValue.{},
 };
 
-pub/ type DocumentObjectEntry = struct {
-    pub key: []u8 = "",
+pub/ struct DocumentObjectEntry {
+    pub key: &[u8] = "",
     pub value: DocumentValueMut = DocumentValueMut.{},
 };
 
@@ -78,56 +78,56 @@ fn document_arena_chunk_size(input_len: usize) usize {
     return if (grown > min) grown else min;
 }
 
-fn require_owned_document_state(state: ?*mut OwnedDocumentState) *mut OwnedDocumentState {
+fn require_owned_document_state(state: ?&mut OwnedDocumentState) &mut OwnedDocumentState {
     let .{ Some: state } = state else @trap();
     return state;
 }
 
 fn require_indexed_object_document_state(
-    state: ?*mut IndexedObjectDocumentState,
-) *mut IndexedObjectDocumentState {
+    state: ?&mut IndexedObjectDocumentState,
+) &mut IndexedObjectDocumentState {
     let .{ Some: state } = state else @trap();
     return state;
 }
 
-fn require_document_value_ptr(value: ?*mut OwnedValue) *mut OwnedValue {
+fn require_document_value_ptr(value: ?&mut OwnedValue) &mut OwnedValue {
     let .{ Some: value } = value else @trap();
     return value;
 }
 
-fn require_indexed_document_view_ptr(view: ?*IndexedObjectView) *IndexedObjectView {
+fn require_indexed_document_view_ptr(view: ?&IndexedObjectView) &IndexedObjectView {
     let .{ Some: view } = view else @trap();
     return view;
 }
 
-fn wrap_document_value(value: *mut OwnedValue) DocumentValue {
+fn wrap_document_value(value: &mut OwnedValue) DocumentValue {
     return DocumentValue.{ value: .{ Some: value } };
 }
 
 fn wrap_document_value_option(
-    value: ?*mut OwnedValue,
+    value: ?&mut OwnedValue,
 ) ?DocumentValue {
     let .{ Some: value } = value else return .None;
     return .{ Some: wrap_document_value(value) };
 }
 
 fn wrap_document_value_mut(
-    state: *mut OwnedDocumentState,
-    value: *mut OwnedValue,
+    state: &mut OwnedDocumentState,
+    value: &mut OwnedValue,
 ) DocumentValueMut {
     return DocumentValueMut.{ value: .{ Some: value }, state: .{ Some: state } };
 }
 
 fn wrap_document_value_mut_option(
-    state: *mut OwnedDocumentState,
-    value: ?*mut OwnedValue,
+    state: &mut OwnedDocumentState,
+    value: ?&mut OwnedValue,
 ) ?DocumentValueMut {
     let .{ Some: value } = value else return .None;
     return .{ Some: wrap_document_value_mut(state, value) };
 }
 
 fn wrap_document_object_entry(
-    state: *mut OwnedDocumentState,
+    state: &mut OwnedDocumentState,
     entry: OwnedObjectEntry,
 ) DocumentObjectEntry {
     return DocumentObjectEntry.{
@@ -137,7 +137,7 @@ fn wrap_document_object_entry(
 }
 
 fn wrap_document_object_entry_option(
-    state: *mut OwnedDocumentState,
+    state: &mut OwnedDocumentState,
     entry: ?OwnedObjectEntry,
 ) ?DocumentObjectEntry {
     let .{ Some: entry } = entry else return .None;
@@ -161,7 +161,7 @@ fn wrap_document_object_entry_ref_option(
 }
 
 fn wrap_indexed_document_view(
-    view: *IndexedObjectView,
+    view: &IndexedObjectView,
 ) IndexedDocumentView {
     return IndexedDocumentView.{ view: .{ Some: view } };
 }
@@ -172,7 +172,7 @@ pub/ fn clone_owned_document(
     let page = Page.{}..&;
     let layout = layout_of[OwnedDocumentState]();
     let raw = page.alloc(layout).ok_or(MaterializeError.OutOfMemory).!;
-    let state = raw as *mut OwnedDocumentState;
+    let state = raw as &mut OwnedDocumentState;
     state.page = Page.{};
     state.arena = Arena.{ backing: state.page..& };
     let chunk_size = document_arena_chunk_size(#value.raw);
@@ -198,7 +198,7 @@ pub/ fn clone_indexed_object_document(
     let layout = layout_of[IndexedObjectDocumentState]();
     let raw = page.alloc(layout)
         .ok_or(IndexedObjectDocumentError.{ Materialize: MaterializeError.OutOfMemory }).!;
-    let state = raw as *mut IndexedObjectDocumentState;
+    let state = raw as &mut IndexedObjectDocumentState;
     state.page = Page.{};
     state.arena = Arena.{ backing: state.page..& };
     let chunk_size = document_arena_chunk_size(#value.raw);
@@ -230,14 +230,14 @@ pub/ fn clone_indexed_object_document(
     return .{ Ok: IndexedObjectDocument.{ state: .{ Some: state } } };
 }
 
-impl *OwnedDocument {
+impl &OwnedDocument {
     pub fn root() DocumentValue {
         let state = require_owned_document_state(self.*.state);
         return wrap_document_value(state.root..&);
     }
 }
 
-impl *IndexedObjectDocument {
+impl &IndexedObjectDocument {
     pub fn root() DocumentValue {
         let state = require_indexed_object_document_state(self.*.state);
         return wrap_document_value(state.root..&);
@@ -249,7 +249,7 @@ impl *IndexedObjectDocument {
     }
 }
 
-impl *mut OwnedDocument {
+impl &mut OwnedDocument {
     pub fn root_mut() DocumentValueMut {
         let state = require_owned_document_state(self.*.state);
         return wrap_document_value_mut(state, state.root..&);
@@ -260,13 +260,13 @@ impl *mut OwnedDocument {
         let page = Page.{}..&;
         let layout = layout_of[OwnedDocumentState]();
         state.arena..&.deinit();
-        page.free(state as *mut u8, layout);
+        page.free(state as &mut u8, layout);
         self.* = OwnedDocument.{};
     }
 }
 
 impl DocumentValue {
-    fn value_ptr() *mut OwnedValue {
+    fn value_ptr() &mut OwnedValue {
         return require_document_value_ptr(self.value);
     }
 
@@ -302,11 +302,11 @@ impl DocumentValue {
         return self.value_ptr().bool_value();
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         return self.value_ptr().number_text();
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         return self.value_ptr().string_text();
     }
 
@@ -370,19 +370,19 @@ impl DocumentValue {
         return wrap_document_value_option(self.value_ptr().get_index(index));
     }
 
-    pub fn get_field(name: []u8) ?DocumentObjectEntryRef {
+    pub fn get_field(name: &[u8]) ?DocumentObjectEntryRef {
         return wrap_document_object_entry_ref_option(self.value_ptr().get_field(name));
     }
 
-    pub fn get_last_field(name: []u8) ?DocumentObjectEntryRef {
+    pub fn get_last_field(name: &[u8]) ?DocumentObjectEntryRef {
         return wrap_document_object_entry_ref_option(self.value_ptr().get_last_field(name));
     }
 
-    pub fn count_fields(name: []u8) ?usize {
+    pub fn count_fields(name: &[u8]) ?usize {
         return self.value_ptr().count_fields(name);
     }
 
-    pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntryRef) ?usize {
+    pub fn collect_fields(name: &[u8], out: &mut [DocumentObjectEntryRef]) ?usize {
         let .{ Object: object } = self.value_ptr().* else return .None;
         let mut total = usize.{0};
         let mut i = usize.{0};
@@ -401,79 +401,79 @@ impl DocumentValue {
         return .{ Some: total };
     }
 
-    pub fn get_bool(name: []u8) ?bool {
+    pub fn get_bool(name: &[u8]) ?bool {
         return self.value_ptr().get_bool(name);
     }
 
-    pub fn get_number_text(name: []u8) ?[]u8 {
+    pub fn get_number_text(name: &[u8]) ?&[u8] {
         return self.value_ptr().get_number_text(name);
     }
 
-    pub fn get_string(name: []u8) ?[]u8 {
+    pub fn get_string(name: &[u8]) ?&[u8] {
         return self.value_ptr().get_string(name);
     }
 
-    pub fn get_array(name: []u8) ?DocumentValue {
+    pub fn get_array(name: &[u8]) ?DocumentValue {
         return wrap_document_value_option(self.value_ptr().get_array(name));
     }
 
-    pub fn get_object(name: []u8) ?DocumentValue {
+    pub fn get_object(name: &[u8]) ?DocumentValue {
         return wrap_document_value_option(self.value_ptr().get_object(name));
     }
 
-    pub fn get_u64(name: []u8) ?u64!NumberDecodeError {
+    pub fn get_u64(name: &[u8]) ?u64!NumberDecodeError {
         return self.value_ptr().get_u64(name);
     }
 
-    pub fn get_u32(name: []u8) ?u32!NumberDecodeError {
+    pub fn get_u32(name: &[u8]) ?u32!NumberDecodeError {
         return self.value_ptr().get_u32(name);
     }
 
-    pub fn get_u16(name: []u8) ?u16!NumberDecodeError {
+    pub fn get_u16(name: &[u8]) ?u16!NumberDecodeError {
         return self.value_ptr().get_u16(name);
     }
 
-    pub fn get_u8(name: []u8) ?u8!NumberDecodeError {
+    pub fn get_u8(name: &[u8]) ?u8!NumberDecodeError {
         return self.value_ptr().get_u8(name);
     }
 
-    pub fn get_i64(name: []u8) ?i64!NumberDecodeError {
+    pub fn get_i64(name: &[u8]) ?i64!NumberDecodeError {
         return self.value_ptr().get_i64(name);
     }
 
-    pub fn get_i32(name: []u8) ?i32!NumberDecodeError {
+    pub fn get_i32(name: &[u8]) ?i32!NumberDecodeError {
         return self.value_ptr().get_i32(name);
     }
 
-    pub fn get_i16(name: []u8) ?i16!NumberDecodeError {
+    pub fn get_i16(name: &[u8]) ?i16!NumberDecodeError {
         return self.value_ptr().get_i16(name);
     }
 
-    pub fn get_i8(name: []u8) ?i8!NumberDecodeError {
+    pub fn get_i8(name: &[u8]) ?i8!NumberDecodeError {
         return self.value_ptr().get_i8(name);
     }
 
-    pub fn get_usize(name: []u8) ?usize!NumberDecodeError {
+    pub fn get_usize(name: &[u8]) ?usize!NumberDecodeError {
         return self.value_ptr().get_usize(name);
     }
 
-    pub fn get_isize(name: []u8) ?isize!NumberDecodeError {
+    pub fn get_isize(name: &[u8]) ?isize!NumberDecodeError {
         return self.value_ptr().get_isize(name);
     }
 
-    pub fn get_f64(name: []u8) ?f64!FloatDecodeError {
+    pub fn get_f64(name: &[u8]) ?f64!FloatDecodeError {
         return self.value_ptr().get_f64(name);
     }
 
-    pub fn get_f32(name: []u8) ?f32!FloatDecodeError {
+    pub fn get_f32(name: &[u8]) ?f32!FloatDecodeError {
         return self.value_ptr().get_f32(name);
     }
 
-    pub fn has_field(name: []u8) bool {
+    pub fn has_field(name: &[u8]) bool {
         return self.value_ptr().has_field(name);
     }
 
-    pub fn require_value(name: []u8) DocumentValue!FieldDecodeError {
+    pub fn require_value(name: &[u8]) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -481,19 +481,19 @@ impl DocumentValue {
         return .{ Ok: wrap_document_value(value) };
     }
 
-    pub fn require_bool(name: []u8) bool!FieldDecodeError {
+    pub fn require_bool(name: &[u8]) bool!FieldDecodeError {
         return self.value_ptr().require_bool(name);
     }
 
-    pub fn require_number_text(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_number_text(name: &[u8]) (&[u8])!FieldDecodeError {
         return self.value_ptr().require_number_text(name);
     }
 
-    pub fn require_string(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_string(name: &[u8]) (&[u8])!FieldDecodeError {
         return self.value_ptr().require_string(name);
     }
 
-    pub fn require_array(name: []u8) DocumentValue!FieldDecodeError {
+    pub fn require_array(name: &[u8]) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_array(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -501,7 +501,7 @@ impl DocumentValue {
         return .{ Ok: wrap_document_value(value) };
     }
 
-    pub fn require_object(name: []u8) DocumentValue!FieldDecodeError {
+    pub fn require_object(name: &[u8]) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_object(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -509,51 +509,51 @@ impl DocumentValue {
         return .{ Ok: wrap_document_value(value) };
     }
 
-    pub fn require_u64(name: []u8) u64!FieldDecodeError {
+    pub fn require_u64(name: &[u8]) u64!FieldDecodeError {
         return self.value_ptr().require_u64(name);
     }
 
-    pub fn require_u32(name: []u8) u32!FieldDecodeError {
+    pub fn require_u32(name: &[u8]) u32!FieldDecodeError {
         return self.value_ptr().require_u32(name);
     }
 
-    pub fn require_u16(name: []u8) u16!FieldDecodeError {
+    pub fn require_u16(name: &[u8]) u16!FieldDecodeError {
         return self.value_ptr().require_u16(name);
     }
 
-    pub fn require_u8(name: []u8) u8!FieldDecodeError {
+    pub fn require_u8(name: &[u8]) u8!FieldDecodeError {
         return self.value_ptr().require_u8(name);
     }
 
-    pub fn require_i64(name: []u8) i64!FieldDecodeError {
+    pub fn require_i64(name: &[u8]) i64!FieldDecodeError {
         return self.value_ptr().require_i64(name);
     }
 
-    pub fn require_i32(name: []u8) i32!FieldDecodeError {
+    pub fn require_i32(name: &[u8]) i32!FieldDecodeError {
         return self.value_ptr().require_i32(name);
     }
 
-    pub fn require_i16(name: []u8) i16!FieldDecodeError {
+    pub fn require_i16(name: &[u8]) i16!FieldDecodeError {
         return self.value_ptr().require_i16(name);
     }
 
-    pub fn require_i8(name: []u8) i8!FieldDecodeError {
+    pub fn require_i8(name: &[u8]) i8!FieldDecodeError {
         return self.value_ptr().require_i8(name);
     }
 
-    pub fn require_usize(name: []u8) usize!FieldDecodeError {
+    pub fn require_usize(name: &[u8]) usize!FieldDecodeError {
         return self.value_ptr().require_usize(name);
     }
 
-    pub fn require_isize(name: []u8) isize!FieldDecodeError {
+    pub fn require_isize(name: &[u8]) isize!FieldDecodeError {
         return self.value_ptr().require_isize(name);
     }
 
-    pub fn require_f64(name: []u8) f64!FieldDecodeError {
+    pub fn require_f64(name: &[u8]) f64!FieldDecodeError {
         return self.value_ptr().require_f64(name);
     }
 
-    pub fn require_f32(name: []u8) f32!FieldDecodeError {
+    pub fn require_f32(name: &[u8]) f32!FieldDecodeError {
         return self.value_ptr().require_f32(name);
     }
 
@@ -561,17 +561,17 @@ impl DocumentValue {
         return self.value_ptr().compact_size();
     }
 
-    pub fn render_compact(out: []mut u8) usize!OwnedRenderError {
+    pub fn render_compact(out: &mut [u8]) usize!OwnedRenderError {
         return self.value_ptr().render_compact(out);
     }
 }
 
 impl DocumentValueMut {
-    fn value_ptr() *mut OwnedValue {
+    fn value_ptr() &mut OwnedValue {
         return require_document_value_ptr(self.value);
     }
 
-    fn state_ptr() *mut OwnedDocumentState {
+    fn state_ptr() &mut OwnedDocumentState {
         return require_owned_document_state(self.state);
     }
 
@@ -611,11 +611,11 @@ impl DocumentValueMut {
         return self.value_ptr().bool_value();
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         return self.value_ptr().number_text();
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         return self.value_ptr().string_text();
     }
 
@@ -679,19 +679,19 @@ impl DocumentValueMut {
         return wrap_document_value_mut_option(self.state_ptr(), self.value_ptr().get_index(index));
     }
 
-    pub fn get_field(name: []u8) ?DocumentObjectEntry {
+    pub fn get_field(name: &[u8]) ?DocumentObjectEntry {
         return wrap_document_object_entry_option(self.state_ptr(), self.value_ptr().get_field(name));
     }
 
-    pub fn get_last_field(name: []u8) ?DocumentObjectEntry {
+    pub fn get_last_field(name: &[u8]) ?DocumentObjectEntry {
         return wrap_document_object_entry_option(self.state_ptr(), self.value_ptr().get_last_field(name));
     }
 
-    pub fn count_fields(name: []u8) ?usize {
+    pub fn count_fields(name: &[u8]) ?usize {
         return self.value_ptr().count_fields(name);
     }
 
-    pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntry) ?usize {
+    pub fn collect_fields(name: &[u8], out: &mut [DocumentObjectEntry]) ?usize {
         let .{ Object: object } = self.value_ptr().* else return .None;
         let mut total = usize.{0};
         let mut i = usize.{0};
@@ -710,79 +710,79 @@ impl DocumentValueMut {
         return .{ Some: total };
     }
 
-    pub fn get_bool(name: []u8) ?bool {
+    pub fn get_bool(name: &[u8]) ?bool {
         return self.value_ptr().get_bool(name);
     }
 
-    pub fn get_number_text(name: []u8) ?[]u8 {
+    pub fn get_number_text(name: &[u8]) ?&[u8] {
         return self.value_ptr().get_number_text(name);
     }
 
-    pub fn get_string(name: []u8) ?[]u8 {
+    pub fn get_string(name: &[u8]) ?&[u8] {
         return self.value_ptr().get_string(name);
     }
 
-    pub fn get_array(name: []u8) ?DocumentValueMut {
+    pub fn get_array(name: &[u8]) ?DocumentValueMut {
         return wrap_document_value_mut_option(self.state_ptr(), self.value_ptr().get_array(name));
     }
 
-    pub fn get_object(name: []u8) ?DocumentValueMut {
+    pub fn get_object(name: &[u8]) ?DocumentValueMut {
         return wrap_document_value_mut_option(self.state_ptr(), self.value_ptr().get_object(name));
     }
 
-    pub fn get_u64(name: []u8) ?u64!NumberDecodeError {
+    pub fn get_u64(name: &[u8]) ?u64!NumberDecodeError {
         return self.value_ptr().get_u64(name);
     }
 
-    pub fn get_u32(name: []u8) ?u32!NumberDecodeError {
+    pub fn get_u32(name: &[u8]) ?u32!NumberDecodeError {
         return self.value_ptr().get_u32(name);
     }
 
-    pub fn get_u16(name: []u8) ?u16!NumberDecodeError {
+    pub fn get_u16(name: &[u8]) ?u16!NumberDecodeError {
         return self.value_ptr().get_u16(name);
     }
 
-    pub fn get_u8(name: []u8) ?u8!NumberDecodeError {
+    pub fn get_u8(name: &[u8]) ?u8!NumberDecodeError {
         return self.value_ptr().get_u8(name);
     }
 
-    pub fn get_i64(name: []u8) ?i64!NumberDecodeError {
+    pub fn get_i64(name: &[u8]) ?i64!NumberDecodeError {
         return self.value_ptr().get_i64(name);
     }
 
-    pub fn get_i32(name: []u8) ?i32!NumberDecodeError {
+    pub fn get_i32(name: &[u8]) ?i32!NumberDecodeError {
         return self.value_ptr().get_i32(name);
     }
 
-    pub fn get_i16(name: []u8) ?i16!NumberDecodeError {
+    pub fn get_i16(name: &[u8]) ?i16!NumberDecodeError {
         return self.value_ptr().get_i16(name);
     }
 
-    pub fn get_i8(name: []u8) ?i8!NumberDecodeError {
+    pub fn get_i8(name: &[u8]) ?i8!NumberDecodeError {
         return self.value_ptr().get_i8(name);
     }
 
-    pub fn get_usize(name: []u8) ?usize!NumberDecodeError {
+    pub fn get_usize(name: &[u8]) ?usize!NumberDecodeError {
         return self.value_ptr().get_usize(name);
     }
 
-    pub fn get_isize(name: []u8) ?isize!NumberDecodeError {
+    pub fn get_isize(name: &[u8]) ?isize!NumberDecodeError {
         return self.value_ptr().get_isize(name);
     }
 
-    pub fn get_f64(name: []u8) ?f64!FloatDecodeError {
+    pub fn get_f64(name: &[u8]) ?f64!FloatDecodeError {
         return self.value_ptr().get_f64(name);
     }
 
-    pub fn get_f32(name: []u8) ?f32!FloatDecodeError {
+    pub fn get_f32(name: &[u8]) ?f32!FloatDecodeError {
         return self.value_ptr().get_f32(name);
     }
 
-    pub fn has_field(name: []u8) bool {
+    pub fn has_field(name: &[u8]) bool {
         return self.value_ptr().has_field(name);
     }
 
-    pub fn require_value(name: []u8) DocumentValueMut!FieldDecodeError {
+    pub fn require_value(name: &[u8]) DocumentValueMut!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -790,19 +790,19 @@ impl DocumentValueMut {
         return .{ Ok: wrap_document_value_mut(self.state_ptr(), value) };
     }
 
-    pub fn require_bool(name: []u8) bool!FieldDecodeError {
+    pub fn require_bool(name: &[u8]) bool!FieldDecodeError {
         return self.value_ptr().require_bool(name);
     }
 
-    pub fn require_number_text(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_number_text(name: &[u8]) (&[u8])!FieldDecodeError {
         return self.value_ptr().require_number_text(name);
     }
 
-    pub fn require_string(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_string(name: &[u8]) (&[u8])!FieldDecodeError {
         return self.value_ptr().require_string(name);
     }
 
-    pub fn require_array(name: []u8) DocumentValueMut!FieldDecodeError {
+    pub fn require_array(name: &[u8]) DocumentValueMut!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_array(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -810,7 +810,7 @@ impl DocumentValueMut {
         return .{ Ok: wrap_document_value_mut(self.state_ptr(), value) };
     }
 
-    pub fn require_object(name: []u8) DocumentValueMut!FieldDecodeError {
+    pub fn require_object(name: &[u8]) DocumentValueMut!FieldDecodeError {
         let .{ Ok: value } = self.value_ptr().require_object(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -818,51 +818,51 @@ impl DocumentValueMut {
         return .{ Ok: wrap_document_value_mut(self.state_ptr(), value) };
     }
 
-    pub fn require_u64(name: []u8) u64!FieldDecodeError {
+    pub fn require_u64(name: &[u8]) u64!FieldDecodeError {
         return self.value_ptr().require_u64(name);
     }
 
-    pub fn require_u32(name: []u8) u32!FieldDecodeError {
+    pub fn require_u32(name: &[u8]) u32!FieldDecodeError {
         return self.value_ptr().require_u32(name);
     }
 
-    pub fn require_u16(name: []u8) u16!FieldDecodeError {
+    pub fn require_u16(name: &[u8]) u16!FieldDecodeError {
         return self.value_ptr().require_u16(name);
     }
 
-    pub fn require_u8(name: []u8) u8!FieldDecodeError {
+    pub fn require_u8(name: &[u8]) u8!FieldDecodeError {
         return self.value_ptr().require_u8(name);
     }
 
-    pub fn require_i64(name: []u8) i64!FieldDecodeError {
+    pub fn require_i64(name: &[u8]) i64!FieldDecodeError {
         return self.value_ptr().require_i64(name);
     }
 
-    pub fn require_i32(name: []u8) i32!FieldDecodeError {
+    pub fn require_i32(name: &[u8]) i32!FieldDecodeError {
         return self.value_ptr().require_i32(name);
     }
 
-    pub fn require_i16(name: []u8) i16!FieldDecodeError {
+    pub fn require_i16(name: &[u8]) i16!FieldDecodeError {
         return self.value_ptr().require_i16(name);
     }
 
-    pub fn require_i8(name: []u8) i8!FieldDecodeError {
+    pub fn require_i8(name: &[u8]) i8!FieldDecodeError {
         return self.value_ptr().require_i8(name);
     }
 
-    pub fn require_usize(name: []u8) usize!FieldDecodeError {
+    pub fn require_usize(name: &[u8]) usize!FieldDecodeError {
         return self.value_ptr().require_usize(name);
     }
 
-    pub fn require_isize(name: []u8) isize!FieldDecodeError {
+    pub fn require_isize(name: &[u8]) isize!FieldDecodeError {
         return self.value_ptr().require_isize(name);
     }
 
-    pub fn require_f64(name: []u8) f64!FieldDecodeError {
+    pub fn require_f64(name: &[u8]) f64!FieldDecodeError {
         return self.value_ptr().require_f64(name);
     }
 
-    pub fn require_f32(name: []u8) f32!FieldDecodeError {
+    pub fn require_f32(name: &[u8]) f32!FieldDecodeError {
         return self.value_ptr().require_f32(name);
     }
 
@@ -870,7 +870,7 @@ impl DocumentValueMut {
         return self.value_ptr().compact_size();
     }
 
-    pub fn render_compact(out: []mut u8) usize!OwnedRenderError {
+    pub fn render_compact(out: &mut [u8]) usize!OwnedRenderError {
         return self.value_ptr().render_compact(out);
     }
 
@@ -893,7 +893,7 @@ impl DocumentValueMut {
     }
 
     pub fn push_array_string(
-        text: []u8,
+        text: &[u8],
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().push_array_string(self.state_ptr().arena..&, text)
             else {
@@ -903,7 +903,7 @@ impl DocumentValueMut {
     }
 
     pub fn push_array_number_text(
-        text: []u8,
+        text: &[u8],
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().push_array_number_text(self.state_ptr().arena..&, text)
             else {
@@ -950,7 +950,7 @@ impl DocumentValueMut {
     }
 
     pub fn append_object_field(
-        key: []u8,
+        key: &[u8],
         value: OwnedValue,
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().append_object_field(self.state_ptr().arena..&, key, value)
@@ -961,8 +961,8 @@ impl DocumentValueMut {
     }
 
     pub fn append_object_string(
-        key: []u8,
-        text: []u8,
+        key: &[u8],
+        text: &[u8],
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().append_object_string(self.state_ptr().arena..&, key, text)
             else {
@@ -972,8 +972,8 @@ impl DocumentValueMut {
     }
 
     pub fn append_object_number_text(
-        key: []u8,
-        text: []u8,
+        key: &[u8],
+        text: &[u8],
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().append_object_number_text(self.state_ptr().arena..&, key, text)
             else {
@@ -983,7 +983,7 @@ impl DocumentValueMut {
     }
 
     pub fn set_object_field(
-        key: []u8,
+        key: &[u8],
         value: OwnedValue,
     ) ?DocumentValueMut!OwnedBuildError {
         let .{ Ok: item } = self.value_ptr().set_object_field(self.state_ptr().arena..&, key, value)
@@ -993,7 +993,7 @@ impl DocumentValueMut {
         return .{ Ok: wrap_document_value_mut_option(self.state_ptr(), item) };
     }
 
-    pub fn remove_object_field(key: []u8) bool {
+    pub fn remove_object_field(key: &[u8]) bool {
         return self.value_ptr().remove_object_field(self.state_ptr().arena..&, key);
     }
 
@@ -1010,7 +1010,7 @@ impl DocumentValueMut {
 }
 
 impl IndexedDocumentView {
-    fn view_ptr() *IndexedObjectView {
+    fn view_ptr() &IndexedObjectView {
         return require_indexed_document_view_ptr(self.view);
     }
 
@@ -1026,19 +1026,19 @@ impl IndexedDocumentView {
         return wrap_document_object_entry_ref_option(self.view_ptr().get_entry(index));
     }
 
-    pub fn get_field(name: []u8) ?DocumentObjectEntryRef {
+    pub fn get_field(name: &[u8]) ?DocumentObjectEntryRef {
         return wrap_document_object_entry_ref_option(self.view_ptr().get_field(name));
     }
 
-    pub fn get_last_field(name: []u8) ?DocumentObjectEntryRef {
+    pub fn get_last_field(name: &[u8]) ?DocumentObjectEntryRef {
         return wrap_document_object_entry_ref_option(self.view_ptr().get_last_field(name));
     }
 
-    pub fn count_fields(name: []u8) usize {
+    pub fn count_fields(name: &[u8]) usize {
         return self.view_ptr().count_fields(name);
     }
 
-    pub fn collect_fields(name: []u8, out: []mut DocumentObjectEntryRef) usize {
+    pub fn collect_fields(name: &[u8], out: &mut [DocumentObjectEntryRef]) usize {
         let mut total = usize.{0};
         let mut i = usize.{0};
         while (i < self.view_ptr().len()) {
@@ -1056,79 +1056,79 @@ impl IndexedDocumentView {
         return total;
     }
 
-    pub fn get_bool(name: []u8) ?bool {
+    pub fn get_bool(name: &[u8]) ?bool {
         return self.view_ptr().get_bool(name);
     }
 
-    pub fn get_number_text(name: []u8) ?[]u8 {
+    pub fn get_number_text(name: &[u8]) ?&[u8] {
         return self.view_ptr().get_number_text(name);
     }
 
-    pub fn get_string(name: []u8) ?[]u8 {
+    pub fn get_string(name: &[u8]) ?&[u8] {
         return self.view_ptr().get_string(name);
     }
 
-    pub fn get_array(name: []u8) ?DocumentValue {
+    pub fn get_array(name: &[u8]) ?DocumentValue {
         return wrap_document_value_option(self.view_ptr().get_array(name));
     }
 
-    pub fn get_object(name: []u8) ?DocumentValue {
+    pub fn get_object(name: &[u8]) ?DocumentValue {
         return wrap_document_value_option(self.view_ptr().get_object(name));
     }
 
-    pub fn get_u64(name: []u8) ?u64!NumberDecodeError {
+    pub fn get_u64(name: &[u8]) ?u64!NumberDecodeError {
         return self.view_ptr().get_u64(name);
     }
 
-    pub fn get_u32(name: []u8) ?u32!NumberDecodeError {
+    pub fn get_u32(name: &[u8]) ?u32!NumberDecodeError {
         return self.view_ptr().get_u32(name);
     }
 
-    pub fn get_u16(name: []u8) ?u16!NumberDecodeError {
+    pub fn get_u16(name: &[u8]) ?u16!NumberDecodeError {
         return self.view_ptr().get_u16(name);
     }
 
-    pub fn get_u8(name: []u8) ?u8!NumberDecodeError {
+    pub fn get_u8(name: &[u8]) ?u8!NumberDecodeError {
         return self.view_ptr().get_u8(name);
     }
 
-    pub fn get_i64(name: []u8) ?i64!NumberDecodeError {
+    pub fn get_i64(name: &[u8]) ?i64!NumberDecodeError {
         return self.view_ptr().get_i64(name);
     }
 
-    pub fn get_i32(name: []u8) ?i32!NumberDecodeError {
+    pub fn get_i32(name: &[u8]) ?i32!NumberDecodeError {
         return self.view_ptr().get_i32(name);
     }
 
-    pub fn get_i16(name: []u8) ?i16!NumberDecodeError {
+    pub fn get_i16(name: &[u8]) ?i16!NumberDecodeError {
         return self.view_ptr().get_i16(name);
     }
 
-    pub fn get_i8(name: []u8) ?i8!NumberDecodeError {
+    pub fn get_i8(name: &[u8]) ?i8!NumberDecodeError {
         return self.view_ptr().get_i8(name);
     }
 
-    pub fn get_usize(name: []u8) ?usize!NumberDecodeError {
+    pub fn get_usize(name: &[u8]) ?usize!NumberDecodeError {
         return self.view_ptr().get_usize(name);
     }
 
-    pub fn get_isize(name: []u8) ?isize!NumberDecodeError {
+    pub fn get_isize(name: &[u8]) ?isize!NumberDecodeError {
         return self.view_ptr().get_isize(name);
     }
 
-    pub fn get_f64(name: []u8) ?f64!FloatDecodeError {
+    pub fn get_f64(name: &[u8]) ?f64!FloatDecodeError {
         return self.view_ptr().get_f64(name);
     }
 
-    pub fn get_f32(name: []u8) ?f32!FloatDecodeError {
+    pub fn get_f32(name: &[u8]) ?f32!FloatDecodeError {
         return self.view_ptr().get_f32(name);
     }
 
-    pub fn has_field(name: []u8) bool {
+    pub fn has_field(name: &[u8]) bool {
         return self.view_ptr().has_field(name);
     }
 
-    pub fn require_value(name: []u8) DocumentValue!FieldDecodeError {
+    pub fn require_value(name: &[u8]) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.view_ptr().require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1136,19 +1136,19 @@ impl IndexedDocumentView {
         return .{ Ok: wrap_document_value(value) };
     }
 
-    pub fn require_bool(name: []u8) bool!FieldDecodeError {
+    pub fn require_bool(name: &[u8]) bool!FieldDecodeError {
         return self.view_ptr().require_bool(name);
     }
 
-    pub fn require_number_text(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_number_text(name: &[u8]) (&[u8])!FieldDecodeError {
         return self.view_ptr().require_number_text(name);
     }
 
-    pub fn require_string(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_string(name: &[u8]) (&[u8])!FieldDecodeError {
         return self.view_ptr().require_string(name);
     }
 
-    pub fn require_array(name: []u8) DocumentValue!FieldDecodeError {
+    pub fn require_array(name: &[u8]) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.view_ptr().require_array(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1156,7 +1156,7 @@ impl IndexedDocumentView {
         return .{ Ok: wrap_document_value(value) };
     }
 
-    pub fn require_object(name: []u8) DocumentValue!FieldDecodeError {
+    pub fn require_object(name: &[u8]) DocumentValue!FieldDecodeError {
         let .{ Ok: value } = self.view_ptr().require_object(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1164,57 +1164,57 @@ impl IndexedDocumentView {
         return .{ Ok: wrap_document_value(value) };
     }
 
-    pub fn require_u64(name: []u8) u64!FieldDecodeError {
+    pub fn require_u64(name: &[u8]) u64!FieldDecodeError {
         return self.view_ptr().require_u64(name);
     }
 
-    pub fn require_u32(name: []u8) u32!FieldDecodeError {
+    pub fn require_u32(name: &[u8]) u32!FieldDecodeError {
         return self.view_ptr().require_u32(name);
     }
 
-    pub fn require_u16(name: []u8) u16!FieldDecodeError {
+    pub fn require_u16(name: &[u8]) u16!FieldDecodeError {
         return self.view_ptr().require_u16(name);
     }
 
-    pub fn require_u8(name: []u8) u8!FieldDecodeError {
+    pub fn require_u8(name: &[u8]) u8!FieldDecodeError {
         return self.view_ptr().require_u8(name);
     }
 
-    pub fn require_i64(name: []u8) i64!FieldDecodeError {
+    pub fn require_i64(name: &[u8]) i64!FieldDecodeError {
         return self.view_ptr().require_i64(name);
     }
 
-    pub fn require_i32(name: []u8) i32!FieldDecodeError {
+    pub fn require_i32(name: &[u8]) i32!FieldDecodeError {
         return self.view_ptr().require_i32(name);
     }
 
-    pub fn require_i16(name: []u8) i16!FieldDecodeError {
+    pub fn require_i16(name: &[u8]) i16!FieldDecodeError {
         return self.view_ptr().require_i16(name);
     }
 
-    pub fn require_i8(name: []u8) i8!FieldDecodeError {
+    pub fn require_i8(name: &[u8]) i8!FieldDecodeError {
         return self.view_ptr().require_i8(name);
     }
 
-    pub fn require_usize(name: []u8) usize!FieldDecodeError {
+    pub fn require_usize(name: &[u8]) usize!FieldDecodeError {
         return self.view_ptr().require_usize(name);
     }
 
-    pub fn require_isize(name: []u8) isize!FieldDecodeError {
+    pub fn require_isize(name: &[u8]) isize!FieldDecodeError {
         return self.view_ptr().require_isize(name);
     }
 
-    pub fn require_f64(name: []u8) f64!FieldDecodeError {
+    pub fn require_f64(name: &[u8]) f64!FieldDecodeError {
         return self.view_ptr().require_f64(name);
     }
 
-    pub fn require_f32(name: []u8) f32!FieldDecodeError {
+    pub fn require_f32(name: &[u8]) f32!FieldDecodeError {
         return self.view_ptr().require_f32(name);
     }
 }
 
 impl DocumentObjectEntry {
-    pub fn key_eq(name: []u8) bool {
+    pub fn key_eq(name: &[u8]) bool {
         return self.key == name;
     }
 
@@ -1222,11 +1222,11 @@ impl DocumentObjectEntry {
         return self.value.bool_value();
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         return self.value.number_text();
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         return self.value.string_text();
     }
 
@@ -1280,7 +1280,7 @@ impl DocumentObjectEntry {
 }
 
 impl DocumentObjectEntryRef {
-    pub fn key_eq(name: []u8) bool {
+    pub fn key_eq(name: &[u8]) bool {
         return self.key == name;
     }
 
@@ -1288,11 +1288,11 @@ impl DocumentObjectEntryRef {
         return self.value.bool_value();
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         return self.value.number_text();
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         return self.value.string_text();
     }
 
@@ -1345,13 +1345,13 @@ impl DocumentObjectEntryRef {
     }
 }
 
-impl *mut IndexedObjectDocument {
+impl &mut IndexedObjectDocument {
     pub fn deinit() void {
         let .{ Some: state } = self.*.state else return;
         let page = Page.{}..&;
         let layout = layout_of[IndexedObjectDocumentState]();
         state.arena..&.deinit();
-        page.free(state as *mut u8, layout);
+        page.free(state as &mut u8, layout);
         self.* = IndexedObjectDocument.{};
     }
 }

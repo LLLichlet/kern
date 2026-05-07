@@ -1,47 +1,45 @@
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use base.mem.{Allocator, Layout, layout_of};
 use std.io;
-use base.io.Writer;
 use base.test;
-use sys.mem.Page;
+use sys.mem.page;
 
-type StoredClosure = struct {
-    callback: *Fn(i32) i32,
+struct StoredClosure {
+    callback: &Fn(i32) i32,
     layout: Layout,
 };
 
-fn create_heap_closure(alloc: *mut Allocator, factor: i32) StoredClosure {
-    let stack_closure = .[factor](val: i32) i32 {
+fn create_heap_closure(alloc: &mut Allocator, factor: i32) StoredClosure {
+    let stack_closure = [factor](val: i32) i32 {
         return factor * val;
     };
 
     let layout = layout_of[@typeOf(stack_closure)]();
 
     let heap_raw = match (alloc.alloc(layout)) {
-        .{ Some: storage } => storage as *mut @typeOf(stack_closure),
+        .{ Some: storage } => storage as &mut @typeOf(stack_closure),
         .None => @trap(),
     };
 
     heap_raw.* = stack_closure;
     return .{
-        callback: *Fn(i32) i32.{ heap_raw },
+        callback: &Fn(i32) i32.{ heap_raw },
         layout: layout,
     };
 }
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let page = page()..&;
+    let gpa = gpa().on(page)..&;
 
     let stored = create_heap_closure(gpa, 10);
-    defer gpa.free((#stored.callback) as *mut u8, stored.layout);
+    defer gpa.free((#stored.callback) as &mut u8, stored.layout);
 
     let result = stored.callback(5);
-    ctx..&.eq(result, 50);
+    (result == 50).should().sum(@loc(), t);
 
-    io.println("closure_heap_escape: result={}", .{result,});
+    "closure_heap_escape: result={}".fmt(.{result}).println();
     return 0;
 }

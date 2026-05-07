@@ -4,7 +4,7 @@
 //! supported operating systems while still exposing the low-level boundary.
 
 /// Low-level flags used when opening a file through the OS layer.
-pub type OpenOptions = struct {
+pub struct OpenOptions {
     //// Allows reads from the opened handle.
     pub read: bool = false,
     //// Allows writes to the opened handle.
@@ -20,14 +20,14 @@ pub type OpenOptions = struct {
 };
 
 /// The coarse file kind reported by the platform layer.
-pub type FileType = enum {
+pub enum FileType {
     File,
     Directory,
     Other,
 };
 
 /// Low-level filesystem metadata.
-pub type Metadata = struct {
+pub struct Metadata {
     file_type: FileType,
     //// File length in bytes when the platform provides it.
     pub size: usize,
@@ -46,7 +46,7 @@ impl Metadata {
 }
 
 /// The visible terminal dimensions reported by the platform layer.
-pub type TerminalSize = struct {
+pub struct TerminalSize {
     //// The visible row count.
     pub rows: usize,
     //// The visible column count.

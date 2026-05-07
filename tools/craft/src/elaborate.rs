@@ -356,7 +356,7 @@ members = ["app", "tool"]
         .unwrap();
         fs::write(
             root.join("craft.rn"),
-            "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
+            "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
         fs::write(
@@ -365,13 +365,13 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
         )
         .unwrap();
         fs::write(
             app_dir.join("craft.rn"),
-            "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
+            "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
         fs::write(
@@ -380,7 +380,7 @@ kern = "0.7.3"
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
         )
         .unwrap();
@@ -437,7 +437,7 @@ members = ["app"]
             r#"
 use craft.plan;
 
-pub fn craft(p: *mut plan.Plan) void {
+pub fn craft(p: &mut plan.Plan) void {
     p.cfg_bool("workspace_policy", true);
     p.dep_git(plan.DependencyKind.normal, "log", "https://example.com/workspace-log.git");
 }
@@ -450,7 +450,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [dependencies]
 log = { git = "https://example.com/log.git", tag = "v1" }
@@ -462,7 +462,7 @@ log = { git = "https://example.com/log.git", tag = "v1" }
             r#"
 use craft.plan;
 
-pub fn craft(p: *mut plan.Plan) void {
+pub fn craft(p: &mut plan.Plan) void {
     p.dep_git(plan.DependencyKind.normal, "log", "https://example.com/package-log.git");
 }
 "#,
@@ -514,13 +514,13 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
         )
         .unwrap();
         fs::write(
             root.join("craft.rn"),
-            "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
+            "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
 
@@ -567,7 +567,7 @@ members = ["member"]
             r#"
 use craft.plan;
 
-pub fn craft(p: *mut plan.Plan) void {
+pub fn craft(p: &mut plan.Plan) void {
     p.define_string("workspace_root", p.workspace.root);
     p.define_string("package_root", p.package.root);
     if (p.workspace.has_workspace) {
@@ -584,7 +584,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "member"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
         )
         .unwrap();
@@ -632,7 +632,7 @@ kern = "0.7.3"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [features]
 default = ["missing"]
@@ -671,7 +671,7 @@ default = ["missing"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [lib]
 root = "src/lib.rn"
@@ -687,7 +687,7 @@ trace = { git = "https://example.com/trace.git", version = "1" }
             r#"
 use craft.plan;
 
-pub fn craft(p: *mut plan.Plan) void {
+pub fn craft(p: &mut plan.Plan) void {
     p.cfg_bool("simd", true);
     p.define_string("abi", "sysv");
     p.define_string("pkg", p.package.name);

@@ -26,7 +26,6 @@ impl Precedence {
         match t {
             TokenType::Dot
             | TokenType::DotLBracket
-            | TokenType::DotDotLBracket
             | TokenType::DotLBrace
             | TokenType::DotStar
             | TokenType::LParen
@@ -271,10 +270,12 @@ impl<'a> Parser<'a> {
                 kind: ExprKind::SelfValue,
             }),
             TokenType::At => self.parse_intrinsic_expr(token),
-            TokenType::LBracket
-            | TokenType::Star
+            TokenType::LBracket => self.parse_lbracket_prefix_expr(token),
+            TokenType::Ampersand
             | TokenType::Caret
             | TokenType::Question
+            | TokenType::Fn
+            | TokenType::CapitalFn
             | TokenType::Struct
             | TokenType::Union
             | TokenType::Enum
@@ -306,7 +307,6 @@ impl<'a> Parser<'a> {
                 span,
                 kind: ExprKind::Infer,
             }),
-            TokenType::DotLBracket => self.parse_closure_expr(span),
             _ => {
                 let text = self.source_slice(span).to_string();
                 Ok(self.error_expr(span, format!("Expected expression, found '{}'", text)))
@@ -376,22 +376,36 @@ impl<'a> Parser<'a> {
                     operand: Box::new(left),
                 },
             }),
-            TokenType::DotAmpersand => Ok(Expr {
-                id: self.new_id(),
-                span: left.span.to(token.span),
-                kind: ExprKind::Unary {
-                    op: UnaryOperator::AddressOf,
-                    operand: Box::new(left),
-                },
-            }),
-            TokenType::DotDotAmpersand => Ok(Expr {
-                id: self.new_id(),
-                span: left.span.to(token.span),
-                kind: ExprKind::Unary {
-                    op: UnaryOperator::MutAddressOf,
-                    operand: Box::new(left),
-                },
-            }),
+            TokenType::DotAmpersand => {
+                if self.check(TokenType::LBracket) {
+                    self.advance();
+                    self.parse_slice_expr(left, false)
+                } else {
+                    Ok(Expr {
+                        id: self.new_id(),
+                        span: left.span.to(token.span),
+                        kind: ExprKind::Unary {
+                            op: UnaryOperator::AddressOf,
+                            operand: Box::new(left),
+                        },
+                    })
+                }
+            }
+            TokenType::DotDotAmpersand => {
+                if self.check(TokenType::LBracket) {
+                    self.advance();
+                    self.parse_slice_expr(left, true)
+                } else {
+                    Ok(Expr {
+                        id: self.new_id(),
+                        span: left.span.to(token.span),
+                        kind: ExprKind::Unary {
+                            op: UnaryOperator::MutAddressOf,
+                            operand: Box::new(left),
+                        },
+                    })
+                }
+            }
             TokenType::Assign
             | TokenType::PlusAssign
             | TokenType::MinusAssign
@@ -404,8 +418,7 @@ impl<'a> Parser<'a> {
             | TokenType::LShiftAssign
             | TokenType::RShiftAssign => self.parse_assignment_expr(left, token),
             TokenType::As => self.parse_as_cast_expr(left),
-            TokenType::DotLBracket => self.parse_slice_or_index_expr(left, false),
-            TokenType::DotDotLBracket => self.parse_slice_or_index_expr(left, true),
+            TokenType::DotLBracket => self.parse_index_expr(left),
             TokenType::LBracket => self.parse_generic_instantiation_expr(left),
             TokenType::DotLBrace => {
                 let type_node = self.expr_to_type(left)?;

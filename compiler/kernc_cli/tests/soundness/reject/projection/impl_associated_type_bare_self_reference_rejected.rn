@@ -3,11 +3,11 @@
 // stderr: impl-associated type targets must resolve to a concrete type
 // stderr: bare associated type names are not available as concrete aliases
 
-type Value = trait {
+trait Value {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: Value {
     type Out = Out;

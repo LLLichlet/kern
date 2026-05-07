@@ -20,7 +20,7 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    let dir_exists_before = match (fs.exists(gpa, "{dir_path}")) {{
+    let dir_exists_before = match ("{dir_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 1,
     }};
@@ -28,12 +28,12 @@ fn main() i32 {{
         return 2;
     }}
 
-    match (fs.create_dir(gpa, "{dir_path}")) {{
+    match ("{dir_path}".path().create_dir(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 3,
     }}
 
-    let dir_exists = match (fs.exists(gpa, "{dir_path}")) {{
+    let dir_exists = match ("{dir_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 4,
     }};
@@ -41,7 +41,7 @@ fn main() i32 {{
         return 5;
     }}
 
-    let dir_meta = match (fs.metadata(gpa, "{dir_path}")) {{
+    let dir_meta = match ("{dir_path}".path().metadata(gpa)) {{
         .{{ Ok: meta }} => meta,
         .{{ Err: _ }} => return 6,
     }};
@@ -49,7 +49,7 @@ fn main() i32 {{
         return 7;
     }}
 
-    let dir_is_dir = match (fs.is_dir(gpa, "{dir_path}")) {{
+    let dir_is_dir = match ("{dir_path}".path().is_dir(gpa)) {{
         .{{ Ok: yes }} => yes,
         .{{ Err: _ }} => return 8,
     }};
@@ -57,7 +57,7 @@ fn main() i32 {{
         return 9;
     }}
 
-    let file_exists_before = match (fs.exists(gpa, "{file_path}")) {{
+    let file_exists_before = match ("{file_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 10,
     }};
@@ -65,7 +65,7 @@ fn main() i32 {{
         return 11;
     }}
 
-    let written = match (fs.write_all(gpa, "{file_path}", "hello")) {{
+    let written = match ("{file_path}".path().write_all(gpa, "hello")) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 12,
     }};
@@ -73,7 +73,7 @@ fn main() i32 {{
         return 13;
     }}
 
-    let file_meta = match (fs.metadata(gpa, "{file_path}")) {{
+    let file_meta = match ("{file_path}".path().metadata(gpa)) {{
         .{{ Ok: meta }} => meta,
         .{{ Err: _ }} => return 14,
     }};
@@ -84,7 +84,7 @@ fn main() i32 {{
         return 16;
     }}
 
-    let file_is_file = match (fs.is_file(gpa, "{file_path}")) {{
+    let file_is_file = match ("{file_path}".path().is_file(gpa)) {{
         .{{ Ok: yes }} => yes,
         .{{ Err: _ }} => return 17,
     }};
@@ -92,7 +92,7 @@ fn main() i32 {{
         return 18;
     }}
 
-    let file_is_dir = match (fs.is_dir(gpa, "{file_path}")) {{
+    let file_is_dir = match ("{file_path}".path().is_dir(gpa)) {{
         .{{ Ok: yes }} => yes,
         .{{ Err: _ }} => return 19,
     }};
@@ -100,12 +100,12 @@ fn main() i32 {{
         return 20;
     }}
 
-    match (fs.remove_file(gpa, "{file_path}")) {{
+    match ("{file_path}".path().remove_file(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 21,
     }}
 
-    let file_exists_after = match (fs.exists(gpa, "{file_path}")) {{
+    let file_exists_after = match ("{file_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 22,
     }};
@@ -113,12 +113,12 @@ fn main() i32 {{
         return 23;
     }}
 
-    match (fs.remove_dir(gpa, "{dir_path}")) {{
+    match ("{dir_path}".path().remove_dir(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 24,
     }}
 
-    let dir_exists_after = match (fs.exists(gpa, "{dir_path}")) {{
+    let dir_exists_after = match ("{dir_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 25,
     }};
@@ -166,12 +166,12 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    match (fs.create_dir_all(gpa, "{dir_path}")) {{
+    match ("{dir_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 1,
     }}
 
-    let root_is_dir = match (fs.is_dir(gpa, "{root_path}")) {{
+    let root_is_dir = match ("{root_path}".path().is_dir(gpa)) {{
         .{{ Ok: yes }} => yes,
         .{{ Err: _ }} => return 2,
     }};
@@ -179,7 +179,7 @@ fn main() i32 {{
         return 3;
     }}
 
-    let nested_is_dir = match (fs.is_dir(gpa, "{dir_path}")) {{
+    let nested_is_dir = match ("{dir_path}".path().is_dir(gpa)) {{
         .{{ Ok: yes }} => yes,
         .{{ Err: _ }} => return 4,
     }};
@@ -187,12 +187,12 @@ fn main() i32 {{
         return 5;
     }}
 
-    match (fs.create_dir_all(gpa, "{dir_path}")) {{
+    match ("{dir_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 6,
     }}
 
-    let written = match (fs.write_all(gpa, "{file_path}", "nested")) {{
+    let written = match ("{file_path}".path().write_all(gpa, "nested")) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 7,
     }};
@@ -200,7 +200,7 @@ fn main() i32 {{
         return 8;
     }}
 
-    let mut text = match (fs.read_to_string(gpa, "{file_path}")) {{
+    let mut text = match ("{file_path}".path().read_to_string(gpa)) {{
         .{{ Ok: text }} => text,
         .{{ Err: _ }} => return 9,
     }};
@@ -254,15 +254,15 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    match (fs.create_dir_all(gpa, "{alpha_path}")) {{
+    match ("{alpha_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 1,
     }}
-    match (fs.write_all(gpa, "{file_a_path}", "A")) {{
+    match ("{file_a_path}".path().write_all(gpa, "A")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 2,
     }}
-    match (fs.write_all(gpa, "{file_b_path}", "B")) {{
+    match ("{file_b_path}".path().write_all(gpa, "B")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 3,
     }}
@@ -272,7 +272,7 @@ fn main() i32 {{
     let mut saw_a_file = bool.{{false}};
     let mut saw_b_file = bool.{{false}};
 
-    let visited = match (fs.read_dir(gpa, "{root_path}", .[
+    let visited = match ("{root_path}".path().read_dir(gpa, [
         total = total..&,
         saw_alpha_dir = saw_alpha_dir..&,
         saw_a_file = saw_a_file..&,
@@ -311,7 +311,7 @@ fn main() i32 {{
     }}
 
     let mut early = usize.{{0}};
-    let stopped = match (fs.read_dir(gpa, "{root_path}", .[
+    let stopped = match ("{root_path}".path().read_dir(gpa, [
         early = early..&
     ](_: fs.DirEntry) bool {{
         early.* += 1;
@@ -374,20 +374,20 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    match (fs.create_dir_all(gpa, "{alpha_path}")) {{
+    match ("{alpha_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 1,
     }}
-    match (fs.write_all(gpa, "{file_b_path}", "B")) {{
+    match ("{file_b_path}".path().write_all(gpa, "B")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 2,
     }}
-    match (fs.write_all(gpa, "{file_a_path}", "A")) {{
+    match ("{file_a_path}".path().write_all(gpa, "A")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 3,
     }}
 
-    let mut entries = match (fs.read_dir_entries(gpa, "{root_path}")) {{
+    let mut entries = match ("{root_path}".path().read_dir_entries(gpa)) {{
         .{{ Ok: entries }} => entries,
         .{{ Err: _ }} => return 4,
     }};
@@ -409,7 +409,7 @@ fn main() i32 {{
         return 8;
     }}
 
-    let count = match (fs.read_dir_entries_into(gpa, "{alpha_path}", entries..&)) {{
+    let count = match ("{alpha_path}".path().read_dir_entries_into(gpa, entries..&)) {{
         .{{ Ok: count }} => count,
         .{{ Err: _ }} => return 9,
     }};
@@ -417,7 +417,7 @@ fn main() i32 {{
         return 10;
     }}
 
-    let err = match (fs.metadata(gpa, "{root_path}/missing.txt")) {{
+    let err = match ("{root_path}/missing.txt".path().metadata(gpa)) {{
         .{{ Ok: _ }} => return 11,
         .{{ Err: err }} => err,
     }};
@@ -430,7 +430,7 @@ fn main() i32 {{
     if (!err.is_not_found() or err.is_already_exists()) {{
         return 14;
     }}
-    io.println("fs error: {{}}", .{{err}});
+    "fs error: {{}}".fmt(.{{err}}).println();
 
     return 0;
 }}
@@ -475,25 +475,25 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    match (fs.create_dir_all(gpa, "{nested_dir_path}")) {{
+    match ("{nested_dir_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 1,
     }}
-    match (fs.write_all(gpa, "{nested_file_path}", "deep")) {{
+    match ("{nested_file_path}".path().write_all(gpa, "deep")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 2,
     }}
-    match (fs.write_all(gpa, "{sibling_file_path}", "root")) {{
+    match ("{sibling_file_path}".path().write_all(gpa, "root")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 3,
     }}
 
-    match (fs.remove_dir_all(gpa, "{root_path}")) {{
+    match ("{root_path}".path().remove_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 4,
     }}
 
-    let root_exists = match (fs.exists(gpa, "{root_path}")) {{
+    let root_exists = match ("{root_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 5,
     }};
@@ -501,7 +501,7 @@ fn main() i32 {{
         return 6;
     }}
 
-    let nested_exists = match (fs.exists(gpa, "{nested_file_path}")) {{
+    let nested_exists = match ("{nested_file_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
         .{{ Err: _ }} => return 7,
     }};
@@ -555,15 +555,15 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    match (fs.create_dir_all(gpa, "{beta_path}")) {{
+    match ("{beta_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 1,
     }}
-    match (fs.write_all(gpa, "{root_file_path}", "root")) {{
+    match ("{root_file_path}".path().write_all(gpa, "root")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 2,
     }}
-    match (fs.write_all(gpa, "{beta_file_path}", "deep")) {{
+    match ("{beta_file_path}".path().write_all(gpa, "deep")) {{
         .{{ Ok: _ }} => {{}},
         .{{ Err: _ }} => return 3,
     }}
@@ -573,12 +573,12 @@ fn main() i32 {{
     let mut saw_root_file = bool.{{false}};
     let mut saw_beta_file = bool.{{false}};
 
-    let walked = match (fs.walk_dir(gpa, "{root_path}", .[
+    let walked = match ("{root_path}".path().walk_dir(gpa, [
         saw_alpha = saw_alpha..&,
         saw_beta = saw_beta..&,
         saw_root_file = saw_root_file..&,
         saw_beta_file = saw_beta_file..&
-    ](path: []u8, entry: fs.DirEntry, depth: usize) bool {{
+    ](path: &[u8], entry: fs.DirEntry, depth: usize) bool {{
         if (path == "{alpha_path}") {{
             if (!entry.is_dir() or depth != 1) {{
                 return false;
@@ -617,9 +617,9 @@ fn main() i32 {{
     }}
 
     let mut file_hits = usize.{{0}};
-    let walked_files = match (fs.walk_files(gpa, "{root_path}", .[
+    let walked_files = match ("{root_path}".path().walk_files(gpa, [
         file_hits = file_hits..&
-    ](_: []u8, entry: fs.DirEntry, _: usize) bool {{
+    ](_: &[u8], entry: fs.DirEntry, _: usize) bool {{
         if (!entry.is_file()) {{
             return false;
         }}
@@ -635,9 +635,9 @@ fn main() i32 {{
     }}
 
     let mut dir_hits = usize.{{0}};
-    let walked_dirs = match (fs.walk_dirs(gpa, "{root_path}", .[
+    let walked_dirs = match ("{root_path}".path().walk_dirs(gpa, [
         dir_hits = dir_hits..&
-    ](_: []u8, entry: fs.DirEntry, _: usize) bool {{
+    ](_: &[u8], entry: fs.DirEntry, _: usize) bool {{
         if (!entry.is_dir()) {{
             return false;
         }}
@@ -653,9 +653,9 @@ fn main() i32 {{
     }}
 
     let mut early = usize.{{0}};
-    let stopped = match (fs.walk_dir(gpa, "{root_path}", .[
+    let stopped = match ("{root_path}".path().walk_dir(gpa, [
         early = early..&
-    ](_: []u8, _: fs.DirEntry, _: usize) bool {{
+    ](_: &[u8], _: fs.DirEntry, _: usize) bool {{
         early.* += 1;
         return false;
     }})) {{
@@ -709,7 +709,7 @@ fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
-    let missing_dir = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
+    let missing_dir = match ("{root_path}".path().remove_dir_if_exists(gpa)) {{
         .{{ Ok: removed }} => removed,
         .{{ Err: _ }} => return 1,
     }};
@@ -717,7 +717,7 @@ fn main() i32 {{
         return 2;
     }}
 
-    let created = match (fs.create_dir_if_missing(gpa, "{root_path}")) {{
+    let created = match ("{root_path}".path().create_dir_if_missing(gpa)) {{
         .{{ Ok: created }} => created,
         .{{ Err: _ }} => return 3,
     }};
@@ -725,7 +725,7 @@ fn main() i32 {{
         return 4;
     }}
 
-    let created_again = match (fs.create_dir_if_missing(gpa, "{root_path}")) {{
+    let created_again = match ("{root_path}".path().create_dir_if_missing(gpa)) {{
         .{{ Ok: created }} => created,
         .{{ Err: _ }} => return 5,
     }};
@@ -733,7 +733,7 @@ fn main() i32 {{
         return 6;
     }}
 
-    match (fs.write_all(gpa, "{file_path}", "payload")) {{
+    match ("{file_path}".path().write_all(gpa, "payload")) {{
         .{{ Ok: count }} => {{
             if (count != 7) {{
                 return 7;
@@ -742,7 +742,7 @@ fn main() i32 {{
         .{{ Err: _ }} => return 8,
     }}
 
-    let removed_file = match (fs.remove_file_if_exists(gpa, "{file_path}")) {{
+    let removed_file = match ("{file_path}".path().remove_file_if_exists(gpa)) {{
         .{{ Ok: removed }} => removed,
         .{{ Err: _ }} => return 9,
     }};
@@ -750,7 +750,7 @@ fn main() i32 {{
         return 10;
     }}
 
-    let removed_file_again = match (fs.remove_file_if_exists(gpa, "{file_path}")) {{
+    let removed_file_again = match ("{file_path}".path().remove_file_if_exists(gpa)) {{
         .{{ Ok: removed }} => removed,
         .{{ Err: _ }} => return 11,
     }};
@@ -758,7 +758,7 @@ fn main() i32 {{
         return 12;
     }}
 
-    let removed_dir = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
+    let removed_dir = match ("{root_path}".path().remove_dir_if_exists(gpa)) {{
         .{{ Ok: removed }} => removed,
         .{{ Err: _ }} => return 13,
     }};
@@ -766,12 +766,121 @@ fn main() i32 {{
         return 14;
     }}
 
-    let removed_dir_again = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
+    let removed_dir_again = match ("{root_path}".path().remove_dir_if_exists(gpa)) {{
         .{{ Ok: removed }} => removed,
         .{{ Err: _ }} => return 15,
     }};
     if (removed_dir_again) {{
         return 16;
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = root_path,
+        file_path = file_path_str
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&file_path);
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn runs_hosted_program_using_std_fs_path_directory_combinators() {
+    let temp_root = unique_temp_path("kernc_std_fs_path_dir_combinators", "dir");
+    let file_path = temp_root.join("payload.txt");
+    let root_path = kern_string_literal(&temp_root);
+    let file_path_str = kern_string_literal(&file_path);
+
+    let _ = fs::remove_file(&file_path);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {{
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
+    let root = "{root_path}".path();
+    let file = "{file_path}".path();
+
+    let missing = match (root.remove_dir_if_exists(gpa)) {{
+        .{{ Ok: removed }} => removed,
+        .{{ Err: _ }} => return 1,
+    }};
+    if (missing) {{
+        return 2;
+    }}
+
+    let created = match (root.create_dir_all(gpa)) {{
+        .{{ Ok: created }} => created,
+        .{{ Err: _ }} => return 3,
+    }};
+    if (!created) {{
+        return 4;
+    }}
+
+    match (file.write_all(gpa, "payload")) {{
+        .{{ Ok: count }} => {{
+            if (count != 7) {{
+                return 5;
+            }}
+        }},
+        .{{ Err: _ }} => return 6,
+    }}
+
+    let mut hits = usize.{{0}};
+    let visited = match (root.read_dir(gpa, [
+        hits = hits..&
+    ](entry: fs.DirEntry) bool {{
+        if (entry.name == "payload.txt" and entry.is_file()) {{
+            hits.* += 1;
+        }}
+        return true;
+    }})) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 7,
+    }};
+    if (visited != 1 or hits != 1) {{
+        return 8;
+    }}
+
+    let walked = match (root.walk_files(gpa, [
+        hits = hits..&
+    ](_: &[u8], entry: fs.DirEntry, _: usize) bool {{
+        if (entry.name == "payload.txt") {{
+            hits.* += 1;
+        }}
+        return true;
+    }})) {{
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 9,
+    }};
+    if (walked != 1 or hits != 2) {{
+        return 10;
+    }}
+
+    match (root.remove_dir_all(gpa)) {{
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 11,
+    }}
+
+    let exists = match (root.exists(gpa)) {{
+        .{{ Ok: value }} => value,
+        .{{ Err: _ }} => return 12,
+    }};
+    if (exists) {{
+        return 13;
     }}
 
     return 0;

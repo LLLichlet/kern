@@ -950,7 +950,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 ),
             )
             .with_hint(format!("recursive layout chain: {}", chain.join(" -> ")))
-            .with_hint("break the cycle with an explicit pointer such as `*T` or `*mut T`");
+            .with_hint("break the cycle with an explicit pointer such as `&T` or `&mut T`");
 
         for (label_span, label) in labels {
             diag = diag.with_span_label(label_span, label);

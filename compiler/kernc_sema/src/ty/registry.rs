@@ -398,7 +398,7 @@ impl TypeRegistry {
         matches!(self.get(self.normalize(id)), TypeKind::Pointer { .. })
     }
 
-    /// Return whether the normalized type is `*void` or `*mut void`.
+    /// Return whether the normalized type is `&void` or `&mut void`.
     pub fn is_pointer_to_void(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
             TypeKind::Pointer { elem, .. } => self.is_void(*elem),
@@ -406,7 +406,7 @@ impl TypeRegistry {
         }
     }
 
-    /// Return whether the normalized type is specifically `*mut void`.
+    /// Return whether the normalized type is specifically `&mut void`.
     pub fn is_mut_pointer_to_void(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
             TypeKind::Pointer { is_mut: true, elem } => self.is_void(*elem),

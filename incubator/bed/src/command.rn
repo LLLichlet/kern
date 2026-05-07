@@ -1,14 +1,14 @@
 //! Ex-command parsing for the bottom command line.
 
 /// The parsed command-line actions supported by the current `bed` core.
-pub type Command = enum {
+pub enum Command {
     None,
     Quit,
     ForceQuit,
     Write,
     WriteQuit,
-    Edit: []u8,
-    WriteAs: []u8,
+    Edit: &[u8],
+    WriteAs: &[u8],
     Split,
     VSplit,
     CloseWindow,
@@ -18,15 +18,15 @@ pub type Command = enum {
     Unknown,
 };
 
-fn tail_after(text: []u8, count: usize) []u8 {
+fn tail_after(text: &[u8], count: usize) &[u8] {
     if (count >= #text) {
         return "";
     }
-    return text.[count .. #text].trim_ascii();
+    return text.&[count .. #text].trim_ascii();
 }
 
 /// Parses one command line without the leading `:`.
-pub fn parse(line: []u8) Command {
+pub fn parse(line: &[u8]) Command {
     let text = line.trim_ascii();
     if (#text == 0) {
         return .None;

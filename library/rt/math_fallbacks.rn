@@ -6,25 +6,25 @@ const U64_MASK_ALL = u64.{0xFFFFFFFFFFFFFFFF};
 #[inline]
 fn f32_to_bits(x: f32) u32 {
     let value = x;
-    return (value.& as *u32).*;
+    return (value.& as &u32).*;
 }
 
 #[inline]
 fn f32_from_bits(bits: u32) f32 {
     let value = bits;
-    return (value.& as *f32).*;
+    return (value.& as &f32).*;
 }
 
 #[inline]
 fn f64_to_bits(x: f64) u64 {
     let value = x;
-    return (value.& as *u64).*;
+    return (value.& as &u64).*;
 }
 
 #[inline]
 fn f64_from_bits(bits: u64) f64 {
     let value = bits;
-    return (value.& as *f64).*;
+    return (value.& as &f64).*;
 }
 
 #[inline]

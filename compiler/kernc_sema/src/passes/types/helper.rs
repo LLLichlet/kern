@@ -250,7 +250,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let norm = self.ctx.type_registry.normalize(ty);
         if matches!(self.ctx.type_registry.get(norm), TypeKind::TraitObject(..)) {
             self.ctx.struct_error(span, "trait objects have dynamic size and cannot be used as naked types")
-                .with_hint("in Kern, you must explicitly use a pointer for dynamic dispatch, e.g., `*Trait` or `*mut Trait`")
+                .with_hint("in Kern, you must explicitly use a pointer for dynamic dispatch, e.g., `&Trait` or `&mut Trait`")
                 .emit();
             return;
         }

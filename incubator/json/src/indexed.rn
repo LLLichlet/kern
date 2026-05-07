@@ -12,12 +12,12 @@ use ..{
     OwnedValue,
 };
 
-pub/ type IndexedObjectView = struct {
+pub/ struct IndexedObjectView {
     pub object: OwnedObject,
     index: Map[u64, List[usize]] = Map[u64, List[usize]].{},
 };
 
-fn unexpected_kind(value: *mut OwnedValue) FieldDecodeError {
+fn unexpected_kind(value: &mut OwnedValue) FieldDecodeError {
     return .{ UnexpectedKind: value.kind() };
 }
 
@@ -29,95 +29,95 @@ fn wrap_float_error(err: FloatDecodeError) FieldDecodeError {
     return .{ Float: err };
 }
 
-fn require_bool_value(value: *mut OwnedValue) bool!FieldDecodeError {
+fn require_bool_value(value: &mut OwnedValue) bool!FieldDecodeError {
     return value.bool_value().ok_or(unexpected_kind(value));
 }
 
-fn require_number_text_value(value: *mut OwnedValue) ([]u8)!FieldDecodeError {
+fn require_number_text_value(value: &mut OwnedValue) (&[u8])!FieldDecodeError {
     return value.number_text().ok_or(unexpected_kind(value));
 }
 
-fn require_string_text_value(value: *mut OwnedValue) ([]u8)!FieldDecodeError {
+fn require_string_text_value(value: &mut OwnedValue) (&[u8])!FieldDecodeError {
     return value.string_text().ok_or(unexpected_kind(value));
 }
 
-fn require_array_value(value: *mut OwnedValue) (*mut OwnedValue)!FieldDecodeError {
+fn require_array_value(value: &mut OwnedValue) (&mut OwnedValue)!FieldDecodeError {
     if (value.kind() != Kind.Array) {
         return .{ Err: unexpected_kind(value) };
     }
     return .{ Ok: value };
 }
 
-fn require_object_value(value: *mut OwnedValue) (*mut OwnedValue)!FieldDecodeError {
+fn require_object_value(value: &mut OwnedValue) (&mut OwnedValue)!FieldDecodeError {
     if (value.kind() != Kind.Object) {
         return .{ Err: unexpected_kind(value) };
     }
     return .{ Ok: value };
 }
 
-fn require_u64_value(value: *mut OwnedValue) u64!FieldDecodeError {
+fn require_u64_value(value: &mut OwnedValue) u64!FieldDecodeError {
     let out = value.u64_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_u32_value(value: *mut OwnedValue) u32!FieldDecodeError {
+fn require_u32_value(value: &mut OwnedValue) u32!FieldDecodeError {
     let out = value.u32_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_u16_value(value: *mut OwnedValue) u16!FieldDecodeError {
+fn require_u16_value(value: &mut OwnedValue) u16!FieldDecodeError {
     let out = value.u16_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_u8_value(value: *mut OwnedValue) u8!FieldDecodeError {
+fn require_u8_value(value: &mut OwnedValue) u8!FieldDecodeError {
     let out = value.u8_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_i64_value(value: *mut OwnedValue) i64!FieldDecodeError {
+fn require_i64_value(value: &mut OwnedValue) i64!FieldDecodeError {
     let out = value.i64_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_i32_value(value: *mut OwnedValue) i32!FieldDecodeError {
+fn require_i32_value(value: &mut OwnedValue) i32!FieldDecodeError {
     let out = value.i32_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_i16_value(value: *mut OwnedValue) i16!FieldDecodeError {
+fn require_i16_value(value: &mut OwnedValue) i16!FieldDecodeError {
     let out = value.i16_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_i8_value(value: *mut OwnedValue) i8!FieldDecodeError {
+fn require_i8_value(value: &mut OwnedValue) i8!FieldDecodeError {
     let out = value.i8_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_usize_value(value: *mut OwnedValue) usize!FieldDecodeError {
+fn require_usize_value(value: &mut OwnedValue) usize!FieldDecodeError {
     let out = value.usize_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_isize_value(value: *mut OwnedValue) isize!FieldDecodeError {
+fn require_isize_value(value: &mut OwnedValue) isize!FieldDecodeError {
     let out = value.isize_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_f64_value(value: *mut OwnedValue) f64!FieldDecodeError {
+fn require_f64_value(value: &mut OwnedValue) f64!FieldDecodeError {
     let out = value.f64_value().map_err(wrap_float_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_f32_value(value: *mut OwnedValue) f32!FieldDecodeError {
+fn require_f32_value(value: &mut OwnedValue) f32!FieldDecodeError {
     let out = value.f32_value().map_err(wrap_float_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-impl *mut IndexedObjectView {
-    pub fn deinit(alloc: *mut Allocator) void {
-        let free_bucket = .[alloc](hash: u64, bucket: *mut List[usize]) void {
+impl &mut IndexedObjectView {
+    pub fn deinit(alloc: &mut Allocator) void {
+        let free_bucket = [alloc](hash: u64, bucket: &mut List[usize]) void {
             _ = hash;
             bucket.deinit(alloc);
         };
@@ -126,8 +126,8 @@ impl *mut IndexedObjectView {
     }
 }
 
-impl *IndexedObjectView {
-    fn bucket(name: []u8) ?List[usize] {
+impl &IndexedObjectView {
+    fn bucket(name: &[u8]) ?List[usize] {
         return self.index.&.get(hash_bytes(name));
     }
 
@@ -143,7 +143,7 @@ impl *IndexedObjectView {
         return self.object.&.get_entry(index);
     }
 
-    pub fn get_field(name: []u8) ?OwnedObjectEntry {
+    pub fn get_field(name: &[u8]) ?OwnedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
 
         let mut i = usize.{0};
@@ -159,12 +159,12 @@ impl *IndexedObjectView {
         return .None;
     }
 
-    pub fn get_value(name: []u8) ?*mut OwnedValue {
+    pub fn get_value(name: &[u8]) ?&mut OwnedValue {
         let .{ Some: entry } = self.get_field(name) else return .None;
         return .{ Some: entry.value };
     }
 
-    pub fn get_last_field(name: []u8) ?OwnedObjectEntry {
+    pub fn get_last_field(name: &[u8]) ?OwnedObjectEntry {
         let .{ Some: bucket } = self.bucket(name) else return .None;
         let mut found = ?OwnedObjectEntry.None;
 
@@ -181,7 +181,7 @@ impl *IndexedObjectView {
         return found;
     }
 
-    pub fn count_fields(name: []u8) usize {
+    pub fn count_fields(name: &[u8]) usize {
         let .{ Some: bucket } = self.bucket(name) else return usize.{0};
         let mut total = usize.{0};
 
@@ -198,7 +198,7 @@ impl *IndexedObjectView {
         return total;
     }
 
-    pub fn collect_fields(name: []u8, out: []mut OwnedObjectEntry) usize {
+    pub fn collect_fields(name: &[u8], out: &mut [OwnedObjectEntry]) usize {
         let .{ Some: bucket } = self.bucket(name) else return usize.{0};
         let mut total = usize.{0};
 
@@ -220,9 +220,9 @@ impl *IndexedObjectView {
         return total;
     }
 
-    pub fn require_value(name: []u8) (*mut OwnedValue)!FieldDecodeError {
+    pub fn require_value(name: &[u8]) (&mut OwnedValue)!FieldDecodeError {
         let .{ Some: bucket } = self.bucket(name) else return .{ Err: .Missing };
-        let mut found = (?*mut OwnedValue).None;
+        let mut found = (?&mut OwnedValue).None;
         let mut total = usize.{0};
 
         let mut i = usize.{0};
@@ -250,7 +250,7 @@ impl *IndexedObjectView {
         return .{ Ok: found };
     }
 
-    pub fn require_bool(name: []u8) bool!FieldDecodeError {
+    pub fn require_bool(name: &[u8]) bool!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -258,7 +258,7 @@ impl *IndexedObjectView {
         return require_bool_value(value);
     }
 
-    pub fn require_number_text(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_number_text(name: &[u8]) (&[u8])!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -266,7 +266,7 @@ impl *IndexedObjectView {
         return require_number_text_value(value);
     }
 
-    pub fn require_string(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_string(name: &[u8]) (&[u8])!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -274,7 +274,7 @@ impl *IndexedObjectView {
         return require_string_text_value(value);
     }
 
-    pub fn require_array(name: []u8) (*mut OwnedValue)!FieldDecodeError {
+    pub fn require_array(name: &[u8]) (&mut OwnedValue)!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -282,7 +282,7 @@ impl *IndexedObjectView {
         return require_array_value(value);
     }
 
-    pub fn require_object(name: []u8) (*mut OwnedValue)!FieldDecodeError {
+    pub fn require_object(name: &[u8]) (&mut OwnedValue)!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -290,7 +290,7 @@ impl *IndexedObjectView {
         return require_object_value(value);
     }
 
-    pub fn require_u64(name: []u8) u64!FieldDecodeError {
+    pub fn require_u64(name: &[u8]) u64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -298,7 +298,7 @@ impl *IndexedObjectView {
         return require_u64_value(value);
     }
 
-    pub fn require_u32(name: []u8) u32!FieldDecodeError {
+    pub fn require_u32(name: &[u8]) u32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -306,7 +306,7 @@ impl *IndexedObjectView {
         return require_u32_value(value);
     }
 
-    pub fn require_u16(name: []u8) u16!FieldDecodeError {
+    pub fn require_u16(name: &[u8]) u16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -314,7 +314,7 @@ impl *IndexedObjectView {
         return require_u16_value(value);
     }
 
-    pub fn require_u8(name: []u8) u8!FieldDecodeError {
+    pub fn require_u8(name: &[u8]) u8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -322,7 +322,7 @@ impl *IndexedObjectView {
         return require_u8_value(value);
     }
 
-    pub fn require_i64(name: []u8) i64!FieldDecodeError {
+    pub fn require_i64(name: &[u8]) i64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -330,7 +330,7 @@ impl *IndexedObjectView {
         return require_i64_value(value);
     }
 
-    pub fn require_i32(name: []u8) i32!FieldDecodeError {
+    pub fn require_i32(name: &[u8]) i32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -338,7 +338,7 @@ impl *IndexedObjectView {
         return require_i32_value(value);
     }
 
-    pub fn require_i16(name: []u8) i16!FieldDecodeError {
+    pub fn require_i16(name: &[u8]) i16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -346,7 +346,7 @@ impl *IndexedObjectView {
         return require_i16_value(value);
     }
 
-    pub fn require_i8(name: []u8) i8!FieldDecodeError {
+    pub fn require_i8(name: &[u8]) i8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -354,7 +354,7 @@ impl *IndexedObjectView {
         return require_i8_value(value);
     }
 
-    pub fn require_usize(name: []u8) usize!FieldDecodeError {
+    pub fn require_usize(name: &[u8]) usize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -362,7 +362,7 @@ impl *IndexedObjectView {
         return require_usize_value(value);
     }
 
-    pub fn require_isize(name: []u8) isize!FieldDecodeError {
+    pub fn require_isize(name: &[u8]) isize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -370,7 +370,7 @@ impl *IndexedObjectView {
         return require_isize_value(value);
     }
 
-    pub fn require_f64(name: []u8) f64!FieldDecodeError {
+    pub fn require_f64(name: &[u8]) f64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -378,7 +378,7 @@ impl *IndexedObjectView {
         return require_f64_value(value);
     }
 
-    pub fn require_f32(name: []u8) f32!FieldDecodeError {
+    pub fn require_f32(name: &[u8]) f32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -386,22 +386,22 @@ impl *IndexedObjectView {
         return require_f32_value(value);
     }
 
-    pub fn get_bool(name: []u8) ?bool {
+    pub fn get_bool(name: &[u8]) ?bool {
         let .{ Some: value } = self.get_value(name) else return .None;
         return value.bool_value();
     }
 
-    pub fn get_number_text(name: []u8) ?[]u8 {
+    pub fn get_number_text(name: &[u8]) ?&[u8] {
         let .{ Some: value } = self.get_value(name) else return .None;
         return value.number_text();
     }
 
-    pub fn get_string(name: []u8) ?[]u8 {
+    pub fn get_string(name: &[u8]) ?&[u8] {
         let .{ Some: value } = self.get_value(name) else return .None;
         return value.string_text();
     }
 
-    pub fn get_array(name: []u8) ?*mut OwnedValue {
+    pub fn get_array(name: &[u8]) ?&mut OwnedValue {
         let .{ Some: value } = self.get_value(name) else return .None;
         if (!value.is_array()) {
             return .None;
@@ -409,7 +409,7 @@ impl *IndexedObjectView {
         return .{ Some: value };
     }
 
-    pub fn get_object(name: []u8) ?*mut OwnedValue {
+    pub fn get_object(name: &[u8]) ?&mut OwnedValue {
         let .{ Some: value } = self.get_value(name) else return .None;
         if (!value.is_object()) {
             return .None;
@@ -417,73 +417,73 @@ impl *IndexedObjectView {
         return .{ Some: value };
     }
 
-    pub fn get_u64(name: []u8) ?u64!NumberDecodeError {
+    pub fn get_u64(name: &[u8]) ?u64!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u64_value();
     }
 
-    pub fn get_u32(name: []u8) ?u32!NumberDecodeError {
+    pub fn get_u32(name: &[u8]) ?u32!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u32_value();
     }
 
-    pub fn get_u16(name: []u8) ?u16!NumberDecodeError {
+    pub fn get_u16(name: &[u8]) ?u16!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u16_value();
     }
 
-    pub fn get_u8(name: []u8) ?u8!NumberDecodeError {
+    pub fn get_u8(name: &[u8]) ?u8!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u8_value();
     }
 
-    pub fn get_i64(name: []u8) ?i64!NumberDecodeError {
+    pub fn get_i64(name: &[u8]) ?i64!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i64_value();
     }
 
-    pub fn get_i32(name: []u8) ?i32!NumberDecodeError {
+    pub fn get_i32(name: &[u8]) ?i32!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i32_value();
     }
 
-    pub fn get_i16(name: []u8) ?i16!NumberDecodeError {
+    pub fn get_i16(name: &[u8]) ?i16!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i16_value();
     }
 
-    pub fn get_i8(name: []u8) ?i8!NumberDecodeError {
+    pub fn get_i8(name: &[u8]) ?i8!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i8_value();
     }
 
-    pub fn get_usize(name: []u8) ?usize!NumberDecodeError {
+    pub fn get_usize(name: &[u8]) ?usize!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.usize_value();
     }
 
-    pub fn get_isize(name: []u8) ?isize!NumberDecodeError {
+    pub fn get_isize(name: &[u8]) ?isize!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.isize_value();
     }
 
-    pub fn get_f64(name: []u8) ?f64!FloatDecodeError {
+    pub fn get_f64(name: &[u8]) ?f64!FloatDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.f64_value();
     }
 
-    pub fn get_f32(name: []u8) ?f32!FloatDecodeError {
+    pub fn get_f32(name: &[u8]) ?f32!FloatDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.f32_value();
     }
 
-    pub fn has_field(name: []u8) bool {
+    pub fn has_field(name: &[u8]) bool {
         return self.get_value(name).is_some();
     }
 }
 
-impl *OwnedObject {
-    pub fn build_indexed_view(alloc: *mut Allocator) IndexedObjectView!IndexBuildError {
+impl &OwnedObject {
+    pub fn build_indexed_view(alloc: &mut Allocator) IndexedObjectView!IndexBuildError {
         let mut out = IndexedObjectView.{ object: self.* };
 
         if (!out.index..&.reserve(alloc, self.entries.&.len())) {
@@ -509,9 +509,9 @@ impl *OwnedObject {
     }
 }
 
-impl *mut OwnedValue {
+impl &mut OwnedValue {
     pub fn build_indexed_object_view(
-        alloc: *mut Allocator,
+        alloc: &mut Allocator,
     ) ?IndexedObjectView!IndexBuildError {
         let .{ Object: object } = self.* else return .{ Ok: .None };
         let .{ Ok: view } = object.&.build_indexed_view(alloc)

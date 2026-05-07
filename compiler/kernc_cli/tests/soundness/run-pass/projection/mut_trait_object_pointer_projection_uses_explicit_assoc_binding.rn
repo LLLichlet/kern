@@ -1,10 +1,10 @@
 // exit: 0
 
-type Base[N: usize] = trait {
+trait Base[N: usize] {
     type Out;
 };
 
-type Handle = *mut Base[4, Out = i64];
+type Handle = &mut Base[4, Out = i64];
 
 fn lift(value: Handle.Base[4].Out) Handle.Base[4].Out {
     return value;

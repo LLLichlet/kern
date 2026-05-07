@@ -1,40 +1,38 @@
-use base.coll.{iter_fold, iter_nth, range, range_down};
+use base.coll.{range, range_down};
 use std.io;
-use base.io.Writer;
 use base.test;
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
     let mut values = [5]i32.{ 1, 2, 3, 4, 5 };
 
-    let middle = values.[1 .. 4];
+    let middle = values.&[1 .. 4];
     let mut sum = i32.{0};
     for (item: middle.iter()) {
         sum += item;
     }
-    ctx..&.eq(sum, 9);
+    (sum == 9).should().sum(@loc(), t);
 
-    let mut head = values..[0 .. 3];
+    let mut head = values..&[0 .. 3];
     head.reverse();
-    ctx..&.eq(values, [5]i32.{ 3, 2, 1, 4, 5 });
+    (values == [5]i32.{ 3, 2, 1, 4, 5 }).should().sum(@loc(), t);
 
     let mut squares = i32.{0};
     for (i: range(1, 4)) {
         squares += i * i;
     }
-    ctx..&.eq(squares, 14);
+    (squares == 14).should().sum(@loc(), t);
 
     let mut descending = range_down(5, 2);
-    let descending_sum = iter_fold[i32, i32](descending..&, 0, .[](accum: i32, value: i32) i32 {
+    let descending_sum = descending..&.fold[i32](0, [](accum: i32, value: i32) i32 {
         return accum + value;
     });
-    ctx..&.eq(descending_sum, 12);
+    (descending_sum == 12).should().sum(@loc(), t);
 
     let mut nth = range(10, 20);
-    ctx..&.eq(ctx..&.expect_some(iter_nth[i32](nth..&, usize.{4})), 14);
+    (nth..&.nth(usize.{4}).should_some().sum(@loc(), t) == 14).should().sum(@loc(), t);
 
-    io.println("slices: sum={}, squares={}, descending={}", .{sum, squares, descending_sum});
+    "slices: sum={}, squares={}, descending={}".fmt(.{sum, squares, descending_sum}).println();
     return 0;
 }

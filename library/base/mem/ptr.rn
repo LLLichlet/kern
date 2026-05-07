@@ -6,14 +6,14 @@
 //! without duplicating the cast API.
 
 impl usize {
-    /// Reinterprets this address as `*T`.
-    pub fn as_ptr[T]() *T {
-        return self as *T;
+    /// Reinterprets this address as `&T`.
+    pub fn as_ptr[T]() &T {
+        return self as &T;
     }
 
-    /// Reinterprets this address as `*mut T`.
-    pub fn as_mut_ptr[T]() *mut T {
-        return self as *mut T;
+    /// Reinterprets this address as `&mut T`.
+    pub fn as_mut_ptr[T]() &mut T {
+        return self as &mut T;
     }
 
     /// Reinterprets this address as `^T`.
@@ -27,14 +27,14 @@ impl usize {
     }
 }
 
-/// Returns the null pointer for `*T`.
-pub/ fn null_ptr[T]() *T {
-    return 0 as *T;
+/// Returns the null pointer for `&T`.
+pub/ fn null_ptr[T]() &T {
+    return 0 as &T;
 }
 
-/// Returns the null pointer for `*mut T`.
-pub/ fn null_mut_ptr[T]() *mut T {
-    return 0 as *mut T;
+/// Returns the null pointer for `&mut T`.
+pub/ fn null_mut_ptr[T]() &mut T {
+    return 0 as &mut T;
 }
 
 /// Returns the null address pointer for `^T`.
@@ -47,30 +47,30 @@ pub/ fn null_mut_addr_ptr[T]() ^mut T {
     return 0 as ^mut T;
 }
 
-impl[T] *T {
+impl[T] &T {
     pub fn is_null() bool {
         return (self as usize) == 0;
     }
 
-    pub fn byte_add(offset: usize) *T {
+    pub fn byte_add(offset: usize) &T {
         return ((self as usize) + offset).as_ptr[T]();
     }
 
-    pub fn byte_sub(offset: usize) *T {
+    pub fn byte_sub(offset: usize) &T {
         return ((self as usize) - offset).as_ptr[T]();
     }
 }
 
-impl[T] *mut T {
+impl[T] &mut T {
     pub fn is_null() bool {
         return (self as usize) == 0;
     }
 
-    pub fn byte_add(offset: usize) *mut T {
+    pub fn byte_add(offset: usize) &mut T {
         return ((self as usize) + offset).as_mut_ptr[T]();
     }
 
-    pub fn byte_sub(offset: usize) *mut T {
+    pub fn byte_sub(offset: usize) &mut T {
         return ((self as usize) - offset).as_mut_ptr[T]();
     }
 }

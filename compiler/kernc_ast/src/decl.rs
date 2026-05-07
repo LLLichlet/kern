@@ -1,4 +1,7 @@
-use super::{Attribute, BindingPattern, DocBlock, Expr, TypeNode};
+use super::{
+    AssociatedTypeDecl, Attribute, BindingPattern, DocBlock, EnumVariant, Expr, StructFieldDef,
+    TypeNode,
+};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -71,10 +74,41 @@ pub enum DeclKind {
     /// `type Name[T] = Target;`
     TypeAlias {
         generics: Vec<GenericParam>,
-        bounds: Vec<TypeNode>,
         where_clauses: Vec<WhereClause>,
         target: TypeNode,
+    },
+
+    /// `struct Name[T] { ... }`
+    Struct {
+        generics: Vec<GenericParam>,
+        where_clauses: Vec<WhereClause>,
+        fields: Vec<StructFieldDef>,
         is_extern: bool,
+    },
+
+    /// `union Name[T] { ... }`
+    Union {
+        generics: Vec<GenericParam>,
+        where_clauses: Vec<WhereClause>,
+        fields: Vec<StructFieldDef>,
+        is_extern: bool,
+    },
+
+    /// `enum Name[T] { ... }`
+    Enum {
+        generics: Vec<GenericParam>,
+        where_clauses: Vec<WhereClause>,
+        backing_type: Option<Box<TypeNode>>,
+        variants: Vec<EnumVariant>,
+    },
+
+    /// `trait Name[T] { ... }`
+    Trait {
+        generics: Vec<GenericParam>,
+        where_clauses: Vec<WhereClause>,
+        supertraits: Vec<TypeNode>,
+        assoc_types: Vec<AssociatedTypeDecl>,
+        methods: Vec<StructFieldDef>,
     },
 
     /// Module declaration: `mod name;`

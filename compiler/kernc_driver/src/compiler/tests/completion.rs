@@ -13,7 +13,7 @@ fn analysis_artifact_exposes_explicit_let_else_bindings_to_completion() {
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
     let source = concat!(
-        "type Result[T, E] = enum {\n",
+        "enum Result[T, E] {\n",
         "    Ok: T,\n",
         "    Err: E,\n",
         "};\n",
@@ -58,7 +58,7 @@ fn analysis_artifact_exposes_flow_definitions_for_explicit_let_else_bindings() {
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
     let source = concat!(
-        "type Result[T, E] = enum {\n",
+        "enum Result[T, E] {\n",
         "    Ok: T,\n",
         "    Err: E,\n",
         "};\n",

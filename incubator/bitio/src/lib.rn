@@ -4,42 +4,42 @@
 //! keep the first layer allocator-free, explicit, and suitable for protocol or
 //! codec crates that need precise control over reads and writes.
 
-pub type BitIoError = enum {
+pub enum BitIoError {
     UnexpectedEof,
     BufferTooSmall,
     InvalidBitCount,
 };
 
-pub type BitReader = struct {
-    ptr: ?*u8 = .None,
+pub struct BitReader {
+    ptr: ?&u8 = .None,
     len: usize = 0,
     bit_offset: usize = 0,
 };
 
-pub type BitWriter = struct {
-    ptr: ?*mut u8 = .None,
+pub struct BitWriter {
+    ptr: ?&mut u8 = .None,
     len: usize = 0,
     bit_offset: usize = 0,
 };
 
-pub fn reader(text: []u8) BitReader {
+pub fn reader(text: &[u8]) BitReader {
     if (#text == 0) {
         return BitReader.{};
     }
 
     return BitReader.{
-        ptr: .{ Some: text.[0].& as *u8 },
+        ptr: .{ Some: text.[0].& as &u8 },
         len: #text,
     };
 }
 
-pub fn writer(out: []mut u8) BitWriter {
+pub fn writer(out: &mut [u8]) BitWriter {
     if (#out == 0) {
         return BitWriter.{};
     }
 
     return BitWriter.{
-        ptr: .{ Some: out.[0].& as *mut u8 },
+        ptr: .{ Some: out.[0].& as &mut u8 },
         len: #out,
     };
 }
@@ -76,21 +76,21 @@ pub fn rotate_right_u64(value: u64, bits: u64) u64 {
     return (value >> count) | (value << (64 - count));
 }
 
-pub fn read_u16_be(text: []u8) u16!BitIoError {
+pub fn read_u16_be(text: &[u8]) u16!BitIoError {
     if (#text < 2) {
         return .{ Err: BitIoError.UnexpectedEof };
     }
     return .{ Ok: ((text.[0] as u16) << 8) | (text.[1] as u16) };
 }
 
-pub fn read_u16_le(text: []u8) u16!BitIoError {
+pub fn read_u16_le(text: &[u8]) u16!BitIoError {
     if (#text < 2) {
         return .{ Err: BitIoError.UnexpectedEof };
     }
     return .{ Ok: (text.[0] as u16) | ((text.[1] as u16) << 8) };
 }
 
-pub fn read_u32_be(text: []u8) u32!BitIoError {
+pub fn read_u32_be(text: &[u8]) u32!BitIoError {
     if (#text < 4) {
         return .{ Err: BitIoError.UnexpectedEof };
     }
@@ -103,7 +103,7 @@ pub fn read_u32_be(text: []u8) u32!BitIoError {
     };
 }
 
-pub fn read_u32_le(text: []u8) u32!BitIoError {
+pub fn read_u32_le(text: &[u8]) u32!BitIoError {
     if (#text < 4) {
         return .{ Err: BitIoError.UnexpectedEof };
     }
@@ -116,7 +116,7 @@ pub fn read_u32_le(text: []u8) u32!BitIoError {
     };
 }
 
-pub fn read_u64_be(text: []u8) u64!BitIoError {
+pub fn read_u64_be(text: &[u8]) u64!BitIoError {
     if (#text < 8) {
         return .{ Err: BitIoError.UnexpectedEof };
     }
@@ -130,7 +130,7 @@ pub fn read_u64_be(text: []u8) u64!BitIoError {
     return .{ Ok: value };
 }
 
-pub fn read_u64_le(text: []u8) u64!BitIoError {
+pub fn read_u64_le(text: &[u8]) u64!BitIoError {
     if (#text < 8) {
         return .{ Err: BitIoError.UnexpectedEof };
     }
@@ -144,7 +144,7 @@ pub fn read_u64_le(text: []u8) u64!BitIoError {
     return .{ Ok: value };
 }
 
-pub fn write_u16_be(out: []mut u8, value: u16) usize!BitIoError {
+pub fn write_u16_be(out: &mut [u8], value: u16) usize!BitIoError {
     if (#out < 2) {
         return .{ Err: BitIoError.BufferTooSmall };
     }
@@ -153,7 +153,7 @@ pub fn write_u16_be(out: []mut u8, value: u16) usize!BitIoError {
     return .{ Ok: 2 };
 }
 
-pub fn write_u16_le(out: []mut u8, value: u16) usize!BitIoError {
+pub fn write_u16_le(out: &mut [u8], value: u16) usize!BitIoError {
     if (#out < 2) {
         return .{ Err: BitIoError.BufferTooSmall };
     }
@@ -162,7 +162,7 @@ pub fn write_u16_le(out: []mut u8, value: u16) usize!BitIoError {
     return .{ Ok: 2 };
 }
 
-pub fn write_u32_be(out: []mut u8, value: u32) usize!BitIoError {
+pub fn write_u32_be(out: &mut [u8], value: u32) usize!BitIoError {
     if (#out < 4) {
         return .{ Err: BitIoError.BufferTooSmall };
     }
@@ -173,7 +173,7 @@ pub fn write_u32_be(out: []mut u8, value: u32) usize!BitIoError {
     return .{ Ok: 4 };
 }
 
-pub fn write_u32_le(out: []mut u8, value: u32) usize!BitIoError {
+pub fn write_u32_le(out: &mut [u8], value: u32) usize!BitIoError {
     if (#out < 4) {
         return .{ Err: BitIoError.BufferTooSmall };
     }
@@ -184,7 +184,7 @@ pub fn write_u32_le(out: []mut u8, value: u32) usize!BitIoError {
     return .{ Ok: 4 };
 }
 
-pub fn write_u64_be(out: []mut u8, value: u64) usize!BitIoError {
+pub fn write_u64_be(out: &mut [u8], value: u64) usize!BitIoError {
     if (#out < 8) {
         return .{ Err: BitIoError.BufferTooSmall };
     }
@@ -200,7 +200,7 @@ pub fn write_u64_be(out: []mut u8, value: u64) usize!BitIoError {
     return .{ Ok: 8 };
 }
 
-pub fn write_u64_le(out: []mut u8, value: u64) usize!BitIoError {
+pub fn write_u64_le(out: &mut [u8], value: u64) usize!BitIoError {
     if (#out < 8) {
         return .{ Err: BitIoError.BufferTooSmall };
     }
@@ -216,7 +216,7 @@ pub fn write_u64_le(out: []mut u8, value: u64) usize!BitIoError {
     return .{ Ok: 8 };
 }
 
-pub fn xor_mask4(input: []u8, mask: [4]u8, out: []mut u8) usize!BitIoError {
+pub fn xor_mask4(input: &[u8], mask: [4]u8, out: &mut [u8]) usize!BitIoError {
     if (#out < #input) {
         return .{ Err: BitIoError.BufferTooSmall };
     }
@@ -230,7 +230,7 @@ pub fn xor_mask4(input: []u8, mask: [4]u8, out: []mut u8) usize!BitIoError {
 
     let mut i = usize.{0};
     while (i + 16 <= #input) {
-        let chunk = @simdLoad[u8x16](input.[i].& as *u8, 1);
+        let chunk = @simdLoad[u8x16](input.[i].& as &u8, 1);
         @simdStore(out.[i]..&, chunk ^ mask16, 1);
         i += 16;
     }
@@ -280,7 +280,7 @@ impl BitReader {
         }
 
         let .{ Some: ptr } = self.ptr else return .{ Err: BitIoError.UnexpectedEof };
-        let bytes = ptr.[0 .. self.len];
+        let bytes = ptr.&[0 .. self.len];
         let byte_index = self.bit_offset / 8;
         let bit_index = self.bit_offset % 8;
         let mask = u8.{1} << ((usize.{7} - bit_index) as u8);
@@ -288,7 +288,7 @@ impl BitReader {
     }
 }
 
-impl *mut BitReader {
+impl &mut BitReader {
     pub fn read_bit() bool!BitIoError {
         let bit = self.*.peek_bit().!;
         self.*.bit_offset += 1;
@@ -340,7 +340,7 @@ impl BitWriter {
     }
 }
 
-impl *mut BitWriter {
+impl &mut BitWriter {
     pub fn write_bit(value: bool) usize!BitIoError {
         let byte_index = self.*.bit_offset / 8;
         let bit_index = self.*.bit_offset % 8;

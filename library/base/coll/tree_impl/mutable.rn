@@ -26,7 +26,7 @@ use ..base.{
     set_len,
 };
 
-impl[K, V] *mut Tree[K, V]
+impl[K, V] &mut Tree[K, V]
     where K: Ord[K],
 {
     fn compare(lhs: K, rhs: K) i32 {
@@ -34,11 +34,11 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Allocates an empty node and clears every child pointer slot.
-    fn alloc_node(alloc: *mut Allocator, is_leaf: bool) ?*mut Node[K, V] {
+    fn alloc_node(alloc: &mut Allocator, is_leaf: bool) ?&mut Node[K, V] {
         let node_layout = array_layout_of[Node[K, V]](1).?;
         let node_raw = alloc.alloc(node_layout).?;
 
-        let node = node_raw as *mut Node[K, V];
+        let node = node_raw as &mut Node[K, V];
         node.is_leaf = is_leaf;
         node.len = 0;
 
@@ -53,13 +53,13 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Releases one node allocation.
-    fn free_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
+    fn free_node(alloc: &mut Allocator, node: &mut Node[K, V]) void {
         let .{ Some: node_layout } = array_layout_of[Node[K, V]](1) else return;
-        alloc.free(node as *mut u8, node_layout);
+        alloc.free(node as &mut u8, node_layout);
     }
 
     /// Returns the first slot whose key is greater than or equal to `key`.
-    fn search_slot(node: *mut Node[K, V], key: K) usize {
+    fn search_slot(node: &mut Node[K, V], key: K) usize {
         let mut index = usize.{0};
                 while (index < node.len) {
             if (self.compare(key_at[K, V](node, index), key) >= 0) {
@@ -72,7 +72,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Splits a full child into two siblings and promotes the median key.
-    fn split_child(alloc: *mut Allocator, parent: *mut Node[K, V], index: usize) bool {
+    fn split_child(alloc: &mut Allocator, parent: &mut Node[K, V], index: usize) bool {
         let child = child_at[K, V](parent, index);
         let .{ Some: right } = self.alloc_node(alloc, child.is_leaf) else return false;
 
@@ -122,7 +122,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Inserts into a node that is known not to be full.
-    fn insert_non_full(alloc: *mut Allocator, node: *mut Node[K, V], key: K, value: V) bool {
+    fn insert_non_full(alloc: &mut Allocator, node: &mut Node[K, V], key: K, value: V) bool {
         let slot = self.search_slot(node, key);
 
         if (slot < node.len and self.compare(key_at[K, V](node, slot), key) == 0) {
@@ -168,7 +168,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Recursively releases a subtree.
-    fn deinit_node(alloc: *mut Allocator, node: ?*mut Node[K, V]) void {
+    fn deinit_node(alloc: &mut Allocator, node: ?&mut Node[K, V]) void {
         let .{ Some: node } = node else return;
 
         if (!node.is_leaf) {
@@ -184,7 +184,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Visits every key-value pair in sorted order with mutable value access.
-    fn for_each_mut_node(node: ?*mut Node[K, V], visitor: *Fn(K, *mut V) void) void {
+    fn for_each_mut_node(node: ?&mut Node[K, V], visitor: &Fn(K, &mut V) void) void {
         let .{ Some: node } = node else return;
 
         let mut i = usize.{0};
@@ -203,7 +203,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Inserts or replaces a key-value pair.
-    pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
+    pub fn insert(alloc: &mut Allocator, key: K, value: V) bool {
         let root = match (self.root) {
             .{ Some: root } => root,
             .None => {
@@ -239,19 +239,19 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Releases every node in the tree.
-    pub fn deinit(alloc: *mut Allocator) void {
+    pub fn deinit(alloc: &mut Allocator) void {
         self.deinit_node(alloc, self.root);
         self.root = .None;
         set_len[K, V](self, 0);
     }
 
     /// Removes every entry from the tree.
-    pub fn clear(alloc: *mut Allocator) void {
+    pub fn clear(alloc: &mut Allocator) void {
         self.deinit(alloc);
     }
 
     /// Returns a mutable pointer to the value stored for `key`.
-    pub fn get_ptr(key: K) ?*mut V {
+    pub fn get_ptr(key: K) ?&mut V {
         let root = self.root.?;
         let mut node = root;
 
@@ -278,7 +278,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Returns a mutable pointer to the existing value or inserts `value`.
-    pub fn get_or_insert(alloc: *mut Allocator, key: K, value: V) ?*mut V {
+    pub fn get_or_insert(alloc: &mut Allocator, key: K, value: V) ?&mut V {
         let .{ Some: ptr } = self.get_ptr(key) else {
             if (!self.insert(alloc, key, value)) {
                 return .None;
@@ -290,7 +290,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Returns a mutable pointer to the existing value or inserts a lazily created one.
-    pub fn get_or_insert_with(alloc: *mut Allocator, key: K, make_value: *Fn() V) ?*mut V {
+    pub fn get_or_insert_with(alloc: &mut Allocator, key: K, make_value: &Fn() V) ?&mut V {
         let .{ Some: ptr } = self.get_ptr(key) else {
             let value = make_value();
             if (!self.insert(alloc, key, value)) {
@@ -303,12 +303,12 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Visits every value mutably in sorted key order.
-    pub fn for_each_mut(visitor: *Fn(K, *mut V) void) void {
+    pub fn for_each_mut(visitor: &Fn(K, &mut V) void) void {
         self.for_each_mut_node(self.root, visitor);
     }
 
     /// Returns a mutable pointer to the first value in key order.
-    pub fn first_ptr() ?*mut V {
+    pub fn first_ptr() ?&mut V {
         let hit = match (first_hit[K, V](self.root)) {
             .{ Some: hit } => hit,
             .None => return .None,
@@ -317,7 +317,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Returns a mutable pointer to the last value in key order.
-    pub fn last_ptr() ?*mut V {
+    pub fn last_ptr() ?&mut V {
         let hit = match (last_hit[K, V](self.root)) {
             .{ Some: hit } => hit,
             .None => return .None,
@@ -326,7 +326,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Returns a mutable pointer to the value at the smallest key greater than or equal to `key`.
-    pub fn ceil_ptr(key: K) ?*mut V {
+    pub fn ceil_ptr(key: K) ?&mut V {
         let hit = match (ceil_hit[K, V](self.root, key)) {
             .{ Some: hit } => hit,
             .None => return .None,
@@ -335,7 +335,7 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Returns a mutable pointer to the value at the largest key less than or equal to `key`.
-    pub fn floor_ptr(key: K) ?*mut V {
+    pub fn floor_ptr(key: K) ?&mut V {
         let hit = match (floor_hit[K, V](self.root, key)) {
             .{ Some: hit } => hit,
             .None => return .None,

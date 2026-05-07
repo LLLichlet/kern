@@ -1,17 +1,17 @@
-use ..traits.{Printable, Writer};
+use ..traits.{Formatable, Write};
 use base.coll.{List, String};
 
-/// Built-in `Printable` implementations.
+/// Built-in `Formatable` implementations.
 
 /// Formats a byte slice as raw text.
-impl []u8 : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &[u8] : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         _ = writer.write(self);
     }
 }
 
-fn write_printable_slice[T](items: []T, writer: *mut Writer) void
-    where *T: Printable,
+fn write_printable_slice[T](items: &[T], writer: &mut Write) void
+    where &T: Formatable,
 {
     _ = writer.write("[");
 
@@ -19,7 +19,7 @@ fn write_printable_slice[T](items: []T, writer: *mut Writer) void
     let mut i = usize.{0};
     while (i < len) {
         let item = items.[i];
-        item.&.fmt(writer);
+        item.&.write_to(writer);
 
         if (i + usize.{1} < len) {
             _ = writer.write(", ");
@@ -31,16 +31,16 @@ fn write_printable_slice[T](items: []T, writer: *mut Writer) void
     _ = writer.write("]");
 }
 
-impl[T] []T : Printable
-    where *T: Printable,
+impl[T] &[T] : Formatable
+    where &T: Formatable,
 {
-    pub fn fmt(writer: *mut Writer) void {
+    pub fn write_to(writer: &mut Write) void {
         write_printable_slice(self, writer);
     }
 }
 
 /// Writes an unsigned integer in base 10.
-fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
+fn write_u64_to_writer(val: u64, writer: &mut Write) void {
     if (val == 0) {
         _ = writer.write("0");
         return;
@@ -60,12 +60,12 @@ fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
     }
 
     // Writes only the populated suffix.
-    let valid_slice = buf.[i .. 20];
+    let valid_slice = buf.&[i .. 20];
     _ = writer.write(valid_slice);
 }
 
 /// Writes a signed integer in base 10.
-fn write_i64_to_writer(val: i64, writer: *mut Writer) void {
+fn write_i64_to_writer(val: i64, writer: &mut Write) void {
     if (val < 0) {
         _ = writer.write("-");
         // Preserves the bit-pattern while converting to the unsigned domain.
@@ -78,69 +78,69 @@ fn write_i64_to_writer(val: i64, writer: *mut Writer) void {
     }
 }
 
-impl *u64 : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &u64 : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         write_u64_to_writer(self.*, writer);
     }
 }
 
-impl *u32 : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &u32 : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         write_u64_to_writer(self.* as u64, writer);
     }
 }
 
-impl *u16 : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &u16 : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         write_u64_to_writer(self.* as u64, writer);
     }
 }
 
-impl *u8 : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &u8 : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         write_u64_to_writer(self.* as u64, writer);
     }
 }
 
-impl *usize : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &usize : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         // `usize` always fits into `u64` on the currently supported targets.
         write_u64_to_writer(self.* as u64, writer);
     }
 }
 
-impl *i64 : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &i64 : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         write_i64_to_writer(self.*, writer);
     }
 }
 
-impl *i32 : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &i32 : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         write_i64_to_writer(self.* as i64, writer);
     }
 }
 
-impl *i16 : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &i16 : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         write_i64_to_writer(self.* as i64, writer);
     }
 }
 
-impl *i8 : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &i8 : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         write_i64_to_writer(self.* as i64, writer);
     }
 }
 
-impl *isize : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &isize : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         write_i64_to_writer(self.* as i64, writer);
     }
 }
 
-impl *bool : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &bool : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         if (self.*) {
             _ = writer.write("true");
         } else {
@@ -149,25 +149,25 @@ impl *bool : Printable {
     }
 }
 
-impl *String : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &String : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         _ = writer.write(self.as_str());
     }
 }
 
-impl[T] *List[T] : Printable
-    where *T: Printable,
+impl[T] &List[T] : Formatable
+    where &T: Formatable,
 {
-    pub fn fmt(writer: *mut Writer) void {
+    pub fn write_to(writer: &mut Write) void {
         _ = writer.write("<List len=");
 
         let len = self.len();
-        len.&.fmt(writer);
+        len.&.write_to(writer);
 
         _ = writer.write(", cap=");
 
         let capacity = self.capacity();
-        capacity.&.fmt(writer);
+        capacity.&.write_to(writer);
 
         _ = writer.write(", items: [");
 
@@ -175,7 +175,7 @@ impl[T] *List[T] : Printable
         let mut i = usize.{0};
         while (i < self.len()) {
             let item = items.[i];
-            item.&.fmt(writer);
+            item.&.write_to(writer);
 
             if (i + usize.{1} < self.len()) {
                 _ = writer.write(", ");

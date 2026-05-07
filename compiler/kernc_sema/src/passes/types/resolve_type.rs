@@ -242,7 +242,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 self.ctx
                     .struct_error(f.span, msg)
                     .with_hint(
-                        "field-level `pub` is only supported on named declarations like `type Name = struct { ... }`",
+                        "field-level `pub` is only supported on named declarations like `struct Name { ... }`",
                     )
                     .emit();
             }
@@ -251,7 +251,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let msg = format!("anonymous {}s cannot have default field values", kind_name);
                 self.ctx
                     .struct_error(f.span, msg)
-                    .with_hint("default values are only allowed in named struct declarations (`type Name = struct { ... }`)")
+                    .with_hint("default values are only allowed in named struct declarations (`struct Name { ... }`)")
                     .emit();
             }
 

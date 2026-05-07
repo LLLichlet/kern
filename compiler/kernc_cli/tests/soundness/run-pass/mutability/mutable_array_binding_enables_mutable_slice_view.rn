@@ -3,7 +3,7 @@
 
 fn main() i32 {
     let mut data = [3]u8.{ b'a', b'b', b'c' };
-    let view = data..[0 .. 3];
+    let view = data..&[0 .. 3];
 
     view.[1] = b'Z';
 

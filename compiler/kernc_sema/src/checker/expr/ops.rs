@@ -848,7 +848,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                     span,
                                     "operator `#` cannot be applied to a standard thin pointer",
                                 )
-                                .with_hint("it can only extract metadata or state from fat pointers (e.g., slices `[]T`, closures `*Fn`, or trait objects `*Trait`)")
+                                .with_hint("it can only extract metadata or state from fat pointers (e.g., slices `&[T]`, closures `&Fn`, or trait objects `&Trait`)")
                                 .emit();
                             TypeId::ERROR
                         }
@@ -937,7 +937,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .with_code(DiagnosticCode::RequiresLetMut)
                 .with_hint("if this is a variable, declare it with `let mut`")
                 .with_hint(
-                    "if this is a pointer dereference, ensure it is a mutable pointer (`*mut T`)",
+                    "if this is a pointer dereference, ensure it is a mutable pointer (`&mut T`)",
                 )
                 .emit();
         }

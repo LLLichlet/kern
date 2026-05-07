@@ -3,7 +3,7 @@ use super::*;
 fn rejects_infinite_polymorphic_recursion_with_instantiation_chain() {
     let output = compile_source(
         r#"
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
@@ -46,7 +46,7 @@ fn main() i32 {
 fn rejects_mutual_polymorphic_recursion_with_instantiation_chain() {
     let output = compile_source(
         r#"
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
@@ -189,7 +189,7 @@ fn main() i32 {
 fn runs_const_generic_params_in_ordinary_expressions() {
     let output = build_and_run_source(
         r#"
-type Mode = enum {
+enum Mode {
     Off,
     On,
 };
@@ -305,11 +305,11 @@ fn main() i32 {
 fn normalizes_const_trait_projection_during_expression_typeck() {
     let output = build_and_run_source(
         r#"
-type HasOut[N: usize] = trait {
+trait HasOut[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: HasOut[1] {
     type Out = i32;
@@ -338,11 +338,11 @@ fn main() i32 {
 fn normalizes_const_trait_projection_from_env_bounds() {
     let output = build_and_run_source(
         r#"
-type HasOut[N: usize] = trait {
+trait HasOut[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: HasOut[1] {
     type Out = i32;
@@ -373,11 +373,11 @@ fn main() i32 {
 fn normalizes_const_specific_assoc_projection_over_generic_impl() {
     let output = compile_source(
         r#"
-type HasOut[N: usize] = trait {
+trait HasOut[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl[N: usize] X: HasOut[N] {
     type Out = i32;
@@ -410,14 +410,14 @@ fn main() i32 {
 fn dispatches_const_specific_trait_object_method_with_assoc_binding() {
     let output = build_and_run_source(
         r#"
-type Factory[N: usize] = trait {
+trait Factory[N: usize] {
     type Out;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type X = struct {};
+struct X {};
 
-impl[N: usize] *X: Factory[N] {
+impl[N: usize] &X: Factory[N] {
     type Out = i32;
 
     fn make() Out {
@@ -425,7 +425,7 @@ impl[N: usize] *X: Factory[N] {
     }
 }
 
-impl *X: Factory[4] {
+impl &X: Factory[4] {
     type Out = i64;
 
     fn make() Out {
@@ -435,7 +435,7 @@ impl *X: Factory[4] {
 
 fn main() i32 {
     let x = X.{};
-    let factory = *Factory[4, Out = i64].{ x.& };
+    let factory = &Factory[4, Out = i64].{ x.& };
     let value = factory.make();
     if (value != i64.{9}) {
         return 1;
@@ -457,11 +457,11 @@ fn main() i32 {
 fn rejects_ambiguous_const_target_specialization_overlap() {
     let output = compile_source(
         r#"
-type HasOut = trait {
+trait HasOut {
     type Out;
 };
 
-type Pair[A: usize, B: usize] = struct {};
+struct Pair[A: usize, B: usize] {};
 
 impl[N: usize] Pair[0, N]: HasOut {
     type Out = i32;
@@ -497,11 +497,11 @@ fn main() i32 {
 fn rejects_non_contractive_const_trait_projection_cycle_without_ice() {
     let output = compile_source(
         r#"
-type Loop[N: usize] = trait {
+trait Loop[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl[N: usize] X: Loop[N] {
     type Out = X.Loop[N + 1].Out;
@@ -543,11 +543,11 @@ fn main() i32 {
 fn rejects_reverse_solving_const_env_bound_for_projection() {
     let output = compile_source(
         r#"
-type HasOut[N: usize] = trait {
+trait HasOut[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: HasOut[1] {
     type Out = i32;
@@ -599,11 +599,11 @@ fn main() i32 {
 fn rejects_nested_typed_struct_pattern_with_mismatched_const_generic_argument() {
     let output = compile_source(
         r#"
-type Inner[N: usize] = struct {
+struct Inner[N: usize] {
     data: [N]u8,
 };
 
-type Outer[N: usize] = struct {
+struct Outer[N: usize] {
     inner: Inner[N],
 };
 
@@ -644,12 +644,12 @@ fn main() i32 {
 fn rejects_nested_typed_enum_pattern_with_mismatched_const_generic_argument() {
     let output = compile_source(
         r#"
-type Inner[N: usize] = enum {
+enum Inner[N: usize] {
     A: [N]u8,
     B,
 };
 
-type Outer[N: usize] = enum {
+enum Outer[N: usize] {
     Wrap: Inner[N],
     Done,
 };
@@ -694,12 +694,12 @@ fn main() i32 {
 fn runs_nested_typed_const_generic_patterns() {
     let output = build_and_run_source(
         r#"
-type Inner[N: usize] = enum {
+enum Inner[N: usize] {
     A: [N]u8,
     B,
 };
 
-type Outer[N: usize] = struct {
+struct Outer[N: usize] {
     inner: Inner[N],
 };
 

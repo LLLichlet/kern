@@ -3,105 +3,108 @@
 use ..USIZE_MAX;
 use base.cmp.{Ord, LESS, GREATER};
 
-/// Returns the smaller of two ordered values.
-pub fn min[T](lhs: T, rhs: T) T
+impl[T] T
     where T: Ord[T],
 {
-    return if (lhs.cmp(rhs) == GREATER) rhs else lhs;
+    /// Returns the smaller of two ordered values.
+    pub fn min(other: T) T {
+        return if (self.cmp(other) == GREATER) other else self;
+    }
+
+    /// Returns the larger of two ordered values.
+    pub fn max(other: T) T {
+        return if (self.cmp(other) == LESS) other else self;
+    }
+
+    /// Clamps this value into the inclusive range `[lo, hi]`.
+    ///
+    /// Note:
+    /// when `lo > hi`, `lo` is returned. This keeps the helper total and avoids
+    /// hidden failure policy in low-level code.
+    pub fn clamp(lo: T, hi: T) T {
+        if (lo.cmp(hi) == GREATER) {
+            return lo;
+        }
+        if (self.cmp(lo) == LESS) {
+            return lo;
+        }
+        if (self.cmp(hi) == GREATER) {
+            return hi;
+        }
+        return self;
+    }
 }
 
-/// Returns the larger of two ordered values.
-pub fn max[T](lhs: T, rhs: T) T
-    where T: Ord[T],
-{
-    return if (lhs.cmp(rhs) == LESS) rhs else lhs;
-}
+impl usize {
+    /// Checked addition.
+    pub const fn checked_add(rhs: usize) ?usize {
+        if (self > USIZE_MAX - rhs) {
+            return ?usize.None;
+        }
+        return .{ Some: self + rhs };
+    }
 
-/// Clamps `value` into the inclusive range `[lo, hi]`.
-///
-/// Note:
-/// when `lo > hi`, `lo` is returned. This keeps the helper total and avoids
-/// hidden failure policy in low-level code.
-pub fn clamp[T](value: T, lo: T, hi: T) T
-    where T: Ord[T],
-{
-    if (lo.cmp(hi) == GREATER) {
-        return lo;
+    /// Checked subtraction.
+    pub const fn checked_sub(rhs: usize) ?usize {
+        if (self < rhs) {
+            return ?usize.None;
+        }
+        return .{ Some: self - rhs };
     }
-    if (value.cmp(lo) == LESS) {
-        return lo;
-    }
-    if (value.cmp(hi) == GREATER) {
-        return hi;
-    }
-    return value;
-}
 
-/// Checked addition for `usize`.
-pub const fn checked_add_usize(lhs: usize, rhs: usize) ?usize {
-    if (lhs > USIZE_MAX - rhs) {
-        return ?usize.None;
+    /// Checked multiplication.
+    pub const fn checked_mul(rhs: usize) ?usize {
+        if (self == 0 or rhs == 0) {
+            return .{ Some: usize.{0} };
+        }
+        if (self > USIZE_MAX / rhs) {
+            return ?usize.None;
+        }
+        return .{ Some: self * rhs };
     }
-    return .{ Some: lhs + rhs };
-}
 
-/// Checked subtraction for `usize`.
-pub const fn checked_sub_usize(lhs: usize, rhs: usize) ?usize {
-    if (lhs < rhs) {
-        return ?usize.None;
+    /// Saturating addition.
+    pub const fn saturating_add(rhs: usize) usize {
+        if (self > USIZE_MAX - rhs) {
+            return USIZE_MAX;
+        }
+        return self + rhs;
     }
-    return .{ Some: lhs - rhs };
-}
 
-/// Checked multiplication for `usize`.
-pub const fn checked_mul_usize(lhs: usize, rhs: usize) ?usize {
-    if (lhs == 0 or rhs == 0) {
-        return .{ Some: usize.{0} };
+    /// Saturating subtraction.
+    pub const fn saturating_sub(rhs: usize) usize {
+        return if (self < rhs) usize.{0} else self - rhs;
     }
-    if (lhs > USIZE_MAX / rhs) {
-        return ?usize.None;
-    }
-    return .{ Some: lhs * rhs };
-}
 
-/// Saturating addition for `usize`.
-pub const fn saturating_add_usize(lhs: usize, rhs: usize) usize {
-    if (lhs > USIZE_MAX - rhs) {
-        return USIZE_MAX;
+    /// Saturating multiplication.
+    pub const fn saturating_mul(rhs: usize) usize {
+        if (self == 0 or rhs == 0) {
+            return 0;
+        }
+        if (self > USIZE_MAX / rhs) {
+            return USIZE_MAX;
+        }
+        return self * rhs;
     }
-    return lhs + rhs;
-}
 
-/// Saturating subtraction for `usize`.
-pub const fn saturating_sub_usize(lhs: usize, rhs: usize) usize {
-    return if (lhs < rhs) usize.{0} else lhs - rhs;
-}
-
-/// Saturating multiplication for `usize`.
-pub const fn saturating_mul_usize(lhs: usize, rhs: usize) usize {
-    if (lhs == 0 or rhs == 0) {
-        return 0;
+    /// Returns `true` when this value is a non-zero power of two.
+    pub const fn is_power_of_two() bool {
+        return self != 0 and (self & (self - 1)) == 0;
     }
-    if (lhs > USIZE_MAX / rhs) {
-        return USIZE_MAX;
-    }
-    return lhs * rhs;
-}
 
-/// Returns `true` when `value` is a non-zero power of two.
-pub const fn is_power_of_two_usize(value: usize) bool {
-    return value != 0 and (value & (value - 1)) == 0;
-}
-
-/// Rounds `value` up to `align`.
-///
-/// Returns:
-/// `None` when `align` is zero, not a power of two, or the rounded value would overflow.
-pub const fn align_up_usize(value: usize, align: usize) ?usize {
-    if (!is_power_of_two_usize(align)) {
-        return ?usize.None;
+    /// Rounds this value up to `align`.
+    ///
+    /// Returns:
+    /// `None` when `align` is zero, not a power of two, or the rounded value would overflow.
+    pub const fn align_up(align: usize) ?usize {
+        if (align == 0 or (align & (align - 1)) != 0) {
+            return ?usize.None;
+        }
+        let mask = align - 1;
+        if (self > USIZE_MAX - mask) {
+            return ?usize.None;
+        }
+        let biased = self + mask;
+        return .{ Some: biased & ~mask };
     }
-    let mask = align - 1;
-    let .{ Some: biased } = checked_add_usize(value, mask) else return ?usize.None;
-    return .{ Some: biased & ~mask };
 }

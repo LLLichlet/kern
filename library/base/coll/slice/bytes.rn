@@ -5,7 +5,7 @@ use base.cmp.{Comparable, Ord, Ordering};
 const USIZE_BYTES = @sizeOf[usize]();
 
 #[inline]
-fn eq_byte_range(lhs: *u8, rhs: *u8, len: usize) bool {
+fn eq_byte_range(lhs: &u8, rhs: &u8, len: usize) bool {
         let mut i = usize.{0};
     while (i < len) {
         if ((lhs + i).* != (rhs + i).*) {
@@ -18,7 +18,7 @@ fn eq_byte_range(lhs: *u8, rhs: *u8, len: usize) bool {
 }
 
 #[inline]
-fn eq_usize_range(lhs: *usize, rhs: *usize, len: usize) bool {
+fn eq_usize_range(lhs: &usize, rhs: &usize, len: usize) bool {
         let mut i = usize.{0};
     while (i < len) {
         if ((lhs + i).* != (rhs + i).*) {
@@ -31,7 +31,7 @@ fn eq_usize_range(lhs: *usize, rhs: *usize, len: usize) bool {
 }
 
 #[inline]
-pub/ fn bytes_eq(lhs: []u8, rhs: []u8) bool {
+pub/ fn bytes_eq(lhs: &[u8], rhs: &[u8]) bool {
     if (#lhs != #rhs) {
         return false;
     }
@@ -41,8 +41,8 @@ pub/ fn bytes_eq(lhs: []u8, rhs: []u8) bool {
         return true;
     }
 
-    let lhs_ptr = lhs.[0].& as *u8;
-    let rhs_ptr = rhs.[0].& as *u8;
+    let lhs_ptr = lhs.[0].& as &u8;
+    let rhs_ptr = rhs.[0].& as &u8;
     if (lhs_ptr.* != rhs_ptr.*) {
         return false;
     }
@@ -72,8 +72,8 @@ pub/ fn bytes_eq(lhs: []u8, rhs: []u8) bool {
     }
 
     let word_len = (len - prefix) / USIZE_BYTES;
-    let lhs_words = (lhs_ptr + prefix) as *usize;
-    let rhs_words = (rhs_ptr + prefix) as *usize;
+    let lhs_words = (lhs_ptr + prefix) as &usize;
+    let rhs_words = (rhs_ptr + prefix) as &usize;
     if (word_len != 0 and !eq_usize_range(lhs_words, rhs_words, word_len)) {
         return false;
     }
@@ -82,21 +82,21 @@ pub/ fn bytes_eq(lhs: []u8, rhs: []u8) bool {
     return eq_byte_range(lhs_ptr + tail_start, rhs_ptr + tail_start, len - tail_start);
 }
 
-impl []u8 : Eq[[]u8] {
-    pub fn eq(other: []u8) bool {
+impl &[u8] : Eq[&[u8]] {
+    pub fn eq(other: &[u8]) bool {
         return bytes_eq(self, other);
     }
 }
 
-impl []u8 : Comparable[[]u8] {
-    pub fn cmp(other: []u8) Ordering {
+impl &[u8] : Comparable[&[u8]] {
+    pub fn cmp(other: &[u8]) Ordering {
         return self.lex_cmp(other);
     }
 }
 
-impl []u8 : Ord[[]u8] {}
+impl &[u8] : Ord[&[u8]] {}
 
-impl []u8 {
+impl &[u8] {
     /// Returns the first index of `byte`.
     pub fn find_byte(byte: u8) ?usize {
                 let mut i = usize.{0};
@@ -128,7 +128,7 @@ impl []u8 {
     }
 
     /// Trims ASCII whitespace from the start of the slice.
-    pub fn trim_ascii_start() []u8 {
+    pub fn trim_ascii_start() &[u8] {
                 let mut start = usize.{0};
         while (start < #self) {
             let b = self.[start];
@@ -140,16 +140,16 @@ impl []u8 {
                 b != u8.{11} and
                 b != u8.{12}
             ) {
-                return self.[start .. #self];
+                return self.&[start .. #self];
             }
 
             start += 1;
         }
-        return self.[#self .. #self];
+        return self.&[#self .. #self];
     }
 
     /// Trims ASCII whitespace from the end of the slice.
-    pub fn trim_ascii_end() []u8 {
+    pub fn trim_ascii_end() &[u8] {
                 let mut end = #self;
         while (end > 0) {
             let b = self.[end - 1];
@@ -161,45 +161,45 @@ impl []u8 {
                 b != u8.{11} and
                 b != u8.{12}
             ) {
-                return self.[0 .. end];
+                return self.&[0 .. end];
             }
             end -= 1;
         }
-        return self.[0 .. 0];
+        return self.&[0 .. 0];
     }
 
     /// Trims ASCII whitespace from both ends of the slice.
-    pub fn trim_ascii() []u8 {
+    pub fn trim_ascii() &[u8] {
         return self.trim_ascii_start().trim_ascii_end();
     }
 }
 
 /// Returns the first index of `byte` in `text`.
-pub/ fn find_byte(text: []u8, byte: u8) ?usize {
+pub/ fn find_byte(text: &[u8], byte: u8) ?usize {
     return text.find_byte(byte);
 }
 
 /// Returns `true` when `text` contains `byte`.
-pub/ fn contains_byte(text: []u8, byte: u8) bool {
+pub/ fn contains_byte(text: &[u8], byte: u8) bool {
     return text.contains_byte(byte);
 }
 
 /// Returns the last index of `byte` in `text`.
-pub/ fn rfind_byte(text: []u8, byte: u8) ?usize {
+pub/ fn rfind_byte(text: &[u8], byte: u8) ?usize {
     return text.rfind_byte(byte);
 }
 
 /// Trims ASCII whitespace from the start of `text`.
-pub/ fn trim_ascii_start(text: []u8) []u8 {
+pub/ fn trim_ascii_start(text: &[u8]) &[u8] {
     return text.trim_ascii_start();
 }
 
 /// Trims ASCII whitespace from the end of `text`.
-pub/ fn trim_ascii_end(text: []u8) []u8 {
+pub/ fn trim_ascii_end(text: &[u8]) &[u8] {
     return text.trim_ascii_end();
 }
 
 /// Trims ASCII whitespace from both ends of `text`.
-pub/ fn trim_ascii(text: []u8) []u8 {
+pub/ fn trim_ascii(text: &[u8]) &[u8] {
     return text.trim_ascii();
 }

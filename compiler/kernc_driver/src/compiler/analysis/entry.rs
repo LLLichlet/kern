@@ -43,7 +43,7 @@ impl CompilerDriver {
 
         let Some(entry_main) = entry_main else {
             ctx.struct_error(Span::default(), "program entry mode requires a root `main` function")
-                .with_hint("declare either `fn main() i32` or `fn main(argc: i32, argv: **u8) i32` in the root module")
+                .with_hint("declare either `fn main() i32` or `fn main(argc: i32, argv: &&u8) i32` in the root module")
                 .emit();
             return;
         };
@@ -205,7 +205,7 @@ impl CompilerDriver {
 
         if ret != TypeId::I32 {
             ctx.struct_error(main.ret_type.span, "program `main` must return `i32`")
-                .with_hint("legal entry forms are `fn main() i32` and `fn main(argc: i32, argv: **u8) i32`")
+                .with_hint("legal entry forms are `fn main() i32` and `fn main(argc: i32, argv: &&u8) i32`")
                 .emit();
             return None;
         }
@@ -216,18 +216,18 @@ impl CompilerDriver {
             [_, _] => {
                 ctx.struct_error(
                     main.params[0].type_node.span,
-                    "program `main` accepts only `(i32, **u8)` when it has parameters",
+                    "program `main` accepts only `(i32, &&u8)` when it has parameters",
                 )
-                .with_hint("legal entry forms are `fn main() i32` and `fn main(argc: i32, argv: **u8) i32`")
+                .with_hint("legal entry forms are `fn main() i32` and `fn main(argc: i32, argv: &&u8) i32`")
                 .emit();
                 None
             }
             _ => {
                 ctx.struct_error(
                     main.name_span,
-                    "program `main` accepts either zero parameters or exactly `(i32, **u8)`",
+                    "program `main` accepts either zero parameters or exactly `(i32, &&u8)`",
                 )
-                .with_hint("legal entry forms are `fn main() i32` and `fn main(argc: i32, argv: **u8) i32`")
+                .with_hint("legal entry forms are `fn main() i32` and `fn main(argc: i32, argv: &&u8) i32`")
                 .emit();
                 None
             }

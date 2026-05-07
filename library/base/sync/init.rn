@@ -22,24 +22,24 @@ const ONCE_RUNNING = usize.{1};
 const ONCE_DONE = usize.{2};
 
 /// Result of a compare-and-swap operation.
-pub type AtomicCas[T] = struct {
+pub struct AtomicCas[T] {
     pub success: bool,
     pub value: T,
 };
 
 /// Atomic storage for lock-free integer and pointer types.
-pub type Atomic[T] = struct {
+pub struct Atomic[T] {
     value: T,
 };
 
 /// A small spin lock around a value.
-pub type SpinLock[T] = struct {
+pub struct SpinLock[T] {
     locked: Atomic[bool],
     value: T,
 };
 
 /// A one-time initialization gate.
-pub type Once = struct {
+pub struct Once {
     state: Atomic[usize],
 };
 
@@ -58,14 +58,14 @@ pub const fn once() Once {
     return .{ state: atomic[usize](ONCE_INCOMPLETE) };
 }
 
-impl[T] *Atomic[T] {
+impl[T] &Atomic[T] {
     /// Loads the current value with const ordering `ORDER`.
     pub fn load[ORDER: u8]() T {
         return @atomicLoad[T](self.value.&, ORDER);
     }
 }
 
-impl[T] *mut Atomic[T] {
+impl[T] &mut Atomic[T] {
     /// Stores `value` with const ordering `ORDER`.
     pub fn store[ORDER: u8](value: T) void {
         @atomicStore[T](self.value..&, value, ORDER);
@@ -89,7 +89,7 @@ impl[T] *mut Atomic[T] {
     }
 }
 
-impl *mut Atomic[usize] {
+impl &mut Atomic[usize] {
     /// Adds `value` and returns the previous value.
     pub fn fetch_add[ORDER: u8](value: usize) usize {
         return @atomicRmwAdd[usize](self.value..&, value, ORDER);
@@ -146,14 +146,14 @@ pub fn fence[ORDER: u8]() void {
     @fence(ORDER);
 }
 
-impl[T] *SpinLock[T] {
+impl[T] &SpinLock[T] {
     /// Returns whether the lock is currently held.
     pub fn is_locked() bool {
         return self.locked.&.load[ACQUIRE]();
     }
 }
 
-impl[T] *mut SpinLock[T] {
+impl[T] &mut SpinLock[T] {
     fn try_acquire() bool {
         return self.locked..&.compare_exchange[ACQUIRE, RELAXED](false, true).success;
     }
@@ -172,14 +172,14 @@ impl[T] *mut SpinLock[T] {
     }
 
     /// Runs `call_back` while holding the lock.
-    pub fn with_lock[U](call_back: *Fn(*mut T) U) U {
+    pub fn with_lock[U](call_back: &Fn(&mut T) U) U {
         self.acquire();
         defer self.release();
         return call_back(self.value..&);
     }
 
     /// Runs `call_back` when the lock can be acquired immediately.
-    pub fn try_with_lock[U](call_back: *Fn(*mut T) U) ?U {
+    pub fn try_with_lock[U](call_back: &Fn(&mut T) U) ?U {
         if (!self.try_acquire()) {
             return .None;
         }
@@ -188,20 +188,20 @@ impl[T] *mut SpinLock[T] {
     }
 }
 
-impl *Once {
+impl &Once {
     /// Returns whether the one-time function has completed.
     pub fn is_completed() bool {
         return self.state.&.load[ACQUIRE]() == ONCE_DONE;
     }
 }
 
-impl *mut Once {
+impl &mut Once {
     fn wait_until_done() void {
         while (self.state..&.load[ACQUIRE]() != ONCE_DONE) {}
     }
 
     /// Runs `call_back` exactly once, waiting if another caller is running it.
-    pub fn call_once(call_back: *Fn() void) void {
+    pub fn call_once(call_back: &Fn() void) void {
         let cas = self.state..&.compare_exchange[ACQ_REL, ACQUIRE](ONCE_INCOMPLETE, ONCE_RUNNING);
         if (cas.success) {
             call_back();
@@ -214,7 +214,7 @@ impl *mut Once {
     }
 
     /// Runs `call_back` only when this call wins initialization.
-    pub fn try_call_once(call_back: *Fn() void) bool {
+    pub fn try_call_once(call_back: &Fn() void) bool {
         let cas = self.state..&.compare_exchange[ACQ_REL, ACQUIRE](ONCE_INCOMPLETE, ONCE_RUNNING);
         if (!cas.success) {
             return false;

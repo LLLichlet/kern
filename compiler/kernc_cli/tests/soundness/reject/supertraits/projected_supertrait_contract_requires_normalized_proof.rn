@@ -1,24 +1,24 @@
 // stderr: impl of trait `Derived` is missing a required supertrait proof
-// stderr: *X: Base[i32]
+// stderr: &X: Base[i32]
 
-type Base[T] = trait {};
+trait Base[T] {};
 
-type HasOut = trait {
+trait HasOut {
     type Out;
 };
 
-type Derived[T]: HasOut + Base[T.HasOut.Out] = trait {};
+trait Derived[T]: HasOut + Base[T.HasOut.Out] {};
 
-type X = struct {};
+struct X {};
 
-impl *X: HasOut {
+impl &X: HasOut {
     type Out = i32;
 }
 
-impl *X: Derived[*X] {}
+impl &X: Derived[&X] {}
 
 fn main() i32 {
     let x = X.{};
-    _ = *Derived[*X].{ x.& };
+    _ = &Derived[&X].{ x.& };
     return 0;
 }

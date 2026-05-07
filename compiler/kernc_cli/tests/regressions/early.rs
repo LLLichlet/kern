@@ -204,7 +204,7 @@ fn resolves_imported_generic_bounds_for_struct_field_literals() {
     let source = r#"
 use base.coll.Map;
 
-type Wrap = struct {
+struct Wrap {
     item: Map[u64, i32],
 };
 
@@ -221,7 +221,7 @@ fn main() i32 {
 #[test]
 fn compiles_const_generic_types_and_function_instantiations() {
     let source = r#"
-type Array[T, N: usize] = struct {
+struct Array[T, N: usize] {
     data: [N]T,
 };
 
@@ -275,7 +275,7 @@ fn main() i32 {
 #[test]
 fn supports_bool_const_generic_types_and_direct_inference() {
     let source = r#"
-type Flag[B: bool] = struct {
+struct Flag[B: bool] {
     value: bool,
 };
 
@@ -297,12 +297,12 @@ fn main() i32 {
 #[test]
 fn supports_payloadless_enum_const_generic_types_and_direct_inference() {
     let source = r#"
-type Mode = enum {
+enum Mode {
     Fast,
     Safe,
 };
 
-type Setting[M: Mode] = struct {};
+struct Setting[M: Mode] {};
 
 fn id_setting[M: Mode](value: Setting[M]) Setting[M] {
     return value;
@@ -322,12 +322,12 @@ fn main() i32 {
 #[test]
 fn rejects_payload_carrying_enum_const_generic_parameter_types() {
     let source = r#"
-type Rich = enum {
+enum Rich {
     A: i32,
     B,
 };
 
-type Bad[M: Rich] = struct {};
+struct Bad[M: Rich] {};
 "#;
 
     let output = compile_source(source);
@@ -349,12 +349,12 @@ type Bad[M: Rich] = struct {};
 #[test]
 fn rejects_raw_integer_values_for_enum_const_generics() {
     let source = r#"
-type Mode = enum {
+enum Mode {
     Fast,
     Safe,
 };
 
-type Setting[M: Mode] = struct {};
+struct Setting[M: Mode] {};
 
 fn main() i32 {
     let _ = Setting[0].{};
@@ -386,12 +386,12 @@ fn main() i32 {
 #[test]
 fn enum_const_generic_diagnostics_render_variant_names() {
     let source = r#"
-type Mode = enum {
+enum Mode {
     Fast,
     Safe,
 };
 
-type Setting[M: Mode] = struct {};
+struct Setting[M: Mode] {};
 
 fn takes_fast(value: Setting[Mode.Fast]) void {
     let _ = value;
@@ -427,7 +427,7 @@ fn main() i32 {
 #[test]
 fn rejects_symbolic_bool_const_generic_expressions() {
     let source = r#"
-type Flag[B: bool] = struct {
+struct Flag[B: bool] {
     value: bool,
 };
 
@@ -610,7 +610,7 @@ fn main() i32 {
 fn propagate_threads_result_error_context_into_generic_calls() {
     let output = build_and_run_source(
         r#"
-type Error = enum {
+enum Error {
     Oops,
 };
 
@@ -692,7 +692,7 @@ fn main() i32 {
 fn function_items_preserve_const_generic_signatures_when_used_as_callbacks() {
     let output = build_and_run_source(
         r#"
-fn takes(cb: *Fn([4]i32) i32) i32 {
+fn takes(cb: &Fn([4]i32) i32) i32 {
     return cb([4]i32.{ 1, 2, 3, 4 });
 }
 
@@ -718,7 +718,7 @@ fn main() i32 {
 fn rejects_const_generic_function_item_callback_signature_mismatch() {
     let output = compile_source(
         r#"
-fn takes(cb: *Fn([4]i32) i32) i32 {
+fn takes(cb: &Fn([4]i32) i32) i32 {
     return cb([4]i32.{ 1, 2, 3, 4 });
 }
 
@@ -741,7 +741,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("expected `*Fn([4]i32) i32`")
+        stderr.contains("expected `&Fn([4]i32) i32`")
             || stderr.contains("expected `[4]i32`, found `[3]i32`"),
         "unexpected stderr:\n{}",
         stderr
@@ -901,12 +901,12 @@ fn main() i32 {
 #[test]
 fn emits_composite_debug_types_for_aggregates_and_slices() {
     let source = r#"
-type Pair = struct {
+struct Pair {
     left: i32,
     right: [4]i32,
 };
 
-type Bits = union {
+union Bits {
     raw: i32,
     bytes: [4]u8,
 };
@@ -915,7 +915,7 @@ fn main() i32 {
     let arr = [4]i32.{ 1, 2, 3, 4 };
     let pair = Pair.{ left: 7, right: arr };
     let bits = Bits.{ raw: pair.left };
-    let view = arr.[..];
+    let view = arr.&[..];
     return bits.raw + view.[0] - 8;
 }
 "#;
@@ -950,7 +950,7 @@ fn main() i32 {
         stdout
     );
     assert!(
-        stdout.contains(r#"name: "[]i32""#)
+        stdout.contains(r#"name: "&[i32]""#)
             && stdout.contains(r#"name: "data_ptr""#)
             && stdout.contains(r#"name: "len""#),
         "debug-enabled LLVM IR should describe fat slice layout, got:\n{}",
@@ -1146,11 +1146,11 @@ fn main() i32 {
 fn compiles_result_with_payload_error_enum_without_union_alignment_ice() {
     let source = r#"
 
-type ParseError = enum {
+enum ParseError {
     BadToken,
 };
 
-type HandshakeError = enum {
+enum HandshakeError {
     Parse: ParseError,
     RouteRejected,
 };
@@ -1219,7 +1219,7 @@ fn emits_llvm_memmove_for_memmove_intrinsic() {
     let source = r#"
 fn main() i32 {
     let mut buf = [4]u8.{ 1, 2, 3, 4 };
-    @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
+    @memmove(buf.[1]..& as &mut u8, buf.[0].& as &u8, 3);
     return 0;
 }
 "#;
@@ -1241,7 +1241,7 @@ fn runs_memmove_intrinsic_with_overlapping_ranges() {
         r#"
 fn main() i32 {
     let mut buf = [4]u8.{ 1, 2, 3, 4 };
-    @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
+    @memmove(buf.[1]..& as &mut u8, buf.[0].& as &u8, 3);
 
     if (buf.[0] != 1) return 1;
     if (buf.[1] != 1) return 2;
@@ -1676,7 +1676,7 @@ fn main() i32 {
             (
                 "util.rn",
                 r#"
-pub type Kind = enum {
+pub enum Kind {
     Root,
 };
 
@@ -1735,7 +1735,7 @@ fn main() i32 {
 fn local_use_enables_following_type_paths_inside_blocks() {
     let output = compile_source(
         r#"
-type Answer = struct {
+struct Answer {
     value: i32,
 };
 
@@ -1934,12 +1934,12 @@ fn main() i32 {
 fn pure_enum_payload_bound_from_match_compiles_and_runs() {
     let output = build_and_run_source(
         r#"
-type Kind = enum {
+enum Kind {
     Root,
     Section,
 };
 
-type MaybeKind = enum {
+enum MaybeKind {
     None,
     Some: Kind,
 };
@@ -1974,12 +1974,12 @@ fn main() i32 {
 fn method_returning_option_of_pure_enum_compiles_and_runs() {
     let output = build_and_run_source(
         r#"
-type Kind = enum {
+enum Kind {
     Root,
     Section,
 };
 
-type Holder = struct {};
+struct Holder {};
 
 impl Holder {
     fn section_kind(flag: bool) ?Kind {

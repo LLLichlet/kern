@@ -103,7 +103,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if !is_supported {
             let ty_str = self.ctx.ty_to_string(norm);
             let kind_hint = if allow_pointers {
-                "expected an integer type or a normal raw pointer (`*T` / `*mut T`)"
+                "expected an integer type or a normal raw pointer (`&T` / `&mut T`)"
             } else {
                 "expected an integer type"
             };

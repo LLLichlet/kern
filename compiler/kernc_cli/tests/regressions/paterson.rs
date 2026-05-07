@@ -4,10 +4,10 @@ use super::*;
 fn accepts_equal_size_impl_prerequisite_when_it_is_acyclic() {
     let output = build_and_run_source(
         r#"
-type Need = trait {};
-type Marker = trait {};
+trait Need {};
+trait Marker {};
 
-impl *i32 : Need {}
+impl &i32 : Need {}
 
 impl[T] T : Marker
     where T: Need,
@@ -43,9 +43,9 @@ fn main() i32 {
 fn rejects_impl_prerequisite_that_grows_structural_size() {
     let output = compile_source(
         r#"
-type Marker = trait {};
+trait Marker {};
 
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
@@ -88,8 +88,8 @@ fn main() i32 {
 fn rejects_impl_prerequisite_that_duplicates_parameters() {
     let output = compile_source(
         r#"
-type Marker = trait {};
-type Need[A, B] = trait {};
+trait Marker {};
+trait Need[A, B] {};
 
 impl[T] T : Marker
     where T: Need[T, T],
@@ -130,12 +130,12 @@ fn main() i32 {
 fn accepts_duplicate_trait_payload_params_after_receiver_descent() {
     let output = build_and_run_source(
         r#"
-type Need[A, B] = trait {};
-type Marker = trait {
-    mark: fn() i32,
+trait Need[A, B] {};
+trait Marker {
+    fn mark() i32;
 };
 
-type Box[T] = struct {
+struct Box[T] {
     value: T,
 };
 
@@ -168,9 +168,9 @@ fn main() i32 {
 fn rejects_impl_prerequisite_that_grows_const_generic_structure() {
     let output = compile_source(
         r#"
-type Marker = trait {};
+trait Marker {};
 
-type Buf[N: usize] = struct {};
+struct Buf[N: usize] {};
 
 impl[N: usize] Buf[N] : Marker
     where Buf[N + 1]: Marker,
@@ -216,10 +216,10 @@ fn main() i32 {
 fn non_decreasing_impl_does_not_trigger_unrelated_cycle_diagnostic() {
     let output = compile_source(
         r#"
-type Marker = trait {};
-type Need = trait {};
+trait Marker {};
+trait Need {};
 
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 

@@ -3,12 +3,12 @@
 // stderr: type does not satisfy trait bounds
 // stderr: required bound: `T: Marker[T]`
 
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
-type Marker[T] = trait {
-    value: fn() i32,
+trait Marker[T] {
+    fn value() i32;
 };
 
 fn needs_self[T](value: T) i32
@@ -23,7 +23,7 @@ fn bad[T](value: T) i32
     return needs_self[T](value);
 }
 
-type X = struct {};
+struct X {};
 
 impl X: Marker[Wrap[X]] {
     fn value() i32 {

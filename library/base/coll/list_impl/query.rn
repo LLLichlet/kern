@@ -1,44 +1,44 @@
 use base.cmp.{Ord, Ordering};
 use ..List;
 
-impl[T] *List[T] {
+impl[T] &List[T] {
     /// Returns the first index that satisfies `pred`.
-    pub fn position(pred: *Fn(T) bool) ?usize {
+    pub fn position(pred: &Fn(T) bool) ?usize {
         return self.as_slice().position(pred);
     }
 
     /// Returns the last index that satisfies `pred`.
-    pub fn rposition(pred: *Fn(T) bool) ?usize {
+    pub fn rposition(pred: &Fn(T) bool) ?usize {
         return self.as_slice().rposition(pred);
     }
 
     /// Returns `true` when any element satisfies `pred`.
-    pub fn any(pred: *Fn(T) bool) bool {
+    pub fn any(pred: &Fn(T) bool) bool {
         return self.as_slice().any(pred);
     }
 
     /// Returns `true` when every element satisfies `pred`.
-    pub fn all(pred: *Fn(T) bool) bool {
+    pub fn all(pred: &Fn(T) bool) bool {
         return self.as_slice().all(pred);
     }
 
     /// Counts how many elements satisfy `pred`.
-    pub fn count(pred: *Fn(T) bool) usize {
+    pub fn count(pred: &Fn(T) bool) usize {
         return self.as_slice().count(pred);
     }
 
     /// Visits each element in order.
-    pub fn for_each(visitor: *Fn(T) void) void {
+    pub fn for_each(visitor: &Fn(T) void) void {
         self.as_slice().for_each(visitor);
     }
 
     /// Folds the list from left to right.
-    pub fn fold[U](init: U, step: *Fn(U, T) U) U {
+    pub fn fold[U](init: U, step: &Fn(U, T) U) U {
         return self.as_slice().fold(init, step);
     }
 
     /// Returns the first mapped value produced by `call_back`.
-    pub fn find_map[U](call_back: *Fn(T) ?U) ?U {
+    pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
         let items = self.as_slice();
                 let mut i = usize.{0};
         while (i < #items) {
@@ -53,50 +53,50 @@ impl[T] *List[T] {
     }
 
     /// Returns the partition point for a list already partitioned by `pred`.
-    pub fn partition_point(pred: *Fn(T) bool) usize {
+    pub fn partition_point(pred: &Fn(T) bool) usize {
         return self.as_slice().partition_point(pred);
     }
 }
 
-impl[T] *List[T]
+impl[T] &List[T]
     where T: Eq[T],
 {
     /// Returns `true` when the list begins with `prefix`.
-    pub fn starts_with(prefix: []T) bool {
+    pub fn starts_with(prefix: &[T]) bool {
         return self.as_slice().starts_with(prefix);
     }
 
     /// Returns `true` when the list ends with `suffix`.
-    pub fn ends_with(suffix: []T) bool {
+    pub fn ends_with(suffix: &[T]) bool {
         return self.as_slice().ends_with(suffix);
     }
 
     /// Returns the first position of `needle`.
-    pub fn find(needle: []T) ?usize {
+    pub fn find(needle: &[T]) ?usize {
         return self.as_slice().find(needle);
     }
 
     /// Returns `true` when `needle` appears as a contiguous subsequence.
-    pub fn contains(needle: []T) bool {
+    pub fn contains(needle: &[T]) bool {
         return self.as_slice().contains(needle);
     }
 
     /// Removes `prefix` from the front when present.
-    pub fn strip_prefix(prefix: []T) ?[]T {
+    pub fn strip_prefix(prefix: &[T]) ?&[T] {
         return self.as_slice().strip_prefix(prefix);
     }
 
     /// Removes `suffix` from the end when present.
-    pub fn strip_suffix(suffix: []T) ?[]T {
+    pub fn strip_suffix(suffix: &[T]) ?&[T] {
         return self.as_slice().strip_suffix(suffix);
     }
 }
 
-impl[T] *List[T]
+impl[T] &List[T]
     where T: Ord[T],
 {
     /// Performs lexicographic comparison against `other`.
-    pub fn lex_cmp(other: []T) Ordering {
+    pub fn lex_cmp(other: &[T]) Ordering {
         let items = self.as_slice();
         let shared = if (#items < #other) #items else #other;
                 let mut i = usize.{0};

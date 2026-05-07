@@ -42,6 +42,33 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
+    fn static_string_slice_const(
+        &mut self,
+        ty: TypeId,
+        value: &str,
+    ) -> BasicValueEnum<'ctx> {
+        let array_val = self.context.const_string(value.as_bytes(), true);
+        let global_name = format!(".str.static.{}", self.string_literal_counter);
+        self.string_literal_counter += 1;
+        let global = self
+            .module
+            .add_global(array_val.get_type().into(), None, &global_name);
+        global.set_linkage(Linkage::Internal);
+        global.set_constant(true);
+        global.set_initializer(&array_val);
+
+        let slice_ty = self.get_llvm_type(ty).into_struct_type();
+        slice_ty
+            .const_named_struct(&[
+                global.as_pointer_value().into(),
+                self.context
+                    .i64_type()
+                    .const_int(value.len() as u64, false)
+                    .into(),
+            ])
+            .into()
+    }
+
     fn static_int_value(
         &mut self,
         value: BasicValueEnum<'ctx>,
@@ -417,8 +444,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .const_int(u64::from(*value), false)
                     .into(),
             ),
-            MirConst::StringLiteral { value, .. } => {
-                Some(self.context.const_string(value.as_bytes(), true).into())
+            MirConst::StringLiteral { ty, value } => {
+                if matches!(
+                    self.type_registry.get(self.type_registry.normalize(*ty)),
+                    TypeKind::Slice { .. }
+                ) {
+                    Some(self.static_string_slice_const(*ty, value))
+                } else {
+                    Some(self.context.const_string(value.as_bytes(), true).into())
+                }
             }
             MirConst::GlobalRef { id, .. } => self
                 .globals

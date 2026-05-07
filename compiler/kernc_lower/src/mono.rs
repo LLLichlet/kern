@@ -57,7 +57,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.next_pending_function_instantiation = 0;
     }
 
-    fn lower_const_value_expr(
+    pub(crate) fn lower_const_value_expr(
         &mut self,
         value: &ConstValue,
         ty: TypeId,

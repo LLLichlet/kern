@@ -1,25 +1,25 @@
 // exit: 0
 
-type Family[N: usize] = trait {
-    value: fn() i32,
+trait Family[N: usize] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
-impl *X: Family[1] {
+impl &X: Family[1] {
     fn value() i32 {
         return 11;
     }
 }
 
-impl *X: Family[2] {
+impl &X: Family[2] {
     fn value() i32 {
         return 22;
     }
 }
 
-fn call[N: usize](x: *X) i32
-    where *X: Family[N],
+fn call[N: usize](x: &X) i32
+    where &X: Family[N],
 {
     return x.value();
 }

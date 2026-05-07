@@ -4,7 +4,7 @@ use super::*;
 fn underscore_assignment_explicitly_discards_values() {
     let output = build_and_run_source(
         r#"
-fn bump(value: *mut i32) i32 {
+fn bump(value: &mut i32) i32 {
     value.* += 1;
     return value.*;
 }
@@ -57,7 +57,7 @@ fn string_literals_are_byte_arrays_with_slice_decay() {
 const TITLE = "abc\0";
 const EMPTY = "";
 
-fn take_slice(text: []u8) usize {
+fn take_slice(text: &[u8]) usize {
     return #text;
 }
 
@@ -78,6 +78,96 @@ fn main() i32 {
     local.[0] = b'z';
     if (local.[0] != b'z') {
         return 5;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_returning_slice_decay_of_temporary_string_literal() {
+    let output = compile_source(
+        r#"
+fn bad() &[u8] {
+    return "bad";
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted temporary string slice escape:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("address of temporary value escapes into a return value"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_returning_struct_that_contains_temporary_string_slice() {
+    let output = compile_source(
+        r#"
+struct Check {
+    message: &[u8],
+};
+
+fn bad() Check {
+    return .{ message: "bad" };
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted temporary string slice inside returned struct:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("address of temporary value escapes into a return value"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn allows_returning_slice_of_local_static_string_literal() {
+    let output = build_and_run_source(
+        r#"
+fn message() &[u8] {
+    static message = "ok";
+    return message;
+}
+
+fn main() i32 {
+    let text = message();
+    if (#text != 2) {
+        return 1;
+    }
+    if (text.[0] != b'o' or text.[1] != b'k') {
+        return 2;
     }
     return 0;
 }
@@ -136,7 +226,7 @@ pub const VALUE = 1;
 fn function_and_type_names_are_separate_where_context_disambiguates() {
     let output = build_and_run_source(
         r#"
-type Thing = struct {
+struct Thing {
     value: i32,
 };
 
@@ -171,7 +261,7 @@ fn take_array(value: [5]u8) u8 {
     return value.[4];
 }
 
-fn take_slice(value: []u8) usize {
+fn take_slice(value: &[u8]) usize {
     return #value;
 }
 
@@ -203,12 +293,12 @@ fn main() i32 {
 fn compiles_const_enum_and_const_array_usage() {
     let output = compile_source(
         r#"
-type Mode: u8 = enum {
+enum Mode: u8 {
     Off,
     On,
 };
 
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -301,7 +391,7 @@ fn main() i32 {
     if (!same) {
         return 1;
     }
-    std.io.print("{}", .{"ok",});
+    "{}".fmt(.{"ok"}).print();
     return 0;
 }
 "#,
@@ -321,23 +411,23 @@ fn runs_nested_use_trees_with_grouped_self_imports() {
     let output = build_and_run_source_with_std(
         r#"
 use std.{. as stdlib, io.{.}};
-use base.{io.{Printable, Writer as W}};
+use base.{io.{Formatable, Write as W}};
 
-type Pair = struct {
+struct Pair {
     value: usize,
 };
 
-impl Pair : Printable {
-    pub fn fmt(writer: *mut W) void {
+impl Pair : Formatable {
+    pub fn write_to(writer: &mut W) void {
         let _ = writer.write("[");
-        self.value.&.fmt(writer);
+        self.value.&.write_to(writer);
         let _ = writer.write("]");
     }
 }
 
 fn main() i32 {
-    stdlib.io.print("{}", .{ Pair.{ value: 1 }, });
-    io.println("{}", .{ Pair.{ value: 2 }, });
+    "{}".fmt(.{ Pair.{ value: 1 }, }).print();
+    "{}".fmt(.{ Pair.{ value: 2 }, }).println();
     return 0;
 }
 "#,
@@ -360,7 +450,7 @@ use std.io;
 
 fn main() i32 {
     let array = [3]i32.{ 1, 2, 3 };
-    io.println("{}", .{ array, });
+    "{}".fmt(.{ array, }).println();
     return 0;
 }
 "#,
@@ -384,7 +474,7 @@ fn take(items: [3]i32) i32 {
 }
 
 fn main() i32 {
-    return take([]mut i32.{ 1, 2, 3 });
+    return take(&mut [i32].{ 1, 2, 3 });
 }
 "#,
     );
@@ -403,7 +493,7 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("found `[]mut i32`"),
+        stderr.contains("found `&mut [i32]`"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -417,8 +507,8 @@ use base.coll;
 
 fn main() i32 {
     let mut values = [4]i32.{ 1, 2, 3, 4 };
-    let view = values..[0 .. 4];
-    view.[0 .. 2].reverse();
+    let view = values..&[0 .. 4];
+    view.&[0 .. 2].reverse();
     return 0;
 }
 "#,
@@ -433,12 +523,12 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("no field or method named `reverse` found on type `[]i32`"),
+        stderr.contains("no field or method named `reverse` found on type `&[i32]`"),
         "unexpected stderr:\n{}",
         stderr
     );
     assert!(
-        stderr.contains("use `..[start .. end]` when you need a mutable subslice"),
+        stderr.contains("use `..&[start .. end]` when you need a mutable subslice"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -449,7 +539,7 @@ fn runs_explicit_slice_literals_with_local_backing_storage() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let items = []mut i32.{ 1, 2, 3 };
+    let items = &mut [i32].{ 1, 2, 3 };
     items.[1] = 9;
     return items.[1] - 9;
 }
@@ -468,13 +558,13 @@ fn main() i32 {
 fn runs_computed_mut_slice_element_address_of_with_signed_index() {
     let output = build_and_run_source(
         r#"
-fn bump(ptr: *mut i32) void {
+fn bump(ptr: &mut i32) void {
     ptr.* += 1;
 }
 
 fn main() i32 {
     let mut array = [3]i32.{ 10, 20, 30 };
-    let view = array..[0 .. 3];
+    let view = array..&[0 .. 3];
     let i = i32.{0};
     bump(view.[i + 1]..&);
     return view.[1] - 21;
@@ -494,13 +584,13 @@ fn main() i32 {
 fn runs_in_place_quicksort_on_mut_slice() {
     let output = build_and_run_source(
         r#"
-fn swap(a: *mut i32, b: *mut i32) void {
+fn swap(a: &mut i32, b: &mut i32) void {
     let t = a.*;
     a.* = b.*;
     b.* = t;
 }
 
-fn partition(arr: []mut i32, low: i32, high: i32) i32 {
+fn partition(arr: &mut [i32], low: i32, high: i32) i32 {
     let pivot = arr.[high];
     let mut i = low - 1;
 
@@ -518,7 +608,7 @@ fn partition(arr: []mut i32, low: i32, high: i32) i32 {
     return pivot_idx;
 }
 
-fn quick_sort(arr: []mut i32, low: i32, high: i32) void {
+fn quick_sort(arr: &mut [i32], low: i32, high: i32) void {
     if (low < high) {
         let pivot = partition(arr, low, high);
         quick_sort(arr, low, pivot - 1);
@@ -528,7 +618,7 @@ fn quick_sort(arr: []mut i32, low: i32, high: i32) void {
 
 fn main() i32 {
     let mut array = [8]i32.{ 1, 23, 3, 7, 8, 29, 28, 57 };
-    let view = array..[0 .. 8];
+    let view = array..&[0 .. 8];
     quick_sort(view, 0, 7);
 
     let expected = [8]i32.{ 1, 3, 7, 8, 23, 28, 29, 57 };
@@ -586,7 +676,7 @@ fn infers_usize_for_slice_bounds_from_expected_context() {
 fn main() i32 {
     let data = [4]u8.{ 9, 8, 7, 6 };
     let start = 0;
-    let tail = data.[start .. #data];
+    let tail = data.&[start .. #data];
     return (#tail as i32) - 4;
 }
 "#,
@@ -629,7 +719,7 @@ fn file_len[N: usize](file: [N]u8) usize {
     return #file;
 }
 
-fn take(loc: struct { file: []u8, line: usize, col: usize }) usize {
+fn take(loc: struct { file: &[u8], line: usize, col: usize }) usize {
     return loc.line;
 }
 
@@ -682,12 +772,12 @@ fn main() i32 {
 fn compiles_type_qualified_payloadless_enum_variants_in_const_and_runtime_contexts() {
     let output = build_and_run_source(
         r#"
-type DocumentKind = enum {
+enum DocumentKind {
     KeyValue,
     Table,
 };
 
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -777,7 +867,7 @@ fn rejects_direct_raw_pointer_literals_and_null_raw_pointer_casts() {
     let rejected = compile_source(
         r#"
 fn main() i32 {
-    let ptr = *mut i32.{0};
+    let ptr = &mut i32.{0};
     return if ((ptr as usize) == 0) 0 else 1;
 }
 "#,
@@ -799,7 +889,7 @@ fn main() i32 {
     let null_cast = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{0} as *mut i32;
+    let ptr = usize.{0} as &mut i32;
     return if ((ptr as usize) == 0) 0 else 1;
 }
 "#,
@@ -816,7 +906,7 @@ fn main() i32 {
     let direct_non_zero = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{1} as *mut i32;
+    let ptr = usize.{1} as &mut i32;
     return if ((ptr as usize) == 1) 0 else 1;
 }
 "#,
@@ -833,8 +923,8 @@ fn main() i32 {
     let optional = compile_source(
         r#"
 fn main() i32 {
-    let zero = 0 as ?*mut i32;
-    let one = 1 as ?*mut i32;
+    let zero = 0 as ?&mut i32;
+    let one = 1 as ?&mut i32;
 
     let zero_score = match (zero) {
         .None => i32.{0},
@@ -862,15 +952,15 @@ fn main() i32 {
 fn explicit_generic_pointer_casts_instantiate_target_types() {
     let output = build_and_run_source(
         r#"
-type Boxed[T] = struct {
-    ptr: *mut T,
+struct Boxed[T] {
+    ptr: &mut T,
 };
 
-fn make_ptr[T](addr: usize) *mut T {
-    return addr as *mut T;
+fn make_ptr[T](addr: usize) &mut T {
+    return addr as &mut T;
 }
 
-fn clear[T](value: *mut Boxed[T]) void {
+fn clear[T](value: &mut Boxed[T]) void {
     value.ptr = make_ptr[T](1);
 }
 
@@ -919,8 +1009,8 @@ fn keeps_optional_pointer_values_as_plain_builtin_enums() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let none = (?*mut i32).None;
-    let some = (?*mut i32).{ Some: usize.{1} as *mut i32 };
+    let none = (?&mut i32).None;
+    let some = (?&mut i32).{ Some: usize.{1} as &mut i32 };
 
     let none_score = match (none) {
         .None => i32.{0},
@@ -950,8 +1040,8 @@ fn rejects_unsupported_object_pointer_addition_forms_in_builtin_pointer_arithmet
     let output = compile_source(
         r#"
 fn main() i32 {
-    let lhs = usize.{1} as *mut i32;
-    let rhs = usize.{2} as *mut i32;
+    let lhs = usize.{1} as &mut i32;
+    let rhs = usize.{2} as &mut i32;
     let _ = lhs + rhs;
     return 0;
 }
@@ -960,7 +1050,7 @@ fn main() i32 {
 
     assert!(
         !output.status.success(),
-        "kernc unexpectedly accepted unsupported `*T + *T` arithmetic:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly accepted unsupported `&T + &T` arithmetic:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -976,7 +1066,7 @@ fn keeps_object_pointer_offset_arithmetic_available_as_a_builtin_primitive() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{100} as *mut i32;
+    let ptr = usize.{100} as &mut i32;
     let next = ptr + usize.{7};
     let prev = next - usize.{3};
     return (prev as usize) as i32;
@@ -998,7 +1088,7 @@ fn infers_bare_integer_literals_for_object_pointer_offsets() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{100} as *mut i32;
+    let ptr = usize.{100} as &mut i32;
     let step = 7;
     let next = ptr + step;
     let prev = 3 + next - 2;
@@ -1021,7 +1111,7 @@ fn keeps_zero_sized_object_pointer_offsets_stable_as_a_builtin_primitive() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{77} as *mut void;
+    let ptr = usize.{77} as &mut void;
     let next = ptr + usize.{9};
     let prev = next - usize.{4};
     return if ((prev as usize) == 77) 0 else 1;
@@ -1088,7 +1178,7 @@ fn keeps_pointer_offset_literals_polymorphic_until_later_exact_context() {
     let output = build_and_run_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{100} as *mut i32;
+    let ptr = usize.{100} as &mut i32;
     let step = 7;
     let next = ptr + step;
     let amount = usize.{step};
@@ -1111,7 +1201,7 @@ fn pointer_offset_literal_conflicts_report_human_facing_types_instead_of_typevar
     let output = compile_source(
         r#"
 fn main() i32 {
-    let ptr = usize.{0} as *mut i32;
+    let ptr = usize.{0} as &mut i32;
     let step = 1;
     let _next = ptr + step;
     let narrowed = u8.{step};
@@ -1252,7 +1342,7 @@ fn infers_bare_integer_literals_for_integer_to_pointer_casts() {
         r#"
 fn main() i32 {
     let raw = 1;
-    let ptr = raw as *mut i32;
+    let ptr = raw as &mut i32;
     let widened = usize.{raw};
     return ((ptr as usize) + widened) as i32 - 2;
 }
@@ -1274,7 +1364,7 @@ fn integer_to_pointer_cast_literals_conflict_cleanly_with_non_pointer_sized_inte
         r#"
 fn main() i32 {
     let raw = 1;
-    let _ptr = raw as *mut i32;
+    let _ptr = raw as &mut i32;
     let narrowed = u8.{raw};
     return 0;
 }
@@ -1306,7 +1396,7 @@ fn permits_direct_volatile_to_object_pointer_casts() {
         r#"
 fn main() i32 {
     let raw = usize.{1} as ^mut i32;
-    let ptr = raw as *mut i32;
+    let ptr = raw as &mut i32;
     return if ((ptr as usize) == 1) 0 else 1;
 }
 "#,
@@ -1433,7 +1523,7 @@ fn main() i32 {
 fn member_lookup_keeps_same_named_fields_and_methods_distinct() {
     let output = build_and_run_source(
         r#"
-type Counter = struct {
+struct Counter {
     len: i32,
 };
 
@@ -1467,8 +1557,8 @@ fn forty() i32 {
     return 40;
 }
 
-type Slot = struct {
-    len: *Fn() i32,
+struct Slot {
+    len: &Fn() i32,
 };
 
 impl Slot {
@@ -1497,7 +1587,7 @@ fn main() i32 {
 fn parenthesized_non_callable_field_call_suggests_method_call_syntax() {
     let output = compile_source(
         r#"
-type Counter = struct {
+struct Counter {
     len: i32,
 };
 
@@ -1538,7 +1628,7 @@ fn main() i32 {
 fn lowers_void_aggregate_initializers_without_ice() {
     let output = build_and_run_source(
         r#"
-type Result[T, E] = enum {
+enum Result[T, E] {
     Ok: T,
     Err: E,
 };
@@ -1578,7 +1668,7 @@ fn main() i32 {
 fn rejects_type_qualified_payload_variant_without_braces() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -1612,7 +1702,7 @@ fn main() i32 {
 fn compiles_if_expression_returning_type_qualified_payloadless_variants() {
     let output = build_and_run_source(
         r#"
-type DocumentKind = enum {
+enum DocumentKind {
     KeyValue,
     Table,
 };
@@ -1669,7 +1759,7 @@ fn main() i32 {
             (
                 "kinds.rn",
                 r#"
-pub type DocumentKind = enum {
+pub enum DocumentKind {
     KeyValue,
     Table,
 };
@@ -1690,13 +1780,13 @@ pub type DocumentKind = enum {
 fn compiles_const_fn_in_global_array_len_and_method_calls() {
     let output = compile_source(
         r#"
-type Switch = enum {
+enum Switch {
     Off = 0,
     On = 1,
     Value: i32,
 };
 
-type Pair = struct {
+struct Pair {
     left: i32,
     right: i32,
 };
@@ -1753,11 +1843,11 @@ fn main() i32 {
 fn compiles_concrete_slice_impl_methods() {
     let output = compile_source(
         r#"
-fn slice_len(value: []u8) usize {
+fn slice_len(value: &[u8]) usize {
     return #value;
 }
 
-impl []u8 {
+impl &[u8] {
     pub fn len_via_impl() usize {
         return slice_len(self);
     }
@@ -1784,17 +1874,17 @@ fn compiles_generic_std_helper_calling_layout_of_recursive_type() {
         r#"
 use base.mem.layout_of;
 
-type Node[K, V] = struct {
-    next: *mut Node[K, V],
+struct Node[K, V] {
+    next: &mut Node[K, V],
     key: K,
     value: V,
 };
 
-fn free_node[K, V](alloc: *mut base.mem.alloc.Allocator, node: *mut Node[K, V]) void {
-    alloc.free(node as *mut u8, layout_of[Node[K, V]]());
+fn free_node[K, V](alloc: &mut base.mem.alloc.Allocator, node: &mut Node[K, V]) void {
+    alloc.free(node as &mut u8, layout_of[Node[K, V]]());
 }
 
-fn wrap_free[K, V](alloc: *mut base.mem.alloc.Allocator, node: *mut Node[K, V]) void {
+fn wrap_free[K, V](alloc: &mut base.mem.alloc.Allocator, node: &mut Node[K, V]) void {
     free_node(alloc, node);
 }
 
@@ -1817,8 +1907,8 @@ fn main() i32 {
 fn defaults_inferred_integer_generic_arguments_before_bound_checking() {
     let output = build_and_run_source(
         r#"
-type Step[T] = trait {
-    step: fn() T,
+trait Step[T] {
+    fn step() T;
 };
 
 impl i32 : Step[i32] {

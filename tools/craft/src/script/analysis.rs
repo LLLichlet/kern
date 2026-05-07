@@ -19,14 +19,14 @@ pub(super) const CRAFT_SCRIPT_ENTRY: ScriptEntrySpec = ScriptEntrySpec {
     script_kind: "craft",
     entry_name: "craft",
     script_name: "craft.rn",
-    param_display: "*mut plan.Plan",
+    param_display: "&mut plan.Plan",
 };
 
 pub(super) const BUILD_SCRIPT_ENTRY: ScriptEntrySpec = ScriptEntrySpec {
     script_kind: "build",
     entry_name: "build",
     script_name: "build.rn",
-    param_display: "*mut builder.Builder",
+    param_display: "&mut builder.Builder",
 };
 
 pub(super) struct PreparedScript<'a> {

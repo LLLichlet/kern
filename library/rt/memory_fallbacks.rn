@@ -2,27 +2,27 @@ const WORD_BYTES = @sizeOf[usize]();
 const WORD_MASK = WORD_BYTES - usize.{1};
 
 #[inline]
-fn byte_ptr(addr: usize) *u8 {
-    return addr as *u8;
+fn byte_ptr(addr: usize) &u8 {
+    return addr as &u8;
 }
 
 #[inline]
-fn byte_mut_ptr(addr: usize) *mut u8 {
-    return addr as *mut u8;
+fn byte_mut_ptr(addr: usize) &mut u8 {
+    return addr as &mut u8;
 }
 
 #[inline]
-fn word_ptr(addr: usize) *usize {
-    return addr as *usize;
+fn word_ptr(addr: usize) &usize {
+    return addr as &usize;
 }
 
 #[inline]
-fn word_mut_ptr(addr: usize) *mut usize {
-    return addr as *mut usize;
+fn word_mut_ptr(addr: usize) &mut usize {
+    return addr as &mut usize;
 }
 
 #[inline]
-fn copy_forward_bytes(dest: *mut u8, src: *u8, len: usize) void {
+fn copy_forward_bytes(dest: &mut u8, src: &u8, len: usize) void {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
         let mut i = usize.{0};
@@ -34,7 +34,7 @@ fn copy_forward_bytes(dest: *mut u8, src: *u8, len: usize) void {
 }
 
 #[inline]
-fn copy_backward_bytes(dest: *mut u8, src: *u8, len: usize) void {
+fn copy_backward_bytes(dest: &mut u8, src: &u8, len: usize) void {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
         let mut i = len;
@@ -63,7 +63,7 @@ fn backward_suffix(dest_addr: usize, len: usize) usize {
 }
 
 #[inline]
-fn copy_forward_words(dest: *mut u8, src: *u8, len: usize) void {
+fn copy_forward_words(dest: &mut u8, src: &u8, len: usize) void {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
     let word_len = len / WORD_BYTES;
@@ -108,7 +108,7 @@ fn fill_word(byte: u8) usize {
 }
 
 #[inline]
-fn fill_words(dest: *mut u8, word: usize, len: usize) void {
+fn fill_words(dest: &mut u8, word: usize, len: usize) void {
     let dest_addr = dest as usize;
     let word_len = len / WORD_BYTES;
 
@@ -121,7 +121,7 @@ fn fill_words(dest: *mut u8, word: usize, len: usize) void {
 }
 
 #[inline]
-fn memcpy_impl(dest: *mut u8, src: *u8, len: usize) void {
+fn memcpy_impl(dest: &mut u8, src: &u8, len: usize) void {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
 
@@ -155,13 +155,13 @@ fn memcpy_impl(dest: *mut u8, src: *u8, len: usize) void {
 }
 
 #[export_name("memcpy")]
-extern fn memcpy(dest: *mut u8, src: *u8, len: usize) *mut u8 {
+extern fn memcpy(dest: &mut u8, src: &u8, len: usize) &mut u8 {
     memcpy_impl(dest, src, len);
     return dest;
 }
 
 #[export_name("memset")]
-extern fn memset(dest: *mut u8, val: i32, len: usize) *mut u8 {
+extern fn memset(dest: &mut u8, val: i32, len: usize) &mut u8 {
     let byte = val as u8;
     let dest_addr = dest as usize;
 
@@ -205,7 +205,7 @@ extern fn memset(dest: *mut u8, val: i32, len: usize) *mut u8 {
 }
 
 #[export_name("memmove")]
-extern fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
+extern fn memmove(dest: &mut u8, src: &u8, len: usize) &mut u8 {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
 
@@ -237,7 +237,7 @@ extern fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
 
 #[noinline]
 #[export_name("strlen")]
-extern fn strlen(str: *u8) usize {
+extern fn strlen(str: &u8) usize {
     let base = str as ^u8;
     let mut len = usize.{0};
         while (true) {

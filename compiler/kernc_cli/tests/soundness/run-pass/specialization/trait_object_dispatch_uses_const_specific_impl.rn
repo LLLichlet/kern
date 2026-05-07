@@ -1,13 +1,13 @@
 // exit: 0
 
-type Factory[N: usize] = trait {
+trait Factory[N: usize] {
     type Out;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type X = struct {};
+struct X {};
 
-impl[N: usize] *X: Factory[N] {
+impl[N: usize] &X: Factory[N] {
     type Out = i32;
 
     fn make() Out {
@@ -15,7 +15,7 @@ impl[N: usize] *X: Factory[N] {
     }
 }
 
-impl *X: Factory[4] {
+impl &X: Factory[4] {
     type Out = i64;
 
     fn make() Out {
@@ -25,7 +25,7 @@ impl *X: Factory[4] {
 
 fn main() i32 {
     let x = X.{};
-    let factory = *Factory[4, Out = i64].{ x.& };
+    let factory = &Factory[4, Out = i64].{ x.& };
     let value = factory.make();
     if (value != i64.{9}) {
         return 1;

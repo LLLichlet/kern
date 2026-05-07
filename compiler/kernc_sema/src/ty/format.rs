@@ -219,7 +219,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
             TypeKind::Simd { elem, lanes } => format!("{}x{}", self.format(*elem), lanes),
             TypeKind::Pointer { is_mut, elem } => {
                 let m = if *is_mut { "mut " } else { "" };
-                format!("*{}{}", m, self.format(*elem))
+                format!("&{}{}", m, self.format(*elem))
             }
             TypeKind::VolatilePtr { is_mut, elem } => {
                 let m = if *is_mut { "mut " } else { "" };
@@ -227,7 +227,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
             }
             TypeKind::Slice { is_mut, elem } => {
                 let m = if *is_mut { "mut " } else { "" };
-                format!("[]{}{}", m, self.format(*elem))
+                format!("&{}[{}]", m, self.format(*elem))
             }
             TypeKind::Array { elem, len } => {
                 format!(
@@ -364,7 +364,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 if *is_variadic {
                     param_strs.push("...".to_string());
                 }
-                format!("fn({}) {}", param_strs.join(", "), self.format(*ret))
+                format!("&fn({}) {}", param_strs.join(", "), self.format(*ret))
             }
 
             TypeKind::FnDef(def_id, generics) => {

@@ -3,12 +3,12 @@
 use sys.os;
 use base.mem.alloc.Allocator;
 use base.coll.{List, String};
-use ..types.{Error, File, Metadata, OpenOptions, SeekFrom};
-use ..c_path.{alloc_c_path, free_c_path};
+use ..types.{Error, File, Metadata, OpenOptions, Path, SeekFrom};
+use ..c_path.c_path;
 
 const MAX_ATOMIC_TMP_ATTEMPTS = usize.{32};
 
-fn to_os_open_options(options: *OpenOptions) os.OpenOptions {
+fn to_os_open_options(options: &OpenOptions) os.OpenOptions {
     return os.OpenOptions.{
         read: options.read,
         write: options.write,
@@ -62,7 +62,7 @@ fn is_already_exists_error(err: Error) bool {
     }
 }
 
-fn append_usize_decimal(out: *mut String, alloc: *mut Allocator, value: usize) bool {
+fn append_usize_decimal(out: &mut String, alloc: &mut Allocator, value: usize) bool {
     if (value == 0) {
         return out.push_char(alloc, b'0');
     }
@@ -78,10 +78,10 @@ fn append_usize_decimal(out: *mut String, alloc: *mut Allocator, value: usize) b
         curr /= usize.{10};
     }
 
-    return out.push_str(alloc, buf.[i .. 40]);
+    return out.push_str(alloc, buf.&[i .. 40]);
 }
 
-fn atomic_tmp_path(alloc: *mut Allocator, path: []u8, attempt: usize) String!Error {
+fn atomic_tmp_path(alloc: &mut Allocator, path: &[u8], attempt: usize) String!Error {
     let mut tmp = String.{};
     if (!tmp..&.push_str(alloc, path)
         or !tmp..&.push_str(alloc, ".tmp.")
@@ -96,18 +96,18 @@ fn atomic_tmp_path(alloc: *mut Allocator, path: []u8, attempt: usize) String!Err
     return .{ Ok: tmp };
 }
 
-fn open_with_c_path(c_path: *u8, options: *OpenOptions) File!Error {
+fn open_with_c_path(c_path: &u8, options: &OpenOptions) File!Error {
     let raw_options = to_os_open_options(options);
     return os.open_file(c_path, raw_options.&)
-        .map(.[](handle: os.Handle) File { return .{ handle: handle }; })
+        .map([](handle: os.Handle) File { return .{ handle: handle }; })
         .map_err(wrap_os_error);
 }
 
-fn metadata_with_c_path(c_path: *u8) Metadata!Error {
+fn metadata_with_c_path(c_path: &u8) Metadata!Error {
     return os.metadata(c_path).map_err(wrap_os_error);
 }
 
-fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) bool!Error {
+fn rename_with_c_paths(old_c_path: &u8, new_c_path: &u8) bool!Error {
     return os.rename(old_c_path, new_c_path).map_err(wrap_os_error);
 }
 
@@ -132,132 +132,14 @@ fn seek_offset(value: SeekFrom) isize!Error {
     };
 }
 
-/// Opens a file using the provided options.
-///
-/// Errors:
-/// returns `InvalidOptions` when neither reading nor writing is requested.
-pub/ fn open(alloc: *mut Allocator, path: []u8, options: *OpenOptions) File!Error {
+fn open_path(alloc: &mut Allocator, path: &[u8], options: &OpenOptions) File!Error {
     if (!options.read and !options.write) {
         return .{ Err: .InvalidOptions };
     }
 
-    let c_path = alloc_c_path(alloc, path).!;
-    let result = open_with_c_path(c_path, options);
-    free_c_path(alloc, path, c_path);
-    return result;
-}
-
-/// Creates or truncates a file for writing.
-pub/ fn create(alloc: *mut Allocator, path: []u8) File!Error {
-    let options = OpenOptions.{
-        write: true,
-        create: true,
-        truncate: true,
-    };
-    return open(alloc, path, options.&);
-}
-
-/// Opens a file for reading.
-pub/ fn open_read(alloc: *mut Allocator, path: []u8) File!Error {
-    let options = OpenOptions.{ read: true };
-    return open(alloc, path, options.&);
-}
-
-/// Opens a file for writing without creating it.
-pub/ fn open_write(alloc: *mut Allocator, path: []u8) File!Error {
-    let options = OpenOptions.{ write: true };
-    return open(alloc, path, options.&);
-}
-
-/// Opens a file for appending, creating it when needed.
-pub/ fn open_append(alloc: *mut Allocator, path: []u8) File!Error {
-    let options = OpenOptions.{
-        write: true,
-        create: true,
-        append: true,
-    };
-    return open(alloc, path, options.&);
-}
-
-/// Creates a new file and fails when it already exists.
-pub/ fn create_new(alloc: *mut Allocator, path: []u8) File!Error {
-    let options = OpenOptions.{
-        write: true,
-        create_new: true,
-    };
-    return open(alloc, path, options.&);
-}
-
-/// Renames or moves a filesystem entry.
-pub/ fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) bool!Error {
-    let old_c_path = alloc_c_path(alloc, old_path).!;
-    let .{ Ok: new_c_path } = alloc_c_path(alloc, new_path) else {
-        .{ Err: err } => {
-            free_c_path(alloc, old_path, old_c_path);
-            return .{ Err: err };
-        },
-    };
-
-    let result = rename_with_c_paths(old_c_path, new_c_path);
-    free_c_path(alloc, old_path, old_c_path);
-    free_c_path(alloc, new_path, new_c_path);
-    return result;
-}
-
-/// Returns metadata for a filesystem entry.
-pub/ fn metadata(alloc: *mut Allocator, path: []u8) Metadata!Error {
-    let c_path = alloc_c_path(alloc, path).!;
-    let result = metadata_with_c_path(c_path);
-    free_c_path(alloc, path, c_path);
-    return result;
-}
-
-/// Returns `true` when a path exists.
-pub/ fn exists(alloc: *mut Allocator, path: []u8) bool!Error {
-    let c_path = alloc_c_path(alloc, path).!;
-    let result = os.metadata(c_path)
-        .map(metadata_exists)
-        .map_err(wrap_os_error)
-        .or_else(not_found_is_false);
-    free_c_path(alloc, path, c_path);
-    return result;
-}
-
-/// Returns `true` when a path exists and refers to a regular file.
-pub/ fn is_file(alloc: *mut Allocator, path: []u8) bool!Error {
-    return metadata(alloc, path)
-        .map(metadata_is_file)
-        .or_else(not_found_is_false);
-}
-
-/// Returns `true` when a path exists and refers to a directory.
-pub/ fn is_dir(alloc: *mut Allocator, path: []u8) bool!Error {
-    return metadata(alloc, path)
-        .map(metadata_is_dir)
-        .or_else(not_found_is_false);
-}
-
-/// Returns the byte length reported by filesystem metadata.
-pub/ fn file_size(alloc: *mut Allocator, path: []u8) usize!Error {
-    return metadata(alloc, path).map(metadata_size);
-}
-
-/// Returns `true` when a path exists and reports a zero byte length.
-pub/ fn is_empty_file(alloc: *mut Allocator, path: []u8) bool!Error {
-    return file_size(alloc, path).map(size_is_zero);
-}
-
-/// Removes a file.
-pub/ fn remove_file(alloc: *mut Allocator, path: []u8) bool!Error {
-    let c_path = alloc_c_path(alloc, path).!;
-    let result = os.remove_file(c_path).map_err(wrap_os_error);
-    free_c_path(alloc, path, c_path);
-    return result;
-}
-
-/// Removes a file and treats a missing path as `Ok(false)`.
-pub/ fn remove_file_if_exists(alloc: *mut Allocator, path: []u8) bool!Error {
-    return remove_file(alloc, path).or_else(not_found_is_false);
+    let c_path = c_path(alloc, path).!..&;
+    defer c_path.deinit(alloc);
+    return open_with_c_path(c_path.ptr(), options);
 }
 
 /// Returns a borrowed wrapper around standard input.
@@ -275,44 +157,23 @@ pub/ fn stderr() File {
     return .{ handle: os.get_stderr_handle() };
 }
 
-/// Reads an entire file into an owned string.
-pub/ fn read_to_string(alloc: *mut Allocator, path: []u8) String!Error {
-    let mut file = open_read(alloc, path).!;
-    defer file..&.deinit();
-    return file..&.read_to_string(alloc);
-}
-
-/// Reads an entire file into an owned byte list.
-pub/ fn read_all(alloc: *mut Allocator, path: []u8) List[u8]!Error {
-    let mut file = open_read(alloc, path).!;
-    defer file..&.deinit();
-    return file..&.read_to_end(alloc);
-}
-
-/// Writes the entire buffer to a file, creating or truncating it first.
-pub/ fn write_all(alloc: *mut Allocator, path: []u8, buf: []u8) usize!Error {
-    let mut file = create(alloc, path).!;
-    defer file..&.deinit();
-    return file..&.write_all(buf);
-}
-
 /// Writes `buf` to `tmp_path`, flushes it, then renames it over `path`.
 ///
 /// The caller supplies `tmp_path` so naming policy stays outside this low-level
 /// helper. `tmp_path` should be on the same filesystem as `path`.
-pub/ fn write_all_atomic_tmp(
-    alloc: *mut Allocator,
-    path: []u8,
-    tmp_path: []u8,
-    buf: []u8,
+fn write_all_atomic_tmp(
+    alloc: &mut Allocator,
+    path: &[u8],
+    tmp_path: &[u8],
+    buf: &[u8],
 ) usize!Error {
-    let mut file = create(alloc, tmp_path).!;
+    let mut file = tmp_path.path().create(alloc).!;
 
     let written = match (file..&.write_all(buf)) {
         .{ Ok: count } => count,
         .{ Err: err } => {
             _ = file..&.close();
-            _ = remove_file_if_exists(alloc, tmp_path);
+            _ = tmp_path.path().remove_file_if_exists(alloc);
             return .{ Err: err };
         },
     };
@@ -321,7 +182,7 @@ pub/ fn write_all_atomic_tmp(
         .{ Ok: _ } => {},
         .{ Err: err } => {
             _ = file..&.close();
-            _ = remove_file_if_exists(alloc, tmp_path);
+            _ = tmp_path.path().remove_file_if_exists(alloc);
             return .{ Err: err };
         },
     }
@@ -329,15 +190,15 @@ pub/ fn write_all_atomic_tmp(
     match (file..&.close()) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            _ = remove_file_if_exists(alloc, tmp_path);
+            _ = tmp_path.path().remove_file_if_exists(alloc);
             return .{ Err: err };
         },
     }
 
-    match (rename(alloc, tmp_path, path)) {
+    match (tmp_path.path().rename(alloc, path)) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            _ = remove_file_if_exists(alloc, tmp_path);
+            _ = tmp_path.path().remove_file_if_exists(alloc);
             return .{ Err: err };
         },
     }
@@ -346,18 +207,18 @@ pub/ fn write_all_atomic_tmp(
 }
 
 fn write_all_atomic_unique_tmp(
-    alloc: *mut Allocator,
-    path: []u8,
-    tmp_path: []u8,
-    buf: []u8,
+    alloc: &mut Allocator,
+    path: &[u8],
+    tmp_path: &[u8],
+    buf: &[u8],
 ) usize!Error {
-    let mut file = create_new(alloc, tmp_path).!;
+    let mut file = tmp_path.path().create_new(alloc).!;
 
     let written = match (file..&.write_all(buf)) {
         .{ Ok: count } => count,
         .{ Err: err } => {
             _ = file..&.close();
-            _ = remove_file_if_exists(alloc, tmp_path);
+            _ = tmp_path.path().remove_file_if_exists(alloc);
             return .{ Err: err };
         },
     };
@@ -366,7 +227,7 @@ fn write_all_atomic_unique_tmp(
         .{ Ok: _ } => {},
         .{ Err: err } => {
             _ = file..&.close();
-            _ = remove_file_if_exists(alloc, tmp_path);
+            _ = tmp_path.path().remove_file_if_exists(alloc);
             return .{ Err: err };
         },
     }
@@ -374,15 +235,15 @@ fn write_all_atomic_unique_tmp(
     match (file..&.close()) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            _ = remove_file_if_exists(alloc, tmp_path);
+            _ = tmp_path.path().remove_file_if_exists(alloc);
             return .{ Err: err };
         },
     }
 
-    match (rename(alloc, tmp_path, path)) {
+    match (tmp_path.path().rename(alloc, path)) {
         .{ Ok: _ } => {},
         .{ Err: err } => {
-            _ = remove_file_if_exists(alloc, tmp_path);
+            _ = tmp_path.path().remove_file_if_exists(alloc);
             return .{ Err: err };
         },
     }
@@ -391,7 +252,7 @@ fn write_all_atomic_unique_tmp(
 }
 
 /// Writes `buf` through a same-directory temporary path and renames it over `path`.
-pub/ fn write_all_atomic(alloc: *mut Allocator, path: []u8, buf: []u8) usize!Error {
+fn write_all_atomic(alloc: &mut Allocator, path: &[u8], buf: &[u8]) usize!Error {
     let mut attempt = usize.{0};
     let mut last_err = Error.InvalidPath;
 
@@ -416,25 +277,185 @@ pub/ fn write_all_atomic(alloc: *mut Allocator, path: []u8, buf: []u8) usize!Err
     return .{ Err: last_err };
 }
 
-/// Appends the entire buffer to a file, creating it when needed.
-pub/ fn append_all(alloc: *mut Allocator, path: []u8, buf: []u8) usize!Error {
-    let mut file = open_append(alloc, path).!;
-    defer file..&.deinit();
-    return file..&.write_all(buf);
+impl Path {
+    /// Opens this path using the provided options.
+    pub fn open(alloc: &mut Allocator, options: &OpenOptions) File!Error {
+        return open_path(alloc, self.raw, options);
+    }
+
+    /// Creates or truncates this path for writing.
+    pub fn create(alloc: &mut Allocator) File!Error {
+        let options = OpenOptions.{
+            write: true,
+            create: true,
+            truncate: true,
+        };
+        return self.open(alloc, options.&);
+    }
+
+    /// Opens this path for reading.
+    pub fn open_read(alloc: &mut Allocator) File!Error {
+        let options = OpenOptions.{ read: true };
+        return self.open(alloc, options.&);
+    }
+
+    /// Opens this path for writing without creating it.
+    pub fn open_write(alloc: &mut Allocator) File!Error {
+        let options = OpenOptions.{ write: true };
+        return self.open(alloc, options.&);
+    }
+
+    /// Opens this path for appending, creating it when needed.
+    pub fn open_append(alloc: &mut Allocator) File!Error {
+        let options = OpenOptions.{
+            write: true,
+            create: true,
+            append: true,
+        };
+        return self.open(alloc, options.&);
+    }
+
+    /// Creates this path and fails when it already exists.
+    pub fn create_new(alloc: &mut Allocator) File!Error {
+        let options = OpenOptions.{
+            write: true,
+            create_new: true,
+        };
+        return self.open(alloc, options.&);
+    }
+
+    /// Renames or moves this path to `new_path`.
+    pub fn rename(alloc: &mut Allocator, new_path: &[u8]) bool!Error {
+        let old_c_path = c_path(alloc, self.raw).!..&;
+        defer old_c_path.deinit(alloc);
+        let new_c_path = c_path(alloc, new_path).!..&;
+        defer new_c_path.deinit(alloc);
+
+        return rename_with_c_paths(old_c_path.ptr(), new_c_path.ptr());
+    }
+
+    /// Returns metadata for this path.
+    pub fn metadata(alloc: &mut Allocator) Metadata!Error {
+        let c_path = c_path(alloc, self.raw).!..&;
+        defer c_path.deinit(alloc);
+        return metadata_with_c_path(c_path.ptr());
+    }
+
+    /// Returns `true` when this path exists.
+    pub fn exists(alloc: &mut Allocator) bool!Error {
+        let c_path = c_path(alloc, self.raw).!..&;
+        defer c_path.deinit(alloc);
+        return os.metadata(c_path.ptr())
+            .map(metadata_exists)
+            .map_err(wrap_os_error)
+            .or_else(not_found_is_false);
+    }
+
+    /// Returns `true` when this path exists and refers to a regular file.
+    pub fn is_file(alloc: &mut Allocator) bool!Error {
+        return self.metadata(alloc)
+            .map(metadata_is_file)
+            .or_else(not_found_is_false);
+    }
+
+    /// Returns `true` when this path exists and refers to a directory.
+    pub fn is_dir(alloc: &mut Allocator) bool!Error {
+        return self.metadata(alloc)
+            .map(metadata_is_dir)
+            .or_else(not_found_is_false);
+    }
+
+    /// Returns the byte length reported by filesystem metadata.
+    pub fn file_size(alloc: &mut Allocator) usize!Error {
+        return self.metadata(alloc).map(metadata_size);
+    }
+
+    /// Returns `true` when this path exists and reports a zero byte length.
+    pub fn is_empty_file(alloc: &mut Allocator) bool!Error {
+        return self.file_size(alloc).map(size_is_zero);
+    }
+
+    /// Removes this file.
+    pub fn remove_file(alloc: &mut Allocator) bool!Error {
+        let c_path = c_path(alloc, self.raw).!..&;
+        defer c_path.deinit(alloc);
+        return os.remove_file(c_path.ptr()).map_err(wrap_os_error);
+    }
+
+    /// Removes this file and treats a missing path as `Ok(false)`.
+    pub fn remove_file_if_exists(alloc: &mut Allocator) bool!Error {
+        return self.remove_file(alloc).or_else(not_found_is_false);
+    }
+
+    /// Reads this entire file into an owned string.
+    pub fn read_to_string(alloc: &mut Allocator) String!Error {
+        let file = self.open_read(alloc).!..&;
+        defer file.deinit();
+        return file.read_to_string(alloc);
+    }
+
+    /// Reads this entire file into an owned byte list.
+    pub fn read_all(alloc: &mut Allocator) List[u8]!Error {
+        let file = self.open_read(alloc).!..&;
+        defer file.deinit();
+        return file.read_to_end(alloc);
+    }
+
+    /// Writes the entire buffer to this file, creating or truncating it first.
+    pub fn write_all(alloc: &mut Allocator, buf: &[u8]) usize!Error {
+        let file = self.create(alloc).!..&;
+        defer file.deinit();
+        return file.write_all(buf);
+    }
+
+    /// Writes `buf` through `tmp_path`, flushes it, then renames it over this path.
+    pub fn write_all_atomic_tmp(
+        alloc: &mut Allocator,
+        tmp_path: &[u8],
+        buf: &[u8],
+    ) usize!Error {
+        return write_all_atomic_tmp(alloc, self.raw, tmp_path, buf);
+    }
+
+    /// Writes `buf` through a same-directory temporary path and renames it over this path.
+    pub fn write_all_atomic(alloc: &mut Allocator, buf: &[u8]) usize!Error {
+        return write_all_atomic(alloc, self.raw, buf);
+    }
+
+    /// Appends the entire buffer to this file, creating it when needed.
+    pub fn append_all(alloc: &mut Allocator, buf: &[u8]) usize!Error {
+        let file = self.open_append(alloc).!..&;
+        defer file.deinit();
+        return file.write_all(buf);
+    }
+
+    /// Copies this file into `to_path`.
+    pub fn copy_to(alloc: &mut Allocator, to_path: &[u8]) usize!Error {
+        let from = self.open_read(alloc).!..&;
+        defer from.deinit();
+
+        let to = to_path.path().create(alloc).!..&;
+        defer to.deinit();
+
+        return from.copy_to(to);
+    }
 }
 
-/// Copies the contents of one file into another.
-pub/ fn copy(alloc: *mut Allocator, from_path: []u8, to_path: []u8) usize!Error {
-    let mut from = open_read(alloc, from_path).!;
-    defer from..&.deinit();
-
-    let mut to = create(alloc, to_path).!;
-    defer to..&.deinit();
-
-    return from..&.copy_to(to..&);
+impl &[u8] {
+    /// Treats this byte slice as a filesystem path.
+    pub fn path() Path {
+        return .{ raw: self };
+    }
 }
 
-impl *mut File {
+impl &String {
+    /// Treats this owned string as a borrowed filesystem path.
+    pub fn path() Path {
+        return .{ raw: self.as_str() };
+    }
+}
+
+impl &mut File {
     /// Wraps a raw OS handle in a `File`.
     ///
     /// Safety:
@@ -443,13 +464,8 @@ impl *mut File {
         return .{ handle: handle };
     }
 
-    /// Returns the underlying OS handle.
-    pub fn raw_handle() os.Handle {
-        return self.handle;
-    }
-
     /// Reads bytes into the provided mutable slice.
-    pub fn read(buf: []mut u8) usize!Error {
+    pub fn read(buf: &mut [u8]) usize!Error {
         let len = #buf;
         if (len == 0) {
             return .{ Ok: usize.{0} };
@@ -487,10 +503,10 @@ impl *mut File {
     ///
     /// Errors:
     /// returns `UnexpectedEof` if the file ends before the buffer is full.
-    pub fn read_exact(buf: []mut u8) bool!Error {
+    pub fn read_exact(buf: &mut [u8]) bool!Error {
         let mut total = usize.{0};
         while (total < #buf) {
-            let chunk = (buf.[0]..& + total)..[0 .. #buf - total];
+            let chunk = (buf.[0]..& + total)..&[0 .. #buf - total];
             let read = self.read(chunk).!;
             if (read == 0) {
                 return .{ Err: .UnexpectedEof };
@@ -501,7 +517,7 @@ impl *mut File {
     }
 
     /// Writes bytes from the provided slice.
-    pub fn write(buf: []u8) usize!Error {
+    pub fn write(buf: &[u8]) usize!Error {
         let len = #buf;
         if (len == 0) {
             return .{ Ok: usize.{0} };
@@ -512,10 +528,10 @@ impl *mut File {
     }
 
     /// Repeatedly writes until the full buffer has been flushed.
-    pub fn write_all(buf: []u8) usize!Error {
+    pub fn write_all(buf: &[u8]) usize!Error {
         let mut total = usize.{0};
                 while (total < #buf) {
-            let written = self.write(buf.[total .. #buf]).!;
+            let written = self.write(buf.&[total .. #buf]).!;
             if (written == 0) {
                 return .{ Err: .WriteZero };
             }
@@ -525,18 +541,18 @@ impl *mut File {
     }
 
     /// Copies all remaining bytes from this file into another file.
-    pub fn copy_to(other: *mut File) usize!Error {
+    pub fn copy_to(other: &mut File) usize!Error {
         let mut chunk = [1024]u8.{undef};
         let mut total = usize.{0};
 
                 while (true) {
-            let read = self.read(chunk..[0 .. 1024]).!;
+            let read = self.read(chunk..&[0 .. 1024]).!;
 
             if (read == 0) {
                 return .{ Ok: total };
             }
 
-            let written = other.write_all(chunk.[0 .. read]).!;
+            let written = other.write_all(chunk.&[0 .. read]).!;
             total += written;
         }
     }
@@ -559,12 +575,12 @@ impl *mut File {
     }
 
     /// Reads the remainder of the file into an owned string.
-    pub fn read_to_string(alloc: *mut Allocator) String!Error {
+    pub fn read_to_string(alloc: &mut Allocator) String!Error {
         let mut out = String.{};
         let mut chunk = [1024]u8.{undef};
 
                 while (true) {
-            let .{ Ok: read } = self.read(chunk..[0 .. 1024]) else {
+            let .{ Ok: read } = self.read(chunk..&[0 .. 1024]) else {
                 .{ Err: err } => {
                     out..&.deinit(alloc);
                     return .{ Err: err };
@@ -575,7 +591,7 @@ impl *mut File {
                 return .{ Ok: out };
             }
 
-            if (!out..&.push_str(alloc, chunk.[0 .. read])) {
+            if (!out..&.push_str(alloc, chunk.&[0 .. read])) {
                 out..&.deinit(alloc);
                 return .{ Err: .OutOfMemory };
             }
@@ -583,12 +599,12 @@ impl *mut File {
     }
 
     /// Reads the remainder of the file into an owned byte list.
-    pub fn read_to_end(alloc: *mut Allocator) List[u8]!Error {
+    pub fn read_to_end(alloc: &mut Allocator) List[u8]!Error {
         let mut out = List[u8].{};
         let mut chunk = [1024]u8.{undef};
 
                 while (true) {
-            let .{ Ok: read } = self.read(chunk..[0 .. 1024]) else {
+            let .{ Ok: read } = self.read(chunk..&[0 .. 1024]) else {
                 .{ Err: err } => {
                     out..&.deinit(alloc);
                     return .{ Err: err };
@@ -599,10 +615,17 @@ impl *mut File {
                 return .{ Ok: out };
             }
 
-            if (!out..&.append_slice(alloc, chunk.[0 .. read])) {
+            if (!out..&.append_slice(alloc, chunk.&[0 .. read])) {
                 out..&.deinit(alloc);
                 return .{ Err: .OutOfMemory };
             }
         }
+    }
+}
+
+impl &File {
+    /// Returns the underlying OS handle.
+    pub fn raw_handle() os.Handle {
+        return self.handle;
     }
 }

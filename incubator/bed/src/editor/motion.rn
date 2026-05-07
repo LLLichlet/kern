@@ -1,6 +1,6 @@
 use ..{Editor, FindDirection};
 
-impl *mut Editor {
+impl &mut Editor {
     fn is_space_byte(byte: u8) bool {
         return byte == b' ' or byte == b'\t';
     }

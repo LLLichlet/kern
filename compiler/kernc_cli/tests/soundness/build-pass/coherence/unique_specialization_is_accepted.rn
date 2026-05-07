@@ -1,23 +1,23 @@
 // class: coherence
 // source: soundness suite positive control; overlap is legal when one impl strictly specializes another
 
-type Score = trait {
-    value: fn() i32,
+trait Score {
+    fn value() i32;
 };
 
-impl[T] []T : Score {
+impl[T] &[T] : Score {
     fn value() i32 {
         return 1;
     }
 }
 
-impl []u8 : Score {
+impl &[u8] : Score {
     fn value() i32 {
         return 2;
     }
 }
 
-fn score(bytes: []u8) i32 {
+fn score(bytes: &[u8]) i32 {
     return bytes.value();
 }
 

@@ -16,7 +16,7 @@ mod parser;
 mod renderer;
 mod value;
 
-pub type Kind = enum {
+pub enum Kind {
     Null,
     Bool,
     Number,
@@ -27,14 +27,14 @@ pub type Kind = enum {
 
 pub type Token = Kind;
 
-pub type Value = struct {
+pub struct Value {
     pub kind: Kind,
-    pub raw: []u8,
+    pub raw: &[u8],
 };
 
-pub type ParsedPrefix = struct {
+pub struct ParsedPrefix {
     pub value: Value,
-    pub remaining: []u8,
+    pub remaining: &[u8],
 };
 
 pub type ParsedValue = ParsedPrefix;
@@ -42,13 +42,13 @@ pub type ParsedValue = ParsedPrefix;
 pub type ArrayCursor = value.ArrayCursor;
 pub type ObjectCursor = value.ObjectCursor;
 
-pub type ObjectEntry = struct {
-    pub key_raw: []u8,
-    pub key_text: []u8,
+pub struct ObjectEntry {
+    pub key_raw: &[u8],
+    pub key_text: &[u8],
     pub value: Value,
 };
 
-pub type ParseError = enum {
+pub enum ParseError {
     EmptyInput,
     UnexpectedByte: usize,
     UnexpectedEof,
@@ -61,59 +61,59 @@ pub type ParseError = enum {
     TrailingData: usize,
 };
 
-pub type RenderError = enum {
+pub enum RenderError {
     Parse: ParseError,
     BufferTooSmall,
 };
 
-pub type OwnedRenderError = enum {
+pub enum OwnedRenderError {
     BufferTooSmall,
 };
 
-pub type StringDecodeError = enum {
+pub enum StringDecodeError {
     Parse: ParseError,
     InvalidUnicodeEscape: usize,
     BufferTooSmall,
     OutOfMemory,
 };
 
-pub type NumberDecodeError = enum {
+pub enum NumberDecodeError {
     Parse: ParseError,
     NotInteger,
     NegativeUnsigned,
     Overflow,
 };
 
-pub type FloatDecodeError = enum {
+pub enum FloatDecodeError {
     Parse: ParseError,
     Overflow,
 };
 
-pub type MaterializeError = enum {
+pub enum MaterializeError {
     Parse: ParseError,
     String: StringDecodeError,
     OutOfMemory,
 };
 
-pub type IndexBuildError = enum {
+pub enum IndexBuildError {
     OutOfMemory,
 };
 
-pub type IndexedObjectDocumentError = enum {
+pub enum IndexedObjectDocumentError {
     Materialize: MaterializeError,
     RootNotObject,
 };
 
-pub type PackedIndexedObjectDocumentError = enum {
+pub enum PackedIndexedObjectDocumentError {
     Materialize: MaterializeError,
     RootNotObject,
 };
 
-pub type OwnedBuildError = enum {
+pub enum OwnedBuildError {
     OutOfMemory,
 };
 
-pub type FieldDecodeError = enum {
+pub enum FieldDecodeError {
     Missing,
     Duplicate: usize,
     UnexpectedKind: Kind,
@@ -121,7 +121,7 @@ pub type FieldDecodeError = enum {
     Float: FloatDecodeError,
 };
 
-pub type BorrowedFieldDecodeError = enum {
+pub enum BorrowedFieldDecodeError {
     Parse: ParseError,
     Missing,
     Duplicate: usize,
@@ -131,7 +131,7 @@ pub type BorrowedFieldDecodeError = enum {
     Float: FloatDecodeError,
 };
 
-pub type IndexDecodeError = enum {
+pub enum IndexDecodeError {
     Parse: ParseError,
     OutOfRange,
     UnexpectedKind: Kind,
@@ -158,77 +158,77 @@ pub type PackedIndexedObjectDocument = packed.PackedIndexedObjectDocument;
 pub type PackedIndexedObjectView = packed.PackedIndexedObjectView;
 pub type IndexedObjectView = indexed.IndexedObjectView;
 
-pub type ErrorLocation = struct {
+pub struct ErrorLocation {
     pub offset: usize,
     pub line: usize,
     pub column: usize,
 };
 
 pub fn clone_decoded_string_raw(
-    alloc: *mut base.mem.alloc.Allocator,
-    raw: []u8,
+    alloc: &mut base.mem.alloc.Allocator,
+    raw: &[u8],
 ) base.coll.String!StringDecodeError {
     return decoder.clone_decoded_string_raw(alloc, raw);
 }
 
-pub fn decoded_string_size_raw(raw: []u8) usize!StringDecodeError {
+pub fn decoded_string_size_raw(raw: &[u8]) usize!StringDecodeError {
     return decoder.decoded_string_size_raw(raw);
 }
 
-pub fn write_decoded_string_raw(raw: []u8, out: []mut u8) usize!StringDecodeError {
+pub fn write_decoded_string_raw(raw: &[u8], out: &mut [u8]) usize!StringDecodeError {
     return decoder.write_decoded_string_raw(raw, out);
 }
 
-pub fn parse_u64_raw(raw: []u8) u64!NumberDecodeError {
+pub fn parse_u64_raw(raw: &[u8]) u64!NumberDecodeError {
     return number.parse_u64_raw(raw);
 }
 
-pub fn parse_u32_raw(raw: []u8) u32!NumberDecodeError {
+pub fn parse_u32_raw(raw: &[u8]) u32!NumberDecodeError {
     return number.parse_u32_raw(raw);
 }
 
-pub fn parse_i64_raw(raw: []u8) i64!NumberDecodeError {
+pub fn parse_i64_raw(raw: &[u8]) i64!NumberDecodeError {
     return number.parse_i64_raw(raw);
 }
 
-pub fn parse_i32_raw(raw: []u8) i32!NumberDecodeError {
+pub fn parse_i32_raw(raw: &[u8]) i32!NumberDecodeError {
     return number.parse_i32_raw(raw);
 }
 
-pub fn parse_u16_raw(raw: []u8) u16!NumberDecodeError {
+pub fn parse_u16_raw(raw: &[u8]) u16!NumberDecodeError {
     return number.parse_u16_raw(raw);
 }
 
-pub fn parse_i16_raw(raw: []u8) i16!NumberDecodeError {
+pub fn parse_i16_raw(raw: &[u8]) i16!NumberDecodeError {
     return number.parse_i16_raw(raw);
 }
 
-pub fn parse_u8_raw(raw: []u8) u8!NumberDecodeError {
+pub fn parse_u8_raw(raw: &[u8]) u8!NumberDecodeError {
     return number.parse_u8_raw(raw);
 }
 
-pub fn parse_i8_raw(raw: []u8) i8!NumberDecodeError {
+pub fn parse_i8_raw(raw: &[u8]) i8!NumberDecodeError {
     return number.parse_i8_raw(raw);
 }
 
-pub fn parse_usize_raw(raw: []u8) usize!NumberDecodeError {
+pub fn parse_usize_raw(raw: &[u8]) usize!NumberDecodeError {
     return number.parse_usize_raw(raw);
 }
 
-pub fn parse_isize_raw(raw: []u8) isize!NumberDecodeError {
+pub fn parse_isize_raw(raw: &[u8]) isize!NumberDecodeError {
     return number.parse_isize_raw(raw);
 }
 
-pub fn parse_f64_raw(raw: []u8) f64!FloatDecodeError {
+pub fn parse_f64_raw(raw: &[u8]) f64!FloatDecodeError {
     return number.parse_f64_raw(raw);
 }
 
-pub fn parse_f32_raw(raw: []u8) f32!FloatDecodeError {
+pub fn parse_f32_raw(raw: &[u8]) f32!FloatDecodeError {
     return number.parse_f32_raw(raw);
 }
 
 pub fn clone_owned(
-    alloc: *mut base.mem.alloc.Allocator,
+    alloc: &mut base.mem.alloc.Allocator,
     value: Value,
 ) OwnedValue!MaterializeError {
     return owned.clone_owned_value(alloc, value);
@@ -250,28 +250,28 @@ pub fn error_offset(err: ParseError) ?usize {
     return parser.error_offset(err);
 }
 
-pub fn locate_error(text: []u8, err: ParseError) ?ErrorLocation {
+pub fn locate_error(text: &[u8], err: ParseError) ?ErrorLocation {
     return parser.locate_error(text, err);
 }
 
-pub fn parse(text: []u8) Value!ParseError {
+pub fn parse(text: &[u8]) Value!ParseError {
     return parser.parse(text);
 }
 
 pub fn parse_owned_document(
-    text: []u8,
+    text: &[u8],
 ) OwnedDocument!MaterializeError {
     let value = parse(text)
-        .map_err(.[](err: ParseError) MaterializeError { return .{ Parse: err }; })
+        .map_err([](err: ParseError) MaterializeError { return .{ Parse: err }; })
         .!;
     return clone_owned_document(value);
 }
 
 pub fn parse_indexed_object_document(
-    text: []u8,
+    text: &[u8],
 ) IndexedObjectDocument!IndexedObjectDocumentError {
     let value = parse(text)
-        .map_err(.[](err: ParseError) IndexedObjectDocumentError {
+        .map_err([](err: ParseError) IndexedObjectDocumentError {
             return .{ Materialize: .{ Parse: err } };
         })
         .!;
@@ -279,26 +279,26 @@ pub fn parse_indexed_object_document(
 }
 
 pub fn parse_packed_document(
-    text: []u8,
+    text: &[u8],
 ) PackedDocument!MaterializeError {
     return packed.parse_packed_document(text);
 }
 
 pub fn parse_packed_indexed_object_document(
-    text: []u8,
+    text: &[u8],
 ) PackedIndexedObjectDocument!PackedIndexedObjectDocumentError {
     return packed.parse_packed_indexed_object_document(text);
 }
 
-pub fn parse_prefix(text: []u8) ParsedPrefix!ParseError {
+pub fn parse_prefix(text: &[u8]) ParsedPrefix!ParseError {
     return parser.parse_prefix(text);
 }
 
-pub fn parse_value(text: []u8) ParsedValue!ParseError {
+pub fn parse_value(text: &[u8]) ParsedValue!ParseError {
     return parser.parse_value(text);
 }
 
-pub fn validate(text: []u8) void!ParseError {
+pub fn validate(text: &[u8]) void!ParseError {
     return parser.validate(text);
 }
 
@@ -306,14 +306,14 @@ pub fn compact_size(value: Value) usize!ParseError {
     return renderer.compact_size(value);
 }
 
-pub fn render_compact(value: Value, out: []mut u8) usize!RenderError {
+pub fn render_compact(value: Value, out: &mut [u8]) usize!RenderError {
     return renderer.render_compact(value, out);
 }
 
-pub fn compact_size_owned(value: *mut OwnedValue) usize {
+pub fn compact_size_owned(value: &mut OwnedValue) usize {
     return renderer.compact_size_owned(value);
 }
 
-pub fn render_compact_owned(value: *mut OwnedValue, out: []mut u8) usize!OwnedRenderError {
+pub fn render_compact_owned(value: &mut OwnedValue, out: &mut [u8]) usize!OwnedRenderError {
     return renderer.render_compact_owned(value, out);
 }

@@ -6,7 +6,7 @@
 use base.cmp.{Ord, Ordering, LESS, EQUAL, GREATER};
 use base.coll.SliceIter;
 
-impl[T] []T {
+impl[T] &[T] {
     /// Returns the number of elements in the slice.
     pub fn len() usize {
         return #self;
@@ -41,7 +41,7 @@ impl[T] []T {
     }
 
     /// Returns the first index accepted by `pred`.
-    pub fn position(pred: *Fn(T) bool) ?usize {
+    pub fn position(pred: &Fn(T) bool) ?usize {
                 let mut i = usize.{0};
         while (i < #self) {
             if (pred(self.[i])) {
@@ -54,7 +54,7 @@ impl[T] []T {
     }
 
     /// Returns the last index accepted by `pred`.
-    pub fn rposition(pred: *Fn(T) bool) ?usize {
+    pub fn rposition(pred: &Fn(T) bool) ?usize {
                 let mut i = #self;
         while (i > 0) {
             i -= 1;
@@ -66,12 +66,12 @@ impl[T] []T {
     }
 
     /// Returns `true` when any element satisfies `pred`.
-    pub fn any(pred: *Fn(T) bool) bool {
+    pub fn any(pred: &Fn(T) bool) bool {
         return self.position(pred).is_some();
     }
 
     /// Returns `true` when every element satisfies `pred`.
-    pub fn all(pred: *Fn(T) bool) bool {
+    pub fn all(pred: &Fn(T) bool) bool {
                 let mut i = usize.{0};
         while (i < #self) {
             if (!pred(self.[i])) {
@@ -84,7 +84,7 @@ impl[T] []T {
     }
 
     /// Counts how many elements satisfy `pred`.
-    pub fn count(pred: *Fn(T) bool) usize {
+    pub fn count(pred: &Fn(T) bool) usize {
         let mut total = usize.{0};
                 let mut i = usize.{0};
         while (i < #self) {
@@ -98,7 +98,7 @@ impl[T] []T {
     }
 
     /// Visits each element in order.
-    pub fn for_each(visitor: *Fn(T) void) void {
+    pub fn for_each(visitor: &Fn(T) void) void {
                 let mut i = usize.{0};
         while (i < #self) {
             visitor(self.[i]);
@@ -108,7 +108,7 @@ impl[T] []T {
     }
 
     /// Folds the slice from left to right.
-    pub fn fold[U](init: U, step: *Fn(U, T) U) U {
+    pub fn fold[U](init: U, step: &Fn(U, T) U) U {
         let mut accum = init;
                 let mut i = usize.{0};
         while (i < #self) {
@@ -120,7 +120,7 @@ impl[T] []T {
     }
 
     /// Returns the first mapped value produced by `call_back`.
-    pub fn find_map[U](call_back: *Fn(T) ?U) ?U {
+    pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
                 let mut i = usize.{0};
         while (i < #self) {
             match (call_back(self.[i])) {
@@ -134,7 +134,7 @@ impl[T] []T {
     }
 
     /// Returns the partition point for a slice already partitioned by `pred`.
-    pub fn partition_point(pred: *Fn(T) bool) usize {
+    pub fn partition_point(pred: &Fn(T) bool) usize {
         let mut left = usize.{0};
         let mut right = #self;
 
@@ -158,12 +158,12 @@ impl[T, N: usize] [N]T {
     }
 }
 
-impl[T] []T
+impl[T] &[T]
     where T: Eq[T],
 {
     /// Returns `true` when the slice begins with `prefix`.
     #[inline]
-    pub fn starts_with(prefix: []T) bool {
+    pub fn starts_with(prefix: &[T]) bool {
         if (#prefix > #self) return false;
                 let mut i = usize.{0};
         while (i < #prefix) {
@@ -178,7 +178,7 @@ impl[T] []T
 
     /// Returns `true` when the slice ends with `suffix`.
     #[inline]
-    pub fn ends_with(suffix: []T) bool {
+    pub fn ends_with(suffix: &[T]) bool {
         if (#suffix > #self) return false;
         let start = #self - #suffix;
                 let mut i = usize.{0};
@@ -194,7 +194,7 @@ impl[T] []T
 
     /// Returns the first position of `needle`.
     #[inline]
-    pub fn find(needle: []T) ?usize {
+    pub fn find(needle: &[T]) ?usize {
         let needle_len = #needle;
         if (needle_len == 0) {
             return .{ Some: usize.{0} };
@@ -234,32 +234,32 @@ impl[T] []T
     }
 
     /// Returns `true` when `needle` appears as a contiguous subsequence.
-    pub fn contains(needle: []T) bool {
+    pub fn contains(needle: &[T]) bool {
         return self.find(needle).is_some();
     }
 
     /// Removes `prefix` from the front when present.
-    pub fn strip_prefix(prefix: []T) ?[]T {
+    pub fn strip_prefix(prefix: &[T]) ?&[T] {
         if (!self.starts_with(prefix)) {
             return .None;
         }
-        return .{ Some: self.[#prefix .. #self] };
+        return .{ Some: self.&[#prefix .. #self] };
     }
 
     /// Removes `suffix` from the end when present.
-    pub fn strip_suffix(suffix: []T) ?[]T {
+    pub fn strip_suffix(suffix: &[T]) ?&[T] {
         if (!self.ends_with(suffix)) {
             return .None;
         }
-        return .{ Some: self.[0 .. #self - #suffix] };
+        return .{ Some: self.&[0 .. #self - #suffix] };
     }
 }
 
-impl[T] []T : Eq[[]T]
+impl[T] &[T] : Eq[&[T]]
     where T: Eq[T],
 {
     /// Gives ordinary slices a real trait-based equality path.
-    pub fn eq(other: []T) bool {
+    pub fn eq(other: &[T]) bool {
         if (#self != #other) {
             return false;
         }
@@ -277,10 +277,10 @@ impl[T] []T : Eq[[]T]
     }
 }
 
-impl[T, N: usize] []T : Eq[[N]T]
+impl[T, N: usize] &[T] : Eq[[N]T]
     where T: Eq[T],
 {
-    /// Allows `[]T == [N]T` without reviving historical inherent `eq` methods.
+    /// Allows `&[T] == [N]T` without reviving historical inherent `eq` methods.
     pub fn eq(other: [N]T) bool {
         if (#self != N) {
             return false;
@@ -299,11 +299,11 @@ impl[T, N: usize] []T : Eq[[N]T]
     }
 }
 
-impl[T, N: usize] [N]T : Eq[[]T]
+impl[T, N: usize] [N]T : Eq[&[T]]
     where T: Eq[T],
 {
     /// Keeps equality symmetric for array/slice comparisons.
-    pub fn eq(other: []T) bool {
+    pub fn eq(other: &[T]) bool {
         if (N != #other) {
             return false;
         }
@@ -339,11 +339,11 @@ impl[T, N: usize] [N]T : Eq[[N]T]
     }
 }
 
-impl[T] []T
+impl[T] &[T]
     where T: Ord[T],
 {
     /// Performs lexicographic comparison against `other`.
-    pub fn lex_cmp(other: []T) Ordering {
+    pub fn lex_cmp(other: &[T]) Ordering {
         let shared = if (#self < #other) #self else #other;
                 let mut i = usize.{0};
         while (i < shared) {

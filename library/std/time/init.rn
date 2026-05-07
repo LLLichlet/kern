@@ -13,7 +13,7 @@ const NS_PER_MICRO = u64.{1_000};
 const NS_PER_MILLI = u64.{1_000_000};
 const NS_PER_SEC = u64.{1_000_000_000};
 
-pub type Duration = struct {
+pub struct Duration {
     nanos: u64,
 };
 
@@ -48,7 +48,7 @@ impl Duration {
 
     pub const fn saturating_sub(other: Duration) Duration {
         return if (self.nanos <= other.nanos) {
-            zero()
+            zero_duration()
         } else {
             .{ nanos: self.nanos - other.nanos }
         };
@@ -60,7 +60,7 @@ impl Duration {
 
     pub const fn div_u64(divisor: u64) Duration {
         return if (divisor == 0) {
-            zero()
+            zero_duration()
         } else {
             .{ nanos: self.nanos / divisor }
         };
@@ -76,6 +76,13 @@ impl Duration {
         let whole_scaled = saturating_mul_u64(whole, NS_PER_SEC);
         let rem_scaled = saturating_mul_u64(rem, NS_PER_SEC) / self.nanos;
         return saturating_add_u64(whole_scaled, rem_scaled);
+    }
+
+    pub fn sleep() void {
+        if (self.is_zero()) {
+            return;
+        }
+        platform_sleep_nanos(self.nanos);
     }
 }
 
@@ -101,13 +108,13 @@ impl Duration : Hash[Duration] {
     }
 }
 
-pub type Instant = struct {
+pub struct Instant {
     nanos: u64,
 };
 
 impl Instant {
     pub fn elapsed() Duration {
-        return since(self);
+        return duration_between(self.nanos, monotonic_now_nanos());
     }
 
     pub fn duration_since(earlier: Instant) Duration {
@@ -134,6 +141,14 @@ impl Instant : Ord[Instant] {}
 impl Instant : Hash[Instant] {
     pub fn hash() u64 {
         return mix_u64(self.nanos);
+    }
+}
+
+pub struct Clock {};
+
+impl Clock {
+    pub fn now() Instant {
+        return .{ nanos: monotonic_now_nanos() };
     }
 }
 
@@ -171,58 +186,33 @@ const fn saturating_add_u64(lhs: u64, rhs: u64) u64 {
 
 fn duration_between(start_nanos: u64, end_nanos: u64) Duration {
     if (end_nanos <= start_nanos) {
-        return zero();
+        return zero_duration();
     }
     return .{ nanos: end_nanos - start_nanos };
 }
 
-pub const fn zero() Duration {
+const fn zero_duration() Duration {
     return .{ nanos: 0 };
 }
 
-pub const fn from_nanos(nanos: u64) Duration {
-    return .{ nanos: nanos };
+pub fn monotonic() Clock {
+    return .{};
 }
 
-pub const fn from_micros(micros: u64) Duration {
-    return .{ nanos: saturating_mul_u64(micros, NS_PER_MICRO) };
-}
-
-pub const fn from_millis(millis: u64) Duration {
-    return .{ nanos: saturating_mul_u64(millis, NS_PER_MILLI) };
-}
-
-pub const fn from_secs(secs: u64) Duration {
-    return .{ nanos: saturating_mul_u64(secs, NS_PER_SEC) };
-}
-
-pub fn now() Instant {
-    return .{ nanos: monotonic_now_nanos() };
-}
-
-pub fn since(start: Instant) Duration {
-    return duration_between(start.nanos, monotonic_now_nanos());
-}
-
-pub fn sleep(duration: Duration) void {
-    if (duration.is_zero()) {
-        return;
+impl u64 {
+    pub const fn nanos() Duration {
+        return .{ nanos: self };
     }
-    platform_sleep_nanos(duration.nanos);
-}
 
-pub fn sleep_secs(secs: u64) void {
-    sleep(from_secs(secs));
-}
+    pub const fn micros() Duration {
+        return .{ nanos: saturating_mul_u64(self, NS_PER_MICRO) };
+    }
 
-pub fn sleep_millis(millis: u64) void {
-    sleep(from_millis(millis));
-}
+    pub const fn millis() Duration {
+        return .{ nanos: saturating_mul_u64(self, NS_PER_MILLI) };
+    }
 
-pub fn sleep_micros(micros: u64) void {
-    sleep(from_micros(micros));
-}
-
-pub fn sleep_nanos(nanos: u64) void {
-    sleep(from_nanos(nanos));
+    pub const fn secs() Duration {
+        return .{ nanos: saturating_mul_u64(self, NS_PER_SEC) };
+    }
 }

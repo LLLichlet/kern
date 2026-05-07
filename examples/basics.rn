@@ -1,8 +1,7 @@
 use std.io;
-use base.io.Writer;
 use base.test;
 
-type Point = struct {
+struct Point {
     x: i32,
     y: i32,
 };
@@ -15,13 +14,12 @@ fn translate(point: Point, dx: i32, dy: i32) Point {
 }
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
     let origin = Point.{ x: 0, y: 0 };
     let moved = translate(origin, 4, -2);
-    ctx..&.eq(moved.x, 4);
-    ctx..&.eq(moved.y, -2);
+    (moved.x == 4).should().sum(@loc(), t);
+    (moved.y == -2).should().sum(@loc(), t);
 
     let mut total = i32.{0};
     let mut i = i32.{0};
@@ -30,7 +28,7 @@ fn main() i32 {
         i += 1;
     }
 
-    ctx..&.eq(total, 10);
-    io.println("basics: point=({}, {}), total={}", .{moved.x, moved.y, total});
+    (total == 10).should().sum(@loc(), t);
+    "basics: point=({}, {}), total={}".fmt(.{moved.x, moved.y, total}).println();
     return 0;
 }

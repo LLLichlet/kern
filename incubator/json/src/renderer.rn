@@ -16,19 +16,19 @@ use ..parser.{
     skip_ws,
 };
 
-type CompactProgress = struct {
+struct CompactProgress {
     next: usize,
     written: usize,
 };
 
-fn write_byte_unchecked(out: []mut u8, offset: usize, value: u8) usize {
+fn write_byte_unchecked(out: &mut [u8], offset: usize, value: u8) usize {
     out.[offset] = value;
     return offset + 1;
 }
 
-fn write_bytes_unchecked(out: []mut u8, offset: usize, text: []u8) usize {
+fn write_bytes_unchecked(out: &mut [u8], offset: usize, text: &[u8]) usize {
     let end = offset + #text;
-    _ = out..[offset .. end].copy_from(text);
+    _ = out..&[offset .. end].copy_from(text);
     return end;
 }
 
@@ -54,7 +54,7 @@ fn escaped_byte_size(byte: u8) usize {
     return 1;
 }
 
-fn compact_owned_string_size(text: []u8) usize {
+fn compact_owned_string_size(text: &[u8]) usize {
     let mut written = usize.{2};
     let mut i = usize.{0};
     while (i < #text) {
@@ -64,7 +64,7 @@ fn compact_owned_string_size(text: []u8) usize {
     return written;
 }
 
-fn write_escaped_byte_unchecked(out: []mut u8, offset: usize, byte: u8) usize {
+fn write_escaped_byte_unchecked(out: &mut [u8], offset: usize, byte: u8) usize {
     if (byte == b'"') {
         let offset = write_byte_unchecked(out, offset, b'\\');
         return write_byte_unchecked(out, offset, b'"');
@@ -104,7 +104,7 @@ fn write_escaped_byte_unchecked(out: []mut u8, offset: usize, byte: u8) usize {
     return write_byte_unchecked(out, offset, byte);
 }
 
-fn write_escaped_string_unchecked(out: []mut u8, offset: usize, text: []u8) usize {
+fn write_escaped_string_unchecked(out: &mut [u8], offset: usize, text: &[u8]) usize {
     let mut written = write_byte_unchecked(out, offset, b'"');
     let mut i = usize.{0};
     while (i < #text) {
@@ -114,7 +114,7 @@ fn write_escaped_string_unchecked(out: []mut u8, offset: usize, text: []u8) usiz
     return write_byte_unchecked(out, written, b'"');
 }
 
-fn compact_owned_array_size(array: *OwnedArray) usize {
+fn compact_owned_array_size(array: &OwnedArray) usize {
     let items = array.items.&.as_slice();
     if (#items == 0) {
         return 2;
@@ -131,7 +131,7 @@ fn compact_owned_array_size(array: *OwnedArray) usize {
     return written;
 }
 
-fn compact_owned_object_size(object: *OwnedObject) usize {
+fn compact_owned_object_size(object: &OwnedObject) usize {
     let entries = object.entries.&.as_slice();
     if (#entries == 0) {
         return 2;
@@ -155,7 +155,7 @@ fn compact_owned_object_size(object: *OwnedObject) usize {
     return written;
 }
 
-fn render_owned_array_unchecked(array: *OwnedArray, out: []mut u8, offset: usize) usize {
+fn render_owned_array_unchecked(array: &OwnedArray, out: &mut [u8], offset: usize) usize {
     let mut written = write_byte_unchecked(out, offset, b'[');
     let items = array.items.&.as_slice();
     if (#items == 0) {
@@ -172,7 +172,7 @@ fn render_owned_array_unchecked(array: *OwnedArray, out: []mut u8, offset: usize
     return write_byte_unchecked(out, written, b']');
 }
 
-fn render_owned_object_unchecked(object: *OwnedObject, out: []mut u8, offset: usize) usize {
+fn render_owned_object_unchecked(object: &OwnedObject, out: &mut [u8], offset: usize) usize {
     let mut written = write_byte_unchecked(out, offset, b'{');
     let entries = object.entries.&.as_slice();
     if (#entries == 0) {
@@ -195,7 +195,7 @@ fn render_owned_object_unchecked(object: *OwnedObject, out: []mut u8, offset: us
     return write_byte_unchecked(out, written, b'}');
 }
 
-fn render_owned_compact_inner_unchecked(value: *mut OwnedValue, out: []mut u8, offset: usize) usize {
+fn render_owned_compact_inner_unchecked(value: &mut OwnedValue, out: &mut [u8], offset: usize) usize {
     return match (value.*) {
         .Null => write_bytes_unchecked(out, offset, "null"),
         .{ Bool: bool_value } => if (bool_value) {
@@ -210,7 +210,7 @@ fn render_owned_compact_inner_unchecked(value: *mut OwnedValue, out: []mut u8, o
     };
 }
 
-fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
+fn measure_compact_inner(text: &[u8], start: usize) CompactProgress!ParseError {
     let index = skip_ws(text, start);
     if (index >= #text) {
         return .{ Err: ParseError.UnexpectedEof };
@@ -346,9 +346,9 @@ fn measure_compact_inner(text: []u8, start: usize) CompactProgress!ParseError {
 }
 
 fn render_compact_inner_unchecked(
-    text: []u8,
+    text: &[u8],
     start: usize,
-    out: []mut u8,
+    out: &mut [u8],
     offset: usize,
 ) CompactProgress!ParseError {
     let index = skip_ws(text, start);
@@ -362,7 +362,7 @@ fn render_compact_inner_unchecked(
             else {
                 .{ Err: err } => return .{ Err: err },
             };
-        let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
+        let written = write_bytes_unchecked(out, offset, text.&[index .. span.next]);
         return .{ Ok: CompactProgress.{ next: span.next, written: written } };
     }
     if (byte == b't') {
@@ -370,7 +370,7 @@ fn render_compact_inner_unchecked(
             else {
                 .{ Err: err } => return .{ Err: err },
             };
-        let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
+        let written = write_bytes_unchecked(out, offset, text.&[index .. span.next]);
         return .{ Ok: CompactProgress.{ next: span.next, written: written } };
     }
     if (byte == b'f') {
@@ -378,7 +378,7 @@ fn render_compact_inner_unchecked(
             else {
                 .{ Err: err } => return .{ Err: err },
             };
-        let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
+        let written = write_bytes_unchecked(out, offset, text.&[index .. span.next]);
         return .{ Ok: CompactProgress.{ next: span.next, written: written } };
     }
     if (byte == b'"') {
@@ -386,7 +386,7 @@ fn render_compact_inner_unchecked(
             else {
                 .{ Err: err } => return .{ Err: err },
             };
-        let written = write_bytes_unchecked(out, offset, text.[index .. next]);
+        let written = write_bytes_unchecked(out, offset, text.&[index .. next]);
         return .{ Ok: CompactProgress.{ next: next, written: written } };
     }
     if (byte == b'[') {
@@ -444,7 +444,7 @@ fn render_compact_inner_unchecked(
                 else {
                     .{ Err: err } => return .{ Err: err },
                 };
-            written = write_bytes_unchecked(out, written, text.[index2 .. key_end]);
+            written = write_bytes_unchecked(out, written, text.&[index2 .. key_end]);
             index2 = skip_ws(text, key_end);
             if (index2 >= #text) {
                 return .{ Err: ParseError.UnexpectedEof };
@@ -487,7 +487,7 @@ fn render_compact_inner_unchecked(
             else {
                 .{ Err: err } => return .{ Err: err },
             };
-        let written = write_bytes_unchecked(out, offset, text.[index .. next]);
+        let written = write_bytes_unchecked(out, offset, text.&[index .. next]);
         return .{ Ok: CompactProgress.{ next: next, written: written } };
     }
 
@@ -507,7 +507,7 @@ pub/ fn compact_size(value: Value) usize!ParseError {
     return .{ Ok: progress.written };
 }
 
-pub/ fn render_compact(value: Value, out: []mut u8) usize!RenderError {
+pub/ fn render_compact(value: Value, out: &mut [u8]) usize!RenderError {
     let .{ Ok: needed } = compact_size(value)
         else {
             .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -522,7 +522,7 @@ pub/ fn render_compact(value: Value, out: []mut u8) usize!RenderError {
     return .{ Ok: progress.written };
 }
 
-pub/ fn compact_size_owned(value: *mut OwnedValue) usize {
+pub/ fn compact_size_owned(value: &mut OwnedValue) usize {
     return match (value.*) {
         .Null => 4,
         .{ Bool: bool_value } => if (bool_value) 4 else 5,
@@ -533,7 +533,7 @@ pub/ fn compact_size_owned(value: *mut OwnedValue) usize {
     };
 }
 
-pub/ fn render_compact_owned(value: *mut OwnedValue, out: []mut u8) usize!OwnedRenderError {
+pub/ fn render_compact_owned(value: &mut OwnedValue, out: &mut [u8]) usize!OwnedRenderError {
     let needed = compact_size_owned(value);
     if (needed > #out) {
         return .{ Err: OwnedRenderError.BufferTooSmall };
@@ -541,12 +541,12 @@ pub/ fn render_compact_owned(value: *mut OwnedValue, out: []mut u8) usize!OwnedR
     return .{ Ok: render_owned_compact_inner_unchecked(value, out, 0) };
 }
 
-impl *mut OwnedValue {
+impl &mut OwnedValue {
     pub fn compact_size() usize {
         return compact_size_owned(self);
     }
 
-    pub fn render_compact(out: []mut u8) usize!OwnedRenderError {
+    pub fn render_compact(out: &mut [u8]) usize!OwnedRenderError {
         return render_compact_owned(self, out);
     }
 }

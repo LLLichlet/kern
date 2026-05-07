@@ -123,11 +123,11 @@ impl<'a> Parser<'a> {
 
         let mut clauses = Vec::new();
 
-        // Parse clauses such as `where *T: TraitA + TraitB, U: TraitC`.
+        // Parse clauses such as `where &T: TraitA + TraitB, U: TraitC`.
         loop {
             let start_span = self.peek().span;
 
-            // 1. Left-hand side: constrained target type, for example `*mut T`.
+            // 1. Left-hand side: constrained target type, for example `&mut T`.
             let target_ty = self.parse_type()?;
 
             // 2. Constraint separator.
@@ -249,9 +249,11 @@ impl<'a> Parser<'a> {
             TokenType::Const if self.stream.peek_tag_nth(1) == TokenType::Fn => {
                 Ok(Some(self.parse_fn_decl(start_span, vis, is_extern)?))
             }
-            TokenType::Type => Ok(Some(
-                self.parse_type_alias_decl(start_span, vis, is_extern)?,
-            )),
+            TokenType::Type => Ok(Some(self.parse_type_alias_decl(start_span, vis)?)),
+            TokenType::Struct => Ok(Some(self.parse_struct_decl(start_span, vis, is_extern)?)),
+            TokenType::Union => Ok(Some(self.parse_union_decl(start_span, vis, is_extern)?)),
+            TokenType::Enum => Ok(Some(self.parse_enum_decl(start_span, vis, is_extern)?)),
+            TokenType::Trait => Ok(Some(self.parse_trait_decl(start_span, vis, is_extern)?)),
             TokenType::Const | TokenType::Static => Ok(Some(
                 self.parse_global_var_decl(start_span, vis, is_extern)?,
             )),
@@ -492,7 +494,7 @@ impl<'a> Parser<'a> {
                             .to_string(),
                     );
                 }
-                let mut d = self.parse_type_alias_decl(d_start, Visibility::Private, false)?;
+                let mut d = self.parse_impl_assoc_type_decl(d_start)?;
                 d.docs = docs;
                 d.attributes = attributes;
                 decls.push(d);
@@ -517,6 +519,54 @@ impl<'a> Parser<'a> {
                 target_type,
                 trait_type,
                 decls,
+            },
+        })
+    }
+
+    fn parse_impl_assoc_type_decl(&mut self, start: Span) -> ParseResult<Decl> {
+        self.advance(); // Consume `type`.
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+        let generics = self.parse_generic_params()?;
+        let where_clauses = self.parse_where_clauses()?;
+
+        if self.match_token(&[TokenType::Colon]) {
+            let assoc_name = self.session.resolve(name_id).to_string();
+            self.session
+                .struct_error(
+                    self.stream.prev_span(),
+                    format!(
+                        "associated type `{}` in an impl cannot declare trait bounds",
+                        assoc_name
+                    ),
+                )
+                .with_hint(format!(
+                    "write `type {} = ConcreteType;` in the impl",
+                    assoc_name
+                ))
+                .with_hint("declare the contract on the trait instead")
+                .emit();
+            self.synchronize();
+            return Err(ParseError);
+        }
+
+        self.expect(TokenType::Assign)?;
+        let target = self.parse_type()?;
+        self.expect(TokenType::Semicolon)?;
+        let end = self.stream.prev_span();
+
+        Ok(Decl {
+            id: self.new_id(),
+            span: start.to(end),
+            name_span: name.span,
+            name: name_id,
+            vis: Visibility::Private,
+            docs: None,
+            attributes: vec![],
+            kind: DeclKind::TypeAlias {
+                generics,
+                where_clauses,
+                target,
             },
         })
     }
@@ -585,12 +635,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_type_alias_decl(
-        &mut self,
-        start: Span,
-        vis: Visibility,
-        is_extern: bool,
-    ) -> ParseResult<Decl> {
+    fn parse_type_alias_decl(&mut self, start: Span, vis: Visibility) -> ParseResult<Decl> {
         self.advance(); // Consume `type`.
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
@@ -598,58 +643,12 @@ impl<'a> Parser<'a> {
         // 1. Parse generic parameters such as `[T]`.
         let generics = self.parse_generic_params()?;
 
-        // 2. Parse optional bounds or an explicit backing type after `:`.
-        let mut bounds = Vec::new();
-        if self.match_token(&[TokenType::Colon]) {
-            loop {
-                bounds.push(self.parse_type()?);
-                if !self.match_token(&[TokenType::Plus]) {
-                    break;
-                }
-            }
-        }
-
-        // 3. Parse an optional `where` clause.
+        // 2. Parse an optional `where` clause.
         let where_clauses = self.parse_where_clauses()?;
 
-        // 4. Parse the aliased target type after `=`.
+        // 3. Parse the aliased target type after `=`.
         self.expect(TokenType::Assign)?;
         let target = self.parse_type()?;
-        match &target.kind {
-            TypeKind::Struct {
-                is_extern: true, ..
-            }
-            | TypeKind::Union {
-                is_extern: true, ..
-            } => {
-                let kind_name = match &target.kind {
-                    TypeKind::Struct { .. } => "struct",
-                    TypeKind::Union { .. } => "union",
-                    _ => unreachable!(),
-                };
-                let name = self.session.resolve(name_id).to_string();
-                let message = if is_extern {
-                    format!(
-                        "named {} declarations must place `extern` before `type`, not on the right-hand side",
-                        kind_name
-                    )
-                } else {
-                    format!(
-                        "named {} declarations must use `extern type Name = {} {{ ... }}`",
-                        kind_name, kind_name
-                    )
-                };
-                self.session
-                    .struct_error(target.span, message)
-                    .with_hint(format!(
-                        "write `extern type {} = {} {{ ... }};` for named C-ABI declarations",
-                        name, kind_name
-                    ))
-                    .emit();
-                return Err(ParseError);
-            }
-            _ => {}
-        }
         self.expect(TokenType::Semicolon)?;
 
         let end = self.stream.prev_span();
@@ -664,10 +663,158 @@ impl<'a> Parser<'a> {
             attributes: vec![],
             kind: DeclKind::TypeAlias {
                 generics,
-                bounds,
                 where_clauses,
                 target,
+            },
+        })
+    }
+
+    fn parse_struct_decl(
+        &mut self,
+        start: Span,
+        vis: Visibility,
+        is_extern: bool,
+    ) -> ParseResult<Decl> {
+        self.advance();
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+        let generics = self.parse_generic_params()?;
+        let where_clauses = self.parse_where_clauses()?;
+        let fields = self.parse_struct_fields("field")?;
+        Ok(Decl {
+            id: self.new_id(),
+            span: start.to(self.stream.prev_span()),
+            name_span: name.span,
+            name: name_id,
+            vis,
+            docs: None,
+            attributes: vec![],
+            kind: DeclKind::Struct {
+                generics,
+                where_clauses,
+                fields,
                 is_extern,
+            },
+        })
+    }
+
+    fn parse_union_decl(
+        &mut self,
+        start: Span,
+        vis: Visibility,
+        is_extern: bool,
+    ) -> ParseResult<Decl> {
+        self.advance();
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+        let generics = self.parse_generic_params()?;
+        let where_clauses = self.parse_where_clauses()?;
+        let fields = self.parse_struct_fields("field")?;
+        Ok(Decl {
+            id: self.new_id(),
+            span: start.to(self.stream.prev_span()),
+            name_span: name.span,
+            name: name_id,
+            vis,
+            docs: None,
+            attributes: vec![],
+            kind: DeclKind::Union {
+                generics,
+                where_clauses,
+                fields,
+                is_extern,
+            },
+        })
+    }
+
+    fn parse_enum_decl(
+        &mut self,
+        start: Span,
+        vis: Visibility,
+        is_extern: bool,
+    ) -> ParseResult<Decl> {
+        let enum_token = self.advance();
+        if is_extern {
+            self.add_error(start, "enum declarations cannot be extern".to_string());
+        }
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+        let generics = self.parse_generic_params()?;
+        let mut backing_type = None;
+        if self.match_token(&[TokenType::Colon]) {
+            backing_type = Some(Box::new(self.parse_type()?));
+        }
+        let where_clauses = self.parse_where_clauses()?;
+        let enum_ty = self.parse_enum_type_body_from_consumed(enum_token.span, backing_type)?;
+        let TypeKind::Enum {
+            backing_type,
+            variants,
+        } = enum_ty.kind
+        else {
+            unreachable!()
+        };
+        Ok(Decl {
+            id: self.new_id(),
+            span: start.to(enum_ty.span),
+            name_span: name.span,
+            name: name_id,
+            vis,
+            docs: None,
+            attributes: vec![],
+            kind: DeclKind::Enum {
+                generics,
+                where_clauses,
+                backing_type,
+                variants,
+            },
+        })
+    }
+
+    fn parse_trait_decl(
+        &mut self,
+        start: Span,
+        vis: Visibility,
+        is_extern: bool,
+    ) -> ParseResult<Decl> {
+        let trait_token = self.advance();
+        if is_extern {
+            self.add_error(start, "trait declarations cannot be extern".to_string());
+        }
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+        let generics = self.parse_generic_params()?;
+        let mut supertraits = Vec::new();
+        if self.match_token(&[TokenType::Colon]) {
+            loop {
+                supertraits.push(self.parse_type()?);
+                if !self.match_token(&[TokenType::Plus]) {
+                    break;
+                }
+            }
+        }
+        let where_clauses = self.parse_where_clauses()?;
+        let trait_ty = self.parse_trait_type_body_from_consumed(trait_token.span)?;
+        let TypeKind::Trait {
+            assoc_types,
+            methods,
+        } = trait_ty.kind
+        else {
+            unreachable!()
+        };
+        Ok(Decl {
+            id: self.new_id(),
+            span: start.to(trait_ty.span),
+            name_span: name.span,
+            name: name_id,
+            vis,
+            docs: None,
+            attributes: vec![],
+            kind: DeclKind::Trait {
+                generics,
+                where_clauses,
+                supertraits,
+                assoc_types,
+                methods,
             },
         })
     }

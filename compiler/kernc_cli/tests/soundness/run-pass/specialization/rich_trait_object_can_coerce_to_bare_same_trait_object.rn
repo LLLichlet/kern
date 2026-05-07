@@ -1,35 +1,35 @@
 // exit: 0
 
-type Base[N: usize] = trait {
+trait Base[N: usize] {
     type Out;
 };
 
-type Derived[N: usize]: Base[N] = trait {
-    more: fn() i32,
+trait Derived[N: usize]: Base[N] {
+    fn more() i32;
 };
 
-type X = struct {};
+struct X {};
 
-impl[N: usize] *X: Derived[N] {
+impl[N: usize] &X: Derived[N] {
     fn more() i32 {
         return 2;
     }
 }
 
-impl[N: usize] *X: Base[N] {
+impl[N: usize] &X: Base[N] {
     type Out = i32;
 }
 
-impl *X: Base[4] {
+impl &X: Base[4] {
     type Out = i64;
 }
 
-fn take(value: *Derived[4]) i32 {
+fn take(value: &Derived[4]) i32 {
     return value.more() - 2;
 }
 
 fn main() i32 {
     let x = X.{};
-    let derived = *Derived[4].{ x.& };
+    let derived = &Derived[4].{ x.& };
     return take(derived);
 }

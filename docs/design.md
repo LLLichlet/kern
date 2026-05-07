@@ -1,4 +1,4 @@
-# Kern Language Design (v0.7.3)
+# Kern Language Design (v0.7.5)
 
 ## Table of Contents
 
@@ -63,7 +63,7 @@ To achieve "high abstraction, low policy", Kern provides three core mechanisms:
   * **Boolean**: `bool` (1 byte).
   * **SIMD primitives**: Kern also provides builtin SIMD types written directly as names such as `f32x4`, `i32x4`, `u8x16`, and `boolx4`.
   * **Never**: `!` (diverging computations).
-  * **Void**: `void` - A zero-sized type (ZST). It represents the absence of a meaningful value. Used primarily as the default return type for functions that produce no data, or to construct untyped raw pointers (`*mut void` / `*void`) for FFI and memory allocation.
+  * **Void**: `void` - A zero-sized type (ZST). It represents the absence of a meaningful value. Used primarily as the default return type for functions that produce no data, or to construct untyped raw pointers (`&mut void` / `&void`) for FFI and memory allocation.
 
 SIMD is part of the language, not a library abstraction and not an alias for arrays or slices. A type like `f32x4` is a first-class builtin type in its own right.
 
@@ -88,8 +88,8 @@ In Kern, **mutability is a property of storage, not an intrinsic part of the bas
   * **No Automatic Upgrade Across Handles**: `let mut` does **not** silently upgrade every derived handle into a writable one. Rebinding a value, mutating an aggregate in place, mutating through a pointer, and producing a mutable slice are distinct questions.
       * `let mut arr = [4]u8.{ 1, 2, 3, 4 };` allows both `arr = [4]u8.{ 5, 6, 7, 8 };` and `arr.[0] = 9;` because the binding owns mutable storage for the whole array aggregate.
       * `let arr = [4]u8.{ 1, 2, 3, 4 };` rejects `arr.[0] = 9;` because the access path reaches immutable storage.
-      * `let mut p = *u8.{ ... };` may rebind the pointer value itself, but `p.* = 9;` is still rejected. Write access through a pointer comes from `*mut T`, not from `let mut p`.
-      * `let mut view = []u8.{ ... };` may rebind the slice value itself, but it does not become `[]mut u8`. Mutable slice permissions remain part of the slice type because a slice is a view, not a physical aggregate.
+      * `let mut p = &u8.{ ... };` may rebind the pointer value itself, but `p.* = 9;` is still rejected. Write access through a pointer comes from `&mut T`, not from `let mut p`.
+      * `let mut view = &[u8].{ ... };` may rebind the slice value itself, but it does not become `&mut [u8]`. Mutable slice permissions remain part of the slice type because a slice is a view, not a physical aggregate.
   * **Top-Down Bidirectional Flow**: Kern uses contextual typing. Literals like `10` are "type-neutral" and absorb the **Expected Type** flowing down from declarations or function signatures.
 
 ### 2.3 Pointers, Optionals, and Volatility
@@ -104,8 +104,8 @@ as a hidden borrow/reference system.
 Kern currently uses two pointer families:
 
   * **Object Pointers**:
-      * `*T`: immutable raw pointer
-      * `*mut T`: mutable raw pointer
+      * `&T`: immutable raw pointer
+      * `&mut T`: mutable raw pointer
       * these are ordinary pointer values for object access and general memory work
       * they may be cast to and from `usize` / `isize` explicitly
       * they are not hidden non-null references
@@ -116,74 +116,74 @@ Kern currently uses two pointer families:
       * dereferencing them performs volatile memory access
       * they remain ordinary values and do not disable explicit casts or arithmetic
 
-Bare function pointers (`fn(Args) Ret`) are thin pointer values too. They are
-part of Kern's explicit pointer reinterpretation model: `fn(...) Ret`, `*T`,
-`*mut T`, `^T`, `^mut T`, `usize`, and `isize` may be converted between one
+Bare function pointers (`&fn(Args) Ret`) are thin pointer values too. They are
+part of Kern's explicit pointer reinterpretation model: `&fn(...) Ret`, `&T`,
+`&mut T`, `^T`, `^mut T`, `usize`, and `isize` may be converted between one
 another with `as`, preserving the raw bit pattern. Dynamic closure pointers
-such as `*Fn(...) Ret` remain fat pointers and are not part of this thin
+such as `&Fn(...) Ret` remain fat pointers and are not part of this thin
 pointer cast family.
 
 `?T` and `T!E` are builtin enum families, not pointer modifiers. This means:
 
-  * `?*T` is simply `?` applied to `*T`
+  * `?&T` is simply `?` applied to `&T`
   * `?^T` is simply `?` applied to `^T`
   * builtin carriers do not receive hidden nullable-pointer compression or privileged ABI treatment
   * if an ordinary user-defined enum has the same shape, it has the same semantic standing
 
 The cast boundary is intentionally explicit:
 
-  * `usize as *T`, `usize as *mut T`, `usize as ^T`, and `usize as ^mut T` enter pointer space directly
+  * `usize as &T`, `usize as &mut T`, `usize as ^T`, and `usize as ^mut T` enter pointer space directly
   * pointer-to-integer exits such as `ptr as usize` are equally direct
-  * `fn(...) Ret` follows the same explicit `as` rules as other thin pointers, enabling FFI symbol loading and low-level code-pointer work without a separate cast primitive
-  * optional carriers are constructed as ordinary enum values such as `?*u8.{ Some: ptr }` or `?*u8.None`
+  * `&fn(...) Ret` follows the same explicit `as` rules as other thin pointers, enabling FFI symbol loading and low-level code-pointer work without a separate cast primitive
+  * optional carriers are constructed as ordinary enum values such as `?&u8.{ Some: ptr }` or `?&u8.None`
 
 Core operators remain simple:
 
   * **Address-of (`.&` / `..&`)**:
-      * `obj.&` obtains `*T`
-      * `obj..&` obtains `*mut T` and requires a mutable location
+      * `obj.&` obtains `&T`
+      * `obj..&` obtains `&mut T` and requires a mutable location
   * **Dereference**: `ptr.*` (postfix)
 
 Pointer arithmetic stays explicit:
 
-  * `*T` / `*mut T` expose typed arithmetic through the ordinary `base.mem.ptr` implementations
+  * `&T` / `&mut T` expose typed arithmetic through the ordinary `base.mem.ptr` implementations
   * `ptr + n` and `ptr - n` for object pointers scale by the element size (`@sizeOf[T]()`), while `ptr.byte_add(...)` and `ptr.byte_sub(...)` step in bytes
   * subtracting two identical object-pointer types yields an `isize` element distance
   * `^T` / `^mut T` retain builtin raw-address arithmetic with `usize` / `isize`, plus subtraction between identical address-pointer types
-  * opaque FFI boundaries should use `*void` / `*mut void` instead of byte-pointer punning
+  * opaque FFI boundaries should use `&void` / `&mut void` instead of byte-pointer punning
 
 ### 2.4 Arrays and Slices
 
   * **Arrays**: `[N]T` - Fixed-size value type.
-  * **Slices**: `[]T` or `[]mut T` - A fat pointer containing a pointer and a `usize` length.
+  * **Slices**: `&[T]` or `&mut [T]` - A fat pointer containing a pointer and a `usize` length.
   * **Arrays Are Physical Aggregates**: Arrays behave like inline structs, not like hidden reference handles.
       * `[N]T` is the only fixed-size array family. Kern does **not** define `[N]mut T`.
       * Array element writes are controlled by the mutability of the storage path that reaches the array.
       * `let mut arr = [4]u8.{ 1, 2, 3, 4 }; arr.[0] = 9;` is valid.
       * `let arr = [4]u8.{ 1, 2, 3, 4 }; arr.[0] = 9;` is rejected.
-      * `type Buffer = struct { data: [4]u8 }; let mut buf = Buffer.{ data: [4]u8.{ 0; 4 } }; buf.data.[0] = 1;` is valid because the access path reaches mutable aggregate storage.
-      * `fn fill(buf: *mut [4]u8) void { buf.*.[0] = 1; }` is valid because the mutable pointer reaches mutable array storage.
-      * `fn fill(buf: *[4]u8) void { buf.*.[0] = 1; }` is rejected because the pointer path itself is read-only.
+      * `struct Buffer { data: [4]u8 }; let mut buf = Buffer.{ data: [4]u8.{ 0; 4 } }; buf.data.[0] = 1;` is valid because the access path reaches mutable aggregate storage.
+      * `fn fill(buf: &mut [4]u8) void { buf.*.[0] = 1; }` is valid because the mutable pointer reaches mutable array storage.
+      * `fn fill(buf: &[4]u8) void { buf.*.[0] = 1; }` is rejected because the pointer path itself is read-only.
   * **Explicit Slice Permissions**: Slices remain views and therefore keep an explicit read/write split in the type.
-      * `arr.[a .. b]` produces `[]T` (read-only slice view).
-      * `arr..[a .. b]` produces `[]mut T` (mutable slice view), and requires the base storage path to be mutable.
+      * `arr.&[a .. b]` produces `&[T]` (read-only slice view).
+      * `arr..&[a .. b]` produces `&mut [T]` (mutable slice view), and requires the base storage path to be mutable.
       * The distinction is intentional: Kern does not silently upgrade a read-only view into a mutable one, even if the slice binding itself is declared with `let mut`.
   * **Semantic Checklist**:
       * `let mut arr = [N]T.{ ... };` makes the array storage mutable and permits `arr.[i] = ...`.
       * `let arr = [N]T.{ ... };` keeps the array storage immutable and rejects `arr.[i] = ...`.
-      * `arr.[i]..&` yields `*mut T` only when the access path to `arr.[i]` is mutable; otherwise it yields `*T` or is rejected in a mutable context.
-      * `arr.[a .. b]` is always `[]T`.
-      * `arr..[a .. b]` is `[]mut T` only when the access path to `arr` is mutable.
+      * `arr.[i]..&` yields `&mut T` only when the access path to `arr.[i]` is mutable; otherwise it yields `&T` or is rejected in a mutable context.
+      * `arr.&[a .. b]` is always `&[T]`.
+      * `arr..&[a .. b]` is `&mut [T]` only when the access path to `arr` is mutable.
       * Field access composes normally: mutability flows through `obj.field.[i]` from the full storage path, not from a special array-element type qualifier.
-      * Passing `[N]T` across a boundary may decay to `[]T` freely, but decay to `[]mut T` still requires a mutable source location.
+      * Passing `[N]T` across a boundary may decay to `&[T]` freely, but decay to `&mut [T]` still requires a mutable source location.
   * **String Literals**: `"Hello"` evaluates to `[5]u8`.
       * A string literal is syntax sugar for the equivalent byte array expression, such as `[5]u8.{ b'H', b'e', b'l', b'l', b'o' }`.
       * String literals do not include an implicit trailing NUL byte. Write `"\0"` explicitly when a NUL byte is part of the value.
-      * Passing a string literal to a `[]u8` parameter uses the ordinary array-to-slice decay path.
+      * Passing a string literal to a `&[u8]` parameter uses the ordinary array-to-slice decay path.
       * Storage follows the normal expression context. `static NAME = "Hello";` creates static array storage, while a call such as `write("Hello")` materializes an array value at the call site before slice decay.
   * **Fat-Pointer State Extractor (`#`)**: The unary `#` operator is a universal primitive used to extract the implicit runtime metadata (or state) from a fat pointer or a container.
       * For Arrays and Slices, `#` evaluates to the length (`usize`).
-      * For Closures (`*Fn`), `#` evaluates to the captured state's raw pointer (`*mut void` / `*void`).
+      * For Closures (`&Fn`), `#` evaluates to the captured state's raw pointer (`&mut void` / `&void`).
 
 ### 2.5 SIMD Values
 
@@ -222,11 +222,11 @@ While Kern strictly enforces "explicit over implicit" (forbidding implicit integ
 BNC is a zero-cost compiler mechanism that naturally "decays" or "packages" a rigidly known compile-time type into a dynamic interface pointer when passing across function boundaries or assignments, without requiring the explicit `as` keyword.
 
 Kern relies on four common BNC pathways:
-1. **Array to Slice Decay**: A fixed-size array `[N]T` naturally converts into a dynamic slice `[]T`. The compiler automatically extracts the memory address and synthesizes the fat pointer's length metadata using the compile-time `N`.
-2. **Stateless Closure to Function Pointer**: An anonymous closure with an explicitly empty capture list (`.[]`) has a memory footprint of `0`. It naturally decays into a standard C-ABI stateless function pointer `fn(Args) Ret` (See Section 11.3).
-3. **Named Struct to Anonymous Struct Decay**: A named structural type (e.g., `type Vector = struct { x: i32, y: i32 }`) naturally decays into an equivalent Anonymous Struct (`struct { x: i32, y: i32 }`) or its pointer variant when passed across a boundary. This enables secure "Duck Typing" without boilerplate. 
-   * *Strict ABI Contract*: BNC is aggressively guarded by ABI compatibility. A native `struct` will **never** implicitly decay into an `extern struct` (and vice versa), as their underlying memory layouts are physically distinct.
-4. **Trait Object Upcast**: A trait object pointer `*Sub` naturally boundary-converts to `*Super` if `Super` appears in `Sub`'s fully instantiated supertrait graph. This rewrites only the fat pointer metadata; the data pointer is unchanged.
+1. **Array to Slice Decay**: A fixed-size array `[N]T` naturally converts into a dynamic slice `&[T]`. The compiler automatically extracts the memory address and synthesizes the fat pointer's length metadata using the compile-time `N`.
+2. **Stateless Closure to Function Pointer**: An anonymous closure with an explicitly empty capture list (`[]`) has a memory footprint of `0`. It naturally decays into a standard C-ABI stateless function pointer `&fn(Args) Ret` (See Section 11.3).
+3. **Named Struct to Anonymous Struct Decay**: A named structural type (e.g., `struct Vector { x: i32, y: i32 }`) naturally decays into an equivalent Anonymous Struct (`struct { x: i32, y: i32 }`) or its pointer variant when passed across a boundary. This enables secure "Duck Typing" without boilerplate. 
+   * **Strict ABI Contract**: BNC is aggressively guarded by ABI compatibility. A native `struct` will **never** implicitly decay into an `extern struct` (and vice versa), as their underlying memory layouts are physically distinct.
+4. **Trait Object Upcast**: A trait object pointer `&Sub` naturally boundary-converts to `&Super` if `Super` appears in `Sub`'s fully instantiated supertrait graph. This rewrites only the fat pointer metadata; the data pointer is unchanged.
 
 BNC guarantees that the developer does not need to write boilerplate fat-pointer assembly code when the compiler already possesses absolute, statically proven knowledge of the underlying metadata.
 
@@ -314,16 +314,16 @@ In other words, Kern treats `const` as an execution boundary with explicit admis
 ### 5.1 Structs
 
 ```kern
-type Point = struct {
+struct Point {
     x: i32,
     y: i32,
 };
 ```
 
-  * **Generics**: `type Point[T] = struct { x: T, y: T };` (See 6.6 for Trait constraints via where clauses).
-  * **Default fields**: `type Config = struct { port: u16 = 8080, host: u32 = 0 };`
+  * **Generics**: `struct Point[T] { x: T, y: T };` (See 6.6 for Trait constraints via where clauses).
+  * **Default fields**: `struct Config { port: u16 = 8080, host: u32 = 0 };`
   * **Zero-Cost Memory Layout**: By default, Kern employs a highly optimized physical layout engine. It aggressively reorders struct fields at compile-time (descending by alignment requirements, then size) to eliminate memory padding (empty holes). 
-  * **C-ABI Compatibility (`extern`)**: If a struct must strictly maintain its source-code declaration order to interface with C or hardware, it must be prefixed with `extern` (e.g., `extern type Header = struct { ... };`). This disables reordering and guarantees standard C-ABI layout.
+  * **C-ABI Compatibility (`extern`)**: If a struct must strictly maintain its source-code declaration order to interface with C or hardware, it must be prefixed with `extern` (e.g., `extern struct Header { ... };`). This disables reordering and guarantees standard C-ABI layout.
   * **Field puns in typed initialization**: Explicit field binding remains the canonical form (`x: x`), but typed struct initialization may use field puns when the field name and local binding name match (e.g., `Point.{x, y}`). Untyped `.{ ... }` keeps its existing contextual literal behavior and is not reclassified by syntax alone.
   * **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized, you must explicitly use `undef` (e.g., `priority = u8.{undef};`).
 
@@ -348,7 +348,7 @@ let p4 = Point.{x, y};
 ### 5.2 Unions
 
 ```kern
-type Payload = union {
+union Payload {
     as_int: i32,
     as_float: f32,
     raw: [4]u8,
@@ -364,7 +364,7 @@ carrying tagged unions. For simple sets, the backing type can be explicitly
 defined (defaults to `u32`).
 
 ```kern
-type Color: u8 = enum {
+enum Color: u8 {
     Red = 0,
     Green, // 1
     Blue,  // 2
@@ -399,15 +399,15 @@ Kern treats Anonymous Structs as first-class citizens to facilitate lightweight 
 
 * **Structural Equivalence**: Unlike named types (where `PointA` and `PointB` are different types even if their fields match), anonymous structs are structurally typed. `struct { x: i32, y: i32 }` and `struct { y: i32, x: i32 }` are evaluated as the exact same type by the compiler through alphabetical field normalization.
 * **Orthogonal `extern` Contract**: Kern's syntax is perfectly orthogonal. Just as named types can be `extern`, anonymous structs can also enforce C-ABI layout inline: `extern struct { a: u8, b: u64 }`. 
-  * *Native Anonymous Structs* (`struct { ... }`): Subject to Kern's zero-cost memory reordering.
-  * *Extern Anonymous Structs* (`extern struct { ... }`): Strictly preserves declaration order and padding.
+  * &Native Anonymous Structs* (`struct { ... }`): Subject to Kern's zero-cost memory reordering.
+  * &Extern Anonymous Structs* (`extern struct { ... }`): Strictly preserves declaration order and padding.
 
 ```kern
 // Native layout (optimized size)
 let val: struct { a: u8, b: u64 } = .{ a: 1, b: 2 };
 
 // Extern layout (C-ABI compatible, maintains padding)
-extern {fn process_c_data(data: *extern struct { a: u8, b: u64 }) void; }
+extern {fn process_c_data(data: &extern struct { a: u8, b: u64 }) void; }
 ```
 
 ## 6\. Functions and Traits
@@ -416,13 +416,13 @@ extern {fn process_c_data(data: *extern struct { a: u8, b: u64 }) void; }
 
 `impl` blocks attach methods to a concrete type (including pointer types). The `self` parameter is implicitly injected and managed by the Semantic Analyzer.
 
-The key rule is that `impl` is type-directed, not pointer-directed. A pointer type such as `*i32`, `*mut File`, or `[][]u8` is simply another concrete type in the type system. If a design wants a trait to describe value semantics, it should be implemented for the value type itself (for example `impl i32 : Eq[i32]`). If a design wants pointer semantics, it should implement the pointer type explicitly.
+The key rule is that `impl` is type-directed, not pointer-directed. A pointer type such as `&i32`, `&mut File`, or `&[&[u8]]` is simply another concrete type in the type system. If a design wants a trait to describe value semantics, it should be implemented for the value type itself (for example `impl i32 : Eq[i32]`). If a design wants pointer semantics, it should implement the pointer type explicitly.
 
 ```kern
-type Point = struct { x: i32, y: i32 };
+struct Point { x: i32, y: i32 };
 
-impl *mut Point {
-    // 'self' is implicitly available as *mut Point
+impl &mut Point {
+    // 'self' is implicitly available as &mut Point
     pub fn move_by(dx: i32, dy: i32) void {
         self.x += dx; 
         self.y += dy;
@@ -436,15 +436,15 @@ Traits define a VTable contract. Methods implicitly receive a `self` reference.
 Traits may also declare associated types.
 
 ```kern
-type Writer = trait {
-    write: fn([]u8) usize,
+trait Write {
+    fn write(bytes: &[u8]) usize;
 };
 ```
 
 ```kern
-type Add[Rhs] = trait {
+trait Add[Rhs] {
     type Out;
-    add: fn(Rhs) Out,
+    fn add(rhs: Rhs) Self.Out;
 };
 ```
 
@@ -542,26 +542,26 @@ Trait Object VTables use a two-part layout:
   * **Header**: A flattened table of all transitive parent-trait VTable pointers, expanded in declaration-order DFS after generic instantiation and deduplicated by the final instantiated trait type.
   * **Body**: Only the methods declared directly on the current trait, in declaration order.
 
-This makes `*Sub -> *Super` upcasts a constant-time metadata rewrite while avoiding C++-style subobject pointer adjustment.
+This makes `&Sub -> &Super` upcasts a constant-time metadata rewrite while avoiding C++-style subobject pointer adjustment.
 
-This pointer requirement belongs specifically to trait-object construction. It should not be confused with ordinary trait implementations. In other words, `*Trait` is an explicit runtime packaging form, not the semantic foundation of traits in Kern.
+This pointer requirement belongs specifically to trait-object construction. It should not be confused with ordinary trait implementations. In other words, `&Trait` is an explicit runtime packaging form, not the semantic foundation of traits in Kern.
 
 <!-- end list -->
 
 ```kern
 let mut file = File.{ ... };
 // Assemble a mutable Trait Object from a mutable pointer
-let w = *mut Writer.{ file..& }; 
+let w = &mut Write.{ file..& };
 w.write("Kern\0");
 ```
 
 ```kern
-type Reader = trait { read: fn() i32, };
-type BufReader: Reader = trait { fill: fn() void, };
+trait Read { fn read(buffer: &mut [u8]) usize; };
+trait BufReader: Read { fn fill() void; };
 
-let reader = *BufReader.{ file.& };
-let base1 = *Reader.{ reader }; // explicit upcast
-use_reader(reader);             // implicit BNC upcast to *Reader
+let reader = &BufReader.{ file.& };
+let base1 = &Read.{ reader }; // explicit upcast
+use_reader(reader);           // implicit BNC upcast to &Read
 ```
 
 ### 6.6 Generic Constraints (`where` clauses)
@@ -569,17 +569,17 @@ use_reader(reader);             // implicit BNC upcast to *Reader
 Unlike some languages where generic parameter declaration and trait bounding are mixed, Kern enforces a strict separation between **generic introduction** and **type bounding** using `where` clauses. Because Kern is strictly type-oriented, constraints must explicitly specify the exact type derivation being bounded.
 
 * **Explicit Separation**: Generic parameters are introduced first (e.g., `impl[T]`), and bounds are applied via `where`.
-* **Orthogonal Pointer Constraints**: Kern's strict type system allows you to constrain different pointer derivations of the same generic type independently. For example, `where *T: TraitA, *mut T: TraitB` is entirely valid. The compiler treats each pointer level and mutability qualifier as a distinct type subject to its own traits.
+* **Orthogonal Pointer Constraints**: Kern's strict type system allows you to constrain different pointer derivations of the same generic type independently. For example, `where &T: TraitA, &mut T: TraitB` is entirely valid. The compiler treats each pointer level and mutability qualifier as a distinct type subject to its own traits.
 * **Value-First Semantics**: If a trait models the behavior of a value, the natural bound should target the value type directly (`where T: Eq[T]`, `where K: Hash[K]`). Pointer-shaped bounds should be reserved for APIs whose semantics are genuinely about pointer types or explicit trait objects.
 
 **Implementation Blocks with Constraints:**
-In the following example, `impl[T]` introduces the generic `T`. `*List[T] : Printable` defines that we are implementing the `Printable` trait for the type `*List[T]`. The `where` clause specifies the prerequisite: this implementation only exists if `*T` itself is `Printable`.
+In the following example, `impl[T]` introduces the generic `T`. `&List[T] : Formatable` defines that we are implementing the `Formatable` trait for the type `&List[T]`. The `where` clause specifies the prerequisite: this implementation only exists if `&T` itself is `Formatable`.
 
 ```kern
-impl[T] *List[T] : Printable 
-    where *T: Printable,
+impl[T] &List[T] : Formatable
+    where &T: Formatable,
 {
-    pub fn fmt(writer: *mut Writer) void {
+    pub fn write_to(writer: &mut Write) void {
         let _ = writer.write("<List len=");
         // ... (implementation details)
         let _ = writer.write("]>");
@@ -587,18 +587,18 @@ impl[T] *List[T] : Printable
 }
 ```
 
-`format_to(writer, fmt, args)` renders `Printable` values through `{}` placeholders. Kern's format spec is written directly inside the braces: `{8}` sets a minimum width, `{02}` uses zero padding, `{>8}` right-aligns, `{<8}` left-aligns, `{^8}` centers, and `{0>8}` combines an explicit fill byte with alignment. `{.12}` limits output to 12 bytes, and it can be combined with width as `{>8.12}`. Literal braces are written as `{{` and `}}`.
+`"{}".fmt(args)` builds a zero-allocation formatting view over `Formatable` values, and that view can be printed or written to any `Write` sink. Kern's format spec is written directly inside the braces: `{8}` sets a minimum width, `{02}` uses zero padding, `{>8}` right-aligns, `{<8}` left-aligns, `{^8}` centers, and `{0>8}` combines an explicit fill byte with alignment. `{.12}` limits output to 12 bytes, and it can be combined with width as `{>8.12}`. Literal braces are written as `{{` and `}}`.
 
 **Type Declarations with Constraints:**
 `where` clauses are also used when defining generic data structures to enforce invariants at the type level.
 
 ```kern
-type Point[T] 
-    where *T: Printable
-= struct {
+struct Point[T]
+    where &T: Formatable
+{
     x: T,
     y: T,
-};
+}
 ```
 
 ## 7\. Control Flow
@@ -751,7 +751,7 @@ Kern remains freestanding by default, but when a runtime entry contract is enabl
 The legal forms are:
 
   * `fn main() i32`
-  * `fn main(argc: i32, argv: **u8) i32`
+  * `fn main(argc: i32, argv: &&u8) i32`
 
 This is intentionally narrow:
 
@@ -778,14 +778,14 @@ When a runtime entry contract is enabled, the root `main` definition looks like:
 use std.io;
 
 fn main() i32 {
-    io.println("hello, {}!", .{"world",});
+    "hello, {}!".fmt(.{"world"}).println();
     0
 }
 ```
 
 This does **not** mean arbitrary function names gain runtime meaning. It means the selected runtime entry contract consumes the root `main` definition when program-entry mode is enabled.
 
-For argument-bearing `main`, Kern uses the explicit low-level ABI `argc: i32, argv: **u8`. Higher-level wrappers belong in ordinary libraries such as `std.proc`, not in the compiler-owned entry contract itself.
+For argument-bearing `main`, Kern uses the explicit low-level ABI `argc: i32, argv: &&u8`. Higher-level wrappers belong in ordinary libraries such as `std.proc`, not in the compiler-owned entry contract itself.
 
 ### 9.2 Importing External Functions and Statics
 
@@ -794,14 +794,14 @@ External C functions can use the `...` syntax to support C-style variadic argume
 Kern intentionally splits the two directions of ABI usage:
 
 * **Exporting** uses a top-level definition such as `fn main() i32 { ... }`.
-* **Importing** uses an `extern { ... }` block such as `extern { fn printf(format: *u8, ...) i32; }`.
+* **Importing** uses an `extern { ... }` block such as `extern { fn printf(format: &u8, ...) i32; }`.
 
 Single imported functions or statics must still use an `extern` block; they are not written as standalone `extern fn foo(...);` items.
 
 ```kern
 extern {
-    pub fn malloc(size: usize) *mut u8;
-    pub fn printf(format: *u8, ...) i32;
+    pub fn malloc(size: usize) &mut u8;
+    pub fn printf(format: &u8, ...) i32;
     pub static MULTIBOOT_MAGIC = u32.{undef};
 }
 ```
@@ -816,7 +816,7 @@ with `match` for branching.
 Use the `enum` keyword to define tagged unions with payloads (Algebraic Enum Types).
 
 ```kern
-type Message = enum {
+enum Message {
     Data: i32,
     Closed,
 };
@@ -842,8 +842,8 @@ ordinary enums with the same shape.
 let present = ?i32.{ Some: 7 };
 let absent = ?i32.None;
 
-let ok = i32![]u8.{ Ok: 7 };
-let err = i32![]u8.{ Err: "bad" };
+let ok = i32!&[u8].{ Ok: 7 };
+let err = i32!&[u8].{ Err: "bad" };
 ```
 
 Kern also provides direct propagation operators:
@@ -970,15 +970,15 @@ Kern explicitly separates the physical state of a closure from its dynamic invoc
 
 ### 11.1 Syntax and Capture Assignments
 
-Closures use the `.[captures](args) ReturnType { ... }` syntax. 
-Capturing must be explicit and follows **Pure Value Semantics**. You define bindings in the capture list using `=`. If the target binding name matches a local variable in scope, you can use the capture elision shorthand. (Note: Unlike struct initialization which requires strict `field: value` pairs, closure capture lists uniquely permit this safe shorthand because the `.[...]` syntax is unambiguous).
+Closures use the `[captures](args) ReturnType { ... }` syntax. 
+Capturing must be explicit and follows **Pure Value Semantics**. You define bindings in the capture list using `=`. If the target binding name matches a local variable in scope, you can use the capture elision shorthand. Unlike struct initialization, which requires strict `field: value` pairs, closure capture lists uniquely permit this safe shorthand.
 
 ```kern
 let a = i32.{120};
 let mut counter = i32.{0};
 
 // Explicit binding (`ptr = counter..&`) and elided capture binding (`a` stands for `a = a`)
-let closure = .[a, ptr = counter..&](b: i32) i32 {
+let closure = [a, ptr = counter..&](b: i32) i32 {
     ptr.* += 1;
     return a + b;
 };
@@ -989,51 +989,51 @@ let closure = .[a, ptr = counter..&](b: i32) i32 {
 Understanding closures in Kern requires distinguishing between two distinct types:
 
 1. **The Anonymous Closure State**: When you write `[a]() { ... }`, it evaluates to a value of a compiler-generated, highly specific anonymous struct type (e.g., `__Lambda_1`). You cannot directly write the name of this type in code (though it can be queried via `@typeOf`). By default, it lives on the stack.
-2. **The Closure Fat Pointer (`*Fn` / `*mut Fn`)**: This is the universal, dynamic interface for executing a closure. It is a primitive fat pointer with a hardcoded layout: `{ data_ptr: *void, code_ptr: *void }`. 
-    * `*Fn(Args) Ret`: An immutable closure pointer (read-only access to captured state).
-    * `*mut Fn(Args) Ret`: A mutable closure pointer (can mutate captured state).
+2. **The Closure Fat Pointer (`&Fn` / `&mut Fn`)**: This is the universal, dynamic interface for executing a closure. It is a primitive fat pointer with a hardcoded layout: `{ data_ptr: &void, code_ptr: &void }`. 
+    * `&Fn(Args) Ret`: An immutable closure pointer (read-only access to captured state).
+    * `&mut Fn(Args) Ret`: A mutable closure pointer (can mutate captured state).
 
 ### 11.3 Boundary Natural Conversion and Decay
 
 Kern seamlessly bridges the Anonymous Closure State and the Closure Fat Pointer through **Boundary Natural Conversion (BNC)** (See Section 2.5).
 
-When an Anonymous Closure State is passed to a context explicitly expecting a closure pointer (like a function argument or return type), the compiler automatically packages the anonymous struct's address and the generated code pointer into a `*Fn` or `*mut Fn` fat pointer. 
+When an Anonymous Closure State is passed to a context explicitly expecting a closure pointer (like a function argument or return type), the compiler automatically packages the anonymous struct's address and the generated code pointer into a `&Fn` or `&mut Fn` fat pointer. 
 
-Furthermore, if the capture list is strictly empty `.[]`:
+Furthermore, if the capture list is strictly empty `[]`:
 * The resulting Anonymous Closure State has a size of `0` (`@sizeOf` yields 0).
-* **BNC Decay Rule**: It naturally boundary-converts into a standard, stateless C-ABI function pointer: `fn(Args) Ret`.
+* **BNC Decay Rule**: It naturally boundary-converts into a standard, stateless C-ABI function pointer: `&fn(Args) Ret`.
 
 ```kern
-// Naturally decays to 'fn(i32, i32) bool' via BNC
-arr.sort(.[](a: i32, b: i32) bool {
+// Naturally decays to '&fn(i32, i32) bool' via BNC
+arr.sort([](a: i32, b: i32) bool {
     return a < b;
 });
 ```
 
 ### 11.4 Explicit Escape, Heap Allocation, and State Extraction (`#`)
 
-Because closures evaluate to standard structs on the stack, escaping a closure requires explicitly allocating memory for its anonymous type and manually assembling the `*Fn` fat pointer.
+Because closures evaluate to standard structs on the stack, escaping a closure requires explicitly allocating memory for its anonymous type and manually assembling the `&Fn` fat pointer.
 
-Kern strictly preserves **abstraction consistency**. Fat pointers (`*Fn`) are primitive types, not standard structs. Therefore, Kern explicitly forbids abstraction leaks like accessing internal fields directly (e.g., `cb.data`). To retrieve the original data pointer for memory deallocation, you must use the universal **Fat-Pointer State Extractor (`#`)**.
+Kern strictly preserves **abstraction consistency**. Fat pointers (`&Fn`) are primitive types, not standard structs. Therefore, Kern explicitly forbids abstraction leaks like accessing internal fields directly (e.g., `cb.data`). To retrieve the original data pointer for memory deallocation, you must use the universal **Fat-Pointer State Extractor (`#`)**.
 
 ```kern
 // 1. Stack-allocated closure state (Anonymous Type)
-let closure = .[a](b: i32) i32 { return a + b; };
+let closure = [a](b: i32) i32 { return a + b; };
 
 // 2. Explicitly allocate heap memory using @typeOf
 let size = @sizeOf[@typeOf(closure)]();
-let raw = malloc(size) as *mut @typeOf(closure);
+let raw = malloc(size) as &mut @typeOf(closure);
 raw.* = closure;
 
 // 3. Explicitly construct the Closure Fat Pointer
-let heap_cb = *mut Fn(i32) i32.{ raw }; 
+let heap_cb = &mut Fn(i32) i32.{ raw }; 
 
 // --- Later, when memory needs to be freed ---
 
 // 4. Extract the anonymous state pointer using `#`
 // Note: The `as` cast has higher precedence than unary operators like `#`.
 // Parentheses are strictly required to ensure absolute explicit intent.
-let ptr_to_free = (#heap_cb) as *mut u8;
+let ptr_to_free = (#heap_cb) as &mut u8;
 free(ptr_to_free, size); 
 ```
 
@@ -1145,9 +1145,9 @@ Mapped directly to single-cycle CPU instructions and highly optimized backend pr
   * `@clz[T: Integer](val: T) -> T`: Count leading zeros.
   * `@ctz[T: Integer](val: T) -> T`: Count trailing zeros.
   * `@bswap[T: Integer](val: T) -> T`: Reverses the byte order of an integer value (useful for endianness conversions).
-  * `@memcpy(dest: *mut u8, src: *u8, len: usize) void`: Performs a highly-optimized bulk memory copy.
-  * `@memmove(dest: *mut u8, src: *u8, len: usize) void`: Performs an overlap-safe bulk memory move.
-  * `@memset(dest: *mut u8, val: u8, len: usize) void`: Performs a highly-optimized bulk memory fill.
+  * `@memcpy(dest: &mut u8, src: &u8, len: usize) void`: Performs a highly-optimized bulk memory copy.
+  * `@memmove(dest: &mut u8, src: &u8, len: usize) void`: Performs an overlap-safe bulk memory move.
+  * `@memset(dest: &mut u8, val: u8, len: usize) void`: Performs a highly-optimized bulk memory fill.
 
 The `Integer` bound here is a marker-style family constraint. It expresses that these intrinsics operate on integer types as a category. It does **not** mean `Integer` is the source of arithmetic or bitwise operator semantics. Operator syntax remains governed by the builtin capability traits described in Section 6.4.1.
 
@@ -1185,32 +1185,32 @@ Code may also pass the raw compile-time integers directly (for example `1` for A
 Supported atomic value types are:
 
   * Native integers: `i8`..`i128`, `u8`..`u128`, `isize`, `usize`
-  * Normal raw pointers: `*T`, `*mut T`
+  * Normal raw pointers: `&T`, `&mut T`
 
 Rejected types include `bool`, floating-point types, volatile pointers (`^T`, `^mut T`), slices, arrays, trait objects, closure fat pointers, and any other non-thin-pointer aggregate.
 
 Kern is freestanding and does not permit LLVM to lower oversized atomics into runtime helper calls such as `__atomic_*`. The compiler therefore rejects atomic widths larger than the target's lock-free limit at compile time.
 
-  * `@atomicLoad[T](ptr: *T, order: u8) -> T`
+  * `@atomicLoad[T](ptr: &T, order: u8) -> T`
     `order` must be `Relaxed`, `Acquire`, or `SeqCst`.
-  * `@atomicStore[T](ptr: *mut T, val: T, order: u8) void`
+  * `@atomicStore[T](ptr: &mut T, val: T, order: u8) void`
     `order` must be `Relaxed`, `Release`, or `SeqCst`.
-  * `@atomicCas[T](ptr: *mut T, expected: T, desired: T, succ: u8, fail: u8) -> struct { success: bool, value: T }`
+  * `@atomicCas[T](ptr: &mut T, expected: T, desired: T, succ: u8, fail: u8) -> struct { success: bool, value: T }`
     This is a strong compare-and-exchange. `fail` must be `Relaxed`, `Acquire`, or `SeqCst`, and it cannot be stronger than `succ`.
-  * `@atomicCasWeak[T](ptr: *mut T, expected: T, desired: T, succ: u8, fail: u8) -> struct { success: bool, value: T }`
+  * `@atomicCasWeak[T](ptr: &mut T, expected: T, desired: T, succ: u8, fail: u8) -> struct { success: bool, value: T }`
     This is a weak compare-and-exchange and may fail spuriously. `fail` must be `Relaxed`, `Acquire`, or `SeqCst`, and it cannot be stronger than `succ`.
-  * `@atomicXchg[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicXchg[T](ptr: &mut T, val: T, order: u8) -> T`
     Supports integer and normal raw-pointer payloads.
-  * `@atomicRmwAdd[T](ptr: *mut T, val: T, order: u8) -> T`
-  * `@atomicRmwSub[T](ptr: *mut T, val: T, order: u8) -> T`
-  * `@atomicRmwAnd[T](ptr: *mut T, val: T, order: u8) -> T`
-  * `@atomicRmwNand[T](ptr: *mut T, val: T, order: u8) -> T`
-  * `@atomicRmwOr[T](ptr: *mut T, val: T, order: u8) -> T`
-  * `@atomicRmwXor[T](ptr: *mut T, val: T, order: u8) -> T`
-  * `@atomicRmwMax[T](ptr: *mut T, val: T, order: u8) -> T`
-  * `@atomicRmwMin[T](ptr: *mut T, val: T, order: u8) -> T`
-  * `@atomicRmwUMax[T](ptr: *mut T, val: T, order: u8) -> T`
-  * `@atomicRmwUMin[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwAdd[T](ptr: &mut T, val: T, order: u8) -> T`
+  * `@atomicRmwSub[T](ptr: &mut T, val: T, order: u8) -> T`
+  * `@atomicRmwAnd[T](ptr: &mut T, val: T, order: u8) -> T`
+  * `@atomicRmwNand[T](ptr: &mut T, val: T, order: u8) -> T`
+  * `@atomicRmwOr[T](ptr: &mut T, val: T, order: u8) -> T`
+  * `@atomicRmwXor[T](ptr: &mut T, val: T, order: u8) -> T`
+  * `@atomicRmwMax[T](ptr: &mut T, val: T, order: u8) -> T`
+  * `@atomicRmwMin[T](ptr: &mut T, val: T, order: u8) -> T`
+  * `@atomicRmwUMax[T](ptr: &mut T, val: T, order: u8) -> T`
+  * `@atomicRmwUMin[T](ptr: &mut T, val: T, order: u8) -> T`
     These read-modify-write intrinsics are integer-only. Their `order` must be one of `Relaxed`, `Acquire`, `Release`, `AcqRel`, or `SeqCst`.
   * `@fence(order: u8) void`
     `order` must be `Acquire`, `Release`, `AcqRel`, or `SeqCst`.
@@ -1307,21 +1307,21 @@ Kern keeps SIMD as a builtin type family first, and reserves `@...` intrinsics o
     Performs lane-wise numeric conversion. The source and result vectors must have the same lane count. Source lanes may be integer, floating-point, or `bool`; result lanes may be integer or floating-point.
   * `@simdBitcast[UxM](value: TxN) -> UxM`
     Reinterprets the vector bits without changing them. The source and result vectors must have the same total size in bytes.
-  * `@simdLoad[TxN](ptr: *T, align: usize) -> TxN`
+  * `@simdLoad[TxN](ptr: &T, align: usize) -> TxN`
     Loads a vector from contiguous scalar memory. `align` must be a compile-time non-zero power of two and is an explicit alignment promise made by the source program.
-  * `@simdStore[TxN](ptr: *mut T, value: TxN, align: usize) void`
+  * `@simdStore[TxN](ptr: &mut T, value: TxN, align: usize) void`
     Stores a vector to contiguous scalar memory. `align` follows the same rule and promise model as `@simdLoad`.
-  * `@simdMaskedLoad[TxN](ptr: *T, mask: boolxN, or_else: TxN, align: usize) -> TxN`
+  * `@simdMaskedLoad[TxN](ptr: &T, mask: boolxN, or_else: TxN, align: usize) -> TxN`
     For lane `i`, loads from `ptr[i]` when `mask.[i]` is `true`, otherwise yields `or_else.[i]`. Masked-off lanes do not access memory.
-  * `@simdMaskedStore[TxN](ptr: *mut T, mask: boolxN, value: TxN, align: usize) void`
+  * `@simdMaskedStore[TxN](ptr: &mut T, mask: boolxN, value: TxN, align: usize) void`
     For lane `i`, stores `value.[i]` to `ptr[i]` only when `mask.[i]` is `true`. Masked-off lanes do not access memory.
-  * `@simdGather[TxN](ptr: *T, indices: *usize) -> TxN`
+  * `@simdGather[TxN](ptr: &T, indices: &usize) -> TxN`
     Loads lane `i` from `ptr[indices[i]]`. The `indices` pointer must reference at least `N` `usize` elements. Both pointers obey Kern's ordinary raw-pointer validity and alignment rules.
-  * `@simdScatter[TxN](ptr: *mut T, indices: *usize, value: TxN) void`
+  * `@simdScatter[TxN](ptr: &mut T, indices: &usize, value: TxN) void`
     Stores lane `i` to `ptr[indices[i]]`. Scatter applies stores from lane `0` through lane `N - 1`, so duplicate indices are allowed and later lanes overwrite earlier lanes.
-  * `@simdMaskedGather[TxN](ptr: *T, indices: *usize, mask: boolxN, or_else: TxN) -> TxN`
+  * `@simdMaskedGather[TxN](ptr: &T, indices: &usize, mask: boolxN, or_else: TxN) -> TxN`
     For lane `i`, loads from `ptr[indices[i]]` when `mask.[i]` is `true`, otherwise yields `or_else.[i]`. Masked-off lanes do not access either `indices[i]` or `ptr[indices[i]]`.
-  * `@simdMaskedScatter[TxN](ptr: *mut T, indices: *usize, mask: boolxN, value: TxN) void`
+  * `@simdMaskedScatter[TxN](ptr: &mut T, indices: &usize, mask: boolxN, value: TxN) void`
     For lane `i`, stores to `ptr[indices[i]]` only when `mask.[i]` is `true`. Scatter still applies active stores in lane order `0` through `N - 1`.
 
 These are value intrinsics, not control-flow forms. Their operands are all evaluated normally before the intrinsic is applied.

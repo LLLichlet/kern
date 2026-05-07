@@ -1,27 +1,25 @@
 use std.io;
-use base.io.Writer;
 use base.test;
 
-fn process_erased_ptr(ctx: *mut test.Context, ptr: *mut void) void {
+fn process_erased_ptr(t: &mut test.Report[io.File], ptr: &mut void) void {
     let offset_ptr = ptr + 10;
 
-    ctx.assert(ptr == offset_ptr, "*void pointer arithmetic is zero-sized", .{});
+    (ptr == offset_ptr).should().sum(@loc(), t);
     _ = ptr.*;
 }
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
-    ctx..&.eq(@sizeOf[void](), usize.{0});
-    ctx..&.eq(@sizeOf[[100]void](), usize.{0});
+    (@sizeOf[void]() == usize.{0}).should().sum(@loc(), t);
+    (@sizeOf[[100]void]() == usize.{0}).should().sum(@loc(), t);
 
     let mut real_data = i32.{0xDEADBEEF};
-    process_erased_ptr(ctx..&, real_data..&);
+    process_erased_ptr(t, real_data..&);
 
-    let null_ptr = usize.{0} as *mut void;
-    ctx..&.assert(null_ptr == (usize.{0} as *mut void), "null erased pointer should compare equal", .{});
+    let null_ptr = usize.{0} as &mut void;
+    (null_ptr == (usize.{0} as &mut void)).should().sum(@loc(), t);
 
-    io.println("void: size={}, array size={}", .{@sizeOf[void](), @sizeOf[[100]void]()});
+    "void: size={}, array size={}".fmt(.{@sizeOf[void](), @sizeOf[[100]void]()}).println();
     return 0;
 }

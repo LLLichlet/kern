@@ -5,20 +5,20 @@ use base.mem.alloc.Allocator;
 use std.fs;
 
 /// Buffer-level errors surfaced by the editor core.
-pub type Error = enum {
+pub enum Error {
     OutOfMemory,
     MissingPath,
     Fs: fs.Error,
 };
 
 /// A text cursor position measured in bytes.
-pub type Cursor = struct {
+pub struct Cursor {
     pub row: usize,
     pub col: usize,
 };
 
 /// A simple line-oriented buffer for the current `bed` core.
-pub type TextBuffer = struct {
+pub struct TextBuffer {
     lines: List[String] = List[String].{},
     path: String = String.{},
     dirty: bool = false,
@@ -28,7 +28,7 @@ fn wrap_fs_error(err: fs.Error) Error {
     return .{ Fs: err };
 }
 
-fn push_line(alloc: *mut Allocator, lines: *mut List[String], text: []u8) bool {
+fn push_line(alloc: &mut Allocator, lines: &mut List[String], text: &[u8]) bool {
     let mut line = String.{};
     if (!line..&.push_str(alloc, text)) {
         return false;
@@ -41,7 +41,7 @@ fn push_line(alloc: *mut Allocator, lines: *mut List[String], text: []u8) bool {
 }
 
 /// Creates an empty single-line buffer.
-pub fn empty(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
+pub fn empty(alloc: &mut Allocator, path: &[u8]) TextBuffer!Error {
     let mut buffer = TextBuffer.{};
     if (!buffer.path..&.clone_from(alloc, path)) {
         return .{ Err: .OutOfMemory };
@@ -54,8 +54,8 @@ pub fn empty(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
 }
 
 /// Opens a file into a line-oriented buffer.
-pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
-    let mut storage = fs.read_to_string(alloc, path)
+pub fn open(alloc: &mut Allocator, path: &[u8]) TextBuffer!Error {
+    let mut storage = path.path().read_to_string(alloc)
         .map_err(wrap_fs_error).!;
     defer storage..&.deinit(alloc);
 
@@ -72,7 +72,7 @@ pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
         i += 1;
             continue;
         }
-        if (!push_line(alloc, buffer.lines..&, text.[start .. i])) {
+        if (!push_line(alloc, buffer.lines..&, text.&[start .. i])) {
             buffer..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
         }
@@ -80,7 +80,7 @@ pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
         i += 1;
     }
 
-    if (!push_line(alloc, buffer.lines..&, text.[start .. #text])) {
+    if (!push_line(alloc, buffer.lines..&, text.&[start .. #text])) {
         buffer..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
     }
@@ -88,7 +88,7 @@ pub fn open(alloc: *mut Allocator, path: []u8) TextBuffer!Error {
 }
 
 /// Creates a buffer from in-memory text without touching the filesystem.
-pub fn from_text(alloc: *mut Allocator, path: []u8, text: []u8) TextBuffer!Error {
+pub fn from_text(alloc: &mut Allocator, path: &[u8], text: &[u8]) TextBuffer!Error {
     let mut buffer = TextBuffer.{};
     if (!buffer.path..&.clone_from(alloc, path)) {
         return .{ Err: .OutOfMemory };
@@ -101,7 +101,7 @@ pub fn from_text(alloc: *mut Allocator, path: []u8, text: []u8) TextBuffer!Error
         i += 1;
             continue;
         }
-        if (!push_line(alloc, buffer.lines..&, text.[start .. i])) {
+        if (!push_line(alloc, buffer.lines..&, text.&[start .. i])) {
             buffer..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
         }
@@ -109,16 +109,16 @@ pub fn from_text(alloc: *mut Allocator, path: []u8, text: []u8) TextBuffer!Error
         i += 1;
     }
 
-    if (!push_line(alloc, buffer.lines..&, text.[start .. #text])) {
+    if (!push_line(alloc, buffer.lines..&, text.&[start .. #text])) {
         buffer..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
     }
     return .{ Ok: buffer };
 }
 
-impl *mut TextBuffer {
+impl &mut TextBuffer {
     /// Releases every owned line plus the stored path.
-    pub fn deinit(alloc: *mut Allocator) void {
+    pub fn deinit(alloc: &mut Allocator) void {
         let lines = self.lines..&.as_mut_slice();
         let mut i = usize.{0};
         while (i < #lines) {
@@ -131,12 +131,12 @@ impl *mut TextBuffer {
     }
 
     /// Replaces the current path.
-    pub fn set_path(alloc: *mut Allocator, path: []u8) bool {
+    pub fn set_path(alloc: &mut Allocator, path: &[u8]) bool {
         return self.path..&.clone_from(alloc, path);
     }
 
     /// Inserts one byte into one line.
-    pub fn insert_byte(alloc: *mut Allocator, row: usize, col: usize, byte: u8) bool {
+    pub fn insert_byte(alloc: &mut Allocator, row: usize, col: usize, byte: u8) bool {
         if (row >= self.lines.&.len()) {
             return false;
         }
@@ -154,14 +154,14 @@ impl *mut TextBuffer {
     }
 
     /// Splits the current line at `col`.
-    pub fn split_line(alloc: *mut Allocator, row: usize, col: usize) bool {
+    pub fn split_line(alloc: &mut Allocator, row: usize, col: usize) bool {
         let text = self.line(row);
         if (row >= self.lines.&.len() or col > #text) {
             return false;
         }
 
         let mut tail = String.{};
-        if (!tail..&.push_str(alloc, text.[col .. #text])) {
+        if (!tail..&.push_str(alloc, text.&[col .. #text])) {
             return false;
         }
         if (!self.lines..&.insert(alloc, row + 1, tail)) {
@@ -176,7 +176,7 @@ impl *mut TextBuffer {
     }
 
     /// Inserts a new blank line below `row`.
-    pub fn insert_blank_line_below(alloc: *mut Allocator, row: usize) bool {
+    pub fn insert_blank_line_below(alloc: &mut Allocator, row: usize) bool {
         if (row >= self.lines.&.len()) {
             return false;
         }
@@ -188,7 +188,7 @@ impl *mut TextBuffer {
     }
 
     /// Inserts a new blank line above `row`.
-    pub fn insert_blank_line_above(alloc: *mut Allocator, row: usize) bool {
+    pub fn insert_blank_line_above(alloc: &mut Allocator, row: usize) bool {
         if (row > self.lines.&.len()) {
             return false;
         }
@@ -200,7 +200,7 @@ impl *mut TextBuffer {
     }
 
     /// Deletes the byte before the cursor, joining lines at column zero.
-    pub fn delete_backward(alloc: *mut Allocator, row: usize, col: usize) Cursor {
+    pub fn delete_backward(alloc: &mut Allocator, row: usize, col: usize) Cursor {
         if (row >= self.lines.&.len()) {
             return .{ row: 0, col: 0 };
         }
@@ -233,7 +233,7 @@ impl *mut TextBuffer {
     }
 
     /// Deletes the byte under the cursor, joining with the next line at end-of-line.
-    pub fn delete_at(alloc: *mut Allocator, row: usize, col: usize) bool {
+    pub fn delete_at(alloc: &mut Allocator, row: usize, col: usize) bool {
         if (row >= self.lines.&.len()) {
             return false;
         }
@@ -265,7 +265,7 @@ impl *mut TextBuffer {
     }
 
     /// Writes the full buffer back to its current path.
-    pub fn write(alloc: *mut Allocator) bool!Error {
+    pub fn write(alloc: &mut Allocator) bool!Error {
         if (!self.has_path()) {
             return .{ Err: .MissingPath };
         }
@@ -284,21 +284,21 @@ impl *mut TextBuffer {
             i += 1;
         }
 
-        _ = fs.write_all(alloc, self.path.&.as_str(), text.&.as_str())
+        _ = self.path.&.as_str().path().write_all(alloc, text.&.as_str())
             .map_err(wrap_fs_error).!;
         self.dirty = false;
         return .{ Ok: true };
     }
 }
 
-impl *TextBuffer {
+impl &TextBuffer {
     /// Returns the number of lines tracked by the buffer.
     pub fn line_count() usize {
         return self.lines.&.len();
     }
 
     /// Returns one line as a borrowed byte slice.
-    pub fn line(row: usize) []u8 {
+    pub fn line(row: usize) &[u8] {
         if (row >= self.lines.&.len()) {
             return "";
         }
@@ -317,7 +317,7 @@ impl *TextBuffer {
     }
 
     /// Returns the current path, or `fallback` when unnamed.
-    pub fn path_or(fallback: []u8) []u8 {
+    pub fn path_or(fallback: &[u8]) &[u8] {
         if (self.path.&.is_empty()) {
             return fallback;
         }

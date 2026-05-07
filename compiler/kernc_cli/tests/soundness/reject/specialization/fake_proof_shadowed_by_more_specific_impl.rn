@@ -4,7 +4,7 @@
 // stderr: type does not satisfy trait bounds
 // stderr: FakeProof[L, R]: TypeIs[R, Is = R]
 
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
@@ -12,7 +12,7 @@ impl[S, T] S: TypeIs[T] {
     type Is = T;
 }
 
-type FakeProof[L, R] = struct {};
+struct FakeProof[L, R] {};
 
 impl[L, R] FakeProof[L, R]: TypeIs[R] {
     type Is = L;
@@ -35,7 +35,7 @@ fn seed() i32 {
 }
 
 fn forge[R]() R {
-    return cast[fn() i32, R](seed);
+    return cast[&fn() i32, R](seed);
 }
 
 fn main() i32 {

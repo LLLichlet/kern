@@ -3,7 +3,7 @@
 // stderr: Enum literal must specify exactly one variant
 // timeout-ms: 2000
 
-type option[T] = enum {
+enum option[T] {
     None,
     Some: T,
 };

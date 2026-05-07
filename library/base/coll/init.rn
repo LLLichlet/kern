@@ -3,31 +3,24 @@
 //! The standard collections stay allocation-explicit and favor simple,
 //! inspectable representations over hidden policy.
 
-mod list;
-mod map;
+mod list_impl;
+mod map_impl;
 mod iter;
 mod ranges;
 mod slice;
-mod string;
-mod tree;
+mod string_impl;
+mod tree_impl;
+
+use base.cmp.Ord;
+use base.hash.Hash;
 
 pub use .iter.{
     Iterator,
     SliceIter,
     SliceMutIter,
-    iter_count,
-    iter_nth,
-    iter_last,
-    iter_for_each,
-    iter_fold,
-    iter_any,
-    iter_all,
-    iter_find,
-    iter_position,
-    iter_find_map,
 };
-pub use .list.List;
-pub use .map.Map;
+pub use .list_impl.List;
+pub use .map_impl.Map;
 pub use .ranges.{
     Range,
     RangeInclusive,
@@ -39,5 +32,29 @@ pub use .ranges.{
     range_down_inclusive,
 };
 pub use .slice.{bytes_eq, find_byte, rfind_byte, contains_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
-pub use .string.String;
-pub use .tree.Tree;
+pub use .string_impl.String;
+pub use .tree_impl.Tree;
+
+/// Creates an empty growable list.
+pub fn list[T]() List[T] {
+    return .{};
+}
+
+/// Creates an empty owned string.
+pub fn string() String {
+    return .{};
+}
+
+/// Creates an empty hash map.
+pub fn map[K, V]() Map[K, V]
+    where K: Eq[K] + Hash[K],
+{
+    return .{};
+}
+
+/// Creates an empty ordered tree.
+pub fn tree[K, V]() Tree[K, V]
+    where K: Ord[K],
+{
+    return .{};
+}

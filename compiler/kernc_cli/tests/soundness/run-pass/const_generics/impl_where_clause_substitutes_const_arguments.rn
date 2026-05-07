@@ -2,15 +2,15 @@
 // source: impl where-clause proof search must substitute const arguments through the impl head
 // exit: 0
 
-type Ready[N: usize] = trait {
-    value: fn() i32,
+trait Ready[N: usize] {
+    fn value() i32;
 };
 
-type Needs[N: usize] = trait {
-    get: fn() i32,
+trait Needs[N: usize] {
+    fn get() i32;
 };
 
-type Box[N: usize] = struct {};
+struct Box[N: usize] {};
 
 impl Box[2]: Ready[2] {
     fn value() i32 {

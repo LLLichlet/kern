@@ -12,7 +12,7 @@ use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
 /// A Linux OS error code.
-pub type Error = struct {
+pub struct Error {
     pub code: isize,
 };
 
@@ -72,7 +72,7 @@ const DT_REG = u8.{8};
 static mut PROCESS_ENV = usize.{0};
 static mut PROCESS_ENV_READY = false;
 
-extern type Stat = struct {
+extern struct Stat {
     st_dev: u64,
     st_ino: u64,
     st_nlink: u64,
@@ -93,7 +93,7 @@ extern type Stat = struct {
     __unused: [3]i64,
 };
 
-extern type Dirent64 = struct {
+extern struct Dirent64 {
     d_ino: u64,
     d_off: i64,
     d_reclen: u16,
@@ -101,7 +101,7 @@ extern type Dirent64 = struct {
     d_name: u8,
 };
 
-extern type Termios = struct {
+extern struct Termios {
     c_iflag: u32,
     c_oflag: u32,
     c_cflag: u32,
@@ -112,7 +112,7 @@ extern type Termios = struct {
     c_ospeed: u32,
 };
 
-extern type WinSize = struct {
+extern struct WinSize {
     ws_row: u16,
     ws_col: u16,
     ws_xpixel: u16,
@@ -123,7 +123,7 @@ extern type WinSize = struct {
 pub type TerminalState = Termios;
 
 /// Captured output and exit status from a hosted child process.
-pub type ProcessCapture = struct {
+pub struct ProcessCapture {
     pub output: String,
     pub status: i32,
 };
@@ -161,16 +161,7 @@ fn syscall1_raw(sys_num: usize, arg1: usize) isize {
     return ret;
 }
 
-fn alloc_c_string(alloc: *mut Allocator, text: []u8) ?*mut u8 {
-    return abi.cstr.alloc_z(alloc, text);
-}
-
-fn free_c_string(alloc: *mut Allocator, text: []u8, ptr: ?*mut u8) void {
-    let .{ Some: ptr } = ptr else return;
-    abi.cstr.free_z(alloc, text, ptr);
-}
-
-fn match_environment_name(entry: *u8, name: *u8) ?*u8 {
+fn match_environment_name(entry: &u8, name: &u8) ?&u8 {
     let mut i = usize.{0};
         while (true) {
         let entry_byte = (entry + i).*;
@@ -266,14 +257,14 @@ pub fn is_already_exists(err: Error) bool {
 }
 
 /// Records the process environment block from the hosted entry ABI.
-pub fn init_process_env(argc: i32, argv: **u8) void {
+pub fn init_process_env(argc: i32, argv: &&u8) void {
     let env_offset = if (argc <= 0) usize.{1} else argc as usize + usize.{1};
     PROCESS_ENV = (argv + env_offset) as usize;
     PROCESS_ENV_READY = true;
 }
 
 /// Returns the zero-terminated value for one environment variable.
-pub fn find_environment_value(name: *u8) ?*u8 {
+pub fn find_environment_value(name: &u8) ?&u8 {
     if (!PROCESS_ENV_READY) {
         return .None;
     }
@@ -297,11 +288,11 @@ pub fn find_environment_value(name: *u8) ?*u8 {
 }
 
 /// Returns the process environment block initialized by the runtime entry layer.
-pub fn environment_entries() ?**u8 {
+pub fn environment_entries() ?&&u8 {
     if (!PROCESS_ENV_READY or PROCESS_ENV == 0) {
         return .None;
     }
-    return .{ Some: PROCESS_ENV as **u8 };
+    return .{ Some: PROCESS_ENV as &&u8 };
 }
 
 /// Returns the current process identifier.
@@ -371,7 +362,7 @@ pub fn enable_raw_mode(handle: Handle) TerminalState!Error {
 }
 
 /// Restores a previously captured terminal state.
-pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) bool!Error {
+pub fn restore_terminal_mode(handle: Handle, state: &TerminalState) bool!Error {
     let ret = ioctl_raw(handle, TCSETS, state as usize);
     if (ret < 0) {
         return error_result[bool](ret);
@@ -380,15 +371,15 @@ pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) bool!Error {
 }
 
 /// Captures combined stdout/stderr from `/bin/sh -lc <command>`.
-pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error {
-    let .{ Some: sh_path } = alloc_c_string(alloc, "/bin/sh") else return .{ Err: .{ code: 12 } };
-    defer free_c_string(alloc, "/bin/sh", .{ Some: sh_path });
+pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error {
+    let sh_path = abi.cstr.owned(alloc, "/bin/sh").ok_or(.{ code: 12 }).!..&;
+    defer sh_path.deinit(alloc);
 
-    let .{ Some: sh_arg } = alloc_c_string(alloc, "sh") else return .{ Err: .{ code: 12 } };
-    defer free_c_string(alloc, "sh", .{ Some: sh_arg });
+    let sh_arg = abi.cstr.owned(alloc, "sh").ok_or(.{ code: 12 }).!..&;
+    defer sh_arg.deinit(alloc);
 
-    let .{ Some: dash_lc } = alloc_c_string(alloc, "-lc") else return .{ Err: .{ code: 12 } };
-    defer free_c_string(alloc, "-lc", .{ Some: dash_lc });
+    let dash_lc = abi.cstr.owned(alloc, "-lc").ok_or(.{ code: 12 }).!..&;
+    defer dash_lc.deinit(alloc);
 
     let wrapped = String.{}..&;
     defer wrapped.deinit(alloc);
@@ -399,8 +390,8 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
         return .{ Err: .{ code: 12 } };
     }
 
-    let .{ Some: command_c } = alloc_c_string(alloc, wrapped.as_str()) else return .{ Err: .{ code: 12 } };
-    defer free_c_string(alloc, wrapped.as_str(), .{ Some: command_c });
+    let command_c = abi.cstr.owned(alloc, wrapped.as_str()).ok_or(.{ code: 12 }).!..&;
+    defer command_c.deinit(alloc);
 
     let mut fds = [2]i32.{undef};
     let pipe_ret = syscall3_raw(SYS_PIPE2, fds.[0]..& as usize, 0, 0);
@@ -418,15 +409,15 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
     }
 
     if (pid == 0) {
-        let mut argv = [4]usize.{ sh_arg as usize, dash_lc as usize, command_c as usize, 0 };
-        let envp = environment_entries().map_or(usize.{0}, .[](envp: **u8) usize {
+        let mut argv = [4]usize.{ sh_arg.ptr() as usize, dash_lc.ptr() as usize, command_c.ptr() as usize, 0 };
+        let envp = environment_entries().map_or(usize.{0}, [](envp: &&u8) usize {
             return envp as usize;
         });
         _ = close_file(read_end);
         _ = syscall3_raw(SYS_DUP2, write_end, 1, 0);
         _ = syscall3_raw(SYS_DUP2, write_end, 2, 0);
         _ = close_file(write_end);
-        _ = syscall3_raw(SYS_EXECVE, sh_path as usize, argv.[0]..& as usize, envp);
+        _ = syscall3_raw(SYS_EXECVE, sh_path.ptr() as usize, argv.[0]..& as usize, envp);
         exit(127);
     }
 
@@ -446,7 +437,7 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) ProcessCapture!Error 
         if (read == 0) {
             break;
         }
-        if (!output.push_str(alloc, chunk.[0 .. read])) {
+        if (!output.push_str(alloc, chunk.&[0 .. read])) {
             _ = close_file(read_end);
             output.deinit(alloc);
             let mut raw_status = i32.{0};
@@ -519,7 +510,7 @@ fn error_result[T](ret: isize) T!Error {
 }
 
 /// Reads up to `len` bytes from `handle` into `ptr`.
-pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) usize!Error {
+pub fn read_file(handle: Handle, ptr: &mut u8, len: usize) usize!Error {
     let ret = syscall3_raw(0, handle, ptr as usize, len);
     if (ret < 0) {
         return error_result[usize](ret);
@@ -528,7 +519,7 @@ pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) usize!Error {
 }
 
 /// Writes up to `len` bytes from `ptr` into `handle`.
-pub fn write_file(handle: Handle, ptr: *u8, len: usize) usize!Error {
+pub fn write_file(handle: Handle, ptr: &u8, len: usize) usize!Error {
     let ret = syscall3_raw(1, handle, ptr as usize, len);
     if (ret < 0) {
         return error_result[usize](ret);
@@ -593,7 +584,7 @@ fn dirent_file_type(kind: u8) FileType {
     return .Other;
 }
 
-fn is_dot_entry(name: []u8) bool {
+fn is_dot_entry(name: &[u8]) bool {
     if (#name == 1 and name.[0] == b'.') {
         return true;
     }
@@ -603,7 +594,7 @@ fn is_dot_entry(name: []u8) bool {
     return false;
 }
 
-pub fn metadata(path: *u8) Metadata!Error {
+pub fn metadata(path: &u8) Metadata!Error {
     let mut stat = Stat.{undef};
     let ret = syscall4_raw(NEWFSTATAT, AT_FDCWD, path as usize, stat..& as usize, 0);
     if (ret < 0) {
@@ -622,7 +613,7 @@ pub fn metadata(path: *u8) Metadata!Error {
 /// Scans one directory and invokes `visitor` for each non-dot entry.
 ///
 /// `search_path` is ignored on Linux because the scan operates directly on `path`.
-pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) usize!Error {
+pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool) usize!Error {
     _ = search_path;
     let options = OpenOptions.{ read: true };
     let handle = open_file(path, options.&).!;
@@ -645,7 +636,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
         let mut offset = usize.{0};
         let end = read as usize;
                 while (offset < end) {
-            let entry = (buf.[0]..& + offset) as *Dirent64;
+            let entry = (buf.[0]..& + offset) as &Dirent64;
             let reclen = entry.d_reclen as usize;
             if (reclen == 0) {
                 break;
@@ -662,7 +653,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
                 name_len += 1;
             }
 
-            let name = name_ptr.[0 .. name_len];
+            let name = name_ptr.&[0 .. name_len];
             if (!is_dot_entry(name)) {
                 total += 1;
                 if (!visitor(name, dirent_file_type(entry.d_type))) {
@@ -677,8 +668,8 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
 
 /// Opens a file handle using the platform `OpenOptions` flags.
 pub fn open_file(
-    path: *u8,
-    options: *OpenOptions,
+    path: &u8,
+    options: &OpenOptions,
 ) Handle!Error {
     let mut flags = if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
 
@@ -695,7 +686,7 @@ pub fn open_file(
 }
 
 /// Creates one directory.
-pub fn create_dir(path: *u8) bool!Error {
+pub fn create_dir(path: &u8) bool!Error {
     let ret = syscall3_raw(MKDIRAT, AT_FDCWD, path as usize, MODE_DIR);
     if (ret < 0) {
         return error_result[bool](ret);
@@ -704,7 +695,7 @@ pub fn create_dir(path: *u8) bool!Error {
 }
 
 /// Removes one empty directory.
-pub fn remove_dir(path: *u8) bool!Error {
+pub fn remove_dir(path: &u8) bool!Error {
     let ret = syscall3_raw(UNLINKAT, AT_FDCWD, path as usize, AT_REMOVEDIR);
     if (ret < 0) {
         return error_result[bool](ret);
@@ -713,7 +704,7 @@ pub fn remove_dir(path: *u8) bool!Error {
 }
 
 /// Removes one file.
-pub fn remove_file(path: *u8) bool!Error {
+pub fn remove_file(path: &u8) bool!Error {
     let ret = syscall3_raw(UNLINKAT, AT_FDCWD, path as usize, 0);
     if (ret < 0) {
         return error_result[bool](ret);
@@ -722,7 +713,7 @@ pub fn remove_file(path: *u8) bool!Error {
 }
 
 /// Renames or moves a filesystem entry.
-pub fn rename(old_path: *u8, new_path: *u8) bool!Error {
+pub fn rename(old_path: &u8, new_path: &u8) bool!Error {
     let ret = syscall4_raw(RENAMEAT, AT_FDCWD, old_path as usize, AT_FDCWD, new_path as usize);
     if (ret < 0) {
         return error_result[bool](ret);
@@ -731,7 +722,7 @@ pub fn rename(old_path: *u8, new_path: *u8) bool!Error {
 }
 
 /// Best-effort write helper that collapses errors to `0`.
-pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
+pub fn write(handle: Handle, ptr: &u8, len: usize) usize {
     match (write_file(handle, ptr, len)) {
         .{ Ok: written } => return written,
         .{ Err: _ } => return 0,

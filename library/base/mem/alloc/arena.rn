@@ -6,10 +6,10 @@
 use base.mem.Layout;
 use ..Allocator;
 
-type Chunk = struct {
+struct Chunk {
     size: usize,
     used: usize,
-    next: ?*mut Chunk,
+    next: ?&mut Chunk,
 };
 
 const ARENA_DEFAULT_CHUNK_SIZE = usize.{4096};
@@ -17,20 +17,34 @@ const ARENA_CHUNK_ALIGN = @alignOf[Chunk]();
 const ARENA_CHUNK_HEADER_SIZE = @sizeOf[Chunk]();
 
 /// A bump allocator that grows in chunks from a backing allocator.
-pub/ type Arena = struct {
-    backing: *mut Allocator,
-    current: ?*mut Chunk = .None,
+pub/ struct Arena {
+    backing: &mut Allocator,
+    current: ?&mut Chunk = .None,
     chunk_size: usize = 4096,
     next_chunk_size: usize = 4096,
     generation: usize = 0,
 };
 
-pub/ type ArenaMark = struct {
+pub struct ArenaBuilder {};
+
+pub/ struct ArenaMark {
     current: usize,
     used: usize,
     next_chunk_size: usize,
     generation: usize,
 };
+
+/// Creates an arena allocator builder.
+pub fn arena() ArenaBuilder {
+    return .{};
+}
+
+impl ArenaBuilder {
+    /// Sets the backing allocator used for arena chunks.
+    pub fn on(backing: &mut Allocator) Arena {
+        return .{ backing: backing };
+    }
+}
 
 fn arena_max_usize(lhs: usize, rhs: usize) usize {
     return if (lhs > rhs) lhs else rhs;
@@ -40,7 +54,7 @@ fn arena_default_chunk_size(size: usize) usize {
     return if (size == 0) ARENA_DEFAULT_CHUNK_SIZE else size;
 }
 
-fn arena_dangling_ptr(align: usize) *mut u8 {
+fn arena_dangling_ptr(align: usize) &mut u8 {
     return (if (align == 0) 1 else align).as_mut_ptr[u8]();
 }
 
@@ -52,9 +66,9 @@ fn arena_grow_hint(size: usize) usize {
     return size * 2;
 }
 
-impl *mut Arena : Allocator {
+impl &mut Arena : Allocator {
     #[inline]
-    fn chunk_can_fit(chunk: *mut Chunk, layout: Layout) bool {
+    fn chunk_can_fit(chunk: &mut Chunk, layout: Layout) bool {
         let payload = if (layout.size == 0) usize.{1} else layout.size;
         let start = chunk as usize;
         let used_start = start + chunk.used;
@@ -70,7 +84,7 @@ impl *mut Arena : Allocator {
     }
 
     #[inline]
-    fn alloc_from_chunk(chunk: *mut Chunk, layout: Layout) ?*mut u8 {
+    fn alloc_from_chunk(chunk: &mut Chunk, layout: Layout) ?&mut u8 {
         let payload = if (layout.size == 0) usize.{1} else layout.size;
         let start = chunk as usize;
         let used_start = start + chunk.used;
@@ -91,13 +105,13 @@ impl *mut Arena : Allocator {
         return .{ Some: alloc_start.as_mut_ptr[u8]() };
     }
 
-    fn release_chain(first: ?*mut Chunk) void {
+    fn release_chain(first: ?&mut Chunk) void {
         let mut chunk = first;
                 while (true) {
             let .{ Some: current } = chunk else return;
             let next = current.next;
             self.backing.free(
-                current as *mut u8,
+                current as &mut u8,
                 Layout.{ size: current.size, align: ARENA_CHUNK_ALIGN }
             );
             chunk = next;
@@ -114,7 +128,7 @@ impl *mut Arena : Allocator {
 
         let .{ Some: raw } = self.backing.alloc(raw_layout) else return false;
 
-        let chunk = raw as *mut Chunk;
+        let chunk = raw as &mut Chunk;
         chunk.size = raw_size;
         chunk.used = ARENA_CHUNK_HEADER_SIZE;
         chunk.next = self.current;
@@ -125,7 +139,7 @@ impl *mut Arena : Allocator {
 
     /// Allocates from the current chunk or grows the arena when needed.
     #[inline]
-    pub fn alloc(layout: Layout) ?*mut u8 {
+    pub fn alloc(layout: Layout) ?&mut u8 {
         if (layout.size == 0) {
             return .{ Some: arena_dangling_ptr(layout.align) };
         }
@@ -152,7 +166,7 @@ impl *mut Arena : Allocator {
     /// Design:
     /// keep arena allocation fast and make reclamation an explicit bulk action.
     #[inline]
-    pub fn free(ptr: *mut u8, layout: Layout) void {
+    pub fn free(ptr: &mut u8, layout: Layout) void {
         _ = ptr;
         _ = layout;
     }

@@ -4,12 +4,12 @@ use super::*;
 fn rejects_nested_enum_payload_gap_in_match_exhaustiveness() {
     let output = compile_source(
         r#"
-type Inner = enum {
+enum Inner {
     X,
     Y,
 };
 
-type Outer = enum {
+enum Outer {
     A: Inner,
     B,
 };
@@ -48,16 +48,16 @@ fn main() i32 {
 fn rejects_nested_struct_payload_gap_in_match_exhaustiveness() {
     let output = compile_source(
         r#"
-type Inner = enum {
+enum Inner {
     X,
     Y,
 };
 
-type Payload = struct {
+struct Payload {
     inner: Inner,
 };
 
-type Outer = enum {
+enum Outer {
     A: Payload,
     B,
 };
@@ -96,12 +96,12 @@ fn main() i32 {
 fn accepts_exhaustive_nested_enum_match() {
     let output = build_and_run_source(
         r#"
-type Inner = enum {
+enum Inner {
     X,
     Y,
 };
 
-type Outer = enum {
+enum Outer {
     A: Inner,
     B,
 };
@@ -136,22 +136,22 @@ fn main() i32 {
 fn accepts_exhaustive_qualified_value_patterns_with_nested_enum_payloads() {
     let output = build_and_run_source(
         r#"
-type Bit = enum {
+enum Bit {
     Zero,
     One,
 };
 
-type Leaf = enum {
+enum Leaf {
     Empty,
     Full: Bit,
 };
 
-type Node = struct {
+struct Node {
     left: Leaf,
     right: Leaf,
 };
 
-type Tree = enum {
+enum Tree {
     Nil,
     Branch: Node,
 };
@@ -189,7 +189,7 @@ fn main() i32 {
 fn qualified_value_patterns_contribute_to_non_exhaustive_witnesses() {
     let output = compile_source(
         r#"
-type Mode = enum {
+enum Mode {
     Cold,
     Warm,
     Hot,
@@ -228,7 +228,7 @@ fn main() i32 {
 fn warns_when_qualified_value_pattern_is_shadowed() {
     let output = compile_source(
         r#"
-type Mode = enum {
+enum Mode {
     Off,
     On,
 };
@@ -267,14 +267,14 @@ fn main() i32 {
 fn accepts_exhaustive_qualified_value_patterns_through_aliases_and_generic_namespaces() {
     let output = build_and_run_source(
         r#"
-type Mode = enum {
+enum Mode {
     Off,
     On,
 };
 
 type Alias = Mode;
 
-type Box[T] = enum {
+enum Box[T] {
     Empty,
     Full: T,
 };
@@ -316,12 +316,12 @@ fn main() i32 {
 fn grouped_match_value_patterns_remain_structural() {
     let output = build_and_run_source(
         r#"
-type Mode = enum {
+enum Mode {
     Off,
     On,
 };
 
-type Box[T] = enum {
+enum Box[T] {
     Empty,
     Full: T,
 };
@@ -368,12 +368,12 @@ fn main() i32 {
 fn rejects_nested_enum_gap_in_let_else_arm_block() {
     let output = compile_source(
         r#"
-type Inner = enum {
+enum Inner {
     X,
     Y,
 };
 
-type Outer = enum {
+enum Outer {
     A: Inner,
     B,
 };
@@ -411,12 +411,12 @@ fn main() i32 {
 fn warns_when_nested_match_pattern_is_shadowed_by_broader_variant_pattern() {
     let output = compile_source(
         r#"
-type Inner = enum {
+enum Inner {
     X,
     Y,
 };
 
-type Outer = enum {
+enum Outer {
     A: Inner,
     B,
 };
@@ -457,7 +457,7 @@ fn main() i32 {
 fn warns_when_match_pattern_appears_after_catch_all() {
     let output = compile_source(
         r#"
-type Option[T] = enum {
+enum Option[T] {
     None,
     Some: T,
 };
@@ -762,12 +762,12 @@ fn main() i32 {
 fn accepts_exhaustive_struct_match_through_nested_enum_patterns() {
     let output = build_and_run_source(
         r#"
-type Inner = enum {
+enum Inner {
     X,
     Y,
 };
 
-type Payload = struct {
+struct Payload {
     inner: Inner,
 };
 
@@ -800,7 +800,7 @@ fn main() i32 {
 fn accepts_exhaustive_struct_value_patterns_over_bool_fields() {
     let output = build_and_run_source(
         r#"
-type Pair = struct {
+struct Pair {
     left: bool,
     right: bool,
 };
@@ -832,7 +832,7 @@ fn main() i32 {
 fn rejects_non_exhaustive_struct_value_pattern_bool_gap() {
     let output = compile_source(
         r#"
-type Pair = struct {
+struct Pair {
     left: bool,
     right: bool,
 };
@@ -875,16 +875,16 @@ fn main() i32 {
 fn accepts_exhaustive_nested_typed_struct_value_patterns() {
     let output = build_and_run_source(
         r#"
-type Inner = enum {
+enum Inner {
     X,
     Y,
 };
 
-type Payload = struct {
+struct Payload {
     inner: Inner,
 };
 
-type Outer = enum {
+enum Outer {
     A: Payload,
     B,
 };
@@ -922,21 +922,21 @@ fn main() i32 {
 fn lowers_enum_payload_value_pattern_structurally() {
     let output = build_and_run_source(
         r#"
-type Color = enum {
+enum Color {
     R,
     B,
 };
 
-type Leaf = enum {
+enum Leaf {
     E,
 };
 
-type Tree = enum {
+enum Tree {
     E,
     T: Node,
 };
 
-type Node = struct {
+struct Node {
     color: Color,
     left: Leaf,
     right: Leaf,
@@ -972,7 +972,7 @@ fn main() i32 {
 fn lowers_scalar_enum_payload_value_pattern_structurally() {
     let output = build_and_run_source(
         r#"
-type Slot = enum {
+enum Slot {
     Empty,
     Count: i32,
 };
@@ -1003,7 +1003,7 @@ fn main() i32 {
 fn lowers_struct_value_pattern_scalar_fields_structurally() {
     let output = build_and_run_source(
         r#"
-type Pair = struct {
+struct Pair {
     left: i32,
     right: i32,
 };
@@ -1035,12 +1035,12 @@ fn main() i32 {
 fn lowers_nested_enum_payload_value_pattern_structurally() {
     let output = build_and_run_source(
         r#"
-type Maybe = enum {
+enum Maybe {
     None,
     Some: i32,
 };
 
-type Holder = struct {
+struct Holder {
     item: Maybe,
     flag: bool,
 };

@@ -261,7 +261,7 @@ fn build_release_hello_workspace(root: &Path, profile_body: &str) -> super::Exec
 [package]
 name = "hello"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 {profile_body}
 
@@ -335,7 +335,7 @@ fn build_succeeds_for_linux_freestanding_bin_without_program_main() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "none"
@@ -402,7 +402,7 @@ fn build_reports_invalid_pointer_static_initializer_failure() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -413,7 +413,7 @@ root = "src/main.rn"
     fs::write(
         root.join("src/main.rn"),
         r#"
-type FramebufferRequest = struct {
+struct FramebufferRequest {
     response: *u8,
 };
 
@@ -467,7 +467,7 @@ fn build_script_can_attach_relative_link_arg_path_for_freestanding_bin() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "none"
@@ -485,7 +485,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_arg_path("-T", "link/kernel.ld");
 }
 "#,
@@ -564,7 +564,7 @@ fn freestanding_link_rebuilds_when_link_arg_path_contents_change() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "none"
@@ -582,7 +582,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_arg_path("-T", "link/kernel.ld");
 }
 "#,
@@ -672,7 +672,7 @@ fn build_script_can_link_native_static_library_from_root_package_path() {
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "rt"
@@ -689,7 +689,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_search(b.package.root);
     b.link_system_lib("demo");
 }
@@ -707,7 +707,7 @@ extern {
 
 fn main() i32 {
     let value = ext_add(20, 22);
-    io.println("native={}", .{value,});
+    "native={}".fmt(.{value}).println();
     if (value != 42) {
         return 1;
     }
@@ -766,7 +766,7 @@ fn build_script_can_compile_and_link_c_source() {
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "rt"
@@ -783,7 +783,7 @@ root = "src/main.rn"
         r##"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     let header = b.stage_generated("demo.h", "#define EXT_OFFSET 20\n");
     let _ = b.cc_config("native/demo.c", .{
         include_dirs: .{"native/include", b.paths.generated_root},
@@ -827,7 +827,7 @@ extern {
 
 fn main() i32 {
     let value = ext_add(10, 12);
-    io.println("native={}", .{value,});
+    "native={}".fmt(.{value}).println();
     if (value == 42) {
         return 0;
     }
@@ -901,7 +901,7 @@ fn relinks_when_project_local_native_library_changes() {
 [package]
 name = "native"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "rt"
@@ -918,7 +918,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_search(b.package.root);
     b.link_system_lib("demo");
 }
@@ -935,7 +935,7 @@ extern {
 }
 
 fn main() i32 {
-    io.println("native={}", .{ ext_add(20, 22), });
+    "native={}".fmt(.{ ext_add(20, 22), }).println();
     return 0;
 }
 "#,
@@ -1018,7 +1018,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "rt"
@@ -1035,7 +1035,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_search("native");
     b.link_system_lib("demo");
 }
@@ -1053,7 +1053,7 @@ extern {
 
 fn main() i32 {
     let value = ext_add(9, 33);
-    io.println("member-native={}", .{value,});
+    "member-native={}".fmt(.{value}).println();
     if (value != 42) {
         return 1;
     }
@@ -1129,7 +1129,7 @@ int craft_appears_value(void) {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "rt"
@@ -1146,7 +1146,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_search("native");
     b.link_search("fallback");
     b.link_system_lib("craftappears");

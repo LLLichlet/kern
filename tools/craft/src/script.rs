@@ -796,7 +796,7 @@ mod tests {
         let path = root.join("craft.rn");
         fs::write(
             &path,
-            "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
+            "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
 
@@ -844,7 +844,7 @@ mod tests {
         let path = root.join("build.rn");
         fs::write(
             &path,
-            "use craft.builder;\npub fn build(b: *mut builder.Builder) void { let _ = b; }\n",
+            "use craft.builder;\npub fn build(b: &mut builder.Builder) void { let _ = b; }\n",
         )
         .unwrap();
 
@@ -921,7 +921,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
             std::path::Path::new("Craft.toml"),
         )
@@ -945,7 +945,7 @@ kern = "0.7.3"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [profile.release]
 codegen-units = 7
@@ -965,7 +965,7 @@ codegen-units = 7
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [profile.release]
 lto = "full"
@@ -985,7 +985,7 @@ lto = "full"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [profile.release]
 code-model = "kernel"

@@ -56,7 +56,7 @@ For a minimal freestanding package, keep startup ownership explicit in
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [runtime]
 entry = "none"
@@ -84,7 +84,7 @@ For a single-package project whose linker script sits next to `Craft.toml`,
 ```kern
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_config(.{
         system_libs: .{},
         frameworks: .{},
@@ -102,7 +102,7 @@ compilation and added to the current target's final link:
 ```kern
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     let config = b.stage_generated("native_config.h", "#define KERNEL_BUILD 1\n");
     let _ = b.cc_config("native/support.c", .{
         include_dirs: .{"native/include", b.paths.generated_root},
@@ -325,7 +325,7 @@ Example:
 [package]
 name = "http"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 publish = false
 
 [runtime]
@@ -480,7 +480,7 @@ Example:
 ```kern
 use craft.plan;
 
-pub fn craft(p: *mut plan.Plan) void {
+pub fn craft(p: &mut plan.Plan) void {
     if (p.package.is_root) {
         p.add_bin("tools", "src/tools.rn");
     }
@@ -666,7 +666,7 @@ Example:
 ```kern
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.define_string("host_arch", b.host.arch);
 
     let generated = b.copy_package_file("templates/main.rn", "src/main.rn");
@@ -824,7 +824,7 @@ The current `Builder` API includes:
   - source-root binding from explicit outputs
 - link-plan mutation:
   - `link_config(options)` for structured system libraries, frameworks, search
-    paths, raw args, and `arg_paths: []LinkArgPath`
+    paths, raw args, and `arg_paths: &[LinkArgPath]`
   - `link_system_lib(...)`, `link_framework(...)`, `link_search(...)`,
     `link_arg(...)`, and `link_arg_path(...)` as focused convenience helpers
 - generated source production:

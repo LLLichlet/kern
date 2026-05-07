@@ -3,7 +3,7 @@
 // stderr: field `b` is missing and has no default value
 // timeout-ms: 2000
 
-type pair = struct {
+struct pair {
     a: u64,
     b: u64,
 };

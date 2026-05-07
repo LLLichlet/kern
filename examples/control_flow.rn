@@ -1,23 +1,22 @@
 use std.io;
-use base.io.Writer;
 use base.test;
 
-type Bit = enum {
+enum Bit {
     Zero,
     One,
 };
 
-type Leaf = enum {
+enum Leaf {
     Empty,
     Full: Bit,
 };
 
-type Node = struct {
+struct Node {
     left: Leaf,
     right: Leaf,
 };
 
-type Tree = enum {
+enum Tree {
     Nil,
     Branch: Node,
 };
@@ -38,8 +37,7 @@ fn classify(tree: Tree) i32 {
 }
 
 fn main() i32 {
-    let mut err = io.stderr();
-    let mut ctx = test.context(*mut Writer.{ err..& });
+    let t = test.report(io.stderr())..&;
 
     let tree = Tree.{ Branch: .{
         left: .{ Full: .One },
@@ -47,7 +45,7 @@ fn main() i32 {
     } };
 
     let kind = classify(tree);
-    ctx..&.eq(kind, 9);
-    io.println("control_flow: classified tree as {}", .{kind,});
+    (kind == 9).should().sum(@loc(), t);
+    "control_flow: classified tree as {}".fmt(.{kind}).println();
     return 0;
 }

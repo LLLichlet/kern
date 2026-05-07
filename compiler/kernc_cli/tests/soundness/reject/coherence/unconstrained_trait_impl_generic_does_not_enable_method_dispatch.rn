@@ -1,11 +1,11 @@
 // source: impl-local generics that stay unsolved must not leak trait methods onto the receiver
 // stderr: no field or method named `ping` found on type `X`
 
-type Marker = trait {
-    ping: fn() i32,
+trait Marker {
+    fn ping() i32;
 };
 
-type X = struct {};
+struct X {};
 
 impl[T] X: Marker {
     fn ping() i32 {

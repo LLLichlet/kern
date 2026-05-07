@@ -9,25 +9,25 @@
 use base.mem.Layout;
 use ..Allocator;
 
-type FreeBlock = struct {
+struct FreeBlock {
     size: usize,
-    next: ?*mut FreeBlock,
+    next: ?&mut FreeBlock,
 };
 
-type AllocationHeader = struct {
+struct AllocationHeader {
     magic: usize,
     generation: usize,
     size: usize,
     lead: usize,
     requested_size: usize,
     requested_align: usize,
-    prev_active: ?*mut AllocationHeader,
-    next_active: ?*mut AllocationHeader,
+    prev_active: ?&mut AllocationHeader,
+    next_active: ?&mut AllocationHeader,
 };
 
-type BackingChunk = struct {
+struct BackingChunk {
     size: usize,
-    next: ?*mut BackingChunk,
+    next: ?&mut BackingChunk,
 };
 
 const GPA_DEFAULT_CHUNK_SIZE = usize.{4096};
@@ -41,14 +41,21 @@ const GPA_CHUNK_ALIGN = @alignOf[BackingChunk]();
 const GPA_CHUNK_HEADER_SIZE = @sizeOf[BackingChunk]();
 
 /// A reusable allocator with free-list recycling and generation checks.
-pub/ type GPA = struct {
-    backing: *mut Allocator,
-    free_list: ?*mut FreeBlock = .None,
-    chunks: ?*mut BackingChunk = .None,
+pub/ struct GPA {
+    backing: &mut Allocator,
+    free_list: ?&mut FreeBlock = .None,
+    chunks: ?&mut BackingChunk = .None,
     chunk_size: usize = 4096,
     generation: usize = 1,
-    active: ?*mut AllocationHeader = .None,
+    active: ?&mut AllocationHeader = .None,
 };
+
+pub struct GpaBuilder {};
+
+/// Creates a general-purpose allocator builder.
+pub fn gpa() GpaBuilder {
+    return .{};
+}
 
 fn gpa_max_usize(lhs: usize, rhs: usize) usize {
     return if (lhs > rhs) lhs else rhs;
@@ -64,7 +71,7 @@ fn gpa_align_up(value: usize, align: usize) usize {
     return (value + mask) & ~mask;
 }
 
-fn gpa_dangling_ptr(align: usize) *mut u8 {
+fn gpa_dangling_ptr(align: usize) &mut u8 {
     return gpa_normalize_align(align).as_mut_ptr[u8]();
 }
 
@@ -86,26 +93,26 @@ fn gpa_required_block_size(layout: Layout) usize {
     return gpa_align_up(payload + GPA_ALLOC_HEADER_SIZE + align - 1, GPA_FREE_ALIGN);
 }
 
-impl *mut GPA : Allocator {
+impl &mut GPA : Allocator {
     fn trap_invalid_free() void {
         @trap();
     }
 
-    fn chunk_usable_start(chunk: *mut BackingChunk) usize {
+    fn chunk_usable_start(chunk: &mut BackingChunk) usize {
         return gpa_align_up((chunk as usize) + GPA_CHUNK_HEADER_SIZE, GPA_FREE_ALIGN);
     }
 
-    fn chunk_usable_size(chunk: *mut BackingChunk) usize {
+    fn chunk_usable_size(chunk: &mut BackingChunk) usize {
         return chunk.size - (self.chunk_usable_start(chunk) - (chunk as usize));
     }
 
-    fn push_chunk_as_free_block(chunk: *mut BackingChunk) void {
+    fn push_chunk_as_free_block(chunk: &mut BackingChunk) void {
         let block = self.chunk_usable_start(chunk).as_mut_ptr[FreeBlock]();
         block.size = self.chunk_usable_size(chunk);
         self.insert_free_block(block);
     }
 
-    fn find_chunk_containing(ptr: *mut u8) ?*mut BackingChunk {
+    fn find_chunk_containing(ptr: &mut u8) ?&mut BackingChunk {
         let ptr_addr = ptr as usize;
         let mut chunk = self.chunks;
 
@@ -122,15 +129,15 @@ impl *mut GPA : Allocator {
         return .None;
     }
 
-    fn header_block_start(header: *mut AllocationHeader) usize {
+    fn header_block_start(header: &mut AllocationHeader) usize {
         return (header as usize) - header.lead;
     }
 
-    fn header_block_end(header: *mut AllocationHeader) usize {
+    fn header_block_end(header: &mut AllocationHeader) usize {
         return self.header_block_start(header) + header.size;
     }
 
-    fn link_active(header: *mut AllocationHeader) void {
+    fn link_active(header: &mut AllocationHeader) void {
         header.prev_active = .None;
         header.next_active = self.active;
         match (self.active) {
@@ -140,7 +147,7 @@ impl *mut GPA : Allocator {
         self.active = .{ Some: header };
     }
 
-    fn unlink_active(header: *mut AllocationHeader) void {
+    fn unlink_active(header: &mut AllocationHeader) void {
         match (header.prev_active) {
             .{ Some: prev } => prev.next_active = header.next_active,
             .None => self.active = header.next_active,
@@ -155,7 +162,7 @@ impl *mut GPA : Allocator {
         header.next_active = .None;
     }
 
-    fn free_block_overlaps_active(block: *mut FreeBlock) bool {
+    fn free_block_overlaps_active(block: &mut FreeBlock) bool {
         let block_start = block as usize;
         let block_end = block_start + block.size;
         let mut active = self.active;
@@ -173,8 +180,8 @@ impl *mut GPA : Allocator {
         return false;
     }
 
-    fn insert_free_block(block: *mut FreeBlock) void {
-        let mut prev = (?*mut FreeBlock).None;
+    fn insert_free_block(block: &mut FreeBlock) void {
+        let mut prev = (?&mut FreeBlock).None;
         let mut curr = self.free_list;
 
                 while (true) {
@@ -214,10 +221,10 @@ impl *mut GPA : Allocator {
 
     }
 
-    fn alloc_from_free_list(layout: Layout) ?*mut u8 {
+    fn alloc_from_free_list(layout: Layout) ?&mut u8 {
         let payload_size = gpa_allocation_size(layout);
         let align = gpa_request_align(layout);
-        let mut prev = (?*mut FreeBlock).None;
+        let mut prev = (?&mut FreeBlock).None;
         let mut curr = self.free_list;
 
                 while (true) {
@@ -286,7 +293,7 @@ impl *mut GPA : Allocator {
 
         let .{ Some: raw } = self.backing.alloc(raw_layout) else return false;
 
-        let chunk = raw as *mut BackingChunk;
+        let chunk = raw as &mut BackingChunk;
         chunk.size = raw_size;
         chunk.next = self.chunks;
         self.chunks = .{ Some: chunk };
@@ -295,7 +302,7 @@ impl *mut GPA : Allocator {
     }
 
     /// Allocates a block that satisfies `layout`.
-    pub fn alloc(layout: Layout) ?*mut u8 {
+    pub fn alloc(layout: Layout) ?&mut u8 {
         if (layout.size == 0) {
             return .{ Some: gpa_dangling_ptr(layout.align) };
         }
@@ -316,7 +323,7 @@ impl *mut GPA : Allocator {
     ///
     /// Safety:
     /// `ptr` and `layout` must match the original allocation.
-    pub fn free(ptr: *mut u8, layout: Layout) void {
+    pub fn free(ptr: &mut u8, layout: Layout) void {
         if ((ptr as usize) == 0 or layout.size == 0) {
             return;
         }
@@ -381,7 +388,7 @@ impl *mut GPA : Allocator {
             let .{ Some: current } = chunk else break;
             let next = current.next;
             self.backing.free(
-                current as *mut u8,
+                current as &mut u8,
                 Layout.{ size: current.size, align: chunk_layout_align }
             );
             chunk = next;
@@ -394,5 +401,12 @@ impl *mut GPA : Allocator {
 
     pub fn clear() void {
         self.reset();
+    }
+}
+
+impl GpaBuilder {
+    /// Sets the backing allocator used for page-sized chunks.
+    pub fn on(backing: &mut Allocator) GPA {
+        return .{ backing: backing };
     }
 }

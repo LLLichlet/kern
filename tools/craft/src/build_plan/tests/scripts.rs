@@ -11,7 +11,7 @@ fn applies_build_script_link_directives_per_unit() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [features]
 default = ["simd"]
@@ -32,7 +32,7 @@ roots = ["tests/smoke.rn"]
             r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {{
+pub fn build(b: &mut builder.Builder) void {{
 if (b.feature_enabled("simd")) {{
     b.link_arg("-flto");
 }}
@@ -156,7 +156,7 @@ fn build_script_can_resolve_relative_link_arg_paths_from_package_root() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -169,7 +169,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_arg_path("-T", "link/kernel.ld");
 }
 "#,
@@ -227,7 +227,7 @@ fn build_script_can_apply_structured_link_config() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -240,7 +240,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     b.link_config(.{
         system_libs: .{"m"},
         frameworks: .{"Security"},
@@ -310,7 +310,7 @@ fn build_script_can_generate_sources_and_mutate_unit_cfg_define() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -323,7 +323,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let root = b.emit_generated(
     "src/main.rn",
     "fn main() i32 { return 0; }\n"
@@ -394,7 +394,7 @@ fn build_script_can_resolve_and_stage_declared_resources() {
 [package]
 name = "kernel"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "kernel"
@@ -410,7 +410,7 @@ limine = { path = "vendor/limine" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     let resource_root = b.resource_root("limine");
     let cfg = b.resource_path("limine", "cfg/limine.conf");
     b.define_string("LIMINE_ROOT", resource_root);
@@ -472,7 +472,7 @@ fn build_script_can_compile_declared_resource_c_source() {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -488,7 +488,7 @@ ray = { path = "vendor/ray" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     let obj = b.cc_resource_config("ray", "src/foo.c", .{
         include_dirs: .{"src"},
         defines: .{"PLATFORM_DESKTOP"},
@@ -555,7 +555,7 @@ fn build_script_can_copy_package_files_into_generated_root() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -573,7 +573,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let root = b.copy_package_file("templates/main.rn", "src/main.rn");
 b.set_source_root(root);
 }
@@ -631,7 +631,7 @@ fn build_script_can_model_explicit_staged_dependencies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -644,7 +644,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let helper = b.stage_generated("tmp/value.txt", "41\n");
 let source = b.stage_generated("src/main.rn", "fn main() i32 { return 0; }\n");
 b.depend(source, helper);
@@ -702,7 +702,7 @@ fn build_script_can_stage_post_link_artifact_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -720,7 +720,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_package_file_to_artifact("assets/config.json", "config/config.json");
 let _ = b.emit_artifact_file("notes/build.txt", "built by craft\n");
 }
@@ -775,7 +775,7 @@ fn build_script_can_stage_post_link_directory_copies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -798,7 +798,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
 }
 "#,
@@ -852,7 +852,7 @@ fn build_script_can_stage_copies_of_the_primary_artifact() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -866,7 +866,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let artifact = b.primary_artifact();
 let _ = b.copy_output_to_artifact(artifact, "bundle/demo");
 }
@@ -926,7 +926,7 @@ fn build_script_can_chain_post_link_output_copies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -940,7 +940,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let first = b.stage_artifact_file("notes/build.txt", "built by craft\n");
 let second = b.stage_copy_output_to_artifact(first, "bundle/build.txt");
 let _ = b.stage_copy_output_to_artifact(second, "bundle/build-copy.txt");
@@ -997,7 +997,7 @@ fn build_script_rejects_binding_primary_artifact_as_source_root() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -1011,7 +1011,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let artifact = b.primary_artifact();
 b.set_source_root_from(artifact);
 }
@@ -1050,7 +1050,7 @@ fn build_script_rejects_primary_artifact_on_library_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [lib]
 root = "src/lib.rn"
@@ -1067,7 +1067,7 @@ root = "src/lib.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.primary_artifact();
 }
 "#,
@@ -1105,7 +1105,7 @@ fn build_script_rejects_post_link_artifact_staging_on_library_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [lib]
 root = "src/lib.rn"
@@ -1122,7 +1122,7 @@ root = "src/lib.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.emit_artifact_file("notes/build.txt", "built by craft\n");
 }
 "#,
@@ -1160,7 +1160,7 @@ fn build_script_rejects_overlapping_generated_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -1178,7 +1178,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.emit_generated("src/main.rn", "fn main() i32 { return 0; }\n");
 let _ = b.emit_generated("src", "conflict\n");
 }
@@ -1215,7 +1215,7 @@ fn build_script_rejects_overlapping_artifact_outputs() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -1229,7 +1229,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.emit_artifact_file("bundle", "conflict\n");
 let _ = b.emit_artifact_file("bundle/build.txt", "built by craft\n");
 }
@@ -1266,7 +1266,7 @@ fn build_script_rejects_cyclic_generated_output_dependencies() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -1284,7 +1284,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let first = b.stage_generated("tmp/one.txt", "one\n");
 let second = b.stage_generated("tmp/two.txt", "two\n");
 b.depend(first, second);
@@ -1325,7 +1325,7 @@ fn build_script_rejects_forged_staged_output_handles() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -1343,7 +1343,7 @@ root = "src/placeholder.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 b.set_source_root_from("pre|999|/tmp/forged-main.rn");
 }
 "#,
@@ -1381,7 +1381,7 @@ fn build_script_rejects_forged_primary_artifact_handles() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -1395,7 +1395,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let _ = b.copy_output_to_artifact("artifact|/tmp/forged-artifact", "bundle/demo");
 }
 "#,
@@ -1444,7 +1444,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -1460,7 +1460,7 @@ tool = { path = "../tool", package = "tool" }
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 let note = b.stage_artifact_file_from_tool("tool", "artifact-note", "notes/build.txt", .{});
 let kernel = b.stage_copy_output_to_artifact(b.primary_artifact(), "bundle/app");
 b.depend(note, kernel);
@@ -1475,7 +1475,7 @@ b.depend(note, kernel);
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "artifact-note"
@@ -1487,11 +1487,11 @@ root = "src/main.rn"
         tool_dir.join("src/main.rn"),
         r#"
 use std.io;
-use base.io.Writer;
+use base.io.Write;
 
 fn main() i32 {
 let mut out = io.stdout();
-let writer = *mut Writer.{ out..& };
+let writer = &mut Write.{ out..& };
 let _ = writer.write("built by tool\n");
 return 0;
 }
@@ -1548,7 +1548,7 @@ fn build_script_receives_host_target_and_domain_context() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -1561,7 +1561,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 b.define_string("host_arch", b.host.arch);
 b.define_string("target_arch", b.target.arch);
 
@@ -1620,7 +1620,7 @@ fn build_script_roots_use_absolute_paths_for_workspace_root_package() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "demo"
@@ -1634,7 +1634,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 b.define_string("package_root", b.package.root);
 b.define_string("workspace_root", b.workspace.root);
 b.link_search(b.package.root);
@@ -1699,7 +1699,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -1713,7 +1713,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 b.define_string("package_root", b.package.root);
 b.define_string("workspace_root", b.workspace.root);
 b.link_search(b.package.root);
@@ -1776,7 +1776,7 @@ fn build_script_exposes_expected_paths_for_lib_and_bin_units() {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [lib]
 root = "src/lib.rn"
@@ -1798,7 +1798,7 @@ root = "src/main.rn"
         r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
 b.define_string("build_root", b.paths.build_root);
 b.define_string("generated_root", b.paths.generated_root);
 b.define_string("artifact_root", b.paths.artifact_root);

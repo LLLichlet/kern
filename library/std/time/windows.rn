@@ -6,8 +6,8 @@ const NS_PER_SEC = u64.{1_000_000_000};
 const U32_MAX = ~u32.{0};
 
 extern {
-    fn QueryPerformanceCounter(lpperformancecount: *mut i64) i32;
-    fn QueryPerformanceFrequency(lpfrequency: *mut i64) i32;
+    fn QueryPerformanceCounter(lpperformancecount: &mut i64) i32;
+    fn QueryPerformanceFrequency(lpfrequency: &mut i64) i32;
     fn Sleep(dwMilliseconds: u32) void;
 }
 

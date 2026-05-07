@@ -433,7 +433,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             },
             TypeKind::Pointer { is_mut, elem } => {
                 format!(
-                    "*{}{}",
+                    "&{}{}",
                     if is_mut { "mut " } else { "" },
                     self.debug_type_name(elem)
                 )
@@ -448,12 +448,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             TypeKind::Array { elem, len } => format!("[{}]{}", len, self.debug_type_name(elem)),
             TypeKind::Slice { is_mut, elem } => {
                 format!(
-                    "[]{}{}",
+                    "&{}[{}]",
                     if is_mut { "mut " } else { "" },
                     self.debug_type_name(elem)
                 )
             }
-            TypeKind::Function { .. } => "fn".to_string(),
+            TypeKind::Function { .. } => "&fn".to_string(),
             TypeKind::ClosureInterface { .. } => "Fn".to_string(),
             TypeKind::TraitObject(..) => "trait-object".to_string(),
             TypeKind::Simd { elem, lanes } => format!("{}x{}", self.debug_type_name(elem), lanes),

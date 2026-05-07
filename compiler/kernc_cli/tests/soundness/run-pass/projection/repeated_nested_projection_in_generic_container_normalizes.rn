@@ -2,21 +2,21 @@
 // source: repeated nested concrete projections inside a generic container should normalize without tripping cycle bookkeeping
 // exit: 0
 
-type Step = trait {
+trait Step {
     type Mid;
 };
 
-type Finish = trait {
+trait Finish {
     type Out;
 };
 
-type Pair[T] = struct {
+struct Pair[T] {
     left: T,
     right: T,
 };
 
-type Shell = struct {};
-type X = struct {};
+struct Shell {};
+struct X {};
 
 impl X: Step {
     type Mid = Shell;

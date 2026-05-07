@@ -458,7 +458,7 @@ fn compile_source_with_args_timeout(
     let object_arg = object_path.to_string_lossy().into_owned();
 
     let mut args: Vec<String> = vec!["-c".to_string()];
-    args.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+    args.extend(extra_args.iter().map(|arg| (&arg).to_string()));
     args.push(source_arg);
     args.push("-o".to_string());
     args.push(object_arg);
@@ -484,7 +484,7 @@ fn build_and_run_with_timeout(
     let source_arg = source_path.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
 
-    let mut args: Vec<String> = compile_args.iter().map(|arg| (*arg).to_string()).collect();
+    let mut args: Vec<String> = compile_args.iter().map(|arg| (&arg).to_string()).collect();
     maybe_add_default_runtime_contract(&mut args);
     args.push(source_arg);
     args.push("-o".to_string());

@@ -7,7 +7,7 @@ const EINTR = isize.{4};
 const NS_PER_SEC = u64.{1_000_000_000};
 const U64_MAX = ~u64.{0};
 
-extern type Timespec = struct {
+extern struct Timespec {
     tv_sec: i64,
     tv_nsec: i64,
 };

@@ -6,7 +6,7 @@
 use base.num.USIZE_MAX;
 
 /// The size and alignment required for an allocation.
-pub/ type Layout = struct {
+pub/ struct Layout {
     /// The number of bytes required by the allocation.
     pub size: usize,
     /// The byte alignment required by the allocation.

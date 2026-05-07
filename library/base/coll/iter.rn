@@ -3,13 +3,12 @@
 //! Iterators are explicit state values. A `for (item: iter)` loop stores the
 //! iterator in a mutable local and repeatedly calls `next`.
 
-pub type Iterator = trait {
+pub trait Iterator {
     type Item;
-    next: fn() ?Item,
+    fn next() ?Item;
 };
 
-/// Consumes an iterator and returns the number of remaining items.
-pub fn iter_count[T](it: *mut Iterator[Item = T]) usize {
+pub.. fn consume_count[T](it: &mut Iterator[Item = T]) usize {
     let mut total = usize.{0};
     while (true) {
         match (it.next()) {
@@ -20,8 +19,7 @@ pub fn iter_count[T](it: *mut Iterator[Item = T]) usize {
     return total;
 }
 
-/// Consumes at most `n + 1` items and returns the `n`th item when present.
-pub fn iter_nth[T](it: *mut Iterator[Item = T], n: usize) ?T {
+pub.. fn consume_nth[T](it: &mut Iterator[Item = T], n: usize) ?T {
     let mut i = usize.{0};
     while (true) {
         let item = match (it.next()) {
@@ -36,8 +34,7 @@ pub fn iter_nth[T](it: *mut Iterator[Item = T], n: usize) ?T {
     return .None;
 }
 
-/// Consumes an iterator and returns the last item when present.
-pub fn iter_last[T](it: *mut Iterator[Item = T]) ?T {
+pub.. fn consume_last[T](it: &mut Iterator[Item = T]) ?T {
     let mut last = ?T.None;
     while (true) {
         match (it.next()) {
@@ -48,8 +45,7 @@ pub fn iter_last[T](it: *mut Iterator[Item = T]) ?T {
     return last;
 }
 
-/// Visits each remaining item in an iterator.
-pub fn iter_for_each[T](it: *mut Iterator[Item = T], visitor: *Fn(T) void) void {
+pub.. fn consume_for_each[T](it: &mut Iterator[Item = T], visitor: &Fn(T) void) void {
     while (true) {
         match (it.next()) {
             .{ Some: value } => visitor(value),
@@ -58,8 +54,7 @@ pub fn iter_for_each[T](it: *mut Iterator[Item = T], visitor: *Fn(T) void) void 
     }
 }
 
-/// Folds the remaining iterator items from left to right.
-pub fn iter_fold[T, U](it: *mut Iterator[Item = T], init: U, step: *Fn(U, T) U) U {
+pub.. fn consume_fold[T, U](it: &mut Iterator[Item = T], init: U, step: &Fn(U, T) U) U {
     let mut accum = init;
     while (true) {
         match (it.next()) {
@@ -70,8 +65,7 @@ pub fn iter_fold[T, U](it: *mut Iterator[Item = T], init: U, step: *Fn(U, T) U) 
     return accum;
 }
 
-/// Returns `true` when any remaining item satisfies `pred`.
-pub fn iter_any[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) bool {
+pub.. fn consume_any[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) bool {
     while (true) {
         match (it.next()) {
             .{ Some: value } => if (pred(value)) return true,
@@ -81,8 +75,7 @@ pub fn iter_any[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) bool {
     return false;
 }
 
-/// Returns `true` when every remaining item satisfies `pred`.
-pub fn iter_all[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) bool {
+pub.. fn consume_all[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) bool {
     while (true) {
         match (it.next()) {
             .{ Some: value } => if (!pred(value)) return false,
@@ -92,8 +85,7 @@ pub fn iter_all[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) bool {
     return true;
 }
 
-/// Returns the first remaining item accepted by `pred`.
-pub fn iter_find[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) ?T {
+pub.. fn consume_find[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) ?T {
     while (true) {
         match (it.next()) {
             .{ Some: value } => if (pred(value)) return .{ Some: value },
@@ -103,8 +95,7 @@ pub fn iter_find[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) ?T {
     return .None;
 }
 
-/// Returns the index of the first remaining item accepted by `pred`.
-pub fn iter_position[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) ?usize {
+pub.. fn consume_position[T](it: &mut Iterator[Item = T], pred: &Fn(T) bool) ?usize {
     let mut index = usize.{0};
     while (true) {
         match (it.next()) {
@@ -120,8 +111,7 @@ pub fn iter_position[T](it: *mut Iterator[Item = T], pred: *Fn(T) bool) ?usize {
     return .None;
 }
 
-/// Returns the first mapped value produced by `call_back`.
-pub fn iter_find_map[T, U](it: *mut Iterator[Item = T], call_back: *Fn(T) ?U) ?U {
+pub.. fn consume_find_map[T, U](it: &mut Iterator[Item = T], call_back: &Fn(T) ?U) ?U {
     while (true) {
         match (it.next()) {
             .{ Some: value } => match (call_back(value)) {
@@ -134,12 +124,12 @@ pub fn iter_find_map[T, U](it: *mut Iterator[Item = T], call_back: *Fn(T) ?U) ?U
     return .None;
 }
 
-pub type SliceIter[T] = struct {
-    data: []T,
+pub struct SliceIter[T] {
+    data: &[T],
     index: usize = 0,
 };
 
-impl[T] *mut SliceIter[T] : Iterator {
+impl[T] &mut SliceIter[T] : Iterator {
     type Item = T;
 
     pub fn next() ?Item {
@@ -151,13 +141,55 @@ impl[T] *mut SliceIter[T] : Iterator {
     }
 }
 
-pub type SliceMutIter[T] = struct {
-    data: []mut T,
+impl[T] &mut SliceIter[T] {
+    pub fn count() usize {
+        return consume_count[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn nth(n: usize) ?T {
+        return consume_nth[T](&mut Iterator[Item = T].{ self }, n);
+    }
+
+    pub fn last() ?T {
+        return consume_last[T](&mut Iterator[Item = T].{ self });
+    }
+
+    pub fn for_each(visitor: &Fn(T) void) void {
+        consume_for_each[T](&mut Iterator[Item = T].{ self }, visitor);
+    }
+
+    pub fn fold[U](init: U, step: &Fn(U, T) U) U {
+        return consume_fold[T, U](&mut Iterator[Item = T].{ self }, init, step);
+    }
+
+    pub fn any(pred: &Fn(T) bool) bool {
+        return consume_any[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn all(pred: &Fn(T) bool) bool {
+        return consume_all[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find(pred: &Fn(T) bool) ?T {
+        return consume_find[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn position(pred: &Fn(T) bool) ?usize {
+        return consume_position[T](&mut Iterator[Item = T].{ self }, pred);
+    }
+
+    pub fn find_map[U](call_back: &Fn(T) ?U) ?U {
+        return consume_find_map[T, U](&mut Iterator[Item = T].{ self }, call_back);
+    }
+}
+
+pub struct SliceMutIter[T] {
+    data: &mut [T],
     index: usize = 0,
 };
 
-impl[T] *mut SliceMutIter[T] : Iterator {
-    type Item = *mut T;
+impl[T] &mut SliceMutIter[T] : Iterator {
+    type Item = &mut T;
 
     pub fn next() ?Item {
         if (self.index >= #self.data) return .None;
@@ -165,5 +197,47 @@ impl[T] *mut SliceMutIter[T] : Iterator {
         let item = self.data.[self.index]..&;
         self.index += 1;
         return .{ Some: item };
+    }
+}
+
+impl[T] &mut SliceMutIter[T] {
+    pub fn count() usize {
+        return consume_count[&mut T](&mut Iterator[Item = &mut T].{ self });
+    }
+
+    pub fn nth(n: usize) ?&mut T {
+        return consume_nth[&mut T](&mut Iterator[Item = &mut T].{ self }, n);
+    }
+
+    pub fn last() ?&mut T {
+        return consume_last[&mut T](&mut Iterator[Item = &mut T].{ self });
+    }
+
+    pub fn for_each(visitor: &Fn(&mut T) void) void {
+        consume_for_each[&mut T](&mut Iterator[Item = &mut T].{ self }, visitor);
+    }
+
+    pub fn fold[U](init: U, step: &Fn(U, &mut T) U) U {
+        return consume_fold[&mut T, U](&mut Iterator[Item = &mut T].{ self }, init, step);
+    }
+
+    pub fn any(pred: &Fn(&mut T) bool) bool {
+        return consume_any[&mut T](&mut Iterator[Item = &mut T].{ self }, pred);
+    }
+
+    pub fn all(pred: &Fn(&mut T) bool) bool {
+        return consume_all[&mut T](&mut Iterator[Item = &mut T].{ self }, pred);
+    }
+
+    pub fn find(pred: &Fn(&mut T) bool) ?&mut T {
+        return consume_find[&mut T](&mut Iterator[Item = &mut T].{ self }, pred);
+    }
+
+    pub fn position(pred: &Fn(&mut T) bool) ?usize {
+        return consume_position[&mut T](&mut Iterator[Item = &mut T].{ self }, pred);
+    }
+
+    pub fn find_map[U](call_back: &Fn(&mut T) ?U) ?U {
+        return consume_find_map[&mut T, U](&mut Iterator[Item = &mut T].{ self }, call_back);
     }
 }

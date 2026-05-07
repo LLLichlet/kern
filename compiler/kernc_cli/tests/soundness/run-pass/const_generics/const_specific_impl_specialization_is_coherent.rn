@@ -2,11 +2,11 @@
 // source: a concrete const impl should be allowed when it uniquely specializes a generic const impl
 // exit: 0
 
-type Score = trait {
-    value: fn() i32,
+trait Score {
+    fn value() i32;
 };
 
-type Buf[N: usize] = struct {};
+struct Buf[N: usize] {};
 
 impl[N: usize] Buf[N]: Score {
     fn value() i32 {

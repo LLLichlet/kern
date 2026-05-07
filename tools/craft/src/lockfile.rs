@@ -160,7 +160,7 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
         .unwrap();
         fs::write(
             root.join("craft.rn"),
-            "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
+            "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
         fs::write(
@@ -169,7 +169,7 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [[bin]]
 name = "app"
@@ -189,7 +189,7 @@ limine = { git = "https://example.com/limine.git", branch = "main" }
             r#"
 use craft.plan;
 
-pub fn craft(p: *mut plan.Plan) void {{
+pub fn craft(p: &mut plan.Plan) void {{
     p.define_string("pkg", p.package.name);
 }}
 "#,
@@ -201,7 +201,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
         )
         .unwrap();
@@ -272,7 +272,7 @@ shared = { git = "https://example.com/shared.git", tag = "v2", version = "2" }
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [dependencies]
 shared = { workspace = true }
@@ -321,7 +321,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
         )
         .unwrap();
@@ -367,7 +367,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
         )
         .unwrap();
@@ -397,7 +397,7 @@ kern = "0.7.3"
 [package]
 name = "app"
 version = "0.2.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
         )
         .unwrap();
@@ -439,7 +439,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 "#,
         )
         .unwrap();
@@ -492,7 +492,7 @@ shared = { git = "https://example.com/shared.git", branch = "stable", version = 
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7.3"
+kern = "0.7.5"
 
 [dependencies]
 shared = { workspace = true }

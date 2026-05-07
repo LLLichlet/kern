@@ -65,7 +65,7 @@ fn resolves_workspace_local_library_aliases_for_analysis() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -82,7 +82,7 @@ util = { path = \"../util\" }
 [package]
 name = \"util\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -128,7 +128,7 @@ fn bin_analysis_maps_current_package_name_to_local_library_root() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -169,7 +169,7 @@ fn analysis_project_clones_share_build_plan_cache() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [[bin]]
 name = \"demo\"
@@ -206,7 +206,7 @@ fn resolves_external_path_dependency_aliases_for_analysis() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -223,7 +223,7 @@ util = { path = \"../deps/util\" }
 [package]
 name = \"util\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -261,7 +261,7 @@ fn library_analysis_keeps_lib_runtime_defaults_even_with_runtime_section() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [runtime]
 entry = \"rt\"
@@ -299,7 +299,7 @@ fn package_file_outside_declared_targets_uses_file_as_analysis_root() {
 [package]
 name = \"raylike\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -337,7 +337,7 @@ fn test_analysis_applies_runtime_section_to_tests() {
 [package]
 name = \"demo\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [runtime]
 entry = \"rt\"
@@ -377,7 +377,7 @@ fn prefers_exact_named_target_root_over_library_root() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -423,7 +423,7 @@ fn prefers_named_target_module_directory_over_library_root() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -480,7 +480,7 @@ fn resolves_package_craft_script_with_sdk_alias_even_when_library_exists() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [lib]
 root = \"src/lib.rn\"
@@ -490,7 +490,7 @@ root = \"src/lib.rn\"
     fs::write(app_dir.join("src/lib.rn"), "pub fn helper() void {}\n").unwrap();
     fs::write(
         app_dir.join("craft.rn"),
-        "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
+        "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
     )
     .unwrap();
 
@@ -524,7 +524,7 @@ fn resolves_workspace_craft_script_with_sdk_alias() {
     .unwrap();
     fs::write(
         root.join("craft.rn"),
-        "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
+        "use craft.plan;\npub fn craft(p: &mut plan.Plan) void { let _ = p; }\n",
     )
     .unwrap();
     fs::write(
@@ -533,7 +533,7 @@ fn resolves_workspace_craft_script_with_sdk_alias() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [[bin]]
 name = \"app\"
@@ -575,7 +575,7 @@ fn resolve_for_file_applies_build_cfg_and_define_values() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [features]
 experimental = []
@@ -591,7 +591,7 @@ root = \"src/main.rn\"
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     if (b.feature_enabled(\"experimental\")) {
         b.cfg_bool(\"enable_telemetry\", true);
         b.define_string(\"GREETING_MSG\", \"Hello from build\");
@@ -633,7 +633,7 @@ fn resolve_for_file_prefers_persisted_analysis_context_without_explicit_features
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [features]
 experimental = []
@@ -649,7 +649,7 @@ root = \"src/main.rn\"
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     if (b.feature_enabled(\"experimental\")) {
         b.cfg_bool(\"enable_telemetry\", true);
         b.define_string(\"GREETING_MSG\", \"Hello from build\");
@@ -707,7 +707,7 @@ fn resolve_for_generated_source_root_uses_analysis_unit_matching() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [[bin]]
 name = \"app\"
@@ -720,7 +720,7 @@ root = \"src/placeholder.rn\"
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     let generated = b.emit_generated(
         \"src/main.rn\",
         \"fn main() i32 { return 0; }\\n\"
@@ -790,7 +790,7 @@ fn resolve_for_copied_template_source_uses_generated_unit_root() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [[bin]]
 name = \"app\"
@@ -808,7 +808,7 @@ root = \"src/placeholder.rn\"
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     let main = b.stage_copy_package_file(\"src/main.rn\", \"src/main.rn\");
     let _ = b.stage_generated(
         \"src/build_info.rn\",
@@ -869,7 +869,7 @@ fn explicit_feature_selection_overrides_persisted_analysis_context() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [features]
 experimental = []
@@ -886,7 +886,7 @@ root = \"src/main.rn\"
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     if (b.feature_enabled(\"experimental\")) {
         b.cfg_bool(\"mode_experimental\", true);
     }
@@ -930,7 +930,7 @@ fn resolve_project_manifest_path_handles_nonexistent_generated_descendant() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 ",
     )
     .unwrap();

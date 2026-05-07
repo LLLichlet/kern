@@ -3,9 +3,9 @@ use super::*;
 fn rejects_returning_capturing_closure_as_fn_pointer() {
     let output = compile_source(
         r#"
-fn make() *Fn(i32) i32 {
+fn make() &Fn(i32) i32 {
     let base = i32.{7};
-    return .[base](x: i32) i32 {
+    return [base](x: i32) i32 {
         return x + base;
     };
 }
@@ -26,7 +26,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("cannot return a capturing closure as `*Fn(i32) i32`"),
+        stderr.contains("cannot return a capturing closure as `&Fn(i32) i32`"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -46,9 +46,9 @@ fn main() i32 {
 fn rejects_trailing_capturing_closure_tail_as_fn_pointer() {
     let output = compile_source(
         r#"
-fn make() *Fn(i32) i32 {
+fn make() &Fn(i32) i32 {
     let base = i32.{7};
-    .[base](x: i32) i32 {
+    [base](x: i32) i32 {
         return x + base;
     }
 }
@@ -69,7 +69,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("cannot return a capturing closure as `*Fn(i32) i32`"),
+        stderr.contains("cannot return a capturing closure as `&Fn(i32) i32`"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -84,8 +84,8 @@ fn main() i32 {
 fn returns_noncapturing_closure_as_fn_pointer() {
     let output = build_and_run_source(
         r#"
-fn make() *Fn(i32) i32 {
-    return .[](x: i32) i32 {
+fn make() &Fn(i32) i32 {
+    return [](x: i32) i32 {
         return x + 7;
     };
 }
@@ -138,17 +138,17 @@ fn main() i32 {
 fn runs_captured_closure_boundary_conversions() {
     let output = build_and_run_source(
         r#"
-fn use_closure(cb: *Fn() i32) i32 {
+fn use_closure(cb: &Fn() i32) i32 {
     return cb();
 }
 
-fn use_mut_closure(cb: *mut Fn() void) void {
+fn use_mut_closure(cb: &mut Fn() void) void {
     cb();
 }
 
 fn main() i32 {
     let mut calls = i32.{0};
-    let value = use_closure(.[ptr = calls..&]() i32 {
+    let value = use_closure([ptr = calls..&]() i32 {
         ptr.* += 1;
         return 77;
     });
@@ -160,7 +160,7 @@ fn main() i32 {
     }
 
     let mut counter = i32.{0};
-    let mut closure = .[ptr = counter..&]() void {
+    let mut closure = [ptr = counter..&]() void {
         ptr.* += 1;
     };
     use_mut_closure(closure);
@@ -185,19 +185,19 @@ fn main() i32 {
 fn dispatches_trait_objects_through_const_specific_target_impls() {
     let output = build_and_run_source(
         r#"
-type Score = trait {
-    value: fn() i32,
+trait Score {
+    fn value() i32;
 };
 
-type Buf[N: usize] = struct {};
+struct Buf[N: usize] {};
 
-impl[N: usize] *Buf[N]: Score {
+impl[N: usize] &Buf[N]: Score {
     fn value() i32 {
         return 1;
     }
 }
 
-impl *Buf[4]: Score {
+impl &Buf[4]: Score {
     fn value() i32 {
         return 2;
     }
@@ -205,7 +205,7 @@ impl *Buf[4]: Score {
 
 fn main() i32 {
     let buf = Buf[4].{};
-    let score = *Score.{ buf.& };
+    let score = &Score.{ buf.& };
     return score.value() - 2;
 }
 "#,
@@ -223,19 +223,19 @@ fn main() i32 {
 fn dispatches_trait_objects_through_const_specific_trait_args() {
     let output = build_and_run_source(
         r#"
-type Score[N: usize] = trait {
-    value: fn() i32,
+trait Score[N: usize] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
-impl[N: usize] *X: Score[N] {
+impl[N: usize] &X: Score[N] {
     fn value() i32 {
         return 1;
     }
 }
 
-impl *X: Score[4] {
+impl &X: Score[4] {
     fn value() i32 {
         return 2;
     }
@@ -243,7 +243,7 @@ impl *X: Score[4] {
 
 fn main() i32 {
     let x = X.{};
-    let score = *Score[4].{ x.& };
+    let score = &Score[4].{ x.& };
     return score.value() - 2;
 }
 "#,
@@ -261,26 +261,26 @@ fn main() i32 {
 fn dispatches_bound_methods_through_const_specific_trait_args() {
     let output = build_and_run_source(
         r#"
-type Family[N: usize] = trait {
-    value: fn() i32,
+trait Family[N: usize] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
-impl *X: Family[1] {
+impl &X: Family[1] {
     fn value() i32 {
         return 11;
     }
 }
 
-impl *X: Family[2] {
+impl &X: Family[2] {
     fn value() i32 {
         return 22;
     }
 }
 
-fn call[N: usize](x: *X) i32
-    where *X: Family[N],
+fn call[N: usize](x: &X) i32
+    where &X: Family[N],
 {
     return x.value();
 }
@@ -304,13 +304,13 @@ fn main() i32 {
 fn casts_to_const_generic_trait_object_from_generic_impl() {
     let output = build_and_run_source(
         r#"
-type Score[N: usize] = trait {
-    value: fn() i32,
+trait Score[N: usize] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
-impl[N: usize] *X: Score[N] {
+impl[N: usize] &X: Score[N] {
     fn value() i32 {
         return N as i32;
     }
@@ -318,7 +318,7 @@ impl[N: usize] *X: Score[N] {
 
 fn main() i32 {
     let x = X.{};
-    let score = *Score[4].{ x.& };
+    let score = &Score[4].{ x.& };
     return score.value() - 4;
 }
 "#,
@@ -336,7 +336,7 @@ fn main() i32 {
 fn compiles_assignment_through_struct_mut_array_fields_only() {
     let output = compile_source(
         r#"
-type Buffer = struct {
+struct Buffer {
     items: [4]i32,
 };
 
@@ -371,7 +371,7 @@ fn main() i32 {
         return 1;
     }
 
-    let view = arr..[1 .. 4];
+    let view = arr..&[1 .. 4];
     view.[0] = b'd';
     view.[1] = b'y';
     view.[2] = b'x';
@@ -444,18 +444,18 @@ fn main() i32 {
 fn compiles_and_runs_trailing_commas_in_common_lists() {
     let output = build_and_run_source(
         r#"
-type Pair[T,] = struct {
+struct Pair[T,] {
     left: T,
     right: T,
 };
 
-type Choice = enum {
+enum Choice {
     A,
     B,
 };
 
-type Ops = trait {
-    run: fn(i32, i32,) i32,
+trait Ops {
+    fn run(_: i32, _: i32) i32;
 };
 
 fn add(a: i32, b: i32,) i32 {
@@ -526,15 +526,15 @@ fn main() i32 {
 fn compiles_local_static_struct_initializers() {
     let output = build_and_run_source(
         r#"
-type Writer = struct {
+struct Write {
     serial: bool,
 };
 
-static mut SELECTED = 0 as *mut Writer;
+static mut SELECTED = 0 as &mut Write;
 
 fn init() void {
-    static mut main_writer = Writer.{ serial: false };
-    static mut debug_writer = Writer.{ serial: true };
+    static mut main_writer = Write.{ serial: false };
+    static mut debug_writer = Write.{ serial: true };
     if (debug_writer.serial) {
         SELECTED = debug_writer..&;
     } else {
@@ -564,11 +564,11 @@ fn main() i32 {
 fn runs_defer_after_return_value_evaluation() {
     let output = build_and_run_source(
         r#"
-type Guard = struct {
-    ptr: *mut i32,
+struct Guard {
+    ptr: &mut i32,
 };
 
-impl *mut Guard {
+impl &mut Guard {
     pub fn deinit() void {
         self.ptr.* = 2;
     }
@@ -602,11 +602,11 @@ fn main() i32 {
 fn runs_defer_after_block_value_evaluation() {
     let output = build_and_run_source(
         r#"
-type Guard = struct {
-    ptr: *mut i32,
+struct Guard {
+    ptr: &mut i32,
 };
 
-impl *mut Guard {
+impl &mut Guard {
     pub fn deinit() void {
         self.ptr.* = 2;
     }
@@ -642,12 +642,12 @@ fn main() i32 {
 fn runs_block_defers_in_lifo_order_after_materializing_value() {
     let output = build_and_run_source(
         r#"
-type Push = struct {
-    ptr: *mut i32,
+struct Push {
+    ptr: &mut i32,
     digit: i32,
 };
 
-impl *mut Push {
+impl &mut Push {
     pub fn deinit() void {
         self.ptr.* = self.ptr.* * 10 + self.digit;
     }
@@ -686,7 +686,7 @@ fn main() i32 {
 fn runs_match_arm_block_with_statement_before_return() {
     let output = build_and_run_source(
         r#"
-type Result[T, E] = enum {
+enum Result[T, E] {
     Ok: T,
     Err: E,
 };
@@ -739,7 +739,7 @@ fn main() i32 {
 fn compiles_generic_helper_returning_match_of_never_arms() {
     let output = compile_source(
         r#"
-type Result[T, E] = enum {
+enum Result[T, E] {
     Ok: T,
     Err: E,
 };
@@ -857,7 +857,7 @@ fn compiles_void_memmove_in_let_initializer_without_ice() {
         r#"
 fn main() i32 {
     let mut buf = [4]u8.{ 0, 1, 2, 3 };
-    let x = @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
+    let x = @memmove(buf.[1]..& as &mut u8, buf.[0].& as &u8, 3);
     let _ = x;
     return 0;
 }
@@ -896,7 +896,7 @@ fn consume(value: void) void {
 fn main() i32 {
     let mut buf = [4]u8.{ 0, 1, 2, 3 };
     consume(@breakpoint());
-    consume(@memcpy(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3));
+    consume(@memcpy(buf.[1]..& as &mut u8, buf.[0].& as &u8, 3));
     consume(@asm(.{
         asm: "nop",
         volatile: true,
@@ -916,7 +916,7 @@ fn compiles_returning_atomic_store_from_void_function_without_ice() {
         r#"
 use sync.SEQ_CST;
 
-fn store(ptr: *mut usize) void {
+fn store(ptr: &mut usize) void {
     return @atomicStore[usize](ptr, 1, SEQ_CST);
 }
 
@@ -1000,7 +1000,7 @@ fn main() i32 {
     let values = [4]i32.{ 2, 4, 6, 8 };
     let mut sum = i32.{0};
 
-    for (item: values.[0 .. 4].iter()) {
+    for (item: values.&[0 .. 4].iter()) {
         sum += item;
     }
 
@@ -1023,7 +1023,7 @@ fn rejects_malformed_iterator_loop_header() {
         r#"
 fn main() i32 {
     let values = [3]i32.{ 1, 2, 3 };
-    for (item values.[0 .. 3].iter()) {
+    for (item values.&[0 .. 3].iter()) {
     }
     return 0;
 }

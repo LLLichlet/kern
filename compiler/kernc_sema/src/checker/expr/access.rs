@@ -895,7 +895,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx
                 .struct_error(span, "cannot store a naked trait object in a variable")
                 .with_hint(
-                    "trait objects are dynamically sized; store a pointer (`*mut Trait`) instead",
+                    "trait objects are dynamically sized; store a pointer (`&mut Trait`) instead",
                 )
                 .emit();
         }
@@ -1033,8 +1033,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ty: Option<TypeId>,
         span: Span,
     ) -> TypeId {
-        self.reject_temporary_address_escape(init, "static storage");
-
         let init_ty = self.check_expr(init, expected_ty);
         let norm_init = self.resolve_tv(init_ty);
         if matches!(
@@ -1044,9 +1042,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx
                 .struct_error(span, "cannot store a naked trait object in a variable")
                 .with_hint(
-                    "trait objects are dynamically sized; store a pointer (`*mut Trait`) instead",
+                    "trait objects are dynamically sized; store a pointer (`&mut Trait`) instead",
                 )
                 .emit();
+        }
+        if init_ty != TypeId::ERROR {
+            let mut evaluator = ConstEvaluator::new(self.ctx);
+            let _ = evaluator.eval_inner(init, 0);
         }
 
         let info = SymbolInfo {
@@ -1059,7 +1061,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             is_mut: pattern.is_mut,
         };
         self.define_local_symbol(pattern.name, info, SemanticSymbolKind::Static);
-        self.record_pointer_origins_from_static(pattern, init);
 
         TypeId::VOID
     }
@@ -1553,7 +1554,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.try_find_method_silent(mutable_slice_ty, field, span)?;
 
         Some(
-            "the receiver is an immutable slice produced by `.[start .. end]`; use `..[start .. end]` when you need a mutable subslice",
+            "the receiver is an immutable slice produced by `.&[start .. end]`; use `..&[start .. end]` when you need a mutable subslice",
         )
     }
 
@@ -1628,7 +1629,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             "cannot create a mutable slice from an immutable slice view",
                         )
                         .with_hint(
-                            "`let mut` on the slice binding only makes the slice handle reassignable; it does not change `[]T` into `[]mut T`",
+                            "`let mut` on the slice binding only makes the slice handle reassignable; it does not change `&[T]` into `&mut [T]`",
                         )
                         .emit();
                 }
@@ -1639,7 +1640,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             "cannot create a mutable slice from an immutable location",
                         )
                         .with_hint(
-                            "ensure the source is a mutable binding, a mutable field path, or a mutable pointer (`*mut T` / `^mut T`)",
+                            "ensure the source is a mutable binding, a mutable field path, or a mutable pointer (`&mut T` / `^mut T`)",
                         )
                         .emit();
                 }

@@ -7,11 +7,11 @@ use std.term;
 use sys.mem.Page;
 use bed.{ansi, editor, input};
 
-fn flush_output(file: *mut fs.File, text: []u8) bool {
+fn flush_output(file: &mut fs.File, text: &[u8]) bool {
     return file.write_all(text).is_ok();
 }
 
-fn enter_ui(alloc: *mut base.mem.alloc.Allocator, frame: *mut String, stdout: *mut fs.File) bool {
+fn enter_ui(alloc: &mut base.mem.alloc.Allocator, frame: &mut String, stdout: &mut fs.File) bool {
     frame.clear();
     if (!ansi.enter_alt_screen(frame, alloc)) {
         return false;
@@ -25,7 +25,7 @@ fn enter_ui(alloc: *mut base.mem.alloc.Allocator, frame: *mut String, stdout: *m
     return flush_output(stdout, frame.as_str());
 }
 
-fn leave_ui(alloc: *mut base.mem.alloc.Allocator, frame: *mut String, stdout: *mut fs.File) void {
+fn leave_ui(alloc: &mut base.mem.alloc.Allocator, frame: &mut String, stdout: &mut fs.File) void {
     frame.clear();
     _ = ansi.reset_cursor_shape(frame, alloc);
     _ = ansi.show_cursor(frame, alloc);
@@ -34,7 +34,7 @@ fn leave_ui(alloc: *mut base.mem.alloc.Allocator, frame: *mut String, stdout: *m
 }
 
 fn open_editor_state(
-    gpa: *mut base.mem.alloc.Allocator,
+    gpa: &mut base.mem.alloc.Allocator,
     args: proc.Args,
 ) ?editor.Editor {
     if (args.len() <= 1) {
@@ -58,7 +58,7 @@ fn open_editor_state(
 }
 
 fn enter_raw_mode() ?term.RawMode {
-    let .{ Ok: raw_mode } = term.stdin_raw_mode() else {
+    let .{ Ok: raw_mode } = term.stdin().raw_mode() else {
         .{ Err: err } => {
             match (err) {
                 .NotTerminal => io.println("bed: stdin is not a terminal", .{}),
@@ -70,7 +70,7 @@ fn enter_raw_mode() ?term.RawMode {
     return .{ Some: raw_mode };
 }
 
-fn main(argc: i32, argv: **u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let args = proc.args(argc, argv);
@@ -110,7 +110,7 @@ fn main(argc: i32, argv: **u8) i32 {
     ui_active = true;
 
     while (!editor_state.should_quit()) {
-        let size = match (term.stdout_size()) {
+        let size = match (term.stdout().size()) {
             .{ Ok: value } => value,
             .{ Err: _ } => term.Size.{ rows: 24, cols: 80 },
         };

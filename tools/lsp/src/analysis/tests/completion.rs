@@ -4,7 +4,7 @@ use super::*;
 fn completion_in_function_body_includes_visible_symbols() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Point = struct { x: i32 };\n",
+        "struct Point { x: i32 }\n",
         "fn helper(param: i32) i32 {\n",
         "    let value = param;\n",
         "    return value;\n",
@@ -275,7 +275,7 @@ fn completion_in_iterator_for_body_includes_item_binding() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
         "use base.coll.Iterator;\n",
-        "fn main(values: []i32) void {\n",
+        "fn main(values: &[i32]) void {\n",
         "    for (item: values.iter()) {\n",
         "        \n",
         "    }\n",
@@ -311,7 +311,7 @@ fn completion_in_iterator_for_body_includes_item_binding() {
 fn completion_in_match_arm_body_includes_pattern_bindings() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Result = enum { Ok: i32, Err };\n",
+        "enum Result { Ok: i32, Err }\n",
         "fn main(value: Result) void {\n",
         "    match (value) {\n",
         "        .{ Ok: payload } => {\n",
@@ -352,7 +352,7 @@ fn completion_in_closure_body_includes_capture_and_param_bindings() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
         "fn main(seed: i32) void {\n",
-        "    let visit = .[seed](value: i32) bool {\n",
+        "    let visit = [seed](value: i32) bool {\n",
         "        \n",
         "        return true;\n",
         "    };\n",
@@ -440,7 +440,7 @@ fn completion_in_if_branches_includes_outer_bindings() {
 fn completion_in_function_signature_uses_surface_cache_without_parse_cache() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Helper = struct {};\n",
+        "struct Helper {}\n",
         "fn make() Helper {\n",
         "    return Helper.{};\n",
         "}\n",
@@ -659,7 +659,7 @@ fn completion_in_type_context_includes_struct_keyword_snippet() {
 fn completion_does_not_offer_keywords_after_member_access() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Console = struct { len: i32 };\n",
+        "struct Console { len: i32 }\n",
         "fn main() i32 {\n",
         "    let console = Console.{ len: i32.{1} };\n",
         "    return console.le;\n",
@@ -712,7 +712,7 @@ fn completion_avoids_duplicate_call_parentheses_when_already_present() {
 fn completion_prefers_types_in_type_annotations() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type MarkerType = struct {};\n",
+        "struct MarkerType {}\n",
         "fn Mark() MarkerType { return MarkerType.{}; }\n",
         "fn main() void {\n",
         "    let value = Mark() as Mar;\n",
@@ -741,7 +741,7 @@ fn completion_prefers_types_in_type_annotations() {
 fn completion_in_method_body_includes_self() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "impl Counter {\n",
         "    fn get() i32 {\n",
         "        return self.value;\n",
@@ -772,7 +772,7 @@ fn completion_in_method_body_includes_self() {
 fn completion_on_field_access_returns_member_items() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Point = struct { x: i32, y: i32 };\n",
+        "struct Point { x: i32, y: i32 }\n",
         "fn main() i32 {\n",
         "    let point = Point.{ x: 1, y: 2 };\n",
         "    return point.x;\n",
@@ -801,12 +801,12 @@ fn completion_on_field_access_returns_member_items() {
 fn completion_on_generic_bound_receiver_includes_trait_methods() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type HasLen = trait { len: fn() i32, };\n",
-        "impl *i32 : HasLen {\n",
+        "trait HasLen { fn len() i32; }\n",
+        "impl &i32 : HasLen {\n",
         "    pub fn len() i32 { return self.*; }\n",
         "}\n",
-        "fn use_it[T](x: *T) i32\n",
-        "    where *T: HasLen,\n",
+        "fn use_it[T](x: &T) i32\n",
+        "    where &T: HasLen,\n",
         "{\n",
         "    return x.len();\n",
         "}\n",

@@ -8,19 +8,19 @@ fn compile_source(source: &str) -> std::process::Output {
 fn compiles_anonymous_aggregates_example() {
     let output = compile_source(
         r#"
-extern type CLayout = struct {
+extern struct CLayout {
     tag: u8,
     value: u64,
     flag: u16,
 };
 
-type NativeLayout = struct {
+struct NativeLayout {
     tag: u8,
     value: u64,
     flag: u16,
 };
 
-type Pair = struct {
+struct Pair {
     x: i32,
     y: i32,
 };
@@ -66,7 +66,7 @@ fn main() i32 {
 fn compiles_anonymous_enum_match_with_explicit_discriminants() {
     let output = compile_source(
         r#"
-type Switch = enum: u16 {
+enum Switch: u16 {
     Off = 4,
     On = 7,
     Error: i32,
@@ -109,12 +109,12 @@ fn contextual_struct_field_puns_work_inside_enum_payload_literals() {
     let output = build_and_run(
         "contextual_struct_field_puns",
         r#"
-type Pair = struct {
+struct Pair {
     x: i32,
     y: i32,
 };
 
-type Box[T] = struct {
+struct Box[T] {
     value: T,
 };
 
@@ -142,7 +142,7 @@ fn main() i32 {
 fn rejects_extern_enum_declarations() {
     let output = compile_source(
         r#"
-extern type Bad = enum {
+extern enum Bad {
     A,
     B,
 };
@@ -158,42 +158,34 @@ extern type Bad = enum {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("enum types do not support `extern`"),
+        stderr.contains("enum declarations cannot be extern"),
         "unexpected stderr:\n{}",
         stderr
     );
 }
 
 #[test]
-fn rejects_named_right_side_extern_struct_syntax() {
+fn accepts_type_alias_to_anonymous_extern_struct() {
     let output = compile_source(
         r#"
 type Header = extern struct {
     tag: u32,
 };
+
+fn main() i32 {
+    return @sizeOf[Header]() as i32;
+}
 "#,
     );
 
-    assert!(
-        !output.status.success(),
-        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("named struct declarations must use `extern type Name = struct { ... }`"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert_success(&output, "kernc");
 }
 
 #[test]
 fn rejects_top_level_extern_import_syntax() {
     let output = compile_source(
         r#"
-extern fn puts(msg: *u8) i32;
+extern fn puts(msg: &u8) i32;
 "#,
     );
 
@@ -216,7 +208,7 @@ extern fn puts(msg: *u8) i32;
 fn rejects_extern_union_bnc_without_extern_on_the_anonymous_side() {
     let output = compile_source(
         r#"
-extern type CWord = union {
+extern union CWord {
     bytes: [4]u8,
     int: i32,
 };
@@ -282,7 +274,7 @@ fn runs_union_field_reinterpretation_and_nested_lvalue_updates() {
     let output = build_and_run(
         "kernc_union_field_lvalue",
         r#"
-type FloatBits = union {
+union FloatBits {
     f: f32,
     i: u32,
     bytes: [4]u8,
@@ -320,11 +312,11 @@ fn main() i32 {
 fn accepts_const_generic_named_struct_pointer_decay_to_anonymous_struct() {
     let output = compile_source(
         r#"
-type Buf[N: usize] = struct {
+struct Buf[N: usize] {
     data: [N]u8,
 };
 
-fn first(ptr: *struct { data: [4]u8 }) i32 {
+fn first(ptr: &struct { data: [4]u8 }) i32 {
     return ptr.data.[0] as i32;
 }
 
@@ -347,11 +339,11 @@ fn main() i32 {
 fn rejects_const_generic_named_struct_pointer_decay_to_mismatched_anonymous_struct() {
     let output = compile_source(
         r#"
-type Buf[N: usize] = struct {
+struct Buf[N: usize] {
     data: [N]u8,
 };
 
-fn first(ptr: *struct { data: [4]u8 }) i32 {
+fn first(ptr: &struct { data: [4]u8 }) i32 {
     return ptr.data.[0] as i32;
 }
 
@@ -371,7 +363,7 @@ fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("expected `*struct { data: [4]u8 }`"),
+        stderr.contains("expected `&struct { data: [4]u8 }`"),
         "unexpected stderr:\n{}",
         stderr
     );

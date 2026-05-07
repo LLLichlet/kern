@@ -2,7 +2,7 @@
 // source: function-item callback coercions must instantiate const generic arguments before matching
 // exit: 0
 
-fn takes(cb: *Fn([4]i32) i32) i32 {
+fn takes(cb: &Fn([4]i32) i32) i32 {
     return cb([4]i32.{ 1, 2, 3, 4 });
 }
 

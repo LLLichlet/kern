@@ -259,7 +259,7 @@ The model is:
 
 If you select `--runtime-entry` without selecting an official library bundle, `kernc` only wires `rt` itself. If that `rt` implementation depends on `base` or `sys`, map them explicitly with `--module-path` or choose a bundle.
 
-When `--runtime-entry rt` or `--runtime-entry crt` is active, the root `main` must match the program-entry contract: `fn main() i32` or `fn main(argc: i32, argv: **u8) i32`.
+When `--runtime-entry rt` or `--runtime-entry crt` is active, the root `main` must match the program-entry contract: `fn main() i32` or `fn main(argc: i32, argv: &&u8) i32`.
 
 `kernc` exposes the four structured axes directly. Configure runtime and library policy through those axes rather than through compatibility aliases.
 
@@ -362,7 +362,7 @@ cargo build --release --target x86_64-pc-windows-msvc -p kern-lsp
 Or, equivalently, use the repository Python packaging entrypoint:
 
 ```powershell
-py -3 -m ops release package --version v0.7.3 --target x86_64-windows-msvc
+py -3 -m ops release package --version v0.7.5 --target x86_64-windows-msvc
 ```
 
 For the local source-build environment, including `LLVM_SYS_211_PREFIX` and the

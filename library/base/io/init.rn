@@ -9,27 +9,16 @@ mod fmt;
 mod writers;
 mod readers;
 
-pub use .fmt.format_to;
-pub use .traits.{Printable, Reader, Writer};
+pub use .fmt.Format;
+pub use .traits.{Formatable, Read, Write};
 pub use .writers.{
     FixedBufferWriter,
     StringWriter,
     CountingWriter,
     NullWriter,
-    fixed_buffer,
-    string_writer,
-    counting_writer,
-    null_writer,
-    write_all,
+    discard,
 };
 pub use .readers.{
     SliceReader,
     LimitReader,
-    slice_reader,
-    limit_reader,
-    read_exact,
-    read_to_end,
-    skip,
-    copy,
-    copy_n,
 };

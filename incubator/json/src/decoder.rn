@@ -6,7 +6,7 @@ use ..{
 };
 use ..parser.parse_string_end;
 
-type DecodedEscape = struct {
+struct DecodedEscape {
     next: usize,
     scalar: u32,
 };
@@ -24,7 +24,7 @@ fn hex_value(byte: u8) ?u32 {
     return .None;
 }
 
-fn decode_hex_quad(raw: []u8, start: usize, slash_index: usize) u32!StringDecodeError {
+fn decode_hex_quad(raw: &[u8], start: usize, slash_index: usize) u32!StringDecodeError {
     if (start + 4 > #raw) {
         return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
     }
@@ -65,7 +65,7 @@ fn utf8_scalar_width(scalar: u32) usize {
     return usize.{4};
 }
 
-fn write_utf8_scalar_unchecked(out: []mut u8, offset: usize, scalar: u32) usize {
+fn write_utf8_scalar_unchecked(out: &mut [u8], offset: usize, scalar: u32) usize {
     if (scalar <= u32.{0x7F}) {
         out.[offset] = scalar as u8;
         return offset + 1;
@@ -89,7 +89,7 @@ fn write_utf8_scalar_unchecked(out: []mut u8, offset: usize, scalar: u32) usize 
 }
 
 fn write_utf8_scalar_checked(
-    out: []mut u8,
+    out: &mut [u8],
     offset: usize,
     scalar: u32,
 ) usize!StringDecodeError {
@@ -101,9 +101,9 @@ fn write_utf8_scalar_checked(
 }
 
 fn decode_string_tail_into_unchecked(
-    raw: []u8,
+    raw: &[u8],
     start: usize,
-    out: []mut u8,
+    out: &mut [u8],
     initial_written: usize,
 ) usize!StringDecodeError {
     let end = #raw - 1;
@@ -130,9 +130,9 @@ fn decode_string_tail_into_unchecked(
 }
 
 fn decode_string_tail_into_checked(
-    raw: []u8,
+    raw: &[u8],
     start: usize,
-    out: []mut u8,
+    out: &mut [u8],
     initial_written: usize,
 ) usize!StringDecodeError {
     let end = #raw - 1;
@@ -165,14 +165,14 @@ fn decode_string_tail_into_checked(
     return .{ Ok: written };
 }
 
-fn raw_string_content_end(raw: []u8) usize!StringDecodeError {
+fn raw_string_content_end(raw: &[u8]) usize!StringDecodeError {
     if (#raw < 2) {
         return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
     }
     return .{ Ok: #raw - 1 };
 }
 
-fn first_raw_escape_index(raw: []u8, end: usize) ?usize {
+fn first_raw_escape_index(raw: &[u8], end: usize) ?usize {
     let mut index = usize.{1};
     while (index < end) {
         if (raw.[index] == b'\\') {
@@ -183,15 +183,15 @@ fn first_raw_escape_index(raw: []u8, end: usize) ?usize {
     return .None;
 }
 
-fn copy_unescaped_string_content(raw: []u8, out: []mut u8) usize {
+fn copy_unescaped_string_content(raw: &[u8], out: &mut [u8]) usize {
     let len = #raw - 2;
     if (len != usize.{0}) {
-        @memcpy(out.[0].& as *mut u8, raw.[1].& as *u8, len);
+        @memcpy(out.[0].& as &mut u8, raw.[1].& as &u8, len);
     }
     return len;
 }
 
-fn validate_string_raw(raw: []u8) usize!StringDecodeError {
+fn validate_string_raw(raw: &[u8]) usize!StringDecodeError {
     if (#raw < 2) {
         return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
     }
@@ -209,7 +209,7 @@ fn validate_string_raw(raw: []u8) usize!StringDecodeError {
     return .{ Ok: end - 1 };
 }
 
-fn decode_string_escape(raw: []u8, slash_index: usize) DecodedEscape!StringDecodeError {
+fn decode_string_escape(raw: &[u8], slash_index: usize) DecodedEscape!StringDecodeError {
     let esc_index = slash_index + 1;
     if (esc_index >= #raw) {
         return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
@@ -257,7 +257,7 @@ fn decode_string_escape(raw: []u8, slash_index: usize) DecodedEscape!StringDecod
     };
 }
 
-pub/ fn decoded_string_size_raw(raw: []u8) usize!StringDecodeError {
+pub/ fn decoded_string_size_raw(raw: &[u8]) usize!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
         else {
             .{ Err: err } => return .{ Err: err },
@@ -266,7 +266,7 @@ pub/ fn decoded_string_size_raw(raw: []u8) usize!StringDecodeError {
 }
 
 fn decoded_parsed_string_size_raw_with_end(
-    raw: []u8,
+    raw: &[u8],
     end: usize,
 ) usize!StringDecodeError {
     let mut index = usize.{1};
@@ -290,7 +290,7 @@ fn decoded_parsed_string_size_raw_with_end(
     return .{ Ok: written };
 }
 
-pub/ fn decoded_parsed_string_size_raw(raw: []u8) usize!StringDecodeError {
+pub/ fn decoded_parsed_string_size_raw(raw: &[u8]) usize!StringDecodeError {
     let .{ Ok: end } = raw_string_content_end(raw)
         else {
             .{ Err: err } => return .{ Err: err },
@@ -298,7 +298,7 @@ pub/ fn decoded_parsed_string_size_raw(raw: []u8) usize!StringDecodeError {
     return decoded_parsed_string_size_raw_with_end(raw, end);
 }
 
-pub/ fn write_decoded_string_raw(raw: []u8, out: []mut u8) usize!StringDecodeError {
+pub/ fn write_decoded_string_raw(raw: &[u8], out: &mut [u8]) usize!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
         else {
             .{ Err: err } => return .{ Err: err },
@@ -318,14 +318,14 @@ pub/ fn write_decoded_string_raw(raw: []u8, out: []mut u8) usize!StringDecodeErr
         return .{ Err: StringDecodeError.BufferTooSmall };
     }
     if (prefix_len != usize.{0}) {
-        @memcpy(out.[0].& as *mut u8, raw.[1].& as *u8, prefix_len);
+        @memcpy(out.[0].& as &mut u8, raw.[1].& as &u8, prefix_len);
     }
     return decode_string_tail_into_checked(raw, escape_index, out, prefix_len);
 }
 
 pub/ fn write_decoded_parsed_string_raw(
-    raw: []u8,
-    out: []mut u8,
+    raw: &[u8],
+    out: &mut [u8],
 ) usize!StringDecodeError {
     let .{ Ok: end } = raw_string_content_end(raw)
         else {
@@ -342,14 +342,14 @@ pub/ fn write_decoded_parsed_string_raw(
 
     let prefix_len = escape_index - 1;
     if (prefix_len != usize.{0}) {
-        @memcpy(out.[0].& as *mut u8, raw.[1].& as *u8, prefix_len);
+        @memcpy(out.[0].& as &mut u8, raw.[1].& as &u8, prefix_len);
     }
     return decode_string_tail_into_unchecked(raw, escape_index, out, prefix_len);
 }
 
 pub/ fn clone_decoded_string_raw(
-    alloc: *mut Allocator,
-    raw: []u8,
+    alloc: &mut Allocator,
+    raw: &[u8],
 ) String!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
         else {
@@ -359,8 +359,8 @@ pub/ fn clone_decoded_string_raw(
 }
 
 pub/ fn clone_decoded_string_raw_in_arena(
-    arena: *mut Arena,
-    raw: []u8,
+    arena: &mut Arena,
+    raw: &[u8],
 ) String!StringDecodeError {
     let .{ Ok: end } = validate_string_raw(raw)
         else {
@@ -370,8 +370,8 @@ pub/ fn clone_decoded_string_raw_in_arena(
 }
 
 fn clone_decoded_string_single_pass_with_end(
-    alloc: *mut Allocator,
-    raw: []u8,
+    alloc: &mut Allocator,
+    raw: &[u8],
     end: usize,
 ) String!StringDecodeError {
     let upper_bound = end - 1;
@@ -391,7 +391,7 @@ fn clone_decoded_string_single_pass_with_end(
 
     let prefix_len = escape_index - 1;
     if (prefix_len != usize.{0}) {
-        @memcpy(buf.[0].& as *mut u8, raw.[1].& as *u8, prefix_len);
+        @memcpy(buf.[0].& as &mut u8, raw.[1].& as &u8, prefix_len);
     }
 
     let .{ Ok: written } = decode_string_tail_into_unchecked(raw, escape_index, buf, prefix_len)
@@ -412,12 +412,12 @@ fn clone_decoded_string_single_pass_with_end(
 }
 
 fn clone_decoded_string_single_pass_with_end_in_arena(
-    arena: *mut Arena,
-    raw: []u8,
+    arena: &mut Arena,
+    raw: &[u8],
     end: usize,
 ) String!StringDecodeError {
     let upper_bound = end - 1;
-    let alloc = *mut Allocator.{ arena };
+    let alloc = &mut Allocator.{ arena };
     let mut out = String.{};
     let .{ Some: buf } = out..&.append_uninit_exact_in_arena(arena, upper_bound)
         else return .{ Err: StringDecodeError.OutOfMemory };
@@ -434,7 +434,7 @@ fn clone_decoded_string_single_pass_with_end_in_arena(
 
     let prefix_len = escape_index - 1;
     if (prefix_len != usize.{0}) {
-        @memcpy(buf.[0].& as *mut u8, raw.[1].& as *u8, prefix_len);
+        @memcpy(buf.[0].& as &mut u8, raw.[1].& as &u8, prefix_len);
     }
 
     let .{ Ok: written } = decode_string_tail_into_unchecked(raw, escape_index, buf, prefix_len)
@@ -455,8 +455,8 @@ fn clone_decoded_string_single_pass_with_end_in_arena(
 }
 
 pub/ fn clone_decoded_parsed_string_raw(
-    alloc: *mut Allocator,
-    raw: []u8,
+    alloc: &mut Allocator,
+    raw: &[u8],
 ) String!StringDecodeError {
     let .{ Ok: end } = raw_string_content_end(raw)
         else {
@@ -466,8 +466,8 @@ pub/ fn clone_decoded_parsed_string_raw(
 }
 
 pub/ fn clone_decoded_parsed_string_raw_in_arena(
-    arena: *mut Arena,
-    raw: []u8,
+    arena: &mut Arena,
+    raw: &[u8],
 ) String!StringDecodeError {
     let .{ Ok: end } = raw_string_content_end(raw)
         else {

@@ -75,7 +75,7 @@ fn f[A](a: A) A where A: A {
 fn rejects_invalid_assoc_projection_where_bound_without_overflowing() {
     let output = compile_source(
         r#"
-type N = trait { type O : N; };
+trait N { type O : N; };
 
 fn f[A](a: A) A where A.N.O : A { return a.a.a.a; }
 "#,
@@ -105,23 +105,23 @@ fn f[A](a: A) A where A.N.O : A { return a.a.a.a; }
 fn accepts_unique_more_specific_overlapping_trait_impl() {
     let output = compile_source(
         r#"
-type Score = trait {
-    value: fn() i32,
+trait Score {
+    fn value() i32;
 };
 
-impl[T] []T : Score {
+impl[T] &[T] : Score {
     fn value() i32 {
         return 1;
     }
 }
 
-impl []u8 : Score {
+impl &[u8] : Score {
     fn value() i32 {
         return 2;
     }
 }
 
-fn score(bytes: []u8) i32 {
+fn score(bytes: &[u8]) i32 {
     return bytes.value();
 }
 
@@ -143,11 +143,11 @@ fn main() i32 {
 fn accepts_unique_more_specific_overlapping_trait_impl_with_const_args() {
     let output = build_and_run_source(
         r#"
-type Score = trait {
-    value: fn() i32,
+trait Score {
+    fn value() i32;
 };
 
-type Buf[N: usize] = struct {};
+struct Buf[N: usize] {};
 
 impl[N: usize] Buf[N]: Score {
     fn value() i32 {
@@ -183,7 +183,7 @@ fn main() i32 {
 fn rejects_more_specific_overlap_with_conflicting_associated_type_proofs() {
     let output = compile_source(
         r#"
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
@@ -191,7 +191,7 @@ impl[S, T] S: TypeIs[T] {
     type Is = T;
 }
 
-type FakeProof[L, R] = struct {};
+struct FakeProof[L, R] {};
 
 impl[L, R] FakeProof[L, R]: TypeIs[R] {
     type Is = L;
@@ -214,7 +214,7 @@ fn seed() i32 {
 }
 
 fn forge[R]() R {
-    return cast[fn() i32, R](seed);
+    return cast[&fn() i32, R](seed);
 }
 
 fn main() i32 {
@@ -249,7 +249,7 @@ fn main() i32 {
 fn rejects_false_concrete_where_clause_with_assoc_binding() {
     let output = compile_source(
         r#"
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
@@ -257,14 +257,14 @@ impl[S, T] S: TypeIs[T] {
     type Is = T;
 }
 
-type FakeProof[L, R] = struct {};
+struct FakeProof[L, R] {};
 
 impl[L, R] FakeProof[L, R]: TypeIs[R] {
     type Is = L;
 }
 
-fn cast(value: FakeProof[fn() i32, fn(i32) i32].TypeIs[fn(i32) i32].Is) fn(i32) i32
-    where FakeProof[fn() i32, fn(i32) i32]: TypeIs[fn(i32) i32, Is = fn(i32) i32],
+fn cast(value: FakeProof[&fn() i32, &fn(i32) i32].TypeIs[&fn(i32) i32].Is) &fn(i32) i32
+    where FakeProof[&fn() i32, &fn(i32) i32]: TypeIs[&fn(i32) i32, Is = &fn(i32) i32],
 {
     return value;
 }
@@ -295,7 +295,9 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("FakeProof[fn() i32, fn(i32) i32]: TypeIs[fn(i32) i32, Is = fn(i32) i32]"),
+        stderr.contains(
+            "FakeProof[&fn() i32, &fn(i32) i32]: TypeIs[&fn(i32) i32, Is = &fn(i32) i32]"
+        ),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -305,18 +307,18 @@ fn main() i32 {
 fn rejects_false_concrete_where_clause_with_const_assoc_binding() {
     let output = compile_source(
         r#"
-type HasOut[N: usize] = trait {
+trait HasOut[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: HasOut[1] {
-    type Out = fn() i32;
+    type Out = &fn() i32;
 }
 
-fn cast(value: X.HasOut[1].Out) fn(i32) i32
-    where X: HasOut[1, Out = fn(i32) i32],
+fn cast(value: X.HasOut[1].Out) &fn(i32) i32
+    where X: HasOut[1, Out = &fn(i32) i32],
 {
     return value;
 }
@@ -347,7 +349,7 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("X: HasOut[1, Out = fn(i32) i32]"),
+        stderr.contains("X: HasOut[1, Out = &fn(i32) i32]"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -357,18 +359,18 @@ fn main() i32 {
 fn rejects_impl_missing_supertrait_assoc_binding_contract() {
     let output = compile_source(
         r#"
-type Base[T] = trait {
+trait Base[T] {
     type Out;
 };
 
-type Derived[T]: Base[T, Out = fn() i32] = trait {};
+trait Derived[T]: Base[T, Out = &fn() i32] {};
 
-type X = struct {};
+struct X {};
 
-impl X: Derived[fn(i32) i32] {}
+impl X: Derived[&fn(i32) i32] {}
 
-fn cast(value: X.Base[fn(i32) i32].Out) fn(i32) i32
-    where X: Base[fn(i32) i32, Out = fn(i32) i32],
+fn cast(value: X.Base[&fn(i32) i32].Out) &fn(i32) i32
+    where X: Base[&fn(i32) i32, Out = &fn(i32) i32],
 {
     return value;
 }
@@ -398,7 +400,7 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("X: Base[fn(i32) i32, Out = fn() i32]"),
+        stderr.contains("X: Base[&fn(i32) i32, Out = &fn() i32]"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -408,23 +410,23 @@ fn main() i32 {
 fn rejects_method_lookup_through_false_concrete_where_clause() {
     let output = compile_source(
         r#"
-type Callable = trait {
+trait Callable {
     type Arg;
-    call: fn(Arg) i32,
+    fn call(_: Arg) i32;
 };
 
-type F = struct {};
+struct F {};
 
 impl F: Callable {
-    type Arg = fn() i32;
+    type Arg = &fn() i32;
 
     fn call(arg: Arg) i32 {
         return arg();
     }
 }
 
-fn use_callable(value: F, arg: fn(i32) i32) i32
-    where F: Callable[Arg = fn(i32) i32],
+fn use_callable(value: F, arg: &fn(i32) i32) i32
+    where F: Callable[Arg = &fn(i32) i32],
 {
     return value.call(arg);
 }
@@ -460,18 +462,18 @@ fn main() i32 {
 fn rejects_projection_normalization_through_false_concrete_where_clause() {
     let output = compile_source(
         r#"
-type HasOut = trait {
+trait HasOut {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: HasOut {
-    type Out = fn() i32;
+    type Out = &fn() i32;
 }
 
-fn cast(value: X.HasOut.Out) fn(i32) i32
-    where X: HasOut[Out = fn(i32) i32],
+fn cast(value: X.HasOut.Out) &fn(i32) i32
+    where X: HasOut[Out = &fn(i32) i32],
 {
     return value;
 }
@@ -508,7 +510,7 @@ fn main() i32 {
 fn rejects_open_generic_projection_from_blanket_impl_assoc_equality() {
     let output = compile_source(
         r#"
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
@@ -516,7 +518,7 @@ impl[S, T] S: TypeIs[T] {
     type Is = T;
 }
 
-type FakeProof[L, R] = struct {};
+struct FakeProof[L, R] {};
 
 impl[L, R] FakeProof[L, R]: TypeIs[R] {
     type Is = L;
@@ -535,7 +537,7 @@ fn seed() i32 {
 }
 
 fn main() i32 {
-    let forged = cast[fn() i32, fn(i32, i32) i32](seed);
+    let forged = cast[&fn() i32, &fn(i32, i32) i32](seed);
     return forged(100, 200) - 11;
 }
 "#,
@@ -561,7 +563,7 @@ fn main() i32 {
 fn accepts_open_generic_projection_from_explicit_assoc_equality_bound() {
     let output = build_and_run_source(
         r#"
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
@@ -593,16 +595,16 @@ fn main() i32 {
 fn accepts_open_projection_methods_from_associated_type_bounds() {
     let output = build_and_run_source(
         r#"
-type Score = trait {
-    score: fn() i32,
+trait Score {
+    fn score() i32;
 };
 
-type Factory[T] = trait {
+trait Factory[T] {
     type Item: Score;
-    make: fn() Item,
+    fn make() Item;
 };
 
-type DefaultItem[T] = struct {
+struct DefaultItem[T] {
     value: i32,
 };
 
@@ -612,7 +614,7 @@ impl[T] DefaultItem[T]: Score {
     }
 }
 
-type SpecialItem = struct {
+struct SpecialItem {
     value: i32,
 };
 
@@ -622,7 +624,7 @@ impl SpecialItem: Score {
     }
 }
 
-type Maker[T] = struct {
+struct Maker[T] {
     value: i32,
 };
 
@@ -666,16 +668,16 @@ fn main() i32 {
 fn accepts_open_projection_trait_proof_from_associated_type_bounds() {
     let output = build_and_run_source(
         r#"
-type Score = trait {
-    score: fn() i32,
+trait Score {
+    fn score() i32;
 };
 
-type Factory[T] = trait {
+trait Factory[T] {
     type Item: Score;
-    make: fn() Item,
+    fn make() Item;
 };
 
-type Item[T] = struct {
+struct Item[T] {
     value: i32,
 };
 
@@ -685,7 +687,7 @@ impl[T] Item[T]: Score {
     }
 }
 
-type Maker[T] = struct {
+struct Maker[T] {
     value: i32,
 };
 
@@ -727,11 +729,11 @@ fn main() i32 {
 fn rejects_blanket_supertrait_fake_refl_assoc_forgery() {
     let output = compile_source(
         r#"
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
-type Lift[T]: TypeIs[T] = trait {};
+trait Lift[T]: TypeIs[T] {};
 
 impl[S, T] S: TypeIs[T] {
     type Is = T;
@@ -739,7 +741,7 @@ impl[S, T] S: TypeIs[T] {
 
 impl[S, T] S: Lift[T] {}
 
-type FakeProof[L, R] = struct {};
+struct FakeProof[L, R] {};
 
 impl[L, R] FakeProof[L, R]: TypeIs[R] {
     type Is = L;
@@ -760,11 +762,11 @@ fn seed() i32 {
 }
 
 fn forge[R]() R {
-    return cast[fn() i32, R](seed);
+    return cast[&fn() i32, R](seed);
 }
 
 fn main() i32 {
-    let forged = forge[fn(i32, i32) i32]();
+    let forged = forge[&fn(i32, i32) i32]();
     return forged(100, 200) - 11;
 }
 "#,
@@ -791,11 +793,11 @@ fn main() i32 {
 fn rejects_blanket_supertrait_assoc_binding_fake_refl_forgery() {
     let output = compile_source(
         r#"
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
-type Lift[T]: TypeIs[T, Is = T] = trait {};
+trait Lift[T]: TypeIs[T, Is = T] {};
 
 impl[S, T] S: TypeIs[T] {
     type Is = T;
@@ -803,7 +805,7 @@ impl[S, T] S: TypeIs[T] {
 
 impl[S, T] S: Lift[T] {}
 
-type FakeProof[L, R] = struct {};
+struct FakeProof[L, R] {};
 
 impl[L, R] FakeProof[L, R]: TypeIs[R] {
     type Is = L;
@@ -824,11 +826,11 @@ fn seed() i32 {
 }
 
 fn forge[R]() R {
-    return cast[fn() i32, R](seed);
+    return cast[&fn() i32, R](seed);
 }
 
 fn main() i32 {
-    let forged = forge[fn(i32, i32) i32]();
+    let forged = forge[&fn(i32, i32) i32]();
     return forged(100, 200) - 11;
 }
 "#,
@@ -855,25 +857,25 @@ fn main() i32 {
 fn rejects_const_generic_blanket_supertrait_fake_refl_assoc_forgery() {
     let output = compile_source(
         r#"
-type TypeFor[N: usize] = trait {
+trait TypeFor[N: usize] {
     type Is;
 };
 
-type Lift[N: usize]: TypeFor[N] = trait {};
+trait Lift[N: usize]: TypeFor[N] {};
 
 impl[S, N: usize] S: TypeFor[N] {
-    type Is = fn() i32;
+    type Is = &fn() i32;
 }
 
 impl[S, N: usize] S: Lift[N] {}
 
-type FakeProof[N: usize] = struct {};
+struct FakeProof[N: usize] {};
 
 impl[N: usize] FakeProof[N]: TypeFor[N] {
-    type Is = fn(i32) i32;
+    type Is = &fn(i32) i32;
 }
 
-fn rewrite[N: usize, RW](value: RW.TypeFor[N].Is) fn() i32
+fn rewrite[N: usize, RW](value: RW.TypeFor[N].Is) &fn() i32
     where RW: Lift[N],
 {
     return value;
@@ -910,11 +912,11 @@ fn main() i32 {
 fn rejects_overlapping_trait_impls_with_conflicting_associated_type_proofs() {
     let output = compile_source(
         r#"
-type TypeIs[T] = trait {
+trait TypeIs[T] {
     type Is;
 };
 
-type Proof[L, R] = struct {};
+struct Proof[L, R] {};
 
 impl[L, R] Proof[L, R]: TypeIs[L] {
     type Is = L;
@@ -972,13 +974,13 @@ fn main() i32 {
 fn rejects_projection_from_global_impl_with_unsatisfied_where_clause() {
     let output = compile_source(
         r#"
-type Need = trait {};
+trait Need {};
 
-type HasOut = trait {
+trait HasOut {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl[T] T: HasOut
     where T: Need,
@@ -1018,11 +1020,11 @@ fn main() i32 {
 fn rejects_direct_trait_proof_against_shadowed_generic_assoc_impl() {
     let output = compile_source(
         r#"
-type HasOut[N: usize] = trait {
+trait HasOut[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl[N: usize] X: HasOut[N] {
     type Out = i32;
@@ -1069,14 +1071,14 @@ fn main() i32 {
 fn rejects_trait_object_assoc_binding_against_shadowed_generic_impl() {
     let output = compile_source(
         r#"
-type Factory[N: usize] = trait {
+trait Factory[N: usize] {
     type Out;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type X = struct {};
+struct X {};
 
-impl[N: usize] *X: Factory[N] {
+impl[N: usize] &X: Factory[N] {
     type Out = i32;
 
     fn make() Out {
@@ -1084,7 +1086,7 @@ impl[N: usize] *X: Factory[N] {
     }
 }
 
-impl *X: Factory[4] {
+impl &X: Factory[4] {
     type Out = i64;
 
     fn make() Out {
@@ -1094,7 +1096,7 @@ impl *X: Factory[4] {
 
 fn main() i32 {
     let x = X.{};
-    let _ = *Factory[4, Out = i32].{ x.& };
+    let _ = &Factory[4, Out = i32].{ x.& };
     return 0;
 }
 "#,
@@ -1126,8 +1128,8 @@ fn main() i32 {
 fn rejects_trait_impls_when_their_where_clauses_are_unsatisfied() {
     let output = compile_source(
         r#"
-type Marker = trait {};
-type Need = trait {};
+trait Marker {};
+trait Need {};
 
 impl[T] T : Marker where T: Need {}
 
@@ -1166,12 +1168,12 @@ fn main() i32 {
 fn rejects_occurs_check_violation_when_matching_env_trait_bounds() {
     let output = compile_source(
         r#"
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
-type Marker[T] = trait {
-    value: fn() i32,
+trait Marker[T] {
+    fn value() i32;
 };
 
 fn needs_self[T](value: T) i32
@@ -1186,7 +1188,7 @@ fn bad[T](value: T) i32
     return needs_self[T](value);
 }
 
-type X = struct {};
+struct X {};
 
 impl X: Marker[Wrap[X]] {
     fn value() i32 {
@@ -1225,12 +1227,12 @@ fn main() i32 {
 fn rejects_indirect_occurs_check_cycle_through_multiple_trait_args() {
     let output = compile_source(
         r#"
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
-type Marker[A, B] = trait {
-    value: fn() i32,
+trait Marker[A, B] {
+    fn value() i32;
 };
 
 fn needs_self[T, U](value: T) i32
@@ -1245,7 +1247,7 @@ fn bad[T, U](value: T) i32
     return needs_self[T, U](value);
 }
 
-type X = struct {};
+struct X {};
 
 impl X: Marker[Wrap[X], Wrap[X]] {
     fn value() i32 {
@@ -1284,11 +1286,11 @@ fn main() i32 {
 fn rejects_mismatched_const_trait_bound_arguments() {
     let output = compile_source(
         r#"
-type Cap[N: usize] = trait {
-    value: fn() i32,
+trait Cap[N: usize] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: Cap[0] {
     fn value() i32 {
@@ -1333,11 +1335,11 @@ fn main() i32 {
 fn rejects_reverse_solving_const_env_bound_for_direct_trait_proof() {
     let output = compile_source(
         r#"
-type Cap[N: usize] = trait {
-    value: fn() i32,
+trait Cap[N: usize] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: Cap[1] {
     fn value() i32 {
@@ -1393,11 +1395,11 @@ fn main() i32 {
 fn rejects_reverse_solving_const_global_impl_for_direct_trait_proof() {
     let output = compile_source(
         r#"
-type Cap[N: usize] = trait {
-    value: fn() i32,
+trait Cap[N: usize] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: Cap[1] {
     fn value() i32 {
@@ -1451,11 +1453,11 @@ fn main() i32 {
 fn rejects_reverse_solving_const_global_impl_for_projection() {
     let output = compile_source(
         r#"
-type HasOut[N: usize] = trait {
+trait HasOut[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl X: HasOut[1] {
     type Out = i32;
@@ -1496,7 +1498,7 @@ fn main() i32 {
 fn rejects_reverse_solving_const_receiver_for_inherent_impl_method() {
     let output = compile_source(
         r#"
-type Box[N: usize] = struct {};
+struct Box[N: usize] {};
 
 impl Box[1] {
     fn tag() i32 {
@@ -1539,7 +1541,7 @@ fn main() i32 {
 fn rejects_self_recursive_trait_impl_where_clauses_without_overflowing() {
     let output = compile_source(
         r#"
-type Marker = trait {};
+trait Marker {};
 
 impl[T] T : Marker where T: Marker {}
 
@@ -1578,12 +1580,12 @@ fn main() i32 {
 fn rejects_self_referential_impl_where_clauses_with_associated_types() {
     let output = compile_source(
         r#"
-type Forge = trait {
+trait Forge {
     type Out;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type Carrier[T] = struct {};
+struct Carrier[T] {};
 
 impl[T] Carrier[T] : Forge
     where Carrier[T]: Forge,
@@ -1625,12 +1627,12 @@ fn main() i32 {
 fn suppresses_followup_missing_method_error_for_self_referential_impls() {
     let output = compile_source(
         r#"
-type Forge = trait {
+trait Forge {
     type Out;
-    make: fn() Out,
+    fn make() Out;
 };
 
-type Carrier[T] = struct {};
+struct Carrier[T] {};
 
 impl[T] Carrier[T] : Forge
     where Carrier[T]: Forge,
@@ -1672,11 +1674,11 @@ fn conjure[T]() T {
 fn rejects_self_referential_generic_trait_impl_where_clauses() {
     let output = compile_source(
         r#"
-type Forge[T] = trait {
-    make: fn() T,
+trait Forge[T] {
+    fn make() T;
 };
 
-type Carrier[T] = struct {};
+struct Carrier[T] {};
 
 impl[T] Carrier[T] : Forge[T]
     where Carrier[T]: Forge[T],
@@ -1716,13 +1718,13 @@ fn main() i32 {
 fn rejects_cyclic_trait_impl_proof_chains() {
     let output = compile_source(
         r#"
-type Pre[T] = trait {};
+trait Pre[T] {};
 
-type Forge[T] = trait {
-    make: fn() T,
+trait Forge[T] {
+    fn make() T;
 };
 
-type Carrier[T] = struct {};
+struct Carrier[T] {};
 
 impl[T] Carrier[T] : Pre[T]
     where Carrier[T]: Forge[T],
@@ -1778,8 +1780,8 @@ fn main() i32 {
 fn direct_self_referential_impl_does_not_trigger_unrelated_cycle_diagnostic() {
     let output = compile_source(
         r#"
-type Marker = trait {};
-type Need = trait {};
+trait Marker {};
+trait Need {};
 
 impl[T] T : Marker
     where T: Need,
@@ -1821,8 +1823,8 @@ fn main() i32 {
 fn accepts_trait_impls_when_their_where_clauses_are_satisfied() {
     let output = build_and_run_source(
         r#"
-type Marker = trait {};
-type Need = trait {};
+trait Marker {};
+trait Need {};
 
 impl i32 : Need {}
 impl[T] T : Marker where T: Need {}

@@ -96,7 +96,7 @@ fn main() void {
 //! keep the hardware boundary explicit.
 
 /// A typed UART handle.
-type Uart = struct {
+struct Uart {
     /// Base MMIO register address.
     ///
     /// Safety:
@@ -113,11 +113,8 @@ type Uart = struct {
         let decl_docs = decl.docs.as_ref().expect("expected item docs");
         assert_eq!(decl_docs.lines[0].text, "A typed UART handle.");
 
-        let ast::DeclKind::TypeAlias { target, .. } = &decl.kind else {
-            panic!("expected type alias");
-        };
-        let ast::TypeKind::Struct { fields, .. } = &target.kind else {
-            panic!("expected struct type");
+        let ast::DeclKind::Struct { fields, .. } = &decl.kind else {
+            panic!("expected struct declaration");
         };
         let field_docs = fields[0].docs.as_ref().expect("expected field docs");
         assert_eq!(field_docs.lines[0].text, "Base MMIO register address.");
@@ -137,7 +134,7 @@ type Uart = struct {
 #[if(true)]
 /// A typed counter.
 #[if(true)]
-type Counter = struct {
+struct Counter {
     value: i32,
 };
 
@@ -183,7 +180,7 @@ extern {
     #[test]
     fn inner_doc_comments_inside_impls_produce_targeted_hints() {
         let source = r#"
-type Counter = struct { value: i32 };
+struct Counter { value: i32 }
 
 impl Counter {
     //! wrong level
@@ -212,19 +209,19 @@ impl Counter {
         let source = r#"
 use base.coll.{List,};
 
-type Pair[T,] = struct {
+struct Pair[T,] {
     left: T,
     right: T,
-};
+}
 
-type Choice = enum {
+enum Choice {
     A,
     B: i32,
-};
+}
 
-type Ops = trait {
-    run: fn(i32, i32,) i32,
-};
+trait Ops {
+    fn run(lhs: i32, rhs: i32,) i32;
+}
 
 #[cold,]
 fn add(a: i32, b: i32,) i32 {
@@ -257,35 +254,27 @@ fn main() i32 {
         };
         assert_eq!(items.len(), 1);
 
-        let ast::DeclKind::TypeAlias {
-            generics, target, ..
+        let ast::DeclKind::Struct {
+            generics, fields, ..
         } = &module.decls[1].kind
         else {
-            panic!("expected generic type alias");
+            panic!("expected generic struct declaration");
         };
         assert_eq!(generics.len(), 1);
-        let ast::TypeKind::Struct { fields, .. } = &target.kind else {
-            panic!("expected struct type");
-        };
         assert_eq!(fields.len(), 2);
 
-        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[2].kind else {
-            panic!("expected enum type alias");
-        };
-        let ast::TypeKind::Enum { variants, .. } = &target.kind else {
-            panic!("expected enum type");
+        let ast::DeclKind::Enum { variants, .. } = &module.decls[2].kind else {
+            panic!("expected enum declaration");
         };
         assert_eq!(variants.len(), 2);
 
-        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[3].kind else {
-            panic!("expected trait type alias");
-        };
-        let ast::TypeKind::Trait {
+        let ast::DeclKind::Trait {
             assoc_types,
             methods,
-        } = &target.kind
+            ..
+        } = &module.decls[3].kind
         else {
-            panic!("expected trait type");
+            panic!("expected trait declaration");
         };
         assert!(assoc_types.is_empty());
         assert_eq!(methods.len(), 1);
@@ -368,12 +357,12 @@ fn main() i32 {
     #[test]
     fn parses_generic_enum_variant_match_arm_patterns() {
         let source = r#"
-type Mode = enum {
+enum Mode {
     Off,
     On,
 };
 
-type Box[T] = enum {
+enum Box[T] {
     Empty,
     Full: T,
 };
@@ -438,7 +427,7 @@ fn pick(value: Box[Mode]) i32 {
     #[test]
     fn parses_let_else_arm_block() {
         let source = r#"
-type Result[T, E] = enum {
+enum Result[T, E] {
     Ok: T,
     Err: E,
 };
@@ -492,7 +481,7 @@ fn unwrap_or(err: Result[i32, i32]) i32 {
     #[test]
     fn parses_nested_let_else_inside_arm_block() {
         let source = r#"
-type Result[T, E] = enum {
+enum Result[T, E] {
     Ok: T,
     Err: E,
 };
@@ -561,12 +550,12 @@ fn pick(value: Result[Result[i32, i32], i32]) i32 {
     #[test]
     fn parses_builtin_optional_and_result_type_forms() {
         let source = r#"
-fn main(value: ?i32, status: i32![]u8) ?i32![]u8 {
+fn main(value: ?i32, status: i32!&[u8]) ?i32!&[u8] {
     let a = ?i32.None;
     let b = ?i32.{ Some: 7 };
     let c = value.?;
     let d = status.!;
-    return ?i32![]u8.{ Some: i32![]u8.{ Ok: c + d } };
+    return ?i32!&[u8].{ Some: i32!&[u8].{ Ok: c + d } };
 }
 "#;
 
@@ -632,7 +621,7 @@ fn main(value: ?i32, status: i32![]u8) ?i32![]u8 {
     #[test]
     fn parses_builtin_propagation_expressions() {
         let source = r#"
-fn main(value: ?i32, status: i32![]u8) i32 {
+fn main(value: ?i32, status: i32!&[u8]) i32 {
     return value.? + status.!;
 }
 "#;
@@ -685,10 +674,10 @@ fn main(value: ?i32, status: i32![]u8) i32 {
     #[test]
     fn parses_associated_types_in_traits_and_impls() {
         let source = r#"
-type Add[Rhs] = trait {
+trait Add[Rhs] {
     type Out;
-    add: fn(Rhs) Out,
-};
+    fn add(rhs: Rhs) Out;
+}
 
 impl Vec2: Add[i32] {
     type Out = Vec2;
@@ -697,15 +686,13 @@ impl Vec2: Add[i32] {
 "#;
 
         let (_session, module) = parse_module(source);
-        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[0].kind else {
-            panic!("expected trait type alias");
-        };
-        let ast::TypeKind::Trait {
+        let ast::DeclKind::Trait {
             assoc_types,
             methods,
-        } = &target.kind
+            ..
+        } = &module.decls[0].kind
         else {
-            panic!("expected trait type");
+            panic!("expected trait declaration");
         };
         assert_eq!(assoc_types.len(), 1);
         assert_eq!(methods.len(), 1);
@@ -722,8 +709,8 @@ impl Vec2: Add[i32] {
     #[test]
     fn optional_binds_tighter_than_result_and_grouping_overrides_it() {
         let source = r#"
-type A = ?i32![]u8;
-type B = ?(i32![]u8);
+type A = ?i32!&[u8];
+type B = ?(i32!&[u8]);
 "#;
 
         let (_session, module) = parse_module(source);
@@ -749,10 +736,13 @@ type B = ?(i32![]u8);
     #[test]
     fn pointer_and_array_like_types_bind_tighter_than_result() {
         let source = r#"
-type Ptr = *mut i32![]u8;
-type Slice = []u8!i32;
+type Ptr = &mut i32!&[u8];
+type Slice = &[u8]!i32;
 type Array = [4]i32!bool;
-type Grouped = *mut (i32![]u8);
+type Grouped = &mut (i32!&[u8]);
+type PtrArray = &[4]u8;
+type MutPtrArray = &mut [4]u8;
+type PtrInferArray = &[_]u8;
 "#;
 
         let (_session, module) = parse_module(source);
@@ -791,6 +781,96 @@ type Grouped = *mut (i32![]u8);
             panic!("expected grouped pointer type");
         };
         assert!(matches!(elem.kind, ast::TypeKind::Result { .. }));
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[4].kind else {
+            panic!("expected pointer-to-array type alias");
+        };
+        let ast::TypeKind::Pointer { elem, is_mut } = &target.kind else {
+            panic!("expected pointer-to-array type");
+        };
+        assert!(!is_mut);
+        assert!(matches!(elem.kind, ast::TypeKind::Array { .. }));
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[5].kind else {
+            panic!("expected mutable pointer-to-array type alias");
+        };
+        let ast::TypeKind::Pointer { elem, is_mut } = &target.kind else {
+            panic!("expected mutable pointer-to-array type");
+        };
+        assert!(*is_mut);
+        assert!(matches!(elem.kind, ast::TypeKind::Array { .. }));
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[6].kind else {
+            panic!("expected pointer-to-inferred-array type alias");
+        };
+        let ast::TypeKind::Pointer { elem, .. } = &target.kind else {
+            panic!("expected pointer-to-inferred-array type");
+        };
+        assert!(matches!(elem.kind, ast::TypeKind::ArrayInfer { .. }));
+    }
+
+    #[test]
+    fn parses_bare_lbracket_closures_and_type_namespace_exprs() {
+        let source = r#"
+fn main() void {
+    let base = i32.{40};
+    let add = [base](value: i32) i32 {
+        return base + value;
+    };
+    let stateless = [](value: i32) i32 {
+        return value + 1;
+    };
+    let bytes = [4]u8.{ 1, 2, 3, 4 };
+}
+"#;
+
+        let (_session, module) = parse_module(source);
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+
+        let ast::StmtKind::ExprStmt(add_stmt) = &stmts[1].kind else {
+            panic!("expected add let statement");
+        };
+        let ast::ExprKind::Let { init, .. } = &add_stmt.kind else {
+            panic!("expected add let expression");
+        };
+        let ast::ExprKind::Closure { captures, .. } = &init.kind else {
+            panic!("expected captured closure literal");
+        };
+        assert_eq!(captures.len(), 1);
+
+        let ast::StmtKind::ExprStmt(stateless_stmt) = &stmts[2].kind else {
+            panic!("expected stateless let statement");
+        };
+        let ast::ExprKind::Let { init, .. } = &stateless_stmt.kind else {
+            panic!("expected stateless let expression");
+        };
+        let ast::ExprKind::Closure { captures, .. } = &init.kind else {
+            panic!("expected stateless closure literal");
+        };
+        assert!(captures.is_empty());
+
+        let ast::StmtKind::ExprStmt(bytes_stmt) = &stmts[3].kind else {
+            panic!("expected bytes let statement");
+        };
+        let ast::ExprKind::Let { init, .. } = &bytes_stmt.kind else {
+            panic!("expected bytes let expression");
+        };
+        let ast::ExprKind::DataInit {
+            type_node: Some(type_node),
+            ..
+        } = &init.kind
+        else {
+            panic!("expected typed array data init");
+        };
+        assert!(matches!(type_node.kind, ast::TypeKind::Array { .. }));
     }
 
     #[test]
@@ -1192,7 +1272,7 @@ fn main() void {
     #[test]
     fn recovers_missing_type_after_prefix() {
         let source = r#"
-type Bad = *;
+type Bad = &;
 type Good = i32;
 "#;
 
@@ -1253,8 +1333,8 @@ type Good = i32;
     #[test]
     fn recovers_unclosed_call_before_statement_boundary() {
         let source = r#"
-type Point = struct { x: i32, y: i32 };
-type Shape = enum { Dot: Point, Empty };
+struct Point { x: i32, y: i32 }
+enum Shape { Dot: Point, Empty }
 
 fn main() i32 {
     let point = make_point(1, 2)
@@ -1279,8 +1359,8 @@ fn main() i32 {
     #[test]
     fn parses_match_arm_call_shaped_value_pattern_without_hanging() {
         let source = r#"
-type Point = struct { x: i32, y: i32 };
-type Shape = enum { Dot: Point, Empty };
+struct Point { x: i32, y: i32 }
+enum Shape { Dot: Point, Empty }
 fn make_point(x: i32, y: i32) Point {
     return Point.{ x: x, y: y };
 }

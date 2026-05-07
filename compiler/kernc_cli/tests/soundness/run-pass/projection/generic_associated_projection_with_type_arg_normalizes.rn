@@ -2,11 +2,11 @@
 // source: a concrete projection through a generic associated type must substitute the assoc args before normalizing
 // exit: 0
 
-type Mapper = trait {
+trait Mapper {
     type Apply[T];
 };
 
-type Id = struct {};
+struct Id {};
 
 impl Id: Mapper {
     type Apply[T] = T;

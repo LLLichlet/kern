@@ -16,8 +16,8 @@ use ..{
     ShellOutputEntry,
 };
 
-impl *mut Editor {
-    fn set_buffer_error_message(alloc: *mut Allocator, err: buffer.Error, fallback: []u8) void {
+impl &mut Editor {
+    fn set_buffer_error_message(alloc: &mut Allocator, err: buffer.Error, fallback: &[u8]) void {
         match (err) {
             .OutOfMemory => self.set_message(alloc, "out of memory"),
             .MissingPath => self.set_message(alloc, "no file name"),
@@ -25,7 +25,7 @@ impl *mut Editor {
         }
     }
 
-    fn set_shell_error_message(alloc: *mut Allocator, err: proc.Error) void {
+    fn set_shell_error_message(alloc: &mut Allocator, err: proc.Error) void {
         match (err) {
             .OutOfMemory => self.set_message(alloc, "shell: out of memory"),
             .SpawnFailed => self.set_message(alloc, "shell: spawn failed"),
@@ -39,21 +39,21 @@ impl *mut Editor {
         self.prompt_history_draft..&.clear();
     }
 
-    fn prompt_history_mut() *mut List[String] {
+    fn prompt_history_mut() &mut List[String] {
         match (self.prompt_kind) {
             .Ex => return self.ex_history..&,
             .Shell => return self.shell_history..&,
         }
     }
 
-    fn prompt_history() *List[String] {
+    fn prompt_history() &List[String] {
         match (self.prompt_kind) {
             .Ex => return self.ex_history.&,
             .Shell => return self.shell_history.&,
         }
     }
 
-    fn set_command_line_text(alloc: *mut Allocator, text: []u8) bool {
+    fn set_command_line_text(alloc: &mut Allocator, text: &[u8]) bool {
         if (!self.command_line..&.clone_from(alloc, text)) {
             self.set_message(alloc, "command edit failed");
             return false;
@@ -62,7 +62,7 @@ impl *mut Editor {
         return true;
     }
 
-    fn record_prompt_history(alloc: *mut Allocator, text: []u8) void {
+    fn record_prompt_history(alloc: &mut Allocator, text: &[u8]) void {
         let line = text.trim_ascii();
         if (#line == 0) {
             return;
@@ -87,7 +87,7 @@ impl *mut Editor {
         trim_string_history(alloc, history, PROMPT_HISTORY_LIMIT);
     }
 
-    fn prompt_history_prev(alloc: *mut Allocator) void {
+    fn prompt_history_prev(alloc: &mut Allocator) void {
         let history = self.prompt_history();
         if (history.len() == 0) {
             return;
@@ -108,7 +108,7 @@ impl *mut Editor {
         _ = self.set_command_line_text(alloc, text);
     }
 
-    fn prompt_history_next(alloc: *mut Allocator) void {
+    fn prompt_history_next(alloc: &mut Allocator) void {
         if (!self.has_prompt_history_index) {
             return;
         }
@@ -130,7 +130,7 @@ impl *mut Editor {
         return self.output_history.&.len();
     }
 
-    fn clear_visible_output(alloc: *mut Allocator) void {
+    fn clear_visible_output(alloc: &mut Allocator) void {
         if (self.has_output) {
             self.output..&.deinit(alloc);
             self.has_output = false;
@@ -145,7 +145,7 @@ impl *mut Editor {
         }
     }
 
-    fn restore_output_history_entry(alloc: *mut Allocator, index: usize, focus_output: bool) bool {
+    fn restore_output_history_entry(alloc: &mut Allocator, index: usize, focus_output: bool) bool {
         if (index >= self.output_history.&.len()) {
             return false;
         }
@@ -178,7 +178,7 @@ impl *mut Editor {
         return true;
     }
 
-    fn push_output_history_entry(alloc: *mut Allocator, command_text: []u8, text: []u8, status: i32) bool {
+    fn push_output_history_entry(alloc: &mut Allocator, command_text: &[u8], text: &[u8], status: i32) bool {
         let mut entry = ShellOutputEntry.{ status: status };
         if (!entry.command..&.clone_from(alloc, command_text)
             or !entry.text..&.clone_from(alloc, text))
@@ -199,13 +199,13 @@ impl *mut Editor {
         return true;
     }
 
-    fn show_output_history(alloc: *mut Allocator, index: usize, focus_output: bool) void {
+    fn show_output_history(alloc: &mut Allocator, index: usize, focus_output: bool) void {
         if (!self.restore_output_history_entry(alloc, index, focus_output)) {
             self.set_message(alloc, "shell output failed");
         }
     }
 
-    fn show_prev_output_history(alloc: *mut Allocator) void {
+    fn show_prev_output_history(alloc: &mut Allocator) void {
         if (self.output_history.&.len() == 0) {
             return;
         }
@@ -213,7 +213,7 @@ impl *mut Editor {
         self.show_output_history(alloc, next_index, true);
     }
 
-    fn show_next_output_history(alloc: *mut Allocator) void {
+    fn show_next_output_history(alloc: &mut Allocator) void {
         if (self.output_history.&.len() == 0) {
             return;
         }
@@ -250,7 +250,7 @@ impl *mut Editor {
         }
     }
 
-    fn close_output(alloc: *mut Allocator) void {
+    fn close_output(alloc: &mut Allocator) void {
         if (!self.has_output) {
             return;
         }
@@ -260,14 +260,14 @@ impl *mut Editor {
         self.set_message(alloc, "hid shell output");
     }
 
-    fn install_output(alloc: *mut Allocator, command_text: []u8, text: []u8, status: i32) bool {
+    fn install_output(alloc: &mut Allocator, command_text: &[u8], text: &[u8], status: i32) bool {
         if (!self.push_output_history_entry(alloc, command_text, text, status)) {
             return false;
         }
         return self.restore_output_history_entry(alloc, self.output_history_index, true);
     }
 
-    fn save_current(alloc: *mut Allocator) bool {
+    fn save_current(alloc: &mut Allocator) bool {
         let text_buffer = self.active_buffer_mut();
         let .{ Ok: _ } = text_buffer.write(alloc) else {
             .{ Err: err } => {
@@ -279,7 +279,7 @@ impl *mut Editor {
         return true;
     }
 
-    fn edit_path(alloc: *mut Allocator, path: []u8) void {
+    fn edit_path(alloc: &mut Allocator, path: &[u8]) void {
         if (self.active_buffer().is_dirty()) {
             self.set_message(alloc, "buffer modified; write or :q!");
             return;
@@ -296,7 +296,7 @@ impl *mut Editor {
         self.set_message(alloc, "opened");
     }
 
-    fn set_number_option(alloc: *mut Allocator, enabled: bool) void {
+    fn set_number_option(alloc: &mut Allocator, enabled: bool) void {
         self.show_line_numbers = enabled;
         if (enabled) {
             self.set_message(alloc, "set number");
@@ -305,7 +305,7 @@ impl *mut Editor {
         }
     }
 
-    fn set_relative_number_option(alloc: *mut Allocator, enabled: bool) void {
+    fn set_relative_number_option(alloc: &mut Allocator, enabled: bool) void {
         self.relative_line_numbers = enabled;
         if (enabled) {
             self.set_message(alloc, "set relativenumber");
@@ -314,7 +314,7 @@ impl *mut Editor {
         }
     }
 
-    fn run_command(alloc: *mut Allocator) void {
+    fn run_command(alloc: &mut Allocator) void {
         let command_text = self.command_line.&.as_str();
         self.record_prompt_history(alloc, command_text);
         let parsed = command.parse(self.command_line.&.as_str());
@@ -358,10 +358,10 @@ impl *mut Editor {
         self.finish_command();
     }
 
-    fn run_shell_command(alloc: *mut Allocator) void {
+    fn run_shell_command(alloc: &mut Allocator) void {
         let command_text = self.command_line.&.as_str();
         self.record_prompt_history(alloc, command_text);
-        let .{ Ok: mut capture } = proc.shell_capture(alloc, command_text) else {
+        let .{ Ok: mut capture } = command_text.shell_capture(alloc) else {
             .{ Err: err } => {
                 self.set_shell_error_message(alloc, err);
                 _ = self.install_output(alloc, command_text, "shell command failed", -1);
@@ -386,14 +386,14 @@ impl *mut Editor {
         self.finish_command();
     }
 
-    fn run_prompt(alloc: *mut Allocator) void {
+    fn run_prompt(alloc: &mut Allocator) void {
         match (self.prompt_kind) {
             .Ex => self.run_command(alloc),
             .Shell => self.run_shell_command(alloc),
         }
     }
 
-    fn prompt_prefix() []u8 {
+    fn prompt_prefix() &[u8] {
         match (self.prompt_kind) {
             .Ex => return ":",
             .Shell => return ">",
@@ -420,7 +420,7 @@ impl *mut Editor {
         self.command_col = self.command_line.&.len();
     }
 
-    fn command_insert_byte(alloc: *mut Allocator, byte: u8) void {
+    fn command_insert_byte(alloc: &mut Allocator, byte: u8) void {
         if (self.command_line..&.insert_char(alloc, self.command_col, byte)) {
             self.command_col += 1;
         } else {
@@ -455,7 +455,7 @@ impl *mut Editor {
         return self.command_col - usable + 1;
     }
 
-    fn handle_command_key(alloc: *mut Allocator, key: Key) void {
+    fn handle_command_key(alloc: &mut Allocator, key: Key) void {
         match (key) {
             .Escape => {
                 self.pending_normal = .None;

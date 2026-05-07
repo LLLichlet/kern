@@ -128,6 +128,24 @@ impl<'a> Parser<'a> {
         })
     }
 
+    pub(super) fn parse_lbracket_prefix_expr(&mut self, start_token: Token) -> ParseResult<Expr> {
+        let saved_stream = self.stream.clone();
+        let saved_panic_mode = self.panic_mode;
+        let saved_next_node_id = self.session.next_node_id;
+        let saved_diagnostic_len = self.session.diagnostics.len();
+
+        if let Ok(expr) = self.parse_closure_expr(start_token.span) {
+            return Ok(expr);
+        }
+
+        self.stream = saved_stream;
+        self.panic_mode = saved_panic_mode;
+        self.session.next_node_id = saved_next_node_id;
+        self.session.diagnostics.truncate(saved_diagnostic_len);
+
+        self.parse_type_namespace_expr(start_token)
+    }
+
     pub(super) fn parse_closure_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
         let mut captures = Vec::new();
         if !self.check(TokenType::RBracket) {
@@ -184,18 +202,27 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub(super) fn parse_slice_or_index_expr(
-        &mut self,
-        left: Expr,
-        is_mut: bool,
-    ) -> ParseResult<Expr> {
+    pub(super) fn parse_index_expr(&mut self, left: Expr) -> ParseResult<Expr> {
+        let index = Box::new(self.parse_expression(Precedence::Lowest)?);
+        let rbracket = self.expect(TokenType::RBracket)?;
+        let span = left.span.to(rbracket.span);
+        Ok(Expr {
+            id: self.new_id(),
+            span,
+            kind: ExprKind::IndexAccess {
+                lhs: Box::new(left),
+                index,
+                is_mut: false,
+            },
+        })
+    }
+
+    pub(super) fn parse_slice_expr(&mut self, left: Expr, is_mut: bool) -> ParseResult<Expr> {
         let mut start = None;
         let mut end = None;
-        let mut is_range = false;
         let mut is_inclusive = false;
 
         if self.match_token(&[TokenType::DotDot]) {
-            is_range = true;
             if !self.check(TokenType::RBracket) {
                 end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
             }
@@ -203,52 +230,34 @@ impl<'a> Parser<'a> {
             start = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
 
             if self.match_token(&[TokenType::DotDot]) {
-                is_range = true;
                 if !self.check(TokenType::RBracket) {
                     end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
                 }
             } else if self.match_token(&[TokenType::DotDotEqual]) {
-                is_range = true;
                 is_inclusive = true;
                 end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            } else {
+                let err_span = self.peek().span;
+                self.add_error(
+                    err_span,
+                    "Expected range operator `..` or `..=` in slice expression".to_string(),
+                );
+                return Err(ParseError);
             }
         }
 
         let rbracket = self.expect(TokenType::RBracket)?;
-        let span = left.span.to(rbracket.span);
-
-        if is_range {
-            Ok(Expr {
-                id: self.new_id(),
-                span,
-                kind: ExprKind::SliceOp {
-                    lhs: Box::new(left),
-                    start,
-                    end,
-                    is_inclusive,
-                    is_mut,
-                },
-            })
-        } else {
-            let Some(index) = start else {
-                self.add_error(
-                    span,
-                    "Expected an index expression before `]`; ranges must use `..` syntax"
-                        .to_string(),
-                );
-                return Err(ParseError);
-            };
-
-            Ok(Expr {
-                id: self.new_id(),
-                span,
-                kind: ExprKind::IndexAccess {
-                    lhs: Box::new(left),
-                    index,
-                    is_mut,
-                },
-            })
-        }
+        Ok(Expr {
+            id: self.new_id(),
+            span: left.span.to(rbracket.span),
+            kind: ExprKind::SliceOp {
+                lhs: Box::new(left),
+                start,
+                end,
+                is_inclusive,
+                is_mut,
+            },
+        })
     }
 
     pub(super) fn parse_generic_instantiation_expr(&mut self, left: Expr) -> ParseResult<Expr> {

@@ -1,18 +1,18 @@
 // Constructing an immutable trait object from a mutable concrete pointer must
-// not use a trait impl whose receiver is `*mut Concrete`; the proof receiver
-// for `*Trait` is the shared pointer view.
+// not use a trait impl whose receiver is `&mut Concrete`; the proof receiver
+// for `&Trait` is the shared pointer view.
 // stderr: the provided pointer type does not implement the target trait
 
-type Base = trait {
-    set: fn(i32) void,
-    get: fn() i32,
+trait Base {
+    fn set(value: i32) void;
+    fn get() i32;
 };
 
-type Cell = struct {
+struct Cell {
     value: i32,
 };
 
-impl *mut Cell : Base {
+impl &mut Cell : Base {
     pub fn set(value: i32) void {
         self.value = value;
     }
@@ -24,7 +24,7 @@ impl *mut Cell : Base {
 
 fn main() i32 {
     let mut cell = Cell.{ value: 1 };
-    let obj = *Base.{ cell..& };
+    let obj = &Base.{ cell..& };
     obj.set(42);
     return cell.value;
 }

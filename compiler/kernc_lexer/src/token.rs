@@ -211,9 +211,6 @@ pub enum TokenType {
     /// `..&` mutable address-of.
     DotDotAmpersand,
 
-    /// `..[` mutable slicing.
-    DotDotLBracket,
-
     /// ...
     Ellipsis,
 

@@ -2,19 +2,19 @@
 // source: concrete associated projections should normalize before layout, ABI lowering, and constexpr layout queries
 // exit: 0
 
-type Pick = trait {
+trait Pick {
     type Out;
 };
 
-impl[T] []T : Pick {
+impl[T] &[T] : Pick {
     type Out = bool;
 }
 
-impl []u8 : Pick {
+impl &[u8] : Pick {
     type Out = i32;
 }
 
-type Bytes = []u8;
+type Bytes = &[u8];
 
 fn project(value: Bytes) Bytes.Pick.Out {
     _ = value;

@@ -271,7 +271,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.invalid_llvm_type(
                     Span::default(),
                     "Kern ICE (Codegen): Naked `ClosureInterface` cannot be materialized. \
-                     Sema `ensure_sized` failed to catch this. You must use a fat pointer (e.g., `*Fn`)."
+                     Sema `ensure_sized` failed to catch this. You must use a fat pointer (e.g., `&Fn`)."
                 )
             }
 

@@ -81,7 +81,7 @@ fn semantic_tokens_for_valid_dirty_documents_use_lexical_fallback() {
 fn semantic_tokens_classify_keywords_types_and_functions() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Point = struct { x: i32 };\n",
+        "struct Point { x: i32 }\n",
         "fn helper(point: Point) i32 {\n",
         "    return point.x;\n",
         "}\n",
@@ -102,7 +102,7 @@ fn semantic_tokens_classify_keywords_types_and_functions() {
 
     assert_token_type(
         &decoded,
-        position_of_nth(source, "type", 0, 0),
+        position_of_nth(source, "struct", 0, 0),
         SemanticTokenTypes::KEYWORD,
     );
     assert_token_type(
@@ -146,10 +146,11 @@ fn semantic_tokens_classify_keywords_types_and_functions() {
 fn semantic_tokens_classify_prefixed_and_qualified_type_contexts() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "fn z_string_layout(bytes: []u8) ?base.mem.Layout {\n",
+        "struct Allocator {}\n",
+        "fn z_string_layout(bytes: &[u8]) ?base.mem.Layout {\n",
         "    return .None;\n",
         "}\n",
-        "pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) ?*mut u8 {\n",
+        "pub fn owned(alloc: &mut Allocator, bytes: &[u8]) ?Owned {\n",
         "    return .None;\n",
         "}\n",
     );
@@ -184,7 +185,7 @@ fn semantic_tokens_classify_prefixed_and_qualified_type_contexts() {
     );
     assert_token_type(
         &decoded,
-        position_of_nth(source, "Allocator", 0, 0),
+        position_of_nth(source, "Allocator", 1, 0),
         SemanticTokenTypes::TYPE,
     );
 }
@@ -226,7 +227,7 @@ fn semantic_tokens_prefer_symbol_kinds_and_modifiers_for_references() {
     let source = concat!(
         "const LIMIT = i32.{5};\n",
         "static mut TOTAL = i32.{0};\n",
-        "type Counter = struct { value: i32 };\n",
+        "struct Counter { value: i32 }\n",
         "impl Counter {\n",
         "    fn get() i32 {\n",
         "        return self.value;\n",
@@ -281,7 +282,7 @@ fn semantic_tokens_prefer_symbol_kinds_and_modifiers_for_references() {
 fn semantic_tokens_classify_enum_variant_references() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Result = enum { Ok: i32, Err };\n",
+        "enum Result { Ok: i32, Err }\n",
         "fn main() i32 {\n",
         "    let value = Result.{ Ok: i32.{1} };\n",
         "    let other = Result.Err;\n",
@@ -476,7 +477,7 @@ fn semantic_tokens_classify_imported_function_references_in_submodules() {
 fn semantic_tokens_classify_variant_let_else_payload_bindings() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
-        "type Option[T] = enum {\n",
+        "enum Option[T] {\n",
         "    None,\n",
         "    Some: T,\n",
         "};\n",

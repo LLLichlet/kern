@@ -4,4 +4,3 @@
 //! Freestanding test assertions live in `base.test`.
 
 mod runtime;
-pub use .runtime.{fail, panic, log, debug};

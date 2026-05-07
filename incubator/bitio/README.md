@@ -21,7 +21,7 @@ Current surface:
 
 Current scope is deliberate:
 
-- the public API stays on ordinary borrowed buffers (`[]u8`, `[]mut u8`)
+- the public API stays on ordinary borrowed buffers (`&[u8]`, `&mut [u8]`)
 - `^T` / `^mut T` helpers are intentionally omitted for now because this package
   is aimed at protocol and codec buffers, not MMIO-facing volatile memory
 - SIMD stays an implementation detail for now; the package uses it where it

@@ -3,8 +3,8 @@
 // stderr: type does not satisfy trait bounds
 // stderr: required bound: `T: Marker[1]`
 
-type Marker[N: usize] = trait {
-    value: fn() i32,
+trait Marker[N: usize] {
+    fn value() i32;
 };
 
 fn needs_one[T](value: T) i32
@@ -19,7 +19,7 @@ fn bad[T](value: T) i32
     return needs_one[T](value);
 }
 
-type X = struct {};
+struct X {};
 
 impl X: Marker[2] {
     fn value() i32 {

@@ -4,17 +4,17 @@
 // stderr: cycle: A -> A
 // stderr: must form a DAG
 
-type Wrap[T] = struct {
+struct Wrap[T] {
     inner: T,
 };
 
-type A[T]: A[Wrap[T]] = trait {
-    value: fn() i32,
+trait A[T]: A[Wrap[T]] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
-impl *X: A[i32] {
+impl &X: A[i32] {
     fn value() i32 {
         return 1;
     }
@@ -22,6 +22,6 @@ impl *X: A[i32] {
 
 fn main() i32 {
     let x = X.{};
-    let a = *A[i32].{ x.& };
+    let a = &A[i32].{ x.& };
     return a.value();
 }

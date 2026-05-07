@@ -266,7 +266,7 @@ fn completion_request_returns_type_context_struct_snippet() {
 fn completion_request_does_not_offer_keywords_after_member_access() {
     let mut state = initialized_state();
     let source = concat!(
-        "type Console = struct { len: i32 };\n",
+        "struct Console { len: i32 }\n",
         "fn main() i32 {\n",
         "    let console = Console.{ len: i32.{1} };\n",
         "    return console.le;\n",
@@ -333,7 +333,7 @@ fn completion_request_avoids_duplicate_call_parentheses() {
 fn completion_request_prefers_types_in_type_positions() {
     let mut state = initialized_state();
     let source = concat!(
-        "type MarkerType = struct {};\n",
+        "struct MarkerType {}\n",
         "fn Mark() MarkerType { return MarkerType.{}; }\n",
         "fn main() void {\n",
         "    let value = Mark() as Mar;\n",

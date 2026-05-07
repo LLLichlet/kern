@@ -418,7 +418,6 @@ fn collect_semantic_token_entries(
             | TokenType::DotLBracket
             | TokenType::DotLBrace
             | TokenType::DotDotAmpersand
-            | TokenType::DotDotLBracket
             | TokenType::Ellipsis
             | TokenType::Arrow => Some(SemanticClass {
                 token_type: SemanticTokenTypes::OPERATOR,
@@ -574,7 +573,9 @@ fn is_mut_type_qualifier(tokens: &[Token], mut_index: usize) -> bool {
         return false;
     };
     match tokens[previous_index].tag {
-        TokenType::Star | TokenType::Caret => is_nested_in_type_context(tokens, previous_index),
+        TokenType::Ampersand | TokenType::Caret => {
+            is_nested_in_type_context(tokens, previous_index)
+        }
         TokenType::RBracket => {
             is_slice_type_close_bracket(tokens, previous_index)
                 && is_nested_in_type_context(tokens, previous_index)

@@ -12,13 +12,13 @@ fn main() i32 {
     };
 
     let mut out = [128]u8.{undef};
-    let .{ Ok: written } = render_compact(value, out..[0 .. 128]) else {
+    let .{ Ok: written } = render_compact(value, out..&[0 .. 128]) else {
         .{ Err: _ } => {
             io.println("render failed", .{});
             return 2;
         },
     };
 
-    io.println(out.[0 .. written], .{});
+    io.println(out.&[0 .. written], .{});
     return 0;
 }

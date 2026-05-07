@@ -26,18 +26,18 @@ fn base_bundle_exposes_freestanding_io_helpers() {
     let output = compile_source_with_args(
         "kernc_base_io_helpers",
         r#"
-use base.io.{Writer, fixed_buffer, format_to, write_all};
+use base.io.Write;
 
 fn main() i32 {
     let mut storage = [32]u8.{undef};
-    let mut fixed = fixed_buffer(storage..[0 .. 32]);
-    let writer = *mut Writer.{ fixed..& };
+    let mut fixed = (storage..&[0 .. 32]).writer();
+    let writer = &mut Write.{ fixed..& };
 
-    format_to(writer, "base {} {}", .{ "io", usize.{7}, });
+    "base {} {}".fmt(.{ "io", usize.{7}, }).write_to(writer);
     if (fixed..&.as_slice() != "base io 7") {
         return 1;
     }
-    if (!write_all(writer, "!")) {
+    if (!writer.write_all("!")) {
         return 2;
     }
     if (fixed..&.as_slice() != "base io 7!") {
@@ -57,23 +57,17 @@ fn base_bundle_exposes_freestanding_test_helpers() {
         "kernc_base_test_helpers",
         r#"
 use base.test;
-use base.io.{Writer, null_writer};
+use base.io.discard;
 
 fn main() i32 {
-    let mut sink = null_writer();
-    let mut ctx = test.context(*mut Writer.{ sink..& });
+    let t = test.report(discard())..&;
 
-    ctx..&.assert(@loc(), true, "should not fail", .{});
-    ctx..&.eq(@loc(), usize.{4}, usize.{4}, "expected values to be equal", .{});
-    ctx..&.not_eq(@loc(), usize.{4}, usize.{5}, "expected values to differ", .{});
-    let value = ctx..&.expect_some(@loc(), ?usize.{ Some: 7 }, "expected option to contain a value", .{});
-    ctx..&.eq(@loc(), value, usize.{7}, "expected option payload", .{});
-    ctx..&.expect_none(@loc(), ?usize.None, "expected option to be empty", .{});
-
-    let mut local_sink = null_writer();
-    let mut local_ctx = test.context(*mut Writer.{ local_sink..& });
-    local_ctx..&.eq(@loc(), usize.{8}, usize.{8}, "expected values to be equal", .{});
-    local_ctx..&.assert_ok(@loc(), usize!i32.{ Ok: 9 }, "expected result to be ok", .{});
+    true.should().sum(@loc(), t);
+    (usize.{3} == usize.{3}).should().sum(@loc(), t);
+    (usize.{3} != usize.{4}).should().sum(@loc(), t);
+    (?usize.{ Some: 7 }).should_some().eq(usize.{7}).sum(@loc(), t);
+    (?usize.None).should_none().sum(@loc(), t);
+    usize!i32.{ Ok: 9 }.should_ok().eq(usize.{9}).sum(@loc(), t);
     return 0;
 }
 "#,
@@ -355,7 +349,7 @@ fn links_compile_only_object_via_link_only_mode() {
 use std.io;
 
 fn main() i32 {
-    io.println("link only", .{});
+    "link only".println();
     return 0;
 }
 "#,
@@ -433,15 +427,15 @@ fn compile_only_object_does_not_export_synthesized_symbols() {
         r#"
 use std.io;
 
-fn run_cb(cb: *Fn() i32) i32 {
+fn run_cb(cb: &Fn() i32) i32 {
     return cb();
 }
 
-fn main() i32 {    let value = run_cb(.[]() i32 {
+fn main() i32 {    let value = run_cb([]() i32 {
         return 42;
     });
-    io.println("{}", .{"world",});
-    io.println("{}", .{value,});
+    "{}".fmt(.{"world"}).println();
+    "{}".fmt(.{value}).println();
     return 0;
 }
 "#,

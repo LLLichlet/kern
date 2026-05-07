@@ -2,13 +2,13 @@
 // an associated type result when its own where-clause is unsatisfied.
 // stderr: cannot normalize associated type projection
 
-type Need = trait {};
+trait Need {};
 
-type HasOut = trait {
+trait HasOut {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl[T] T: HasOut
     where T: Need,

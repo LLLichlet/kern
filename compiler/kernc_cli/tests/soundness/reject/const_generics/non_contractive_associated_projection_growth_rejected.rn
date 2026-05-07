@@ -2,11 +2,11 @@
 // stderr: recursive associated type projection cycle detected
 // stderr: projection repeatedly re-enters the same impl-associated type
 
-type Loop[N: usize] = trait {
+trait Loop[N: usize] {
     type Out;
 };
 
-type X = struct {};
+struct X {};
 
 impl[N: usize] X: Loop[N] {
     type Out = X.Loop[N + 1].Out;

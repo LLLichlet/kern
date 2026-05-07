@@ -2,13 +2,13 @@
 // source: lowering should recover const generic arguments from the target trait when casting to a trait object
 // exit: 0
 
-type Score[N: usize] = trait {
-    value: fn() i32,
+trait Score[N: usize] {
+    fn value() i32;
 };
 
-type X = struct {};
+struct X {};
 
-impl[N: usize] *X: Score[N] {
+impl[N: usize] &X: Score[N] {
     fn value() i32 {
         return N as i32;
     }
@@ -16,6 +16,6 @@ impl[N: usize] *X: Score[N] {
 
 fn main() i32 {
     let x = X.{};
-    let score = *Score[4].{ x.& };
+    let score = &Score[4].{ x.& };
     return score.value() - 4;
 }

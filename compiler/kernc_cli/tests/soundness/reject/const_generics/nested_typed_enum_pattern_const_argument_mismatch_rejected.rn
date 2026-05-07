@@ -4,12 +4,12 @@
 // stderr: expected `Inner[3]`
 // stderr: found `Inner[4]`
 
-type Inner[N: usize] = enum {
+enum Inner[N: usize] {
     A: [N]u8,
     B,
 };
 
-type Outer[N: usize] = enum {
+enum Outer[N: usize] {
     Wrap: Inner[N],
     Done,
 };

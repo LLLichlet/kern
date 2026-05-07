@@ -1,16 +1,16 @@
 //! Formatting and byte-stream traits.
 
 /// A byte sink used by the formatting subsystem.
-pub/ type Writer = trait {
-    write: fn([]u8) usize,
+pub/ trait Write {
+    fn write(bytes: &[u8]) usize;
 };
 
 /// A byte source used by generic input helpers.
-pub/ type Reader = trait {
-    read: fn([]mut u8) usize,
+pub/ trait Read {
+    fn read(buffer: &mut [u8]) usize;
 };
 
-/// A value that knows how to render itself into a `Writer`.
-pub/ type Printable = trait {
-    fmt: fn(*mut Writer) void,
+/// A value that knows how to render itself into a `Write`.
+pub/ trait Formatable {
+    fn write_to(writer: &mut Write) void;
 };

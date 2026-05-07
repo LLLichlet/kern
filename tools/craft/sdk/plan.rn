@@ -1,44 +1,44 @@
-pub type Os = enum {
+pub enum Os {
     unknown,
     linux,
     windows,
     darwin,
 };
 
-pub type Target = struct {
+pub struct Target {
     pub os: Os,
-    pub arch: []u8,
-    pub vendor: []u8,
-    pub env: []u8,
+    pub arch: &[u8],
+    pub vendor: &[u8],
+    pub env: &[u8],
 };
 
-pub type Profile = struct {
-    pub name: []u8,
+pub struct Profile {
+    pub name: &[u8],
     pub opt: u8,
     pub debug: bool,
     pub codegen_units: usize,
-    pub code_model: []u8,
+    pub code_model: &[u8],
 };
 
-pub type Package = struct {
-    pub name: []u8,
-    pub version: []u8,
-    pub root: []u8,
+pub struct Package {
+    pub name: &[u8],
+    pub version: &[u8],
+    pub root: &[u8],
     pub is_root: bool,
 };
 
-pub type Workspace = struct {
-    pub root: []u8,
+pub struct Workspace {
+    pub root: &[u8],
     pub has_workspace: bool,
 };
 
-pub type DependencyKind = enum {
+pub enum DependencyKind {
     normal,
     dev,
     build,
 };
 
-pub type Command = enum {
+pub enum Command {
     check,
     fetch,
     build,
@@ -46,61 +46,61 @@ pub type Command = enum {
     test,
 };
 
-pub extern type Plan = struct {
+pub extern struct Plan {
     pub package: Package,
     pub workspace: Workspace,
 };
 
 extern {
-    fn __craft_plan_cfg_bool(plan: *mut Plan, name: []u8, value: bool) void;
-    fn __craft_plan_cfg_string(plan: *mut Plan, name: []u8, value: []u8) void;
-    fn __craft_plan_define_bool(plan: *mut Plan, name: []u8, value: bool) void;
-    fn __craft_plan_define_string(plan: *mut Plan, name: []u8, value: []u8) void;
-    fn __craft_plan_set_lib_root(plan: *mut Plan, root: []u8) void;
-    fn __craft_plan_add_bin(plan: *mut Plan, name: []u8, root: []u8) void;
-    fn __craft_plan_add_test(plan: *mut Plan, root: []u8) void;
-    fn __craft_plan_add_example(plan: *mut Plan, name: []u8, root: []u8) void;
-    fn __craft_plan_remove_lib(plan: *mut Plan) bool;
-    fn __craft_plan_remove_bin(plan: *mut Plan, name: []u8) bool;
-    fn __craft_plan_remove_test(plan: *mut Plan, root: []u8) bool;
-    fn __craft_plan_remove_example(plan: *mut Plan, name: []u8) bool;
-    fn __craft_plan_dep_version(plan: *mut Plan, kind: DependencyKind, name: []u8, version: []u8) void;
-    fn __craft_plan_dep_path(plan: *mut Plan, kind: DependencyKind, name: []u8, path: []u8) void;
-    fn __craft_plan_dep_git(plan: *mut Plan, kind: DependencyKind, name: []u8, git: []u8) void;
-    fn __craft_plan_dep_workspace(plan: *mut Plan, kind: DependencyKind, name: []u8) void;
-    fn __craft_plan_remove_dep(plan: *mut Plan, kind: DependencyKind, name: []u8) bool;
+    fn __craft_plan_cfg_bool(plan: &mut Plan, name: &[u8], value: bool) void;
+    fn __craft_plan_cfg_string(plan: &mut Plan, name: &[u8], value: &[u8]) void;
+    fn __craft_plan_define_bool(plan: &mut Plan, name: &[u8], value: bool) void;
+    fn __craft_plan_define_string(plan: &mut Plan, name: &[u8], value: &[u8]) void;
+    fn __craft_plan_set_lib_root(plan: &mut Plan, root: &[u8]) void;
+    fn __craft_plan_add_bin(plan: &mut Plan, name: &[u8], root: &[u8]) void;
+    fn __craft_plan_add_test(plan: &mut Plan, root: &[u8]) void;
+    fn __craft_plan_add_example(plan: &mut Plan, name: &[u8], root: &[u8]) void;
+    fn __craft_plan_remove_lib(plan: &mut Plan) bool;
+    fn __craft_plan_remove_bin(plan: &mut Plan, name: &[u8]) bool;
+    fn __craft_plan_remove_test(plan: &mut Plan, root: &[u8]) bool;
+    fn __craft_plan_remove_example(plan: &mut Plan, name: &[u8]) bool;
+    fn __craft_plan_dep_version(plan: &mut Plan, kind: DependencyKind, name: &[u8], version: &[u8]) void;
+    fn __craft_plan_dep_path(plan: &mut Plan, kind: DependencyKind, name: &[u8], path: &[u8]) void;
+    fn __craft_plan_dep_git(plan: &mut Plan, kind: DependencyKind, name: &[u8], git: &[u8]) void;
+    fn __craft_plan_dep_workspace(plan: &mut Plan, kind: DependencyKind, name: &[u8]) void;
+    fn __craft_plan_remove_dep(plan: &mut Plan, kind: DependencyKind, name: &[u8]) bool;
 }
 
-impl *mut Plan {
-    pub fn cfg_bool(name: []u8, value: bool) void {
+impl &mut Plan {
+    pub fn cfg_bool(name: &[u8], value: bool) void {
         __craft_plan_cfg_bool(self, name, value);
     }
 
-    pub fn cfg_string(name: []u8, value: []u8) void {
+    pub fn cfg_string(name: &[u8], value: &[u8]) void {
         __craft_plan_cfg_string(self, name, value);
     }
 
-    pub fn define_bool(name: []u8, value: bool) void {
+    pub fn define_bool(name: &[u8], value: bool) void {
         __craft_plan_define_bool(self, name, value);
     }
 
-    pub fn define_string(name: []u8, value: []u8) void {
+    pub fn define_string(name: &[u8], value: &[u8]) void {
         __craft_plan_define_string(self, name, value);
     }
 
-    pub fn set_lib_root(root: []u8) void {
+    pub fn set_lib_root(root: &[u8]) void {
         __craft_plan_set_lib_root(self, root);
     }
 
-    pub fn add_bin(name: []u8, root: []u8) void {
+    pub fn add_bin(name: &[u8], root: &[u8]) void {
         __craft_plan_add_bin(self, name, root);
     }
 
-    pub fn add_test(root: []u8) void {
+    pub fn add_test(root: &[u8]) void {
         __craft_plan_add_test(self, root);
     }
 
-    pub fn add_example(name: []u8, root: []u8) void {
+    pub fn add_example(name: &[u8], root: &[u8]) void {
         __craft_plan_add_example(self, name, root);
     }
 
@@ -108,35 +108,35 @@ impl *mut Plan {
         return __craft_plan_remove_lib(self);
     }
 
-    pub fn remove_bin(name: []u8) bool {
+    pub fn remove_bin(name: &[u8]) bool {
         return __craft_plan_remove_bin(self, name);
     }
 
-    pub fn remove_test(root: []u8) bool {
+    pub fn remove_test(root: &[u8]) bool {
         return __craft_plan_remove_test(self, root);
     }
 
-    pub fn remove_example(name: []u8) bool {
+    pub fn remove_example(name: &[u8]) bool {
         return __craft_plan_remove_example(self, name);
     }
 
-    pub fn dep_version(kind: DependencyKind, name: []u8, version: []u8) void {
+    pub fn dep_version(kind: DependencyKind, name: &[u8], version: &[u8]) void {
         __craft_plan_dep_version(self, kind, name, version);
     }
 
-    pub fn dep_path(kind: DependencyKind, name: []u8, path: []u8) void {
+    pub fn dep_path(kind: DependencyKind, name: &[u8], path: &[u8]) void {
         __craft_plan_dep_path(self, kind, name, path);
     }
 
-    pub fn dep_git(kind: DependencyKind, name: []u8, git: []u8) void {
+    pub fn dep_git(kind: DependencyKind, name: &[u8], git: &[u8]) void {
         __craft_plan_dep_git(self, kind, name, git);
     }
 
-    pub fn dep_workspace(kind: DependencyKind, name: []u8) void {
+    pub fn dep_workspace(kind: DependencyKind, name: &[u8]) void {
         __craft_plan_dep_workspace(self, kind, name);
     }
 
-    pub fn remove_dep(kind: DependencyKind, name: []u8) bool {
+    pub fn remove_dep(kind: DependencyKind, name: &[u8]) bool {
         return __craft_plan_remove_dep(self, kind, name);
     }
 }

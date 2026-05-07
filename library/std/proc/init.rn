@@ -9,4 +9,4 @@ mod shell;
 
 pub use .args.{Args, ArgsIter, args};
 pub use .process.process_id;
-pub use .shell.{Capture, Error, shell_capture, shell_status, shell_success};
+pub use .shell.{Capture, Error};

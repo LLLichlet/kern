@@ -2,7 +2,7 @@ use crate::SemaContext;
 use crate::def::*;
 use crate::scope::{SymbolInfo, SymbolKind};
 use crate::ty::TypeId;
-use kernc_ast::{self as ast, Decl, DeclKind, TypeKind};
+use kernc_ast::{self as ast, Decl, DeclKind};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 struct FunctionCollectSpec<'a> {
@@ -21,8 +21,6 @@ struct FunctionCollectSpec<'a> {
 struct AliasCollectSpec<'a> {
     vis: Visibility,
     where_clauses: &'a [ast::WhereClause],
-    bounds: &'a [ast::TypeNode],
-    is_extern: bool,
     generics: &'a [ast::GenericParam],
     target: &'a ast::TypeNode,
 }
@@ -60,10 +58,8 @@ struct GlobalCollectOwnedSpec {
 
 struct AliasCollectOwnedSpec {
     header: OwnedDeclHeader,
-    is_extern: bool,
     generics: Vec<ast::GenericParam>,
     where_clauses: Vec<ast::WhereClause>,
-    bounds: Vec<ast::TypeNode>,
     target: ast::TypeNode,
 }
 
@@ -98,36 +94,6 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
     pub fn into_context(self) -> &'a mut SemaContext<'ctx> {
         self.ctx
-    }
-
-    fn emit_impl_assoc_type_bounds_error(
-        &mut self,
-        assoc_name: SymbolId,
-        assoc_span: Span,
-        first_bound_span: Span,
-    ) {
-        let assoc_name = self.ctx.resolve(assoc_name).to_string();
-        self.ctx
-            .struct_error(
-                first_bound_span,
-                format!(
-                    "associated type `{}` in an impl cannot declare trait bounds",
-                    assoc_name
-                ),
-            )
-            .with_span_label(
-                assoc_span,
-                "this impl-associated type must choose a concrete target only",
-            )
-            .with_hint(format!(
-                "write `type {} = ConcreteType;` in the impl",
-                assoc_name
-            ))
-            .with_hint(format!(
-                "declare the contract on the trait instead, for example `type {}: Bound;`",
-                assoc_name
-            ))
-            .emit();
     }
 
     /// Collect all top-level members from a module AST into semantic definitions.
@@ -377,19 +343,62 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             DeclKind::TypeAlias {
                 generics,
                 target,
-                is_extern,
                 where_clauses,
-                bounds,
             } => self.collect_type_alias_or_struct(
                 decl,
                 AliasCollectSpec {
                     vis,
                     where_clauses,
-                    bounds,
-                    is_extern: force_extern || *is_extern,
                     generics,
                     target,
                 },
+            ),
+            DeclKind::Struct {
+                generics,
+                where_clauses,
+                fields,
+                is_extern,
+            } => self.collect_struct_decl(
+                decl,
+                vis,
+                generics,
+                where_clauses,
+                fields,
+                force_extern || *is_extern,
+            ),
+            DeclKind::Union {
+                generics,
+                where_clauses,
+                fields,
+                is_extern,
+            } => self.collect_union_decl(
+                decl,
+                vis,
+                generics,
+                where_clauses,
+                fields,
+                force_extern || *is_extern,
+            ),
+            DeclKind::Enum {
+                generics,
+                where_clauses,
+                backing_type,
+                variants,
+            } => self.collect_enum_decl(decl, vis, generics, where_clauses, backing_type, variants),
+            DeclKind::Trait {
+                generics,
+                where_clauses,
+                supertraits,
+                assoc_types,
+                methods,
+            } => self.collect_trait_decl(
+                decl,
+                vis,
+                generics,
+                where_clauses,
+                supertraits,
+                assoc_types,
+                methods,
             ),
             DeclKind::Impl {
                 generics,
@@ -490,17 +499,63 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             DeclKind::TypeAlias {
                 generics,
                 target,
-                is_extern,
                 where_clauses,
-                bounds,
             } => self.collect_type_alias_or_struct_owned(AliasCollectOwnedSpec {
                 header,
-                is_extern: force_extern || is_extern,
                 generics,
                 where_clauses,
-                bounds,
                 target,
             }),
+            DeclKind::Struct {
+                generics,
+                where_clauses,
+                fields,
+                is_extern,
+            } => self.collect_struct_decl_owned(
+                header,
+                generics,
+                where_clauses,
+                fields,
+                force_extern || is_extern,
+            ),
+            DeclKind::Union {
+                generics,
+                where_clauses,
+                fields,
+                is_extern,
+            } => self.collect_union_decl_owned(
+                header,
+                generics,
+                where_clauses,
+                fields,
+                force_extern || is_extern,
+            ),
+            DeclKind::Enum {
+                generics,
+                where_clauses,
+                backing_type,
+                variants,
+            } => self.collect_enum_decl_owned(
+                header,
+                generics,
+                where_clauses,
+                backing_type,
+                variants,
+            ),
+            DeclKind::Trait {
+                generics,
+                where_clauses,
+                supertraits,
+                assoc_types,
+                methods,
+            } => self.collect_trait_decl_owned(
+                header,
+                generics,
+                where_clauses,
+                supertraits,
+                assoc_types,
+                methods,
+            ),
             DeclKind::Impl {
                 generics,
                 where_clauses,
@@ -791,7 +846,334 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Some(def_id)
     }
 
-    /// Lower `type Name = Target` into the corresponding semantic definition kind.
+    fn define_collected_item(
+        &mut self,
+        def_id: DefId,
+        name: SymbolId,
+        kind: SymbolKind,
+        node_id: NodeId,
+        name_span: Span,
+        vis: Visibility,
+    ) {
+        self.ctx
+            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+        self.define_symbol(SymbolDefSpec {
+            name,
+            kind,
+            node_id,
+            def_id: Some(def_id),
+            span: name_span,
+            vis,
+            is_mut: false,
+        });
+    }
+
+    fn collect_struct_decl(
+        &mut self,
+        decl: &Decl,
+        vis: Visibility,
+        generics: &[ast::GenericParam],
+        where_clauses: &[ast::WhereClause],
+        fields: &[ast::StructFieldDef],
+        is_extern: bool,
+    ) -> Option<DefId> {
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.add_def(Def::Struct(StructDef {
+            id: def_id,
+            name: decl.name,
+            vis,
+            parent_module: self.current_module,
+            is_imported: self.current_module_imported,
+            generics: generics.to_vec(),
+            where_clauses: where_clauses.to_vec(),
+            fields: fields.to_vec(),
+            is_extern,
+            span: decl.span,
+            docs: Self::clone_docs_if_present(&decl.docs),
+            attributes: decl.attributes.clone(),
+        }));
+        self.define_collected_item(
+            def_id,
+            decl.name,
+            SymbolKind::Struct,
+            decl.id,
+            decl.name_span,
+            vis,
+        );
+        Some(def_id)
+    }
+
+    fn collect_union_decl(
+        &mut self,
+        decl: &Decl,
+        vis: Visibility,
+        generics: &[ast::GenericParam],
+        where_clauses: &[ast::WhereClause],
+        fields: &[ast::StructFieldDef],
+        is_extern: bool,
+    ) -> Option<DefId> {
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.add_def(Def::Union(UnionDef {
+            id: def_id,
+            name: decl.name,
+            vis,
+            parent_module: self.current_module,
+            is_imported: self.current_module_imported,
+            generics: generics.to_vec(),
+            where_clauses: where_clauses.to_vec(),
+            fields: fields.to_vec(),
+            is_extern,
+            span: decl.span,
+            docs: Self::clone_docs_if_present(&decl.docs),
+        }));
+        self.define_collected_item(
+            def_id,
+            decl.name,
+            SymbolKind::Union,
+            decl.id,
+            decl.name_span,
+            vis,
+        );
+        Some(def_id)
+    }
+
+    fn collect_enum_decl(
+        &mut self,
+        decl: &Decl,
+        vis: Visibility,
+        generics: &[ast::GenericParam],
+        where_clauses: &[ast::WhereClause],
+        backing_type: &Option<Box<ast::TypeNode>>,
+        variants: &[ast::EnumVariant],
+    ) -> Option<DefId> {
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.add_def(Def::Enum(EnumDef {
+            id: def_id,
+            name: decl.name,
+            vis,
+            is_imported: self.current_module_imported,
+            generics: generics.to_vec(),
+            where_clauses: where_clauses.to_vec(),
+            backing_type: backing_type.clone(),
+            variants: variants.to_vec(),
+            span: decl.span,
+            docs: Self::clone_docs_if_present(&decl.docs),
+        }));
+        self.define_collected_item(
+            def_id,
+            decl.name,
+            SymbolKind::Enum,
+            decl.id,
+            decl.name_span,
+            vis,
+        );
+        Some(def_id)
+    }
+
+    fn collect_trait_decl(
+        &mut self,
+        decl: &Decl,
+        vis: Visibility,
+        generics: &[ast::GenericParam],
+        where_clauses: &[ast::WhereClause],
+        supertraits: &[ast::TypeNode],
+        assoc_types: &[ast::AssociatedTypeDecl],
+        methods: &[ast::StructFieldDef],
+    ) -> Option<DefId> {
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.add_def(Def::Trait(TraitDef {
+            id: def_id,
+            name: decl.name,
+            vis,
+            is_imported: self.current_module_imported,
+            generics: generics.to_vec(),
+            where_clauses: where_clauses.to_vec(),
+            supertraits: supertraits.to_vec(),
+            assoc_types: Vec::new(),
+            methods: methods.to_vec(),
+            resolved_methods: Vec::new(),
+            resolved_supertraits: Vec::new(),
+            is_builtin: false,
+            span: decl.span,
+            docs: Self::clone_docs_if_present(&decl.docs),
+        }));
+        self.ctx
+            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+        let assoc_type_ids = self.collect_trait_assoc_types(def_id, assoc_types);
+        if let Def::Trait(trait_def) = &mut self.ctx.defs[def_id.0 as usize] {
+            trait_def.assoc_types = assoc_type_ids;
+        }
+        self.define_symbol(SymbolDefSpec {
+            name: decl.name,
+            kind: SymbolKind::Trait,
+            node_id: decl.id,
+            def_id: Some(def_id),
+            span: decl.name_span,
+            vis,
+            is_mut: false,
+        });
+        Some(def_id)
+    }
+
+    fn collect_struct_decl_owned(
+        &mut self,
+        header: OwnedDeclHeader,
+        generics: Vec<ast::GenericParam>,
+        where_clauses: Vec<ast::WhereClause>,
+        fields: Vec<ast::StructFieldDef>,
+        is_extern: bool,
+    ) -> Option<DefId> {
+        let OwnedDeclHeader {
+            node_id,
+            span,
+            name_span,
+            name,
+            docs,
+            attributes,
+            vis,
+        } = header;
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.add_def(Def::Struct(StructDef {
+            id: def_id,
+            name,
+            vis,
+            parent_module: self.current_module,
+            is_imported: self.current_module_imported,
+            generics,
+            where_clauses,
+            fields,
+            is_extern,
+            span,
+            docs: Self::take_docs_if_present(docs),
+            attributes,
+        }));
+        self.define_collected_item(def_id, name, SymbolKind::Struct, node_id, name_span, vis);
+        Some(def_id)
+    }
+
+    fn collect_union_decl_owned(
+        &mut self,
+        header: OwnedDeclHeader,
+        generics: Vec<ast::GenericParam>,
+        where_clauses: Vec<ast::WhereClause>,
+        fields: Vec<ast::StructFieldDef>,
+        is_extern: bool,
+    ) -> Option<DefId> {
+        let OwnedDeclHeader {
+            node_id,
+            span,
+            name_span,
+            name,
+            docs,
+            vis,
+            ..
+        } = header;
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.add_def(Def::Union(UnionDef {
+            id: def_id,
+            name,
+            vis,
+            parent_module: self.current_module,
+            is_imported: self.current_module_imported,
+            generics,
+            where_clauses,
+            fields,
+            is_extern,
+            span,
+            docs: Self::take_docs_if_present(docs),
+        }));
+        self.define_collected_item(def_id, name, SymbolKind::Union, node_id, name_span, vis);
+        Some(def_id)
+    }
+
+    fn collect_enum_decl_owned(
+        &mut self,
+        header: OwnedDeclHeader,
+        generics: Vec<ast::GenericParam>,
+        where_clauses: Vec<ast::WhereClause>,
+        backing_type: Option<Box<ast::TypeNode>>,
+        variants: Vec<ast::EnumVariant>,
+    ) -> Option<DefId> {
+        let OwnedDeclHeader {
+            node_id,
+            span,
+            name_span,
+            name,
+            docs,
+            vis,
+            ..
+        } = header;
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.add_def(Def::Enum(EnumDef {
+            id: def_id,
+            name,
+            vis,
+            is_imported: self.current_module_imported,
+            generics,
+            where_clauses,
+            backing_type,
+            variants,
+            span,
+            docs: Self::take_docs_if_present(docs),
+        }));
+        self.define_collected_item(def_id, name, SymbolKind::Enum, node_id, name_span, vis);
+        Some(def_id)
+    }
+
+    fn collect_trait_decl_owned(
+        &mut self,
+        header: OwnedDeclHeader,
+        generics: Vec<ast::GenericParam>,
+        where_clauses: Vec<ast::WhereClause>,
+        supertraits: Vec<ast::TypeNode>,
+        assoc_types: Vec<ast::AssociatedTypeDecl>,
+        methods: Vec<ast::StructFieldDef>,
+    ) -> Option<DefId> {
+        let OwnedDeclHeader {
+            node_id,
+            span,
+            name_span,
+            name,
+            docs,
+            vis,
+            ..
+        } = header;
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.add_def(Def::Trait(TraitDef {
+            id: def_id,
+            name,
+            vis,
+            is_imported: self.current_module_imported,
+            generics,
+            where_clauses,
+            supertraits,
+            assoc_types: Vec::new(),
+            methods,
+            resolved_methods: Vec::new(),
+            resolved_supertraits: Vec::new(),
+            is_builtin: false,
+            span,
+            docs: Self::take_docs_if_present(docs),
+        }));
+        self.ctx
+            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+        let assoc_type_ids = self.collect_trait_assoc_types_owned(def_id, assoc_types);
+        if let Def::Trait(trait_def) = &mut self.ctx.defs[def_id.0 as usize] {
+            trait_def.assoc_types = assoc_type_ids;
+        }
+        self.define_symbol(SymbolDefSpec {
+            name,
+            kind: SymbolKind::Trait,
+            node_id,
+            def_id: Some(def_id),
+            span: name_span,
+            vis,
+            is_mut: false,
+        });
+        Some(def_id)
+    }
+
+    /// Lower `type Name = Target` into a semantic type alias.
     fn collect_trait_assoc_types(
         &mut self,
         trait_id: DefId,
@@ -858,131 +1240,25 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         spec: AliasCollectSpec<'_>,
     ) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
-        let mut sym_kind = SymbolKind::TypeAlias;
-        let mut pending_trait_assoc_types = None;
-
-        let def = match &spec.target.kind {
-            // TODO:
-            TypeKind::Struct {
-                is_extern: target_extern,
-                fields,
-            } => {
-                sym_kind = SymbolKind::Struct;
-                Def::Struct(StructDef {
-                    id: def_id,
-                    name: decl.name,
-                    vis: spec.vis,
-                    parent_module: self.current_module,
-                    is_imported: self.current_module_imported,
-                    generics: spec.generics.to_vec(),
-                    where_clauses: spec.where_clauses.to_vec(),
-                    fields: fields.clone(),
-                    is_extern: spec.is_extern || *target_extern,
-                    span: decl.span,
-                    docs: Self::clone_docs_if_present(&decl.docs),
-                    attributes: decl.attributes.clone(),
-                })
-            }
-            TypeKind::Union {
-                is_extern: target_extern,
-                fields,
-            } => {
-                sym_kind = SymbolKind::Union;
-                Def::Union(UnionDef {
-                    id: def_id,
-                    name: decl.name,
-                    vis: spec.vis,
-                    parent_module: self.current_module,
-                    is_imported: self.current_module_imported,
-                    generics: spec.generics.to_vec(),
-                    where_clauses: spec.where_clauses.to_vec(),
-                    fields: fields.clone(),
-                    is_extern: spec.is_extern || *target_extern,
-                    span: decl.span,
-                    docs: Self::clone_docs_if_present(&decl.docs),
-                })
-            }
-            TypeKind::Enum {
-                backing_type,
-                variants,
-            } => {
-                if spec.is_extern {
-                    self.ctx
-                        .struct_error(decl.span, "enum types do not support `extern`")
-                        .with_hint("use `extern` on structs or unions for C-ABI layout control")
-                        .emit();
-                }
-                sym_kind = SymbolKind::Enum;
-                Def::Enum(EnumDef {
-                    id: def_id,
-                    name: decl.name,
-                    vis: spec.vis,
-                    is_imported: self.current_module_imported,
-                    generics: spec.generics.to_vec(),
-                    where_clauses: spec.where_clauses.to_vec(),
-                    backing_type: backing_type.clone(),
-                    variants: variants.clone(),
-                    span: decl.span,
-                    docs: Self::clone_docs_if_present(&decl.docs),
-                })
-            }
-            TypeKind::Trait {
-                assoc_types,
-                methods,
-            } => {
-                sym_kind = SymbolKind::Trait;
-                pending_trait_assoc_types = Some(assoc_types.clone());
-                Def::Trait(TraitDef {
-                    id: def_id,
-                    name: decl.name,
-                    vis: spec.vis,
-                    is_imported: self.current_module_imported,
-                    generics: spec.generics.to_vec(),
-                    where_clauses: spec.where_clauses.to_vec(),
-                    supertraits: spec.bounds.to_vec(),
-                    assoc_types: Vec::new(),
-                    methods: methods.clone(),
-                    resolved_methods: Vec::new(),
-                    resolved_supertraits: Vec::new(),
-                    is_builtin: false,
-                    span: decl.span,
-                    docs: Self::clone_docs_if_present(&decl.docs),
-                })
-            }
-            _ => {
-                // True type aliases preserve the aliased target rather than becoming a new nominal type.
-                Def::TypeAlias(TypeAliasDef {
-                    id: def_id,
-                    name: decl.name,
-                    vis: spec.vis,
-                    is_imported: self.current_module_imported,
-                    generics: spec.generics.to_vec(),
-                    where_clauses: spec.where_clauses.to_vec(),
-                    target: spec.target.clone(),
-                    span: decl.span,
-                    docs: Self::clone_docs_if_present(&decl.docs),
-                })
-            }
-        };
-
-        self.ctx.add_def(def);
-        self.ctx
-            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
-        if let Some(assoc_types) = pending_trait_assoc_types {
-            let assoc_type_ids = self.collect_trait_assoc_types(def_id, &assoc_types);
-            if let Def::Trait(trait_def) = &mut self.ctx.defs[def_id.0 as usize] {
-                trait_def.assoc_types = assoc_type_ids;
-            }
-        }
-        self.define_symbol(SymbolDefSpec {
+        self.ctx.add_def(Def::TypeAlias(TypeAliasDef {
+            id: def_id,
             name: decl.name,
-            kind: sym_kind,
-            node_id: decl.id,
-            def_id: Some(def_id),
-            span: decl.name_span,
             vis: spec.vis,
-            is_mut: false,
-        });
+            is_imported: self.current_module_imported,
+            generics: spec.generics.to_vec(),
+            where_clauses: spec.where_clauses.to_vec(),
+            target: spec.target.clone(),
+            span: decl.span,
+            docs: Self::clone_docs_if_present(&decl.docs),
+        }));
+        self.define_collected_item(
+            def_id,
+            decl.name,
+            SymbolKind::TypeAlias,
+            decl.id,
+            decl.name_span,
+            spec.vis,
+        );
 
         Some(def_id)
     }
@@ -996,147 +1272,26 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     name_span,
                     name,
                     docs,
-                    attributes,
+                    attributes: _,
                     vis,
                 },
-            is_extern,
             generics,
             where_clauses,
-            bounds,
             target,
         } = spec;
         let def_id = DefId(self.ctx.defs.len() as u32);
-        let mut sym_kind = SymbolKind::TypeAlias;
-        let mut pending_trait_assoc_types = None;
-
-        let ast::TypeNode {
-            id: target_id,
-            span: target_span,
-            kind: target_kind,
-        } = target;
-
-        let def = match target_kind {
-            TypeKind::Struct {
-                is_extern: target_extern,
-                fields,
-            } => {
-                sym_kind = SymbolKind::Struct;
-                Def::Struct(StructDef {
-                    id: def_id,
-                    name,
-                    vis,
-                    parent_module: self.current_module,
-                    is_imported: self.current_module_imported,
-                    generics,
-                    where_clauses,
-                    fields,
-                    is_extern: is_extern || target_extern,
-                    span,
-                    docs: Self::take_docs_if_present(docs),
-                    attributes,
-                })
-            }
-            TypeKind::Union {
-                is_extern: target_extern,
-                fields,
-            } => {
-                sym_kind = SymbolKind::Union;
-                Def::Union(UnionDef {
-                    id: def_id,
-                    name,
-                    vis,
-                    parent_module: self.current_module,
-                    is_imported: self.current_module_imported,
-                    generics,
-                    where_clauses,
-                    fields,
-                    is_extern: is_extern || target_extern,
-                    span,
-                    docs: Self::take_docs_if_present(docs),
-                })
-            }
-            TypeKind::Enum {
-                backing_type,
-                variants,
-            } => {
-                if is_extern {
-                    self.ctx
-                        .struct_error(span, "enum types do not support `extern`")
-                        .with_hint("use `extern` on structs or unions for C-ABI layout control")
-                        .emit();
-                }
-                sym_kind = SymbolKind::Enum;
-                Def::Enum(EnumDef {
-                    id: def_id,
-                    name,
-                    vis,
-                    is_imported: self.current_module_imported,
-                    generics,
-                    where_clauses,
-                    backing_type,
-                    variants,
-                    span,
-                    docs: Self::take_docs_if_present(docs),
-                })
-            }
-            TypeKind::Trait {
-                assoc_types,
-                methods,
-            } => {
-                sym_kind = SymbolKind::Trait;
-                pending_trait_assoc_types = Some(assoc_types);
-                Def::Trait(TraitDef {
-                    id: def_id,
-                    name,
-                    vis,
-                    is_imported: self.current_module_imported,
-                    generics,
-                    where_clauses,
-                    supertraits: bounds,
-                    assoc_types: Vec::new(),
-                    methods,
-                    resolved_methods: Vec::new(),
-                    resolved_supertraits: Vec::new(),
-                    is_builtin: false,
-                    span,
-                    docs: Self::take_docs_if_present(docs),
-                })
-            }
-            kind => Def::TypeAlias(TypeAliasDef {
-                id: def_id,
-                name,
-                vis,
-                is_imported: self.current_module_imported,
-                generics,
-                where_clauses,
-                target: ast::TypeNode {
-                    id: target_id,
-                    span: target_span,
-                    kind,
-                },
-                span,
-                docs: Self::take_docs_if_present(docs),
-            }),
-        };
-
-        self.ctx.add_def(def);
-        self.ctx
-            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
-        if let Some(assoc_types) = pending_trait_assoc_types {
-            let assoc_type_ids = self.collect_trait_assoc_types_owned(def_id, assoc_types);
-            if let Def::Trait(trait_def) = &mut self.ctx.defs[def_id.0 as usize] {
-                trait_def.assoc_types = assoc_type_ids;
-            }
-        }
-        self.define_symbol(SymbolDefSpec {
+        self.ctx.add_def(Def::TypeAlias(TypeAliasDef {
+            id: def_id,
             name,
-            kind: sym_kind,
-            node_id,
-            def_id: Some(def_id),
-            span: name_span,
             vis,
-            is_mut: false,
-        });
+            is_imported: self.current_module_imported,
+            generics,
+            where_clauses,
+            target,
+            span,
+            docs: Self::take_docs_if_present(docs),
+        }));
+        self.define_collected_item(def_id, name, SymbolKind::TypeAlias, node_id, name_span, vis);
 
         Some(def_id)
     }
@@ -1182,10 +1337,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 }
             } else if let DeclKind::TypeAlias {
                 generics,
-                bounds,
                 where_clauses,
                 target,
-                is_extern: false,
             } = &method_decl.kind
             {
                 if trait_type.is_none() {
@@ -1194,13 +1347,6 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         "associated type definitions are only allowed in trait impls",
                     );
                     continue;
-                }
-                if let Some(first_bound) = bounds.first() {
-                    self.emit_impl_assoc_type_bounds_error(
-                        method_decl.name,
-                        method_decl.span,
-                        first_bound.span,
-                    );
                 }
                 let def_id = DefId(self.ctx.defs.len() as u32);
                 self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
@@ -1307,10 +1453,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     kind:
                         DeclKind::TypeAlias {
                             generics,
-                            bounds,
                             where_clauses,
                             target,
-                            is_extern: false,
                         },
                     ..
                 } => {
@@ -1320,9 +1464,6 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                             "associated type definitions are only allowed in trait impls",
                         );
                         continue;
-                    }
-                    if let Some(first_bound) = bounds.first() {
-                        self.emit_impl_assoc_type_bounds_error(name, span, first_bound.span);
                     }
                     let def_id = DefId(self.ctx.defs.len() as u32);
                     self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {

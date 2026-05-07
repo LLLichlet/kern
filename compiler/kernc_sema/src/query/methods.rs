@@ -892,6 +892,17 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
         for (method_name, method_ty) in &trait_def.resolved_methods {
             let mut method_ty = *method_ty;
+            if let Some(trait_arg_map) = trait_arg_map.as_ref() {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
+                method_ty = subst.substitute(method_ty);
+            }
+            method_ty = self.materialize_trait_assoc_placeholders(
+                method_ty,
+                receiver_ty,
+                trait_def_id,
+                trait_args,
+                assoc_bindings,
+            );
             if let TypeKind::Function {
                 params,
                 ret,
@@ -908,18 +919,6 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     is_variadic: *is_variadic,
                 });
             }
-
-            if let Some(trait_arg_map) = trait_arg_map.as_ref() {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
-                method_ty = subst.substitute(method_ty);
-            }
-            method_ty = self.materialize_trait_assoc_placeholders(
-                method_ty,
-                receiver_ty,
-                trait_def_id,
-                trait_args,
-                assoc_bindings,
-            );
 
             push_member_candidate(
                 candidates,
@@ -1045,6 +1044,17 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             .find(|(name, _)| *name == member_name)
         {
             let mut method_ty = *method_ty;
+            if let Some(trait_arg_map) = trait_arg_map.as_ref() {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
+                method_ty = subst.substitute(method_ty);
+            }
+            method_ty = self.materialize_trait_assoc_placeholders(
+                method_ty,
+                receiver_ty,
+                trait_def_id,
+                trait_args,
+                assoc_bindings,
+            );
             if let TypeKind::Function {
                 params,
                 ret,
@@ -1061,18 +1071,6 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     is_variadic: *is_variadic,
                 });
             }
-
-            if let Some(trait_arg_map) = trait_arg_map.as_ref() {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
-                method_ty = subst.substitute(method_ty);
-            }
-            method_ty = self.materialize_trait_assoc_placeholders(
-                method_ty,
-                receiver_ty,
-                trait_def_id,
-                trait_args,
-                assoc_bindings,
-            );
 
             let owner_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
                 trait_def_id,

@@ -43,7 +43,7 @@ use ..parser.{
     skip_ws,
 };
 
-pub/ type OwnedValue = enum {
+pub/ enum OwnedValue {
     Null,
     Bool: bool,
     Number: String,
@@ -52,19 +52,19 @@ pub/ type OwnedValue = enum {
     Object: OwnedObject,
 };
 
-type OwnedValueNodeBlock = struct {
-    next: ?*mut OwnedValueNodeBlock,
+struct OwnedValueNodeBlock {
+    next: ?&mut OwnedValueNodeBlock,
     used: usize = 0,
     capacity: usize = 0,
 };
 
-type FreedOwnedValueNode = struct {
-    next: ?*mut OwnedValue,
+struct FreedOwnedValueNode {
+    next: ?&mut OwnedValue,
 };
 
-type OwnedValuePool = struct {
-    blocks: ?*mut OwnedValueNodeBlock = .None,
-    free: ?*mut OwnedValue = .None,
+struct OwnedValuePool {
+    blocks: ?&mut OwnedValueNodeBlock = .None,
+    free: ?&mut OwnedValue = .None,
     next_block_capacity: usize = 8,
 };
 
@@ -76,17 +76,17 @@ const OWNED_VALUE_BLOCK_ENTRIES_OFFSET =
     (@sizeOf[OwnedValueNodeBlock]() + (OWNED_VALUE_ENTRIES_ALIGN - 1))
     & ~(OWNED_VALUE_ENTRIES_ALIGN - 1);
 
-pub/ type OwnedArray = struct {
-    pub items: List[*mut OwnedValue] = List[*mut OwnedValue].{},
+pub/ struct OwnedArray {
+    pub items: List[&mut OwnedValue] = List[&mut OwnedValue].{},
     nodes: OwnedValuePool = OwnedValuePool.{},
 };
 
-pub/ type OwnedObjectEntry = struct {
+pub/ struct OwnedObjectEntry {
     pub key: String = String.{},
-    pub value: *mut OwnedValue,
+    pub value: &mut OwnedValue,
 };
 
-pub/ type OwnedObject = struct {
+pub/ struct OwnedObject {
     pub entries: List[OwnedObjectEntry] = List[OwnedObjectEntry].{},
     nodes: OwnedValuePool = OwnedValuePool.{},
 };
@@ -114,9 +114,9 @@ fn owned_value_block_layout(capacity: usize) ?Layout {
     } };
 }
 
-fn owned_value_block_entries(block: *mut OwnedValueNodeBlock) *mut OwnedValue {
-    let block_bytes = block as *mut u8;
-    return (block_bytes + OWNED_VALUE_BLOCK_ENTRIES_OFFSET) as *mut OwnedValue;
+fn owned_value_block_entries(block: &mut OwnedValueNodeBlock) &mut OwnedValue {
+    let block_bytes = block as &mut u8;
+    return (block_bytes + OWNED_VALUE_BLOCK_ENTRIES_OFFSET) as &mut OwnedValue;
 }
 
 fn owned_value_pool_next_capacity(current: usize) usize {
@@ -130,7 +130,7 @@ fn owned_value_pool_next_capacity(current: usize) usize {
 }
 
 impl OwnedObjectEntry {
-    pub fn key_eq(name: []u8) bool {
+    pub fn key_eq(name: &[u8]) bool {
         return self.key.&.as_str() == name;
     }
 
@@ -138,11 +138,11 @@ impl OwnedObjectEntry {
         return self.value.bool_value();
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         return self.value.number_text();
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         return self.value.string_text();
     }
 
@@ -195,18 +195,18 @@ impl OwnedObjectEntry {
     }
 }
 
-fn deinit_owned_value_contents(alloc: *mut Allocator, value: *mut OwnedValue) void {
+fn deinit_owned_value_contents(alloc: &mut Allocator, value: &mut OwnedValue) void {
     value.deinit(alloc);
 }
 
-fn deinit_owned_object_entry_contents(alloc: *mut Allocator, entry: *mut OwnedObjectEntry) void {
+fn deinit_owned_object_entry_contents(alloc: &mut Allocator, entry: &mut OwnedObjectEntry) void {
     entry.*.key..&.deinit(alloc);
     deinit_owned_value_contents(alloc, entry.*.value);
 }
 
-impl *mut OwnedValuePool {
+impl &mut OwnedValuePool {
     #[inline]
-    fn grow(alloc: *mut Allocator) bool {
+    fn grow(alloc: &mut Allocator) bool {
         let capacity = if (self.*.next_block_capacity == 0) {
             usize.{8}
         } else {
@@ -215,7 +215,7 @@ impl *mut OwnedValuePool {
         let .{ Some: layout } = owned_value_block_layout(capacity) else return false;
         let .{ Some: raw } = alloc.alloc(layout) else return false;
 
-        let block = raw as *mut OwnedValueNodeBlock;
+        let block = raw as &mut OwnedValueNodeBlock;
         block.next = self.*.blocks;
         block.used = 0;
         block.capacity = capacity;
@@ -225,7 +225,7 @@ impl *mut OwnedValuePool {
     }
 
     #[inline]
-    fn alloc_node_fresh(alloc: *mut Allocator, value: OwnedValue) ?*mut OwnedValue {
+    fn alloc_node_fresh(alloc: &mut Allocator, value: OwnedValue) ?&mut OwnedValue {
         let needs_grow = match (self.*.blocks) {
             .None => true,
             .{ Some: block } => block.used == block.capacity,
@@ -244,10 +244,10 @@ impl *mut OwnedValuePool {
     }
 
     #[inline]
-    fn alloc_node(alloc: *mut Allocator, value: OwnedValue) ?*mut OwnedValue {
+    fn alloc_node(alloc: &mut Allocator, value: OwnedValue) ?&mut OwnedValue {
         let ptr = if (self.*.free.is_some()) {
             let .{ Some: ptr } = self.*.free else return .None;
-            let slot = ptr as *mut FreedOwnedValueNode;
+            let slot = ptr as &mut FreedOwnedValueNode;
             self.*.free = slot.next;
             ptr
         } else {
@@ -270,26 +270,26 @@ impl *mut OwnedValuePool {
         return .{ Some: ptr };
     }
 
-    fn free_node(node: *mut OwnedValue) void {
-        let slot = node as *mut FreedOwnedValueNode;
+    fn free_node(node: &mut OwnedValue) void {
+        let slot = node as &mut FreedOwnedValueNode;
         slot.next = self.*.free;
         self.*.free = .{ Some: node };
     }
 
-    fn deinit(alloc: *mut Allocator) void {
+    fn deinit(alloc: &mut Allocator) void {
         let mut block = self.*.blocks;
         while (block.is_some()) {
             let .{ Some: current } = block else break;
             let next = current.next;
             let .{ Some: layout } = owned_value_block_layout(current.capacity) else break;
-            alloc.free(current as *mut u8, layout);
+            alloc.free(current as &mut u8, layout);
             block = next;
         }
         self.* = OwnedValuePool.{};
     }
 }
 
-fn clone_number_text(alloc: *mut Allocator, raw: []u8) String!MaterializeError {
+fn clone_number_text(alloc: &mut Allocator, raw: &[u8]) String!MaterializeError {
     let mut out = String.{};
     if (!out..&.clone_from_exact(alloc, raw)) {
         return .{ Err: MaterializeError.OutOfMemory };
@@ -297,7 +297,7 @@ fn clone_number_text(alloc: *mut Allocator, raw: []u8) String!MaterializeError {
     return .{ Ok: out };
 }
 
-fn clone_number_text_in_arena(arena: *mut Arena, raw: []u8) String!MaterializeError {
+fn clone_number_text_in_arena(arena: &mut Arena, raw: &[u8]) String!MaterializeError {
     let mut out = String.{};
     if (!out..&.clone_from_exact_in_arena(arena, raw)) {
         return .{ Err: MaterializeError.OutOfMemory };
@@ -305,7 +305,7 @@ fn clone_number_text_in_arena(arena: *mut Arena, raw: []u8) String!MaterializeEr
     return .{ Ok: out };
 }
 
-fn clone_owned_text(alloc: *mut Allocator, text: []u8) String!OwnedBuildError {
+fn clone_owned_text(alloc: &mut Allocator, text: &[u8]) String!OwnedBuildError {
     let mut out = String.{};
     if (!out..&.clone_from_exact(alloc, text)) {
         return .{ Err: OwnedBuildError.OutOfMemory };
@@ -313,12 +313,12 @@ fn clone_owned_text(alloc: *mut Allocator, text: []u8) String!OwnedBuildError {
     return .{ Ok: out };
 }
 
-type OwnedParsedValue = struct {
+struct OwnedParsedValue {
     value: OwnedValue,
     next: usize,
 };
 
-fn parse_owned_null(text: []u8, start: usize) OwnedParsedValue!MaterializeError {
+fn parse_owned_null(text: &[u8], start: usize) OwnedParsedValue!MaterializeError {
     let .{ Ok: span } = parse_literal(text, start, "null", Kind.Null)
         else {
             .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -327,9 +327,9 @@ fn parse_owned_null(text: []u8, start: usize) OwnedParsedValue!MaterializeError 
 }
 
 fn parse_owned_bool(
-    text: []u8,
+    text: &[u8],
     start: usize,
-    literal: []u8,
+    literal: &[u8],
     value: bool,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: span } = parse_literal(text, start, literal, Kind.Bool)
@@ -340,15 +340,15 @@ fn parse_owned_bool(
 }
 
 fn parse_owned_number(
-    alloc: *mut Allocator,
-    text: []u8,
+    alloc: &mut Allocator,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_number_end(text, start)
         else {
             .{ Err: err } => return .{ Err: .{ Parse: err } },
         };
-    let .{ Ok: number } = clone_number_text(alloc, text.[start .. next])
+    let .{ Ok: number } = clone_number_text(alloc, text.&[start .. next])
         else {
             .{ Err: err } => return .{ Err: err },
         };
@@ -356,15 +356,15 @@ fn parse_owned_number(
 }
 
 fn parse_owned_number_in_arena(
-    arena: *mut Arena,
-    text: []u8,
+    arena: &mut Arena,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_number_end(text, start)
         else {
             .{ Err: err } => return .{ Err: .{ Parse: err } },
         };
-    let .{ Ok: number } = clone_number_text_in_arena(arena, text.[start .. next])
+    let .{ Ok: number } = clone_number_text_in_arena(arena, text.&[start .. next])
         else {
             .{ Err: err } => return .{ Err: err },
         };
@@ -372,15 +372,15 @@ fn parse_owned_number_in_arena(
 }
 
 fn parse_owned_string(
-    alloc: *mut Allocator,
-    text: []u8,
+    alloc: &mut Allocator,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_string_end(text, start)
         else {
             .{ Err: err } => return .{ Err: .{ Parse: err } },
         };
-    let .{ Ok: string } = clone_decoded_parsed_string_raw(alloc, text.[start .. next])
+    let .{ Ok: string } = clone_decoded_parsed_string_raw(alloc, text.&[start .. next])
         else {
             .{ Err: err } => return .{ Err: .{ String: err } },
         };
@@ -388,15 +388,15 @@ fn parse_owned_string(
 }
 
 fn parse_owned_string_in_arena(
-    arena: *mut Arena,
-    text: []u8,
+    arena: &mut Arena,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let .{ Ok: next } = parse_string_end(text, start)
         else {
             .{ Err: err } => return .{ Err: .{ Parse: err } },
         };
-    let .{ Ok: string } = clone_decoded_parsed_string_raw_in_arena(arena, text.[start .. next])
+    let .{ Ok: string } = clone_decoded_parsed_string_raw_in_arena(arena, text.&[start .. next])
         else {
             .{ Err: err } => return .{ Err: .{ String: err } },
         };
@@ -404,8 +404,8 @@ fn parse_owned_string_in_arena(
 }
 
 fn parse_owned_array_from_start(
-    alloc: *mut Allocator,
-    text: []u8,
+    alloc: &mut Allocator,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let mut out = OwnedArray.{};
@@ -468,13 +468,13 @@ fn parse_owned_array_from_start(
 }
 
 fn parse_owned_array_from_start_in_arena(
-    arena: *mut Arena,
-    text: []u8,
+    arena: &mut Arena,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let mut out = OwnedArray.{};
     let mut saw_item = false;
-    let alloc = *mut Allocator.{ arena };
+    let alloc = &mut Allocator.{ arena };
     if (start >= #text or text.[start] != b'[') {
         return .{ Err: .{ Parse: .{ UnexpectedByte: start } } };
     }
@@ -533,8 +533,8 @@ fn parse_owned_array_from_start_in_arena(
 }
 
 fn parse_owned_object_from_start(
-    alloc: *mut Allocator,
-    text: []u8,
+    alloc: &mut Allocator,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let mut out = OwnedObject.{};
@@ -569,7 +569,7 @@ fn parse_owned_object_from_start(
                     return .{ Err: .{ Parse: err } };
                 },
             };
-        let .{ Ok: mut key } = clone_decoded_parsed_string_raw(alloc, text.[field_start .. key_end])
+        let .{ Ok: mut key } = clone_decoded_parsed_string_raw(alloc, text.&[field_start .. key_end])
             else {
                 .{ Err: err } => {
                     out..&.deinit(alloc);
@@ -638,13 +638,13 @@ fn parse_owned_object_from_start(
 }
 
 fn parse_owned_object_from_start_in_arena(
-    arena: *mut Arena,
-    text: []u8,
+    arena: &mut Arena,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     let mut out = OwnedObject.{};
     let mut saw_field = false;
-    let alloc = *mut Allocator.{ arena };
+    let alloc = &mut Allocator.{ arena };
     if (start >= #text or text.[start] != b'{') {
         return .{ Err: .{ Parse: .{ UnexpectedByte: start } } };
     }
@@ -675,7 +675,7 @@ fn parse_owned_object_from_start_in_arena(
                     return .{ Err: .{ Parse: err } };
                 },
             };
-        let .{ Ok: mut key } = clone_decoded_parsed_string_raw_in_arena(arena, text.[field_start .. key_end])
+        let .{ Ok: mut key } = clone_decoded_parsed_string_raw_in_arena(arena, text.&[field_start .. key_end])
             else {
                 .{ Err: err } => {
                     out..&.deinit(alloc);
@@ -744,8 +744,8 @@ fn parse_owned_object_from_start_in_arena(
 }
 
 fn parse_owned_value_from_start(
-    alloc: *mut Allocator,
-    text: []u8,
+    alloc: &mut Allocator,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     if (start >= #text) {
@@ -769,8 +769,8 @@ fn parse_owned_value_from_start(
 }
 
 fn parse_owned_value_from_start_in_arena(
-    arena: *mut Arena,
-    text: []u8,
+    arena: &mut Arena,
+    text: &[u8],
     start: usize,
 ) OwnedParsedValue!MaterializeError {
     if (start >= #text) {
@@ -793,7 +793,7 @@ fn parse_owned_value_from_start_in_arena(
     };
 }
 
-fn clone_owned_array(alloc: *mut Allocator, value: Value) OwnedArray!MaterializeError {
+fn clone_owned_array(alloc: &mut Allocator, value: Value) OwnedArray!MaterializeError {
     let start = skip_ws(value.raw, 0);
     let .{ Ok: parsed } = parse_owned_array_from_start(alloc, value.raw, start)
         else {
@@ -813,7 +813,7 @@ fn clone_owned_array(alloc: *mut Allocator, value: Value) OwnedArray!Materialize
     };
 }
 
-fn unexpected_kind(value: *mut OwnedValue) FieldDecodeError {
+fn unexpected_kind(value: &mut OwnedValue) FieldDecodeError {
     return .{ UnexpectedKind: value.kind() };
 }
 
@@ -825,93 +825,93 @@ fn wrap_float_error(err: FloatDecodeError) FieldDecodeError {
     return .{ Float: err };
 }
 
-fn require_bool_value(value: *mut OwnedValue) bool!FieldDecodeError {
+fn require_bool_value(value: &mut OwnedValue) bool!FieldDecodeError {
     return value.bool_value().ok_or(unexpected_kind(value));
 }
 
-fn require_number_text_value(value: *mut OwnedValue) ([]u8)!FieldDecodeError {
+fn require_number_text_value(value: &mut OwnedValue) (&[u8])!FieldDecodeError {
     return value.number_text().ok_or(unexpected_kind(value));
 }
 
-fn require_string_text_value(value: *mut OwnedValue) ([]u8)!FieldDecodeError {
+fn require_string_text_value(value: &mut OwnedValue) (&[u8])!FieldDecodeError {
     return value.string_text().ok_or(unexpected_kind(value));
 }
 
-fn require_array_value(value: *mut OwnedValue) (*mut OwnedValue)!FieldDecodeError {
+fn require_array_value(value: &mut OwnedValue) (&mut OwnedValue)!FieldDecodeError {
     if (!value.is_array()) {
         return .{ Err: unexpected_kind(value) };
     }
     return .{ Ok: value };
 }
 
-fn require_object_value(value: *mut OwnedValue) (*mut OwnedValue)!FieldDecodeError {
+fn require_object_value(value: &mut OwnedValue) (&mut OwnedValue)!FieldDecodeError {
     if (!value.is_object()) {
         return .{ Err: unexpected_kind(value) };
     }
     return .{ Ok: value };
 }
 
-fn require_u64_value(value: *mut OwnedValue) u64!FieldDecodeError {
+fn require_u64_value(value: &mut OwnedValue) u64!FieldDecodeError {
     let out = value.u64_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_u32_value(value: *mut OwnedValue) u32!FieldDecodeError {
+fn require_u32_value(value: &mut OwnedValue) u32!FieldDecodeError {
     let out = value.u32_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_u16_value(value: *mut OwnedValue) u16!FieldDecodeError {
+fn require_u16_value(value: &mut OwnedValue) u16!FieldDecodeError {
     let out = value.u16_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_u8_value(value: *mut OwnedValue) u8!FieldDecodeError {
+fn require_u8_value(value: &mut OwnedValue) u8!FieldDecodeError {
     let out = value.u8_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_i64_value(value: *mut OwnedValue) i64!FieldDecodeError {
+fn require_i64_value(value: &mut OwnedValue) i64!FieldDecodeError {
     let out = value.i64_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_i32_value(value: *mut OwnedValue) i32!FieldDecodeError {
+fn require_i32_value(value: &mut OwnedValue) i32!FieldDecodeError {
     let out = value.i32_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_i16_value(value: *mut OwnedValue) i16!FieldDecodeError {
+fn require_i16_value(value: &mut OwnedValue) i16!FieldDecodeError {
     let out = value.i16_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_i8_value(value: *mut OwnedValue) i8!FieldDecodeError {
+fn require_i8_value(value: &mut OwnedValue) i8!FieldDecodeError {
     let out = value.i8_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_usize_value(value: *mut OwnedValue) usize!FieldDecodeError {
+fn require_usize_value(value: &mut OwnedValue) usize!FieldDecodeError {
     let out = value.usize_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_isize_value(value: *mut OwnedValue) isize!FieldDecodeError {
+fn require_isize_value(value: &mut OwnedValue) isize!FieldDecodeError {
     let out = value.isize_value().map_err(wrap_number_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_f64_value(value: *mut OwnedValue) f64!FieldDecodeError {
+fn require_f64_value(value: &mut OwnedValue) f64!FieldDecodeError {
     let out = value.f64_value().map_err(wrap_float_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn require_f32_value(value: *mut OwnedValue) f32!FieldDecodeError {
+fn require_f32_value(value: &mut OwnedValue) f32!FieldDecodeError {
     let out = value.f32_value().map_err(wrap_float_error).!;
     return out.ok_or(unexpected_kind(value));
 }
 
-fn clone_owned_object(alloc: *mut Allocator, value: Value) OwnedObject!MaterializeError {
+fn clone_owned_object(alloc: &mut Allocator, value: Value) OwnedObject!MaterializeError {
     let start = skip_ws(value.raw, 0);
     let .{ Ok: parsed } = parse_owned_object_from_start(alloc, value.raw, start)
         else {
@@ -931,7 +931,7 @@ fn clone_owned_object(alloc: *mut Allocator, value: Value) OwnedObject!Materiali
     };
 }
 
-pub/ fn clone_owned_value(alloc: *mut Allocator, value: Value) OwnedValue!MaterializeError {
+pub/ fn clone_owned_value(alloc: &mut Allocator, value: Value) OwnedValue!MaterializeError {
     return match (value.kind) {
         .Null => .{ Ok: OwnedValue.Null },
         .Bool => .{ Ok: .{ Bool: value.raw == "true" } },
@@ -954,7 +954,7 @@ pub/ fn clone_owned_value(alloc: *mut Allocator, value: Value) OwnedValue!Materi
     };
 }
 
-pub/ fn clone_owned_value_in_arena(arena: *mut Arena, value: Value) OwnedValue!MaterializeError {
+pub/ fn clone_owned_value_in_arena(arena: &mut Arena, value: Value) OwnedValue!MaterializeError {
     return match (value.kind) {
         .Null => .{ Ok: OwnedValue.Null },
         .Bool => .{ Ok: .{ Bool: value.raw == "true" } },
@@ -983,14 +983,14 @@ pub/ fn clone_owned_value_in_arena(arena: *mut Arena, value: Value) OwnedValue!M
     };
 }
 
-impl *mut OwnedObjectEntry {
-    pub fn deinit(alloc: *mut Allocator) void {
+impl &mut OwnedObjectEntry {
+    pub fn deinit(alloc: &mut Allocator) void {
         deinit_owned_object_entry_contents(alloc, self);
     }
 }
 
-impl *mut OwnedArray {
-    pub fn deinit(alloc: *mut Allocator) void {
+impl &mut OwnedArray {
+    pub fn deinit(alloc: &mut Allocator) void {
         let mut i = usize.{0};
         while (i < self.*.items.&.len()) {
             let .{ Some: value } = self.*.items.&.get(i) else { i += 1; continue; };
@@ -1006,7 +1006,7 @@ impl *mut OwnedArray {
     }
 }
 
-impl *OwnedArray {
+impl &OwnedArray {
     pub fn len() usize {
         return self.items.&.len();
     }
@@ -1015,17 +1015,17 @@ impl *OwnedArray {
         return self.items.&.len() == 0;
     }
 
-    pub fn get(index: usize) ?*mut OwnedValue {
+    pub fn get(index: usize) ?&mut OwnedValue {
         return self.items.&.get(index);
     }
 }
 
-impl *mut OwnedArray {
-    pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
+impl &mut OwnedArray {
+    pub fn reserve(alloc: &mut Allocator, additional: usize) bool {
         return self.*.items..&.reserve(alloc, additional);
     }
 
-    pub fn push(alloc: *mut Allocator, value: OwnedValue) (*mut OwnedValue)!OwnedBuildError {
+    pub fn push(alloc: &mut Allocator, value: OwnedValue) (&mut OwnedValue)!OwnedBuildError {
         let mut owned_value = value;
         let .{ Some: value_ptr } = self.*.nodes..&.alloc_node(alloc, owned_value) else {
             owned_value..&.deinit(alloc);
@@ -1039,7 +1039,7 @@ impl *mut OwnedArray {
         return .{ Ok: value_ptr };
     }
 
-    pub fn push_string(alloc: *mut Allocator, text: []u8) (*mut OwnedValue)!OwnedBuildError {
+    pub fn push_string(alloc: &mut Allocator, text: &[u8]) (&mut OwnedValue)!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1048,9 +1048,9 @@ impl *mut OwnedArray {
     }
 
     pub fn push_number_text(
-        alloc: *mut Allocator,
-        text: []u8,
-    ) (*mut OwnedValue)!OwnedBuildError {
+        alloc: &mut Allocator,
+        text: &[u8],
+    ) (&mut OwnedValue)!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1058,28 +1058,28 @@ impl *mut OwnedArray {
         return self.push(alloc, .{ Number: text });
     }
 
-    pub fn pop(alloc: *mut Allocator) ?OwnedValue {
+    pub fn pop(alloc: &mut Allocator) ?OwnedValue {
         let .{ Some: value } = self.*.items..&.pop() else return .None;
         let owned = value.*;
         self.*.nodes..&.free_node(value);
         return .{ Some: owned };
     }
 
-    pub fn remove(index: usize, alloc: *mut Allocator) ?OwnedValue {
+    pub fn remove(index: usize, alloc: &mut Allocator) ?OwnedValue {
         let .{ Some: value } = self.*.items..&.remove(index) else return .None;
         let owned = value.*;
         self.*.nodes..&.free_node(value);
         return .{ Some: owned };
     }
 
-    pub fn clear(alloc: *mut Allocator) void {
+    pub fn clear(alloc: &mut Allocator) void {
         self.deinit(alloc);
         self.* = OwnedArray.{};
     }
 }
 
-impl *mut OwnedObject {
-    pub fn deinit(alloc: *mut Allocator) void {
+impl &mut OwnedObject {
+    pub fn deinit(alloc: &mut Allocator) void {
         let mut i = usize.{0};
         while (i < self.*.entries.&.len()) {
             let .{ Some: mut entry } = self.*.entries.&.get(i) else { i += 1; continue; };
@@ -1091,7 +1091,7 @@ impl *mut OwnedObject {
     }
 }
 
-impl *OwnedObject {
+impl &OwnedObject {
     pub fn len() usize {
         return self.entries.&.len();
     }
@@ -1104,7 +1104,7 @@ impl *OwnedObject {
         return self.entries.&.get(index);
     }
 
-    pub fn get_field(name: []u8) ?OwnedObjectEntry {
+    pub fn get_field(name: &[u8]) ?OwnedObjectEntry {
         let mut i = usize.{0};
         while (i < self.entries.&.len()) {
             let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
@@ -1116,12 +1116,12 @@ impl *OwnedObject {
         return .None;
     }
 
-    pub fn get_value(name: []u8) ?*mut OwnedValue {
+    pub fn get_value(name: &[u8]) ?&mut OwnedValue {
         let .{ Some: entry } = self.get_field(name) else return .None;
         return .{ Some: entry.value };
     }
 
-    pub fn get_last_field(name: []u8) ?OwnedObjectEntry {
+    pub fn get_last_field(name: &[u8]) ?OwnedObjectEntry {
         let mut found = ?OwnedObjectEntry.None;
         let mut i = usize.{0};
         while (i < self.entries.&.len()) {
@@ -1134,7 +1134,7 @@ impl *OwnedObject {
         return found;
     }
 
-    pub fn count_fields(name: []u8) usize {
+    pub fn count_fields(name: &[u8]) usize {
         let mut total = usize.{0};
         let mut i = usize.{0};
         while (i < self.entries.&.len()) {
@@ -1147,7 +1147,7 @@ impl *OwnedObject {
         return total;
     }
 
-    pub fn collect_fields(name: []u8, out: []mut OwnedObjectEntry) usize {
+    pub fn collect_fields(name: &[u8], out: &mut [OwnedObjectEntry]) usize {
         let mut total = usize.{0};
         let mut i = usize.{0};
         while (i < self.entries.&.len()) {
@@ -1165,8 +1165,8 @@ impl *OwnedObject {
         return total;
     }
 
-    pub fn require_value(name: []u8) (*mut OwnedValue)!FieldDecodeError {
-        let mut found = (?*mut OwnedValue).None;
+    pub fn require_value(name: &[u8]) (&mut OwnedValue)!FieldDecodeError {
+        let mut found = (?&mut OwnedValue).None;
         let mut total = usize.{0};
         let mut i = usize.{0};
         while (i < self.entries.&.len()) {
@@ -1191,7 +1191,7 @@ impl *OwnedObject {
         return .{ Ok: found };
     }
 
-    pub fn require_bool(name: []u8) bool!FieldDecodeError {
+    pub fn require_bool(name: &[u8]) bool!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1199,7 +1199,7 @@ impl *OwnedObject {
         return require_bool_value(value);
     }
 
-    pub fn require_number_text(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_number_text(name: &[u8]) (&[u8])!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1207,7 +1207,7 @@ impl *OwnedObject {
         return require_number_text_value(value);
     }
 
-    pub fn require_string(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_string(name: &[u8]) (&[u8])!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1215,7 +1215,7 @@ impl *OwnedObject {
         return require_string_text_value(value);
     }
 
-    pub fn require_array(name: []u8) (*mut OwnedValue)!FieldDecodeError {
+    pub fn require_array(name: &[u8]) (&mut OwnedValue)!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1223,7 +1223,7 @@ impl *OwnedObject {
         return require_array_value(value);
     }
 
-    pub fn require_object(name: []u8) (*mut OwnedValue)!FieldDecodeError {
+    pub fn require_object(name: &[u8]) (&mut OwnedValue)!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1231,7 +1231,7 @@ impl *OwnedObject {
         return require_object_value(value);
     }
 
-    pub fn require_u64(name: []u8) u64!FieldDecodeError {
+    pub fn require_u64(name: &[u8]) u64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1239,7 +1239,7 @@ impl *OwnedObject {
         return require_u64_value(value);
     }
 
-    pub fn require_u32(name: []u8) u32!FieldDecodeError {
+    pub fn require_u32(name: &[u8]) u32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1247,7 +1247,7 @@ impl *OwnedObject {
         return require_u32_value(value);
     }
 
-    pub fn require_u16(name: []u8) u16!FieldDecodeError {
+    pub fn require_u16(name: &[u8]) u16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1255,7 +1255,7 @@ impl *OwnedObject {
         return require_u16_value(value);
     }
 
-    pub fn require_u8(name: []u8) u8!FieldDecodeError {
+    pub fn require_u8(name: &[u8]) u8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1263,7 +1263,7 @@ impl *OwnedObject {
         return require_u8_value(value);
     }
 
-    pub fn require_i64(name: []u8) i64!FieldDecodeError {
+    pub fn require_i64(name: &[u8]) i64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1271,7 +1271,7 @@ impl *OwnedObject {
         return require_i64_value(value);
     }
 
-    pub fn require_i32(name: []u8) i32!FieldDecodeError {
+    pub fn require_i32(name: &[u8]) i32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1279,7 +1279,7 @@ impl *OwnedObject {
         return require_i32_value(value);
     }
 
-    pub fn require_i16(name: []u8) i16!FieldDecodeError {
+    pub fn require_i16(name: &[u8]) i16!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1287,7 +1287,7 @@ impl *OwnedObject {
         return require_i16_value(value);
     }
 
-    pub fn require_i8(name: []u8) i8!FieldDecodeError {
+    pub fn require_i8(name: &[u8]) i8!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1295,7 +1295,7 @@ impl *OwnedObject {
         return require_i8_value(value);
     }
 
-    pub fn require_usize(name: []u8) usize!FieldDecodeError {
+    pub fn require_usize(name: &[u8]) usize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1303,7 +1303,7 @@ impl *OwnedObject {
         return require_usize_value(value);
     }
 
-    pub fn require_isize(name: []u8) isize!FieldDecodeError {
+    pub fn require_isize(name: &[u8]) isize!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1311,7 +1311,7 @@ impl *OwnedObject {
         return require_isize_value(value);
     }
 
-    pub fn require_f64(name: []u8) f64!FieldDecodeError {
+    pub fn require_f64(name: &[u8]) f64!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1319,7 +1319,7 @@ impl *OwnedObject {
         return require_f64_value(value);
     }
 
-    pub fn require_f32(name: []u8) f32!FieldDecodeError {
+    pub fn require_f32(name: &[u8]) f32!FieldDecodeError {
         let .{ Ok: value } = self.require_value(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1327,22 +1327,22 @@ impl *OwnedObject {
         return require_f32_value(value);
     }
 
-    pub fn get_bool(name: []u8) ?bool {
+    pub fn get_bool(name: &[u8]) ?bool {
         let .{ Some: value } = self.get_value(name) else return .None;
         return value.bool_value();
     }
 
-    pub fn get_number_text(name: []u8) ?[]u8 {
+    pub fn get_number_text(name: &[u8]) ?&[u8] {
         let .{ Some: value } = self.get_value(name) else return .None;
         return value.number_text();
     }
 
-    pub fn get_string(name: []u8) ?[]u8 {
+    pub fn get_string(name: &[u8]) ?&[u8] {
         let .{ Some: value } = self.get_value(name) else return .None;
         return value.string_text();
     }
 
-    pub fn get_array(name: []u8) ?*mut OwnedValue {
+    pub fn get_array(name: &[u8]) ?&mut OwnedValue {
         let .{ Some: value } = self.get_value(name) else return .None;
         if (!value.is_array()) {
             return .None;
@@ -1350,7 +1350,7 @@ impl *OwnedObject {
         return .{ Some: value };
     }
 
-    pub fn get_object(name: []u8) ?*mut OwnedValue {
+    pub fn get_object(name: &[u8]) ?&mut OwnedValue {
         let .{ Some: value } = self.get_value(name) else return .None;
         if (!value.is_object()) {
             return .None;
@@ -1358,81 +1358,81 @@ impl *OwnedObject {
         return .{ Some: value };
     }
 
-    pub fn get_u64(name: []u8) ?u64!NumberDecodeError {
+    pub fn get_u64(name: &[u8]) ?u64!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u64_value();
     }
 
-    pub fn get_u32(name: []u8) ?u32!NumberDecodeError {
+    pub fn get_u32(name: &[u8]) ?u32!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u32_value();
     }
 
-    pub fn get_u16(name: []u8) ?u16!NumberDecodeError {
+    pub fn get_u16(name: &[u8]) ?u16!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u16_value();
     }
 
-    pub fn get_u8(name: []u8) ?u8!NumberDecodeError {
+    pub fn get_u8(name: &[u8]) ?u8!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.u8_value();
     }
 
-    pub fn get_i64(name: []u8) ?i64!NumberDecodeError {
+    pub fn get_i64(name: &[u8]) ?i64!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i64_value();
     }
 
-    pub fn get_i32(name: []u8) ?i32!NumberDecodeError {
+    pub fn get_i32(name: &[u8]) ?i32!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i32_value();
     }
 
-    pub fn get_i16(name: []u8) ?i16!NumberDecodeError {
+    pub fn get_i16(name: &[u8]) ?i16!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i16_value();
     }
 
-    pub fn get_i8(name: []u8) ?i8!NumberDecodeError {
+    pub fn get_i8(name: &[u8]) ?i8!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.i8_value();
     }
 
-    pub fn get_usize(name: []u8) ?usize!NumberDecodeError {
+    pub fn get_usize(name: &[u8]) ?usize!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.usize_value();
     }
 
-    pub fn get_isize(name: []u8) ?isize!NumberDecodeError {
+    pub fn get_isize(name: &[u8]) ?isize!NumberDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.isize_value();
     }
 
-    pub fn get_f64(name: []u8) ?f64!FloatDecodeError {
+    pub fn get_f64(name: &[u8]) ?f64!FloatDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.f64_value();
     }
 
-    pub fn get_f32(name: []u8) ?f32!FloatDecodeError {
+    pub fn get_f32(name: &[u8]) ?f32!FloatDecodeError {
         let .{ Some: value } = self.get_value(name) else return .{ Ok: .None };
         return value.f32_value();
     }
 
-    pub fn has_field(name: []u8) bool {
+    pub fn has_field(name: &[u8]) bool {
         return self.get_value(name).is_some();
     }
 }
 
-impl *mut OwnedObject {
-    pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
+impl &mut OwnedObject {
+    pub fn reserve(alloc: &mut Allocator, additional: usize) bool {
         return self.*.entries..&.reserve(alloc, additional);
     }
 
     pub fn append(
-        alloc: *mut Allocator,
-        key: []u8,
+        alloc: &mut Allocator,
+        key: &[u8],
         value: OwnedValue,
-    ) (*mut OwnedValue)!OwnedBuildError {
+    ) (&mut OwnedValue)!OwnedBuildError {
         let .{ Ok: mut owned_key } = clone_owned_text(alloc, key)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1454,10 +1454,10 @@ impl *mut OwnedObject {
     }
 
     pub fn append_string(
-        alloc: *mut Allocator,
-        key: []u8,
-        text: []u8,
-    ) (*mut OwnedValue)!OwnedBuildError {
+        alloc: &mut Allocator,
+        key: &[u8],
+        text: &[u8],
+    ) (&mut OwnedValue)!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1466,10 +1466,10 @@ impl *mut OwnedObject {
     }
 
     pub fn append_number_text(
-        alloc: *mut Allocator,
-        key: []u8,
-        text: []u8,
-    ) (*mut OwnedValue)!OwnedBuildError {
+        alloc: &mut Allocator,
+        key: &[u8],
+        text: &[u8],
+    ) (&mut OwnedValue)!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1478,10 +1478,10 @@ impl *mut OwnedObject {
     }
 
     pub fn set(
-        alloc: *mut Allocator,
-        key: []u8,
+        alloc: &mut Allocator,
+        key: &[u8],
         value: OwnedValue,
-    ) (*mut OwnedValue)!OwnedBuildError {
+    ) (&mut OwnedValue)!OwnedBuildError {
         let mut i = usize.{0};
         while (i < self.*.entries.&.len()) {
             let .{ Some: entry } = self.*.entries..&.get_ptr(i) else { i += 1; continue; };
@@ -1497,7 +1497,7 @@ impl *mut OwnedObject {
         return self.append(alloc, key, value);
     }
 
-    pub fn remove_field(alloc: *mut Allocator, key: []u8) bool {
+    pub fn remove_field(alloc: &mut Allocator, key: &[u8]) bool {
         let mut i = usize.{0};
         while (i < self.*.entries.&.len()) {
             let .{ Some: entry } = self.*.entries.&.get(i) else { i += 1; continue; };
@@ -1514,13 +1514,13 @@ impl *mut OwnedObject {
         return false;
     }
 
-    pub fn clear(alloc: *mut Allocator) void {
+    pub fn clear(alloc: &mut Allocator) void {
         self.deinit(alloc);
         self.* = OwnedObject.{};
     }
 }
 
-impl *mut OwnedValue {
+impl &mut OwnedValue {
     pub fn kind() Kind {
         return match (self.*) {
             .Null => Kind.Null,
@@ -1533,8 +1533,8 @@ impl *mut OwnedValue {
     }
 
     pub fn from_number_text(
-        alloc: *mut Allocator,
-        text: []u8,
+        alloc: &mut Allocator,
+        text: &[u8],
     ) OwnedValue!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
             else {
@@ -1544,8 +1544,8 @@ impl *mut OwnedValue {
     }
 
     pub fn from_string_text(
-        alloc: *mut Allocator,
-        text: []u8,
+        alloc: &mut Allocator,
+        text: &[u8],
     ) OwnedValue!OwnedBuildError {
         let .{ Ok: text } = clone_owned_text(alloc, text)
             else {
@@ -1554,12 +1554,12 @@ impl *mut OwnedValue {
         return .{ Ok: .{ String: text } };
     }
 
-    pub fn replace(alloc: *mut Allocator, value: OwnedValue) void {
+    pub fn replace(alloc: &mut Allocator, value: OwnedValue) void {
         self.deinit(alloc);
         self.* = value;
     }
 
-    pub fn reserve_array_items(alloc: *mut Allocator, additional: usize) bool {
+    pub fn reserve_array_items(alloc: &mut Allocator, additional: usize) bool {
         return match (self.*) {
             .{ Array: mut array } => {
                 let ok = array..&.reserve(alloc, additional);
@@ -1571,9 +1571,9 @@ impl *mut OwnedValue {
     }
 
     pub fn push_array_item(
-        alloc: *mut Allocator,
+        alloc: &mut Allocator,
         value: OwnedValue,
-    ) ?*mut OwnedValue!OwnedBuildError {
+    ) ?&mut OwnedValue!OwnedBuildError {
         return match (self.*) {
             .{ Array: mut array } => {
                 let .{ Ok: item } = array..&.push(alloc, value)
@@ -1588,9 +1588,9 @@ impl *mut OwnedValue {
     }
 
     pub fn push_array_string(
-        alloc: *mut Allocator,
-        text: []u8,
-    ) ?*mut OwnedValue!OwnedBuildError {
+        alloc: &mut Allocator,
+        text: &[u8],
+    ) ?&mut OwnedValue!OwnedBuildError {
         return match (self.*) {
             .{ Array: mut array } => {
                 let .{ Ok: item } = array..&.push_string(alloc, text)
@@ -1605,9 +1605,9 @@ impl *mut OwnedValue {
     }
 
     pub fn push_array_number_text(
-        alloc: *mut Allocator,
-        text: []u8,
-    ) ?*mut OwnedValue!OwnedBuildError {
+        alloc: &mut Allocator,
+        text: &[u8],
+    ) ?&mut OwnedValue!OwnedBuildError {
         return match (self.*) {
             .{ Array: mut array } => {
                 let .{ Ok: item } = array..&.push_number_text(alloc, text)
@@ -1621,7 +1621,7 @@ impl *mut OwnedValue {
         };
     }
 
-    pub fn pop_array_item(alloc: *mut Allocator) ?OwnedValue {
+    pub fn pop_array_item(alloc: &mut Allocator) ?OwnedValue {
         return match (self.*) {
             .{ Array: mut array } => {
                 let item = array..&.pop(alloc);
@@ -1632,7 +1632,7 @@ impl *mut OwnedValue {
         };
     }
 
-    pub fn reserve_object_fields(alloc: *mut Allocator, additional: usize) bool {
+    pub fn reserve_object_fields(alloc: &mut Allocator, additional: usize) bool {
         return match (self.*) {
             .{ Object: mut object } => {
                 let ok = object..&.reserve(alloc, additional);
@@ -1644,10 +1644,10 @@ impl *mut OwnedValue {
     }
 
     pub fn append_object_field(
-        alloc: *mut Allocator,
-        key: []u8,
+        alloc: &mut Allocator,
+        key: &[u8],
         value: OwnedValue,
-    ) ?*mut OwnedValue!OwnedBuildError {
+    ) ?&mut OwnedValue!OwnedBuildError {
         return match (self.*) {
             .{ Object: mut object } => {
                 let .{ Ok: item } = object..&.append(alloc, key, value)
@@ -1662,10 +1662,10 @@ impl *mut OwnedValue {
     }
 
     pub fn append_object_string(
-        alloc: *mut Allocator,
-        key: []u8,
-        text: []u8,
-    ) ?*mut OwnedValue!OwnedBuildError {
+        alloc: &mut Allocator,
+        key: &[u8],
+        text: &[u8],
+    ) ?&mut OwnedValue!OwnedBuildError {
         return match (self.*) {
             .{ Object: mut object } => {
                 let .{ Ok: item } = object..&.append_string(alloc, key, text)
@@ -1680,10 +1680,10 @@ impl *mut OwnedValue {
     }
 
     pub fn append_object_number_text(
-        alloc: *mut Allocator,
-        key: []u8,
-        text: []u8,
-    ) ?*mut OwnedValue!OwnedBuildError {
+        alloc: &mut Allocator,
+        key: &[u8],
+        text: &[u8],
+    ) ?&mut OwnedValue!OwnedBuildError {
         return match (self.*) {
             .{ Object: mut object } => {
                 let .{ Ok: item } = object..&.append_number_text(alloc, key, text)
@@ -1698,10 +1698,10 @@ impl *mut OwnedValue {
     }
 
     pub fn set_object_field(
-        alloc: *mut Allocator,
-        key: []u8,
+        alloc: &mut Allocator,
+        key: &[u8],
         value: OwnedValue,
-    ) ?*mut OwnedValue!OwnedBuildError {
+    ) ?&mut OwnedValue!OwnedBuildError {
         return match (self.*) {
             .{ Object: mut object } => {
                 let .{ Ok: item } = object..&.set(alloc, key, value)
@@ -1715,7 +1715,7 @@ impl *mut OwnedValue {
         };
     }
 
-    pub fn remove_object_field(alloc: *mut Allocator, key: []u8) bool {
+    pub fn remove_object_field(alloc: &mut Allocator, key: &[u8]) bool {
         return match (self.*) {
             .{ Object: mut object } => {
                 let removed = object..&.remove_field(alloc, key);
@@ -1775,14 +1775,14 @@ impl *mut OwnedValue {
         };
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         return match (self.*) {
             .{ Number: text } => .{ Some: text.&.as_str() },
             _ => .None,
         };
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         return match (self.*) {
             .{ String: text } => .{ Some: text.&.as_str() },
             _ => .None,
@@ -1911,294 +1911,294 @@ impl *mut OwnedValue {
         };
     }
 
-    pub fn get_index(index: usize) ?*mut OwnedValue {
+    pub fn get_index(index: usize) ?&mut OwnedValue {
         return match (self.*) {
             .{ Array: array } => array.&.get(index),
             _ => .None,
         };
     }
 
-    pub fn get_field(name: []u8) ?OwnedObjectEntry {
+    pub fn get_field(name: &[u8]) ?OwnedObjectEntry {
         return match (self.*) {
             .{ Object: object } => object.&.get_field(name),
             _ => .None,
         };
     }
 
-    pub fn get_last_field(name: []u8) ?OwnedObjectEntry {
+    pub fn get_last_field(name: &[u8]) ?OwnedObjectEntry {
         return match (self.*) {
             .{ Object: object } => object.&.get_last_field(name),
             _ => .None,
         };
     }
 
-    pub fn count_fields(name: []u8) ?usize {
+    pub fn count_fields(name: &[u8]) ?usize {
         return match (self.*) {
             .{ Object: object } => .{ Some: object.&.count_fields(name) },
             _ => .None,
         };
     }
 
-    pub fn collect_fields(name: []u8, out: []mut OwnedObjectEntry) ?usize {
+    pub fn collect_fields(name: &[u8], out: &mut [OwnedObjectEntry]) ?usize {
         return match (self.*) {
             .{ Object: object } => .{ Some: object.&.collect_fields(name, out) },
             _ => .None,
         };
     }
 
-    pub fn require_value(name: []u8) (*mut OwnedValue)!FieldDecodeError {
+    pub fn require_value(name: &[u8]) (&mut OwnedValue)!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_value(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_bool(name: []u8) bool!FieldDecodeError {
+    pub fn require_bool(name: &[u8]) bool!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_bool(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_number_text(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_number_text(name: &[u8]) (&[u8])!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_number_text(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_string(name: []u8) ([]u8)!FieldDecodeError {
+    pub fn require_string(name: &[u8]) (&[u8])!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_string(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_array(name: []u8) (*mut OwnedValue)!FieldDecodeError {
+    pub fn require_array(name: &[u8]) (&mut OwnedValue)!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_array(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_object(name: []u8) (*mut OwnedValue)!FieldDecodeError {
+    pub fn require_object(name: &[u8]) (&mut OwnedValue)!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_object(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_u64(name: []u8) u64!FieldDecodeError {
+    pub fn require_u64(name: &[u8]) u64!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_u64(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_u32(name: []u8) u32!FieldDecodeError {
+    pub fn require_u32(name: &[u8]) u32!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_u32(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_u16(name: []u8) u16!FieldDecodeError {
+    pub fn require_u16(name: &[u8]) u16!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_u16(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_u8(name: []u8) u8!FieldDecodeError {
+    pub fn require_u8(name: &[u8]) u8!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_u8(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_i64(name: []u8) i64!FieldDecodeError {
+    pub fn require_i64(name: &[u8]) i64!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_i64(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_i32(name: []u8) i32!FieldDecodeError {
+    pub fn require_i32(name: &[u8]) i32!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_i32(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_i16(name: []u8) i16!FieldDecodeError {
+    pub fn require_i16(name: &[u8]) i16!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_i16(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_i8(name: []u8) i8!FieldDecodeError {
+    pub fn require_i8(name: &[u8]) i8!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_i8(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_usize(name: []u8) usize!FieldDecodeError {
+    pub fn require_usize(name: &[u8]) usize!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_usize(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_isize(name: []u8) isize!FieldDecodeError {
+    pub fn require_isize(name: &[u8]) isize!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_isize(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_f64(name: []u8) f64!FieldDecodeError {
+    pub fn require_f64(name: &[u8]) f64!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_f64(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn require_f32(name: []u8) f32!FieldDecodeError {
+    pub fn require_f32(name: &[u8]) f32!FieldDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.require_f32(name),
             _ => .{ Err: .{ UnexpectedKind: self.kind() } },
         };
     }
 
-    pub fn get_bool(name: []u8) ?bool {
+    pub fn get_bool(name: &[u8]) ?bool {
         return match (self.*) {
             .{ Object: object } => object.&.get_bool(name),
             _ => .None,
         };
     }
 
-    pub fn get_number_text(name: []u8) ?[]u8 {
+    pub fn get_number_text(name: &[u8]) ?&[u8] {
         return match (self.*) {
             .{ Object: object } => object.&.get_number_text(name),
             _ => .None,
         };
     }
 
-    pub fn get_string(name: []u8) ?[]u8 {
+    pub fn get_string(name: &[u8]) ?&[u8] {
         return match (self.*) {
             .{ Object: object } => object.&.get_string(name),
             _ => .None,
         };
     }
 
-    pub fn get_array(name: []u8) ?*mut OwnedValue {
+    pub fn get_array(name: &[u8]) ?&mut OwnedValue {
         return match (self.*) {
             .{ Object: object } => object.&.get_array(name),
             _ => .None,
         };
     }
 
-    pub fn get_object(name: []u8) ?*mut OwnedValue {
+    pub fn get_object(name: &[u8]) ?&mut OwnedValue {
         return match (self.*) {
             .{ Object: object } => object.&.get_object(name),
             _ => .None,
         };
     }
 
-    pub fn get_u64(name: []u8) ?u64!NumberDecodeError {
+    pub fn get_u64(name: &[u8]) ?u64!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_u64(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_u32(name: []u8) ?u32!NumberDecodeError {
+    pub fn get_u32(name: &[u8]) ?u32!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_u32(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_u16(name: []u8) ?u16!NumberDecodeError {
+    pub fn get_u16(name: &[u8]) ?u16!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_u16(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_u8(name: []u8) ?u8!NumberDecodeError {
+    pub fn get_u8(name: &[u8]) ?u8!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_u8(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_i64(name: []u8) ?i64!NumberDecodeError {
+    pub fn get_i64(name: &[u8]) ?i64!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_i64(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_i32(name: []u8) ?i32!NumberDecodeError {
+    pub fn get_i32(name: &[u8]) ?i32!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_i32(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_i16(name: []u8) ?i16!NumberDecodeError {
+    pub fn get_i16(name: &[u8]) ?i16!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_i16(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_i8(name: []u8) ?i8!NumberDecodeError {
+    pub fn get_i8(name: &[u8]) ?i8!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_i8(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_usize(name: []u8) ?usize!NumberDecodeError {
+    pub fn get_usize(name: &[u8]) ?usize!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_usize(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_isize(name: []u8) ?isize!NumberDecodeError {
+    pub fn get_isize(name: &[u8]) ?isize!NumberDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_isize(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_f64(name: []u8) ?f64!FloatDecodeError {
+    pub fn get_f64(name: &[u8]) ?f64!FloatDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_f64(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn get_f32(name: []u8) ?f32!FloatDecodeError {
+    pub fn get_f32(name: &[u8]) ?f32!FloatDecodeError {
         return match (self.*) {
             .{ Object: object } => object.&.get_f32(name),
             _ => .{ Ok: .None },
         };
     }
 
-    pub fn has_field(name: []u8) bool {
+    pub fn has_field(name: &[u8]) bool {
         return match (self.*) {
             .{ Object: object } => object.&.has_field(name),
             _ => false,
         };
     }
 
-    pub fn deinit(alloc: *mut Allocator) void {
+    pub fn deinit(alloc: &mut Allocator) void {
         match (self.*) {
             .Null => {},
             .{ Bool: _ } => {},

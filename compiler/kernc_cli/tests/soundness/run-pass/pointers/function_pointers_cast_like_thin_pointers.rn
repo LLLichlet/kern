@@ -5,30 +5,30 @@ fn add_one(value: i32) i32 {
     return value + 1;
 }
 
-fn call_i32(cb: fn(i32) i32, value: i32) i32 {
+fn call_i32(cb: &fn(i32) i32, value: i32) i32 {
     return cb(value);
 }
 
 fn main() i32 {
     let base = add_one;
 
-    let from_addr = (base as usize) as fn(i32) i32;
+    let from_addr = (base as usize) as &fn(i32) i32;
     if (call_i32(from_addr, 41) != 42) return 1;
 
-    let erased = base as *mut void;
-    let from_erased = erased as fn(i32) i32;
+    let erased = base as &mut void;
+    let from_erased = erased as &fn(i32) i32;
     if (from_erased(4) != 5) return 2;
 
-    let byte_ptr = base as *u8;
-    let from_byte_ptr = byte_ptr as fn(i32) i32;
+    let byte_ptr = base as &u8;
+    let from_byte_ptr = byte_ptr as &fn(i32) i32;
     if (from_byte_ptr(9) != 10) return 3;
 
-    let mut_byte_ptr = base as *mut u8;
-    let from_mut_byte_ptr = mut_byte_ptr as fn(i32) i32;
+    let mut_byte_ptr = base as &mut u8;
+    let from_mut_byte_ptr = mut_byte_ptr as &fn(i32) i32;
     if (from_mut_byte_ptr(99) != 100) return 4;
 
-    let roundtrip_erased = (from_mut_byte_ptr as fn(i32) i32) as *void;
-    if ((roundtrip_erased as fn(i32) i32)(0) != 1) return 5;
+    let roundtrip_erased = (from_mut_byte_ptr as &fn(i32) i32) as &void;
+    if ((roundtrip_erased as &fn(i32) i32)(0) != 1) return 5;
 
     return 0;
 }

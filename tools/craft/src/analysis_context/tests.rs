@@ -27,7 +27,7 @@ fn syncs_and_loads_current_analysis_context() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [features]
 experimental = []
@@ -43,7 +43,7 @@ root = \"src/main.rn\"
         "\
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
+pub fn build(b: &mut builder.Builder) void {
     if (b.feature_enabled(\"experimental\")) {
         b.cfg_bool(\"enable_telemetry\", true);
         b.define_string(\"GREETING_MSG\", \"Hello from build\");
@@ -109,7 +109,7 @@ fn stale_manifest_digest_invalidates_analysis_context() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [[bin]]
 name = \"app\"
@@ -147,7 +147,7 @@ root = \"src/main.rn\"
 [package]
 name = \"app\"
 version = \"0.1.1\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [[bin]]
 name = \"app\"
@@ -173,7 +173,7 @@ fn invalid_rendered_analysis_context_is_ignored() {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7.3\"
+kern = \"0.7.5\"
 
 [[bin]]
 name = \"app\"

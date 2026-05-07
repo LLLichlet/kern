@@ -3,7 +3,7 @@
 // stderr: variant `Some` requires a payload
 // timeout-ms: 2000
 
-type option[T] = enum {
+enum option[T] {
     None,
     Some: T,
 };

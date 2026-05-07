@@ -49,15 +49,15 @@ fn require_bool_value(value: Value) ?bool {
     return value.bool_value();
 }
 
-fn require_number_text_value(value: Value) ?[]u8 {
+fn require_number_text_value(value: Value) ?&[u8] {
     return value.number_text();
 }
 
-fn require_string_raw_value(value: Value) ?[]u8 {
+fn require_string_raw_value(value: Value) ?&[u8] {
     return value.string_raw();
 }
 
-fn require_string_text_value(value: Value) ?[]u8 {
+fn require_string_text_value(value: Value) ?&[u8] {
     return value.string_text();
 }
 
@@ -69,22 +69,22 @@ fn require_object_value(value: Value) ?Value {
     return if (value.kind == Kind.Object) .{ Some: value } else .None;
 }
 
-pub/ type ArrayCursor = struct {
-    raw: []u8,
+pub/ struct ArrayCursor {
+    raw: &[u8],
     next: usize = 0,
     started: bool = false,
     done: bool = false,
 };
 
-pub/ type ObjectCursor = struct {
-    raw: []u8,
+pub/ struct ObjectCursor {
+    raw: &[u8],
     next: usize = 0,
     started: bool = false,
     done: bool = false,
 };
 
 impl ArrayCursor {
-    pub fn source() []u8 {
+    pub fn source() &[u8] {
         return self.raw;
     }
 
@@ -93,7 +93,7 @@ impl ArrayCursor {
     }
 }
 
-impl *mut ArrayCursor {
+impl &mut ArrayCursor {
     pub fn next() ?Value!ParseError {
         if (self.*.done) {
             return .{ Ok: .None };
@@ -128,7 +128,7 @@ impl *mut ArrayCursor {
             };
         let value = Value.{
             kind: span.kind,
-            raw: text.[index .. span.next],
+            raw: text.&[index .. span.next],
         };
 
         index = skip_ws(text, span.next);
@@ -149,7 +149,7 @@ impl *mut ArrayCursor {
 }
 
 impl ObjectCursor {
-    pub fn source() []u8 {
+    pub fn source() &[u8] {
         return self.raw;
     }
 
@@ -158,7 +158,7 @@ impl ObjectCursor {
     }
 }
 
-impl *mut ObjectCursor {
+impl &mut ObjectCursor {
     pub fn next() ?ObjectEntry!ParseError {
         if (self.*.done) {
             return .{ Ok: .None };
@@ -194,7 +194,7 @@ impl *mut ObjectCursor {
             else {
                 .{ Err: err } => return .{ Err: err },
             };
-        let key_raw = text.[index .. key_end];
+        let key_raw = text.&[index .. key_end];
         index = skip_ws(text, key_end);
         if (index >= #text) {
             return .{ Err: ParseError.UnexpectedEof };
@@ -216,7 +216,7 @@ impl *mut ObjectCursor {
             key_text: slice_string_text(key_raw),
             value: Value.{
                 kind: span.kind,
-                raw: text.[index .. span.next],
+                raw: text.&[index .. span.next],
             },
         };
 
@@ -238,7 +238,7 @@ impl *mut ObjectCursor {
 }
 
 impl ObjectEntry {
-    pub fn key_eq(name: []u8) bool {
+    pub fn key_eq(name: &[u8]) bool {
         return self.key_text == name;
     }
 
@@ -246,15 +246,15 @@ impl ObjectEntry {
         return self.value.bool_value();
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         return self.value.number_text();
     }
 
-    pub fn string_raw() ?[]u8 {
+    pub fn string_raw() ?&[u8] {
         return self.value.string_raw();
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         return self.value.string_text();
     }
 
@@ -262,12 +262,12 @@ impl ObjectEntry {
         return self.value.decoded_string_size();
     }
 
-    pub fn write_decoded_string(out: []mut u8) ?usize!StringDecodeError {
+    pub fn write_decoded_string(out: &mut [u8]) ?usize!StringDecodeError {
         return self.value.write_decoded_string(out);
     }
 
     pub fn clone_decoded_string(
-        alloc: *mut Allocator,
+        alloc: &mut Allocator,
     ) ?String!StringDecodeError {
         return self.value.clone_decoded_string(alloc);
     }
@@ -324,21 +324,21 @@ impl ObjectEntry {
         return decoded_string_size_raw(self.key_raw);
     }
 
-    pub fn write_decoded_key(out: []mut u8) usize!StringDecodeError {
+    pub fn write_decoded_key(out: &mut [u8]) usize!StringDecodeError {
         return write_decoded_string_raw(self.key_raw, out);
     }
 
-    pub fn clone_decoded_key(alloc: *mut Allocator) String!StringDecodeError {
+    pub fn clone_decoded_key(alloc: &mut Allocator) String!StringDecodeError {
         return clone_decoded_string_raw(alloc, self.key_raw);
     }
 }
 
 impl Value {
-    pub fn as_slice() []u8 {
+    pub fn as_slice() &[u8] {
         return self.raw;
     }
 
-    pub fn as_bytes() []u8 {
+    pub fn as_bytes() &[u8] {
         return self.raw;
     }
 
@@ -386,7 +386,7 @@ impl Value {
         return .{ Some: self.raw == "true" };
     }
 
-    pub fn number_text() ?[]u8 {
+    pub fn number_text() ?&[u8] {
         if (self.kind != Kind.Number) {
             return .None;
         }
@@ -501,7 +501,7 @@ impl Value {
         return .{ Ok: .{ Some: value } };
     }
 
-    pub fn clone_owned(alloc: *mut Allocator) OwnedValue!MaterializeError {
+    pub fn clone_owned(alloc: &mut Allocator) OwnedValue!MaterializeError {
         return clone_owned_value(alloc, self);
     }
 
@@ -513,14 +513,14 @@ impl Value {
         return clone_indexed_object_document(self);
     }
 
-    pub fn string_raw() ?[]u8 {
+    pub fn string_raw() ?&[u8] {
         if (self.kind != Kind.String) {
             return .None;
         }
         return .{ Some: self.raw };
     }
 
-    pub fn string_text() ?[]u8 {
+    pub fn string_text() ?&[u8] {
         if (self.kind != Kind.String) {
             return .None;
         }
@@ -536,7 +536,7 @@ impl Value {
         return .{ Ok: .{ Some: size } };
     }
 
-    pub fn write_decoded_string(out: []mut u8) ?usize!StringDecodeError {
+    pub fn write_decoded_string(out: &mut [u8]) ?usize!StringDecodeError {
         let .{ Some: raw } = self.string_raw() else return .{ Ok: .None };
         let .{ Ok: written } = write_decoded_string_raw(raw, out)
             else {
@@ -546,7 +546,7 @@ impl Value {
     }
 
     pub fn clone_decoded_string(
-        alloc: *mut Allocator,
+        alloc: &mut Allocator,
     ) ?String!StringDecodeError {
         let .{ Some: raw } = self.string_raw() else return .{ Ok: .None };
         let .{ Ok: out } = clone_decoded_string_raw(alloc, raw)
@@ -601,7 +601,7 @@ impl Value {
                 };
             let value = Value.{
                 kind: span.kind,
-                raw: text.[item_start .. span.next],
+                raw: text.&[item_start .. span.next],
             };
             if (current == index) {
                 return .{ Ok: .{ Some: value } };
@@ -623,7 +623,7 @@ impl Value {
         }
     }
 
-    pub fn get_field(name: []u8) ?ObjectEntry!ParseError {
+    pub fn get_field(name: &[u8]) ?ObjectEntry!ParseError {
         if (self.kind != Kind.Object) {
             return .{ Ok: .None };
         }
@@ -654,8 +654,8 @@ impl Value {
                 else {
                     .{ Err: err } => return .{ Err: err },
                 };
-            let key_raw = text.[field_start .. key_end];
-            let key_text = text.[field_start + 1 .. key_end - 1];
+            let key_raw = text.&[field_start .. key_end];
+            let key_text = text.&[field_start + 1 .. key_end - 1];
 
             let colon = skip_ws(text, key_end);
             if (colon >= #text) {
@@ -679,7 +679,7 @@ impl Value {
                     key_text: key_text,
                     value: Value.{
                         kind: span.kind,
-                        raw: text.[value_start .. span.next],
+                        raw: text.&[value_start .. span.next],
                     },
                 } } };
             }
@@ -709,7 +709,7 @@ impl Value {
         return .{ Ok: .{ Some: out } };
     }
 
-    pub fn get_number_text_index(index: usize) ?[]u8!IndexDecodeError {
+    pub fn get_number_text_index(index: usize) ?&[u8]!IndexDecodeError {
         let .{ Ok: item } = self.get_index(index)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -719,7 +719,7 @@ impl Value {
         return .{ Ok: .{ Some: out } };
     }
 
-    pub fn get_string_raw_index(index: usize) ?[]u8!IndexDecodeError {
+    pub fn get_string_raw_index(index: usize) ?&[u8]!IndexDecodeError {
         let .{ Ok: item } = self.get_index(index)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -729,7 +729,7 @@ impl Value {
         return .{ Ok: .{ Some: out } };
     }
 
-    pub fn get_string_text_index(index: usize) ?[]u8!IndexDecodeError {
+    pub fn get_string_text_index(index: usize) ?&[u8]!IndexDecodeError {
         let .{ Ok: item } = self.get_index(index)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -754,7 +754,7 @@ impl Value {
 
     pub fn write_decoded_string_index(
         index: usize,
-        out: []mut u8,
+        out: &mut [u8],
     ) ?usize!IndexDecodeError {
         let .{ Ok: raw } = self.get_string_raw_index(index)
             else {
@@ -770,7 +770,7 @@ impl Value {
 
     pub fn clone_decoded_string_index(
         index: usize,
-        alloc: *mut Allocator,
+        alloc: &mut Allocator,
     ) ?String!IndexDecodeError {
         let .{ Ok: raw } = self.get_string_raw_index(index)
             else {
@@ -979,7 +979,7 @@ impl Value {
         return require_bool_value(value).ok_or(.{ UnexpectedKind: value.kind });
     }
 
-    pub fn require_number_text_index(index: usize) ([]u8)!IndexDecodeError {
+    pub fn require_number_text_index(index: usize) (&[u8])!IndexDecodeError {
         let .{ Ok: value } = self.require_index(index)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -987,7 +987,7 @@ impl Value {
         return require_number_text_value(value).ok_or(.{ UnexpectedKind: value.kind });
     }
 
-    pub fn require_string_raw_index(index: usize) ([]u8)!IndexDecodeError {
+    pub fn require_string_raw_index(index: usize) (&[u8])!IndexDecodeError {
         let .{ Ok: value } = self.require_index(index)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -995,7 +995,7 @@ impl Value {
         return require_string_raw_value(value).ok_or(.{ UnexpectedKind: value.kind });
     }
 
-    pub fn require_string_text_index(index: usize) ([]u8)!IndexDecodeError {
+    pub fn require_string_text_index(index: usize) (&[u8])!IndexDecodeError {
         let .{ Ok: value } = self.require_index(index)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1017,7 +1017,7 @@ impl Value {
 
     pub fn write_required_decoded_string_index(
         index: usize,
-        out: []mut u8,
+        out: &mut [u8],
     ) usize!IndexDecodeError {
         let .{ Ok: raw } = self.require_string_raw_index(index)
             else {
@@ -1032,7 +1032,7 @@ impl Value {
 
     pub fn clone_required_decoded_string_index(
         index: usize,
-        alloc: *mut Allocator,
+        alloc: &mut Allocator,
     ) String!IndexDecodeError {
         let .{ Ok: raw } = self.require_string_raw_index(index)
             else {
@@ -1221,7 +1221,7 @@ impl Value {
         }
     }
 
-    pub fn get_bool_field(name: []u8) ?bool!BorrowedFieldDecodeError {
+    pub fn get_bool_field(name: &[u8]) ?bool!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1231,7 +1231,7 @@ impl Value {
         return .{ Ok: .{ Some: out } };
     }
 
-    pub fn get_number_text_field(name: []u8) ?[]u8!BorrowedFieldDecodeError {
+    pub fn get_number_text_field(name: &[u8]) ?&[u8]!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1241,7 +1241,7 @@ impl Value {
         return .{ Ok: .{ Some: out } };
     }
 
-    pub fn get_string_raw_field(name: []u8) ?[]u8!BorrowedFieldDecodeError {
+    pub fn get_string_raw_field(name: &[u8]) ?&[u8]!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1251,7 +1251,7 @@ impl Value {
         return .{ Ok: .{ Some: out } };
     }
 
-    pub fn get_string_text_field(name: []u8) ?[]u8!BorrowedFieldDecodeError {
+    pub fn get_string_text_field(name: &[u8]) ?&[u8]!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1262,7 +1262,7 @@ impl Value {
     }
 
     pub fn get_decoded_string_size_field(
-        name: []u8,
+        name: &[u8],
     ) ?usize!BorrowedFieldDecodeError {
         let .{ Ok: raw } = self.get_string_raw_field(name)
             else {
@@ -1277,8 +1277,8 @@ impl Value {
     }
 
     pub fn write_decoded_string_field(
-        name: []u8,
-        out: []mut u8,
+        name: &[u8],
+        out: &mut [u8],
     ) ?usize!BorrowedFieldDecodeError {
         let .{ Ok: raw } = self.get_string_raw_field(name)
             else {
@@ -1293,8 +1293,8 @@ impl Value {
     }
 
     pub fn clone_decoded_string_field(
-        name: []u8,
-        alloc: *mut Allocator,
+        name: &[u8],
+        alloc: &mut Allocator,
     ) ?String!BorrowedFieldDecodeError {
         let .{ Ok: raw } = self.get_string_raw_field(name)
             else {
@@ -1308,7 +1308,7 @@ impl Value {
         return .{ Ok: .{ Some: text } };
     }
 
-    pub fn get_array_field(name: []u8) ?Value!BorrowedFieldDecodeError {
+    pub fn get_array_field(name: &[u8]) ?Value!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1318,7 +1318,7 @@ impl Value {
         return .{ Ok: .{ Some: out } };
     }
 
-    pub fn get_object_field(name: []u8) ?Value!BorrowedFieldDecodeError {
+    pub fn get_object_field(name: &[u8]) ?Value!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1328,7 +1328,7 @@ impl Value {
         return .{ Ok: .{ Some: out } };
     }
 
-    pub fn get_u64_field(name: []u8) ?u64!BorrowedFieldDecodeError {
+    pub fn get_u64_field(name: &[u8]) ?u64!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1341,7 +1341,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_u32_field(name: []u8) ?u32!BorrowedFieldDecodeError {
+    pub fn get_u32_field(name: &[u8]) ?u32!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1354,7 +1354,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_u16_field(name: []u8) ?u16!BorrowedFieldDecodeError {
+    pub fn get_u16_field(name: &[u8]) ?u16!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1367,7 +1367,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_u8_field(name: []u8) ?u8!BorrowedFieldDecodeError {
+    pub fn get_u8_field(name: &[u8]) ?u8!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1380,7 +1380,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_i64_field(name: []u8) ?i64!BorrowedFieldDecodeError {
+    pub fn get_i64_field(name: &[u8]) ?i64!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1393,7 +1393,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_i32_field(name: []u8) ?i32!BorrowedFieldDecodeError {
+    pub fn get_i32_field(name: &[u8]) ?i32!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1406,7 +1406,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_i16_field(name: []u8) ?i16!BorrowedFieldDecodeError {
+    pub fn get_i16_field(name: &[u8]) ?i16!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1419,7 +1419,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_i8_field(name: []u8) ?i8!BorrowedFieldDecodeError {
+    pub fn get_i8_field(name: &[u8]) ?i8!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1432,7 +1432,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_usize_field(name: []u8) ?usize!BorrowedFieldDecodeError {
+    pub fn get_usize_field(name: &[u8]) ?usize!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1445,7 +1445,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_isize_field(name: []u8) ?isize!BorrowedFieldDecodeError {
+    pub fn get_isize_field(name: &[u8]) ?isize!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1458,7 +1458,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_f64_field(name: []u8) ?f64!BorrowedFieldDecodeError {
+    pub fn get_f64_field(name: &[u8]) ?f64!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1471,7 +1471,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn get_f32_field(name: []u8) ?f32!BorrowedFieldDecodeError {
+    pub fn get_f32_field(name: &[u8]) ?f32!BorrowedFieldDecodeError {
         let .{ Ok: item } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: .{ Parse: err } },
@@ -1484,7 +1484,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn require_field(name: []u8) ObjectEntry!BorrowedFieldDecodeError {
+    pub fn require_field(name: &[u8]) ObjectEntry!BorrowedFieldDecodeError {
         if (self.kind != Kind.Object) {
             return .{ Err: .{ UnexpectedKind: self.kind } };
         }
@@ -1519,7 +1519,7 @@ impl Value {
         return .{ Ok: found };
     }
 
-    pub fn require_bool_field(name: []u8) bool!BorrowedFieldDecodeError {
+    pub fn require_bool_field(name: &[u8]) bool!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1529,7 +1529,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn require_number_text_field(name: []u8) ([]u8)!BorrowedFieldDecodeError {
+    pub fn require_number_text_field(name: &[u8]) (&[u8])!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1539,7 +1539,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn require_string_raw_field(name: []u8) ([]u8)!BorrowedFieldDecodeError {
+    pub fn require_string_raw_field(name: &[u8]) (&[u8])!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1549,7 +1549,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn require_string_text_field(name: []u8) ([]u8)!BorrowedFieldDecodeError {
+    pub fn require_string_text_field(name: &[u8]) (&[u8])!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1559,7 +1559,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn require_decoded_string_size_field(name: []u8) usize!BorrowedFieldDecodeError {
+    pub fn require_decoded_string_size_field(name: &[u8]) usize!BorrowedFieldDecodeError {
         let .{ Ok: raw } = self.require_string_raw_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1572,8 +1572,8 @@ impl Value {
     }
 
     pub fn write_required_decoded_string_field(
-        name: []u8,
-        out: []mut u8,
+        name: &[u8],
+        out: &mut [u8],
     ) usize!BorrowedFieldDecodeError {
         let .{ Ok: raw } = self.require_string_raw_field(name)
             else {
@@ -1587,8 +1587,8 @@ impl Value {
     }
 
     pub fn clone_required_decoded_string_field(
-        name: []u8,
-        alloc: *mut Allocator,
+        name: &[u8],
+        alloc: &mut Allocator,
     ) String!BorrowedFieldDecodeError {
         let .{ Ok: raw } = self.require_string_raw_field(name)
             else {
@@ -1601,7 +1601,7 @@ impl Value {
         return .{ Ok: text };
     }
 
-    pub fn require_array_field(name: []u8) Value!BorrowedFieldDecodeError {
+    pub fn require_array_field(name: &[u8]) Value!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1611,7 +1611,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn require_object_field(name: []u8) Value!BorrowedFieldDecodeError {
+    pub fn require_object_field(name: &[u8]) Value!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1621,7 +1621,7 @@ impl Value {
         return .{ Ok: out };
     }
 
-    pub fn require_u64_field(name: []u8) u64!BorrowedFieldDecodeError {
+    pub fn require_u64_field(name: &[u8]) u64!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1633,7 +1633,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_u32_field(name: []u8) u32!BorrowedFieldDecodeError {
+    pub fn require_u32_field(name: &[u8]) u32!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1645,7 +1645,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_u16_field(name: []u8) u16!BorrowedFieldDecodeError {
+    pub fn require_u16_field(name: &[u8]) u16!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1657,7 +1657,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_u8_field(name: []u8) u8!BorrowedFieldDecodeError {
+    pub fn require_u8_field(name: &[u8]) u8!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1669,7 +1669,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_i64_field(name: []u8) i64!BorrowedFieldDecodeError {
+    pub fn require_i64_field(name: &[u8]) i64!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1681,7 +1681,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_i32_field(name: []u8) i32!BorrowedFieldDecodeError {
+    pub fn require_i32_field(name: &[u8]) i32!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1693,7 +1693,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_i16_field(name: []u8) i16!BorrowedFieldDecodeError {
+    pub fn require_i16_field(name: &[u8]) i16!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1705,7 +1705,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_i8_field(name: []u8) i8!BorrowedFieldDecodeError {
+    pub fn require_i8_field(name: &[u8]) i8!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1717,7 +1717,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_usize_field(name: []u8) usize!BorrowedFieldDecodeError {
+    pub fn require_usize_field(name: &[u8]) usize!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1729,7 +1729,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_isize_field(name: []u8) isize!BorrowedFieldDecodeError {
+    pub fn require_isize_field(name: &[u8]) isize!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1741,7 +1741,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_f64_field(name: []u8) f64!BorrowedFieldDecodeError {
+    pub fn require_f64_field(name: &[u8]) f64!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1753,7 +1753,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn require_f32_field(name: []u8) f32!BorrowedFieldDecodeError {
+    pub fn require_f32_field(name: &[u8]) f32!BorrowedFieldDecodeError {
         let .{ Ok: entry } = self.require_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },
@@ -1765,7 +1765,7 @@ impl Value {
         return out.ok_or(.{ UnexpectedKind: entry.value.kind });
     }
 
-    pub fn get_last_field(name: []u8) ?ObjectEntry!ParseError {
+    pub fn get_last_field(name: &[u8]) ?ObjectEntry!ParseError {
         let .{ Some: mut cursor } = self.object_cursor() else return .{ Ok: .None };
         let mut found = ?ObjectEntry.None;
 
@@ -1781,7 +1781,7 @@ impl Value {
         }
     }
 
-    pub fn count_fields(name: []u8) ?usize!ParseError {
+    pub fn count_fields(name: &[u8]) ?usize!ParseError {
         let .{ Some: mut cursor } = self.object_cursor() else return .{ Ok: .None };
         let mut total = usize.{0};
 
@@ -1797,7 +1797,7 @@ impl Value {
         }
     }
 
-    pub fn collect_fields(name: []u8, out: []mut ObjectEntry) ?usize!ParseError {
+    pub fn collect_fields(name: &[u8], out: &mut [ObjectEntry]) ?usize!ParseError {
         let .{ Some: mut cursor } = self.object_cursor() else return .{ Ok: .None };
         let mut total = usize.{0};
 
@@ -1817,7 +1817,7 @@ impl Value {
         }
     }
 
-    pub fn has_field(name: []u8) bool!ParseError {
+    pub fn has_field(name: &[u8]) bool!ParseError {
         let .{ Ok: entry } = self.get_field(name)
             else {
                 .{ Err: err } => return .{ Err: err },

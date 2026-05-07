@@ -1,10 +1,10 @@
 //! Common filesystem types.
 
-use base.io.{Printable, Writer};
+use base.io.{Formatable, Write};
 use sys.os;
 
 /// Stable filesystem error categories.
-pub/ type ErrorKind = enum {
+pub/ enum ErrorKind {
     OutOfMemory,
     InvalidOptions,
     InvalidPath,
@@ -18,7 +18,7 @@ pub/ type ErrorKind = enum {
 };
 
 /// Filesystem errors used by `std.fs`.
-pub/ type Error = enum {
+pub/ enum Error {
     OutOfMemory,
     InvalidOptions,
     InvalidPath,
@@ -77,8 +77,8 @@ impl Error {
     }
 }
 
-impl ErrorKind : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl ErrorKind : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         match (self) {
             .OutOfMemory => {
                 _ = writer.write("out of memory");
@@ -114,14 +114,14 @@ impl ErrorKind : Printable {
     }
 }
 
-impl *Error : Printable {
-    pub fn fmt(writer: *mut Writer) void {
+impl &Error : Formatable {
+    pub fn write_to(writer: &mut Write) void {
         let err = self.*;
-        err.kind().fmt(writer);
+        err.kind().write_to(writer);
         match (err.os_code()) {
             .{ Some: code } => {
                 _ = writer.write(" (os code ");
-                code.&.fmt(writer);
+                code.&.write_to(writer);
                 _ = writer.write(")");
             },
             .None => {},
@@ -130,7 +130,7 @@ impl *Error : Printable {
 }
 
 /// A file position request.
-pub/ type SeekFrom = enum {
+pub/ enum SeekFrom {
     //// Offset from the beginning of the file.
     Start: usize,
     //// Signed offset from the current file position.
@@ -145,9 +145,9 @@ pub/ type FileType = os.FileType;
 pub/ type Metadata = os.Metadata;
 
 /// A single directory entry yielded by directory traversal.
-pub/ type DirEntry = struct {
+pub/ struct DirEntry {
     //// The entry name without the parent path.
-    pub name: []u8,
+    pub name: &[u8],
     file_type: FileType,
 };
 
@@ -169,7 +169,7 @@ impl DirEntry {
 }
 
 /// Options controlling how a file is opened.
-pub/ type OpenOptions = struct {
+pub/ struct OpenOptions {
     //// Opens the file for reading.
     pub read: bool = false,
     //// Opens the file for writing.
@@ -185,7 +185,13 @@ pub/ type OpenOptions = struct {
 };
 
 /// An owned filesystem handle.
-pub/ type File = struct {
+pub/ struct File {
     //// The underlying OS handle.
     pub handle: os.Handle,
+};
+
+/// A borrowed UTF-8 path view.
+pub/ struct Path {
+    //// Raw path bytes.
+    pub raw: &[u8],
 };

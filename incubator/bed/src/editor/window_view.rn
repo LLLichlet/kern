@@ -1,7 +1,7 @@
 use base.mem.alloc.Allocator;
 use ..{Editor, LayoutAxis, TextBuffer, WindowRect};
 
-impl *mut Editor {
+impl &mut Editor {
     fn editor_area_rect() WindowRect {
         return .{
             row: 1,
@@ -11,7 +11,7 @@ impl *mut Editor {
         };
     }
 
-    fn split_rect(rect: WindowRect, axis: LayoutAxis, first_weight: usize, second_weight: usize, first: *mut WindowRect, second: *mut WindowRect) void {
+    fn split_rect(rect: WindowRect, axis: LayoutAxis, first_weight: usize, second_weight: usize, first: &mut WindowRect, second: &mut WindowRect) void {
         let total = if (first_weight + second_weight > 0) first_weight + second_weight else usize.{1};
         match (axis) {
             .Rows => {
@@ -61,7 +61,7 @@ impl *mut Editor {
         return self.first_window_in_node(node.first);
     }
 
-    fn window_rect_in_node(node_index: usize, rect: WindowRect, target_window: usize, out: *mut WindowRect) bool {
+    fn window_rect_in_node(node_index: usize, rect: WindowRect, target_window: usize, out: &mut WindowRect) bool {
         let node = self.layout_node(node_index);
         if (!node.alive) {
             return false;
@@ -590,7 +590,7 @@ impl *mut Editor {
         self.output_goto_screen_row(rows - 1);
     }
 
-    fn replace_buffer(alloc: *mut Allocator, next: TextBuffer) void {
+    fn replace_buffer(alloc: &mut Allocator, next: TextBuffer) void {
         let mut incoming = next;
         let window_index = self.active_window;
         let buffer_index = self.window(window_index).buffer_index;

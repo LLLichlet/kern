@@ -2,19 +2,19 @@
 // source: a chained concrete projection should keep selecting the more specific impl head at each proof step
 // exit: 0
 
-type Step = trait {
+trait Step {
     type Mid;
 };
 
-type Finish = trait {
+trait Finish {
     type Out;
 };
 
-type GenericMid = struct {};
-type ByteMid = struct {};
-type Bytes = []u8;
+struct GenericMid {};
+struct ByteMid {};
+type Bytes = &[u8];
 
-impl[T] []T: Step {
+impl[T] &[T]: Step {
     type Mid = GenericMid;
 }
 

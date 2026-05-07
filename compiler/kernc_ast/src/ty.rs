@@ -29,7 +29,7 @@ pub enum TypeKind {
         err: Box<TypeNode>,
     },
 
-    /// Pointer type: `*T` or `*mut T`.
+    /// Pointer type: `&T` or `&mut T`.
     Pointer { is_mut: bool, elem: Box<TypeNode> },
 
     /// Volatile pointer type: `^T` or `^mut T`.
@@ -45,10 +45,10 @@ pub enum TypeKind {
     /// Array with inferred length, `[_]T`.
     ArrayInfer { elem: Box<TypeNode> },
 
-    /// Slice type: `[]T`.
+    /// Slice type: `&[T]` or `&mut [T]`.
     Slice { is_mut: bool, elem: Box<TypeNode> },
 
-    /// Function pointer type: `fn(i32) bool`.
+    /// Function pointer type: `&fn(i32) bool`.
     Function {
         params: Vec<TypeNode>,
         ret: Option<Box<TypeNode>>,

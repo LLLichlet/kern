@@ -1250,11 +1250,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let f_ptr = matches!(
             self.ctx.type_registry.get(f_norm),
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+            TypeKind::Pointer { .. }
+                | TypeKind::VolatilePtr { .. }
+                | TypeKind::Function { .. }
+                | TypeKind::FnDef(..)
         );
         let t_ptr = matches!(
             self.ctx.type_registry.get(t_norm),
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+            TypeKind::Pointer { .. }
+                | TypeKind::VolatilePtr { .. }
+                | TypeKind::Function { .. }
+                | TypeKind::FnDef(..)
         );
 
         // 1. Pointer/integer casts preserve raw bit patterns.

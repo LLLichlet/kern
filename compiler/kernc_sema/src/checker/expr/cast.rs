@@ -29,38 +29,51 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .is_some_and(Self::numeric_candidates_have_floats);
         let is_t_float = self.ctx.type_registry.is_float(t_norm);
 
-        let is_f_ptr = matches!(
+        let is_f_fn = matches!(
+            self.ctx.type_registry.get(f_norm),
+            TypeKind::Function { .. } | TypeKind::FnDef(..)
+        );
+        let is_t_fn = matches!(
+            self.ctx.type_registry.get(t_norm),
+            TypeKind::Function { .. } | TypeKind::FnDef(..)
+        );
+        let is_f_ptr = is_f_fn
+            || matches!(
             self.ctx.type_registry.get(f_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
-        let is_t_ptr = matches!(
+        let is_t_ptr = is_t_fn
+            || matches!(
             self.ctx.type_registry.get(t_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
 
-        // 1. Allow pointer reinterpretation such as `*i32 as *u8`.
+        // 1. Allow thin pointer reinterpretation such as `*i32 as *u8`
+        // and `fn(...) T as *void`.
         if is_f_ptr && is_t_ptr {
-            let Some(t_inner) = self.ctx.type_registry.get_elem_type(t_norm) else {
-                self.ctx.emit_ice(
-                    span,
-                    "Kern ICE (Typeck): pointer cast target is missing its element type.",
-                );
-                return;
-            };
-            let t_inner_id = self.resolve_tv(t_inner);
-
-            let t_is_fat = matches!(
-                self.ctx.type_registry.get(t_inner_id),
-                TypeKind::TraitObject(..) | TypeKind::Slice { .. }
-            );
-            if t_is_fat {
-                self.ctx
-                    .struct_error(
+            if !is_t_fn {
+                let Some(t_inner) = self.ctx.type_registry.get_elem_type(t_norm) else {
+                    self.ctx.emit_ice(
                         span,
-                        "cannot cast a thin pointer to a fat pointer using `as`",
-                    )
-                    .with_hint("use explicit constructor syntax: `TargetType.{ pointer }`")
-                    .emit();
+                        "Kern ICE (Typeck): pointer cast target is missing its element type.",
+                    );
+                    return;
+                };
+                let t_inner_id = self.resolve_tv(t_inner);
+
+                let t_is_fat = matches!(
+                    self.ctx.type_registry.get(t_inner_id),
+                    TypeKind::TraitObject(..) | TypeKind::Slice { .. }
+                );
+                if t_is_fat {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "cannot cast a thin pointer to a fat pointer using `as`",
+                        )
+                        .with_hint("use explicit constructor syntax: `TargetType.{ pointer }`")
+                        .emit();
+                }
             }
             return;
         }
@@ -96,6 +109,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return;
         }
 
+        if is_f_ptr_int && self.is_function_pointer_type(t_norm) {
+            return;
+        }
+
         // 3. Allow all numeric casts, including int/float cross-casts and `bool -> int`.
         let is_f_numeric = is_f_int || is_f_float || f_norm == TypeId::BOOL;
         let is_t_numeric = is_t_int || is_t_float;
@@ -124,6 +141,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         matches!(
             self.ctx.type_registry.get(norm),
             TypeKind::VolatilePtr { .. }
+        )
+    }
+
+    fn is_function_pointer_type(&self, ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(ty);
+        matches!(
+            self.ctx.type_registry.get(norm),
+            TypeKind::Function { .. } | TypeKind::FnDef(..)
         )
     }
 

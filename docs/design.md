@@ -116,6 +116,13 @@ Kern currently uses two pointer families:
       * dereferencing them performs volatile memory access
       * they remain ordinary values and do not disable explicit casts or arithmetic
 
+Bare function pointers (`fn(Args) Ret`) are thin pointer values too. They are
+part of Kern's explicit pointer reinterpretation model: `fn(...) Ret`, `*T`,
+`*mut T`, `^T`, `^mut T`, `usize`, and `isize` may be converted between one
+another with `as`, preserving the raw bit pattern. Dynamic closure pointers
+such as `*Fn(...) Ret` remain fat pointers and are not part of this thin
+pointer cast family.
+
 `?T` and `T!E` are builtin enum families, not pointer modifiers. This means:
 
   * `?*T` is simply `?` applied to `*T`
@@ -127,6 +134,7 @@ The cast boundary is intentionally explicit:
 
   * `usize as *T`, `usize as *mut T`, `usize as ^T`, and `usize as ^mut T` enter pointer space directly
   * pointer-to-integer exits such as `ptr as usize` are equally direct
+  * `fn(...) Ret` follows the same explicit `as` rules as other thin pointers, enabling FFI symbol loading and low-level code-pointer work without a separate cast primitive
   * optional carriers are constructed as ordinary enum values such as `?*u8.{ Some: ptr }` or `?*u8.None`
 
 Core operators remain simple:

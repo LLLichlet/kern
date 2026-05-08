@@ -1,10 +1,10 @@
 # Contributing to Kern
 
-First off, thank you for considering contributing to Kern! 
+First off, thank you for considering contributing to Kern!
 
 ## Project Governance and Vision
 
-Kern is fundamentally a personal project and founder-led. While community contributions, bug reports, and pull requests are incredibly valuable and deeply appreciated, the final decisions regarding language design, compiler architecture, and feature roadmaps rest entirely with the project founder. 
+Kern is fundamentally a personal project and founder-led. While community contributions, bug reports, and pull requests are valuable, final decisions regarding language design, compiler architecture, and release direction rest with the project founder.
 
 This model ensures a unified vision and prevents the language design from becoming fragmented. Before submitting a large Pull Request for a new feature, please open an Issue to discuss the design first to ensure it aligns with the project's direction.
 
@@ -13,34 +13,48 @@ This model ensures a unified vision and prevents the language design from becomi
 Kern is written in Rust. You will need the standard Rust toolchain installed.
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/YOUR_USERNAME/kern.git
 cd kern
 ```
 
 2. Build the compiler:
+
 ```bash
 cargo build
 ```
 
 ## Running Tests
 
-Before submitting a Pull Request, please ensure all tests pass.
+Before submitting a Pull Request, run the narrowest tests that cover the area you changed. Avoid starting from an unbounded repository-wide test run when a focused package or suite command is available.
 
 The active compiler regression suite is centered on the `kernc_cli` integration tests:
 1. **Rust unit tests:** Kept close to the implementation inside the relevant `compiler/kernc_*` crate.
 2. **CLI integration tests:** Located in [`compiler/kernc_cli/tests/`](compiler/kernc_cli/tests/). These tests compile and, where needed, execute temporary `.rn` programs against the real `kernc` binary.
 
-To run all tests, simply execute:
+For the full `kernc_cli` integration suite:
 
 ```bash
 cargo test -p kernc_cli --tests
 ```
 
-For the curated suite layers used by CI:
+For a focused compiler regression pass:
+
+```bash
+cargo test -p kernc_cli --test regressions
+```
+
+For the curated compiler suite layers used by CI:
 
 ```bash
 python3 -m ops ci kernc-tests --mode smoke
+```
+
+For a Kern package under `incubator/`:
+
+```bash
+cargo run -q -p craft -- test --project-path incubator/<package>
 ```
 
 ### Adding a New Test

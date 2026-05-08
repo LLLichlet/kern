@@ -39,7 +39,7 @@ pub struct SemaContext<'a> {
     // 3. Symbol and scope state.
     pub defs: Vec<Def>,
     pub scopes: SymbolTable,
-    pub impl_index: SemaImplIndexState,
+    impl_index: SemaImplIndexState,
 
     // 4. Module and package resolution state.
     pub resolution: SemaResolutionState,
@@ -283,6 +283,45 @@ impl<'a> SemaContext<'a> {
 
     pub fn trait_impl_ids(&self) -> &[DefId] {
         &self.impl_index.trait_impls
+    }
+
+    pub fn global_impl_ids(&self) -> &[DefId] {
+        &self.impl_index.global_impls
+    }
+
+    pub fn impl_method_ids_by_name(&self, name: SymbolId) -> Option<&[DefId]> {
+        self.impl_index
+            .impl_methods_by_name
+            .get(&name)
+            .map(Vec::as_slice)
+    }
+
+    pub fn has_impl_methods_named(&self, name: SymbolId) -> bool {
+        self.impl_index.impl_methods_by_name.contains_key(&name)
+    }
+
+    pub fn register_global_impl(&mut self, impl_id: DefId) {
+        self.impl_index.global_impls.push(impl_id);
+    }
+
+    pub fn register_trait_impl(&mut self, impl_id: DefId) {
+        self.impl_index.trait_impls.push(impl_id);
+    }
+
+    pub fn register_impl_method(&mut self, name: SymbolId, method_id: DefId) {
+        self.impl_index
+            .impl_methods_by_name
+            .entry(name)
+            .or_default()
+            .push(method_id);
+    }
+
+    pub(crate) fn set_trait_impl_groups(&mut self, groups: FastHashMap<String, Vec<DefId>>) {
+        self.impl_index.trait_impls_by_trait_key = groups;
+    }
+
+    pub(crate) fn trait_impl_groups(&self) -> &FastHashMap<String, Vec<DefId>> {
+        &self.impl_index.trait_impls_by_trait_key
     }
 
     pub(crate) fn trait_def_lookup_key(&self, trait_def_id: DefId) -> Option<String> {

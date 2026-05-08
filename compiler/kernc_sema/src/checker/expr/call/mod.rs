@@ -268,7 +268,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return Some(TypeId::ERROR);
         }
         if self.receiver_base_is_module(receiver_ty)
-            || !self.ctx.impl_index.impl_methods_by_name.contains_key(field)
+            || !self.ctx.has_impl_methods_named(*field)
         {
             return None;
         }
@@ -314,15 +314,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         arg_tys: &[TypeId],
         span: Span,
     ) -> Result<Option<ArgumentInferredMethodCandidate>, ()> {
-        let Some(method_ids) = self
-            .ctx
-            .impl_index
-            .impl_methods_by_name
-            .get(&method_name)
-            .cloned()
-        else {
+        let Some(method_ids) = self.ctx.impl_method_ids_by_name(method_name) else {
             return Ok(None);
         };
+        let method_ids = method_ids.to_vec();
         let mut candidates = Vec::new();
 
         for method_id in method_ids {

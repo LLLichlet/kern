@@ -1306,9 +1306,9 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         decls: &[Decl],
     ) -> Option<DefId> {
         let impl_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.impl_index.global_impls.push(impl_id);
+        self.ctx.register_global_impl(impl_id);
         if trait_type.is_some() {
-            self.ctx.impl_index.trait_impls.push(impl_id);
+            self.ctx.register_trait_impl(impl_id);
         }
         let mut assoc_type_ids = Vec::new();
         let mut method_ids = Vec::new();
@@ -1389,12 +1389,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             let Some(Def::Function(function)) = self.ctx.defs.get(method_id.0 as usize) else {
                 continue;
             };
-            self.ctx
-                .impl_index
-                .impl_methods_by_name
-                .entry(function.name)
-                .or_default()
-                .push(method_id);
+            self.ctx.register_impl_method(function.name, method_id);
         }
 
         Some(impl_id)
@@ -1410,9 +1405,9 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         decls: Vec<Decl>,
     ) -> Option<DefId> {
         let impl_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.impl_index.global_impls.push(impl_id);
+        self.ctx.register_global_impl(impl_id);
         if trait_type.is_some() {
-            self.ctx.impl_index.trait_impls.push(impl_id);
+            self.ctx.register_trait_impl(impl_id);
         }
         let mut assoc_type_ids = Vec::new();
         let mut method_ids = Vec::new();
@@ -1506,12 +1501,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             let Some(Def::Function(function)) = self.ctx.defs.get(method_id.0 as usize) else {
                 continue;
             };
-            self.ctx
-                .impl_index
-                .impl_methods_by_name
-                .entry(function.name)
-                .or_default()
-                .push(method_id);
+            self.ctx.register_impl_method(function.name, method_id);
         }
 
         Some(impl_id)

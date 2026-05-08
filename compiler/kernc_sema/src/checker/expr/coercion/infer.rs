@@ -280,7 +280,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.impl_index.trait_impls.as_slice());
+        let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impl_ids());
         let mut selected: Option<(DefId, TypeId)> = None;
 
         for impl_id in unsafe { &*trait_impl_ids_ptr }.iter().copied() {

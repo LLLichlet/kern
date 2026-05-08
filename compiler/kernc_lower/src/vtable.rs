@@ -332,7 +332,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
         let search_types = self.vtable_impl_search_types(norm_receiver, norm_data_ptr);
 
-        let global_impls = self.ctx.impl_index.global_impls.clone();
+        let global_impls = self.ctx.global_impl_ids().to_vec();
         let mut selected: Option<(
             ImplDef,
             Vec<kernc_sema::ty::GenericArg>,

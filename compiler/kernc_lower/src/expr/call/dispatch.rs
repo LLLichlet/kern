@@ -81,10 +81,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let receiver_search_tys = self.receiver_search_types(receiver_norm);
         let method_ids_ptr = self
             .ctx
-            .impl_index
-            .impl_methods_by_name
-            .get(&field)
-            .map(|method_ids: &Vec<DefId>| std::ptr::from_ref(method_ids.as_slice()));
+            .impl_method_ids_by_name(field)
+            .map(std::ptr::from_ref);
 
         let mut resolved = None;
         if let Some(method_ids_ptr) = method_ids_ptr {

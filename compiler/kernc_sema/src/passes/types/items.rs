@@ -47,7 +47,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     fn rebuild_trait_impl_index_by_trait(&mut self) {
-        let trait_impl_ids = self.ctx.impl_index.trait_impls.clone();
+        let trait_impl_ids = self.ctx.trait_impl_ids().to_vec();
         let mut grouped = FastHashMap::default();
 
         for impl_id in trait_impl_ids {
@@ -78,7 +78,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 .push(impl_id);
         }
 
-        self.ctx.impl_index.trait_impls_by_trait_key = grouped;
+        self.ctx.set_trait_impl_groups(grouped);
     }
 
     fn resolve_module_pass(&mut self, module_ids: &[DefId], aliases_only: bool) {

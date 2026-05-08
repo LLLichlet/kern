@@ -3,7 +3,7 @@ use kernc_utils::FastHashMap;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub(super) fn validate_trait_impl_coherence(&mut self) {
-        let trait_impl_groups = self.ctx.impl_index.trait_impls_by_trait_key.clone();
+        let trait_impl_groups = self.ctx.trait_impl_groups().clone();
         for trait_impl_ids in trait_impl_groups.into_values() {
             for (index, left_impl_id) in trait_impl_ids.iter().copied().enumerate() {
                 for right_impl_id in trait_impl_ids.iter().copied().skip(index + 1) {
@@ -190,7 +190,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     pub(super) fn validate_impl_associated_type_targets(&mut self) {
-        let trait_impl_ids = self.ctx.impl_index.trait_impls.clone();
+        let trait_impl_ids = self.ctx.trait_impl_ids().to_vec();
         for impl_id in trait_impl_ids {
             let Some(impl_def) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| {
                 if let Def::Impl(impl_def) = def {

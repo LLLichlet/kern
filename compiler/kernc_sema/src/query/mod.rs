@@ -1869,7 +1869,7 @@ mod tests {
                 .intern(TypeKind::TraitObject(trait_id, Vec::new(), assoc_bindings));
         ctx.set_node_type(target_node_id, target_ty);
         ctx.set_node_type(trait_node_id, trait_ty);
-        ctx.impl_index.trait_impls.push(impl_id);
+        ctx.register_trait_impl(impl_id);
         impl_id
     }
 
@@ -1910,7 +1910,7 @@ mod tests {
                 .intern(TypeKind::TraitObject(trait_id, trait_args, Vec::new()));
         ctx.set_node_type(target_node_id, target_ty);
         ctx.set_node_type(trait_node_id, trait_ty);
-        ctx.impl_index.trait_impls.push(impl_id);
+        ctx.register_trait_impl(impl_id);
 
         let method_id_value = DefId(ctx.defs.len() as u32);
         let ret_node_id = ctx.next_node_id();
@@ -1944,11 +1944,7 @@ mod tests {
             panic!("expected impl");
         };
         impl_def.methods.push(method_id);
-        ctx.impl_index
-            .impl_methods_by_name
-            .entry(method_name)
-            .or_default()
-            .push(method_id);
+        ctx.register_impl_method(method_name, method_id);
         impl_id
     }
 
@@ -1977,7 +1973,7 @@ mod tests {
             span: Span::default(),
         }));
         ctx.set_node_type(target_node_id, target_ty);
-        ctx.impl_index.global_impls.push(impl_id);
+        ctx.register_global_impl(impl_id);
 
         let method_id_value = DefId(ctx.defs.len() as u32);
         let ret_node_id = ctx.next_node_id();
@@ -2011,11 +2007,7 @@ mod tests {
             panic!("expected impl");
         };
         impl_def.methods.push(method_id);
-        ctx.impl_index
-            .impl_methods_by_name
-            .entry(method_name)
-            .or_default()
-            .push(method_id);
+        ctx.register_impl_method(method_name, method_id);
         impl_id
     }
 }

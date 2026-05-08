@@ -231,9 +231,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_norm: TypeId,
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        let impl_count = self.ctx.impl_index.global_impls.len();
-        for impl_index in 0..impl_count {
-            let impl_id = self.ctx.impl_index.global_impls[impl_index];
+        let impl_ids = self.ctx.global_impl_ids().to_vec();
+        for impl_id in impl_ids {
             let Some(impl_ptr) = self
                 .ctx
                 .defs
@@ -361,10 +360,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     ) -> Option<Vec<ApplicableImplMethodCandidate>> {
         let method_ids_ptr = self
             .ctx
-            .impl_index
-            .impl_methods_by_name
-            .get(&member_name)
-            .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()))?;
+            .impl_method_ids_by_name(member_name)
+            .map(std::ptr::from_ref)?;
 
         // Safety: method-name indexes are immutable during member lookup.
         let method_ids = unsafe { &*method_ids_ptr };
@@ -573,10 +570,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     ) -> Option<MemberCandidate> {
         let method_ids_ptr = self
             .ctx
-            .impl_index
-            .impl_methods_by_name
-            .get(&member_name)
-            .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()))?;
+            .impl_method_ids_by_name(member_name)
+            .map(std::ptr::from_ref)?;
 
         let method_ids = unsafe { &*method_ids_ptr };
         for &method_id in method_ids {

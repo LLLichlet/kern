@@ -1697,7 +1697,7 @@ mod tests {
         ));
         ctx.set_node_type(target_node_id, target_ty);
         ctx.set_node_type(trait_node_id, trait_ty);
-        ctx.impl_index.trait_impls.push(impl_id);
+        ctx.register_trait_impl(impl_id);
 
         let Def::Impl(impl_def) = &mut ctx.defs[impl_id.0 as usize] else {
             panic!("expected impl");

@@ -38,8 +38,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             span: Default::default(),
         };
         self.ctx.add_def(Def::Impl(impl_def));
-        self.ctx.impl_index.global_impls.push(def_id);
-        self.ctx.impl_index.trait_impls.push(def_id);
+        self.ctx.register_global_impl(def_id);
+        self.ctx.register_trait_impl(def_id);
     }
 
     pub(super) fn inject_operator_impl(
@@ -134,8 +134,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             methods: vec![],
             span: Span::default(),
         }));
-        self.ctx.impl_index.global_impls.push(impl_id);
-        self.ctx.impl_index.trait_impls.push(impl_id);
+        self.ctx.register_global_impl(impl_id);
+        self.ctx.register_trait_impl(impl_id);
 
         let assoc_specs = match self.ctx.defs.get(trait_def_id.0 as usize) {
             Some(Def::Trait(trait_def)) => {
@@ -252,12 +252,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             impl_def.assoc_types = assoc_type_ids;
             impl_def.methods = vec![method_def_id];
         }
-        self.ctx
-            .impl_index
-            .impl_methods_by_name
-            .entry(name_id)
-            .or_default()
-            .push(method_def_id);
+        self.ctx.register_impl_method(name_id, method_def_id);
     }
 
     pub(super) fn inject_integer_operator_impls(&mut self, ty: TypeId) {

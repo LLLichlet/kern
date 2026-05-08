@@ -24,7 +24,7 @@ use crate::protocol::{
 use crate::server::DiagnosticsAnalysisMode;
 use craft::analysis_context;
 use kernc_utils::SourceFile;
-use kernc_utils::config::{CompileOptions, LibraryBundle};
+use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;

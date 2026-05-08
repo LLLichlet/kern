@@ -99,6 +99,42 @@ fn main() i32 {
 }
 
 #[test]
+fn limine_smoke_resolves_real_freestanding_project_runtime() {
+    let mut analysis = AnalysisEngine::default();
+    let path = workspace_root().join("incubator/limine-smoke/src/main.rn");
+    let (uri, source) = open_workspace_document(&mut analysis, &path);
+
+    let resolved = analysis.resolve_analysis(&uri).unwrap();
+    assert_eq!(normalize_path(&resolved.input_file), normalize_path(&path));
+    assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::None);
+    assert_eq!(resolved.compile_options.library_bundle, LibraryBundle::Base);
+    assert!(resolved.compile_options.module_aliases.contains_key("base"));
+    assert!(!resolved.compile_options.module_aliases.contains_key("std"));
+
+    let diagnostics = analysis.analyze_document_uri(&uri);
+    let target_bundle = diagnostics
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("diagnostic bundle for limine-smoke kernel");
+    assert!(
+        target_bundle.diagnostics.is_empty(),
+        "unexpected diagnostics: {:?}",
+        target_bundle.diagnostics
+    );
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(&source, "serial_write", 1, 2))
+        .unwrap()
+        .unwrap();
+    assert!(
+        hover.contents.value.contains("fn serial_write:"),
+        "{}",
+        hover.contents.value
+    );
+}
+
+#[test]
 fn bitio_hover_renders_real_optional_mut_pointer_field() {
     let mut analysis = AnalysisEngine::default();
     let path = workspace_root().join("incubator/bitio/src/lib.rn");

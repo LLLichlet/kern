@@ -60,11 +60,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> MastExpr {
         let raw_target_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&target.id)
-            .copied()
+            .ctx.node_type(target.id)
             .unwrap_or(concrete_ty);
         let target_ty = self.substitute_type_with_map(raw_target_ty, subst_map);
         let l = self.lower_expr(lhs, subst_map, None);
@@ -779,11 +775,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         for (phys_idx, &ast_idx) in named_physical_to_ast.iter().enumerate() {
             let field = &struct_def.fields[ast_idx];
             let raw_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&field.type_node.id)
-                .copied()
+                .ctx.node_type(field.type_node.id)
                 .unwrap_or(TypeId::ERROR);
             let field_ty = self.substitute_type_with_map(raw_ty, &subst_map);
             source_by_name.insert(

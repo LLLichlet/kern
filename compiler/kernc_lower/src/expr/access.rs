@@ -195,11 +195,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> MastExprKind {
         let expr_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&lhs.id)
-            .copied()
+            .ctx.node_type(lhs.id)
             .unwrap_or(TypeId::ERROR);
         let expr_ty = self.substitute_type_with_map(expr_ty, subst_map);
         let norm_expr = self.normalize_concrete_type(expr_ty);

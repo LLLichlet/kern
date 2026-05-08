@@ -43,19 +43,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return None;
         };
         let raw_ty = if let Some(first_param) = function.params.first() {
-            self.ctx
-                .facts
-                .node_types
-                .get(&first_param.type_node.id)
-                .copied()?
+            self.ctx.node_type(first_param.type_node.id)?
         } else if let Some(parent) = function.parent
             && let Some(Def::Impl(impl_def)) = self.ctx.defs.get(parent.0 as usize)
         {
-            self.ctx
-                .facts
-                .node_types
-                .get(&impl_def.target_type.id)
-                .copied()?
+            self.ctx.node_type(impl_def.target_type.id)?
         } else {
             return None;
         };
@@ -190,11 +182,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let raw_callee_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&callee.id)
-            .copied()
+            .ctx.node_type(callee.id)
             .unwrap_or(TypeId::ERROR);
 
         let substituted_callee = self.substitute_type_with_map(raw_callee_ty, subst_map);
@@ -230,10 +218,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     None
                 } else {
                     this.ctx
-                        .facts
-                        .call_arg_expected_tys
-                        .get(&a.id)
-                        .copied()
+                        .call_arg_expected_ty(a.id)
                         .map(|ty| this.substitute_type_with_map(ty, subst_map))
                         .or_else(|| expected_param_tys.get(param_idx).copied())
                         .filter(|&ty| ty != TypeId::ERROR)
@@ -794,11 +779,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         if let Some(parent) = f.parent
                             && let Some(Def::Impl(impl_def)) = self.ctx.defs.get(parent.0 as usize)
                             && let Some(self_ty) = self
-                                .ctx
-                                .facts
-                                .node_types
-                                .get(&impl_def.target_type.id)
-                                .copied()
+                                .ctx.node_type(impl_def.target_type.id)
                             && raw_params.first().is_none_or(|first| {
                                 self.ctx.type_registry.normalize(*first)
                                     != self.ctx.type_registry.normalize(self_ty)

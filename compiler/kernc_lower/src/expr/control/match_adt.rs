@@ -27,11 +27,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.instantiate_data(def_id, &args)
         };
         let tag_ty = def.backing_type.as_ref().map_or(TypeId::U32, |backing_ty| {
-            self.ctx
-                .facts
-                .node_types
-                .get(&backing_ty.id)
-                .copied()
+            self.ctx.node_type(backing_ty.id)
                 .unwrap_or(TypeId::U32)
         });
 
@@ -467,11 +463,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         .as_ref()
                         .map(|payload_ast| {
                             let mut payload_ty = self
-                                .ctx
-                                .facts
-                                .node_types
-                                .get(&payload_ast.id)
-                                .copied()
+                                .ctx.node_type(payload_ast.id)
                                 .unwrap_or(TypeId::ERROR);
                             if !def.generics.is_empty() && !gen_args.is_empty() {
                                 let mut map = HashMap::new();

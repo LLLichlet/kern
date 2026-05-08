@@ -547,11 +547,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let raw_payload_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&payload_id)
-            .copied()
+            .ctx.node_type(payload_id)
             .unwrap_or(TypeId::ERROR);
 
         let conc_payload_ty = self.substitute_type_with_map(raw_payload_ty, &variant_subst_map);
@@ -584,11 +580,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut ast_ordered_exprs = Vec::new();
         for f_def in &s.fields {
             let raw_f_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&f_def.type_node.id)
-                .copied()
+                .ctx.node_type(f_def.type_node.id)
                 .unwrap_or(TypeId::ERROR);
             let conc_f_ty = self.substitute_type_with_map(raw_f_ty, &struct_subst_map);
 
@@ -650,11 +642,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let raw_f_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&u.fields[field_idx].type_node.id)
-            .copied()
+            .ctx.node_type(u.fields[field_idx].type_node.id)
             .unwrap_or(TypeId::ERROR);
         let conc_f_ty = self.substitute_type_with_map(raw_f_ty, &union_subst_map);
 

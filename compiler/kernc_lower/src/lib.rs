@@ -721,11 +721,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let raw_tag_ty = def.backing_type.as_ref().map_or(TypeId::U32, |backing_ty| {
-            self.ctx
-                .facts
-                .node_types
-                .get(&backing_ty.id)
-                .copied()
+            self.ctx.node_type(backing_ty.id)
                 .unwrap_or(TypeId::U32)
         });
 

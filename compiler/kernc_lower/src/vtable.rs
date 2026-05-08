@@ -356,11 +356,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             };
 
             let impl_trait_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&impl_trait_node.id)
-                .copied()
+                .ctx.node_type(impl_trait_node.id)
                 .unwrap_or(TypeId::ERROR);
             if impl_trait_ty == TypeId::ERROR {
                 continue;

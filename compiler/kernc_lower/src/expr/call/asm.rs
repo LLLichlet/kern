@@ -38,11 +38,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let lhs_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&lhs.id)
-            .copied()
+            .ctx.node_type(lhs.id)
             .unwrap_or(TypeId::ERROR);
         let norm_lhs = self.ctx.type_registry.normalize(lhs_ty);
         if matches!(self.ctx.type_registry.get(norm_lhs), TypeKind::Module(_)) {
@@ -50,11 +46,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let callee_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&callee.id)
-            .copied()
+            .ctx.node_type(callee.id)
             .unwrap_or(TypeId::ERROR);
         let norm_callee = self.ctx.type_registry.normalize(callee_ty);
         if !matches!(

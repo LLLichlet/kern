@@ -315,11 +315,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     pub(crate) fn resolve_expr_type(&self, expr: &Expr) -> TypeId {
         let raw_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&expr.id)
-            .copied()
+            .ctx.node_type(expr.id)
             .unwrap_or(TypeId::ERROR);
         if raw_ty == TypeId::ERROR
             && let ExprKind::Identifier(name) = &expr.kind
@@ -351,7 +347,7 @@ mod tests {
             span: Span::default(),
             kind: ExprKind::Integer(7),
         };
-        ctx.facts.node_types.insert(expr.id, TypeId::ERROR);
+        ctx.set_node_type(expr.id, TypeId::ERROR);
 
         let lowered = Lowerer::new(&mut ctx).lower_expr(&expr, &HashMap::new(), None);
 
@@ -384,8 +380,8 @@ mod tests {
         let array_infer_ty = ctx
             .type_registry
             .intern(TypeKind::ArrayInfer { elem: TypeId::U8 });
-        ctx.facts.node_types.insert(operand.id, array_infer_ty);
-        ctx.facts.node_types.insert(expr.id, TypeId::USIZE);
+        ctx.set_node_type(operand.id, array_infer_ty);
+        ctx.set_node_type(expr.id, TypeId::USIZE);
         let value = ctx.intern("value");
         let mut lowerer = Lowerer::new(&mut ctx);
         lowerer
@@ -601,7 +597,7 @@ mod tests {
             span: Span::default(),
             kind: ExprKind::Identifier(value),
         };
-        ctx.facts.node_types.insert(operand.id, TypeId::U8);
+        ctx.set_node_type(operand.id, TypeId::U8);
 
         let mut lowerer = Lowerer::new(&mut ctx);
         lowerer
@@ -660,7 +656,7 @@ mod tests {
             span: Span::default(),
             kind: ExprKind::Identifier(value),
         };
-        ctx.facts.node_types.insert(operand.id, optional_ty);
+        ctx.set_node_type(operand.id, optional_ty);
 
         let mut lowerer = Lowerer::new(&mut ctx);
         lowerer
@@ -719,7 +715,7 @@ mod tests {
             span: Span::default(),
             kind: ExprKind::Identifier(value),
         };
-        ctx.facts.node_types.insert(operand.id, broken_optional_ty);
+        ctx.set_node_type(operand.id, broken_optional_ty);
 
         let mut lowerer = Lowerer::new(&mut ctx);
         lowerer
@@ -843,7 +839,7 @@ mod tests {
             span: Span::default(),
             kind: ExprKind::Identifier(module_name),
         };
-        ctx.facts.node_types.insert(lhs.id, module_ty);
+        ctx.set_node_type(lhs.id, module_ty);
 
         let lowered = Lowerer::new(&mut ctx).lower_field_access(
             &lhs,

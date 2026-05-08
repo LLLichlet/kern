@@ -34,7 +34,7 @@ pub struct SemaContext<'a> {
     // 2. Type-system state.
     pub type_registry: TypeRegistry,
     // Final inferred type for each AST node and other per-node semantic facts.
-    pub facts: NodeFacts,
+    facts: NodeFacts,
 
     // 3. Symbol and scope state.
     pub defs: Vec<Def>,
@@ -251,16 +251,34 @@ impl<'a> SemaContext<'a> {
         self.facts.call_arg_expected_tys.insert(node_id, expected_ty);
     }
 
+    pub fn call_arg_expected_ty(&self, node_id: NodeId) -> Option<TypeId> {
+        self.facts.call_arg_expected_tys.get(&node_id).copied()
+    }
+
     pub fn set_binary_operator_lhs_trait_self_ty(&mut self, node_id: NodeId, self_ty: TypeId) {
         self.facts
             .binary_operator_lhs_trait_self_tys
             .insert(node_id, self_ty);
     }
 
+    pub fn binary_operator_lhs_trait_self_ty(&self, node_id: NodeId) -> Option<TypeId> {
+        self.facts
+            .binary_operator_lhs_trait_self_tys
+            .get(&node_id)
+            .copied()
+    }
+
     pub fn set_binary_operator_rhs_trait_arg_ty(&mut self, node_id: NodeId, arg_ty: TypeId) {
         self.facts
             .binary_operator_rhs_trait_arg_tys
             .insert(node_id, arg_ty);
+    }
+
+    pub fn binary_operator_rhs_trait_arg_ty(&self, node_id: NodeId) -> Option<TypeId> {
+        self.facts
+            .binary_operator_rhs_trait_arg_tys
+            .get(&node_id)
+            .copied()
     }
 
     pub fn trait_impl_ids(&self) -> &[DefId] {

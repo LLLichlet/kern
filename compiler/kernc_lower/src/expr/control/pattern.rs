@@ -26,11 +26,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .iter()
                     .position(|field| field.name == field_name)?;
                 let mut field_ty = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&def.fields[ast_idx].type_node.id)
-                    .copied()
+                    .ctx.node_type(def.fields[ast_idx].type_node.id)
                     .unwrap_or(TypeId::ERROR);
 
                 if !def.generics.is_empty() && !gen_args.is_empty() {
@@ -224,7 +220,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let ExprKind::FieldAccess { lhs, .. } = &value.kind else {
             return false;
         };
-        let Some(lhs_ty) = self.ctx.facts.node_types.get(&lhs.id).copied() else {
+        let Some(lhs_ty) = self.ctx.node_type(lhs.id) else {
             return false;
         };
         let lhs_ty = self.substitute_type_with_map(lhs_ty, subst_map);

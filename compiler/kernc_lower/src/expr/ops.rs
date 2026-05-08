@@ -418,10 +418,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } else {
             let l_expected = self
                 .ctx
-                .facts
-                .binary_operator_lhs_trait_self_tys
-                .get(&binary_expr_id)
-                .copied()
+                .binary_operator_lhs_trait_self_ty(binary_expr_id)
                 .map(|ty| self.substitute_type_with_map(ty, subst_map));
             let l = self.lower_expr(lhs, subst_map, l_expected);
 
@@ -444,11 +441,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             // Read the real right-hand type cached by Sema.
             let r_sema_ty = self
                 .ctx
-                .facts
-                .binary_operator_rhs_trait_arg_tys
-                .get(&binary_expr_id)
-                .copied()
-                .or_else(|| self.ctx.facts.node_types.get(&rhs.id).copied())
+                .binary_operator_rhs_trait_arg_ty(binary_expr_id)
+                .or_else(|| self.ctx.node_type(rhs.id))
                 .unwrap_or(TypeId::ERROR);
             let r_concrete_ty = self.substitute_type_with_map(r_sema_ty, subst_map);
             let r_norm = self.ctx.type_registry.normalize(r_concrete_ty);

@@ -434,7 +434,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
             }
             Def::Global(def) if !def.is_imported => {
                 let kind = if def.is_static { "static" } else { "const" };
-                let signature = if let Some(ty) = ctx.facts.node_types.get(&def.value.id).copied() {
+                let signature = if let Some(ty) = ctx.node_type(def.value.id) {
                     Some(format!(
                         "{} {}: {}",
                         kind,
@@ -963,7 +963,7 @@ fn type_signature<'a>(
 }
 
 fn type_node_label(ctx: &SemaContext<'_>, type_node: &ast::TypeNode) -> String {
-    if let Some(ty) = ctx.facts.node_types.get(&type_node.id).copied() {
+    if let Some(ty) = ctx.node_type(type_node.id) {
         return ctx.ty_to_string(ty);
     }
     ctx.sess

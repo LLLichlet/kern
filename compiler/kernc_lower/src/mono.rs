@@ -129,11 +129,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let mut ast_ordered_exprs = Vec::with_capacity(def.fields.len());
                 for field in &def.fields {
                     let raw_ty = self
-                        .ctx
-                        .facts
-                        .node_types
-                        .get(&field.type_node.id)
-                        .copied()
+                        .ctx.node_type(field.type_node.id)
                         .unwrap_or(TypeId::ERROR);
                     let field_ty = self.substitute_type_with_map(raw_ty, &subst_map);
                     let value = fields.get(&field.name)?;
@@ -194,11 +190,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return None;
         };
         let ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&const_expr.id)
-            .copied()
+            .ctx.node_type(const_expr.id)
             .unwrap_or(TypeId::ERROR);
 
         let prev_scope = self.ctx.scopes.current_scope_id();
@@ -298,7 +290,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
                     if current_tag == tag {
                         if let Some(payload_ast) = &variant.payload_type {
-                            let raw_payload_ty = *self.ctx.facts.node_types.get(&payload_ast.id)?;
+                            let raw_payload_ty = self.ctx.node_type(payload_ast.id)?;
                             payload_ty =
                                 self.substitute_type_with_map(raw_payload_ty, &generic_map);
                         }
@@ -545,11 +537,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let mut mast_params = Vec::with_capacity(def.params.len());
                 for (idx, p) in def.params.iter().enumerate() {
                     let raw_ty = raw_sig_params.get(idx).copied().filter(|_| use_resolved_sig_params).unwrap_or_else(|| {
-                        this.ctx
-                            .facts
-                            .node_types
-                            .get(&p.type_node.id)
-                            .copied()
+                        this.ctx.node_type(p.type_node.id)
                             .unwrap_or(TypeId::ERROR)
                     });
                     let conc_ty = this.substitute_type_with_map(raw_ty, &subst_map);
@@ -1132,11 +1120,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             for &ast_idx in &physical_to_ast {
                 let f = &def.fields[ast_idx];
                 let raw_ty = this
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&f.type_node.id)
-                    .copied()
+                    .ctx.node_type(f.type_node.id)
                     .unwrap_or(TypeId::ERROR);
                 let conc_ty = this.substitute_type_with_map(raw_ty, &subst_map);
                 this.track_pure_enum_repr_in_type(conc_ty);
@@ -1410,11 +1394,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         for f in &def.fields {
             let raw_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&f.type_node.id)
-                .copied()
+                .ctx.node_type(f.type_node.id)
                 .unwrap_or(TypeId::ERROR);
             let conc_ty = self.substitute_type_with_map(raw_ty, &subst_map);
             self.track_pure_enum_repr_in_type(conc_ty);
@@ -1503,11 +1483,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             for variant in &def.variants {
                 let field_ty = if let Some(payload_ast) = &variant.payload_type {
                     let raw_ty = this
-                        .ctx
-                        .facts
-                        .node_types
-                        .get(&payload_ast.id)
-                        .copied()
+                        .ctx.node_type(payload_ast.id)
                         .unwrap_or(TypeId::ERROR);
                     this.substitute_type_with_map(raw_ty, &subst_map)
                 } else {
@@ -1550,11 +1526,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             let tag_ty = if let Some(bt) = &def.backing_type {
                 let raw_tag_ty = this
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&bt.id)
-                    .copied()
+                    .ctx.node_type(bt.id)
                     .unwrap_or(TypeId::U32);
                 this.substitute_type_with_map(raw_tag_ty, &subst_map)
             } else {
@@ -1607,11 +1579,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&g.value.id)
-            .copied()
+            .ctx.node_type(g.value.id)
             .unwrap_or(TypeId::ERROR);
         self.track_pure_enum_repr_in_type(ty);
         let is_mut = g.is_mut;

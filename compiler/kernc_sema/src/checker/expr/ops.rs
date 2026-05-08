@@ -342,8 +342,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         if !self.check_coercion(lhs, lhs_trait_self_ty, lhs_ty) {
                             return TypeId::ERROR;
                         }
-                        self.ctx
-                            .set_binary_operator_lhs_trait_self_ty(binary_expr_id, lhs_trait_self_ty);
+                        self.ctx.set_binary_operator_lhs_trait_self_ty(
+                            binary_expr_id,
+                            lhs_trait_self_ty,
+                        );
                     }
                     if rhs_trait_arg_ty != rhs_ty {
                         if !self.check_coercion(rhs, rhs_trait_arg_ty, rhs_ty) {

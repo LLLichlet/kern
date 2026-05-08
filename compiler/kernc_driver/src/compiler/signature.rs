@@ -4,9 +4,8 @@ use super::{
 };
 use kernc_ast as ast;
 use kernc_sema::SemaContext;
-use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId};
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{Substituter, TypeId, TypeKind};
 use kernc_utils::{FileId, Session, Span};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

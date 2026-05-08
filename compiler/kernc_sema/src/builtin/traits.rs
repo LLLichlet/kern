@@ -15,7 +15,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
     pub(super) fn inject_builtin_trait(&mut self, spec: BuiltinTraitSpec<'_>) -> DefId {
         let name_id = self.ctx.intern(spec.name);
-        let def_id = DefId(self.ctx.defs.len() as u32);
+        let def_id = self.ctx.defs.next_id();
 
         let self_ty = self.builtin_trait_ty_by_id(def_id, vec![]);
         let resolved_methods = spec
@@ -78,7 +78,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let name_id = self.ctx.intern(trait_name);
         let method_name_id = self.ctx.intern(method_name);
         let out_name_id = self.ctx.intern("Out");
-        let def_id = DefId(self.ctx.defs.len() as u32);
+        let def_id = self.ctx.defs.next_id();
         let rhs = self.new_builtin_param("Rhs");
         let rhs_ty = self.ctx.type_registry.intern(TypeKind::Param(rhs.name));
         let out_assoc_id = DefId(def_id.0 + 1);
@@ -148,7 +148,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let name_id = self.ctx.intern(trait_name);
         let method_name_id = self.ctx.intern(method_name);
         let out_name_id = self.ctx.intern("Out");
-        let def_id = DefId(self.ctx.defs.len() as u32);
+        let def_id = self.ctx.defs.next_id();
         let out_assoc_id = DefId(def_id.0 + 1);
         let out_ty = self
             .ctx

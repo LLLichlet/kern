@@ -35,8 +35,14 @@ impl &mut Editor {
 
     fn active_pane_label() &[u8] {
         match (self.active_pane) {
-            .Editor => return "EDITOR",
-            .Output => return "OUTPUT",
+            .Editor => {
+                static label = "EDITOR";
+                return label;
+            },
+            .Output => {
+                static label = "OUTPUT";
+                return label;
+            },
         }
     }
 

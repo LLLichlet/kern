@@ -2,8 +2,6 @@ use super::*;
 
 impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     pub(super) fn inject_primitive_impl(&mut self, target_ty_id: TypeId, trait_def_id: DefId) {
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
         // Fabricate AST nodes so the existing semantic machinery can reuse them.
         let target_id = self.ctx.next_node_id();
         let trait_id = self.ctx.next_node_id();
@@ -25,19 +23,20 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let trait_ty = self.builtin_trait_ty_by_id(trait_def_id, vec![]);
         self.ctx.set_node_type(trait_node.id, trait_ty);
 
-        let impl_def = ImplDef {
-            id: def_id,
-            parent_module: None,
-            is_imported: false,
-            generics: vec![],
-            where_clauses: vec![],
-            target_type: target_node,
-            trait_type: Some(trait_node),
-            assoc_types: vec![],
-            methods: vec![],
-            span: Default::default(),
-        };
-        self.ctx.add_def(Def::Impl(impl_def));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Impl(ImplDef {
+                id: def_id,
+                parent_module: None,
+                is_imported: false,
+                generics: vec![],
+                where_clauses: vec![],
+                target_type: target_node,
+                trait_type: Some(trait_node),
+                assoc_types: vec![],
+                methods: vec![],
+                span: Default::default(),
+            })
+        });
         self.ctx.register_global_impl(def_id);
         self.ctx.register_trait_impl(def_id);
     }
@@ -55,7 +54,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             return;
         };
 
-        let impl_id = DefId(self.ctx.defs.len() as u32);
         let target_id = self.ctx.next_node_id();
         let trait_id = self.ctx.next_node_id();
 
@@ -122,18 +120,20 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             ret: ret_ty,
             is_variadic: false,
         });
-        self.ctx.add_def(Def::Impl(ImplDef {
-            id: impl_id,
-            parent_module: None,
-            is_imported: false,
-            generics: vec![],
-            where_clauses: vec![],
-            target_type: target_node,
-            trait_type: Some(trait_node),
-            assoc_types: vec![],
-            methods: vec![],
-            span: Span::default(),
-        }));
+        let impl_id = self.ctx.add_def_with(|impl_id| {
+            Def::Impl(ImplDef {
+                id: impl_id,
+                parent_module: None,
+                is_imported: false,
+                generics: vec![],
+                where_clauses: vec![],
+                target_type: target_node,
+                trait_type: Some(trait_node),
+                assoc_types: vec![],
+                methods: vec![],
+                span: Span::default(),
+            })
+        });
         self.ctx.register_global_impl(impl_id);
         self.ctx.register_trait_impl(impl_id);
 
@@ -167,56 +167,59 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let mut assoc_type_ids = Vec::with_capacity(assoc_specs.len());
         for (trait_assoc_id, assoc_name, assoc_target_ty) in assoc_specs {
             let assoc_target_node_id = self.ctx.next_node_id();
-            self.ctx.set_node_type(assoc_target_node_id, assoc_target_ty);
-            let assoc_def_id = DefId(self.ctx.defs.len() as u32);
-            self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
-                id: assoc_def_id,
-                name: assoc_name,
-                parent_trait: Some(trait_def_id),
-                parent_impl: Some(impl_id),
-                implemented_trait_assoc: Some(trait_assoc_id),
-                is_imported: false,
-                generics: vec![],
-                bounds: vec![],
-                where_clauses: vec![],
-                target: Some(TypeNode {
-                    id: assoc_target_node_id,
+            self.ctx
+                .set_node_type(assoc_target_node_id, assoc_target_ty);
+            let assoc_def_id = self.ctx.add_def_with(|assoc_def_id| {
+                Def::AssociatedType(AssociatedTypeDef {
+                    id: assoc_def_id,
+                    name: assoc_name,
+                    parent_trait: Some(trait_def_id),
+                    parent_impl: Some(impl_id),
+                    implemented_trait_assoc: Some(trait_assoc_id),
+                    is_imported: false,
+                    generics: vec![],
+                    bounds: vec![],
+                    where_clauses: vec![],
+                    target: Some(TypeNode {
+                        id: assoc_target_node_id,
+                        span: Span::default(),
+                        kind: ast::TypeKind::Infer,
+                    }),
+                    resolved_bounds: vec![],
                     span: Span::default(),
-                    kind: ast::TypeKind::Infer,
-                }),
-                resolved_bounds: vec![],
-                span: Span::default(),
-                docs: None,
-            }));
+                    docs: None,
+                })
+            });
             assoc_type_ids.push(assoc_def_id);
         }
-        let method_def_id = DefId(self.ctx.defs.len() as u32);
 
-        self.ctx.add_def(Def::Function(FunctionDef {
-            id: method_def_id,
-            name: name_id,
-            name_span: Span::default(),
-            vis: Visibility::Public,
-            parent: Some(impl_id),
-            is_imported: false,
-            generics: vec![],
-            where_clauses: vec![],
-            params,
-            ret_type: TypeNode {
-                id: ret_type_id,
+        let method_def_id = self.ctx.add_def_with(|method_def_id| {
+            Def::Function(FunctionDef {
+                id: method_def_id,
+                name: name_id,
+                name_span: Span::default(),
+                vis: Visibility::Public,
+                parent: Some(impl_id),
+                is_imported: false,
+                generics: vec![],
+                where_clauses: vec![],
+                params,
+                ret_type: TypeNode {
+                    id: ret_type_id,
+                    span: Span::default(),
+                    kind: ast::TypeKind::Infer,
+                },
+                body: None,
+                is_const: false,
+                is_extern: false,
+                is_variadic: false,
+                is_intrinsic: true,
+                resolved_sig: Some(sig_ty),
                 span: Span::default(),
-                kind: ast::TypeKind::Infer,
-            },
-            body: None,
-            is_const: false,
-            is_extern: false,
-            is_variadic: false,
-            is_intrinsic: true,
-            resolved_sig: Some(sig_ty),
-            span: Span::default(),
-            docs: None,
-            attributes: vec![],
-        }));
+                docs: None,
+                attributes: vec![],
+            })
+        });
         let trait_assoc_ids = self
             .ctx
             .defs

@@ -231,42 +231,29 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_norm: TypeId,
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        let impl_ids = self.ctx.global_impl_ids().to_vec();
-        for impl_id in impl_ids {
-            let Some(impl_ptr) = self
-                .ctx
-                .defs
-                .get(impl_id.0 as usize)
-                .and_then(|def| match def {
-                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                    _ => None,
-                })
-            else {
-                continue;
-            };
-
-            // Safety: queries do not mutate `defs`; avoid cloning every impl block just to inspect it.
-            let impl_def = unsafe { &*impl_ptr };
+        for entry in self.ctx.global_impl_entries() {
+            let impl_id = entry.id;
+            let impl_def = entry.def;
             let Some(resolved_impl_args) = self.resolve_impl_applicability(receiver_norm, impl_id)
             else {
                 continue;
             };
 
-            for method_id in &impl_def.methods {
+            for method_id in impl_def.methods {
                 let Def::Function(function) = &self.ctx.defs[method_id.0 as usize] else {
                     continue;
                 };
                 let type_id = self
                     .ctx
                     .type_registry
-                    .intern(TypeKind::FnDef(*method_id, resolved_impl_args.clone()));
+                    .intern(TypeKind::FnDef(method_id, resolved_impl_args.clone()));
                 push_member_candidate(
                     candidates,
                     MemberCandidate {
                         name: function.name,
                         kind: SymbolKind::Function,
                         type_id,
-                        def_id: Some(*method_id),
+                        def_id: Some(method_id),
                         definition_span: function.name_span,
                         is_mut: false,
                     },
@@ -358,37 +345,21 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_norm: TypeId,
         member_name: SymbolId,
     ) -> Option<Vec<ApplicableImplMethodCandidate>> {
-        let method_ids_ptr = self
-            .ctx
-            .impl_method_ids_by_name(member_name)
-            .map(std::ptr::from_ref)?;
-
-        // Safety: method-name indexes are immutable during member lookup.
-        let method_ids = unsafe { &*method_ids_ptr };
+        let methods = self.ctx.impl_methods_named(member_name);
+        if methods.is_empty() {
+            return None;
+        }
         let mut applicable = Vec::new();
-        for &method_id in method_ids {
-            let Some((impl_id, method_span)) =
-                self.ctx
-                    .defs
-                    .get(method_id.0 as usize)
-                    .and_then(|def| match def {
-                        Def::Function(function) => {
-                            function.parent.map(|parent| (parent, function.name_span))
-                        }
-                        _ => None,
-                    })
+        for method in methods {
+            let Some(impl_args) = self.resolve_impl_applicability(receiver_norm, method.impl_id)
             else {
                 continue;
             };
 
-            let Some(impl_args) = self.resolve_impl_applicability(receiver_norm, impl_id) else {
-                continue;
-            };
-
             applicable.push(ApplicableImplMethodCandidate {
-                impl_id,
-                method_id,
-                method_span,
+                impl_id: method.impl_id,
+                method_id: method.method_id,
+                method_span: method.name_span,
                 impl_args,
             });
         }
@@ -568,31 +539,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_norm: TypeId,
         member_name: SymbolId,
     ) -> Option<MemberCandidate> {
-        let method_ids_ptr = self
-            .ctx
-            .impl_method_ids_by_name(member_name)
-            .map(std::ptr::from_ref)?;
-
-        let method_ids = unsafe { &*method_ids_ptr };
-        for &method_id in method_ids {
-            let Some((impl_id, function_name_span)) = self
-                .ctx
-                .defs
-                .get(method_id.0 as usize)
-                .and_then(|def| match def {
-                    Def::Function(function) => {
-                        function.parent.map(|parent| (parent, function.name_span))
-                    }
-                    _ => None,
-                })
-            else {
-                continue;
-            };
-
+        for method in self.ctx.impl_methods_named(member_name) {
             let Some(impl_ptr) = self
                 .ctx
                 .defs
-                .get(impl_id.0 as usize)
+                .get(method.impl_id.0 as usize)
                 .and_then(|def| match def {
                     Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
                     _ => None,
@@ -608,7 +559,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .is_none()
                 && self
                     .ctx
-                    .indirect_self_referential_impl_requirement(impl_id)
+                    .indirect_self_referential_impl_requirement(method.impl_id)
                     .is_none()
             {
                 continue;
@@ -631,8 +582,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 name: member_name,
                 kind: SymbolKind::Function,
                 type_id: TypeId::ERROR,
-                def_id: Some(method_id),
-                definition_span: function_name_span,
+                def_id: Some(method.method_id),
+                definition_span: method.name_span,
                 is_mut: false,
             });
         }
@@ -919,7 +870,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             let inst_super_ty = if let Some(trait_arg_map) = trait_arg_map.as_ref() {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
                 let substituted = subst.substitute(super_ty);
-                crate::checker::substitute_associated_types(
+                crate::ty::substitute_associated_types(
                     &mut self.ctx.type_registry,
                     &self.ctx.defs,
                     substituted,
@@ -928,7 +879,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             } else if assoc_binding_map.is_empty() {
                 super_ty
             } else {
-                crate::checker::substitute_associated_types(
+                crate::ty::substitute_associated_types(
                     &mut self.ctx.type_registry,
                     &self.ctx.defs,
                     super_ty,
@@ -1075,7 +1026,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             let inst_super_ty = if let Some(trait_arg_map) = trait_arg_map.as_ref() {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
                 let substituted = subst.substitute(super_ty);
-                crate::checker::substitute_associated_types(
+                crate::ty::substitute_associated_types(
                     &mut self.ctx.type_registry,
                     &self.ctx.defs,
                     substituted,
@@ -1084,7 +1035,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             } else if assoc_binding_map.is_empty() {
                 super_ty
             } else {
-                crate::checker::substitute_associated_types(
+                crate::ty::substitute_associated_types(
                     &mut self.ctx.type_registry,
                     &self.ctx.defs,
                     super_ty,

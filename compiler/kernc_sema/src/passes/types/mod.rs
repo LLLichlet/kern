@@ -1,12 +1,12 @@
 use super::ImportResolver;
 use crate::SemaContext;
-use crate::checker::{ConstEvaluator, ConstValue, ExprChecker, Substituter};
+use crate::checker::{ConstEvaluator, ConstValue, ExprChecker};
 use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::ty::{
     AnonymousEnum, AnonymousField, AnonymousVariant, BuiltinAnonymousEnumKind, ConstExprBinaryOp,
     ConstExprKind, ConstExprUnaryOp, ConstGeneric, ConstGenericValue, ConstGenericValueKind,
-    GenericArg, LayoutEngine, PrimitiveType, TypeId, TypeKind,
+    GenericArg, LayoutEngine, PrimitiveType, Substituter, TypeId, TypeKind,
 };
 use kernc_ast::{self as ast, BinaryOperator, UnaryOperator, Visibility};
 use kernc_utils::{Span, SymbolId};

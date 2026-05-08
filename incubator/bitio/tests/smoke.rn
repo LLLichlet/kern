@@ -1,4 +1,5 @@
 use base.test;
+use std.io;
 use bitio.{
     BitIoError,
     read_u16_be,
@@ -23,48 +24,53 @@ use bitio.{
 };
 
 fn check_rotate_helpers() void {
-    test.eq(rotate_left_u32(0x12345678, 8), u32.{0x34567812});
-    test.eq(rotate_right_u32(0x12345678, 8), u32.{0x78123456});
-    test.eq(rotate_left_u64(0x0123456789abcdef, 16), u64.{0x456789abcdef0123});
-    test.eq(rotate_right_u64(0x0123456789abcdef, 16), u64.{0xcdef0123456789ab});
+    let t = test.report(io.stderr())..&;
+
+    (rotate_left_u32(0x12345678, 8) == u32.{0x34567812}).should().sum(@loc(), t);
+    (rotate_right_u32(0x12345678, 8) == u32.{0x78123456}).should().sum(@loc(), t);
+    (rotate_left_u64(0x0123456789abcdef, 16) == u64.{0x456789abcdef0123}).should().sum(@loc(), t);
+    (rotate_right_u64(0x0123456789abcdef, 16) == u64.{0xcdef0123456789ab}).should().sum(@loc(), t);
 }
 
 fn check_big_endian_round_trip() void {
+    let t = test.report(io.stderr())..&;
     let mut two = [2]u8.{ 0; 2 };
     let mut four = [4]u8.{ 0; 4 };
     let mut eight = [8]u8.{ 0; 8 };
 
-    _ = test.expect_ok(write_u16_be(two..&[0 .. 2], u16.{0x1234}));
-    _ = test.expect_ok(write_u32_be(four..&[0 .. 4], u32.{0x89abcdef}));
-    _ = test.expect_ok(write_u64_be(eight..&[0 .. 8], u64.{0x0123456789abcdef}));
+    _ = write_u16_be(two..&[0 .. 2], u16.{0x1234}).should_ok().sum(@loc(), t);
+    _ = write_u32_be(four..&[0 .. 4], u32.{0x89abcdef}).should_ok().sum(@loc(), t);
+    _ = write_u64_be(eight..&[0 .. 8], u64.{0x0123456789abcdef}).should_ok().sum(@loc(), t);
 
-    test.eq(test.expect_ok(read_u16_be(two.&[0 .. 2])), u16.{0x1234});
-    test.eq(test.expect_ok(read_u32_be(four.&[0 .. 4])), u32.{0x89abcdef});
-    test.eq(test.expect_ok(read_u64_be(eight.&[0 .. 8])), u64.{0x0123456789abcdef});
+    read_u16_be(two.&[0 .. 2]).should_ok().eq(u16.{0x1234}).sum(@loc(), t);
+    read_u32_be(four.&[0 .. 4]).should_ok().eq(u32.{0x89abcdef}).sum(@loc(), t);
+    read_u64_be(eight.&[0 .. 8]).should_ok().eq(u64.{0x0123456789abcdef}).sum(@loc(), t);
 }
 
 fn check_little_endian_round_trip() void {
+    let t = test.report(io.stderr())..&;
     let mut two = [2]u8.{ 0; 2 };
     let mut four = [4]u8.{ 0; 4 };
     let mut eight = [8]u8.{ 0; 8 };
 
-    _ = test.expect_ok(write_u16_le(two..&[0 .. 2], u16.{0x1234}));
-    _ = test.expect_ok(write_u32_le(four..&[0 .. 4], u32.{0x89abcdef}));
-    _ = test.expect_ok(write_u64_le(eight..&[0 .. 8], u64.{0x0123456789abcdef}));
+    _ = write_u16_le(two..&[0 .. 2], u16.{0x1234}).should_ok().sum(@loc(), t);
+    _ = write_u32_le(four..&[0 .. 4], u32.{0x89abcdef}).should_ok().sum(@loc(), t);
+    _ = write_u64_le(eight..&[0 .. 8], u64.{0x0123456789abcdef}).should_ok().sum(@loc(), t);
 
-    test.eq(test.expect_ok(read_u16_le(two.&[0 .. 2])), u16.{0x1234});
-    test.eq(test.expect_ok(read_u32_le(four.&[0 .. 4])), u32.{0x89abcdef});
-    test.eq(test.expect_ok(read_u64_le(eight.&[0 .. 8])), u64.{0x0123456789abcdef});
+    read_u16_le(two.&[0 .. 2]).should_ok().eq(u16.{0x1234}).sum(@loc(), t);
+    read_u32_le(four.&[0 .. 4]).should_ok().eq(u32.{0x89abcdef}).sum(@loc(), t);
+    read_u64_le(eight.&[0 .. 8]).should_ok().eq(u64.{0x0123456789abcdef}).sum(@loc(), t);
 }
 
 fn check_xor_mask4() void {
+    let t = test.report(io.stderr())..&;
     let mut out = [5]u8.{ 0; 5 };
-    _ = test.expect_ok(xor_mask4("Hello", [4]u8.{ 1, 2, 3, 4 }, out..&[0 .. 5]));
-    test.assert(
-        out.&[0 .. 5] == ([5]u8.{ b'I', b'g', b'o', b'h', b'n' }.&[0 .. 5]));
+    _ = xor_mask4("Hello", [4]u8.{ 1, 2, 3, 4 }, out..&[0 .. 5]).should_ok().sum(@loc(), t);
+    (out.&[0 .. 5] == ([5]u8.{ b'I', b'g', b'o', b'h', b'n' }.&[0 .. 5])).should().sum(@loc(), t);
 }
 
 fn check_xor_mask4_large_payload() void {
+    let t = test.report(io.stderr())..&;
     let input = [37]u8.{
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
         10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
@@ -72,55 +78,56 @@ fn check_xor_mask4_large_payload() void {
         30, 31, 32, 33, 34, 35, 36,
     };
     let mut out = [37]u8.{ 0; 37 };
-    _ = test.expect_ok(xor_mask4(input.&[0 .. 37], [4]u8.{ 1, 2, 3, 4 }, out..&[0 .. 37]));
-    test.assert(
-        out.&[0 .. 37] == ([37]u8.{
+    _ = xor_mask4(input.&[0 .. 37], [4]u8.{ 1, 2, 3, 4 }, out..&[0 .. 37]).should_ok().sum(@loc(), t);
+    (out.&[0 .. 37] == ([37]u8.{
             1, 3, 1, 7, 5, 7, 5, 3, 9, 11,
             9, 15, 13, 15, 13, 11, 17, 19, 17, 23,
             21, 23, 21, 19, 25, 27, 25, 31, 29, 31,
             29, 27, 33, 35, 33, 39, 37,
-        }.&[0 .. 37]));
+        }.&[0 .. 37])).should().sum(@loc(), t);
 }
 
 fn check_bit_reader() void {
+    let t = test.report(io.stderr())..&;
     let input = [2]u8.{ u8.{0b10110101}, u8.{0b01100000} };
     let bits = reader(input.&[0 .. 2])..&;
 
-    test.eq(test.expect_ok(bits.read_bits(u8.{4})), u64.{0b1011});
-    test.eq(test.expect_ok(bits.read_bit()), false);
-    test.eq(test.expect_ok(bits.read_bits(u8.{3})), u64.{0b101});
-    test.eq(test.expect_ok(bits.read_bits(u8.{3})), u64.{0b011});
-    test.eq(bits.*.remaining_bits(), 5);
-    test.eq(bits.align_to_byte(), 5);
-    test.eq(bits.*.remaining_bits(), 0);
+    bits.read_bits(u8.{4}).should_ok().eq(u64.{0b1011}).sum(@loc(), t);
+    bits.read_bit().should_ok().eq(false).sum(@loc(), t);
+    bits.read_bits(u8.{3}).should_ok().eq(u64.{0b101}).sum(@loc(), t);
+    bits.read_bits(u8.{3}).should_ok().eq(u64.{0b011}).sum(@loc(), t);
+    (bits.*.remaining_bits() == 5).should().sum(@loc(), t);
+    (bits.align_to_byte() == 5).should().sum(@loc(), t);
+    (bits.*.remaining_bits() == 0).should().sum(@loc(), t);
 }
 
 fn check_bit_writer() void {
+    let t = test.report(io.stderr())..&;
     let mut out = [2]u8.{ 0xff; 2 };
     let bits = writer(out..&[0 .. 2])..&;
 
-    _ = test.expect_ok(bits.write_bits(u64.{0b1011}, u8.{4}));
-    _ = test.expect_ok(bits.write_bit(false));
-    _ = test.expect_ok(bits.write_bits(u64.{0b101}, u8.{3}));
-    _ = test.expect_ok(bits.write_bits(u64.{0b011}, u8.{3}));
-    test.eq(bits.align_zero(), 5);
-    test.eq(bits.*.written_bytes(), 2);
-    test.assert(
-        out.&[0 .. 2] == ([2]u8.{ u8.{0b10110101}, u8.{0b01100000} }.&[0 .. 2]));
+    _ = bits.write_bits(u64.{0b1011}, u8.{4}).should_ok().sum(@loc(), t);
+    _ = bits.write_bit(false).should_ok().sum(@loc(), t);
+    _ = bits.write_bits(u64.{0b101}, u8.{3}).should_ok().sum(@loc(), t);
+    _ = bits.write_bits(u64.{0b011}, u8.{3}).should_ok().sum(@loc(), t);
+    (bits.align_zero() == 5).should().sum(@loc(), t);
+    (bits.*.written_bytes() == 2).should().sum(@loc(), t);
+    (out.&[0 .. 2] == ([2]u8.{ u8.{0b10110101}, u8.{0b01100000} }.&[0 .. 2])).should().sum(@loc(), t);
 }
 
 fn check_bit_io_errors() void {
+    let t = test.report(io.stderr())..&;
     let empty = [0]u8.{};
     let reader0 = reader(empty.&[0 .. 0])..&;
-    test.eq(test.expect_err(reader0.*.peek_bit()), BitIoError.UnexpectedEof);
-    test.eq(test.expect_err(reader0.read_bits(u8.{0})), BitIoError.InvalidBitCount);
+    reader0.*.peek_bit().should_err().eq(BitIoError.UnexpectedEof).sum(@loc(), t);
+    reader0.read_bits(u8.{0}).should_err().eq(BitIoError.InvalidBitCount).sum(@loc(), t);
 
     let mut out = [1]u8.{ 0; 1 };
     let writer0 = writer(out..&[0 .. 1])..&;
-    test.eq(test.expect_err(writer0.write_bits(u64.{1}, u8.{0})), BitIoError.InvalidBitCount);
+    writer0.write_bits(u64.{1}, u8.{0}).should_err().eq(BitIoError.InvalidBitCount).sum(@loc(), t);
 
-    _ = test.expect_ok(writer0.write_bits(u64.{0xff}, u8.{8}));
-    test.eq(test.expect_err(writer0.write_bit(true)), BitIoError.BufferTooSmall);
+    _ = writer0.write_bits(u64.{0xff}, u8.{8}).should_ok().sum(@loc(), t);
+    writer0.write_bit(true).should_err().eq(BitIoError.BufferTooSmall).sum(@loc(), t);
 }
 
 fn main() i32 {

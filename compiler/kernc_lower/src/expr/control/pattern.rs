@@ -26,7 +26,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .iter()
                     .position(|field| field.name == field_name)?;
                 let mut field_ty = self
-                    .ctx.node_type(def.fields[ast_idx].type_node.id)
+                    .ctx
+                    .node_type(def.fields[ast_idx].type_node.id)
                     .unwrap_or(TypeId::ERROR);
 
                 if !def.generics.is_empty() && !gen_args.is_empty() {

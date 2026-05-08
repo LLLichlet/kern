@@ -79,35 +79,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 TypeKind::TraitObject(..)
             );
         let receiver_search_tys = self.receiver_search_types(receiver_norm);
-        let method_ids_ptr = self
-            .ctx
-            .impl_method_ids_by_name(field)
-            .map(std::ptr::from_ref);
-
         let mut resolved = None;
-        if let Some(method_ids_ptr) = method_ids_ptr {
-            // Safety: lowering only reads the method-name index; semantic impl indexes stay
-            // immutable during this pass.
-            let method_ids = unsafe { &*method_ids_ptr };
+        let methods = self.ctx.impl_methods_named(field);
+        if !methods.is_empty() {
             let mut best_match: Option<(
                 DefId,
                 DefId,
                 Option<TypeId>,
                 Vec<kernc_sema::ty::GenericArg>,
             )> = None;
-            for &method_id in method_ids {
-                let Some(impl_id) =
-                    self.ctx
-                        .defs
-                        .get(method_id.0 as usize)
-                        .and_then(|def| match def {
-                            Def::Function(function) => function.parent,
-                            _ => None,
-                        })
-                else {
-                    continue;
-                };
-
+            for method in methods {
                 let mut matched_receiver_ty = None;
                 let mut candidate_impl_args = None;
                 for search_ty in receiver_search_tys.iter().copied() {
@@ -116,11 +97,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             self.ctx,
                             search_ty,
                             owner_trait_norm,
-                            impl_id,
+                            method.impl_id,
                         )
                     } else {
                         MemberQuery::new(self.ctx)
-                            .resolve_impl_applicability_for_type(search_ty, impl_id)
+                            .resolve_impl_applicability_for_type(search_ty, method.impl_id)
                     };
                     if let Some(args) = args {
                         matched_receiver_ty = Some(search_ty);
@@ -140,7 +121,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     Some((selected_impl_id, ..)) => matches!(
                         kernc_sema::query::compare_impl_specificity(
                             self.ctx,
-                            impl_id,
+                            method.impl_id,
                             *selected_impl_id,
                         ),
                         kernc_sema::query::ImplSpecificity::LeftMoreSpecific
@@ -148,8 +129,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 };
                 if replace {
                     best_match = Some((
-                        impl_id,
-                        method_id,
+                        method.impl_id,
+                        method.method_id,
                         Some(matched_receiver_ty),
                         candidate_impl_args,
                     ));
@@ -179,9 +160,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return MastExpr::new(result_ty, asm_call, span);
         }
 
-        let raw_callee_ty = self
-            .ctx.node_type(callee.id)
-            .unwrap_or(TypeId::ERROR);
+        let raw_callee_ty = self.ctx.node_type(callee.id).unwrap_or(TypeId::ERROR);
 
         let substituted_callee = self.substitute_type_with_map(raw_callee_ty, subst_map);
         let norm_callee = self.ctx.type_registry.normalize(substituted_callee);
@@ -776,8 +755,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         };
                         if let Some(parent) = f.parent
                             && let Some(Def::Impl(impl_def)) = self.ctx.defs.get(parent.0 as usize)
-                            && let Some(self_ty) = self
-                                .ctx.node_type(impl_def.target_type.id)
+                            && let Some(self_ty) = self.ctx.node_type(impl_def.target_type.id)
                             && raw_params.first().is_none_or(|first| {
                                 self.ctx.type_registry.normalize(*first)
                                     != self.ctx.type_registry.normalize(self_ty)

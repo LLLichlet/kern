@@ -17,12 +17,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::GenericParamKind::Type => {
                 GenericArg::Type(self.ctx.type_registry.intern(TypeKind::Param(param.name)))
             }
-            ast::GenericParamKind::Const { ty } => {
-                GenericArg::Const(crate::ty::ConstGeneric::Param(
-                    param.name,
-                    self.ctx.node_type_or_error(ty.id),
-                ))
-            }
+            ast::GenericParamKind::Const { ty } => GenericArg::Const(
+                crate::ty::ConstGeneric::Param(param.name, self.ctx.node_type_or_error(ty.id)),
+            ),
         }
     }
 
@@ -109,9 +106,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             let bounds = clause
                 .bounds
                 .iter()
-                .map(|bound| {
-                    self.ctx.normalized_node_type_or_error(bound.id)
-                })
+                .map(|bound| self.ctx.normalized_node_type_or_error(bound.id))
                 .collect::<Vec<_>>();
             self.ctx.analysis.active_bounds.push((target_ty, bounds));
         }
@@ -183,9 +178,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             let bounds = clause
                 .bounds
                 .iter()
-                .map(|bound| {
-                    self.ctx.normalized_node_type_or_error(bound.id)
-                })
+                .map(|bound| self.ctx.normalized_node_type_or_error(bound.id))
                 .collect::<Vec<_>>();
             self.ctx.analysis.active_bounds.push((target_ty, bounds));
         }

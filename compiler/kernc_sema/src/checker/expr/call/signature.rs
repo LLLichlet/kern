@@ -1,8 +1,7 @@
 use super::{ExprChecker, SignatureDeductionInput};
-use crate::checker::Substituter;
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
-use crate::ty::{ConstGeneric, GenericArg, TypeId, TypeKind};
+use crate::ty::{ConstGeneric, GenericArg, Substituter, TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::{FastHashMap, FastHashSet, Span, SymbolId};
 
@@ -467,7 +466,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
                 subst.substitute(super_ty)
             };
-            let substituted = crate::checker::substitute_associated_types(
+            let substituted = crate::ty::substitute_associated_types(
                 &mut self.ctx.type_registry,
                 &self.ctx.defs,
                 substituted,

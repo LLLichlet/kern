@@ -5,6 +5,7 @@ pub use kernc_ast::Visibility;
 pub use kernc_ty::DefId;
 use kernc_utils::{FileId, Span, SymbolId};
 use std::collections::HashMap;
+use std::ops::{Deref, Index, IndexMut};
 use std::path::PathBuf;
 
 /// Unified representation for every top-level semantic definition.
@@ -24,6 +25,21 @@ pub enum Def {
 }
 
 impl Def {
+    pub fn id(&self) -> DefId {
+        match self {
+            Def::Module(d) => d.id,
+            Def::Function(d) => d.id,
+            Def::Struct(d) => d.id,
+            Def::Union(d) => d.id,
+            Def::Enum(d) => d.id,
+            Def::Trait(d) => d.id,
+            Def::AssociatedType(d) => d.id,
+            Def::Impl(d) => d.id,
+            Def::Global(d) => d.id,
+            Def::TypeAlias(d) => d.id,
+        }
+    }
+
     pub fn name(&self) -> Option<SymbolId> {
         match self {
             Def::Module(d) => Some(d.name),
@@ -37,6 +53,71 @@ impl Def {
             Def::TypeAlias(d) => Some(d.name),
             Def::Impl(_) => None, // Impl blocks are anonymous containers.
         }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DefTable {
+    defs: Vec<Def>,
+}
+
+impl DefTable {
+    pub fn new() -> Self {
+        Self { defs: Vec::new() }
+    }
+
+    pub fn next_id(&self) -> DefId {
+        DefId(self.defs.len() as u32)
+    }
+
+    pub fn add(&mut self, def: Def) -> DefId {
+        let id = self.next_id();
+        assert_eq!(
+            def.id(),
+            id,
+            "definition table inserted a definition with a mismatched DefId",
+        );
+        self.defs.push(def);
+        id
+    }
+
+    pub fn ids(&self) -> impl Iterator<Item = DefId> {
+        (0..self.defs.len()).map(|i| DefId(i as u32))
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Def> {
+        self.defs.get_mut(index)
+    }
+}
+
+impl Index<usize> for DefTable {
+    type Output = Def;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.defs[index]
+    }
+}
+
+impl IndexMut<usize> for DefTable {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.defs[index]
+    }
+}
+
+impl Deref for DefTable {
+    type Target = [Def];
+
+    fn deref(&self) -> &Self::Target {
+        &self.defs
+    }
+}
+
+impl<'a> IntoIterator for &'a DefTable {
+    type Item = &'a Def;
+    type IntoIter = std::slice::Iter<'a, Def>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.defs.iter()
     }
 }
 

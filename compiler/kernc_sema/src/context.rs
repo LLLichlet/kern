@@ -1,17 +1,14 @@
 use kernc_utils::AtomicOrdering;
 use kernc_utils::config::RuntimeEntry;
-use kernc_utils::{
-    DiagnosticBuilder, DiagnosticLevel, FastHashMap, FastHashSet, FileId, NodeId, Session, Span,
-    SymbolId,
-};
+use kernc_utils::{DiagnosticBuilder, FastHashMap, FastHashSet, NodeId, Session, Span, SymbolId};
 use std::collections::HashMap;
 
-use crate::checker::{ExprChecker, Substituter};
-use crate::def::{Def, DefId, ImplDef};
+use crate::checker::ExprChecker;
+use crate::def::{Def, DefId, DefTable, ImplDef};
 use crate::passes::TypeResolver;
 use crate::scope::{ScopeId, SymbolTable};
 use crate::semantic::{SemanticDefinition, SemanticSymbolKind};
-use crate::ty::{GenericArg, TypeFormatter, TypeId, TypeKind, TypeRegistry};
+use crate::ty::{GenericArg, Substituter, TypeFormatter, TypeId, TypeKind, TypeRegistry};
 use kernc_ast::Visibility;
 use kernc_middle::NodeFacts;
 
@@ -37,7 +34,7 @@ pub struct SemaContext<'a> {
     facts: NodeFacts,
 
     // 3. Symbol and scope state.
-    pub defs: Vec<Def>,
+    pub defs: DefTable,
     pub scopes: SymbolTable,
     impl_index: SemaImplIndexState,
 
@@ -45,6 +42,19 @@ pub struct SemaContext<'a> {
     pub resolution: SemaResolutionState,
     // 5. Analysis-time caches, timings, and semantic indexes.
     pub(crate) analysis: SemaAnalysisState,
+}
+
+#[derive(Debug, Clone)]
+pub struct IndexedImplDef {
+    pub id: DefId,
+    pub def: ImplDef,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IndexedImplMethod {
+    pub method_id: DefId,
+    pub impl_id: DefId,
+    pub name_span: Span,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -112,7 +122,7 @@ impl<'a> SemaContext<'a> {
             sess,
             type_registry: TypeRegistry::new(),
             facts: NodeFacts::default(),
-            defs: Vec::new(),
+            defs: DefTable::new(),
             scopes: SymbolTable::new(),
             impl_index: SemaImplIndexState::default(),
             resolution: SemaResolutionState::default(),
@@ -125,13 +135,17 @@ impl<'a> SemaContext<'a> {
     // ==========================================
 
     pub fn add_def(&mut self, def: Def) -> DefId {
-        let id = DefId(self.defs.len() as u32);
-        self.defs.push(def);
+        let id = self.defs.add(def);
         self.resolution
             .module_ownership
             .defs_without_parent_module
             .insert(id);
         id
+    }
+
+    pub fn add_def_with(&mut self, build: impl FnOnce(DefId) -> Def) -> DefId {
+        let id = self.defs.next_id();
+        self.add_def(build(id))
     }
 
     pub fn collects_timings(&self) -> bool {
@@ -248,7 +262,9 @@ impl<'a> SemaContext<'a> {
     }
 
     pub fn set_call_arg_expected_ty(&mut self, node_id: NodeId, expected_ty: TypeId) {
-        self.facts.call_arg_expected_tys.insert(node_id, expected_ty);
+        self.facts
+            .call_arg_expected_tys
+            .insert(node_id, expected_ty);
     }
 
     pub fn call_arg_expected_ty(&self, node_id: NodeId) -> Option<TypeId> {
@@ -281,23 +297,50 @@ impl<'a> SemaContext<'a> {
             .copied()
     }
 
-    pub fn trait_impl_ids(&self) -> &[DefId] {
-        &self.impl_index.trait_impls
-    }
-
-    pub fn global_impl_ids(&self) -> &[DefId] {
-        &self.impl_index.global_impls
-    }
-
-    pub fn impl_method_ids_by_name(&self, name: SymbolId) -> Option<&[DefId]> {
+    pub fn global_impl_entries(&self) -> Vec<IndexedImplDef> {
         self.impl_index
-            .impl_methods_by_name
-            .get(&name)
-            .map(Vec::as_slice)
+            .global_impls
+            .iter()
+            .filter_map(|&id| match self.defs.get(id.0 as usize) {
+                Some(Def::Impl(def)) => Some(IndexedImplDef {
+                    id,
+                    def: def.clone(),
+                }),
+                _ => None,
+            })
+            .collect()
     }
 
-    pub fn has_impl_methods_named(&self, name: SymbolId) -> bool {
-        self.impl_index.impl_methods_by_name.contains_key(&name)
+    pub fn trait_impl_entries(&self) -> Vec<IndexedImplDef> {
+        self.impl_index
+            .trait_impls
+            .iter()
+            .filter_map(|&id| match self.defs.get(id.0 as usize) {
+                Some(Def::Impl(def)) => Some(IndexedImplDef {
+                    id,
+                    def: def.clone(),
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn impl_methods_named(&self, name: SymbolId) -> Vec<IndexedImplMethod> {
+        let Some(method_ids) = self.impl_index.impl_methods_by_name.get(&name) else {
+            return Vec::new();
+        };
+
+        method_ids
+            .iter()
+            .filter_map(|&method_id| match self.defs.get(method_id.0 as usize) {
+                Some(Def::Function(function)) => function.parent.map(|impl_id| IndexedImplMethod {
+                    method_id,
+                    impl_id,
+                    name_span: function.name_span,
+                }),
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn register_global_impl(&mut self, impl_id: DefId) {
@@ -435,10 +478,6 @@ impl<'a> SemaContext<'a> {
     // Convenience forwarders
     // ==========================================
 
-    pub fn report(&mut self, span: Span, level: DiagnosticLevel, msg: String) {
-        self.sess.report(span, level, msg);
-    }
-
     pub fn has_errors(&self) -> bool {
         self.sess.has_errors()
     }
@@ -473,10 +512,6 @@ impl<'a> SemaContext<'a> {
 
     pub fn resolve(&self, sym: SymbolId) -> &str {
         self.sess.interner.resolve(sym).unwrap_or("<unknown>")
-    }
-
-    pub fn load_file<P: AsRef<std::path::Path>>(&mut self, path: P) -> std::io::Result<FileId> {
-        self.sess.load_file(path)
     }
 
     pub fn register_builtin_def(&mut self, name: SymbolId, def_id: DefId) {
@@ -530,12 +565,8 @@ impl<'a> SemaContext<'a> {
         )))
     }
 
-    pub fn configured_runtime_entry(&self) -> RuntimeEntry {
-        self.sess.runtime_entry
-    }
-
     pub fn program_entry_enabled(&self) -> bool {
-        !matches!(self.configured_runtime_entry(), RuntimeEntry::None)
+        !matches!(self.sess.runtime_entry, RuntimeEntry::None)
     }
 
     pub fn main_argv_ptr_ty(&mut self) -> TypeId {
@@ -677,77 +708,80 @@ mod tests {
     }
 
     fn add_module(ctx: &mut SemaContext<'_>, name: &str, parent: Option<DefId>) -> DefId {
-        let id = DefId(ctx.defs.len() as u32);
-        let scope_id = ScopeId(id.0 as usize);
+        let scope_id = ScopeId(ctx.defs.next_id().0 as usize);
         let name = ctx.intern(name);
-        let def_id = ctx.add_def(Def::Module(ModuleDef {
-            id,
-            name,
-            parent,
-            is_imported: false,
-            scope_id,
-            dir_path: PathBuf::new(),
-            file_id: FileId(0),
-            submodules: HashMap::new(),
-            items: Vec::new(),
-            imports: Vec::new(),
-            is_init: parent.is_none(),
-            docs: None,
-        }));
+        let def_id = ctx.add_def_with(|id| {
+            Def::Module(ModuleDef {
+                id,
+                name,
+                parent,
+                is_imported: false,
+                scope_id,
+                dir_path: PathBuf::new(),
+                file_id: FileId(0),
+                submodules: HashMap::new(),
+                items: Vec::new(),
+                imports: Vec::new(),
+                is_init: parent.is_none(),
+                docs: None,
+            })
+        });
         ctx.register_module_scope(def_id, scope_id);
         def_id
     }
 
     fn add_struct(ctx: &mut SemaContext<'_>, name: &str, parent_module: Option<DefId>) -> DefId {
-        let id = DefId(ctx.defs.len() as u32);
         let name = ctx.intern(name);
-        let def_id = ctx.add_def(Def::Struct(StructDef {
-            id,
-            name,
-            vis: Visibility::Private,
-            parent_module,
-            is_imported: false,
-            generics: Vec::new(),
-            where_clauses: Vec::new(),
-            fields: Vec::new(),
-            is_extern: false,
-            span: Span::default(),
-            docs: None,
-            attributes: Vec::new(),
-        }));
+        let def_id = ctx.add_def_with(|id| {
+            Def::Struct(StructDef {
+                id,
+                name,
+                vis: Visibility::Private,
+                parent_module,
+                is_imported: false,
+                generics: Vec::new(),
+                where_clauses: Vec::new(),
+                fields: Vec::new(),
+                is_extern: false,
+                span: Span::default(),
+                docs: None,
+                attributes: Vec::new(),
+            })
+        });
         ctx.register_def_owner(def_id, parent_module, None);
         def_id
     }
 
     fn add_function(ctx: &mut SemaContext<'_>, name: &str, parent: Option<DefId>) -> DefId {
-        let id = DefId(ctx.defs.len() as u32);
         let name = ctx.intern(name);
         let type_node = TypeNode {
             id: ctx.next_node_id(),
             span: Span::default(),
             kind: kernc_ast::TypeKind::Infer,
         };
-        let def_id = ctx.add_def(Def::Function(FunctionDef {
-            id,
-            name,
-            name_span: Span::default(),
-            vis: Visibility::Private,
-            parent,
-            is_imported: false,
-            generics: Vec::new(),
-            where_clauses: Vec::new(),
-            params: Vec::new(),
-            ret_type: type_node,
-            body: None,
-            is_const: false,
-            is_extern: false,
-            is_variadic: false,
-            is_intrinsic: false,
-            span: Span::default(),
-            resolved_sig: None,
-            docs: None,
-            attributes: Vec::<Attribute>::new(),
-        }));
+        let def_id = ctx.add_def_with(|id| {
+            Def::Function(FunctionDef {
+                id,
+                name,
+                name_span: Span::default(),
+                vis: Visibility::Private,
+                parent,
+                is_imported: false,
+                generics: Vec::new(),
+                where_clauses: Vec::new(),
+                params: Vec::new(),
+                ret_type: type_node,
+                body: None,
+                is_const: false,
+                is_extern: false,
+                is_variadic: false,
+                is_intrinsic: false,
+                span: Span::default(),
+                resolved_sig: None,
+                docs: None,
+                attributes: Vec::<Attribute>::new(),
+            })
+        });
         ctx.register_def_owner(def_id, None, None);
         def_id
     }

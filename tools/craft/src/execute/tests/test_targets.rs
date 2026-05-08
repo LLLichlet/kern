@@ -362,13 +362,13 @@ let mut gpa = GPA.{ backing: &mut Allocator.{ page..& } };
 defer gpa..&.deinit();
 let alloc = &mut Allocator.{ gpa..& };
 
-let mut workspace_root = match ("CRAFT_WORKSPACE_ROOT".env_get(alloc)) {
+let mut workspace_root = match ("CRAFT_WORKSPACE_ROOT".env().get(alloc)) {
     .{ Some: value } => value,
     .None => return 1,
 };
 defer workspace_root..&.deinit(alloc);
 
-let mut package_root = match ("CRAFT_PACKAGE_ROOT".env_get(alloc)) {
+let mut package_root = match ("CRAFT_PACKAGE_ROOT".env().get(alloc)) {
     .{ Some: value } => value,
     .None => return 2,
 };

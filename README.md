@@ -212,8 +212,11 @@ installed end-user SDK. If `cargo build` reports missing LLVM libraries such as
 
 If you want a local SDK install that remains usable after deleting the source
 checkout, package and install a local archive instead of copying
-`target/release` by hand. See
-[SDK Rebuild Plan](docs/sdk-rebuild-plan.md) for the current packaging model.
+`target/release` by hand. The packaging entry point is:
+
+```sh
+python -m ops release package --version v0.7.5 --target <host-target>
+```
 
 ## Documentation
 

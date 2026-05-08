@@ -4,7 +4,7 @@ use super::*;
 pub struct SemaStructureSnapshot {
     pub type_registry: TypeRegistry,
     pub facts: NodeFacts,
-    pub defs: Vec<Def>,
+    pub defs: DefTable,
     pub scopes: SymbolTable,
     pub resolution: SemaResolutionState,
     pub impl_index: SemaImplIndexState,

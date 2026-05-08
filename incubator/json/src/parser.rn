@@ -127,7 +127,7 @@ fn scan_digits(text: &[u8], start: usize) usize {
 
 pub/ fn slice_string_text(raw: &[u8]) &[u8] {
     if (#raw < 2) {
-        return "";
+        return raw.&[0 .. 0];
     }
     return raw.&[1 .. #raw - 1];
 }

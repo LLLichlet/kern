@@ -1,6 +1,4 @@
-#![doc = include_str!("../README.md")]
-
-use kernc_ty::{GenericArg, TypeId, TypeKind};
+use kernc_ty::{GenericArg, TypeId};
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
@@ -316,12 +314,7 @@ impl ConstEvalCore {
         self.local_types.lookup(name)
     }
 
-    pub fn assign_local_at(
-        &mut self,
-        scope_idx: usize,
-        name: SymbolId,
-        value: ConstValue,
-    ) -> bool {
+    pub fn assign_local_at(&mut self, scope_idx: usize, name: SymbolId, value: ConstValue) -> bool {
         self.locals.assign_at(scope_idx, name, value)
     }
 
@@ -692,10 +685,6 @@ impl<T: Copy> ConstExecState<T> {
         self.function_depth
     }
 
-    pub fn return_value(&self) -> Option<&ConstValue> {
-        self.return_value.as_ref()
-    }
-
     pub fn has_return_value(&self) -> bool {
         self.return_value.is_some()
     }
@@ -749,18 +738,6 @@ pub enum ConstPlaceError {
 pub struct ConstEvalError;
 
 pub type ConstEvalResult<T> = Result<T, ConstEvalError>;
-
-pub trait ConstEvalHost {
-    fn emit_error(&mut self, span: Span, message: String);
-    fn emit_error_with_hints(&mut self, span: Span, message: String, hints: &[String]);
-    fn resolve_symbol(&self, symbol: SymbolId) -> String;
-    fn ty_to_string(&self, ty: TypeId) -> String;
-    fn normalize_type(&self, ty: TypeId) -> TypeId;
-    fn type_kind(&self, ty: TypeId) -> TypeKind;
-    fn layout_size(&mut self, ty: TypeId) -> ConstEvalResult<u64>;
-    fn layout_align(&mut self, ty: TypeId) -> ConstEvalResult<u64>;
-    fn source_location_value(&mut self, span: Span) -> ConstValue;
-}
 
 /// Host callback surface for explicitly hosted compile-time execution.
 pub trait ScriptHost {

@@ -27,11 +27,11 @@
 //! decides how to surface conflicts and access-site diagnostics.
 
 use crate::SemaContext;
-use crate::checker::{ExprChecker, Substituter};
+use crate::checker::ExprChecker;
 use crate::def::{Def, DefId, ImplDef};
 use crate::passes::TypeResolver;
 use crate::scope::SymbolKind;
-use crate::ty::{TypeId, TypeKind};
+use crate::ty::{Substituter, TypeId, TypeKind};
 use kernc_ast as ast;
 
 mod methods;
@@ -886,7 +886,7 @@ fn trait_object_view_from_hierarchy_inner(
             let mut subst = Substituter::new(&mut ctx.type_registry, &trait_arg_map);
             subst.substitute(super_ty)
         };
-        let substituted = crate::checker::substitute_associated_types(
+        let substituted = crate::ty::substitute_associated_types(
             &mut ctx.type_registry,
             &ctx.defs,
             substituted,
@@ -984,7 +984,7 @@ fn collect_trait_hierarchy_assoc_bindings(
             let mut subst = Substituter::new(&mut ctx.type_registry, &trait_arg_map);
             subst.substitute(super_ty)
         };
-        let substituted = crate::checker::substitute_associated_types(
+        let substituted = crate::ty::substitute_associated_types(
             &mut ctx.type_registry,
             &ctx.defs,
             substituted,
@@ -1737,7 +1737,7 @@ mod tests {
     }
 
     fn add_trait(ctx: &mut SemaContext<'_>, trait_name: &str) -> DefId {
-        let trait_id_value = DefId(ctx.defs.len() as u32);
+        let trait_id_value = ctx.defs.next_id();
         let trait_name = ctx.intern(trait_name);
         ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
@@ -1808,7 +1808,7 @@ mod tests {
         assoc_name: &str,
     ) -> (DefId, DefId) {
         let trait_id = add_trait(ctx, trait_name);
-        let assoc_id_value = DefId(ctx.defs.len() as u32);
+        let assoc_id_value = ctx.defs.next_id();
         let assoc_name = ctx.intern(assoc_name);
         let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: assoc_id_value,
@@ -1842,7 +1842,7 @@ mod tests {
     ) -> DefId {
         let target_node_id = ctx.next_node_id();
         let trait_node_id = ctx.next_node_id();
-        let impl_id_value = DefId(ctx.defs.len() as u32);
+        let impl_id_value = ctx.defs.next_id();
         let impl_id = ctx.add_def(Def::Impl(ImplDef {
             id: impl_id_value,
             parent_module: None,
@@ -1883,7 +1883,7 @@ mod tests {
     ) -> DefId {
         let target_node_id = ctx.next_node_id();
         let trait_node_id = ctx.next_node_id();
-        let impl_id_value = DefId(ctx.defs.len() as u32);
+        let impl_id_value = ctx.defs.next_id();
         let impl_id = ctx.add_def(Def::Impl(ImplDef {
             id: impl_id_value,
             parent_module: None,
@@ -1912,7 +1912,7 @@ mod tests {
         ctx.set_node_type(trait_node_id, trait_ty);
         ctx.register_trait_impl(impl_id);
 
-        let method_id_value = DefId(ctx.defs.len() as u32);
+        let method_id_value = ctx.defs.next_id();
         let ret_node_id = ctx.next_node_id();
         let method_id = ctx.add_def(Def::Function(FunctionDef {
             id: method_id_value,
@@ -1955,7 +1955,7 @@ mod tests {
         method_name: SymbolId,
     ) -> DefId {
         let target_node_id = ctx.next_node_id();
-        let impl_id_value = DefId(ctx.defs.len() as u32);
+        let impl_id_value = ctx.defs.next_id();
         let impl_id = ctx.add_def(Def::Impl(ImplDef {
             id: impl_id_value,
             parent_module: None,
@@ -1975,7 +1975,7 @@ mod tests {
         ctx.set_node_type(target_node_id, target_ty);
         ctx.register_global_impl(impl_id);
 
-        let method_id_value = DefId(ctx.defs.len() as u32);
+        let method_id_value = ctx.defs.next_id();
         let ret_node_id = ctx.next_node_id();
         let method_id = ctx.add_def(Def::Function(FunctionDef {
             id: method_id_value,

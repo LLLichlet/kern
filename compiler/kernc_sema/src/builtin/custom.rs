@@ -19,22 +19,23 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             }
 
             let name_id = self.ctx.intern(&name);
-            let def_id = DefId(self.ctx.defs.len() as u32);
             let expr = self.custom_define_expr(&value);
-            self.ctx.add_def(Def::Global(GlobalDef {
-                id: def_id,
-                name: name_id,
-                vis: Visibility::Private,
-                parent: None,
-                is_imported: true,
-                value: expr,
-                is_static: false,
-                is_extern: false,
-                is_mut: false,
-                span: Span::default(),
-                docs: None,
-                attributes: Vec::new(),
-            }));
+            let def_id = self.ctx.add_def_with(|def_id| {
+                Def::Global(GlobalDef {
+                    id: def_id,
+                    name: name_id,
+                    vis: Visibility::Private,
+                    parent: None,
+                    is_imported: true,
+                    value: expr,
+                    is_static: false,
+                    is_extern: false,
+                    is_mut: false,
+                    span: Span::default(),
+                    docs: None,
+                    attributes: Vec::new(),
+                })
+            });
 
             let node_id = self.ctx.next_node_id();
             let _ = self.ctx.scopes.define(

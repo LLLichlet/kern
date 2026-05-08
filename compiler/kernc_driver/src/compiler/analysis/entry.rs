@@ -54,7 +54,6 @@ impl CompilerDriver {
             return;
         };
 
-        let adapter_id = DefId(ctx.defs.len() as u32);
         let adapter_name = ctx.intern("__kern_main_adapter");
         let argc_name = ctx.intern("argc");
         let argv_name = ctx.intern("argv");
@@ -115,38 +114,40 @@ impl CompilerDriver {
             is_variadic: false,
         });
 
-        ctx.add_def(Def::Function(FunctionDef {
-            id: adapter_id,
-            name: adapter_name,
-            name_span: span,
-            vis: Visibility::Private,
-            parent: Some(root_module_id),
-            is_imported: false,
-            generics: Vec::new(),
-            where_clauses: Vec::new(),
-            params: vec![
-                ast::FuncParam {
-                    pattern: argc_pattern,
-                    type_node: argc_type_node,
-                    span,
-                },
-                ast::FuncParam {
-                    pattern: argv_pattern,
-                    type_node: argv_type_node,
-                    span,
-                },
-            ],
-            ret_type: ret_type_node,
-            body: Some(Box::new(body)),
-            is_const: false,
-            is_extern: true,
-            is_variadic: false,
-            is_intrinsic: false,
-            span,
-            resolved_sig: Some(adapter_sig),
-            docs: None,
-            attributes: Vec::new(),
-        }));
+        let adapter_id = ctx.add_def_with(|adapter_id| {
+            Def::Function(FunctionDef {
+                id: adapter_id,
+                name: adapter_name,
+                name_span: span,
+                vis: Visibility::Private,
+                parent: Some(root_module_id),
+                is_imported: false,
+                generics: Vec::new(),
+                where_clauses: Vec::new(),
+                params: vec![
+                    ast::FuncParam {
+                        pattern: argc_pattern,
+                        type_node: argc_type_node,
+                        span,
+                    },
+                    ast::FuncParam {
+                        pattern: argv_pattern,
+                        type_node: argv_type_node,
+                        span,
+                    },
+                ],
+                ret_type: ret_type_node,
+                body: Some(Box::new(body)),
+                is_const: false,
+                is_extern: true,
+                is_variadic: false,
+                is_intrinsic: false,
+                span,
+                resolved_sig: Some(adapter_sig),
+                docs: None,
+                attributes: Vec::new(),
+            })
+        });
         ctx.register_def_owner(adapter_id, Some(root_module_id), Some(root_scope_id));
 
         if let Def::Module(module) = &mut ctx.defs[root_module_id.0 as usize] {

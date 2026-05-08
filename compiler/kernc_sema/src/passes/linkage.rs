@@ -1,5 +1,5 @@
 use crate::SemaContext;
-use crate::def::{Def, DefId};
+use crate::def::Def;
 use crate::ty::TypeId;
 use kernc_utils::Span;
 use std::collections::HashMap;
@@ -21,9 +21,8 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
         // Track: export name -> (is concrete definition, signature, extern flag, declaration span).
         let mut symbols: HashMap<String, (bool, TypeId, bool, Span)> = HashMap::new();
 
-        for i in 0..self.ctx.defs.len() {
-            let def_id = DefId(i as u32);
-            let def = self.ctx.defs[i].clone(); // Clone to avoid borrow conflicts.
+        for def_id in self.ctx.defs.ids().collect::<Vec<_>>() {
+            let def = self.ctx.defs[def_id.0 as usize].clone(); // Clone to avoid borrow conflicts.
 
             let (is_definition, is_extern, sig_ty, span) = match def {
                 Def::Function(f) => {

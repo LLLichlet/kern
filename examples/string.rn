@@ -17,7 +17,7 @@ fn main() i32 {
     text.push_str(gpa, ", ").should().sum(@loc(), t);
     text.push_str(gpa, "Kern").should().sum(@loc(), t);
     
-    text.as_str().eq("Hello, Kern").should().sum(@loc(), t);
+    (text.as_str() == "Hello, Kern").should().sum(@loc(), t);
     "string: {}".fmt(.{text}).println();
     
     return 0;

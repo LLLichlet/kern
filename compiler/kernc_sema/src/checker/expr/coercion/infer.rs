@@ -280,14 +280,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impl_ids());
         let mut selected: Option<(DefId, TypeId)> = None;
 
-        for impl_id in unsafe { &*trait_impl_ids_ptr }.iter().copied() {
-            if !matches!(self.ctx.defs.get(impl_id.0 as usize), Some(Def::Impl(_))) {
-                continue;
-            }
-
+        for entry in self.ctx.trait_impl_entries() {
+            let impl_id = entry.id;
             {
                 let mut resolver = TypeResolver::new(self.ctx);
                 resolver.ensure_impl_signature_types_resolved(impl_id);

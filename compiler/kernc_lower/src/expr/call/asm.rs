@@ -37,17 +37,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return None;
         };
 
-        let lhs_ty = self
-            .ctx.node_type(lhs.id)
-            .unwrap_or(TypeId::ERROR);
+        let lhs_ty = self.ctx.node_type(lhs.id).unwrap_or(TypeId::ERROR);
         let norm_lhs = self.ctx.type_registry.normalize(lhs_ty);
         if matches!(self.ctx.type_registry.get(norm_lhs), TypeKind::Module(_)) {
             return None;
         }
 
-        let callee_ty = self
-            .ctx.node_type(callee.id)
-            .unwrap_or(TypeId::ERROR);
+        let callee_ty = self.ctx.node_type(callee.id).unwrap_or(TypeId::ERROR);
         let norm_callee = self.ctx.type_registry.normalize(callee_ty);
         if !matches!(
             self.ctx.type_registry.get(norm_callee),

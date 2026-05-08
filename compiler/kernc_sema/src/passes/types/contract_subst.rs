@@ -14,7 +14,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             let mut subst = Substituter::new(&mut self.ctx.type_registry, generic_args);
             subst.substitute(ty)
         };
-        let ty = crate::checker::substitute_associated_types(
+        let ty = crate::ty::substitute_associated_types(
             &mut self.ctx.type_registry,
             &self.ctx.defs,
             ty,

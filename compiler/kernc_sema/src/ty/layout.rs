@@ -1,7 +1,6 @@
 use crate::SemaContext;
-use crate::checker::Substituter;
 use crate::def::{Def, DefId};
-use crate::ty::{ConstGeneric, GenericArg, PrimitiveType, TypeId, TypeKind};
+use crate::ty::{ConstGeneric, GenericArg, PrimitiveType, Substituter, TypeId, TypeKind};
 use kernc_ast as ast;
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
@@ -635,10 +634,9 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 max_align
             }
             Def::Enum(a) => {
-                let tag_ty = a
-                    .backing_type
-                    .as_ref()
-                    .map_or(TypeId::U32, |bt| self.ctx.node_type(bt.id).unwrap_or(TypeId::U32));
+                let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
+                    self.ctx.node_type(bt.id).unwrap_or(TypeId::U32)
+                });
                 let mut max_align = self.compute_type_align_inner(
                     tag_ty,
                     a.backing_type.as_ref().map_or(a.span, |bt| bt.span),
@@ -704,10 +702,9 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
             Def::Enum(a) => {
                 // C-ABI tagged-union layout: `struct { TagType tag; union { ... } payload; }`.
-                let tag_ty = a
-                    .backing_type
-                    .as_ref()
-                    .map_or(TypeId::U32, |bt| self.ctx.node_type(bt.id).unwrap_or(TypeId::U32));
+                let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
+                    self.ctx.node_type(bt.id).unwrap_or(TypeId::U32)
+                });
 
                 let tag_span = a.backing_type.as_ref().map_or(a.span, |bt| bt.span);
                 let tag_align = self.compute_type_align_inner(tag_ty, tag_span);

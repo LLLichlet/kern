@@ -3,8 +3,6 @@ use super::*;
 impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     pub(super) fn inject_size_of(&mut self) {
         let name_id = self.ctx.intern("@sizeOf");
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
         // Generic parameter `T` with no additional bounds.
         let param_t = self.new_builtin_param("T");
 
@@ -20,33 +18,33 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             })
         };
 
-        let func_def = FunctionDef {
-            id: def_id,
-            name: name_id,
-            name_span: Default::default(),
-            vis: Visibility::Public,
-            parent: None,
-            is_imported: false,
-            generics: vec![param_t],
-            where_clauses: vec![],
-            params: vec![],
-            ret_type: TypeNode {
-                id: ret_type_id,
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Function(FunctionDef {
+                id: def_id,
+                name: name_id,
+                name_span: Default::default(),
+                vis: Visibility::Public,
+                parent: None,
+                is_imported: false,
+                generics: vec![param_t],
+                where_clauses: vec![],
+                params: vec![],
+                ret_type: TypeNode {
+                    id: ret_type_id,
+                    span: Default::default(),
+                    kind: ast::TypeKind::Infer,
+                },
+                body: None,
+                is_const: false,
+                is_extern: false,
+                is_variadic: false,
+                is_intrinsic: true,
+                resolved_sig: Some(sig_ty),
                 span: Default::default(),
-                kind: ast::TypeKind::Infer,
-            },
-            body: None,
-            is_const: false,
-            is_extern: false,
-            is_variadic: false,
-            is_intrinsic: true,
-            resolved_sig: Some(sig_ty),
-            span: Default::default(),
-            docs: None,
-            attributes: vec![],
-        };
-
-        self.ctx.add_def(Def::Function(func_def));
+                docs: None,
+                attributes: vec![],
+            })
+        });
 
         let root_scope = ScopeId(0);
         self.ctx.scopes.set_current_scope(root_scope);
@@ -68,8 +66,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     // Inject `@alignOf[T]() -> usize`.
     pub(super) fn inject_align_of(&mut self) {
         let name_id = self.ctx.intern("@alignOf");
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
         let param_t = self.new_builtin_param("T");
 
         let ret_type_id = self.ctx.next_node_id();
@@ -83,33 +79,33 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             })
         };
 
-        let func_def = FunctionDef {
-            id: def_id,
-            name: name_id,
-            name_span: Default::default(),
-            vis: Visibility::Public,
-            parent: None,
-            is_imported: false,
-            generics: vec![param_t],
-            where_clauses: vec![],
-            params: vec![],
-            ret_type: TypeNode {
-                id: ret_type_id,
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Function(FunctionDef {
+                id: def_id,
+                name: name_id,
+                name_span: Default::default(),
+                vis: Visibility::Public,
+                parent: None,
+                is_imported: false,
+                generics: vec![param_t],
+                where_clauses: vec![],
+                params: vec![],
+                ret_type: TypeNode {
+                    id: ret_type_id,
+                    span: Default::default(),
+                    kind: ast::TypeKind::Infer,
+                },
+                body: None,
+                is_const: false,
+                is_extern: false,
+                is_variadic: false,
+                is_intrinsic: true,
+                resolved_sig: Some(sig_ty),
                 span: Default::default(),
-                kind: ast::TypeKind::Infer,
-            },
-            body: None,
-            is_const: false,
-            is_extern: false,
-            is_variadic: false,
-            is_intrinsic: true,
-            resolved_sig: Some(sig_ty),
-            span: Default::default(),
-            docs: None,
-            attributes: vec![],
-        };
-
-        self.ctx.add_def(Def::Function(func_def));
+                docs: None,
+                attributes: vec![],
+            })
+        });
         let root_scope = ScopeId(0);
         self.ctx.scopes.set_current_scope(root_scope);
         let info = SymbolInfo {
@@ -130,8 +126,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     // Inject `@unreachable() -> !`.
     pub(super) fn inject_unreachable(&mut self) {
         let name_id = self.ctx.intern("@unreachable");
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
         let ret_id = self.ctx.next_node_id();
         let sig_ty = {
             self.ctx.set_node_type(ret_id, TypeId::NEVER);
@@ -142,33 +136,33 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             })
         };
 
-        let func_def = FunctionDef {
-            id: def_id,
-            name: name_id,
-            name_span: Default::default(),
-            vis: Visibility::Public,
-            parent: None,
-            is_imported: false,
-            generics: vec![],
-            where_clauses: vec![],
-            params: vec![],
-            ret_type: TypeNode {
-                id: ret_id,
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Function(FunctionDef {
+                id: def_id,
+                name: name_id,
+                name_span: Default::default(),
+                vis: Visibility::Public,
+                parent: None,
+                is_imported: false,
+                generics: vec![],
+                where_clauses: vec![],
+                params: vec![],
+                ret_type: TypeNode {
+                    id: ret_id,
+                    span: Default::default(),
+                    kind: ast::TypeKind::Never, // Map directly to the semantic `Never` type.
+                },
+                body: None,
+                is_const: false,
+                is_extern: false,
+                is_variadic: false,
+                is_intrinsic: true,
+                resolved_sig: Some(sig_ty),
                 span: Default::default(),
-                kind: ast::TypeKind::Never, // Map directly to the semantic `Never` type.
-            },
-            body: None,
-            is_const: false,
-            is_extern: false,
-            is_variadic: false,
-            is_intrinsic: true,
-            resolved_sig: Some(sig_ty),
-            span: Default::default(),
-            docs: None,
-            attributes: vec![],
-        };
-
-        self.ctx.add_def(Def::Function(func_def));
+                docs: None,
+                attributes: vec![],
+            })
+        });
         let root_scope = ScopeId(0);
         self.ctx.scopes.set_current_scope(root_scope);
         let info = SymbolInfo {
@@ -188,8 +182,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
     pub(super) fn inject_bitwise(&mut self, name: &str, int_trait_id: DefId) {
         let name_id = self.ctx.intern(name);
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
         let trait_node = ast::TypeNode {
             id: self.ctx.next_node_id(),
             span: Default::default(),
@@ -207,6 +199,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         };
         let val_param_id = self.ctx.next_node_id();
         let ret_id = self.ctx.next_node_id();
+        let val_name = self.ctx.intern("val");
 
         let sig_ty = {
             let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
@@ -220,50 +213,50 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             })
         };
 
-        let func_def = FunctionDef {
-            id: def_id,
-            name: name_id,
-            name_span: Default::default(),
-            vis: Visibility::Public,
-            parent: None,
-            is_imported: false,
-            generics: vec![param_t],
-            where_clauses: vec![ast::WhereClause {
-                span: Default::default(),
-                target_ty: target_node,
-                bounds: vec![trait_node],
-            }],
-            params: vec![ast::FuncParam {
-                pattern: ast::BindingPattern {
-                    name: self.ctx.intern("val"),
-                    name_span: Default::default(),
-                    is_mut: false,
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Function(FunctionDef {
+                id: def_id,
+                name: name_id,
+                name_span: Default::default(),
+                vis: Visibility::Public,
+                parent: None,
+                is_imported: false,
+                generics: vec![param_t],
+                where_clauses: vec![ast::WhereClause {
                     span: Default::default(),
-                },
-                type_node: ast::TypeNode {
-                    id: val_param_id,
+                    target_ty: target_node,
+                    bounds: vec![trait_node],
+                }],
+                params: vec![ast::FuncParam {
+                    pattern: ast::BindingPattern {
+                        name: val_name,
+                        name_span: Default::default(),
+                        is_mut: false,
+                        span: Default::default(),
+                    },
+                    type_node: ast::TypeNode {
+                        id: val_param_id,
+                        span: Default::default(),
+                        kind: ast::TypeKind::Infer,
+                    },
+                    span: Default::default(),
+                }],
+                ret_type: ast::TypeNode {
+                    id: ret_id,
                     span: Default::default(),
                     kind: ast::TypeKind::Infer,
                 },
+                body: None,
+                is_const: false,
+                is_extern: false,
+                is_variadic: false,
+                is_intrinsic: true,
+                resolved_sig: Some(sig_ty),
                 span: Default::default(),
-            }],
-            ret_type: ast::TypeNode {
-                id: ret_id,
-                span: Default::default(),
-                kind: ast::TypeKind::Infer,
-            },
-            body: None,
-            is_const: false,
-            is_extern: false,
-            is_variadic: false,
-            is_intrinsic: true,
-            resolved_sig: Some(sig_ty),
-            span: Default::default(),
-            docs: None,
-            attributes: vec![],
-        };
-
-        self.ctx.add_def(Def::Function(func_def));
+                docs: None,
+                attributes: vec![],
+            })
+        });
         let root_scope = ScopeId(0);
         self.ctx.scopes.set_current_scope(root_scope);
         let info = SymbolInfo {
@@ -284,7 +277,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     // Inject zero-argument hardware-style intrinsics.
     pub(super) fn inject_void_intrinsic(&mut self, name: &str, is_divergent: bool) {
         let name_id = self.ctx.intern(name);
-        let def_id = DefId(self.ctx.defs.len() as u32);
         let ret_id = self.ctx.next_node_id();
 
         let ret_type = if is_divergent {
@@ -307,33 +299,33 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             })
         };
 
-        let func_def = FunctionDef {
-            id: def_id,
-            name: name_id,
-            name_span: Default::default(),
-            vis: Visibility::Public,
-            parent: None,
-            is_imported: false,
-            generics: vec![],
-            where_clauses: vec![],
-            params: vec![],
-            ret_type: ast::TypeNode {
-                id: ret_id,
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Function(FunctionDef {
+                id: def_id,
+                name: name_id,
+                name_span: Default::default(),
+                vis: Visibility::Public,
+                parent: None,
+                is_imported: false,
+                generics: vec![],
+                where_clauses: vec![],
+                params: vec![],
+                ret_type: ast::TypeNode {
+                    id: ret_id,
+                    span: Default::default(),
+                    kind: ast_ret_kind,
+                },
+                body: None,
+                is_const: false,
+                is_extern: false,
+                is_variadic: false,
+                is_intrinsic: true,
+                resolved_sig: Some(sig_ty),
                 span: Default::default(),
-                kind: ast_ret_kind,
-            },
-            body: None,
-            is_const: false,
-            is_extern: false,
-            is_variadic: false,
-            is_intrinsic: true,
-            resolved_sig: Some(sig_ty),
-            span: Default::default(),
-            docs: None,
-            attributes: vec![],
-        };
-
-        self.ctx.add_def(Def::Function(func_def));
+                docs: None,
+                attributes: vec![],
+            })
+        });
         let root_scope = ScopeId(0);
         self.ctx.scopes.set_current_scope(root_scope);
         let info = SymbolInfo {
@@ -354,8 +346,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     pub(super) fn inject_memory_intrinsic(&mut self, kind: MemoryIntrinsicKind) {
         let name = kind.name();
         let name_id = self.ctx.intern(name);
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
         // Shared memory intrinsic parameter types: dest, src/val, and len.
         let ptr_mut_u8 = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: true,
@@ -370,6 +360,9 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let param_src_val_id = self.ctx.next_node_id();
         let param_len_id = self.ctx.next_node_id();
         let ret_id = self.ctx.next_node_id();
+        let dest_name = self.ctx.intern("dest");
+        let src_or_value_name = self.ctx.intern(kind.src_or_value_name());
+        let len_name = self.ctx.intern("len");
 
         let sig_ty = {
             self.ctx.set_node_type(param_dest_id, ptr_mut_u8);
@@ -385,76 +378,76 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             })
         };
 
-        let func_def = FunctionDef {
-            id: def_id,
-            name: name_id,
-            name_span: Default::default(),
-            vis: Visibility::Public,
-            parent: None,
-            is_imported: false,
-            generics: vec![], // Memory intrinsics always operate on raw bytes.
-            where_clauses: vec![],
-            params: vec![
-                ast::FuncParam {
-                    pattern: ast::BindingPattern {
-                        name: self.ctx.intern("dest"),
-                        name_span: Default::default(),
-                        is_mut: false,
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Function(FunctionDef {
+                id: def_id,
+                name: name_id,
+                name_span: Default::default(),
+                vis: Visibility::Public,
+                parent: None,
+                is_imported: false,
+                generics: vec![], // Memory intrinsics always operate on raw bytes.
+                where_clauses: vec![],
+                params: vec![
+                    ast::FuncParam {
+                        pattern: ast::BindingPattern {
+                            name: dest_name,
+                            name_span: Default::default(),
+                            is_mut: false,
+                            span: Default::default(),
+                        },
+                        type_node: ast::TypeNode {
+                            id: param_dest_id,
+                            span: Default::default(),
+                            kind: ast::TypeKind::Infer,
+                        },
                         span: Default::default(),
                     },
-                    type_node: ast::TypeNode {
-                        id: param_dest_id,
+                    ast::FuncParam {
+                        pattern: ast::BindingPattern {
+                            name: src_or_value_name,
+                            name_span: Default::default(),
+                            is_mut: false,
+                            span: Default::default(),
+                        },
+                        type_node: ast::TypeNode {
+                            id: param_src_val_id,
+                            span: Default::default(),
+                            kind: ast::TypeKind::Infer,
+                        },
                         span: Default::default(),
-                        kind: ast::TypeKind::Infer,
                     },
+                    ast::FuncParam {
+                        pattern: ast::BindingPattern {
+                            name: len_name,
+                            name_span: Default::default(),
+                            is_mut: false,
+                            span: Default::default(),
+                        },
+                        type_node: ast::TypeNode {
+                            id: param_len_id,
+                            span: Default::default(),
+                            kind: ast::TypeKind::Infer,
+                        },
+                        span: Default::default(),
+                    },
+                ],
+                ret_type: ast::TypeNode {
+                    id: ret_id,
                     span: Default::default(),
+                    kind: ast::TypeKind::Infer,
                 },
-                ast::FuncParam {
-                    pattern: ast::BindingPattern {
-                        name: self.ctx.intern(kind.src_or_value_name()),
-                        name_span: Default::default(),
-                        is_mut: false,
-                        span: Default::default(),
-                    },
-                    type_node: ast::TypeNode {
-                        id: param_src_val_id,
-                        span: Default::default(),
-                        kind: ast::TypeKind::Infer,
-                    },
-                    span: Default::default(),
-                },
-                ast::FuncParam {
-                    pattern: ast::BindingPattern {
-                        name: self.ctx.intern("len"),
-                        name_span: Default::default(),
-                        is_mut: false,
-                        span: Default::default(),
-                    },
-                    type_node: ast::TypeNode {
-                        id: param_len_id,
-                        span: Default::default(),
-                        kind: ast::TypeKind::Infer,
-                    },
-                    span: Default::default(),
-                },
-            ],
-            ret_type: ast::TypeNode {
-                id: ret_id,
+                body: None,
+                is_const: false,
+                is_extern: false,
+                is_variadic: false,
+                is_intrinsic: true,
+                resolved_sig: Some(sig_ty),
                 span: Default::default(),
-                kind: ast::TypeKind::Infer,
-            },
-            body: None,
-            is_const: false,
-            is_extern: false,
-            is_variadic: false,
-            is_intrinsic: true,
-            resolved_sig: Some(sig_ty),
-            span: Default::default(),
-            docs: None,
-            attributes: vec![],
-        };
-
-        self.ctx.add_def(Def::Function(func_def));
+                docs: None,
+                attributes: vec![],
+            })
+        });
         let node_id = self.ctx.next_node_id();
         let _ = self.ctx.scopes.define(
             name_id,
@@ -1033,8 +1026,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         ret_ty: TypeId,
     ) {
         let name_id = self.ctx.intern(name);
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
         let mut param_defs = Vec::with_capacity(params.len());
         let mut param_tys = Vec::with_capacity(params.len());
 
@@ -1072,33 +1063,33 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             ast::TypeKind::Infer
         };
 
-        let func_def = FunctionDef {
-            id: def_id,
-            name: name_id,
-            name_span: Default::default(),
-            vis: Visibility::Public,
-            parent: None,
-            is_imported: false,
-            generics,
-            where_clauses: vec![],
-            params: param_defs,
-            ret_type: ast::TypeNode {
-                id: ret_id,
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Function(FunctionDef {
+                id: def_id,
+                name: name_id,
+                name_span: Default::default(),
+                vis: Visibility::Public,
+                parent: None,
+                is_imported: false,
+                generics,
+                where_clauses: vec![],
+                params: param_defs,
+                ret_type: ast::TypeNode {
+                    id: ret_id,
+                    span: Default::default(),
+                    kind: ret_kind,
+                },
+                body: None,
+                is_const: false,
+                is_extern: false,
+                is_variadic: false,
+                is_intrinsic: true,
+                resolved_sig: Some(sig_ty),
                 span: Default::default(),
-                kind: ret_kind,
-            },
-            body: None,
-            is_const: false,
-            is_extern: false,
-            is_variadic: false,
-            is_intrinsic: true,
-            resolved_sig: Some(sig_ty),
-            span: Default::default(),
-            docs: None,
-            attributes: vec![],
-        };
-
-        self.ctx.add_def(Def::Function(func_def));
+                docs: None,
+                attributes: vec![],
+            })
+        });
         self.ctx.scopes.set_current_scope(ScopeId(0));
         let node_id = self.ctx.next_node_id();
         let _ = self.ctx.scopes.define(

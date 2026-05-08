@@ -267,9 +267,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if receiver_ty == TypeId::ERROR {
             return Some(TypeId::ERROR);
         }
-        if self.receiver_base_is_module(receiver_ty)
-            || !self.ctx.has_impl_methods_named(*field)
-        {
+        let methods = self.ctx.impl_methods_named(*field);
+        if self.receiver_base_is_module(receiver_ty) || methods.is_empty() {
             return None;
         }
 
@@ -314,33 +313,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         arg_tys: &[TypeId],
         span: Span,
     ) -> Result<Option<ArgumentInferredMethodCandidate>, ()> {
-        let Some(method_ids) = self.ctx.impl_method_ids_by_name(method_name) else {
+        let methods = self.ctx.impl_methods_named(method_name);
+        if methods.is_empty() {
             return Ok(None);
-        };
-        let method_ids = method_ids.to_vec();
+        }
         let mut candidates = Vec::new();
 
-        for method_id in method_ids {
-            let Some((impl_id, method_span)) =
-                self.ctx
-                    .defs
-                    .get(method_id.0 as usize)
-                    .and_then(|def| match def {
-                        Def::Function(function) => {
-                            function.parent.map(|parent| (parent, function.name_span))
-                        }
-                        _ => None,
-                    })
-            else {
-                continue;
-            };
-
+        for method in methods {
             if let Some(candidate) = self.infer_impl_method_from_call_arguments(
                 receiver_ty,
                 arg_tys,
-                impl_id,
-                method_id,
-                method_span,
+                method.impl_id,
+                method.method_id,
+                method.name_span,
             ) {
                 candidates.push(candidate);
             }

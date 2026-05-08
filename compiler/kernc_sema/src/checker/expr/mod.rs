@@ -1026,7 +1026,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return ty;
         }
 
-        let mut subst = crate::checker::Substituter::new(&mut self.ctx.type_registry, map);
+        let mut subst = crate::ty::Substituter::new(&mut self.ctx.type_registry, map);
         subst.substitute(ty)
     }
 
@@ -1363,7 +1363,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return ty;
         }
         let subst_map = self.build_generic_subst_map(type_map, const_map);
-        let mut subst = crate::checker::Substituter::new(&mut self.ctx.type_registry, &subst_map);
+        let mut subst = crate::ty::Substituter::new(&mut self.ctx.type_registry, &subst_map);
         subst.substitute(ty)
     }
 

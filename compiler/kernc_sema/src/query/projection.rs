@@ -28,7 +28,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             .iter()
             .copied()
             .collect::<FastHashMap<_, _>>();
-        let substituted = crate::checker::substitute_associated_types(
+        let substituted = crate::ty::substitute_associated_types(
             &mut self.ctx.type_registry,
             &self.ctx.defs,
             ty,

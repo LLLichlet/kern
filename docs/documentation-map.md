@@ -13,7 +13,6 @@ The important rule is simple:
 
 - public semantics and user-facing behavior should come from the `docs/` set
 - crate README files should explain implementation boundaries, not define end-user policy
-- planning documents should not be treated as product documentation
 
 ## Public Product Docs
 
@@ -49,15 +48,6 @@ These documents sit between public behavior and implementation detail.
 
 - [`tools/craft/README.md`](../tools/craft/README.md): current `craft` surface and internal module index
 - [`tools/lsp/README.md`](../tools/lsp/README.md): current `kern-lsp` feature surface, protocol coverage, and integration constraints
-
-## Planning Docs
-
-These documents are useful context for maintainers, but they should not be
-quoted as if they were current product guarantees.
-
-- [`docs/lsp-roadmap.md`](./lsp-roadmap.md): active `kern-lsp` responsiveness and dirty-analysis stabilization plan
-- [`docs/sdk-rebuild-plan.md`](./sdk-rebuild-plan.md): active release-engineering / SDK restructuring plan
-- [`docs/stdlib-enhancement-plan.md`](./stdlib-enhancement-plan.md): active standard-library gap and enhancement plan
 
 ## Source Of Truth By Topic
 

@@ -129,7 +129,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let mut ast_ordered_exprs = Vec::with_capacity(def.fields.len());
                 for field in &def.fields {
                     let raw_ty = self
-                        .ctx.node_type(field.type_node.id)
+                        .ctx
+                        .node_type(field.type_node.id)
                         .unwrap_or(TypeId::ERROR);
                     let field_ty = self.substitute_type_with_map(raw_ty, &subst_map);
                     let value = fields.get(&field.name)?;
@@ -189,9 +190,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } else {
             return None;
         };
-        let ty = self
-            .ctx.node_type(const_expr.id)
-            .unwrap_or(TypeId::ERROR);
+        let ty = self.ctx.node_type(const_expr.id).unwrap_or(TypeId::ERROR);
 
         let prev_scope = self.ctx.scopes.current_scope_id();
         if let Some(owner_scope) = self.global_owner_scope(def_id) {
@@ -1119,9 +1118,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             for &ast_idx in &physical_to_ast {
                 let f = &def.fields[ast_idx];
-                let raw_ty = this
-                    .ctx.node_type(f.type_node.id)
-                    .unwrap_or(TypeId::ERROR);
+                let raw_ty = this.ctx.node_type(f.type_node.id).unwrap_or(TypeId::ERROR);
                 let conc_ty = this.substitute_type_with_map(raw_ty, &subst_map);
                 this.track_pure_enum_repr_in_type(conc_ty);
                 mast_fields.push(MastField {
@@ -1393,9 +1390,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut largest_field_idx = 0;
 
         for f in &def.fields {
-            let raw_ty = self
-                .ctx.node_type(f.type_node.id)
-                .unwrap_or(TypeId::ERROR);
+            let raw_ty = self.ctx.node_type(f.type_node.id).unwrap_or(TypeId::ERROR);
             let conc_ty = self.substitute_type_with_map(raw_ty, &subst_map);
             self.track_pure_enum_repr_in_type(conc_ty);
             mast_fields.push(MastField {
@@ -1482,9 +1477,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             for variant in &def.variants {
                 let field_ty = if let Some(payload_ast) = &variant.payload_type {
-                    let raw_ty = this
-                        .ctx.node_type(payload_ast.id)
-                        .unwrap_or(TypeId::ERROR);
+                    let raw_ty = this.ctx.node_type(payload_ast.id).unwrap_or(TypeId::ERROR);
                     this.substitute_type_with_map(raw_ty, &subst_map)
                 } else {
                     TypeId::VOID
@@ -1525,9 +1518,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
 
             let tag_ty = if let Some(bt) = &def.backing_type {
-                let raw_tag_ty = this
-                    .ctx.node_type(bt.id)
-                    .unwrap_or(TypeId::U32);
+                let raw_tag_ty = this.ctx.node_type(bt.id).unwrap_or(TypeId::U32);
                 this.substitute_type_with_map(raw_tag_ty, &subst_map)
             } else {
                 TypeId::U32
@@ -1578,9 +1569,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         };
 
-        let ty = self
-            .ctx.node_type(g.value.id)
-            .unwrap_or(TypeId::ERROR);
+        let ty = self.ctx.node_type(g.value.id).unwrap_or(TypeId::ERROR);
         self.track_pure_enum_repr_in_type(ty);
         let is_mut = g.is_mut;
 

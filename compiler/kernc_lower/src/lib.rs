@@ -8,11 +8,11 @@ use kernc_flow::{FlowLoweringHints, FlowLoweringOwnerHints};
 use kernc_mast::*;
 use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::SemaContext;
-use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId, EnumDef, FunctionDef, Visibility};
 use kernc_sema::scope::ScopeId;
 use kernc_sema::ty::{
-    ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, TypeId, TypeKind,
+    ConstGeneric, ConstGenericValue, ConstGenericValueKind, GenericArg, Substituter, TypeId,
+    TypeKind,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -490,7 +490,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     /// Entry point for lowering with internal timing breakdowns.
     pub fn lower_all_with_report(&mut self) -> LowerReport {
-        let def_ids: Vec<_> = (0..self.ctx.defs.len()).map(|i| DefId(i as u32)).collect();
+        let def_ids: Vec<_> = self.ctx.defs.ids().collect();
 
         // Phase 1: preallocate `MonoId`s for globals.
         self.measure_phase("  lower_preallocate_globals", |this| {
@@ -721,8 +721,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let raw_tag_ty = def.backing_type.as_ref().map_or(TypeId::U32, |backing_ty| {
-            self.ctx.node_type(backing_ty.id)
-                .unwrap_or(TypeId::U32)
+            self.ctx.node_type(backing_ty.id).unwrap_or(TypeId::U32)
         });
 
         let tag_ty = if def.generics.is_empty() || args.is_empty() {

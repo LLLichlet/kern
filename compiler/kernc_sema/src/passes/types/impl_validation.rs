@@ -96,7 +96,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
                 subst.substitute(super_ty)
             };
-            let instantiated_super = crate::checker::substitute_associated_types(
+            let instantiated_super = crate::ty::substitute_associated_types(
                 &mut self.ctx.type_registry,
                 &self.ctx.defs,
                 instantiated_super,
@@ -190,17 +190,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     pub(super) fn validate_impl_associated_type_targets(&mut self) {
-        let trait_impl_ids = self.ctx.trait_impl_ids().to_vec();
-        for impl_id in trait_impl_ids {
-            let Some(impl_def) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| {
-                if let Def::Impl(impl_def) = def {
-                    Some(impl_def.clone())
-                } else {
-                    None
-                }
-            }) else {
-                continue;
-            };
+        for entry in self.ctx.trait_impl_entries() {
+            let impl_def = entry.def;
 
             for assoc_id in impl_def.assoc_types {
                 let Some(assoc_def) = self.ctx.defs.get(assoc_id.0 as usize).and_then(|def| {

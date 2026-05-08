@@ -47,15 +47,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     fn rebuild_trait_impl_index_by_trait(&mut self) {
-        let trait_impl_ids = self.ctx.trait_impl_ids().to_vec();
         let mut grouped = FastHashMap::default();
 
-        for impl_id in trait_impl_ids {
+        for entry in self.ctx.trait_impl_entries() {
+            let impl_id = entry.id;
+            let impl_def = entry.def;
             self.ensure_impl_signature_types_resolved(impl_id);
-
-            let Some(Def::Impl(impl_def)) = self.ctx.defs.get(impl_id.0 as usize) else {
-                continue;
-            };
             let Some(trait_ty) = impl_def
                 .trait_type
                 .as_ref()

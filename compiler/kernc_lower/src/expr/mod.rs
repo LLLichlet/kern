@@ -314,9 +314,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn resolve_expr_type(&self, expr: &Expr) -> TypeId {
-        let raw_ty = self
-            .ctx.node_type(expr.id)
-            .unwrap_or(TypeId::ERROR);
+        let raw_ty = self.ctx.node_type(expr.id).unwrap_or(TypeId::ERROR);
         if raw_ty == TypeId::ERROR
             && let ExprKind::Identifier(name) = &expr.kind
             && let Some((local_ty, _)) = self.local_binding(*name)
@@ -333,7 +331,7 @@ mod tests {
     use kernc_ast::{PropagateKind, UnaryOperator};
     use kernc_mono::MonoId;
     use kernc_sema::SemaContext;
-    use kernc_sema::def::{Def, DefId, UnionDef};
+    use kernc_sema::def::{Def, UnionDef};
     use kernc_sema::scope::{SymbolInfo, SymbolKind};
     use kernc_sema::ty::{AnonymousEnum, AnonymousVariant, BuiltinAnonymousEnumKind};
     use kernc_utils::{AtomicOrdering, DiagnosticLevel, NodeId, Session, Span};
@@ -762,22 +760,23 @@ mod tests {
     fn lowering_struct_pattern_on_non_struct_def_emits_error_not_ice() {
         let mut session = Session::new();
         let mut ctx = SemaContext::new(&mut session);
-        let def_id = DefId(ctx.defs.len() as u32);
         let union_name = ctx.intern("U");
         let field_name = ctx.intern("field");
-        ctx.defs.push(Def::Union(UnionDef {
-            id: def_id,
-            name: union_name,
-            vis: kernc_ast::Visibility::Private,
-            parent_module: None,
-            is_imported: false,
-            generics: vec![],
-            where_clauses: vec![],
-            fields: vec![],
-            is_extern: false,
-            span: Span::default(),
-            docs: None,
-        }));
+        let def_id = ctx.add_def_with(|def_id| {
+            Def::Union(UnionDef {
+                id: def_id,
+                name: union_name,
+                vis: kernc_ast::Visibility::Private,
+                parent_module: None,
+                is_imported: false,
+                generics: vec![],
+                where_clauses: vec![],
+                fields: vec![],
+                is_extern: false,
+                span: Span::default(),
+                docs: None,
+            })
+        });
         let union_ty = ctx.type_registry.intern(TypeKind::Def(def_id, vec![]));
 
         let resolved = Lowerer::new(&mut ctx).resolve_struct_pattern_field(
@@ -818,21 +817,22 @@ mod tests {
             )
             .unwrap();
         ctx.scopes.set_current_scope(root_scope);
-        let module_def_id = DefId(ctx.defs.len() as u32);
-        ctx.defs.push(Def::Module(kernc_sema::def::ModuleDef {
-            id: module_def_id,
-            name: module_name,
-            parent: None,
-            is_imported: false,
-            scope_id: mod_scope,
-            dir_path: std::path::PathBuf::new(),
-            file_id: kernc_utils::FileId(0),
-            submodules: HashMap::default(),
-            items: vec![],
-            imports: vec![],
-            is_init: false,
-            docs: None,
-        }));
+        let module_def_id = ctx.add_def_with(|module_def_id| {
+            Def::Module(kernc_sema::def::ModuleDef {
+                id: module_def_id,
+                name: module_name,
+                parent: None,
+                is_imported: false,
+                scope_id: mod_scope,
+                dir_path: std::path::PathBuf::new(),
+                file_id: kernc_utils::FileId(0),
+                submodules: HashMap::default(),
+                items: vec![],
+                imports: vec![],
+                is_init: false,
+                docs: None,
+            })
+        });
         let module_ty = ctx.type_registry.intern(TypeKind::Module(module_def_id));
         let lhs = Expr {
             id: NodeId(0),

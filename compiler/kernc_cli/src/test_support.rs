@@ -1,13 +1,152 @@
 use std::ffi::OsStr;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Condvar, Mutex, OnceLock};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kernc_utils::config::{resolve_base_path, resolve_sys_path};
 
 static UNIQUE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+static TEST_PROCESS_LIMITER: OnceLock<TestProcessLimiter> = OnceLock::new();
+
+const DEFAULT_KERNC_TIMEOUT: Duration = Duration::from_secs(180);
+const DEFAULT_RUN_TIMEOUT: Duration = Duration::from_secs(30);
+
+struct TestProcessLimiter {
+    active: Mutex<usize>,
+    available: Condvar,
+    limit: usize,
+}
+
+struct TestProcessSlot;
+
+impl Drop for TestProcessSlot {
+    fn drop(&mut self) {
+        let limiter = test_process_limiter();
+        let mut active = limiter.active.lock().unwrap();
+        *active = active.saturating_sub(1);
+        limiter.available.notify_one();
+    }
+}
+
+fn test_process_limiter() -> &'static TestProcessLimiter {
+    TEST_PROCESS_LIMITER.get_or_init(|| TestProcessLimiter {
+        active: Mutex::new(0),
+        available: Condvar::new(),
+        limit: configured_process_limit(),
+    })
+}
+
+fn configured_process_limit() -> usize {
+    if let Some(limit) = read_positive_usize_env("KERNC_TEST_PROCESS_LIMIT") {
+        return limit;
+    }
+
+    let available = thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1);
+    if available <= 4 {
+        1
+    } else {
+        (available / 4).clamp(1, 4)
+    }
+}
+
+fn read_positive_usize_env(name: &str) -> Option<usize> {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+}
+
+fn read_duration_env(name: &str, default: Duration) -> Duration {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(default)
+}
+
+fn acquire_test_process_slot() -> TestProcessSlot {
+    let limiter = test_process_limiter();
+    let mut active = limiter.active.lock().unwrap();
+    while *active >= limiter.limit {
+        active = limiter.available.wait(active).unwrap();
+    }
+    *active += 1;
+    TestProcessSlot
+}
+
+fn run_command_with_timeout(mut command: Command, timeout: Duration, context: &str) -> Output {
+    let _slot = acquire_test_process_slot();
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().unwrap_or_else(|err| {
+        panic!("failed to spawn {context}: {err}");
+    });
+    let mut stdout = child.stdout.take().expect("missing piped stdout");
+    let mut stderr = child.stderr.take().expect("missing piped stderr");
+    let stdout_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let start = std::time::Instant::now();
+
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(err) => panic!("failed to poll {context}: {err}"),
+        }
+
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let status = child.wait().unwrap_or_else(|err| {
+                panic!("failed to wait for timed-out {context}: {err}");
+            });
+            let output = collect_output(context, status, stdout_reader, stderr_reader);
+            panic!(
+                "{context} timed out after {} ms\nstdout:\n{}\nstderr:\n{}",
+                timeout.as_millis(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    };
+
+    collect_output(context, status, stdout_reader, stderr_reader)
+}
+
+fn collect_output(
+    context: &str,
+    status: std::process::ExitStatus,
+    stdout_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    stderr_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) -> Output {
+    let stdout = stdout_reader
+        .join()
+        .unwrap_or_else(|_| panic!("failed to join {context} stdout reader"))
+        .unwrap_or_else(|err| panic!("failed to read {context} stdout: {err}"));
+    let stderr = stderr_reader
+        .join()
+        .unwrap_or_else(|_| panic!("failed to join {context} stderr reader"))
+        .unwrap_or_else(|err| panic!("failed to read {context} stderr: {err}"));
+    Output {
+        status,
+        stdout,
+        stderr,
+    }
+}
 
 fn kernc_binary() -> PathBuf {
     if let Some(path) = std::env::var_os("CARGO_BIN_EXE_kernc").map(PathBuf::from) {
@@ -61,11 +200,13 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    Command::new(kernc_binary())
-        .current_dir(repo_root())
-        .args(args)
-        .output()
-        .unwrap()
+    let mut command = Command::new(kernc_binary());
+    command.current_dir(repo_root()).args(args);
+    run_command_with_timeout(
+        command,
+        read_duration_env("KERNC_TEST_TIMEOUT_MS", DEFAULT_KERNC_TIMEOUT),
+        "kernc",
+    )
 }
 
 fn maybe_add_default_runtime_contract(args: &mut Vec<String>) {
@@ -268,7 +409,11 @@ pub fn build_and_run(prefix: &str, source: &str, compile_args: &[&str]) -> Outpu
     let compile_output = run_kernc(&args);
     assert_success(&compile_output, "kernc");
 
-    let run_output = Command::new(&executable_path).output().unwrap();
+    let run_output = run_command_with_timeout(
+        Command::new(&executable_path),
+        read_duration_env("KERNC_TEST_RUN_TIMEOUT_MS", DEFAULT_RUN_TIMEOUT),
+        "compiled test binary",
+    );
 
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);

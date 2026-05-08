@@ -1,5 +1,5 @@
-use kernc_utils::{NodeId, Span, SymbolId};
 use kernc_utils::FastHashMap;
+use kernc_utils::{NodeId, Span, SymbolId};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 

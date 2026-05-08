@@ -573,7 +573,7 @@ impl<'a> SemaContext<'a> {
             .zip(assoc_args.iter().copied())
             .map(|(param, arg)| (param.name, arg))
             .collect::<FastHashMap<_, _>>();
-        let mut subst = crate::checker::Substituter::new(&mut self.type_registry, &subst_map);
+        let mut subst = crate::ty::Substituter::new(&mut self.type_registry, &subst_map);
         subst.substitute(assoc_ty)
     }
 
@@ -1460,7 +1460,7 @@ mod tests {
         let mut ctx = SemaContext::new(&mut session);
         let mapper_name = ctx.intern("Mapper");
         let apply_name = ctx.intern("Apply");
-        let trait_id_value = DefId(ctx.defs.len() as u32);
+        let trait_id_value = ctx.defs.next_id();
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
             name: mapper_name,
@@ -1485,7 +1485,7 @@ mod tests {
         let assoc_generic_ty = ctx
             .type_registry
             .intern(TypeKind::Param(assoc_generic.name));
-        let assoc_id_value = DefId(ctx.defs.len() as u32);
+        let assoc_id_value = ctx.defs.next_id();
         let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: assoc_id_value,
             name: apply_name,
@@ -1527,7 +1527,7 @@ mod tests {
         trait_name: &str,
         assoc_name: &str,
     ) -> (DefId, DefId) {
-        let trait_id_value = DefId(ctx.defs.len() as u32);
+        let trait_id_value = ctx.defs.next_id();
         let trait_name = ctx.intern(trait_name);
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
@@ -1545,7 +1545,7 @@ mod tests {
             is_builtin: false,
             docs: None,
         }));
-        let assoc_id_value = DefId(ctx.defs.len() as u32);
+        let assoc_id_value = ctx.defs.next_id();
         let assoc_name = ctx.intern(assoc_name);
         let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: assoc_id_value,
@@ -1574,7 +1574,7 @@ mod tests {
         ctx: &mut SemaContext<'_>,
         assoc_specs: &[(&str, Option<DefId>)],
     ) -> DefId {
-        let impl_id_value = DefId(ctx.defs.len() as u32);
+        let impl_id_value = ctx.defs.next_id();
         let impl_id = ctx.add_def(Def::Impl(ImplDef {
             id: impl_id_value,
             parent_module: None,
@@ -1594,7 +1594,7 @@ mod tests {
 
         let mut assoc_ids = Vec::new();
         for (name, parent_trait) in assoc_specs {
-            let assoc_id_value = DefId(ctx.defs.len() as u32);
+            let assoc_id_value = ctx.defs.next_id();
             let assoc_name = ctx.intern(name);
             let implemented_trait_assoc = parent_trait.and_then(|trait_id| {
                 let Def::Trait(trait_def) = &ctx.defs[trait_id.0 as usize] else {
@@ -1673,7 +1673,7 @@ mod tests {
             Def::AssociatedType(def) => def.name,
             _ => panic!("expected trait associated type"),
         };
-        let impl_assoc_id_value = DefId(ctx.defs.len() as u32);
+        let impl_assoc_id_value = ctx.defs.next_id();
         let impl_assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: impl_assoc_id_value,
             name: assoc_name,

@@ -670,8 +670,7 @@ fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
             expr_is_strictly_pure(ctx, lhs) && expr_is_strictly_pure(ctx, rhs)
         }
         ast::ExprKind::DataInit { literal, .. } => {
-            let ty = ctx.node_type(expr.id)
-                .unwrap_or(TypeId::ERROR);
+            let ty = ctx.node_type(expr.id).unwrap_or(TypeId::ERROR);
             let norm_ty = ctx.type_registry.normalize(ty);
 
             if !matches!(ctx.type_registry.get(norm_ty), TypeKind::Primitive(_)) {

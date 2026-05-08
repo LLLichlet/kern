@@ -395,8 +395,14 @@ impl &mut Editor {
 
     fn prompt_prefix() &[u8] {
         match (self.prompt_kind) {
-            .Ex => return ":",
-            .Shell => return ">",
+            .Ex => {
+                static prefix = ":";
+                return prefix;
+            },
+            .Shell => {
+                static prefix = ">";
+                return prefix;
+            },
         }
     }
 

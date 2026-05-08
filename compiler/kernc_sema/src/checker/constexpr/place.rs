@@ -14,7 +14,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 require_root_mutability: true,
             })
         } else {
-            self.host.ctx
+            self.ctx
                 .struct_error(
                     span,
                     "constant evaluation can only take references to local bindings in the current const context",
@@ -32,9 +32,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     ) {
         match error {
             ConstPlaceError::MissingField(field) => {
-                let field_str = self.host.resolve_symbol(field);
-                self.host
-                    .ctx
+                let field_str = self.resolve_symbol(field);
+                self.ctx
                     .struct_error(
                         span,
                         format!("field `{}` not found in constant struct", field_str),
@@ -47,20 +46,17 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 } else {
                     "field access on"
                 };
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, format!("attempted {} a non-struct constant", action))
                     .emit();
             }
             ConstPlaceError::IndexOutOfBounds => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "constant array index out of bounds")
                     .emit();
             }
             ConstPlaceError::StringIndexOutOfBounds => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "constant string index out of bounds")
                     .emit();
             }
@@ -70,14 +66,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 } else {
                     "indexing into"
                 };
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, format!("attempted {} a non-array constant", action))
                     .emit();
             }
             ConstPlaceError::ImmutablePointer => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         "constant evaluation cannot mutate through an immutable pointer",
@@ -85,8 +79,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     .emit();
             }
             ConstPlaceError::ExpectedPointer => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "expected a local pointer in constant evaluation")
                     .emit();
             }
@@ -116,8 +109,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
         let Some(root_value) = self.lookup_local_at(root_scope, root_name) else {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     "constant pointer target is no longer available in the current local scope",
@@ -153,7 +145,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         match &expr.kind {
             ExprKind::Identifier(name) => self.resolve_local_place(*name, expr.span),
             ExprKind::SelfValue => {
-                let self_name = self.host.ctx.intern("self");
+                let self_name = self.ctx.intern("self");
                 self.resolve_local_place(self_name, expr.span)
             }
             ExprKind::Unary {
@@ -166,7 +158,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::FieldAccess { lhs, field, .. } => {
                 let lhs_norm = self.expr_type(lhs);
 
-                let mut place = match self.host.type_kind(lhs_norm).clone() {
+                let mut place = match self.type_kind(lhs_norm).clone() {
                     TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } => {
                         let pointer = self.eval_inner(lhs, depth + 1)?;
                         self.resolve_pointer_target(&pointer, require_mut, lhs.span)?
@@ -183,7 +175,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 Ok(place)
             }
             _ => {
-                self.host.ctx
+                self.ctx
                     .struct_error(
                         expr.span,
                         "constant evaluation currently supports references only to local bindings, explicit pointer dereferences, struct fields, or array elements",

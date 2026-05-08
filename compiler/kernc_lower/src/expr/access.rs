@@ -194,9 +194,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, GenericArg>,
         span: Span,
     ) -> MastExprKind {
-        let expr_ty = self
-            .ctx.node_type(lhs.id)
-            .unwrap_or(TypeId::ERROR);
+        let expr_ty = self.ctx.node_type(lhs.id).unwrap_or(TypeId::ERROR);
         let expr_ty = self.substitute_type_with_map(expr_ty, subst_map);
         let norm_expr = self.normalize_concrete_type(expr_ty);
 

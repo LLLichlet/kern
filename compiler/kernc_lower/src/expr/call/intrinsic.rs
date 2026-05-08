@@ -14,9 +14,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return None;
         };
         let trait_node = impl_def.trait_type.as_ref()?;
-        let trait_ty = self
-            .ctx.node_type(trait_node.id)
-            .unwrap_or(TypeId::ERROR);
+        let trait_ty = self.ctx.node_type(trait_node.id).unwrap_or(TypeId::ERROR);
         let norm_trait_ty = self.ctx.type_registry.normalize(trait_ty);
         let TypeKind::TraitObject(trait_def_id, _, _) =
             self.ctx.type_registry.get(norm_trait_ty).clone()

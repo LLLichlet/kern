@@ -20,7 +20,7 @@ pub enum Command {
 
 fn tail_after(text: &[u8], count: usize) &[u8] {
     if (count >= #text) {
-        return "";
+        return text.&[0 .. 0];
     }
     return text.&[count .. #text].trim_ascii();
 }

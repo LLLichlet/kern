@@ -1023,7 +1023,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             return None;
         };
 
-        let mod_id = DefId(self.ctx.defs.len() as u32);
+        let mod_id = self.ctx.defs.next_id();
         self.loaded_files.insert(abs_path.clone(), mod_id);
         let file_id = parsed.file_id;
 

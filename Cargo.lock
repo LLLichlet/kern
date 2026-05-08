@@ -87,14 +87,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kernc_consteval"
-version = "0.7.5"
-dependencies = [
- "kernc_ty",
- "kernc_utils",
-]
-
-[[package]]
 name = "kernc_db"
 version = "0.7.5"
 
@@ -205,7 +197,6 @@ name = "kernc_sema"
 version = "0.7.5"
 dependencies = [
  "kernc_ast",
- "kernc_consteval",
  "kernc_middle",
  "kernc_parser",
  "kernc_ty",

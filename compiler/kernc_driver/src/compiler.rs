@@ -18,13 +18,12 @@ use kernc_db::Memo;
 pub use kernc_flow::{
     AnalysisFlowBinding, AnalysisFlowBindingId, AnalysisFlowBindingKind,
     AnalysisFlowBindingSummary, AnalysisFlowCfg, AnalysisFlowCfgEdge, AnalysisFlowCfgEdgeKind,
-    AnalysisFlowCfgNode, AnalysisFlowCfgNodeKind, AnalysisFlowDefUse,
-    AnalysisFlowDefinitionFacts, AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef,
-    AnalysisFlowLiveness, AnalysisFlowNodeEffects, AnalysisFlowNodeFacts, AnalysisFlowNodeId,
-    AnalysisFlowNodeTransfer, AnalysisFlowOwner, AnalysisFlowOwnerKind, AnalysisFlowReaching,
-    AnalysisFlowRegion, AnalysisFlowRegionKind, AnalysisFlowResolvedUse,
-    AnalysisFlowResolvedUseKind, AnalysisFlowSingleSourceUse, AnalysisFlowSummary,
-    AnalysisFlowUseDef,
+    AnalysisFlowCfgNode, AnalysisFlowCfgNodeKind, AnalysisFlowDefUse, AnalysisFlowDefinitionFacts,
+    AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef, AnalysisFlowLiveness,
+    AnalysisFlowNodeEffects, AnalysisFlowNodeFacts, AnalysisFlowNodeId, AnalysisFlowNodeTransfer,
+    AnalysisFlowOwner, AnalysisFlowOwnerKind, AnalysisFlowReaching, AnalysisFlowRegion,
+    AnalysisFlowRegionKind, AnalysisFlowResolvedUse, AnalysisFlowResolvedUseKind,
+    AnalysisFlowSingleSourceUse, AnalysisFlowSummary, AnalysisFlowUseDef,
 };
 use kernc_sema::SemaStructureSnapshot;
 use kernc_sema::def::DefId;

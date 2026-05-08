@@ -2,6 +2,7 @@ use base.coll.String;
 use base.mem.alloc.GPA;
 use std.fs;
 use base.test;
+use std.io;
 use sys.mem.Page;
 use bed.{buffer, command, editor, input};
 
@@ -82,7 +83,7 @@ fn line_slice(text: &[u8], line_index: usize) &[u8] {
     if (current == line_index and start <= #text) {
         return text.&[start .. #text];
     }
-    return "";
+    return text.&[0 .. 0];
 }
 
 fn find_line_with(text: &[u8], needle: &[u8], max_lines: usize) usize {
@@ -110,9 +111,10 @@ fn ctrl_w(state: &mut editor.Editor, gpa: &mut GPA, key: u8) void {
 }
 
 fn expect_cursor(state: &mut editor.Editor, row: usize, col: usize, label: &[u8]) void {
+    let t = test.report(io.stderr())..&;
     _ = label;
-    test.assert(state.cursor_row() == row);
-    test.assert(state.cursor_col() == col);
+    (state.cursor_row() == row).should().sum(@loc(), t);
+    (state.cursor_col() == col).should().sum(@loc(), t);
 }
 
 fn run_ex_command(state: &mut editor.Editor, gpa: &mut GPA, text: &[u8]) void {
@@ -122,141 +124,148 @@ fn run_ex_command(state: &mut editor.Editor, gpa: &mut GPA, text: &[u8]) void {
 }
 
 fn smoke_temp_root(gpa: &mut GPA) String {
+    let t = test.report(io.stderr())..&;
     let root = String.{}..&;
-    test.assert(root.push_str(gpa, "t"));
-    _ = test.expect_ok(root.as_str().path().create_dir_all(gpa));
+    root.push_str(gpa, "t").should().sum(@loc(), t);
+    _ = root.as_str().path().create_dir_all(gpa).should_ok().sum(@loc(), t);
     return root.*;
 }
 
 fn smoke_temp_path(gpa: &mut GPA, name: &[u8]) String {
+    let t = test.report(io.stderr())..&;
     let root = smoke_temp_root(gpa)..&;
     defer root.deinit(gpa);
-    let path = test.expect_ok(fs.join(gpa, root.as_str(), name))..&;
+    let path = fs.join(gpa, root.as_str(), name).should_ok().sum(@loc(), t)..&;
     return path.*;
 }
 
 fn run_edit_command(state: &mut editor.Editor, gpa: &mut GPA, path: &[u8]) void {
+    let t = test.report(io.stderr())..&;
     let command = String.{}..&;
     defer command.deinit(gpa);
-    test.assert(command.push_str(gpa, "e "));
-    test.assert(command.push_str(gpa, path));
+    command.push_str(gpa, "e ").should().sum(@loc(), t);
+    command.push_str(gpa, path).should().sum(@loc(), t);
     run_ex_command(state, gpa, command.as_str());
 }
 
 fn check_command_parse() void {
+    let t = test.report(io.stderr())..&;
     match (command.parse("q")) {
         .Quit => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("q!")) {
         .ForceQuit => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("w tmp.txt")) {
-        .{ WriteAs: path } => test.eq(path, "tmp.txt"),
-        _ => test.fail(),
+        .{ WriteAs: path } => (path == "tmp.txt").should().sum(@loc(), t),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("w")) {
         .Write => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("wq")) {
         .WriteQuit => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("wq!")) {
         .WriteQuit => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("split")) {
         .Split => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("vsplit")) {
         .VSplit => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("close")) {
         .CloseWindow => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("only")) {
         .OnlyWindow => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("set number")) {
-        .{ SetNumber: enabled } => test.assert(enabled),
-        _ => test.fail(),
+        .{ SetNumber: enabled } => enabled.should().sum(@loc(), t),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (command.parse("set relativenumber")) {
-        .{ SetRelativeNumber: enabled } => test.assert(enabled),
-        _ => test.fail(),
+        .{ SetRelativeNumber: enabled } => enabled.should().sum(@loc(), t),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
 
 fn check_buffer_editing() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let text = test.expect_ok(buffer.empty(gpa, ""))..&;
+    let text = buffer.empty(gpa, "").should_ok().sum(@loc(), t)..&;
     defer text.deinit(gpa);
 
-    test.assert(text.insert_byte(gpa, 0, 0, b'a'));
-    test.assert(text.insert_byte(gpa, 0, 1, b'b'));
-    test.assert(text.split_line(gpa, 0, 1));
-    test.eq(text.line_count(), 2);
-    test.eq(text.line(0), "a");
-    test.eq(text.line(1), "b");
+    text.insert_byte(gpa, 0, 0, b'a').should().sum(@loc(), t);
+    text.insert_byte(gpa, 0, 1, b'b').should().sum(@loc(), t);
+    text.split_line(gpa, 0, 1).should().sum(@loc(), t);
+    (text.line_count() == 2).should().sum(@loc(), t);
+    (text.line(0) == "a").should().sum(@loc(), t);
+    (text.line(1) == "b").should().sum(@loc(), t);
 
     let cursor = text.delete_backward(gpa, 1, 0);
-    test.eq(cursor.row, 0);
-    test.eq(cursor.col, 1);
-    test.eq(text.line_count(), 1);
-    test.eq(text.line(0), "ab");
+    (cursor.row == 0).should().sum(@loc(), t);
+    (cursor.col == 1).should().sum(@loc(), t);
+    (text.line_count() == 1).should().sum(@loc(), t);
+    (text.line(0) == "ab").should().sum(@loc(), t);
 
-    test.assert(text.delete_at(gpa, 0, 1));
-    test.eq(text.line(0), "a");
+    text.delete_at(gpa, 0, 1).should().sum(@loc(), t);
+    (text.line(0) == "a").should().sum(@loc(), t);
 }
 
 fn check_escape_decode() void {
+    let t = test.report(io.stderr())..&;
     match (input.map_csi_tilde(3)) {
         .Delete => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (input.map_csi_tilde(5)) {
         .PageUp => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (input.map_csi_final(b'H')) {
         .Home => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (input.map_csi_final(b'F')) {
         .End => {}
-        _ => test.fail(),
+        _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
 
 fn check_editor_resize_and_command_cursor() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(40, 120));
-    test.assert(!state.resize(40, 120));
+    state.resize(40, 120).should().sum(@loc(), t);
+    (!state.resize(40, 120)).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b':' });
     state.handle_key(gpa, .{ Byte: b'w' });
@@ -266,14 +275,15 @@ fn check_editor_resize_and_command_cursor() void {
     state.handle_key(gpa, .End);
     state.handle_key(gpa, .Backspace);
     state.handle_key(gpa, .Escape);
-    test.assert(!state.should_quit());
+    (!state.should_quit()).should().sum(@loc(), t);
 }
 
 fn check_editor_normal_mode_subset() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
     state.handle_key(gpa, .{ Byte: b'i' });
@@ -282,14 +292,14 @@ fn check_editor_normal_mode_subset() void {
 
     state.handle_key(gpa, .{ Byte: b'0' });
     state.handle_key(gpa, .{ Byte: b'w' });
-    test.eq(state.cursor_row(), 0);
-    test.eq(state.cursor_col(), 4);
+    (state.cursor_row() == 0).should().sum(@loc(), t);
+    (state.cursor_col() == 4).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'e' });
-    test.eq(state.cursor_col(), 6);
+    (state.cursor_col() == 6).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'b' });
-    test.eq(state.cursor_col(), 4);
+    (state.cursor_col() == 4).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'A' });
     state.handle_key(gpa, .{ Byte: b'!' });
@@ -300,21 +310,22 @@ fn check_editor_normal_mode_subset() void {
     state.handle_key(gpa, .Escape);
 
     state.handle_key(gpa, .{ Byte: b'G' });
-    test.eq(state.cursor_row(), 1);
+    (state.cursor_row() == 1).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'g' });
     state.handle_key(gpa, .{ Byte: b'g' });
     state.handle_key(gpa, .{ Byte: b'0' });
-    test.eq(state.cursor_row(), 0);
-    test.eq(state.line(0), "X");
-    test.eq(state.line(1), "one two!");
+    (state.cursor_row() == 0).should().sum(@loc(), t);
+    (state.line(0) == "X").should().sum(@loc(), t);
+    (state.line(1) == "one two!").should().sum(@loc(), t);
 }
 
 fn check_editor_extended_normal_motions() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
     state.handle_key(gpa, .{ Byte: b'i' });
@@ -373,7 +384,7 @@ fn check_editor_extended_normal_motions() void {
     state.handle_key(gpa, .{ Byte: b'k' });
     expect_cursor(state, 1, 4, "expected preferred column to restore on longer line");
 
-    test.assert(state.resize(5, 80));
+    state.resize(5, 80).should().sum(@loc(), t);
     state.handle_key(gpa, .{ Byte: b'g' });
     state.handle_key(gpa, .{ Byte: b'g' });
     state.handle_key(gpa, .CtrlD);
@@ -400,13 +411,14 @@ fn check_editor_extended_normal_motions() void {
 }
 
 fn check_command_line_viewport_render() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(2, 8));
+    state.resize(2, 8).should().sum(@loc(), t);
     state.handle_key(gpa, .{ Byte: b':' });
     let mut i = usize.{0};
     while (i < #"abcdefghij") {
@@ -416,19 +428,20 @@ fn check_command_line_viewport_render() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), ":efghij"));
-    test.assert(contains(frame.as_str(), "\x1b[2;8H"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), ":efghij").should().sum(@loc(), t);
+    contains(frame.as_str(), "\x1b[2;8H").should().sum(@loc(), t);
 }
 
 fn check_insert_tab_and_line_number_render() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(8, 32));
+    state.resize(8, 32).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'i' });
     state.handle_key(gpa, .{ Byte: b'\t' });
@@ -439,7 +452,7 @@ fn check_insert_tab_and_line_number_render() void {
     type_text(state, gpa, "c");
     state.handle_key(gpa, .Escape);
 
-    test.eq(state.line(0), "    a");
+    (state.line(0) == "    a").should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b':' });
     type_text(state, gpa, "set number");
@@ -452,20 +465,21 @@ fn check_insert_tab_and_line_number_render() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "1     a"));
-    test.assert(contains(frame.as_str(), "2 b"));
-    test.assert(contains(frame.as_str(), "1 c"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "1     a").should().sum(@loc(), t);
+    contains(frame.as_str(), "2 b").should().sum(@loc(), t);
+    contains(frame.as_str(), "1 c").should().sum(@loc(), t);
 }
 
 fn check_split_window_and_window_commands() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(12, 40));
+    state.resize(12, 40).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'i' });
     type_text(state, gpa, "one");
@@ -490,18 +504,19 @@ fn check_split_window_and_window_commands() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "[window W2/2]"));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "[window W2/2]").should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'o' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(!contains(frame.as_str(), "[window W2/2]"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    (!contains(frame.as_str(), "[window W2/2]")).should().sum(@loc(), t);
 }
 
 fn check_split_window_keeps_window_local_buffers() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let path_a = smoke_temp_path(gpa, "bed-window-a.txt")..&;
@@ -518,13 +533,13 @@ fn check_split_window_keeps_window_local_buffers() void {
         _ = path_b.as_str().path().remove_file_if_exists(gpa);
     };
 
-    _ = test.expect_ok(path_a.as_str().path().write_all(gpa, "alpha\none"));
-    _ = test.expect_ok(path_b.as_str().path().write_all(gpa, "beta\ntwo"));
+    _ = path_a.as_str().path().write_all(gpa, "alpha\none").should_ok().sum(@loc(), t);
+    _ = path_b.as_str().path().write_all(gpa, "beta\ntwo").should_ok().sum(@loc(), t);
 
-    let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
+    let state = editor.open(gpa, path_a.as_str()).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(10, 48));
+    state.resize(10, 48).should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b's' });
@@ -533,37 +548,38 @@ fn check_split_window_keeps_window_local_buffers() void {
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), path_b.as_str()));
-    test.eq(state.line(0), "beta");
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), path_b.as_str()).should().sum(@loc(), t);
+    (state.line(0) == "beta").should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), path_a.as_str()));
-    test.eq(state.line(0), "alpha");
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), path_a.as_str()).should().sum(@loc(), t);
+    (state.line(0) == "alpha").should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
-    test.eq(state.line(0), "beta");
+    (state.line(0) == "beta").should().sum(@loc(), t);
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'q' });
 
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), path_a.as_str()));
-    test.eq(state.line(0), "alpha");
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), path_a.as_str()).should().sum(@loc(), t);
+    (state.line(0) == "alpha").should().sum(@loc(), t);
 }
 
 fn check_multi_window_cycle_and_close() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(18, 48));
+    state.resize(18, 48).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'i' });
     type_text(state, gpa, "one");
@@ -583,39 +599,40 @@ fn check_multi_window_cycle_and_close() void {
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "[window W2/3]"));
-    test.assert(contains(frame.as_str(), "[WINDOW W3/3]"));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "[window W2/3]").should().sum(@loc(), t);
+    contains(frame.as_str(), "[WINDOW W3/3]").should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'q' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"));
-    test.assert(contains(frame.as_str(), "[window W2/2]") or contains(frame.as_str(), "[WINDOW W2/2]"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --").should().sum(@loc(), t);
+    (contains(frame.as_str(), "[window W2/2]") or contains(frame.as_str(), "[WINDOW W2/2]")).should().sum(@loc(), t);
 }
 
 fn check_ctrl_w_navigation_commands() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(16, 48));
+    state.resize(16, 48).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'i' });
     type_text(state, gpa, "one");
@@ -628,58 +645,60 @@ fn check_ctrl_w_navigation_commands() void {
     defer frame.deinit(gpa);
 
     ctrl_w(state, gpa, b'p');
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --").should().sum(@loc(), t);
 
     ctrl_w(state, gpa, b'p');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'2' });
     ctrl_w(state, gpa, b'w');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W2/3] --").should().sum(@loc(), t);
 
     ctrl_w(state, gpa, b'W');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --").should().sum(@loc(), t);
 
     ctrl_w(state, gpa, b'b');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --").should().sum(@loc(), t);
 
     ctrl_w(state, gpa, b't');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W1/3] --").should().sum(@loc(), t);
 }
 
 fn check_window_and_layout_slots_are_reused() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(12, 48));
+    state.resize(12, 48).should().sum(@loc(), t);
 
     let mut i = 0;
     while (i < 8) {
         ctrl_w(state, gpa, b's');
-        test.eq(state.window_slots(), 2);
-        test.eq(state.layout_node_slots(), 3);
+        (state.window_slots() == 2).should().sum(@loc(), t);
+        (state.layout_node_slots() == 3).should().sum(@loc(), t);
         ctrl_w(state, gpa, b'q');
-        test.eq(state.window_slots(), 2);
-        test.eq(state.layout_node_slots(), 3);
+        (state.window_slots() == 2).should().sum(@loc(), t);
+        (state.layout_node_slots() == 3).should().sum(@loc(), t);
         i += 1;
     }
 }
 
 fn check_vsplit_layout_and_window_resize_commands() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let path_a = smoke_temp_path(gpa, "bed-vsplit-a.txt")..&;
@@ -696,61 +715,62 @@ fn check_vsplit_layout_and_window_resize_commands() void {
         _ = path_b.as_str().path().remove_file_if_exists(gpa);
     };
 
-    _ = test.expect_ok(path_a.as_str().path().write_all(gpa, "left"));
-    _ = test.expect_ok(path_b.as_str().path().write_all(gpa, "right"));
+    _ = path_a.as_str().path().write_all(gpa, "left").should_ok().sum(@loc(), t);
+    _ = path_b.as_str().path().write_all(gpa, "right").should_ok().sum(@loc(), t);
 
-    let state = test.expect_ok(editor.open(gpa, path_a.as_str()))..&;
+    let state = editor.open(gpa, path_a.as_str()).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(8, 48));
+    state.resize(8, 48).should().sum(@loc(), t);
     run_ex_command(state, gpa, "vsplit");
     run_edit_command(state, gpa, path_b.as_str());
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
     let text = frame.as_str();
     let left_index = find_index(text, "left");
     let right_index = find_index(text, "right");
     let first_newline = find_byte(text, b'\n');
-    test.assert(left_index < first_newline and right_index < first_newline);
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"));
+    (left_index < first_newline and right_index < first_newline).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'h' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'l' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'>' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
     let grown = frame.as_str();
     let left_grown = find_index(grown, "left");
     let right_grown = find_index(grown, "right");
     let first_grown_newline = find_byte(grown, b'\n');
-    test.assert(left_grown < first_grown_newline and right_grown < first_grown_newline);
+    (left_grown < first_grown_newline and right_grown < first_grown_newline).should().sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'=' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
     let equalized = frame.as_str();
     let left_equalized = find_index(equalized, "left");
     let right_equalized = find_index(equalized, "right");
     let first_equalized_newline = find_byte(equalized, b'\n');
-    test.assert(left_equalized < first_equalized_newline and right_equalized < first_equalized_newline);
+    (left_equalized < first_equalized_newline and right_equalized < first_equalized_newline).should().sum(@loc(), t);
 }
 
 fn check_nested_split_tree_layout() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let path_left = smoke_temp_path(gpa, "bed-tree-left.txt")..&;
@@ -773,14 +793,14 @@ fn check_nested_split_tree_layout() void {
         _ = path_bottom.as_str().path().remove_file_if_exists(gpa);
     };
 
-    _ = test.expect_ok(path_left.as_str().path().write_all(gpa, "L0\nL1\nL2\nL3"));
-    _ = test.expect_ok(path_top.as_str().path().write_all(gpa, "T0\nT1"));
-    _ = test.expect_ok(path_bottom.as_str().path().write_all(gpa, "B0\nB1"));
+    _ = path_left.as_str().path().write_all(gpa, "L0\nL1\nL2\nL3").should_ok().sum(@loc(), t);
+    _ = path_top.as_str().path().write_all(gpa, "T0\nT1").should_ok().sum(@loc(), t);
+    _ = path_bottom.as_str().path().write_all(gpa, "B0\nB1").should_ok().sum(@loc(), t);
 
-    let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
+    let state = editor.open(gpa, path_left.as_str()).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(12, 52));
+    state.resize(12, 52).should().sum(@loc(), t);
     run_ex_command(state, gpa, "vsplit");
     run_edit_command(state, gpa, path_top.as_str());
     state.handle_key(gpa, .CtrlW);
@@ -790,18 +810,19 @@ fn check_nested_split_tree_layout() void {
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
     let first = line_slice(frame.as_str(), 0);
     let bottom_line = find_line_with(frame.as_str(), "B0", 10);
     let nested_line = line_slice(frame.as_str(), bottom_line);
-    test.assert(contains(first, "L0") and contains(first, "T0"));
-    test.assert(find_line_with(frame.as_str(), "L2", 10) < 10);
-    test.assert(bottom_line > 0 and bottom_line < 10);
-    test.assert(contains(nested_line, "B0") and !contains(nested_line, "T0"));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"));
+    (contains(first, "L0") and contains(first, "T0")).should().sum(@loc(), t);
+    (find_line_with(frame.as_str(), "L2", 10) < 10).should().sum(@loc(), t);
+    (bottom_line > 0 and bottom_line < 10).should().sum(@loc(), t);
+    (contains(nested_line, "B0") and !contains(nested_line, "T0")).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --").should().sum(@loc(), t);
 }
 
 fn check_ctrl_w_rearrange_commands() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let path_left = smoke_temp_path(gpa, "bed-tree-left.txt")..&;
@@ -824,14 +845,14 @@ fn check_ctrl_w_rearrange_commands() void {
         _ = path_bottom.as_str().path().remove_file_if_exists(gpa);
     };
 
-    _ = test.expect_ok(path_left.as_str().path().write_all(gpa, "L0\nL1\nL2\nL3"));
-    _ = test.expect_ok(path_top.as_str().path().write_all(gpa, "T0\nT1"));
-    _ = test.expect_ok(path_bottom.as_str().path().write_all(gpa, "B0\nB1"));
+    _ = path_left.as_str().path().write_all(gpa, "L0\nL1\nL2\nL3").should_ok().sum(@loc(), t);
+    _ = path_top.as_str().path().write_all(gpa, "T0\nT1").should_ok().sum(@loc(), t);
+    _ = path_bottom.as_str().path().write_all(gpa, "B0\nB1").should_ok().sum(@loc(), t);
 
-    let state = test.expect_ok(editor.open(gpa, path_left.as_str()))..&;
+    let state = editor.open(gpa, path_left.as_str()).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(12, 52));
+    state.resize(12, 52).should().sum(@loc(), t);
     run_ex_command(state, gpa, "vsplit");
     run_edit_command(state, gpa, path_top.as_str());
     ctrl_w(state, gpa, b's');
@@ -841,42 +862,43 @@ fn check_ctrl_w_rearrange_commands() void {
     defer frame.deinit(gpa);
 
     ctrl_w(state, gpa, b'H');
-    test.assert(state.render_into(gpa, frame, true));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
     let first_left = line_slice(frame.as_str(), 0);
-    test.assert(contains(first_left, "B0") and contains(first_left, "L0"));
-    test.assert(find_index(first_left, "B0") < find_index(first_left, "L0"));
+    (contains(first_left, "B0") and contains(first_left, "L0")).should().sum(@loc(), t);
+    (find_index(first_left, "B0") < find_index(first_left, "L0")).should().sum(@loc(), t);
 
     ctrl_w(state, gpa, b'L');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
     let first_right = line_slice(frame.as_str(), 0);
-    test.assert(contains(first_right, "B0") and contains(first_right, "L0"));
-    test.assert(find_index(first_right, "L0") < find_index(first_right, "B0"));
+    (contains(first_right, "B0") and contains(first_right, "L0")).should().sum(@loc(), t);
+    (find_index(first_right, "L0") < find_index(first_right, "B0")).should().sum(@loc(), t);
 
     ctrl_w(state, gpa, b'K');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
     let first_top = line_slice(frame.as_str(), 0);
-    test.assert(contains(first_top, "B0"));
-    test.assert(!contains(first_top, "L0"));
+    contains(first_top, "B0").should().sum(@loc(), t);
+    (!contains(first_top, "L0")).should().sum(@loc(), t);
 
     ctrl_w(state, gpa, b'J');
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
     let first_bottom = line_slice(frame.as_str(), 0);
     let moved_line = find_line_with(frame.as_str(), "B0", 10);
-    test.assert(contains(first_bottom, "L0"));
-    test.assert(moved_line > 0 and moved_line < 10);
+    contains(first_bottom, "L0").should().sum(@loc(), t);
+    (moved_line > 0 and moved_line < 10).should().sum(@loc(), t);
 }
 
 fn check_additional_jump_keys() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(6, 40));
+    state.resize(6, 40).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'i' });
     type_text(state, gpa, "(abc)");
@@ -907,13 +929,14 @@ fn check_additional_jump_keys() void {
 }
 
 fn check_prompt_history_navigation() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(8, 24));
+    state.resize(8, 24).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b':' });
     type_text(state, gpa, "w");
@@ -925,13 +948,13 @@ fn check_prompt_history_navigation() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), ":w"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), ":w").should().sum(@loc(), t);
 
     state.handle_key(gpa, .ArrowDown);
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), ":draft"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), ":draft").should().sum(@loc(), t);
     state.handle_key(gpa, .Escape);
 
     state.handle_key(gpa, .{ Byte: b'>' });
@@ -940,45 +963,47 @@ fn check_prompt_history_navigation() void {
     state.handle_key(gpa, .{ Byte: b'>' });
     state.handle_key(gpa, .ArrowUp);
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), ">echo prompt_history"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), ">echo prompt_history").should().sum(@loc(), t);
 }
 
 fn check_cursor_shape_changes_with_mode() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(4, 16));
+    state.resize(4, 16).should().sum(@loc(), t);
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
 
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "\x1b[2 q"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "\x1b[2 q").should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'i' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "\x1b[6 q"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "\x1b[6 q").should().sum(@loc(), t);
 
     state.handle_key(gpa, .Escape);
     state.handle_key(gpa, .{ Byte: b':' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "\x1b[6 q"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    contains(frame.as_str(), "\x1b[6 q").should().sum(@loc(), t);
 }
 
 fn check_shell_prompt_and_output_render() void {
+    let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
-    let state = test.expect_ok(editor.empty(gpa))..&;
+    let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
 
-    test.assert(state.resize(8, 64));
+    state.resize(8, 64).should().sum(@loc(), t);
     state.handle_key(gpa, .{ Byte: b'>' });
     type_text(state, gpa, "echo hi");
     state.handle_key(gpa, .Enter);
@@ -988,37 +1013,37 @@ fn check_shell_prompt_and_output_render() void {
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 2/2] > echo two [exit 0]"));
-    test.assert(contains(frame.as_str(), "two"));
-    test.assert(contains(frame.as_str(), "-- NORMAL [OUTPUT] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    (contains(frame.as_str(), "[OUTPUT TEMP 2/2] > echo two [exit 0]")).should().sum(@loc(), t);
+    contains(frame.as_str(), "two").should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [OUTPUT] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'[' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"));
-    test.assert(contains(frame.as_str(), "hi"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    (contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]")).should().sum(@loc(), t);
+    contains(frame.as_str(), "hi").should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'q' });
 
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"));
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR] --"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    (!contains(frame.as_str(), "[OUTPUT TEMP")).should().sum(@loc(), t);
+    contains(frame.as_str(), "-- NORMAL [EDITOR] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'\t' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    (contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]")).should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'\t' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(contains(frame.as_str(), "[output temp 1/2] > echo hi [exit 0]"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    (contains(frame.as_str(), "[output temp 1/2] > echo hi [exit 0]")).should().sum(@loc(), t);
     state.handle_key(gpa, .{ Byte: b'Q' });
     frame.clear();
-    test.assert(state.render_into(gpa, frame, true));
-    test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"));
+    state.render_into(gpa, frame, true).should().sum(@loc(), t);
+    (!contains(frame.as_str(), "[OUTPUT TEMP")).should().sum(@loc(), t);
 }
 
 fn main() i32 {

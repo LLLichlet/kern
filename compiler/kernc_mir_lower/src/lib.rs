@@ -4,8 +4,8 @@ mod builder;
 #[cfg(test)]
 mod tests;
 
-use kernc_mast::MastModule;
 pub use builder::MirLowerError;
+use kernc_mast::MastModule;
 
 #[derive(Debug, Clone)]
 pub struct MirBuildReport {

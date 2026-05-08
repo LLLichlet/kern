@@ -8,23 +8,21 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
         intrinsic_name: &str,
     ) -> Option<TypeId> {
-        let norm = self.host.normalize_type(ty);
+        let norm = self.normalize_type(ty);
         if norm == TypeId::ERROR {
             return None;
         }
 
-        let is_supported = self.host.ctx.type_registry.is_integer(norm)
+        let is_supported = self.ctx.type_registry.is_integer(norm)
             || self
-                .host
                 .ctx
                 .type_registry
                 .simd_info(norm)
-                .is_some_and(|(elem_ty, _)| self.host.ctx.type_registry.is_integer(elem_ty));
+                .is_some_and(|(elem_ty, _)| self.ctx.type_registry.is_integer(elem_ty));
 
         if !is_supported {
-            let ty_str = self.host.ty_to_string(norm);
-            self.host
-                .ctx
+            let ty_str = self.ty_to_string(norm);
+            self.ctx
                 .struct_error(
                     span,
                     format!(
@@ -49,8 +47,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
         let Some((def_id, generic_args)) = self.resolve_callable(callee) else {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     "function calls are not allowed in constant expressions",
@@ -101,12 +98,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         };
 
         if !func.generics.is_empty() && generic_args.len() != func.generics.len() {
-            self.host.ctx
+            self.ctx
                 .struct_error(
                     span,
                     format!(
                         "const function `{}` requires fully resolved generic arguments during constant evaluation",
-                        self.host.resolve_symbol(func.name)
+                        self.resolve_symbol(func.name)
                     ),
                 )
                 .emit();
@@ -114,13 +111,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         if arg_values.len() != func.params.len() {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     format!(
                         "const function `{}` expects {} arguments, but {} were provided",
-                        self.host.resolve_symbol(func.name),
+                        self.resolve_symbol(func.name),
                         func.params.len(),
                         arg_values.len()
                     ),
@@ -134,8 +130,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         if !func.is_const && !self.core.allow_non_const_calls() {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     "only `const fn` can be called in constant expressions",
@@ -171,8 +166,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         let body_result = if let Some(body) = &func.body {
             self.eval_inner(body, depth + 1)
         } else {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(span, "`const fn` must have a body")
                 .emit();
             Err(ConstEvalError)
@@ -193,8 +187,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
         let Some(host) = self.core.script_host() else {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     "`extern const fn` is not supported in constant evaluation",
@@ -203,12 +196,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Err(ConstEvalError);
         };
 
-        let name = self.host.resolve_symbol(func.name).to_string();
+        let name = self.resolve_symbol(func.name).to_string();
         let result = host.call_extern(&name, arg_values, span);
         match result {
             Ok(value) => Ok(value),
             Err(message) => {
-                self.host.ctx.struct_error(span, message).emit();
+                self.ctx.struct_error(span, message).emit();
                 Err(ConstEvalError)
             }
         }
@@ -266,8 +259,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 BinaryOperator::Multiply => Ok(ConstValue::Int(l.wrapping_mul(r))),
                 BinaryOperator::Divide => {
                     if r == 0 {
-                        self.host
-                            .ctx
+                        self.ctx
                             .struct_error(span, "division by zero in constant expression")
                             .emit();
                         Err(ConstEvalError)
@@ -277,8 +269,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
                 BinaryOperator::Modulo => {
                     if r == 0 {
-                        self.host
-                            .ctx
+                        self.ctx
                             .struct_error(span, "modulo by zero in constant expression")
                             .emit();
                         Err(ConstEvalError)
@@ -292,8 +283,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 BinaryOperator::BitwiseOr => Ok(ConstValue::Int(l | r)),
                 BinaryOperator::BitwiseXor => Ok(ConstValue::Int(l ^ r)),
                 _ => {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             span,
                             "unsupported compound assignment for constant integers",
@@ -308,16 +298,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 BinaryOperator::Multiply => Ok(ConstValue::Float(l * r)),
                 BinaryOperator::Divide => Ok(ConstValue::Float(l / r)),
                 _ => {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(span, "unsupported compound assignment for constant floats")
                         .emit();
                     Err(ConstEvalError)
                 }
             },
             _ => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         "type mismatch or unsupported types in constant compound assignment",
@@ -334,7 +322,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         };
 
         let lhs_ty = self.node_type(lhs.id);
-        if matches!(self.host.type_kind(lhs_ty), TypeKind::Module(..)) {
+        if matches!(self.type_kind(lhs_ty), TypeKind::Module(..)) {
             None
         } else {
             Some(lhs.as_ref())
@@ -359,11 +347,11 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             for (param, arg) in func.generics.iter().zip(generic_args.iter()) {
                 generic_map.insert(param.name, *arg);
             }
-            let mut subst = Substituter::new(&mut self.host.ctx.type_registry, &generic_map);
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, &generic_map);
             subst.substitute(sig)
         };
 
-        match self.host.type_kind(sig).clone() {
+        match self.type_kind(sig).clone() {
             TypeKind::Function { params, ret, .. } => Some((params, ret)),
             _ => None,
         }
@@ -377,8 +365,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
         let Some((def_id, generic_args)) = self.resolve_callable(callee) else {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     "function calls are not allowed in constant expressions",
@@ -394,8 +381,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             (func.is_intrinsic, func.name, func.generics.len());
 
         if !is_intrinsic {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     "function calls are not allowed in constant expressions",
@@ -407,12 +393,11 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Err(ConstEvalError);
         }
 
-        let name_str = self.host.resolve_symbol(fn_name_id).to_string();
+        let name_str = self.resolve_symbol(fn_name_id).to_string();
 
         // Constant-evaluated intrinsics require explicit generic arguments.
         if generic_args.len() != generics_len {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     format!(
@@ -437,8 +422,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             "@intCast" => self.eval_int_cast(&intrinsic_type_args, args, depth, span),
             "@bswap" => self.eval_bswap(&intrinsic_type_args, args, depth, span),
             "@memcpy" | "@memmove" | "@memset" => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         format!(
@@ -450,8 +434,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 Err(ConstEvalError)
             }
             _ => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         format!(
@@ -533,7 +516,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                 }
                 _ => {
-                    self.host.ctx.emit_ice(
+                    self.ctx.emit_ice(
                         span,
                         format!(
                             "Kern ICE (ConstEval): Unsupported bit intrinsic `{}` in constant evaluation.",
@@ -569,7 +552,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             let mut u_val = (val as u128) & mask;
 
             let is_signed = matches!(
-                self.host.type_kind(target_ty),
+                self.type_kind(target_ty),
                 TypeKind::Primitive(
                     PrimitiveType::I8
                         | PrimitiveType::I16

@@ -1,8 +1,7 @@
 use super::ExprChecker;
-use crate::checker::Substituter;
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
-use crate::ty::{TypeId, TypeKind};
+use crate::ty::{Substituter, TypeId, TypeKind};
 use kernc_ast::{Expr, ExprKind, UnaryOperator};
 use kernc_utils::{DiagnosticCode, FastHashMap, FastHashSet, Span, SymbolId};
 use std::collections::HashMap;

@@ -583,8 +583,6 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     }
 
     fn collect_function(&mut self, decl: &Decl, spec: FunctionCollectSpec<'_>) -> Option<DefId> {
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
         let mut actual_params = spec.params.to_vec();
 
         if spec.parent_impl.is_some() {
@@ -610,29 +608,29 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             );
         }
 
-        let func_def = FunctionDef {
-            id: def_id,
-            name: decl.name,
-            name_span: decl.name_span,
-            vis: spec.vis,
-            parent: spec.parent_impl.or(self.current_module),
-            is_imported: self.current_module_imported,
-            generics: spec.generics.to_vec(),
-            where_clauses: spec.where_clauses.to_vec(),
-            params: actual_params,
-            ret_type: spec.ret_type.clone(),
-            body: spec.body.clone(),
-            is_const: spec.is_const,
-            is_extern: spec.is_extern,
-            is_variadic: spec.is_variadic,
-            is_intrinsic: false,
-            span: decl.span,
-            resolved_sig: None,
-            docs: Self::clone_docs_if_present(&decl.docs),
-            attributes: decl.attributes.clone(),
-        };
-
-        self.ctx.add_def(Def::Function(func_def));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Function(FunctionDef {
+                id: def_id,
+                name: decl.name,
+                name_span: decl.name_span,
+                vis: spec.vis,
+                parent: spec.parent_impl.or(self.current_module),
+                is_imported: self.current_module_imported,
+                generics: spec.generics.to_vec(),
+                where_clauses: spec.where_clauses.to_vec(),
+                params: actual_params,
+                ret_type: spec.ret_type.clone(),
+                body: spec.body.clone(),
+                is_const: spec.is_const,
+                is_extern: spec.is_extern,
+                is_variadic: spec.is_variadic,
+                is_intrinsic: false,
+                span: decl.span,
+                resolved_sig: None,
+                docs: Self::clone_docs_if_present(&decl.docs),
+                attributes: decl.attributes.clone(),
+            })
+        });
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
 
@@ -674,7 +672,6 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             body,
             is_variadic,
         } = spec;
-        let def_id = DefId(self.ctx.defs.len() as u32);
         let mut actual_params = params;
 
         if parent_impl.is_some() {
@@ -700,29 +697,29 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             );
         }
 
-        let func_def = FunctionDef {
-            id: def_id,
-            name,
-            name_span,
-            vis,
-            parent: parent_impl.or(self.current_module),
-            is_imported: self.current_module_imported,
-            generics,
-            where_clauses,
-            params: actual_params,
-            ret_type,
-            body,
-            is_const,
-            is_extern,
-            is_variadic,
-            is_intrinsic: false,
-            span,
-            resolved_sig: None,
-            docs: Self::take_docs_if_present(docs),
-            attributes,
-        };
-
-        self.ctx.add_def(Def::Function(func_def));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Function(FunctionDef {
+                id: def_id,
+                name,
+                name_span,
+                vis,
+                parent: parent_impl.or(self.current_module),
+                is_imported: self.current_module_imported,
+                generics,
+                where_clauses,
+                params: actual_params,
+                ret_type,
+                body,
+                is_const,
+                is_extern,
+                is_variadic,
+                is_intrinsic: false,
+                span,
+                resolved_sig: None,
+                docs: Self::take_docs_if_present(docs),
+                attributes,
+            })
+        });
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
 
@@ -750,24 +747,22 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         is_static: bool,
         is_mut: bool,
     ) -> Option<DefId> {
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
-        let global_def = GlobalDef {
-            id: def_id,
-            name: decl.name,
-            vis,
-            parent: self.current_module,
-            is_imported: self.current_module_imported,
-            value: value.clone(),
-            is_static,
-            is_extern,
-            is_mut,
-            span: decl.span,
-            docs: Self::clone_docs_if_present(&decl.docs),
-            attributes: decl.attributes.clone(),
-        };
-
-        self.ctx.add_def(Def::Global(global_def));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Global(GlobalDef {
+                id: def_id,
+                name: decl.name,
+                vis,
+                parent: self.current_module,
+                is_imported: self.current_module_imported,
+                value: value.clone(),
+                is_static,
+                is_extern,
+                is_mut,
+                span: decl.span,
+                docs: Self::clone_docs_if_present(&decl.docs),
+                attributes: decl.attributes.clone(),
+            })
+        });
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
 
@@ -806,24 +801,22 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             is_static,
             is_mut,
         } = spec;
-        let def_id = DefId(self.ctx.defs.len() as u32);
-
-        let global_def = GlobalDef {
-            id: def_id,
-            name,
-            vis,
-            parent: self.current_module,
-            is_imported: self.current_module_imported,
-            value,
-            is_static,
-            is_extern,
-            is_mut,
-            span,
-            docs: Self::take_docs_if_present(docs),
-            attributes,
-        };
-
-        self.ctx.add_def(Def::Global(global_def));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Global(GlobalDef {
+                id: def_id,
+                name,
+                vis,
+                parent: self.current_module,
+                is_imported: self.current_module_imported,
+                value,
+                is_static,
+                is_extern,
+                is_mut,
+                span,
+                docs: Self::take_docs_if_present(docs),
+                attributes,
+            })
+        });
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
 
@@ -877,21 +870,22 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         fields: &[ast::StructFieldDef],
         is_extern: bool,
     ) -> Option<DefId> {
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::Struct(StructDef {
-            id: def_id,
-            name: decl.name,
-            vis,
-            parent_module: self.current_module,
-            is_imported: self.current_module_imported,
-            generics: generics.to_vec(),
-            where_clauses: where_clauses.to_vec(),
-            fields: fields.to_vec(),
-            is_extern,
-            span: decl.span,
-            docs: Self::clone_docs_if_present(&decl.docs),
-            attributes: decl.attributes.clone(),
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Struct(StructDef {
+                id: def_id,
+                name: decl.name,
+                vis,
+                parent_module: self.current_module,
+                is_imported: self.current_module_imported,
+                generics: generics.to_vec(),
+                where_clauses: where_clauses.to_vec(),
+                fields: fields.to_vec(),
+                is_extern,
+                span: decl.span,
+                docs: Self::clone_docs_if_present(&decl.docs),
+                attributes: decl.attributes.clone(),
+            })
+        });
         self.define_collected_item(
             def_id,
             decl.name,
@@ -912,20 +906,21 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         fields: &[ast::StructFieldDef],
         is_extern: bool,
     ) -> Option<DefId> {
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::Union(UnionDef {
-            id: def_id,
-            name: decl.name,
-            vis,
-            parent_module: self.current_module,
-            is_imported: self.current_module_imported,
-            generics: generics.to_vec(),
-            where_clauses: where_clauses.to_vec(),
-            fields: fields.to_vec(),
-            is_extern,
-            span: decl.span,
-            docs: Self::clone_docs_if_present(&decl.docs),
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Union(UnionDef {
+                id: def_id,
+                name: decl.name,
+                vis,
+                parent_module: self.current_module,
+                is_imported: self.current_module_imported,
+                generics: generics.to_vec(),
+                where_clauses: where_clauses.to_vec(),
+                fields: fields.to_vec(),
+                is_extern,
+                span: decl.span,
+                docs: Self::clone_docs_if_present(&decl.docs),
+            })
+        });
         self.define_collected_item(
             def_id,
             decl.name,
@@ -946,19 +941,20 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         backing_type: &Option<Box<ast::TypeNode>>,
         variants: &[ast::EnumVariant],
     ) -> Option<DefId> {
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::Enum(EnumDef {
-            id: def_id,
-            name: decl.name,
-            vis,
-            is_imported: self.current_module_imported,
-            generics: generics.to_vec(),
-            where_clauses: where_clauses.to_vec(),
-            backing_type: backing_type.clone(),
-            variants: variants.to_vec(),
-            span: decl.span,
-            docs: Self::clone_docs_if_present(&decl.docs),
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Enum(EnumDef {
+                id: def_id,
+                name: decl.name,
+                vis,
+                is_imported: self.current_module_imported,
+                generics: generics.to_vec(),
+                where_clauses: where_clauses.to_vec(),
+                backing_type: backing_type.clone(),
+                variants: variants.to_vec(),
+                span: decl.span,
+                docs: Self::clone_docs_if_present(&decl.docs),
+            })
+        });
         self.define_collected_item(
             def_id,
             decl.name,
@@ -980,23 +976,24 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         assoc_types: &[ast::AssociatedTypeDecl],
         methods: &[ast::StructFieldDef],
     ) -> Option<DefId> {
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::Trait(TraitDef {
-            id: def_id,
-            name: decl.name,
-            vis,
-            is_imported: self.current_module_imported,
-            generics: generics.to_vec(),
-            where_clauses: where_clauses.to_vec(),
-            supertraits: supertraits.to_vec(),
-            assoc_types: Vec::new(),
-            methods: methods.to_vec(),
-            resolved_methods: Vec::new(),
-            resolved_supertraits: Vec::new(),
-            is_builtin: false,
-            span: decl.span,
-            docs: Self::clone_docs_if_present(&decl.docs),
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Trait(TraitDef {
+                id: def_id,
+                name: decl.name,
+                vis,
+                is_imported: self.current_module_imported,
+                generics: generics.to_vec(),
+                where_clauses: where_clauses.to_vec(),
+                supertraits: supertraits.to_vec(),
+                assoc_types: Vec::new(),
+                methods: methods.to_vec(),
+                resolved_methods: Vec::new(),
+                resolved_supertraits: Vec::new(),
+                is_builtin: false,
+                span: decl.span,
+                docs: Self::clone_docs_if_present(&decl.docs),
+            })
+        });
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
         let assoc_type_ids = self.collect_trait_assoc_types(def_id, assoc_types);
@@ -1032,21 +1029,22 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             attributes,
             vis,
         } = header;
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::Struct(StructDef {
-            id: def_id,
-            name,
-            vis,
-            parent_module: self.current_module,
-            is_imported: self.current_module_imported,
-            generics,
-            where_clauses,
-            fields,
-            is_extern,
-            span,
-            docs: Self::take_docs_if_present(docs),
-            attributes,
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Struct(StructDef {
+                id: def_id,
+                name,
+                vis,
+                parent_module: self.current_module,
+                is_imported: self.current_module_imported,
+                generics,
+                where_clauses,
+                fields,
+                is_extern,
+                span,
+                docs: Self::take_docs_if_present(docs),
+                attributes,
+            })
+        });
         self.define_collected_item(def_id, name, SymbolKind::Struct, node_id, name_span, vis);
         Some(def_id)
     }
@@ -1068,20 +1066,21 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             vis,
             ..
         } = header;
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::Union(UnionDef {
-            id: def_id,
-            name,
-            vis,
-            parent_module: self.current_module,
-            is_imported: self.current_module_imported,
-            generics,
-            where_clauses,
-            fields,
-            is_extern,
-            span,
-            docs: Self::take_docs_if_present(docs),
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Union(UnionDef {
+                id: def_id,
+                name,
+                vis,
+                parent_module: self.current_module,
+                is_imported: self.current_module_imported,
+                generics,
+                where_clauses,
+                fields,
+                is_extern,
+                span,
+                docs: Self::take_docs_if_present(docs),
+            })
+        });
         self.define_collected_item(def_id, name, SymbolKind::Union, node_id, name_span, vis);
         Some(def_id)
     }
@@ -1103,19 +1102,20 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             vis,
             ..
         } = header;
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::Enum(EnumDef {
-            id: def_id,
-            name,
-            vis,
-            is_imported: self.current_module_imported,
-            generics,
-            where_clauses,
-            backing_type,
-            variants,
-            span,
-            docs: Self::take_docs_if_present(docs),
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Enum(EnumDef {
+                id: def_id,
+                name,
+                vis,
+                is_imported: self.current_module_imported,
+                generics,
+                where_clauses,
+                backing_type,
+                variants,
+                span,
+                docs: Self::take_docs_if_present(docs),
+            })
+        });
         self.define_collected_item(def_id, name, SymbolKind::Enum, node_id, name_span, vis);
         Some(def_id)
     }
@@ -1138,23 +1138,24 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             vis,
             ..
         } = header;
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::Trait(TraitDef {
-            id: def_id,
-            name,
-            vis,
-            is_imported: self.current_module_imported,
-            generics,
-            where_clauses,
-            supertraits,
-            assoc_types: Vec::new(),
-            methods,
-            resolved_methods: Vec::new(),
-            resolved_supertraits: Vec::new(),
-            is_builtin: false,
-            span,
-            docs: Self::take_docs_if_present(docs),
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::Trait(TraitDef {
+                id: def_id,
+                name,
+                vis,
+                is_imported: self.current_module_imported,
+                generics,
+                where_clauses,
+                supertraits,
+                assoc_types: Vec::new(),
+                methods,
+                resolved_methods: Vec::new(),
+                resolved_supertraits: Vec::new(),
+                is_builtin: false,
+                span,
+                docs: Self::take_docs_if_present(docs),
+            })
+        });
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
         let assoc_type_ids = self.collect_trait_assoc_types_owned(def_id, assoc_types);
@@ -1181,22 +1182,23 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     ) -> Vec<DefId> {
         let mut ids = Vec::with_capacity(assoc_types.len());
         for assoc in assoc_types {
-            let def_id = DefId(self.ctx.defs.len() as u32);
-            self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
-                id: def_id,
-                name: assoc.name,
-                parent_trait: Some(trait_id),
-                parent_impl: None,
-                implemented_trait_assoc: None,
-                is_imported: self.current_module_imported,
-                generics: assoc.generics.clone(),
-                bounds: assoc.bounds.clone(),
-                where_clauses: assoc.where_clauses.clone(),
-                target: None,
-                resolved_bounds: Vec::new(),
-                span: assoc.span,
-                docs: Self::clone_docs_if_present(&assoc.docs),
-            }));
+            let def_id = self.ctx.add_def_with(|def_id| {
+                Def::AssociatedType(AssociatedTypeDef {
+                    id: def_id,
+                    name: assoc.name,
+                    parent_trait: Some(trait_id),
+                    parent_impl: None,
+                    implemented_trait_assoc: None,
+                    is_imported: self.current_module_imported,
+                    generics: assoc.generics.clone(),
+                    bounds: assoc.bounds.clone(),
+                    where_clauses: assoc.where_clauses.clone(),
+                    target: None,
+                    resolved_bounds: Vec::new(),
+                    span: assoc.span,
+                    docs: Self::clone_docs_if_present(&assoc.docs),
+                })
+            });
             self.ctx
                 .register_def_owner(def_id, self.current_module, self.current_owner_scope());
             ids.push(def_id);
@@ -1211,22 +1213,23 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     ) -> Vec<DefId> {
         let mut ids = Vec::with_capacity(assoc_types.len());
         for assoc in assoc_types {
-            let def_id = DefId(self.ctx.defs.len() as u32);
-            self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
-                id: def_id,
-                name: assoc.name,
-                parent_trait: Some(trait_id),
-                parent_impl: None,
-                implemented_trait_assoc: None,
-                is_imported: self.current_module_imported,
-                generics: assoc.generics,
-                bounds: assoc.bounds,
-                where_clauses: assoc.where_clauses,
-                target: None,
-                resolved_bounds: Vec::new(),
-                span: assoc.span,
-                docs: Self::take_docs_if_present(assoc.docs),
-            }));
+            let def_id = self.ctx.add_def_with(|def_id| {
+                Def::AssociatedType(AssociatedTypeDef {
+                    id: def_id,
+                    name: assoc.name,
+                    parent_trait: Some(trait_id),
+                    parent_impl: None,
+                    implemented_trait_assoc: None,
+                    is_imported: self.current_module_imported,
+                    generics: assoc.generics,
+                    bounds: assoc.bounds,
+                    where_clauses: assoc.where_clauses,
+                    target: None,
+                    resolved_bounds: Vec::new(),
+                    span: assoc.span,
+                    docs: Self::take_docs_if_present(assoc.docs),
+                })
+            });
             self.ctx
                 .register_def_owner(def_id, self.current_module, self.current_owner_scope());
             ids.push(def_id);
@@ -1239,18 +1242,19 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         decl: &Decl,
         spec: AliasCollectSpec<'_>,
     ) -> Option<DefId> {
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::TypeAlias(TypeAliasDef {
-            id: def_id,
-            name: decl.name,
-            vis: spec.vis,
-            is_imported: self.current_module_imported,
-            generics: spec.generics.to_vec(),
-            where_clauses: spec.where_clauses.to_vec(),
-            target: spec.target.clone(),
-            span: decl.span,
-            docs: Self::clone_docs_if_present(&decl.docs),
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::TypeAlias(TypeAliasDef {
+                id: def_id,
+                name: decl.name,
+                vis: spec.vis,
+                is_imported: self.current_module_imported,
+                generics: spec.generics.to_vec(),
+                where_clauses: spec.where_clauses.to_vec(),
+                target: spec.target.clone(),
+                span: decl.span,
+                docs: Self::clone_docs_if_present(&decl.docs),
+            })
+        });
         self.define_collected_item(
             def_id,
             decl.name,
@@ -1279,18 +1283,19 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             where_clauses,
             target,
         } = spec;
-        let def_id = DefId(self.ctx.defs.len() as u32);
-        self.ctx.add_def(Def::TypeAlias(TypeAliasDef {
-            id: def_id,
-            name,
-            vis,
-            is_imported: self.current_module_imported,
-            generics,
-            where_clauses,
-            target,
-            span,
-            docs: Self::take_docs_if_present(docs),
-        }));
+        let def_id = self.ctx.add_def_with(|def_id| {
+            Def::TypeAlias(TypeAliasDef {
+                id: def_id,
+                name,
+                vis,
+                is_imported: self.current_module_imported,
+                generics,
+                where_clauses,
+                target,
+                span,
+                docs: Self::take_docs_if_present(docs),
+            })
+        });
         self.define_collected_item(def_id, name, SymbolKind::TypeAlias, node_id, name_span, vis);
 
         Some(def_id)
@@ -1305,25 +1310,26 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         trait_type: &Option<ast::TypeNode>,
         decls: &[Decl],
     ) -> Option<DefId> {
-        let impl_id = DefId(self.ctx.defs.len() as u32);
+        let mut assoc_type_ids = Vec::new();
+        let mut method_ids = Vec::new();
+        let impl_id = self.ctx.add_def_with(|impl_id| {
+            Def::Impl(ImplDef {
+                id: impl_id,
+                parent_module: self.current_module,
+                is_imported: self.current_module_imported,
+                generics: generics.to_vec(),
+                where_clauses: where_clauses.to_vec(),
+                target_type: target_type.clone(),
+                trait_type: trait_type.clone(),
+                assoc_types: Vec::new(),
+                methods: Vec::new(),
+                span: decl.span,
+            })
+        });
         self.ctx.register_global_impl(impl_id);
         if trait_type.is_some() {
             self.ctx.register_trait_impl(impl_id);
         }
-        let mut assoc_type_ids = Vec::new();
-        let mut method_ids = Vec::new();
-        self.ctx.add_def(Def::Impl(ImplDef {
-            id: impl_id,
-            parent_module: self.current_module,
-            is_imported: self.current_module_imported,
-            generics: generics.to_vec(),
-            where_clauses: where_clauses.to_vec(),
-            target_type: target_type.clone(),
-            trait_type: trait_type.clone(),
-            assoc_types: Vec::new(),
-            methods: Vec::new(),
-            span: decl.span,
-        }));
         self.ctx
             .register_def_owner(impl_id, self.current_module, self.current_owner_scope());
 
@@ -1348,22 +1354,23 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     );
                     continue;
                 }
-                let def_id = DefId(self.ctx.defs.len() as u32);
-                self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
-                    id: def_id,
-                    name: method_decl.name,
-                    parent_trait: None,
-                    parent_impl: Some(impl_id),
-                    implemented_trait_assoc: None,
-                    is_imported: self.current_module_imported,
-                    generics: generics.clone(),
-                    bounds: Vec::new(),
-                    where_clauses: where_clauses.clone(),
-                    target: Some(target.clone()),
-                    resolved_bounds: Vec::new(),
-                    span: method_decl.span,
-                    docs: Self::clone_docs_if_present(&method_decl.docs),
-                }));
+                let def_id = self.ctx.add_def_with(|def_id| {
+                    Def::AssociatedType(AssociatedTypeDef {
+                        id: def_id,
+                        name: method_decl.name,
+                        parent_trait: None,
+                        parent_impl: Some(impl_id),
+                        implemented_trait_assoc: None,
+                        is_imported: self.current_module_imported,
+                        generics: generics.clone(),
+                        bounds: Vec::new(),
+                        where_clauses: where_clauses.clone(),
+                        target: Some(target.clone()),
+                        resolved_bounds: Vec::new(),
+                        span: method_decl.span,
+                        docs: Self::clone_docs_if_present(&method_decl.docs),
+                    })
+                });
                 self.ctx.register_def_owner(
                     def_id,
                     self.current_module,
@@ -1404,25 +1411,26 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         trait_type: Option<ast::TypeNode>,
         decls: Vec<Decl>,
     ) -> Option<DefId> {
-        let impl_id = DefId(self.ctx.defs.len() as u32);
+        let mut assoc_type_ids = Vec::new();
+        let mut method_ids = Vec::new();
+        let impl_id = self.ctx.add_def_with(|impl_id| {
+            Def::Impl(ImplDef {
+                id: impl_id,
+                parent_module: self.current_module,
+                is_imported: self.current_module_imported,
+                generics: generics.clone(),
+                where_clauses,
+                target_type,
+                trait_type: trait_type.clone(),
+                assoc_types: Vec::new(),
+                methods: Vec::new(),
+                span,
+            })
+        });
         self.ctx.register_global_impl(impl_id);
         if trait_type.is_some() {
             self.ctx.register_trait_impl(impl_id);
         }
-        let mut assoc_type_ids = Vec::new();
-        let mut method_ids = Vec::new();
-        self.ctx.add_def(Def::Impl(ImplDef {
-            id: impl_id,
-            parent_module: self.current_module,
-            is_imported: self.current_module_imported,
-            generics: generics.clone(),
-            where_clauses,
-            target_type,
-            trait_type: trait_type.clone(),
-            assoc_types: Vec::new(),
-            methods: Vec::new(),
-            span,
-        }));
         self.ctx
             .register_def_owner(impl_id, self.current_module, self.current_owner_scope());
 
@@ -1460,22 +1468,23 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         );
                         continue;
                     }
-                    let def_id = DefId(self.ctx.defs.len() as u32);
-                    self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
-                        id: def_id,
-                        name,
-                        parent_trait: None,
-                        parent_impl: Some(impl_id),
-                        implemented_trait_assoc: None,
-                        is_imported: self.current_module_imported,
-                        generics,
-                        bounds: Vec::new(),
-                        where_clauses,
-                        target: Some(target),
-                        resolved_bounds: Vec::new(),
-                        span,
-                        docs: Self::take_docs_if_present(docs),
-                    }));
+                    let def_id = self.ctx.add_def_with(|def_id| {
+                        Def::AssociatedType(AssociatedTypeDef {
+                            id: def_id,
+                            name,
+                            parent_trait: None,
+                            parent_impl: Some(impl_id),
+                            implemented_trait_assoc: None,
+                            is_imported: self.current_module_imported,
+                            generics,
+                            bounds: Vec::new(),
+                            where_clauses,
+                            target: Some(target),
+                            resolved_bounds: Vec::new(),
+                            span,
+                            docs: Self::take_docs_if_present(docs),
+                        })
+                    });
                     self.ctx.register_def_owner(
                         def_id,
                         self.current_module,

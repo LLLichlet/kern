@@ -2,7 +2,7 @@ use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     fn is_discard_name(&self, name: SymbolId) -> bool {
-        self.host.resolve_symbol(name) == "_"
+        self.resolve_symbol(name) == "_"
     }
 
     fn is_pattern_field_pun(&self, field: &ast::DestructurePatternField) -> bool {
@@ -22,8 +22,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         field_name: SymbolId,
         span: Span,
     ) -> ConstEvalResult<Option<TypeId>> {
-        let norm = self.host.normalize_type(target_ty);
-        match self.host.type_kind(norm).clone() {
+        let norm = self.normalize_type(target_ty);
+        match self.type_kind(norm).clone() {
             TypeKind::Def(def_id, generic_args) => match self.struct_or_union_def(def_id) {
                 Some(ConstDataDef::Struct(def)) => {
                     let Some(field) = def.fields.iter().find(|field| field.name == field_name)
@@ -31,27 +31,29 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         return Ok(None);
                     };
 
-                    let mut field_ty =
-                        self.host.ctx.node_type(field.type_node.id).unwrap_or(TypeId::ERROR);
+                    let mut field_ty = self
+                        .ctx
+                        .node_type(field.type_node.id)
+                        .unwrap_or(TypeId::ERROR);
 
                     if !def.generics.is_empty() && !generic_args.is_empty() {
                         let mut map = HashMap::new();
                         for (i, param) in def.generics.iter().enumerate() {
                             map.insert(param.name, generic_args[i]);
                         }
-                        let mut subst = Substituter::new(&mut self.host.ctx.type_registry, &map);
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                         field_ty = subst.substitute(field_ty);
                     }
 
                     Ok(Some(field_ty))
                 }
                 Some(ConstDataDef::Union(def)) => {
-                    self.host.ctx
+                    self.ctx
                         .struct_error(
                             span,
                             format!(
                                 "destructuring patterns are not supported for union `{}`",
-                                self.host.resolve_symbol(def.name)
+                                self.resolve_symbol(def.name)
                             ),
                         )
                         .with_hint("union values do not carry an active-field tag; access them explicitly instead")
@@ -65,7 +67,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 .find(|field| field.name == field_name)
                 .map(|field| field.ty)),
             TypeKind::AnonymousUnion(_, _) => {
-                self.host.ctx
+                self.ctx
                     .struct_error(span, "destructuring patterns are not supported for anonymous unions")
                     .with_hint("union values do not carry an active-field tag; access them explicitly instead")
                     .emit();
@@ -106,9 +108,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     .variant_payload_ty(target_ty, variant.variant_name, depth, pattern.span)?
                     .is_some()
                 {
-                    let variant_name = self.host.resolve_symbol(variant.variant_name).to_string();
-                    self.host
-                        .ctx
+                    let variant_name = self.resolve_symbol(variant.variant_name).to_string();
+                    self.ctx
                         .struct_error(
                             pattern.span,
                             format!("variant `{}` requires payload destructuring", variant_name),
@@ -127,12 +128,11 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
             }
             ast::PatternKind::Destructure(destructure) => {
-                let norm_target = self.host.normalize_type(target_ty);
-                match self.host.type_kind(norm_target).clone() {
+                let norm_target = self.normalize_type(target_ty);
+                match self.type_kind(norm_target).clone() {
                     TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_) => {
                         if destructure.fields.len() != 1 {
-                            self.host
-                                .ctx
+                            self.ctx
                                 .struct_error(
                                     pattern.span,
                                     "enum destructuring patterns must specify exactly one variant",
@@ -160,8 +160,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                     Some(payload_ty) => {
                                         if self.is_pattern_field_pun(field) {
                                             let field_name =
-                                                self.host.resolve_symbol(field.name).to_string();
-                                            self.host.ctx
+                                                self.resolve_symbol(field.name).to_string();
+                                            self.ctx
                                                 .struct_error(
                                                     field.span,
                                                     format!(
@@ -189,9 +189,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                     }
                                     None => {
                                         let field_name =
-                                            self.host.resolve_symbol(field.name).to_string();
-                                        self.host
-                                            .ctx
+                                            self.resolve_symbol(field.name).to_string();
+                                        self.ctx
                                             .struct_error(
                                                 field.span,
                                                 format!(
@@ -211,10 +210,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             ConstValue::Int(tag) if *tag == expected_tag => match payload_ty {
                                 Some(_) => Ok(None),
                                 None => {
-                                    let field_name =
-                                        self.host.resolve_symbol(field.name).to_string();
-                                    self.host
-                                        .ctx
+                                    let field_name = self.resolve_symbol(field.name).to_string();
+                                    self.ctx
                                         .struct_error(
                                             field.span,
                                             format!(
@@ -235,7 +232,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                     _ => {
                         let ConstValue::Struct(field_values) = target_value else {
-                            self.host.ctx
+                            self.ctx
                                 .struct_error(
                                     pattern.span,
                                     "destructuring patterns are only supported on struct and enum constants",
@@ -248,13 +245,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         let mut seen = HashMap::new();
                         for field in &destructure.fields {
                             if seen.insert(field.name, ()).is_some() {
-                                self.host
-                                    .ctx
+                                self.ctx
                                     .struct_error(
                                         field.span,
                                         format!(
                                             "field `{}` is destructured more than once",
-                                            self.host.resolve_symbol(field.name)
+                                            self.resolve_symbol(field.name)
                                         ),
                                     )
                                     .emit();
@@ -264,14 +260,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             let Some(field_ty) =
                                 self.struct_pattern_field_ty(target_ty, field.name, field.span)?
                             else {
-                                self.host
-                                    .ctx
+                                self.ctx
                                     .struct_error(
                                         field.span,
                                         format!(
                                             "field `{}` does not exist in `{}`",
-                                            self.host.resolve_symbol(field.name),
-                                            self.host.ty_to_string(norm_target)
+                                            self.resolve_symbol(field.name),
+                                            self.ty_to_string(norm_target)
                                         ),
                                     )
                                     .emit();
@@ -309,9 +304,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
     ) -> ConstEvalResult<ConstValue> {
         let target_ty = self.expr_type(expr);
-        let norm_target = self.host.normalize_type(target_ty);
+        let norm_target = self.normalize_type(target_ty);
 
-        match self.host.type_kind(norm_target).clone() {
+        match self.type_kind(norm_target).clone() {
             TypeKind::Enum(def_id, _) => {
                 self.eval_named_enum_data_init(def_id, literal, depth, expr.span)
             }
@@ -321,7 +316,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             _ => match literal {
                 ast::DataLiteralKind::Scalar(inner) => {
                     let is_target_array_like = matches!(
-                        self.host.type_kind(norm_target),
+                        self.type_kind(norm_target),
                         TypeKind::Array { .. }
                             | TypeKind::ArrayInfer { .. }
                             | TypeKind::Slice { .. }
@@ -378,13 +373,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Err(ConstEvalError);
                 };
                 if variant.payload_type.is_some() {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             inner.span,
                             format!(
                                 "variant `{}` requires a payload in constant initialization",
-                                self.host.resolve_symbol(variant_name)
+                                self.resolve_symbol(variant_name)
                             ),
                         )
                         .emit();
@@ -399,8 +393,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             ast::DataLiteralKind::Struct(fields) => {
                 if fields.len() != 1 {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             span,
                             "enum constant initialization must specify exactly one variant",
@@ -415,13 +408,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Err(ConstEvalError);
                 };
                 let Some(_) = variant.payload_type else {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             init.span,
                             format!(
                                 "variant `{}` does not take a payload in constant initialization",
-                                self.host.resolve_symbol(init.name)
+                                self.resolve_symbol(init.name)
                             ),
                         )
                         .emit();
@@ -434,7 +426,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 })
             }
             _ => {
-                self.host.ctx
+                self.ctx
                     .struct_error(span, "invalid enum constant initializer")
                     .with_hint("use `Type.Variant` for payload-less cases or `Type.{ Variant: payload }` when a payload is required")
                     .emit();
@@ -461,13 +453,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Err(ConstEvalError);
                 };
                 if variant.payload_ty.is_some() {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             inner.span,
                             format!(
                                 "variant `{}` requires a payload in constant initialization",
-                                self.host.resolve_symbol(variant_name)
+                                self.resolve_symbol(variant_name)
                             ),
                         )
                         .emit();
@@ -482,8 +473,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             ast::DataLiteralKind::Struct(fields) => {
                 if fields.len() != 1 {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             span,
                             "enum constant initialization must specify exactly one variant",
@@ -498,13 +488,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Err(ConstEvalError);
                 };
                 let Some(_) = variant.payload_ty else {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             init.span,
                             format!(
                                 "variant `{}` does not take a payload in constant initialization",
-                                self.host.resolve_symbol(init.name)
+                                self.resolve_symbol(init.name)
                             ),
                         )
                         .emit();
@@ -517,7 +506,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 })
             }
             _ => {
-                self.host.ctx
+                self.ctx
                     .struct_error(span, "invalid enum constant initializer")
                     .with_hint("use `Type.Variant` for payload-less cases or `Type.{ Variant: payload }` when a payload is required")
                     .emit();
@@ -531,8 +520,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Identifier(name) => Some(name),
             ExprKind::EnumLiteral { variant, .. } => Some(variant),
             _ => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "enum constant initialization expects a variant name")
                     .with_hint("write `Type.Variant` for payload-less variants")
                     .emit();
@@ -561,13 +549,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             current_val += 1;
         }
 
-        self.host
-            .ctx
+        self.ctx
             .struct_error(
                 span,
                 format!(
                     "variant `.{}` not found in enum constant initialization",
-                    self.host.resolve_symbol(variant_name)
+                    self.resolve_symbol(variant_name)
                 ),
             )
             .emit();
@@ -591,13 +578,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             current_val += 1;
         }
 
-        self.host
-            .ctx
+        self.ctx
             .struct_error(
                 span,
                 format!(
                     "variant `.{}` not found in enum constant initialization",
-                    self.host.resolve_symbol(variant_name)
+                    self.resolve_symbol(variant_name)
                 ),
             )
             .emit();
@@ -656,11 +642,11 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         _depth: usize,
         span: Span,
     ) -> ConstEvalResult<Option<TypeId>> {
-        let norm = self.host.normalize_type(target_ty);
-        match self.host.type_kind(norm).clone() {
+        let norm = self.normalize_type(target_ty);
+        match self.type_kind(norm).clone() {
             TypeKind::Enum(def_id, generic_args) => {
                 let Some(def) = self.enum_def(def_id) else {
-                    self.host.ctx.emit_ice(
+                    self.ctx.emit_ice(
                         span,
                         format!(
                             "Kern ICE (ConstEval): expected enum definition for DefId {}.",
@@ -677,14 +663,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Ok(None);
                 };
 
-                let mut payload_ty =
-                    self.host.ctx.node_type(payload_ast.id).unwrap_or(TypeId::ERROR);
+                let mut payload_ty = self.ctx.node_type(payload_ast.id).unwrap_or(TypeId::ERROR);
                 if !def.generics.is_empty() && !generic_args.is_empty() {
                     let mut map = HashMap::new();
                     for (i, param) in def.generics.iter().enumerate() {
                         map.insert(param.name, generic_args[i]);
                     }
-                    let mut subst = Substituter::new(&mut self.host.ctx.type_registry, &map);
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                     payload_ty = subst.substitute(payload_ty);
                 }
                 Ok(Some(payload_ty))
@@ -705,8 +690,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<Option<i128>> {
-        let norm = self.host.normalize_type(target_ty);
-        match self.host.type_kind(norm).clone() {
+        let norm = self.normalize_type(target_ty);
+        match self.type_kind(norm).clone() {
             TypeKind::Enum(def_id, _) => {
                 let Some(enum_def) = self.enum_def(def_id) else {
                     return Err(ConstEvalError);
@@ -723,13 +708,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                     current_val += 1;
                 }
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         format!(
                             "variant `.{}` not found in enum",
-                            self.host.resolve_symbol(variant_name)
+                            self.resolve_symbol(variant_name)
                         ),
                     )
                     .emit();
@@ -746,13 +730,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                     current_val += 1;
                 }
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         format!(
                             "variant `.{}` not found in anonymous enum",
-                            self.host.resolve_symbol(variant_name)
+                            self.resolve_symbol(variant_name)
                         ),
                     )
                     .emit();
@@ -785,8 +768,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
-        let norm_ty = self.host.normalize_type(ty);
-        match self.host.type_kind(norm_ty).clone() {
+        let norm_ty = self.normalize_type(ty);
+        match self.type_kind(norm_ty).clone() {
             TypeKind::Enum(def_id, _) => {
                 let Some(data_def) = self.enum_def(def_id) else {
                     return Err(ConstEvalError);
@@ -806,7 +789,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                     if variant.name == variant_name {
                         if variant.payload_type.is_some() {
-                            self.host.ctx
+                            self.ctx
                                 .struct_error(
                                     span,
                                     "cannot evaluate ADT variants with payloads as integer constants",
@@ -841,7 +824,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                     if variant.name == variant_name {
                         if variant.payload_ty.is_some() {
-                            self.host.ctx
+                            self.ctx
                                 .struct_error(
                                     span,
                                     "cannot evaluate ADT variants with payloads as integer constants",
@@ -864,7 +847,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
             }
             _ => {
-                self.host.ctx
+                self.ctx
                     .struct_error(
                         span,
                         "variant literal type could not be resolved to a data type during constant evaluation",
@@ -874,9 +857,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
         }
 
-        let v_str = self.host.resolve_symbol(variant_name).to_string();
-        self.host
-            .ctx
+        let v_str = self.resolve_symbol(variant_name).to_string();
+        self.ctx
             .struct_error(span, format!("variant `.{}` not found in data type", v_str))
             .emit();
         Err(ConstEvalError)

@@ -1,9 +1,8 @@
 use super::Lowerer;
 use kernc_mast::*;
 use kernc_mono::MonoId;
-use kernc_sema::checker::{Substituter, substitute_associated_types};
 use kernc_sema::def::{Def, ImplDef, TraitDef};
-use kernc_sema::ty::{GenericArg, TypeId, TypeKind};
+use kernc_sema::ty::{GenericArg, Substituter, TypeId, TypeKind, substitute_associated_types};
 use kernc_utils::{Span, SymbolId};
 use std::collections::{HashMap, HashSet};
 
@@ -332,31 +331,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
         let search_types = self.vtable_impl_search_types(norm_receiver, norm_data_ptr);
 
-        let global_impls = self.ctx.global_impl_ids().to_vec();
         let mut selected: Option<(
             ImplDef,
             Vec<kernc_sema::ty::GenericArg>,
             kernc_sema::def::DefId,
         )> = None;
-        for &impl_id in &global_impls {
-            let Some(impl_def) = self
-                .ctx
-                .defs
-                .get(impl_id.0 as usize)
-                .and_then(|def| match def {
-                    Def::Impl(impl_def) => Some(impl_def.clone()),
-                    _ => None,
-                })
-            else {
-                continue;
-            };
+        for entry in self.ctx.global_impl_entries() {
+            let impl_id = entry.id;
+            let impl_def = entry.def;
 
             let Some(impl_trait_node) = &impl_def.trait_type else {
                 continue;
             };
 
             let impl_trait_ty = self
-                .ctx.node_type(impl_trait_node.id)
+                .ctx
+                .node_type(impl_trait_node.id)
                 .unwrap_or(TypeId::ERROR);
             if impl_trait_ty == TypeId::ERROR {
                 continue;

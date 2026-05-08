@@ -705,7 +705,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if let Some(def_id) = info.def_id
                 && let Def::TypeAlias(alias_def) = &self.ctx.defs[def_id.0 as usize]
             {
-                let resolved_ty = self.ctx.node_type(alias_def.target.id).unwrap_or(info.type_id);
+                let resolved_ty = self
+                    .ctx
+                    .node_type(alias_def.target.id)
+                    .unwrap_or(info.type_id);
                 if resolved_ty != TypeId::ERROR {
                     return resolved_ty;
                 }
@@ -1459,7 +1462,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if let Some(owner_trait_ty) = resolution.owner_trait_ty {
             self.ctx.set_method_owner_ty(expr_id, owner_trait_ty);
         }
-        self.ctx.set_node_type(expr_id, resolution.candidate.type_id);
+        self.ctx
+            .set_node_type(expr_id, resolution.candidate.type_id);
         self.touched_expr_nodes.push(expr_id);
         Some(resolution.candidate.type_id)
     }

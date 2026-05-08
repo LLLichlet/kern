@@ -42,11 +42,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    fn static_string_slice_const(
-        &mut self,
-        ty: TypeId,
-        value: &str,
-    ) -> BasicValueEnum<'ctx> {
+    fn static_string_slice_const(&mut self, ty: TypeId, value: &str) -> BasicValueEnum<'ctx> {
         let array_val = self.context.const_string(value.as_bytes(), true);
         let global_name = format!(".str.static.{}", self.string_literal_counter);
         self.string_literal_counter += 1;

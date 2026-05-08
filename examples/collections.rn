@@ -18,7 +18,7 @@ fn main() i32 {
     list.push(gpa, 2).should().sum(@loc(), t);
 
     list.as_mut_slice().sort();
-    list.as_slice().eq([3]i32.{ 1, 2, 3 }).should().sum(@loc(), t);
+    (list.as_slice() == [3]i32.{ 1, 2, 3 }).should().sum(@loc(), t);
 
     let found = list.position([](value: i32) bool {
         return value == 2;

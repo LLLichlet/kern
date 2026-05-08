@@ -1,3 +1,6 @@
+use super::core::{
+    eval_binary_values, eval_const_int_division, eval_const_int_modulo, eval_const_int_shift,
+};
 use super::*;
 use crate::ty::{BuiltinAnonymousEnumKind, ConstGeneric, GenericArg};
 
@@ -51,14 +54,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         min: &str,
         max: &str,
     ) -> ConstEvalResult<i128> {
-        self.host
-            .ctx
+        self.ctx
             .struct_error(
                 expr.span,
                 format!(
                     "integer literal {} is out of bounds for type `{}`",
                     rendered_value,
-                    self.host.ty_to_string(ty)
+                    self.ty_to_string(ty)
                 ),
             )
             .with_hint(format!("the valid range is {} to {}", min, max))
@@ -114,7 +116,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 (1u128 << bit_width) - 1
             };
             if is_negative {
-                self.host.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", rendered_value, self.host.ty_to_string(ty)))
+                self.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", rendered_value, self.ty_to_string(ty)))
                     .with_hint("if you need a bit-pattern of all 1s, use explicit bitwise negation (e.g., `~0`) or `as` cast")
                     .emit();
                 return Err(ConstEvalError);
@@ -169,9 +171,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     pub(super) fn expr_uses_unsigned_integer_semantics(&mut self, expr: &Expr) -> bool {
         let ty = self.expr_type(expr);
-        let norm = self.host.normalize_type(ty);
+        let norm = self.normalize_type(ty);
         matches!(
-            self.host.type_kind(norm),
+            self.type_kind(norm),
             TypeKind::Primitive(
                 PrimitiveType::U8
                     | PrimitiveType::U16
@@ -189,8 +191,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: kernc_utils::Span,
     ) -> ConstEvalResult<()> {
         if depth > 100 {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     "constant pattern evaluation exceeded maximum recursion depth",
@@ -215,9 +216,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => Ok(true),
             ast::PatternKind::Variant(_) => Ok(false),
             ast::PatternKind::Destructure(destructure) => {
-                let norm_target = self.host.normalize_type(target_ty);
+                let norm_target = self.normalize_type(target_ty);
                 if matches!(
-                    self.host.type_kind(norm_target),
+                    self.type_kind(norm_target),
                     TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
                 ) {
                     return Ok(false);
@@ -250,16 +251,16 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         match &pattern.kind {
             ast::PatternKind::Binding(binding) => {
-                if self.host.resolve_symbol(binding.name) != "_" {
+                if self.resolve_symbol(binding.name) != "_" {
                     self.define_local_type(binding.name, target_ty);
                     self.define_local_mutability(binding.name, binding.is_mut);
                 }
             }
             ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
             ast::PatternKind::Destructure(destructure) => {
-                let norm_target = self.host.normalize_type(target_ty);
+                let norm_target = self.normalize_type(target_ty);
                 if matches!(
-                    self.host.type_kind(norm_target),
+                    self.type_kind(norm_target),
                     TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
                 ) {
                     if let Some(field) = destructure.fields.first()
@@ -289,8 +290,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     pub fn eval_inner(&mut self, expr: &Expr, depth: usize) -> ConstEvalResult<ConstValue> {
         if depth > 100 {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     expr.span,
                     "constant evaluation exceeded maximum recursion depth",
@@ -343,8 +343,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
                     Ok(ConstValue::Int(u_val as i128))
                 } else {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             expr.span,
                             "only integer casts are supported in const context currently",
@@ -357,7 +356,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             // === 3. Resolve constant identifiers ===
             ExprKind::Identifier(name) => self.eval_identifier(*name, depth, expr.span),
             ExprKind::SelfValue => {
-                let self_name = self.host.ctx.intern("self");
+                let self_name = self.ctx.intern("self");
                 self.eval_identifier(self_name, depth, expr.span)
             }
 
@@ -384,16 +383,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 let is_irrefutable =
                     self.pattern_is_irrefutable(&pattern.pattern, init_ty, depth + 1)?;
                 if is_irrefutable && else_clause.is_some() {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(expr.span, "irrefutable `let` patterns cannot use `else`")
                         .with_code(kernc_utils::DiagnosticCode::IrrefutableLetElse)
                         .emit();
                     return Err(ConstEvalError);
                 }
                 if !is_irrefutable && else_clause.is_none() {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             expr.span,
                             "refutable `let` patterns require an `else` branch",
@@ -406,8 +403,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     self.match_inner_pattern(&pattern.pattern, &value, init_ty, depth + 1)?
                 else {
                     let Some(else_clause) = else_clause else {
-                        self.host
-                            .ctx
+                        self.ctx
                             .struct_error(
                                 expr.span,
                                 "refutable `let` patterns require an `else` branch",
@@ -448,7 +444,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                 return Ok(ConstValue::Void);
                             }
 
-                            self.host.ctx
+                            self.ctx
                                 .struct_error(
                                     else_clause.span(),
                                     "`let ... else` arms did not match the failing value during constant evaluation",
@@ -489,14 +485,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
                 if self.expr_is_type_namespace(lhs)
                     && matches!(
-                        self.host.type_kind(norm_lhs),
+                        self.type_kind(norm_lhs),
                         TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
                     )
                 {
                     self.eval_enum_literal_in_type(norm_lhs, *field, depth, expr.span)
-                } else if let TypeKind::Module(mod_def_id) = self.host.type_kind(norm_lhs).clone() {
+                } else if let TypeKind::Module(mod_def_id) = self.type_kind(norm_lhs).clone() {
                     let Some(module) = self.module_def(mod_def_id) else {
-                        self.host.ctx.emit_ice(
+                        self.ctx.emit_ice(
                             expr.span,
                             format!(
                                 "Kern ICE (ConstEval): Expected module definition for DefId {} during constant field access.",
@@ -506,12 +502,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         return Err(ConstEvalError);
                     };
                     let mod_scope = module.scope_id;
-                    if let Some(info) = self
-                        .host
-                        .ctx
-                        .scopes
-                        .resolve_value_in(mod_scope, *field)
-                        .cloned()
+                    if let Some(info) = self.ctx.scopes.resolve_value_in(mod_scope, *field).cloned()
                     {
                         if info.kind == SymbolKind::Const {
                             if let Some(def_id) = info.def_id {
@@ -520,9 +511,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                 Err(ConstEvalError)
                             }
                         } else {
-                            let field_str = self.host.resolve_symbol(*field);
-                            self.host
-                                .ctx
+                            let field_str = self.resolve_symbol(*field);
+                            self.ctx
                                 .struct_error(
                                     expr.span,
                                     format!(
@@ -535,9 +525,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             Err(ConstEvalError)
                         }
                     } else {
-                        let field_str = self.host.resolve_symbol(*field);
-                        self.host
-                            .ctx
+                        let field_str = self.resolve_symbol(*field);
+                        self.ctx
                             .struct_error(
                                 expr.span,
                                 format!("constant `{}` not found in module", field_str),
@@ -588,8 +577,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
 
             ExprKind::GenericInstantiation { .. } => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         expr.span,
                         "generic instantiation cannot be evaluated directly as a value",
@@ -599,14 +587,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             ExprKind::TypeNode(type_node) => {
                 let resolved_ty = self.resolve_explicit_type_node(type_node);
-                let resolved_builtin = match self.host.type_kind(resolved_ty).clone() {
+                let resolved_builtin = match self.type_kind(resolved_ty).clone() {
                     TypeKind::AnonymousEnum(enum_def) => enum_def.builtin,
                     _ => None,
                 };
                 match (&type_node.kind, resolved_builtin) {
                     (ast::TypeKind::Optional { .. }, _)
                     | (_, Some(BuiltinAnonymousEnumKind::Optional)) => {
-                        self.host.ctx
+                        self.ctx
                             .struct_error(
                                 expr.span,
                                 "optional types cannot be evaluated as value expressions",
@@ -621,7 +609,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                     (ast::TypeKind::Result { .. }, _)
                     | (_, Some(BuiltinAnonymousEnumKind::Result)) => {
-                        self.host.ctx
+                        self.ctx
                             .struct_error(
                                 expr.span,
                                 "result types cannot be evaluated as value expressions",
@@ -637,10 +625,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         } else {
                             format!(
                                 "type `{}` cannot be evaluated as a value expression",
-                                self.host.ty_to_string(resolved_ty)
+                                self.ty_to_string(resolved_ty)
                             )
                         };
-                        self.host.ctx
+                        self.ctx
                             .struct_error(expr.span, message)
                             .with_hint(
                                 "construct a value with `Type.{...}`, access a constructor like `Type.Variant`, or move the type back into a type position",
@@ -651,8 +639,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 Err(ConstEvalError)
             }
             ExprKind::Static { .. } | ExprKind::Defer { .. } | ExprKind::Closure { .. } => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         expr.span,
                         "this construct is not supported in constant evaluation",
@@ -661,8 +648,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 Err(ConstEvalError)
             }
             _ => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(expr.span, "expected a valid constant expression")
                     .emit();
                 Err(ConstEvalError)
@@ -694,7 +680,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
         };
 
-        kernc_consteval::eval_binary_values(left, op, right, lhs_is_unsigned)
+        eval_binary_values(left, op, right, lhs_is_unsigned)
             .map_err(|error| self.emit_arithmetic_error(error, span))
     }
 
@@ -751,8 +737,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             if iterations >= MAX_CONST_LOOP_ITERATIONS {
                 self.core.leave_loop();
                 self.core.pop_local_scope();
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         "constant evaluation exceeded the maximum loop iteration count",
@@ -770,8 +755,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 _ => {
                     self.core.leave_loop();
                     self.core.pop_local_scope();
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(
                             cond.span,
                             "while condition must evaluate to a boolean constant",
@@ -820,8 +804,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
             }
             _ => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "if condition must evaluate to a boolean constant")
                     .emit();
                 Err(ConstEvalError)
@@ -836,8 +819,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
         if !self.core.in_function() {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(span, "`return` is only valid inside a `const fn` body")
                 .emit();
             return Err(ConstEvalError);
@@ -861,8 +843,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     fn eval_const_break(&mut self, span: Span) -> ConstEvalResult<ConstValue> {
         if !self.core.in_loop() {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(span, "`break` is only valid inside a `const fn` loop")
                 .emit();
             return Err(ConstEvalError);
@@ -873,8 +854,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     fn eval_const_continue(&mut self, span: Span) -> ConstEvalResult<ConstValue> {
         if !self.core.in_loop() {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(span, "`continue` is only valid inside a `const fn` loop")
                 .emit();
             return Err(ConstEvalError);
@@ -893,8 +873,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     ) -> ConstEvalResult<ConstValue> {
         if matches!(lhs.kind, ExprKind::Infer) {
             if op != AssignmentOperator::Assign {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(lhs.span, "discard assignment only supports `=`")
                     .with_hint("use `_ = ...;` to explicitly discard a value")
                     .emit();
@@ -912,8 +891,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 .core
                 .lookup_local_mutability_at(place.root_scope, place.root_name)
             else {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         "constant evaluation can only assign to local bindings declared in the current const context",
@@ -922,8 +900,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 return Err(ConstEvalError);
             };
             if !is_mut {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         "cannot assign to an immutable local binding in constant evaluation",
@@ -935,8 +912,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         let Some(mut root_value) = self.core.lookup_local_at(place.root_scope, place.root_name)
         else {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     "failed to read local binding during constant assignment",
@@ -957,8 +933,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 .core
                 .assign_local_at(place.root_scope, place.root_name, next_value)
             {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         "failed to update local binding during constant evaluation",
@@ -988,8 +963,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             .core
             .assign_local_at(place.root_scope, place.root_name, root_value)
         {
-            self.host
-                .ctx
+            self.ctx
                 .struct_error(
                     span,
                     "failed to update local binding during constant evaluation",
@@ -1007,7 +981,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         rhs: i128,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
-        kernc_consteval::eval_const_int_division(lhs, rhs)
+        eval_const_int_division(lhs, rhs)
             .map(ConstValue::Int)
             .map_err(|error| self.emit_arithmetic_error(error, span))
     }
@@ -1018,7 +992,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         rhs: i128,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
-        kernc_consteval::eval_const_int_modulo(lhs, rhs)
+        eval_const_int_modulo(lhs, rhs)
             .map(ConstValue::Int)
             .map_err(|error| self.emit_arithmetic_error(error, span))
     }
@@ -1031,7 +1005,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         unsigned_lhs: bool,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
-        kernc_consteval::eval_const_int_shift(lhs, rhs, is_left, unsigned_lhs)
+        eval_const_int_shift(lhs, rhs, is_left, unsigned_lhs)
             .map(ConstValue::Int)
             .map_err(|error| self.emit_arithmetic_error(error, span))
     }
@@ -1039,34 +1013,29 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     fn emit_arithmetic_error(&mut self, error: ConstArithmeticError, span: Span) -> ConstEvalError {
         match error {
             ConstArithmeticError::DivisionByZero => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "division by zero in constant expression")
                     .emit();
             }
             ConstArithmeticError::ModuloByZero => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "modulo by zero in constant expression")
                     .emit();
             }
             ConstArithmeticError::DivisionOverflow => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "division overflow in constant expression")
                     .with_hint("this division cannot be represented in Kern's constant evaluator")
                     .emit();
             }
             ConstArithmeticError::ModuloOverflow => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "modulo overflow in constant expression")
                     .with_hint("this remainder cannot be represented in Kern's constant evaluator")
                     .emit();
             }
             ConstArithmeticError::NegativeShift => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         "shift amount in constant expression must be non-negative",
@@ -1074,39 +1043,33 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     .emit();
             }
             ConstArithmeticError::ShiftTooLarge => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "shift amount in constant expression is too large")
                     .with_hint("constant integer shifts are evaluated on 128-bit values")
                     .emit();
             }
             ConstArithmeticError::UnsupportedIntegerOperator => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "unsupported operator for constant integers")
                     .emit();
             }
             ConstArithmeticError::UnsupportedFloatOperator => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "unsupported operator for constant floats")
                     .emit();
             }
             ConstArithmeticError::UnsupportedBoolOperator => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "unsupported operator for constant booleans")
                     .emit();
             }
             ConstArithmeticError::UnsupportedEnumOperator => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "unsupported operator for constant enum values")
                     .emit();
             }
             ConstArithmeticError::TypeMismatch => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(
                         span,
                         "type mismatch or unsupported types in constant binary expression",
@@ -1126,9 +1089,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         if let ConstValue::Int(mut v) = val {
             let ty = self.node_type(expr.id);
-            let norm = self.host.normalize_type(ty);
+            let norm = self.normalize_type(ty);
 
-            if let TypeKind::Primitive(p) = self.host.type_kind(norm).clone() {
+            if let TypeKind::Primitive(p) = self.type_kind(norm).clone() {
                 let literal_bound = self.bind_integer_literal_to_type(expr, ty, norm, p)?;
                 let is_signed = matches!(
                     p,
@@ -1158,7 +1121,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             let mask = (1i128 << bit_width) - 1;
                             v &= mask;
                             if v < 0 {
-                                self.host.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", v, self.host.ty_to_string(ty)))
+                                self.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", v, self.ty_to_string(ty)))
                                     .with_hint("if you need a bit-pattern of all 1s, use explicit bitwise negation (e.g., `~0`) or `as` cast")
                                     .emit();
                                 return Err(ConstEvalError);
@@ -1182,14 +1145,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         };
 
                         if v < min || v > max {
-                            self.host
-                                .ctx
+                            self.ctx
                                 .struct_error(
                                     expr.span,
                                     format!(
                                         "integer literal {} is out of bounds for type `{}`",
                                         v,
-                                        self.host.ty_to_string(ty)
+                                        self.ty_to_string(ty)
                                     ),
                                 )
                                 .with_hint(format!("the valid range is {} to {}", min, max))
@@ -1234,19 +1196,17 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         if op == UnaryOperator::MetaOf {
             let norm_ty = self.node_type(operand.id);
-            return match self.host.type_kind(norm_ty).clone() {
+            return match self.type_kind(norm_ty).clone() {
                 TypeKind::Array { len, .. } => {
                     let len = self.resolved_const_generic(len);
                     let ConstGeneric::Value(value) = len else {
-                        self.host
-                            .ctx
+                        self.ctx
                             .struct_error(span, "array length is not a concrete constant")
                             .emit();
                         return Err(ConstEvalError);
                     };
                     let Some(len) = value.as_int() else {
-                        self.host
-                            .ctx
+                        self.ctx
                             .struct_error(span, "array length is not an integer constant")
                             .emit();
                         return Err(ConstEvalError);
@@ -1259,8 +1219,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         ConstValue::String(s) => Ok(ConstValue::Int(s.len() as i128)),
                         ConstValue::Array(items) => Ok(ConstValue::Int(items.len() as i128)),
                         _ => {
-                            self.host
-                                .ctx
+                            self.ctx
                                 .struct_error(span, "cannot evaluate slice length at compile time")
                                 .emit();
                             Err(ConstEvalError)
@@ -1268,8 +1227,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                 }
                 _ => {
-                    self.host
-                        .ctx
+                    self.ctx
                         .struct_error(span, "invalid unary operator for the given constant type")
                         .emit();
                     Err(ConstEvalError)
@@ -1280,7 +1238,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         let val = self.eval_inner(operand, depth + 1)?;
 
         let norm_ty = self.node_type(operand.id);
-        let is_unsigned = if let TypeKind::Primitive(p) = self.host.type_kind(norm_ty) {
+        let is_unsigned = if let TypeKind::Primitive(p) = self.type_kind(norm_ty) {
             matches!(
                 p,
                 PrimitiveType::U8
@@ -1297,7 +1255,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         match (op, val) {
             (UnaryOperator::Negate, ConstValue::Int(v)) => {
                 if is_unsigned {
-                    self.host.ctx.struct_error(span, "cannot apply unary minus `-` to an unsigned type")
+                    self.ctx.struct_error(span, "cannot apply unary minus `-` to an unsigned type")
                         .with_hint("unsigned types cannot be negative. use `~` or bitwise operations if you intend to manipulate bits")
                         .emit();
                     return Err(ConstEvalError);
@@ -1308,8 +1266,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             (UnaryOperator::BitwiseNot, ConstValue::Int(v)) => Ok(ConstValue::Int(!v)),
             (UnaryOperator::LogicalNot, ConstValue::Bool(v)) => Ok(ConstValue::Bool(!v)),
             _ => {
-                self.host
-                    .ctx
+                self.ctx
                     .struct_error(span, "invalid unary operator for the given constant type")
                     .emit();
                 Err(ConstEvalError)
@@ -1331,14 +1288,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Ok(value);
         }
 
-        let sym_info = if let Some(&scope_id) = self.host.const_scopes.last() {
-            self.host
-                .ctx
+        let sym_info = if let Some(&scope_id) = self.const_scopes.last() {
+            self.ctx
                 .scopes
                 .resolve_from_namespace(scope_id, name, crate::scope::SymbolNamespace::Value)
                 .cloned()
         } else {
-            self.host.ctx.scopes.resolve_value_symbol(name).cloned()
+            self.ctx.scopes.resolve_value_symbol(name).cloned()
         };
 
         if let Some(info) = sym_info {
@@ -1351,8 +1307,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Ok(value);
                 }
 
-                let name_str = self.host.resolve_symbol(name).to_string();
-                self.host.ctx
+                let name_str = self.resolve_symbol(name).to_string();
+                self.ctx
                     .struct_error(
                         span,
                         format!(
@@ -1366,9 +1322,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     .emit();
                 return Err(ConstEvalError);
             } else {
-                let name_str = self.host.resolve_symbol(name).to_string();
-                self.host
-                    .ctx
+                let name_str = self.resolve_symbol(name).to_string();
+                self.ctx
                     .struct_error(
                         span,
                         format!(
@@ -1382,8 +1337,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 return Err(ConstEvalError);
             }
         }
-        self.host
-            .ctx
+        self.ctx
             .struct_error(span, "use of undeclared identifier in constant expression")
             .emit();
         Err(ConstEvalError)
@@ -1457,8 +1411,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             });
         }
 
-        self.host
-            .ctx
+        self.ctx
             .struct_error(span, "match expression did not resolve to any constant arm")
             .emit();
         Err(ConstEvalError)

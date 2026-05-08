@@ -17,36 +17,36 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     }
 
     pub(super) fn def_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {
-        self.host.ctx.def_owner_scope(def_id)
+        self.ctx.def_owner_scope(def_id)
     }
 
     pub(super) fn resolved_type(&mut self, ty: TypeId) -> TypeId {
         let mut resolved = ty;
         for subst_map in self.core.type_substs() {
-            let mut subst = Substituter::new(&mut self.host.ctx.type_registry, subst_map);
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
             resolved = subst.substitute(resolved);
         }
-        self.host.normalize_type(resolved)
+        self.normalize_type(resolved)
     }
 
     pub(super) fn resolved_const_generic(&mut self, value: ConstGeneric) -> ConstGeneric {
         let mut resolved = value;
         for subst_map in self.core.type_substs() {
-            let mut subst = Substituter::new(&mut self.host.ctx.type_registry, subst_map);
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
             resolved = subst.substitute_const_generic(resolved);
         }
         resolved
     }
 
     pub(super) fn node_type(&mut self, node_id: NodeId) -> TypeId {
-        let ty = self.host.ctx.node_type(node_id).unwrap_or(TypeId::ERROR);
+        let ty = self.ctx.node_type(node_id).unwrap_or(TypeId::ERROR);
         self.resolved_type(ty)
     }
 
     pub(super) fn type_is_enum_like(&mut self, ty: TypeId) -> bool {
         let ty = self.resolved_type(ty);
         matches!(
-            self.host.type_kind(ty),
+            self.type_kind(ty),
             TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
         )
     }
@@ -68,7 +68,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 .unwrap_or(TypeId::ERROR),
             ExprKind::TypeNode(type_node) => self.resolve_explicit_type_node(type_node),
             ExprKind::SelfValue => {
-                let self_name = self.host.ctx.intern("self");
+                let self_name = self.ctx.intern("self");
                 self.lookup_local_type(self_name)
                     .map(|ty| self.resolved_type(ty))
                     .unwrap_or(TypeId::ERROR)
@@ -86,17 +86,17 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     }
 
     pub(super) fn resolve_explicit_type_node(&mut self, ty_node: &ast::TypeNode) -> TypeId {
-        if let Some(ty) = self.host.ctx.node_type(ty_node.id)
+        if let Some(ty) = self.ctx.node_type(ty_node.id)
             && ty != TypeId::ERROR
         {
             return self.resolved_type(ty);
         }
 
-        let Some(scope) = self.host.ctx.scopes.current_scope_id() else {
+        let Some(scope) = self.ctx.scopes.current_scope_id() else {
             return TypeId::ERROR;
         };
 
-        let mut resolver = TypeResolver::new(self.host.ctx);
+        let mut resolver = TypeResolver::new(self.ctx);
         let ty = resolver.resolve_type(ty_node, scope);
         self.resolved_type(ty)
     }
@@ -110,7 +110,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         let sig = func.resolved_sig?;
 
         if func.generics.is_empty() {
-            return match self.host.type_kind(sig).clone() {
+            return match self.type_kind(sig).clone() {
                 TypeKind::Function { ret, .. } => Some(ret),
                 _ => None,
             };
@@ -124,10 +124,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         for (param, arg) in func.generics.iter().zip(generic_args.iter()) {
             generic_map.insert(param.name, *arg);
         }
-        let mut subst = Substituter::new(&mut self.host.ctx.type_registry, &generic_map);
+        let mut subst = Substituter::new(&mut self.ctx.type_registry, &generic_map);
         let sig = subst.substitute(sig);
 
-        match self.host.type_kind(sig).clone() {
+        match self.type_kind(sig).clone() {
             TypeKind::Function { ret, .. } => Some(ret),
             _ => None,
         }
@@ -170,20 +170,19 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     }
 
     pub(super) fn resolve_symbol_info(&self, name: SymbolId) -> Option<crate::scope::SymbolInfo> {
-        if let Some(&scope_id) = self.host.const_scopes.last() {
-            self.host
-                .ctx
+        if let Some(&scope_id) = self.const_scopes.last() {
+            self.ctx
                 .scopes
                 .resolve_from_namespace(scope_id, name, crate::scope::SymbolNamespace::Value)
                 .cloned()
         } else {
-            self.host.ctx.scopes.resolve_value_symbol(name).cloned()
+            self.ctx.scopes.resolve_value_symbol(name).cloned()
         }
     }
 
     pub(super) fn module_scope_from_expr(&mut self, expr: &Expr) -> Option<ScopeId> {
         let expr_ty = self.node_type(expr.id);
-        if let TypeKind::Module(def_id) = self.host.type_kind(expr_ty).clone()
+        if let TypeKind::Module(def_id) = self.type_kind(expr_ty).clone()
             && let Some(module) = self.module_def(def_id)
         {
             return Some(module.scope_id);
@@ -191,7 +190,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         match &expr.kind {
             ExprKind::Identifier(name) => {
-                let info = self.host.ctx.scopes.resolve_module_symbol(*name)?.clone();
+                let info = self.ctx.scopes.resolve_module_symbol(*name)?.clone();
                 if info.kind != SymbolKind::Module {
                     return None;
                 }
@@ -202,7 +201,6 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::FieldAccess { lhs, field, .. } => {
                 let mod_scope = self.module_scope_from_expr(lhs)?;
                 let info = self
-                    .host
                     .ctx
                     .scopes
                     .resolve_module_in(mod_scope, *field)?
@@ -223,7 +221,6 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::TypeNode(_) => true,
             ExprKind::Grouped { expr: inner } => self.expr_is_type_namespace(inner),
             ExprKind::Identifier(name) => self
-                .host
                 .ctx
                 .scopes
                 .resolve_namespace_symbol(*name)
@@ -235,8 +232,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return false;
                 };
 
-                self.host
-                    .ctx
+                self.ctx
                     .scopes
                     .resolve_namespace_in(mod_scope, *field)
                     .map(|info| Self::symbol_is_type_namespace(info.kind))
@@ -248,18 +244,18 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     pub(super) fn resolve_callable(&mut self, callee: &Expr) -> Option<(DefId, Vec<GenericArg>)> {
         let callee_ty = self.node_type(callee.id);
-        if let TypeKind::FnDef(def_id, args) = self.host.type_kind(callee_ty).clone() {
+        if let TypeKind::FnDef(def_id, args) = self.type_kind(callee_ty).clone() {
             return Some((def_id, args));
         }
 
-        let callee_norm = self.host.normalize_type(callee_ty);
-        if let TypeKind::FnDef(def_id, args) = self.host.type_kind(callee_norm).clone() {
+        let callee_norm = self.normalize_type(callee_ty);
+        if let TypeKind::FnDef(def_id, args) = self.type_kind(callee_norm).clone() {
             return Some((def_id, args));
         }
 
         match &callee.kind {
             ExprKind::Identifier(name) => {
-                let info = self.host.ctx.scopes.resolve_value_symbol(*name)?.clone();
+                let info = self.ctx.scopes.resolve_value_symbol(*name)?.clone();
                 if info.kind == SymbolKind::Function {
                     Some((info.def_id?, Vec::new()))
                 } else {
@@ -273,7 +269,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     .map(|arg| match arg {
                         ast::GenericArg::Type(ty)
                         | ast::GenericArg::AssocBinding { value: ty, .. } => {
-                            let ty = self.host.ctx.node_type(ty.id).unwrap_or(TypeId::ERROR);
+                            let ty = self.ctx.node_type(ty.id).unwrap_or(TypeId::ERROR);
                             GenericArg::Type(self.resolved_type(ty))
                         }
                         ast::GenericArg::ConstExpr(expr) => {
@@ -309,12 +305,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
 
                 let mod_scope = self.module_scope_from_expr(lhs)?;
-                let info = self
-                    .host
-                    .ctx
-                    .scopes
-                    .resolve_value_in(mod_scope, *field)?
-                    .clone();
+                let info = self.ctx.scopes.resolve_value_in(mod_scope, *field)?.clone();
                 if info.kind == SymbolKind::Function {
                     Some((info.def_id?, Vec::new()))
                 } else {
@@ -335,12 +326,11 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return None;
         }
 
-        let env = MemberQueryEnv::from_current_active_bounds(self.host.ctx);
-        let mut query = MemberQuery::new(self.host.ctx);
+        let env = MemberQueryEnv::from_current_active_bounds(self.ctx);
+        let mut query = MemberQuery::new(self.ctx);
         let resolution =
             query.resolve_named_method(receiver_ty, method_name, &env, receiver.span)?;
         let TypeKind::FnDef(def_id, generic_args) = self
-            .host
             .ctx
             .type_registry
             .get(resolution.candidate.type_id)

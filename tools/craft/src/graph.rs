@@ -354,10 +354,7 @@ fn dependency_target(
                     return Ok(DependencyTarget::Local(local.clone()));
                 }
 
-                let display = absolute
-                    .strip_prefix(workspace_root)
-                    .map(|path| path.to_string_lossy().replace('\\', "/"))
-                    .unwrap_or_else(|_| absolute.display().to_string());
+                let display = relative_display_from(workspace_root, &absolute);
                 return Ok(DependencyTarget::External(ExternalDependency {
                     package_name,
                     source: SourceId::PathDependency { path: display },
@@ -407,6 +404,48 @@ pub(crate) fn local_package_id_from_manifest(
 
 fn canonical_dir(path: &Path) -> Result<PathBuf> {
     std::fs::canonicalize(path).map_err(|err| Error::from_io(path, err))
+}
+
+fn relative_display_from(base: &Path, target: &Path) -> String {
+    make_relative_path(base, target)
+        .unwrap_or_else(|| target.to_path_buf())
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn make_relative_path(base: &Path, target: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+
+    let base_components = base.components().collect::<Vec<_>>();
+    let target_components = target.components().collect::<Vec<_>>();
+
+    let mut common = 0;
+    while common < base_components.len()
+        && common < target_components.len()
+        && base_components[common] == target_components[common]
+    {
+        common += 1;
+    }
+
+    if common == 0 {
+        return None;
+    }
+
+    let mut relative = PathBuf::new();
+    for component in &base_components[common..] {
+        if matches!(component, Component::Normal(_)) {
+            relative.push("..");
+        }
+    }
+    for component in &target_components[common..] {
+        relative.push(component.as_os_str());
+    }
+
+    if relative.as_os_str().is_empty() {
+        relative.push(".");
+    }
+
+    Some(relative)
 }
 
 #[cfg(test)]
@@ -628,6 +667,65 @@ root = "src/lib.rn"
         assert!(matches!(
             &shared.target,
             DependencyTarget::Local(pkg) if pkg.name == "shared"
+        ));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stores_external_path_dependencies_relative_to_workspace_root() {
+        let root = temp_dir("craft-external-relative-path");
+        let app_dir = root.join("app");
+        let vendor_root = root.join("vendor");
+        let util_dir = vendor_root.join("util");
+        fs::create_dir_all(&app_dir).unwrap();
+        fs::create_dir_all(&util_dir).unwrap();
+
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.5"
+
+[dependencies]
+util = { path = "../vendor/util", version = "1" }
+"#,
+        )
+        .unwrap();
+        fs::write(
+            util_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "util"
+version = "1.0.0"
+kern = "0.7.5"
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = app_dir.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let graph = build_graph(&manifest_path, &manifest, &[]).unwrap();
+        let app = graph
+            .packages
+            .iter()
+            .find(|pkg| pkg.id.name == "app")
+            .unwrap();
+        let util = app
+            .dependencies
+            .iter()
+            .find(|dep| dep.dependency_name == "util")
+            .unwrap();
+
+        assert!(matches!(
+            &util.target,
+            DependencyTarget::External(ext)
+                if matches!(
+                    &ext.source,
+                    SourceId::PathDependency { path } if path == "../vendor/util"
+                )
         ));
 
         let _ = fs::remove_dir_all(root);

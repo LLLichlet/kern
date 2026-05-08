@@ -20,16 +20,6 @@ pub struct Check {
     message: &[u8],
 };
 
-fn empty_message() &[u8] {
-    static message = "";
-    return message;
-}
-
-fn write_location(writer: &mut Write, loc: Loc) void {
-    _ = writer.write(loc.file);
-    ":{}:{}: ".fmt(.{loc.line, loc.col}).write_to(writer);
-}
-
 /// Creates a local test reporter.
 pub fn report[W](writer: W) Report[W]
     where &mut W: Write,
@@ -40,13 +30,10 @@ pub fn report[W](writer: W) Report[W]
 impl[W] &mut Report[W]
     where &mut W: Write,
 {
-    fn writer() &mut Write {
-        return &mut Write.{ self.writer..& };
-    }
-
     pub fn fail_at(loc: Loc, message: &[u8]) ! {
-        let out = self.writer();
-        write_location(out, loc);
+        let out = &mut Write.{ self.writer..& };
+        _ = out.write(loc.file);
+        ":{}:{}: ".fmt(.{loc.line, loc.col}).write_to(out);
         _ = out.write("test failed: ");
         _ = out.write(message);
         _ = out.write("\n");
@@ -95,7 +82,8 @@ impl[T] ValueCheck[T] {
             return .{ passed: false, message };
         }
 
-        return .{ passed: true, message: empty_message() };
+        static message = "";
+        return .{ passed: true, message };
     }
 
     pub fn sum[W](loc: Loc, report: &mut Report[W]) T
@@ -116,10 +104,11 @@ impl[T] ?T {
     pub fn should_some() ValueCheck[T] {
         match (self) {
             .{ Some: payload } => {
+                static message = "";
                 return .{
                     passed: true,
                     value: .{ Some: payload },
-                    message: empty_message(),
+                    message,
                 };
             },
             .None => {
@@ -136,7 +125,8 @@ impl[T] ?T {
     pub fn should_none() Check {
         match (self) {
             .None => {
-                return .{ passed: true, message: empty_message() };
+                static message = "";
+                return .{ passed: true, message };
             },
             .{ Some: _ } => {
                 static message = "expected option to be None";
@@ -150,10 +140,11 @@ impl[T, E] T!E {
     pub fn should_ok() ValueCheck[T] {
         match (self) {
             .{ Ok: payload } => {
+                static message = "";
                 return .{
                     passed: true,
                     value: .{ Some: payload },
-                    message: empty_message(),
+                    message,
                 };
             },
             .{ Err: _ } => {
@@ -170,10 +161,11 @@ impl[T, E] T!E {
     pub fn should_err() ValueCheck[E] {
         match (self) {
             .{ Err: payload } => {
+                static message = "";
                 return .{
                     passed: true,
                     value: .{ Some: payload },
-                    message: empty_message(),
+                    message,
                 };
             },
             .{ Ok: _ } => {

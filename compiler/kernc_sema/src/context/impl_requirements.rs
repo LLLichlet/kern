@@ -515,7 +515,7 @@ impl<'a> SemaContext<'a> {
                 let mut subst = Substituter::new(&mut self.type_registry, &trait_arg_map);
                 subst.substitute(supertrait_ty)
             };
-            let substituted_supertrait = crate::checker::substitute_associated_types(
+            let substituted_supertrait = crate::ty::substitute_associated_types(
                 &mut self.type_registry,
                 &self.defs,
                 substituted_supertrait,
@@ -1192,7 +1192,7 @@ mod tests {
             span: Span::default(),
             kind: kernc_ast::GenericParamKind::Type,
         };
-        let trait_id_value = DefId(ctx.defs.len() as u32);
+        let trait_id_value = ctx.defs.next_id();
         let marker_name = ctx.intern("Marker");
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
@@ -1281,7 +1281,7 @@ mod tests {
         trait_name: &str,
         assoc_name: &str,
     ) -> (DefId, DefId) {
-        let trait_id_value = DefId(ctx.defs.len() as u32);
+        let trait_id_value = ctx.defs.next_id();
         let trait_name = ctx.intern(trait_name);
         let trait_id = ctx.add_def(Def::Trait(TraitDef {
             id: trait_id_value,
@@ -1299,7 +1299,7 @@ mod tests {
             is_builtin: false,
             docs: None,
         }));
-        let assoc_id_value = DefId(ctx.defs.len() as u32);
+        let assoc_id_value = ctx.defs.next_id();
         let assoc_name = ctx.intern(assoc_name);
         let assoc_id = ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
             id: assoc_id_value,

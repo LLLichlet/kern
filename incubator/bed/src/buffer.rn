@@ -300,7 +300,8 @@ impl &TextBuffer {
     /// Returns one line as a borrowed byte slice.
     pub fn line(row: usize) &[u8] {
         if (row >= self.lines.&.len()) {
-            return "";
+            static empty = "";
+            return empty;
         }
         let lines = self.lines.&.as_slice();
         return lines.[row].&.as_str();

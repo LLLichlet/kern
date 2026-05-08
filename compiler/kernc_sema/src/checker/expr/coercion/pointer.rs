@@ -292,10 +292,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 (exp_kind, act_def_clone)
             {
                 let exp_backing = exp_enum.backing_ty.unwrap_or(TypeId::U32);
-                let act_backing = act_enum
-                    .backing_type
-                    .as_ref()
-                    .map_or(TypeId::U32, |bt| self.ctx.node_type(bt.id).unwrap_or(TypeId::U32));
+                let act_backing = act_enum.backing_type.as_ref().map_or(TypeId::U32, |bt| {
+                    self.ctx.node_type(bt.id).unwrap_or(TypeId::U32)
+                });
 
                 if self.resolve_tv(exp_backing) != self.resolve_tv(act_backing) {
                     return false;

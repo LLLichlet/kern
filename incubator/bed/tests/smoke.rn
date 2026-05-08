@@ -113,8 +113,8 @@ fn ctrl_w(state: &mut editor.Editor, gpa: &mut GPA, key: u8) void {
 fn expect_cursor(state: &mut editor.Editor, row: usize, col: usize, label: &[u8]) void {
     let t = test.report(io.stderr())..&;
     _ = label;
-    (state.cursor_row() == row).should().sum(@loc(), t);
-    (state.cursor_col() == col).should().sum(@loc(), t);
+    state.cursor_row().should().eq(row).sum(@loc(), t);
+    state.cursor_col().should().eq(col).sum(@loc(), t);
 }
 
 fn run_ex_command(state: &mut editor.Editor, gpa: &mut GPA, text: &[u8]) void {
@@ -161,7 +161,7 @@ fn check_command_parse() void {
     }
 
     match (command.parse("w tmp.txt")) {
-        .{ WriteAs: path } => (path == "tmp.txt").should().sum(@loc(), t),
+        .{ WriteAs: path } => path.should().eq("tmp.txt").sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
@@ -222,18 +222,18 @@ fn check_buffer_editing() void {
     text.insert_byte(gpa, 0, 0, b'a').should().sum(@loc(), t);
     text.insert_byte(gpa, 0, 1, b'b').should().sum(@loc(), t);
     text.split_line(gpa, 0, 1).should().sum(@loc(), t);
-    (text.line_count() == 2).should().sum(@loc(), t);
-    (text.line(0) == "a").should().sum(@loc(), t);
-    (text.line(1) == "b").should().sum(@loc(), t);
+    text.line_count().should().eq(2).sum(@loc(), t);
+    text.line(0).should().eq("a").sum(@loc(), t);
+    text.line(1).should().eq("b").sum(@loc(), t);
 
     let cursor = text.delete_backward(gpa, 1, 0);
-    (cursor.row == 0).should().sum(@loc(), t);
-    (cursor.col == 1).should().sum(@loc(), t);
-    (text.line_count() == 1).should().sum(@loc(), t);
-    (text.line(0) == "ab").should().sum(@loc(), t);
+    cursor.row.should().eq(0).sum(@loc(), t);
+    cursor.col.should().eq(1).sum(@loc(), t);
+    text.line_count().should().eq(1).sum(@loc(), t);
+    text.line(0).should().eq("ab").sum(@loc(), t);
 
     text.delete_at(gpa, 0, 1).should().sum(@loc(), t);
-    (text.line(0) == "a").should().sum(@loc(), t);
+    text.line(0).should().eq("a").sum(@loc(), t);
 }
 
 fn check_escape_decode() void {
@@ -292,14 +292,14 @@ fn check_editor_normal_mode_subset() void {
 
     state.handle_key(gpa, .{ Byte: b'0' });
     state.handle_key(gpa, .{ Byte: b'w' });
-    (state.cursor_row() == 0).should().sum(@loc(), t);
-    (state.cursor_col() == 4).should().sum(@loc(), t);
+    state.cursor_row().should().eq(0).sum(@loc(), t);
+    state.cursor_col().should().eq(4).sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'e' });
-    (state.cursor_col() == 6).should().sum(@loc(), t);
+    state.cursor_col().should().eq(6).sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'b' });
-    (state.cursor_col() == 4).should().sum(@loc(), t);
+    state.cursor_col().should().eq(4).sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'A' });
     state.handle_key(gpa, .{ Byte: b'!' });
@@ -310,14 +310,14 @@ fn check_editor_normal_mode_subset() void {
     state.handle_key(gpa, .Escape);
 
     state.handle_key(gpa, .{ Byte: b'G' });
-    (state.cursor_row() == 1).should().sum(@loc(), t);
+    state.cursor_row().should().eq(1).sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'g' });
     state.handle_key(gpa, .{ Byte: b'g' });
     state.handle_key(gpa, .{ Byte: b'0' });
-    (state.cursor_row() == 0).should().sum(@loc(), t);
-    (state.line(0) == "X").should().sum(@loc(), t);
-    (state.line(1) == "one two!").should().sum(@loc(), t);
+    state.cursor_row().should().eq(0).sum(@loc(), t);
+    state.line(0).should().eq("X").sum(@loc(), t);
+    state.line(1).should().eq("one two!").sum(@loc(), t);
 }
 
 fn check_editor_extended_normal_motions() void {
@@ -452,7 +452,7 @@ fn check_insert_tab_and_line_number_render() void {
     type_text(state, gpa, "c");
     state.handle_key(gpa, .Escape);
 
-    (state.line(0) == "    a").should().sum(@loc(), t);
+    state.line(0).should().eq("    a").sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b':' });
     type_text(state, gpa, "set number");
@@ -550,25 +550,25 @@ fn check_split_window_keeps_window_local_buffers() void {
 
     state.render_into(gpa, frame, true).should().sum(@loc(), t);
     contains(frame.as_str(), path_b.as_str()).should().sum(@loc(), t);
-    (state.line(0) == "beta").should().sum(@loc(), t);
+    state.line(0).should().eq("beta").sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
     frame.clear();
     state.render_into(gpa, frame, true).should().sum(@loc(), t);
     contains(frame.as_str(), path_a.as_str()).should().sum(@loc(), t);
-    (state.line(0) == "alpha").should().sum(@loc(), t);
+    state.line(0).should().eq("alpha").sum(@loc(), t);
 
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'w' });
-    (state.line(0) == "beta").should().sum(@loc(), t);
+    state.line(0).should().eq("beta").sum(@loc(), t);
     state.handle_key(gpa, .CtrlW);
     state.handle_key(gpa, .{ Byte: b'q' });
 
     frame.clear();
     state.render_into(gpa, frame, true).should().sum(@loc(), t);
     contains(frame.as_str(), path_a.as_str()).should().sum(@loc(), t);
-    (state.line(0) == "alpha").should().sum(@loc(), t);
+    state.line(0).should().eq("alpha").sum(@loc(), t);
 }
 
 fn check_multi_window_cycle_and_close() void {
@@ -688,11 +688,11 @@ fn check_window_and_layout_slots_are_reused() void {
     let mut i = 0;
     while (i < 8) {
         ctrl_w(state, gpa, b's');
-        (state.window_slots() == 2).should().sum(@loc(), t);
-        (state.layout_node_slots() == 3).should().sum(@loc(), t);
+        state.window_slots().should().eq(2).sum(@loc(), t);
+        state.layout_node_slots().should().eq(3).sum(@loc(), t);
         ctrl_w(state, gpa, b'q');
-        (state.window_slots() == 2).should().sum(@loc(), t);
-        (state.layout_node_slots() == 3).should().sum(@loc(), t);
+        state.window_slots().should().eq(2).sum(@loc(), t);
+        state.layout_node_slots().should().eq(3).sum(@loc(), t);
         i += 1;
     }
 }

@@ -79,6 +79,17 @@ pub struct ValueCheck[T] {
     message: &[u8],
 };
 
+impl[T] T {
+    pub fn should() ValueCheck[T] {
+        static message = "";
+        return .{
+            passed: true,
+            value: .{ Some: self },
+            message,
+        };
+    }
+}
+
 pub struct EqCheck[T] {
     passed: bool,
     actual: ?T,

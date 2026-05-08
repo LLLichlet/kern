@@ -26,10 +26,10 @@ use bitio.{
 fn check_rotate_helpers() void {
     let t = test.report(io.stderr())..&;
 
-    (rotate_left_u32(0x12345678, 8) == 0x34567812).should().sum(@loc(), t);
-    (rotate_right_u32(0x12345678, 8) == 0x78123456).should().sum(@loc(), t);
-    (rotate_left_u64(0x0123456789abcdef, 16) == 0x456789abcdef0123).should().sum(@loc(), t);
-    (rotate_right_u64(0x0123456789abcdef, 16) == 0xcdef0123456789ab).should().sum(@loc(), t);
+    rotate_left_u32(0x12345678, 8).should().eq(0x34567812).sum(@loc(), t);
+    rotate_right_u32(0x12345678, 8).should().eq(0x78123456).sum(@loc(), t);
+    rotate_left_u64(0x0123456789abcdef, 16).should().eq(0x456789abcdef0123).sum(@loc(), t);
+    rotate_right_u64(0x0123456789abcdef, 16).should().eq(0xcdef0123456789ab).sum(@loc(), t);
 }
 
 fn check_big_endian_round_trip() void {
@@ -66,7 +66,7 @@ fn check_xor_mask4() void {
     let t = test.report(io.stderr())..&;
     let mut out = [5]u8.{ 0; 5 };
     _ = xor_mask4("Hello", [4]u8.{ 1, 2, 3, 4 }, out..&[0 .. 5]).should_ok().sum(@loc(), t);
-    (out.&[0 .. 5] == ([5]u8.{ b'I', b'g', b'o', b'h', b'n' }.&[0 .. 5])).should().sum(@loc(), t);
+    out.&[0 .. 5].should().eq([5]u8.{ b'I', b'g', b'o', b'h', b'n' }.&[0 .. 5]).sum(@loc(), t);
 }
 
 fn check_xor_mask4_large_payload() void {
@@ -79,12 +79,12 @@ fn check_xor_mask4_large_payload() void {
     };
     let mut out = [37]u8.{ 0; 37 };
     _ = xor_mask4(input.&[0 .. 37], [4]u8.{ 1, 2, 3, 4 }, out..&[0 .. 37]).should_ok().sum(@loc(), t);
-    (out.&[0 .. 37] == ([37]u8.{
+    out.&[0 .. 37].should().eq([37]u8.{
             1, 3, 1, 7, 5, 7, 5, 3, 9, 11,
             9, 15, 13, 15, 13, 11, 17, 19, 17, 23,
             21, 23, 21, 19, 25, 27, 25, 31, 29, 31,
             29, 27, 33, 35, 33, 39, 37,
-        }.&[0 .. 37])).should().sum(@loc(), t);
+        }.&[0 .. 37]).sum(@loc(), t);
 }
 
 fn check_bit_reader() void {
@@ -96,9 +96,9 @@ fn check_bit_reader() void {
     bits.read_bit().should_ok().eq(false).sum(@loc(), t);
     bits.read_bits(3).should_ok().eq(0b101).sum(@loc(), t);
     bits.read_bits(3).should_ok().eq(0b011).sum(@loc(), t);
-    (bits.*.remaining_bits() == 5).should().sum(@loc(), t);
-    (bits.align_to_byte() == 5).should().sum(@loc(), t);
-    (bits.*.remaining_bits() == 0).should().sum(@loc(), t);
+    bits.*.remaining_bits().should().eq(5).sum(@loc(), t);
+    bits.align_to_byte().should().eq(5).sum(@loc(), t);
+    bits.*.remaining_bits().should().eq(0).sum(@loc(), t);
 }
 
 fn check_bit_writer() void {
@@ -110,9 +110,9 @@ fn check_bit_writer() void {
     _ = bits.write_bit(false).should_ok().sum(@loc(), t);
     _ = bits.write_bits(0b101, 3).should_ok().sum(@loc(), t);
     _ = bits.write_bits(0b011, 3).should_ok().sum(@loc(), t);
-    (bits.align_zero() == 5).should().sum(@loc(), t);
-    (bits.*.written_bytes() == 2).should().sum(@loc(), t);
-    (out.&[0 .. 2] == ([2]u8.{ 0b10110101, 0b01100000 }.&[0 .. 2])).should().sum(@loc(), t);
+    bits.align_zero().should().eq(5).sum(@loc(), t);
+    bits.*.written_bytes().should().eq(2).sum(@loc(), t);
+    out.&[0 .. 2].should().eq([2]u8.{ 0b10110101, 0b01100000 }.&[0 .. 2]).sum(@loc(), t);
 }
 
 fn check_bit_io_errors() void {

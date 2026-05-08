@@ -296,17 +296,17 @@ fn main() i32 {
     let t = test.report(io.stderr())..&;
 
     let some = ?usize.{ Some: 9 }.should_some().sum(@loc(), t);
-    (some == usize.{9}).should().sum(@loc(), t);
+    some.should().eq(usize.{9}).sum(@loc(), t);
     (?usize.None).should_none().sum(@loc(), t);
     (?usize.{ Some: 11 }).should_some().eq(usize.{11}).sum(@loc(), t);
     (?usize.None).should_none().sum(@loc(), t);
 
     let ok = parse(true).should_ok().sum(@loc(), t);
-    (ok == usize.{7}).should().sum(@loc(), t);
+    ok.should().eq(usize.{7}).sum(@loc(), t);
     parse(true).should_ok().eq(usize.{7}).sum(@loc(), t);
 
     let err = parse(false).should_err().sum(@loc(), t);
-    (err == i32.{-1}).should().sum(@loc(), t);
+    err.should().eq(i32.{-1}).sum(@loc(), t);
     parse(false).should_err().eq(i32.{-1}).sum(@loc(), t);
     return 0;
 }

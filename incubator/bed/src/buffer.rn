@@ -1,6 +1,7 @@
 //! Line-oriented text buffer editing.
 
 use base.coll.{List, String};
+use base.io.{Formatable, Write};
 use base.mem.alloc.Allocator;
 use std.fs;
 
@@ -10,6 +11,24 @@ pub enum Error {
     MissingPath,
     Fs: fs.Error,
 };
+
+impl &Error : Formatable {
+    pub fn write_to(writer: &mut Write) void {
+        match (self.*) {
+            .OutOfMemory => {
+                _ = writer.write("buffer.Error.OutOfMemory");
+            },
+            .MissingPath => {
+                _ = writer.write("buffer.Error.MissingPath");
+            },
+            .{ Fs: err } => {
+                _ = writer.write("buffer.Error.Fs(");
+                err.&.write_to(writer);
+                _ = writer.write(")");
+            },
+        }
+    }
+}
 
 /// A text cursor position measured in bytes.
 pub struct Cursor {

@@ -56,9 +56,9 @@ fn check_array_cursor_iterates_values() void {
     let first = next_array_item(cursor..&);
     let second = next_array_item(cursor..&);
     let third = next_array_item(cursor..&);
-    (first.raw == ("1")).should().sum(@loc(), t);
-    (second.raw == ("true")).should().sum(@loc(), t);
-    (third.raw == ("{\"ok\":false}")).should().sum(@loc(), t);
+    first.raw.should().eq("1").sum(@loc(), t);
+    second.raw.should().eq("true").sum(@loc(), t);
+    third.raw.should().eq("{\"ok\":false}").sum(@loc(), t);
     cursor..&.next().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
     cursor.is_done().should().sum(@loc(), t);
 }
@@ -70,11 +70,11 @@ fn check_object_cursor_iterates_fields() void {
 
     let first = next_object_entry(cursor..&);
     let second = next_object_entry(cursor..&);
-    (first.key_raw == ("\"ok\"")).should().sum(@loc(), t);
-    (first.key_text == ("ok")).should().sum(@loc(), t);
-    (first.value.raw == ("true")).should().sum(@loc(), t);
+    first.key_raw.should().eq("\"ok\"").sum(@loc(), t);
+    first.key_text.should().eq("ok").sum(@loc(), t);
+    first.value.raw.should().eq("true").sum(@loc(), t);
     second.key_eq("msg").should().sum(@loc(), t);
-    (second.value.raw == ("\"hi\"")).should().sum(@loc(), t);
+    second.value.raw.should().eq("\"hi\"").sum(@loc(), t);
     cursor..&.next().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
     cursor.is_done().should().sum(@loc(), t);
 }
@@ -82,26 +82,26 @@ fn check_object_cursor_iterates_fields() void {
 fn check_value_lookup_helpers() void {
     let t = test.report(io.stderr())..&;
     let array = parse("[10, 20, 30]").should_ok().sum(@loc(), t);
-    (array.get_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).raw == ("20")).should().sum(@loc(), t);
+    array.get_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).raw.should().eq("20").sum(@loc(), t);
     array.get_index(9).should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
 
     let object = parse("{\"ok\":true,\"msg\":\"hi\"}").should_ok().sum(@loc(), t);
     let msg = object.get_field("msg").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (msg.value.raw == ("\"hi\"")).should().sum(@loc(), t);
+    msg.value.raw.should().eq("\"hi\"").sum(@loc(), t);
     object.get_field("missing").should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
 
     object.get_index(0).should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
     array.get_field("ok").should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
 
     let duplicates = parse("{\"dup\":1,\"dup\":2,\"ok\":true,\"dup\":3}").should_ok().sum(@loc(), t);
-    (duplicates.count_fields("dup").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 3).should().sum(@loc(), t);
+    duplicates.count_fields("dup").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(3).sum(@loc(), t);
     let last_dup = duplicates.get_last_field("dup").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (last_dup.value.raw == ("3")).should().sum(@loc(), t);
+    last_dup.value.raw.should().eq("3").sum(@loc(), t);
     let mut collected = [2]ObjectEntry.{ undef, undef };
     let total = duplicates.collect_fields("dup", collected..&[0 .. 2]).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (total == 3).should().sum(@loc(), t);
-    (collected.[0].value.raw == ("1")).should().sum(@loc(), t);
-    (collected.[1].value.raw == ("2")).should().sum(@loc(), t);
+    total.should().eq(3).sum(@loc(), t);
+    collected.[0].value.raw.should().eq("1").sum(@loc(), t);
+    collected.[1].value.raw.should().eq("2").sum(@loc(), t);
 }
 
 fn check_borrowed_required_field_and_index_helpers() void {

@@ -15,14 +15,16 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         let is_supported = self.host.ctx.type_registry.is_integer(norm)
             || self
-                .host.ctx
+                .host
+                .ctx
                 .type_registry
                 .simd_info(norm)
                 .is_some_and(|(elem_ty, _)| self.host.ctx.type_registry.is_integer(elem_ty));
 
         if !is_supported {
             let ty_str = self.host.ty_to_string(norm);
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(
                     span,
                     format!(
@@ -47,7 +49,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
         let Some((def_id, generic_args)) = self.resolve_callable(callee) else {
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(
                     span,
                     "function calls are not allowed in constant expressions",
@@ -111,7 +114,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         if arg_values.len() != func.params.len() {
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(
                     span,
                     format!(
@@ -130,7 +134,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         if !func.is_const && !self.core.allow_non_const_calls() {
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(
                     span,
                     "only `const fn` can be called in constant expressions",
@@ -166,7 +171,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         let body_result = if let Some(body) = &func.body {
             self.eval_inner(body, depth + 1)
         } else {
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(span, "`const fn` must have a body")
                 .emit();
             Err(ConstEvalError)
@@ -187,7 +193,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
         let Some(host) = self.core.script_host() else {
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(
                     span,
                     "`extern const fn` is not supported in constant evaluation",
@@ -259,7 +266,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 BinaryOperator::Multiply => Ok(ConstValue::Int(l.wrapping_mul(r))),
                 BinaryOperator::Divide => {
                     if r == 0 {
-                        self.host.ctx
+                        self.host
+                            .ctx
                             .struct_error(span, "division by zero in constant expression")
                             .emit();
                         Err(ConstEvalError)
@@ -269,7 +277,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
                 BinaryOperator::Modulo => {
                     if r == 0 {
-                        self.host.ctx
+                        self.host
+                            .ctx
                             .struct_error(span, "modulo by zero in constant expression")
                             .emit();
                         Err(ConstEvalError)
@@ -283,7 +292,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 BinaryOperator::BitwiseOr => Ok(ConstValue::Int(l | r)),
                 BinaryOperator::BitwiseXor => Ok(ConstValue::Int(l ^ r)),
                 _ => {
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(
                             span,
                             "unsupported compound assignment for constant integers",
@@ -298,14 +308,16 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 BinaryOperator::Multiply => Ok(ConstValue::Float(l * r)),
                 BinaryOperator::Divide => Ok(ConstValue::Float(l / r)),
                 _ => {
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(span, "unsupported compound assignment for constant floats")
                         .emit();
                     Err(ConstEvalError)
                 }
             },
             _ => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(
                         span,
                         "type mismatch or unsupported types in constant compound assignment",
@@ -365,7 +377,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
         let Some((def_id, generic_args)) = self.resolve_callable(callee) else {
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(
                     span,
                     "function calls are not allowed in constant expressions",
@@ -381,7 +394,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             (func.is_intrinsic, func.name, func.generics.len());
 
         if !is_intrinsic {
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(
                     span,
                     "function calls are not allowed in constant expressions",
@@ -397,7 +411,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         // Constant-evaluated intrinsics require explicit generic arguments.
         if generic_args.len() != generics_len {
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(
                     span,
                     format!(
@@ -422,7 +437,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             "@intCast" => self.eval_int_cast(&intrinsic_type_args, args, depth, span),
             "@bswap" => self.eval_bswap(&intrinsic_type_args, args, depth, span),
             "@memcpy" | "@memmove" | "@memset" => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(
                         span,
                         format!(
@@ -434,7 +450,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 Err(ConstEvalError)
             }
             _ => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(
                         span,
                         format!(

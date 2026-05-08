@@ -1354,8 +1354,8 @@ mod tests {
             methods: Vec::new(),
             span: Span::default(),
         }));
-        ctx.facts.node_types.insert(target_node_id, target_ty);
-        ctx.facts.node_types.insert(trait_node_id, trait_ty);
+        ctx.set_node_type(target_node_id, target_ty);
+        ctx.set_node_type(trait_node_id, trait_ty);
         ctx.impl_index.trait_impls.push(impl_id);
         impl_id
     }

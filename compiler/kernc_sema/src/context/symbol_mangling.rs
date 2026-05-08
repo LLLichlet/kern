@@ -32,20 +32,10 @@ impl<'a> SemaContext<'a> {
                     parent_id = module.parent;
                 }
                 Def::Impl(impl_def) => {
-                    let target_ty = self
-                        .facts
-                        .node_types
-                        .get(&impl_def.target_type.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
+                    let target_ty = self.node_type_or_error(impl_def.target_type.id);
                     path_components.push(self.mangle_type(target_ty));
                     if let Some(trait_ty) = &impl_def.trait_type {
-                        let trait_ty = self
-                            .facts
-                            .node_types
-                            .get(&trait_ty.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR);
+                        let trait_ty = self.node_type_or_error(trait_ty.id);
                         path_components.push(self.mangle_type(trait_ty));
                     }
                     parent_id = impl_def.parent_module;

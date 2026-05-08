@@ -168,10 +168,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .emit();
         }
 
-        self.ctx
-            .facts
-            .node_types
-            .insert(config_arg.id, TypeId::VOID);
+        self.ctx.set_node_type(config_arg.id, TypeId::VOID);
         TypeId::VOID
     }
 

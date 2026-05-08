@@ -395,13 +395,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let mut field_names = Vec::with_capacity(def.fields.len());
                 let mut field_tys = Vec::with_capacity(def.fields.len());
                 for field in &def.fields {
-                    let field_ty = self
-                        .ctx
-                        .facts
-                        .node_types
-                        .get(&field.type_node.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
+                    let field_ty = self.ctx.node_type_or_error(field.type_node.id);
                     field_names.push(field.name);
                     field_tys
                         .push(self.substitute_type_with_generic_arg_map(field_ty, &generic_map));
@@ -444,13 +438,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 .payload_type
                                 .as_ref()
                                 .map(|payload| {
-                                    let ty = self
-                                        .ctx
-                                        .facts
-                                        .node_types
-                                        .get(&payload.id)
-                                        .copied()
-                                        .unwrap_or(TypeId::ERROR);
+                                    let ty = self.ctx.node_type_or_error(payload.id);
                                     vec![
                                         self.substitute_type_with_generic_arg_map(ty, &generic_map),
                                     ]
@@ -619,7 +607,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let ExprKind::FieldAccess { lhs, .. } = &expr.kind else {
             return false;
         };
-        let Some(lhs_ty) = self.ctx.facts.node_types.get(&lhs.id).copied() else {
+        let Some(lhs_ty) = self.ctx.node_type(lhs.id) else {
             return false;
         };
 

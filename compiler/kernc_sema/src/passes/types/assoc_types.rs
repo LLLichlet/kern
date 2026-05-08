@@ -20,12 +20,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::GenericParamKind::Const { ty } => {
                 GenericArg::Const(crate::ty::ConstGeneric::Param(
                     param.name,
-                    self.ctx
-                        .facts
-                        .node_types
-                        .get(&ty.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR),
+                    self.ctx.node_type_or_error(ty.id),
                 ))
             }
         }
@@ -110,26 +105,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         let prev_bounds_len = self.push_impl_context_where_bounds(impl_def);
         for clause in &contract.impl_assoc.where_clauses {
-            let target_ty = self.ctx.type_registry.normalize(
-                self.ctx
-                    .facts
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
+            let target_ty = self.ctx.normalized_node_type_or_error(clause.target_ty.id);
             let bounds = clause
                 .bounds
                 .iter()
                 .map(|bound| {
-                    self.ctx.type_registry.normalize(
-                        self.ctx
-                            .facts
-                            .node_types
-                            .get(&bound.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR),
-                    )
+                    self.ctx.normalized_node_type_or_error(bound.id)
                 })
                 .collect::<Vec<_>>();
             self.ctx.analysis.active_bounds.push((target_ty, bounds));
@@ -198,26 +179,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub(super) fn push_impl_context_where_bounds(&mut self, impl_def: &ImplDef) -> usize {
         let prev_bounds_len = self.ctx.analysis.active_bounds.len();
         for clause in &impl_def.where_clauses {
-            let target_ty = self.ctx.type_registry.normalize(
-                self.ctx
-                    .facts
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
+            let target_ty = self.ctx.normalized_node_type_or_error(clause.target_ty.id);
             let bounds = clause
                 .bounds
                 .iter()
                 .map(|bound| {
-                    self.ctx.type_registry.normalize(
-                        self.ctx
-                            .facts
-                            .node_types
-                            .get(&bound.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR),
-                    )
+                    self.ctx.normalized_node_type_or_error(bound.id)
                 })
                 .collect::<Vec<_>>();
             self.ctx.analysis.active_bounds.push((target_ty, bounds));

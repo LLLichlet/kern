@@ -343,18 +343,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             return TypeId::ERROR;
                         }
                         self.ctx
-                            .facts
-                            .binary_operator_lhs_trait_self_tys
-                            .insert(binary_expr_id, lhs_trait_self_ty);
+                            .set_binary_operator_lhs_trait_self_ty(binary_expr_id, lhs_trait_self_ty);
                     }
                     if rhs_trait_arg_ty != rhs_ty {
                         if !self.check_coercion(rhs, rhs_trait_arg_ty, rhs_ty) {
                             return TypeId::ERROR;
                         }
                         self.ctx
-                            .facts
-                            .binary_operator_rhs_trait_arg_tys
-                            .insert(binary_expr_id, rhs_trait_arg_ty);
+                            .set_binary_operator_rhs_trait_arg_ty(binary_expr_id, rhs_trait_arg_ty);
                     }
                     return self.resolve_tv(out_ty);
                 }
@@ -769,13 +765,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let is_mut = op == UnaryOperator::MutAddressOf;
 
                 if let ExprKind::IndexAccess { lhs, .. } = &operand.kind {
-                    let lhs_ty = self
-                        .ctx
-                        .facts
-                        .node_types
-                        .get(&lhs.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
+                    let lhs_ty = self.ctx.node_type_or_error(lhs.id);
                     if self.ctx.type_registry.is_simd(lhs_ty) {
                         self.ctx
                             .struct_error(span, "cannot take the address of a SIMD lane")

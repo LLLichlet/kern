@@ -575,13 +575,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.ctx
                 .record_identifier_reference(init_f.name_span, definition_span);
             if let Some(payload_ast) = &payload_ast {
-                let mut payload_ty = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&payload_ast.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let mut payload_ty = self.ctx.node_type_or_error(payload_ast.id);
 
                 if !data_def.generics.is_empty() && !generic_args.is_empty() {
                     let mut map = HashMap::new();
@@ -836,12 +830,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             .map(|field| {
                                 (
                                     field.name,
-                                    self.ctx
-                                        .facts
-                                        .node_types
-                                        .get(&field.type_node.id)
-                                        .copied()
-                                        .unwrap_or(TypeId::ERROR),
+                                    self.ctx.node_type_or_error(field.type_node.id),
                                     field.default_value.is_some(),
                                     Some(field.name_span),
                                 )
@@ -862,12 +851,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             .map(|field| {
                                 (
                                     field.name,
-                                    self.ctx
-                                        .facts
-                                        .node_types
-                                        .get(&field.type_node.id)
-                                        .copied()
-                                        .unwrap_or(TypeId::ERROR),
+                                    self.ctx.node_type_or_error(field.type_node.id),
                                     false,
                                     Some(field.name_span),
                                 )

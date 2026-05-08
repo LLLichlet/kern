@@ -48,25 +48,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         let mut pairs_to_check = Vec::new();
         {
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
             for clause in where_clauses {
-                let original_target = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let original_target = self.ctx.node_type_or_error(clause.target_ty.id);
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                 let sub_target = subst.substitute(original_target);
 
                 for bound_ast in clause.bounds {
-                    let original_bound = self
-                        .ctx
-                        .facts
-                        .node_types
-                        .get(&bound_ast.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
+                    let original_bound = self.ctx.node_type_or_error(bound_ast.id);
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                     let sub_bound = subst.substitute(original_bound);
                     pairs_to_check.push((sub_target, sub_bound));
                 }
@@ -119,21 +108,17 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return;
         };
 
-        let have_target = self
-            .ctx
-            .facts
-            .node_types
-            .contains_key(&impl_def.target_type.id);
+        let have_target = self.ctx.has_node_type(impl_def.target_type.id);
         let have_trait = impl_def
             .trait_type
             .as_ref()
-            .is_none_or(|trait_ty| self.ctx.facts.node_types.contains_key(&trait_ty.id));
+            .is_none_or(|trait_ty| self.ctx.has_node_type(trait_ty.id));
         let have_bounds = impl_def.where_clauses.iter().all(|clause| {
-            self.ctx.facts.node_types.contains_key(&clause.target_ty.id)
+            self.ctx.has_node_type(clause.target_ty.id)
                 && clause
                     .bounds
                     .iter()
-                    .all(|bound| self.ctx.facts.node_types.contains_key(&bound.id))
+                    .all(|bound| self.ctx.has_node_type(bound.id))
         });
         if have_target && have_trait && have_bounds {
             return;
@@ -162,11 +147,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         where_clauses: &[ast::WhereClause],
     ) {
         let needs_resolution = where_clauses.iter().any(|clause| {
-            !self.ctx.facts.node_types.contains_key(&clause.target_ty.id)
+            !self.ctx.has_node_type(clause.target_ty.id)
                 || clause
                     .bounds
                     .iter()
-                    .any(|bound| !self.ctx.facts.node_types.contains_key(&bound.id))
+                    .any(|bound| !self.ctx.has_node_type(bound.id))
         });
         if !needs_resolution {
             return;

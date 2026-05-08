@@ -215,6 +215,22 @@ impl<'a> SemaContext<'a> {
         self.facts.node_types.insert(node_id, ty);
     }
 
+    pub fn has_node_type(&self, node_id: NodeId) -> bool {
+        self.facts.node_types.contains_key(&node_id)
+    }
+
+    pub fn remove_node_type(&mut self, node_id: NodeId) {
+        self.facts.node_types.remove(&node_id);
+    }
+
+    pub(crate) fn node_types_snapshot(&self) -> FastHashMap<NodeId, TypeId> {
+        self.facts.node_types.clone()
+    }
+
+    pub(crate) fn restore_node_types(&mut self, node_types: FastHashMap<NodeId, TypeId>) {
+        self.facts.node_types = node_types;
+    }
+
     pub fn atomic_ordering(&self, node_id: NodeId) -> Option<AtomicOrdering> {
         self.facts.atomic_orderings.get(&node_id).copied()
     }
@@ -229,6 +245,22 @@ impl<'a> SemaContext<'a> {
 
     pub fn set_method_owner_ty(&mut self, node_id: NodeId, owner_ty: TypeId) {
         self.facts.method_owner_tys.insert(node_id, owner_ty);
+    }
+
+    pub fn set_call_arg_expected_ty(&mut self, node_id: NodeId, expected_ty: TypeId) {
+        self.facts.call_arg_expected_tys.insert(node_id, expected_ty);
+    }
+
+    pub fn set_binary_operator_lhs_trait_self_ty(&mut self, node_id: NodeId, self_ty: TypeId) {
+        self.facts
+            .binary_operator_lhs_trait_self_tys
+            .insert(node_id, self_ty);
+    }
+
+    pub fn set_binary_operator_rhs_trait_arg_ty(&mut self, node_id: NodeId, arg_ty: TypeId) {
+        self.facts
+            .binary_operator_rhs_trait_arg_tys
+            .insert(node_id, arg_ty);
     }
 
     pub fn trait_impl_ids(&self) -> &[DefId] {

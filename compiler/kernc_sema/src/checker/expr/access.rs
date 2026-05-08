@@ -114,7 +114,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 let mod_ty = self.ctx.type_registry.intern(TypeKind::Module(mod_def_id));
-                self.ctx.facts.node_types.insert(lhs.id, mod_ty);
+                self.ctx.set_node_type(lhs.id, mod_ty);
                 self.ctx
                     .record_identifier_reference(*field_span, target_info.span);
                 if target_info.kind == SymbolKind::Module {
@@ -133,7 +133,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             _ => return None,
         };
 
-        self.ctx.facts.node_types.insert(expr.id, ty);
+        self.ctx.set_node_type(expr.id, ty);
         Some(ty)
     }
 
@@ -339,13 +339,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.ctx.record_identifier_reference(span, definition_span);
 
                 let payload_ty = variant.payload_type.as_ref().map(|payload_ast| {
-                    let payload_ty = self
-                        .ctx
-                        .facts
-                        .node_types
-                        .get(&payload_ast.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
+                    let payload_ty = self.ctx.node_type_or_error(payload_ast.id);
                     self.substitute_type_with_generic_arg_map(payload_ty, &generic_map)
                 });
                 Some(payload_ty)
@@ -372,13 +366,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         self.positional_generic_subst_map(&def.generics, &generic_args);
                     let mut fields = Vec::with_capacity(def.fields.len());
                     for field in &def.fields {
-                        let field_ty = self
-                            .ctx
-                            .facts
-                            .node_types
-                            .get(&field.type_node.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR);
+                        let field_ty = self.ctx.node_type_or_error(field.type_node.id);
                         let field_ty =
                             self.substitute_type_with_generic_arg_map(field_ty, &generic_map);
 
@@ -717,13 +705,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if let Some(def_id) = info.def_id
                 && let Def::TypeAlias(alias_def) = &self.ctx.defs[def_id.0 as usize]
             {
-                let resolved_ty = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&alias_def.target.id)
-                    .copied()
-                    .unwrap_or(info.type_id);
+                let resolved_ty = self.ctx.node_type(alias_def.target.id).unwrap_or(info.type_id);
                 if resolved_ty != TypeId::ERROR {
                     return resolved_ty;
                 }
@@ -742,7 +724,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             if let Some(g_expr_ptr) = global_expr_ptr {
                 let g_expr = unsafe { &*g_expr_ptr };
-                if let Some(&actual_ty) = self.ctx.facts.node_types.get(&g_expr.id) {
+                if let Some(actual_ty) = self.ctx.node_type(g_expr.id) {
                     return actual_ty;
                 }
                 let prev_scope = self.ctx.scopes.current_scope_id();
@@ -1340,7 +1322,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             // Safety: expression storage inside semantic defs is immutable during
                             // type checking; borrowing via raw pointer avoids cloning large ASTs.
                             let g_expr = unsafe { &*g_expr };
-                            if let Some(&actual_ty) = self.ctx.facts.node_types.get(&g_expr.id) {
+                            if let Some(actual_ty) = self.ctx.node_type(g_expr.id) {
                                 actual_ty
                             } else {
                                 let prev_scope = self.ctx.scopes.current_scope_id();
@@ -1364,7 +1346,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 };
 
                 let mod_ty = self.ctx.type_registry.intern(TypeKind::Module(mod_def_id));
-                self.ctx.facts.node_types.insert(lhs.id, mod_ty);
+                self.ctx.set_node_type(lhs.id, mod_ty);
                 self.ctx
                     .record_identifier_reference(field_span, definition_span);
                 self.record_expr_timing(started, |stats, elapsed| {
@@ -1477,10 +1459,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if let Some(owner_trait_ty) = resolution.owner_trait_ty {
             self.ctx.set_method_owner_ty(expr_id, owner_trait_ty);
         }
-        self.ctx
-            .facts
-            .node_types
-            .insert(expr_id, resolution.candidate.type_id);
+        self.ctx.set_node_type(expr_id, resolution.candidate.type_id);
         self.touched_expr_nodes.push(expr_id);
         Some(resolution.candidate.type_id)
     }

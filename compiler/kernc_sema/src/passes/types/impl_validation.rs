@@ -215,13 +215,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let Some(target) = assoc_def.target.as_ref() else {
                     continue;
                 };
-                let resolved_target = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&target.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let resolved_target = self.ctx.node_type_or_error(target.id);
                 if resolved_target == TypeId::ERROR {
                     continue;
                 }
@@ -264,29 +258,17 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return None;
         }
 
-        let left_target_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&left_impl.target_type.id)
-            .copied()
-            .unwrap_or(TypeId::ERROR);
+        let left_target_ty = self.ctx.node_type_or_error(left_impl.target_type.id);
         let left_trait_ty = left_impl
             .trait_type
             .as_ref()
-            .and_then(|trait_ty| self.ctx.facts.node_types.get(&trait_ty.id).copied())
+            .and_then(|trait_ty| self.ctx.node_type(trait_ty.id))
             .unwrap_or(TypeId::ERROR);
-        let right_target_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&right_impl.target_type.id)
-            .copied()
-            .unwrap_or(TypeId::ERROR);
+        let right_target_ty = self.ctx.node_type_or_error(right_impl.target_type.id);
         let right_trait_ty = right_impl
             .trait_type
             .as_ref()
-            .and_then(|trait_ty| self.ctx.facts.node_types.get(&trait_ty.id).copied())
+            .and_then(|trait_ty| self.ctx.node_type(trait_ty.id))
             .unwrap_or(TypeId::ERROR);
         let left_trait_head_ty = crate::query::erase_trait_assoc_bindings(self.ctx, left_trait_ty);
         let right_trait_head_ty =
@@ -368,13 +350,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             let fresh_arg = match &param.kind {
                 ast::GenericParamKind::Type => GenericArg::Type(checker.fresh_type_var()),
                 ast::GenericParamKind::Const { ty } => {
-                    let const_ty = checker
-                        .ctx
-                        .facts
-                        .node_types
-                        .get(&ty.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
+                    let const_ty = checker.ctx.node_type_or_error(ty.id);
                     GenericArg::Const(ConstGeneric::Param(fresh_name, const_ty))
                 }
             };

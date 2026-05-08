@@ -81,21 +81,12 @@ impl<'a> MemberQueryEnv<'a> {
         where_clauses: &[ast::WhereClause],
     ) {
         for clause in where_clauses {
-            let target_ty = ctx.type_registry.normalize(
-                ctx.facts
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
+            let target_ty = ctx.normalized_node_type_or_error(clause.target_ty.id);
             let bounds = clause
                 .bounds
                 .iter()
                 .filter_map(|bound| {
-                    ctx.facts
-                        .node_types
-                        .get(&bound.id)
-                        .copied()
+                    ctx.node_type(bound.id)
                         .map(|bound_ty| ctx.type_registry.normalize(bound_ty))
                 })
                 .collect();
@@ -601,12 +592,7 @@ pub(crate) fn instantiate_impl_trait_ty(
         _ => None,
     })?;
     let impl_trait_node = impl_def.trait_type.as_ref()?;
-    let impl_trait_ty = ctx
-        .facts
-        .node_types
-        .get(&impl_trait_node.id)
-        .copied()
-        .unwrap_or(TypeId::ERROR);
+    let impl_trait_ty = ctx.node_type_or_error(impl_trait_node.id);
     if impl_trait_ty == TypeId::ERROR {
         return None;
     }
@@ -1043,20 +1029,8 @@ fn resolve_trait_impl_obligation_inner(
         return None;
     };
 
-    let impl_target_ty = checker
-        .ctx
-        .facts
-        .node_types
-        .get(&impl_def.target_type.id)
-        .copied()
-        .unwrap_or(TypeId::ERROR);
-    let impl_trait_ty = checker
-        .ctx
-        .facts
-        .node_types
-        .get(&impl_trait_node.id)
-        .copied()
-        .unwrap_or(TypeId::ERROR);
+    let impl_target_ty = checker.ctx.node_type_or_error(impl_def.target_type.id);
+    let impl_trait_ty = checker.ctx.node_type_or_error(impl_trait_node.id);
 
     if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
         return None;
@@ -1182,16 +1156,11 @@ fn impl_head_signature(
         Def::Impl(impl_def) => Some(impl_def.clone()),
         _ => None,
     })?;
-    let target_ty = ctx
-        .facts
-        .node_types
-        .get(&impl_def.target_type.id)
-        .copied()
-        .unwrap_or(TypeId::ERROR);
+    let target_ty = ctx.node_type_or_error(impl_def.target_type.id);
     let trait_ty = impl_def
         .trait_type
         .as_ref()
-        .and_then(|trait_ty| ctx.facts.node_types.get(&trait_ty.id).copied());
+        .and_then(|trait_ty| ctx.node_type(trait_ty.id));
     let trait_ty = trait_ty.map(|trait_ty| erase_trait_assoc_bindings(ctx, trait_ty));
 
     if target_ty == TypeId::ERROR || matches!(trait_ty, Some(TypeId::ERROR)) {
@@ -1251,13 +1220,7 @@ fn freshen_impl_head_types(
                 ),
             },
             ast::GenericParamKind::Const { ty } => {
-                let const_ty = checker
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let const_ty = checker.ctx.node_type_or_error(ty.id);
                 crate::ty::GenericArg::Const(crate::ty::ConstGeneric::Param(fresh_name, const_ty))
             }
         };
@@ -1286,24 +1249,12 @@ pub(crate) fn impl_bounds_satisfied(
     let mut pairs_to_check = Vec::new();
 
     for clause in where_clauses {
-        let original_target = checker
-            .ctx
-            .facts
-            .node_types
-            .get(&clause.target_ty.id)
-            .copied()
-            .unwrap_or(TypeId::ERROR);
+        let original_target = checker.ctx.node_type_or_error(clause.target_ty.id);
         let sub_target =
             checker.substitute_type_with_unification_maps(original_target, type_map, const_map);
 
         for bound_ast in &clause.bounds {
-            let original_bound = checker
-                .ctx
-                .facts
-                .node_types
-                .get(&bound_ast.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let original_bound = checker.ctx.node_type_or_error(bound_ast.id);
             let sub_bound =
                 checker.substitute_type_with_unification_maps(original_bound, type_map, const_map);
             pairs_to_check.push((sub_target, sub_bound));
@@ -1916,8 +1867,8 @@ mod tests {
         let trait_ty =
             ctx.type_registry
                 .intern(TypeKind::TraitObject(trait_id, Vec::new(), assoc_bindings));
-        ctx.facts.node_types.insert(target_node_id, target_ty);
-        ctx.facts.node_types.insert(trait_node_id, trait_ty);
+        ctx.set_node_type(target_node_id, target_ty);
+        ctx.set_node_type(trait_node_id, trait_ty);
         ctx.impl_index.trait_impls.push(impl_id);
         impl_id
     }
@@ -1957,8 +1908,8 @@ mod tests {
         let trait_ty =
             ctx.type_registry
                 .intern(TypeKind::TraitObject(trait_id, trait_args, Vec::new()));
-        ctx.facts.node_types.insert(target_node_id, target_ty);
-        ctx.facts.node_types.insert(trait_node_id, trait_ty);
+        ctx.set_node_type(target_node_id, target_ty);
+        ctx.set_node_type(trait_node_id, trait_ty);
         ctx.impl_index.trait_impls.push(impl_id);
 
         let method_id_value = DefId(ctx.defs.len() as u32);
@@ -2025,7 +1976,7 @@ mod tests {
             methods: Vec::new(),
             span: Span::default(),
         }));
-        ctx.facts.node_types.insert(target_node_id, target_ty);
+        ctx.set_node_type(target_node_id, target_ty);
         ctx.impl_index.global_impls.push(impl_id);
 
         let method_id_value = DefId(ctx.defs.len() as u32);

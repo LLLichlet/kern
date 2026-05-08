@@ -282,11 +282,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .insert((scope_id, name), origins);
     }
 
-    pub(crate) fn record_pointer_origin_expr(
-        &mut self,
-        node_id: NodeId,
-        origin: PointerOrigin,
-    ) {
+    pub(crate) fn record_pointer_origin_expr(&mut self, node_id: NodeId, origin: PointerOrigin) {
         self.pointer_origin_exprs
             .entry(node_id)
             .or_default()
@@ -475,11 +471,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let touched_expr_nodes = self.touched_expr_nodes.clone();
         for node_id in touched_expr_nodes {
-            let Some(existing_ty) = self.ctx.facts.node_types.get(&node_id).copied() else {
+            let Some(existing_ty) = self.ctx.node_type(node_id) else {
                 continue;
             };
             let rewritten = self.materialize_numeric_defaults_in_type(existing_ty);
-            self.ctx.facts.node_types.insert(node_id, rewritten);
+            self.ctx.set_node_type(node_id, rewritten);
         }
 
         let touched_bindings = self.touched_bindings.clone();
@@ -1806,7 +1802,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         let ty = self.maybe_constrain_by_expected_type(ty, expected_ty);
-        self.ctx.facts.node_types.insert(expr.id, ty);
+        self.ctx.set_node_type(expr.id, ty);
         self.touched_expr_nodes.push(expr.id);
         ty
     }
@@ -1980,7 +1976,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         // Overwrite the cached node type with the freshly resolved result.
-        self.ctx.facts.node_types.insert(ty_node.id, ty_id);
+        self.ctx.set_node_type(ty_node.id, ty_id);
         self.record_expr_timing(started, |stats, elapsed| stats.dynamic_typeof += elapsed);
         ty_id
     }

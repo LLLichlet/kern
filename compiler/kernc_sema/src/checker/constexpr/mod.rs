@@ -5,13 +5,11 @@ use crate::def::{Def, DefId, EnumDef, FunctionDef, GlobalDef, ModuleDef, StructD
 use crate::scope::ScopeId;
 use crate::scope::SymbolKind;
 use crate::ty::{GenericArg, PrimitiveType, TypeId, TypeKind};
-use kernc_ast::{
-    self as ast, AssignmentOperator, BinaryOperator, Expr, ExprKind, UnaryOperator,
-};
+use kernc_ast::{self as ast, AssignmentOperator, BinaryOperator, Expr, ExprKind, UnaryOperator};
 pub use kernc_consteval::{
     ConstArithmeticError, ConstBinaryOp, ConstEvalCore, ConstEvalError, ConstEvalHost,
-    ConstEvalResult, ConstFunctionFrame, ConstPlace, ConstPlaceError, ConstValue, PlaceSegment,
-    LoopControl, ScriptHost, ScriptHostHandle,
+    ConstEvalResult, ConstFunctionFrame, ConstPlace, ConstPlaceError, ConstValue, LoopControl,
+    PlaceSegment, ScriptHost, ScriptHostHandle,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 use std::collections::HashMap;
@@ -214,7 +212,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         match self.eval_inner(expr, 0) {
             Ok(ConstValue::Int(val)) => {
                 if val < 0 {
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(
                             expr.span,
                             "constant expression cannot evaluate to a negative number here",
@@ -242,7 +241,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
             }
             Ok(_) => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(expr.span, "expected an integer constant")
                     .emit();
                 Err(ConstEvalError)
@@ -256,7 +256,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         match self.eval_inner(expr, 0) {
             Ok(ConstValue::Int(val)) => Ok(val),
             Ok(_) => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(expr.span, "expected an integer constant")
                     .emit();
                 Err(ConstEvalError)

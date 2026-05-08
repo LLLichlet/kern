@@ -31,13 +31,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         return Ok(None);
                     };
 
-                    let mut field_ty = self
-                        .host.ctx
-                        .facts
-                        .node_types
-                        .get(&field.type_node.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
+                    let mut field_ty =
+                        self.host.ctx.node_type(field.type_node.id).unwrap_or(TypeId::ERROR);
 
                     if !def.generics.is_empty() && !generic_args.is_empty() {
                         let mut map = HashMap::new();
@@ -112,7 +107,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     .is_some()
                 {
                     let variant_name = self.host.resolve_symbol(variant.variant_name).to_string();
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(
                             pattern.span,
                             format!("variant `{}` requires payload destructuring", variant_name),
@@ -135,7 +131,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 match self.host.type_kind(norm_target).clone() {
                     TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_) => {
                         if destructure.fields.len() != 1 {
-                            self.host.ctx
+                            self.host
+                                .ctx
                                 .struct_error(
                                     pattern.span,
                                     "enum destructuring patterns must specify exactly one variant",
@@ -191,8 +188,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                         )
                                     }
                                     None => {
-                                        let field_name = self.host.resolve_symbol(field.name).to_string();
-                                        self.host.ctx
+                                        let field_name =
+                                            self.host.resolve_symbol(field.name).to_string();
+                                        self.host
+                                            .ctx
                                             .struct_error(
                                                 field.span,
                                                 format!(
@@ -212,8 +211,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             ConstValue::Int(tag) if *tag == expected_tag => match payload_ty {
                                 Some(_) => Ok(None),
                                 None => {
-                                    let field_name = self.host.resolve_symbol(field.name).to_string();
-                                    self.host.ctx
+                                    let field_name =
+                                        self.host.resolve_symbol(field.name).to_string();
+                                    self.host
+                                        .ctx
                                         .struct_error(
                                             field.span,
                                             format!(
@@ -247,7 +248,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         let mut seen = HashMap::new();
                         for field in &destructure.fields {
                             if seen.insert(field.name, ()).is_some() {
-                                self.host.ctx
+                                self.host
+                                    .ctx
                                     .struct_error(
                                         field.span,
                                         format!(
@@ -262,7 +264,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             let Some(field_ty) =
                                 self.struct_pattern_field_ty(target_ty, field.name, field.span)?
                             else {
-                                self.host.ctx
+                                self.host
+                                    .ctx
                                     .struct_error(
                                         field.span,
                                         format!(
@@ -375,7 +378,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Err(ConstEvalError);
                 };
                 if variant.payload_type.is_some() {
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(
                             inner.span,
                             format!(
@@ -395,7 +399,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             ast::DataLiteralKind::Struct(fields) => {
                 if fields.len() != 1 {
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(
                             span,
                             "enum constant initialization must specify exactly one variant",
@@ -410,7 +415,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Err(ConstEvalError);
                 };
                 let Some(_) = variant.payload_type else {
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(
                             init.span,
                             format!(
@@ -455,7 +461,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Err(ConstEvalError);
                 };
                 if variant.payload_ty.is_some() {
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(
                             inner.span,
                             format!(
@@ -475,7 +482,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             ast::DataLiteralKind::Struct(fields) => {
                 if fields.len() != 1 {
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(
                             span,
                             "enum constant initialization must specify exactly one variant",
@@ -490,7 +498,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Err(ConstEvalError);
                 };
                 let Some(_) = variant.payload_ty else {
-                    self.host.ctx
+                    self.host
+                        .ctx
                         .struct_error(
                             init.span,
                             format!(
@@ -522,7 +531,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Identifier(name) => Some(name),
             ExprKind::EnumLiteral { variant, .. } => Some(variant),
             _ => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(span, "enum constant initialization expects a variant name")
                     .with_hint("write `Type.Variant` for payload-less variants")
                     .emit();
@@ -551,7 +561,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             current_val += 1;
         }
 
-        self.host.ctx
+        self.host
+            .ctx
             .struct_error(
                 span,
                 format!(
@@ -580,7 +591,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             current_val += 1;
         }
 
-        self.host.ctx
+        self.host
+            .ctx
             .struct_error(
                 span,
                 format!(
@@ -665,13 +677,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Ok(None);
                 };
 
-                let mut payload_ty = self
-                    .host.ctx
-                    .facts
-                    .node_types
-                    .get(&payload_ast.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let mut payload_ty =
+                    self.host.ctx.node_type(payload_ast.id).unwrap_or(TypeId::ERROR);
                 if !def.generics.is_empty() && !generic_args.is_empty() {
                     let mut map = HashMap::new();
                     for (i, param) in def.generics.iter().enumerate() {
@@ -716,7 +723,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                     current_val += 1;
                 }
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(
                         span,
                         format!(
@@ -738,7 +746,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                     current_val += 1;
                 }
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(
                         span,
                         format!(
@@ -866,7 +875,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         let v_str = self.host.resolve_symbol(variant_name).to_string();
-        self.host.ctx
+        self.host
+            .ctx
             .struct_error(span, format!("variant `.{}` not found in data type", v_str))
             .emit();
         Err(ConstEvalError)

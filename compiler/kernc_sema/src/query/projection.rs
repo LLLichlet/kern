@@ -487,13 +487,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         node_id: kernc_utils::NodeId,
     ) -> TypeId {
         if generics.is_empty() || args.is_empty() {
-            return self
-                .ctx
-                .facts
-                .node_types
-                .get(&node_id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            return self.ctx.node_type_or_error(node_id);
         }
 
         let cache_key = (node_id, args.to_vec());
@@ -507,13 +501,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return field_ty;
         }
 
-        let mut field_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&node_id)
-            .copied()
-            .unwrap_or(TypeId::ERROR);
+        let mut field_ty = self.ctx.node_type_or_error(node_id);
 
         let mut map = FastHashMap::default();
         for (index, param) in generics.iter().enumerate() {

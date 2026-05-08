@@ -619,13 +619,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 continue;
             }
 
-            let impl_target_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&impl_def.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let impl_target_ty = self.ctx.node_type_or_error(impl_def.target_type.id);
             let mut checker = ExprChecker::new(self.ctx, None);
             let mut type_map = FastHashMap::default();
             let mut const_map = FastHashMap::default();
@@ -690,13 +684,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             };
 
             let impl_def = unsafe { &*impl_ptr };
-            let impl_target_ty = checker
-                .ctx
-                .facts
-                .node_types
-                .get(&impl_def.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let impl_target_ty = checker.ctx.node_type_or_error(impl_def.target_type.id);
 
             if checker
                 .ctx

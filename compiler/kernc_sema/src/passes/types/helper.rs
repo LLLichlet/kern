@@ -124,16 +124,16 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     .trim()
                     .to_string();
                 self.resolve_builtin_primitive(&name).unwrap_or_else(|| {
-                    self.ctx.facts.node_types.remove(&ty_node.id);
+                    self.ctx.remove_node_type(ty_node.id);
                     self.resolve_type(ty_node, scope)
                 })
             }
             _ => {
-                self.ctx.facts.node_types.remove(&ty_node.id);
+                self.ctx.remove_node_type(ty_node.id);
                 self.resolve_type(ty_node, scope)
             }
         };
-        self.ctx.facts.node_types.insert(ty_node.id, ty);
+        self.ctx.set_node_type(ty_node.id, ty);
         if ty != TypeId::ERROR && !self.supports_const_generic_param_type(ty) {
             let found_ty = self.ctx.ty_to_string(ty);
             self.ctx
@@ -207,7 +207,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                             "write the right-hand side as a trait, for example `where T: Printable`",
                         )
                         .emit();
-                    self.ctx.facts.node_types.insert(bound.id, TypeId::ERROR);
+                    self.ctx.set_node_type(bound.id, TypeId::ERROR);
                 }
             }
         }

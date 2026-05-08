@@ -2,7 +2,7 @@ use super::*;
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub fn resolve_type(&mut self, ty_node: &ast::TypeNode, env_scope: ScopeId) -> TypeId {
-        if let Some(&cached_ty) = self.ctx.facts.node_types.get(&ty_node.id)
+        if let Some(cached_ty) = self.ctx.node_type(ty_node.id)
             && cached_ty != TypeId::ERROR
         {
             return cached_ty;
@@ -219,7 +219,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
         };
 
-        self.ctx.facts.node_types.insert(ty_node.id, ty_id);
+        self.ctx.set_node_type(ty_node.id, ty_id);
         ty_id
     }
 

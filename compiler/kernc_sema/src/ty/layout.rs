@@ -635,14 +635,10 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 max_align
             }
             Def::Enum(a) => {
-                let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
-                    self.ctx
-                        .facts
-                        .node_types
-                        .get(&bt.id)
-                        .copied()
-                        .unwrap_or(TypeId::U32)
-                });
+                let tag_ty = a
+                    .backing_type
+                    .as_ref()
+                    .map_or(TypeId::U32, |bt| self.ctx.node_type(bt.id).unwrap_or(TypeId::U32));
                 let mut max_align = self.compute_type_align_inner(
                     tag_ty,
                     a.backing_type.as_ref().map_or(a.span, |bt| bt.span),
@@ -708,14 +704,10 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
             Def::Enum(a) => {
                 // C-ABI tagged-union layout: `struct { TagType tag; union { ... } payload; }`.
-                let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
-                    self.ctx
-                        .facts
-                        .node_types
-                        .get(&bt.id)
-                        .copied()
-                        .unwrap_or(TypeId::U32)
-                });
+                let tag_ty = a
+                    .backing_type
+                    .as_ref()
+                    .map_or(TypeId::U32, |bt| self.ctx.node_type(bt.id).unwrap_or(TypeId::U32));
 
                 let tag_span = a.backing_type.as_ref().map_or(a.span, |bt| bt.span);
                 let tag_align = self.compute_type_align_inner(tag_ty, tag_span);
@@ -780,13 +772,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         type_node: &ast::TypeNode,
         map: &HashMap<SymbolId, GenericArg>,
     ) -> TypeId {
-        let mut f_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&type_node.id)
-            .copied()
-            .unwrap_or(TypeId::ERROR);
+        let mut f_ty = self.ctx.node_type_or_error(type_node.id);
         if !map.is_empty() {
             let mut subst = Substituter::new(&mut self.ctx.type_registry, map);
             f_ty = subst.substitute(f_ty);

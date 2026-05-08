@@ -59,7 +59,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             let Some(trait_ty) = impl_def
                 .trait_type
                 .as_ref()
-                .and_then(|trait_ty| self.ctx.facts.node_types.get(&trait_ty.id).copied())
+                .and_then(|trait_ty| self.ctx.node_type(trait_ty.id))
             else {
                 continue;
             };
@@ -144,13 +144,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         if let Some(parent_id) = f.parent
             && let Def::Impl(i) = &self.ctx.defs[parent_id.0 as usize]
         {
-            let target_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&i.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let target_ty = self.ctx.node_type_or_error(i.target_type.id);
             self.bind_self_type(target_ty, func_scope, f.span);
         }
 
@@ -323,10 +317,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let canonical_trait_ty =
             self.bind_impl_assoc_types(i, &i.assoc_types, resolved_trait_ty, impl_scope, i.span);
         if let (Some(trait_ty), Some(canonical_trait_ty)) = (&i.trait_type, canonical_trait_ty) {
-            self.ctx
-                .facts
-                .node_types
-                .insert(trait_ty.id, canonical_trait_ty);
+            self.ctx.set_node_type(trait_ty.id, canonical_trait_ty);
         }
         if let Some(resolved_trait_ty) = canonical_trait_ty {
             self.validate_trait_impl_orphan(i, target_ty_id, resolved_trait_ty);

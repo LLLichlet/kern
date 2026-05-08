@@ -40,7 +40,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if let ExprKind::Identifier(sym) = &callee.kind
             && self.ctx.resolve(*sym) == "@asm"
         {
-            self.ctx.facts.node_types.insert(callee.id, TypeId::VOID);
+            self.ctx.set_node_type(callee.id, TypeId::VOID);
             return self.check_asm_call(args, span);
         }
 
@@ -79,7 +79,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         });
 
         if let Some(fixed_ty) = inferred_callee_ty {
-            self.ctx.facts.node_types.insert(callee.id, fixed_ty);
+            self.ctx.set_node_type(callee.id, fixed_ty);
         }
 
         if sig_ty == TypeId::ERROR {
@@ -287,7 +287,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 Ok(Some(candidate)) => candidate,
                 Ok(None) => return None,
                 Err(()) => {
-                    self.ctx.facts.node_types.insert(callee.id, TypeId::ERROR);
+                    self.ctx.set_node_type(callee.id, TypeId::ERROR);
                     self.touched_expr_nodes.push(callee.id);
                     return Some(TypeId::ERROR);
                 }
@@ -302,7 +302,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .ctx
             .type_registry
             .intern(TypeKind::FnDef(candidate.method_id, candidate.impl_args));
-        self.ctx.facts.node_types.insert(callee.id, type_id);
+        self.ctx.set_node_type(callee.id, type_id);
         self.touched_expr_nodes.push(callee.id);
         Some(type_id)
     }
@@ -418,13 +418,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        let impl_target_ty = self
-            .ctx
-            .facts
-            .node_types
-            .get(&impl_def.target_type.id)
-            .copied()
-            .unwrap_or(TypeId::ERROR);
+        let impl_target_ty = self.ctx.node_type_or_error(impl_def.target_type.id);
         let raw_sig = match self.ctx.defs.get(method_id.0 as usize)? {
             Def::Function(function) => function.resolved_sig?,
             _ => return None,
@@ -601,7 +595,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         };
 
-        let lhs_ty = self.ctx.facts.node_types.get(&lhs.id).copied()?;
+        let lhs_ty = self.ctx.node_type(lhs.id)?;
         self.try_find_method_silent(lhs_ty, *field, callee.span)?;
         Some(format!(
             "remove the parentheses to call method `{}()`; keep `(expr.{})()` to call a callable field explicitly",
@@ -745,7 +739,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         self.ctx.scopes.exit_scope();
-        self.ctx.facts.node_types.insert(node_id, closure_state_ty);
+        self.ctx.set_node_type(node_id, closure_state_ty);
 
         closure_state_ty
     }

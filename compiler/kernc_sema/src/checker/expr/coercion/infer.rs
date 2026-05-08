@@ -17,13 +17,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 op: UnaryOperator::PointerDeRef,
                 operand,
             } => {
-                let ptr_ty = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&operand.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let ptr_ty = self.ctx.node_type_or_error(operand.id);
                 let norm = self.resolve_tv(ptr_ty);
                 match self.ctx.type_registry.get(norm) {
                     TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => {
@@ -33,13 +27,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             ExprKind::FieldAccess { lhs, .. } => {
-                let lhs_ty = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&lhs.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let lhs_ty = self.ctx.node_type_or_error(lhs.id);
                 let norm_lhs = self.resolve_tv(lhs_ty);
 
                 match self.ctx.type_registry.get(norm_lhs).clone() {
@@ -50,13 +38,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             ExprKind::IndexAccess { lhs, .. } => {
-                let lhs_ty = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&lhs.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let lhs_ty = self.ctx.node_type_or_error(lhs.id);
                 let norm_lhs = self.resolve_tv(lhs_ty);
 
                 match self.ctx.type_registry.get(norm_lhs).clone() {

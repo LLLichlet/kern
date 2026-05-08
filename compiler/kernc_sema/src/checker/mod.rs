@@ -247,7 +247,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 // Snapshot diagnostic state so failed speculative inference can be rolled back.
                 let old_err_cnt = self.ctx.sess.error_count;
                 let old_diag_len = self.ctx.sess.diagnostics.len();
-                let old_node_types = self.ctx.facts.node_types.clone();
+                let old_node_types = self.ctx.node_types_snapshot();
 
                 // Try to infer the initializer type.
                 self.ctx.scopes.set_current_scope(scope_id);
@@ -296,7 +296,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     // Inference failed; roll back and retry on the next pass.
                     self.ctx.sess.error_count = old_err_cnt;
                     self.ctx.sess.diagnostics.truncate(old_diag_len);
-                    self.ctx.facts.node_types = old_node_types;
+                    self.ctx.restore_node_types(old_node_types);
                 }
             }
         }
@@ -362,7 +362,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                 let old_err_cnt = self.ctx.sess.error_count;
                 let old_diag_len = self.ctx.sess.diagnostics.len();
-                let old_node_types = self.ctx.facts.node_types.clone();
+                let old_node_types = self.ctx.node_types_snapshot();
                 let init_ty = self.check_global_initializer(scope_id, unsafe { &*global });
 
                 if init_ty != TypeId::ERROR {
@@ -401,7 +401,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 } else {
                     self.ctx.sess.error_count = old_err_cnt;
                     self.ctx.sess.diagnostics.truncate(old_diag_len);
-                    self.ctx.facts.node_types = old_node_types;
+                    self.ctx.restore_node_types(old_node_types);
                 }
             }
         }
@@ -581,28 +581,14 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
     fn push_valid_where_clause_bounds(&mut self, where_clauses: &[ast::WhereClause]) {
         for clause in where_clauses {
-            let target_ty = self.ctx.type_registry.normalize(
-                self.ctx
-                    .facts
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
+            let target_ty = self.ctx.normalized_node_type_or_error(clause.target_ty.id);
             if target_ty == TypeId::ERROR {
                 continue;
             }
 
             let mut bounds = Vec::new();
             for bound in &clause.bounds {
-                let bound_ty = self.ctx.type_registry.normalize(
-                    self.ctx
-                        .facts
-                        .node_types
-                        .get(&bound.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR),
-                );
+                let bound_ty = self.ctx.normalized_node_type_or_error(bound.id);
                 if bound_ty == TypeId::ERROR
                     || !matches!(
                         self.ctx.type_registry.get(bound_ty),
@@ -883,13 +869,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         for field in &s.fields {
             if let Some(default_expr) = &field.default_value {
                 // Resolve the field's expected semantic type.
-                let field_ty = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&field.type_node.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let field_ty = self.ctx.node_type_or_error(field.type_node.id);
 
                 // Type-check the default expression.
                 let mut checker = ExprChecker::new(self.ctx, None);
@@ -930,13 +910,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         for field in &u.fields {
             if let Some(default_expr) = &field.default_value {
                 // Resolve the field's expected semantic type.
-                let field_ty = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&field.type_node.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let field_ty = self.ctx.node_type_or_error(field.type_node.id);
 
                 // Type-check the default expression.
                 let mut checker = ExprChecker::new(self.ctx, None);
@@ -1111,23 +1085,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         let prev_bounds_len = self.ctx.analysis.active_bounds.len();
-        let target_ty = self.ctx.type_registry.normalize(
-            self.ctx
-                .facts
-                .node_types
-                .get(&i.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR),
-        );
+        let target_ty = self.ctx.normalized_node_type_or_error(i.target_type.id);
         if let Some(trait_ty_node) = &i.trait_type {
-            let trait_ty = self.ctx.type_registry.normalize(
-                self.ctx
-                    .facts
-                    .node_types
-                    .get(&trait_ty_node.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR),
-            );
+            let trait_ty = self.ctx.normalized_node_type_or_error(trait_ty_node.id);
             if target_ty != TypeId::ERROR
                 && trait_ty != TypeId::ERROR
                 && matches!(

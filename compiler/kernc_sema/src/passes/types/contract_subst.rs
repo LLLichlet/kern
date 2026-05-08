@@ -483,13 +483,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     ) -> usize {
         let prev_bounds_len = self.ctx.analysis.active_bounds.len();
         for clause in where_clauses {
-            let target_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&clause.target_ty.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let target_ty = self.ctx.node_type_or_error(clause.target_ty.id);
             let instantiated_target = self.instantiate_trait_assoc_contract_ty(
                 target_ty,
                 generic_args,
@@ -500,13 +494,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             );
             let mut bounds = Vec::new();
             for bound in &clause.bounds {
-                let bound_ty = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&bound.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let bound_ty = self.ctx.node_type_or_error(bound.id);
                 let instantiated_bound = self.instantiate_trait_assoc_contract_ty(
                     bound_ty,
                     generic_args,

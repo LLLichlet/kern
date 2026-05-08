@@ -19,14 +19,11 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             kind: ast::TypeKind::Infer,
         };
 
-        // Seed the real semantic types directly into the node-type cache.
-        self.ctx
-            .facts
-            .node_types
-            .insert(target_node.id, target_ty_id);
+        // Seed the fabricated AST nodes with their real semantic types.
+        self.ctx.set_node_type(target_node.id, target_ty_id);
 
         let trait_ty = self.builtin_trait_ty_by_id(trait_def_id, vec![]);
-        self.ctx.facts.node_types.insert(trait_node.id, trait_ty);
+        self.ctx.set_node_type(trait_node.id, trait_ty);
 
         let impl_def = ImplDef {
             id: def_id,
@@ -73,19 +70,13 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             kind: ast::TypeKind::Infer,
         };
 
-        self.ctx
-            .facts
-            .node_types
-            .insert(target_node.id, target_ty_id);
+        self.ctx.set_node_type(target_node.id, target_ty_id);
         let trait_ty = self.builtin_trait_ty_by_id(trait_def_id, trait_args.clone());
-        self.ctx.facts.node_types.insert(trait_node.id, trait_ty);
+        self.ctx.set_node_type(trait_node.id, trait_ty);
 
         let self_sym = self.ctx.intern("self");
         let self_param_ty_node_id = self.ctx.next_node_id();
-        self.ctx
-            .facts
-            .node_types
-            .insert(self_param_ty_node_id, target_ty_id);
+        self.ctx.set_node_type(self_param_ty_node_id, target_ty_id);
         let mut params = vec![ast::FuncParam {
             pattern: ast::BindingPattern {
                 name: self_sym,
@@ -105,7 +96,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         for (index, param_ty) in explicit_param_tys.iter().copied().enumerate() {
             let name = self.ctx.intern(&format!("arg{}", index));
             let type_node_id = self.ctx.next_node_id();
-            self.ctx.facts.node_types.insert(type_node_id, param_ty);
+            self.ctx.set_node_type(type_node_id, param_ty);
             params.push(ast::FuncParam {
                 pattern: ast::BindingPattern {
                     name,
@@ -124,7 +115,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         }
 
         let ret_type_id = self.ctx.next_node_id();
-        self.ctx.facts.node_types.insert(ret_type_id, ret_ty);
+        self.ctx.set_node_type(ret_type_id, ret_ty);
         let name_id = self.ctx.intern(method_name);
         let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
             params: sig_params,
@@ -176,10 +167,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let mut assoc_type_ids = Vec::with_capacity(assoc_specs.len());
         for (trait_assoc_id, assoc_name, assoc_target_ty) in assoc_specs {
             let assoc_target_node_id = self.ctx.next_node_id();
-            self.ctx
-                .facts
-                .node_types
-                .insert(assoc_target_node_id, assoc_target_ty);
+            self.ctx.set_node_type(assoc_target_node_id, assoc_target_ty);
             let assoc_def_id = DefId(self.ctx.defs.len() as u32);
             self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
                 id: assoc_def_id,
@@ -246,7 +234,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                     Some(Def::AssociatedType(assoc_def)) => assoc_def
                         .target
                         .as_ref()
-                        .and_then(|target| self.ctx.facts.node_types.get(&target.id).copied())
+                        .and_then(|target| self.ctx.node_type(target.id))
                         .unwrap_or(TypeId::ERROR),
                     _ => TypeId::ERROR,
                 };
@@ -258,10 +246,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             crate::ty::wrap_type_args(trait_args),
             canonical_assoc_bindings,
         ));
-        self.ctx
-            .facts
-            .node_types
-            .insert(trait_id, canonical_trait_ty);
+        self.ctx.set_node_type(trait_id, canonical_trait_ty);
 
         if let Some(Def::Impl(impl_def)) = self.ctx.defs.get_mut(impl_id.0 as usize) {
             impl_def.assoc_types = assoc_type_ids;

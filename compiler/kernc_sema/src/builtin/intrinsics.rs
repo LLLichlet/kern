@@ -12,7 +12,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let ret_type_id = self.ctx.next_node_id();
         let sig_ty = {
             let _ = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
-            self.ctx.facts.node_types.insert(ret_type_id, TypeId::USIZE);
+            self.ctx.set_node_type(ret_type_id, TypeId::USIZE);
             self.ctx.type_registry.intern(TypeKind::Function {
                 params: vec![],
                 ret: TypeId::USIZE,
@@ -75,7 +75,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let ret_type_id = self.ctx.next_node_id();
         let sig_ty = {
             let _ = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
-            self.ctx.facts.node_types.insert(ret_type_id, TypeId::USIZE);
+            self.ctx.set_node_type(ret_type_id, TypeId::USIZE);
             self.ctx.type_registry.intern(TypeKind::Function {
                 params: vec![],
                 ret: TypeId::USIZE,
@@ -134,7 +134,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
         let ret_id = self.ctx.next_node_id();
         let sig_ty = {
-            self.ctx.facts.node_types.insert(ret_id, TypeId::NEVER);
+            self.ctx.set_node_type(ret_id, TypeId::NEVER);
             self.ctx.type_registry.intern(TypeKind::Function {
                 params: vec![],
                 ret: TypeId::NEVER,
@@ -196,7 +196,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             kind: ast::TypeKind::Infer,
         };
         let trait_ty = self.builtin_trait_ty_by_id(int_trait_id, vec![]);
-        self.ctx.facts.node_types.insert(trait_node.id, trait_ty);
+        self.ctx.set_node_type(trait_node.id, trait_ty);
 
         let param_t = self.new_builtin_param("T");
 
@@ -210,9 +210,9 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
         let sig_ty = {
             let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
-            self.ctx.facts.node_types.insert(target_node.id, t_ty);
-            self.ctx.facts.node_types.insert(val_param_id, t_ty);
-            self.ctx.facts.node_types.insert(ret_id, t_ty);
+            self.ctx.set_node_type(target_node.id, t_ty);
+            self.ctx.set_node_type(val_param_id, t_ty);
+            self.ctx.set_node_type(ret_id, t_ty);
             self.ctx.type_registry.intern(TypeKind::Function {
                 params: vec![t_ty],
                 ret: t_ty,
@@ -299,7 +299,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         }; // `void` has no dedicated AST node, so `Infer` hits the cached semantic type.
 
         let sig_ty = {
-            self.ctx.facts.node_types.insert(ret_id, ret_type);
+            self.ctx.set_node_type(ret_id, ret_type);
             self.ctx.type_registry.intern(TypeKind::Function {
                 params: vec![],
                 ret: ret_type,
@@ -372,16 +372,11 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let ret_id = self.ctx.next_node_id();
 
         let sig_ty = {
-            self.ctx.facts.node_types.insert(param_dest_id, ptr_mut_u8);
+            self.ctx.set_node_type(param_dest_id, ptr_mut_u8);
             self.ctx
-                .facts
-                .node_types
-                .insert(param_src_val_id, kind.src_or_value_type(ptr_u8));
-            self.ctx
-                .facts
-                .node_types
-                .insert(param_len_id, TypeId::USIZE);
-            self.ctx.facts.node_types.insert(ret_id, TypeId::VOID);
+                .set_node_type(param_src_val_id, kind.src_or_value_type(ptr_u8));
+            self.ctx.set_node_type(param_len_id, TypeId::USIZE);
+            self.ctx.set_node_type(ret_id, TypeId::VOID);
 
             self.ctx.type_registry.intern(TypeKind::Function {
                 params: vec![ptr_mut_u8, kind.src_or_value_type(ptr_u8), TypeId::USIZE],
@@ -1045,7 +1040,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
         for (param_name, ty) in params {
             let type_node_id = self.ctx.next_node_id();
-            self.ctx.facts.node_types.insert(type_node_id, ty);
+            self.ctx.set_node_type(type_node_id, ty);
             param_tys.push(ty);
             param_defs.push(ast::FuncParam {
                 pattern: ast::BindingPattern {
@@ -1064,7 +1059,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         }
 
         let ret_id = self.ctx.next_node_id();
-        self.ctx.facts.node_types.insert(ret_id, ret_ty);
+        self.ctx.set_node_type(ret_id, ret_ty);
         let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
             params: param_tys,
             ret: ret_ty,

@@ -292,14 +292,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 (exp_kind, act_def_clone)
             {
                 let exp_backing = exp_enum.backing_ty.unwrap_or(TypeId::U32);
-                let act_backing = act_enum.backing_type.as_ref().map_or(TypeId::U32, |bt| {
-                    self.ctx
-                        .facts
-                        .node_types
-                        .get(&bt.id)
-                        .copied()
-                        .unwrap_or(TypeId::U32)
-                });
+                let act_backing = act_enum
+                    .backing_type
+                    .as_ref()
+                    .map_or(TypeId::U32, |bt| self.ctx.node_type(bt.id).unwrap_or(TypeId::U32));
 
                 if self.resolve_tv(exp_backing) != self.resolve_tv(act_backing) {
                     return false;
@@ -330,13 +326,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
 
                     let act_payload = act_variant.payload_type.as_ref().map(|payload_ast| {
-                        let raw_ty = self
-                            .ctx
-                            .facts
-                            .node_types
-                            .get(&payload_ast.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR);
+                        let raw_ty = self.ctx.node_type_or_error(payload_ast.id);
                         let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
                         let substituted = subst.substitute(raw_ty);
                         self.resolve_tv(substituted)
@@ -446,13 +436,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let mut act_fields = Vec::new();
         for f in named_fields {
-            let raw_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&f.type_node.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let raw_ty = self.ctx.node_type_or_error(f.type_node.id);
 
             let inst_ty = if !generics.is_empty() && !args.is_empty() {
                 let mut map = FastHashMap::default();
@@ -598,16 +582,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn array_decay_uses_temporary_storage(&self, expr: &Expr) -> bool {
         match &expr.kind {
             ExprKind::Grouped { expr: inner } => self.array_decay_uses_temporary_storage(inner),
-            ExprKind::Identifier(name) => self
-                .ctx
-                .scopes
-                .resolve_value_symbol(*name)
-                .is_none_or(|info| {
-                    !matches!(
-                        info.kind,
-                        crate::scope::SymbolKind::Var | crate::scope::SymbolKind::Static
-                    )
-                }),
+            ExprKind::Identifier(name) => {
+                self.ctx
+                    .scopes
+                    .resolve_value_symbol(*name)
+                    .is_none_or(|info| {
+                        !matches!(
+                            info.kind,
+                            crate::scope::SymbolKind::Var | crate::scope::SymbolKind::Static
+                        )
+                    })
+            }
             ExprKind::SelfValue
             | ExprKind::FieldAccess { .. }
             | ExprKind::IndexAccess { .. }

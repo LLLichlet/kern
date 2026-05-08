@@ -33,7 +33,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         match error {
             ConstPlaceError::MissingField(field) => {
                 let field_str = self.host.resolve_symbol(field);
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(
                         span,
                         format!("field `{}` not found in constant struct", field_str),
@@ -46,17 +47,20 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 } else {
                     "field access on"
                 };
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(span, format!("attempted {} a non-struct constant", action))
                     .emit();
             }
             ConstPlaceError::IndexOutOfBounds => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(span, "constant array index out of bounds")
                     .emit();
             }
             ConstPlaceError::StringIndexOutOfBounds => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(span, "constant string index out of bounds")
                     .emit();
             }
@@ -66,12 +70,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 } else {
                     "indexing into"
                 };
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(span, format!("attempted {} a non-array constant", action))
                     .emit();
             }
             ConstPlaceError::ImmutablePointer => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(
                         span,
                         "constant evaluation cannot mutate through an immutable pointer",
@@ -79,7 +85,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     .emit();
             }
             ConstPlaceError::ExpectedPointer => {
-                self.host.ctx
+                self.host
+                    .ctx
                     .struct_error(span, "expected a local pointer in constant evaluation")
                     .emit();
             }
@@ -109,7 +116,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
         let Some(root_value) = self.lookup_local_at(root_scope, root_name) else {
-            self.host.ctx
+            self.host
+                .ctx
                 .struct_error(
                     span,
                     "constant pointer target is no longer available in the current local scope",

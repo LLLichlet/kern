@@ -408,13 +408,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
 
                 if let Some(target) = assoc_def.target.as_ref() {
-                    let target_ty = self
-                        .ctx
-                        .facts
-                        .node_types
-                        .get(&target.id)
-                        .copied()
-                        .unwrap_or(final_sym.type_id);
+                    let target_ty = self.ctx.node_type(target.id).unwrap_or(final_sym.type_id);
                     if resolved_generics.is_empty() {
                         return target_ty;
                     }
@@ -451,12 +445,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
 
                 let target_ty = if let Def::TypeAlias(t_def) = &self.ctx.defs[def_id.0 as usize] {
-                    self.ctx
-                        .facts
-                        .node_types
-                        .get(&t_def.target.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR)
+                    self.ctx.node_type_or_error(t_def.target.id)
                 } else {
                     TypeId::ERROR
                 };

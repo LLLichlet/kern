@@ -909,21 +909,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if let Some(method_target) = self.method_callee_field_access(callee)
             && let ExprKind::FieldAccess { lhs, .. } = &method_target.kind
         {
-            let callee_node_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&callee.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let callee_node_ty = self.ctx.node_type_or_error(callee.id);
 
-            let lhs_node_ty = self
-                .ctx
-                .facts
-                .node_types
-                .get(&lhs.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let lhs_node_ty = self.ctx.node_type_or_error(lhs.id);
 
             let norm_lhs = self.ctx.type_registry.normalize(lhs_node_ty);
             if matches!(self.ctx.type_registry.get(norm_lhs), TypeKind::Module(..)) {
@@ -1024,10 +1012,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .and_then(|ty| *ty)
                     .unwrap_or_else(|| self.check_expr(arg, Some(expected)));
                 if self.check_coercion(arg, expected, arg_ty) {
-                    self.ctx
-                        .facts
-                        .call_arg_expected_tys
-                        .insert(arg.id, expected);
+                    self.ctx.set_call_arg_expected_ty(arg.id, expected);
                 }
             } else {
                 let arg_ty = inferred_arg_tys
@@ -1224,26 +1209,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let mut all_bounds_satisfied = true;
         for clause in where_clauses {
-            let original_target = self
-                .ctx
-                .facts
-                .node_types
-                .get(&clause.target_ty.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let original_target = self.ctx.node_type_or_error(clause.target_ty.id);
             let sub_target = {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                 subst.substitute(original_target)
             };
 
             for bound_ast in &clause.bounds {
-                let original_bound = self
-                    .ctx
-                    .facts
-                    .node_types
-                    .get(&bound_ast.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let original_bound = self.ctx.node_type_or_error(bound_ast.id);
                 let sub_bound = {
                     let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                     subst.substitute(original_bound)

@@ -402,7 +402,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         match value {
             MirConst::Undef { ty } => Some(self.get_llvm_type(*ty).const_zero()),
             MirConst::Integer { ty, value } => {
-                let llvm_ty = self.get_llvm_type(*ty);
+                let llvm_ty = self
+                    .llvm_integer_storage_type(*ty)
+                    .unwrap_or_else(|| self.get_llvm_type(*ty));
                 match llvm_ty {
                     BasicTypeEnum::PointerType(pointer_ty) => {
                         if *value == 0 {

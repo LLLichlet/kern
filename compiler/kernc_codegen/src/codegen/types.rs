@@ -7,6 +7,33 @@ use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    pub(crate) fn llvm_integer_storage_type(&mut self, ty: TypeId) -> Option<BasicTypeEnum<'ctx>> {
+        let norm = self.type_registry.normalize(ty);
+        if self.type_registry.is_integer(norm) || norm == TypeId::BOOL {
+            return Some(self.get_llvm_type(norm));
+        }
+
+        match self.type_registry.get(norm).clone() {
+            TypeKind::Enum(def_id, args) => {
+                let key = (def_id, args);
+                if let Some(&tag_ty) = self.pure_enum_tag_map.get(&key) {
+                    return Some(self.get_llvm_type(tag_ty));
+                }
+            }
+            TypeKind::AnonymousEnum(enum_def)
+                if enum_def
+                    .variants
+                    .iter()
+                    .all(|variant| variant.payload_ty.is_none()) =>
+            {
+                return Some(self.get_llvm_type(enum_def.backing_ty.unwrap_or(TypeId::U32)));
+            }
+            _ => {}
+        }
+
+        None
+    }
+
     pub(crate) fn const_generic_usize(
         &mut self,
         value: kernc_sema::ty::ConstGeneric,
@@ -222,6 +249,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     Span::default(),
                     format!("Kern ICE (Codegen): AnonymousUnion TypeId({:?}) not instantiated by Lowerer", norm),
                 )
+            }
+            TypeKind::AnonymousEnum(enum_def)
+                if enum_def
+                    .variants
+                    .iter()
+                    .all(|variant| variant.payload_ty.is_none()) =>
+            {
+                self.get_llvm_type(enum_def.backing_ty.unwrap_or(TypeId::U32))
             }
             TypeKind::AnonymousEnum(..) => {
                 if let Some(&mono_id) = self.anon_enum_map.get(&norm)

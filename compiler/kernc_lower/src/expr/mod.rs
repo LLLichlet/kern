@@ -195,7 +195,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             ExprKind::As { lhs, target } => {
                 return self.measure_phase("        lower_expr_ops", |this| {
-                    this.lower_as_expr(lhs, target, concrete_ty, subst_map, expr.span)
+                    let lowered =
+                        this.lower_as_expr(lhs, target, concrete_ty, subst_map, expr.span);
+                    this.apply_implicit_cast(lowered.kind, lowered.ty, exp_ty, expr.span)
                 });
             }
             ExprKind::Propagate { operand, kind } => {

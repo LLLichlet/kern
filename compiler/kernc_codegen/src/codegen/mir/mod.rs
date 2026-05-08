@@ -74,7 +74,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         let entry_block = self
             .context
-            .append_basic_block(llvm_func, self.llvm_name("entry"));
+            .append_basic_block(llvm_func, self.llvm_name("entry").as_ref());
         self.builder.position_at_end(entry_block);
 
         let mut next_param_index = 0usize;

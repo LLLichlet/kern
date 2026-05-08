@@ -354,11 +354,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    pub(crate) fn llvm_name<'b>(&self, preferred: &'b str) -> &'b str {
+    pub(crate) fn llvm_name<'b>(&self, preferred: &'b str) -> std::borrow::Cow<'b, str> {
         if self.preserve_llvm_value_names {
-            preferred
+            if preferred.as_bytes().contains(&0) {
+                std::borrow::Cow::Owned(preferred.replace('\0', "_"))
+            } else {
+                std::borrow::Cow::Borrowed(preferred)
+            }
         } else {
-            ""
+            std::borrow::Cow::Borrowed("")
         }
     }
 

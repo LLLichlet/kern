@@ -84,7 +84,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         self.alloca_builder
-            .build_alloca(llvm_ty, self.llvm_name(name))
+            .build_alloca(llvm_ty, self.llvm_name(name).as_ref())
             .unwrap()
     }
 

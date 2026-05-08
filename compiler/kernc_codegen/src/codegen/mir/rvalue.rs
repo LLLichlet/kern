@@ -424,9 +424,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         Span::default(),
                     )
                 } else {
+                    let lhs_llvm_ty = lhs_val.get_type();
+                    let rhs_llvm_ty = rhs_val.get_type();
                     self.sess.emit_ice(
                         Span::default(),
-                        "Kern ICE (Codegen): unsupported MIR binary operand types.",
+                        format!(
+                            "Kern ICE (Codegen): unsupported MIR binary operand types for `{:?}`: lhs TypeId({:?}) LLVM {:?}, rhs TypeId({:?}) LLVM {:?}.",
+                            op, lhs_ty, lhs_llvm_ty, rhs_ty, rhs_llvm_ty
+                        ),
                     );
                     self.zero_i8_value()
                 }

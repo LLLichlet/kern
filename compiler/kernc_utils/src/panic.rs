@@ -1,3 +1,4 @@
+use std::backtrace::Backtrace;
 use std::panic::{self, PanicHookInfo};
 use std::sync::Once;
 
@@ -22,11 +23,19 @@ pub fn install_compiler_panic_hook(program_name: &'static str) {
                     location.column()
                 );
             }
-            eprintln!(
-                "note: `{program_name}` suppressed the Rust panic backtrace; include the source that triggered this ICE in the report."
-            );
+            if backtrace_enabled() {
+                eprintln!("backtrace:\n{}", Backtrace::force_capture());
+            } else {
+                eprintln!(
+                    "note: `{program_name}` suppressed the Rust panic backtrace; set RUST_BACKTRACE=1 and include the source that triggered this ICE in the report."
+                );
+            }
         }));
     });
+}
+
+fn backtrace_enabled() -> bool {
+    matches!(std::env::var("RUST_BACKTRACE").as_deref(), Ok("1" | "full"))
 }
 
 fn panic_message(info: &PanicHookInfo<'_>) -> String {

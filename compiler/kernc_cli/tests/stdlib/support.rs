@@ -1024,6 +1024,38 @@ fn main() i32 {
 }
 
 #[test]
+fn wrapped_fmt_helpers_accept_cast_expressions_inside_inline_argument_arrays() {
+    let output = build_and_run(
+        "kernc_std_fmt_wrapper_cast_exprs",
+        r#"
+use base.io.Formatable;
+use std.io;
+
+fn wrap(fmt: &[u8], args: &[&Formatable]) void {
+    fmt.fmt(args).println();
+}
+
+fn main() i32 {
+    let value = 42 as u64;
+    wrap("{}", .{ value as usize, });
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    assert!(
+        output.status.success(),
+        "expected wrapped fmt helper cast expression program to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("42"), "unexpected stdout:\n{}", stdout);
+}
+
+#[test]
 fn print_accepts_single_argument_list_without_trailing_comma() {
     let output = compile_source_with_args(
         "kernc_std_print_single_arg",

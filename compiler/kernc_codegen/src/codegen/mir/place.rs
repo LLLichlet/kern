@@ -229,7 +229,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.get_undef_val(llvm_ty)
             }
             MirConst::Integer { ty, value } => {
-                let llvm_ty = self.get_llvm_type(*ty);
+                let llvm_ty = self
+                    .llvm_integer_storage_type(*ty)
+                    .unwrap_or_else(|| self.get_llvm_type(*ty));
                 if llvm_ty.is_pointer_type() {
                     let ptr_ty = llvm_ty.into_pointer_type();
                     if *value == 0 {

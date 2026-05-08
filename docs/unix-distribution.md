@@ -49,6 +49,20 @@ The full LLVM development prefix remains a separate concern and continues to
 live in the standalone `package-toolchain` artifact rather than the default
 end-user SDK.
 
+The bundling boundary is deliberately narrow:
+
+- bundled: `kernc`, `craft`, `kern-lsp`, official Kern library roots, and the
+  runtime LLVM/Clang tools needed by the installed SDK
+- optionally bundled when required by those SDK tools: non-system LLVM/Clang
+  runtime libraries copied under `toolchain/host/lib`
+- not bundled: the host OS libc, the platform dynamic loader, system SDK
+  frameworks/libraries, or a general full LLVM development prefix in the
+  default end-user SDK
+
+If a dependency is part of the host OS ABI baseline, document the baseline and
+verify startup. If a dependency is part of the SDK's controlled LLVM/Clang tool
+surface, bundle it or fail packaging.
+
 Today that means a clean user machine can still fail because of:
 
 - missing shared libraries such as `libstdc++`, `zlib`, or `zstd`

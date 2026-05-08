@@ -49,6 +49,19 @@ clean user machine may fail before the tool even starts. The SDK should carry
 the host LLVM/Clang runtime tools Kern needs instead of expecting users to
 provision them.
 
+The bundling boundary is deliberately narrow:
+
+- bundled: `kernc`, `craft`, `kern-lsp`, official Kern library roots, and the
+  runtime LLVM/Clang tools needed by the installed SDK
+- bundled into the host tools: the MSVC CRT/UCRT runtime, via static CRT release
+  builds
+- not bundled: normal Windows OS DLLs, Visual Studio source-build assets, or a
+  general full LLVM development prefix in the default end-user SDK
+
+If a dependency is part of the Windows OS ABI baseline, document the baseline
+and verify startup. If a dependency is part of the SDK's controlled LLVM/Clang
+tool surface, bundle it or fail packaging.
+
 In practice:
 
 - local development may use ordinary `cargo build --release`

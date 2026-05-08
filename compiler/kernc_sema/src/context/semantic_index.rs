@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Default)]
 pub(crate) struct SemanticIndexState {

@@ -22,6 +22,7 @@ kernc_lexer = { path = "compiler/kernc_lexer" }
 kernc_ast = { path = "compiler/kernc_ast" }
 kernc_parser = { path = "compiler/kernc_parser" }
 kernc_ty = { path = "compiler/kernc_ty" }
+kernc_middle = { path = "compiler/kernc_middle" }
 kernc_consteval = { path = "compiler/kernc_consteval" }
 kernc_sema = { path = "compiler/kernc_sema" }
 kernc_flow = { path = "compiler/kernc_flow" }

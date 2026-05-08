@@ -13,6 +13,7 @@ use crate::passes::TypeResolver;
 use crate::scope::{ScopeId, SymbolTable};
 use crate::semantic::{SemanticDefinition, SemanticSymbolKind};
 use crate::ty::{GenericArg, TypeFormatter, TypeId, TypeKind, TypeRegistry};
+use kernc_middle::NodeFacts;
 use kernc_ast::Visibility;
 
 mod impl_requirements;
@@ -126,20 +127,10 @@ pub struct SemaResolutionState {
     pub(crate) module_ownership: ModuleOwnershipState,
 }
 
-#[derive(Clone, Default)]
-pub struct SemaNodeFactsState {
-    pub node_types: FastHashMap<NodeId, TypeId>,
-    pub atomic_orderings: FastHashMap<NodeId, AtomicOrdering>,
-    pub method_owner_tys: FastHashMap<NodeId, TypeId>,
-    pub call_arg_expected_tys: FastHashMap<NodeId, TypeId>,
-    pub binary_operator_lhs_trait_self_tys: FastHashMap<NodeId, TypeId>,
-    pub binary_operator_rhs_trait_arg_tys: FastHashMap<NodeId, TypeId>,
-}
-
 #[derive(Clone)]
 pub struct SemaStructureSnapshot {
     pub type_registry: TypeRegistry,
-    pub facts: SemaNodeFactsState,
+    pub facts: NodeFacts,
     pub defs: Vec<Def>,
     pub scopes: SymbolTable,
     pub resolution: SemaResolutionState,
@@ -192,7 +183,7 @@ pub struct SemaContext<'a> {
     // 2. Type-system state.
     pub type_registry: TypeRegistry,
     // Final inferred type for each AST node and other per-node semantic facts.
-    pub facts: SemaNodeFactsState,
+    pub facts: NodeFacts,
 
     // 3. Symbol and scope state.
     pub defs: Vec<Def>,
@@ -269,7 +260,7 @@ impl<'a> SemaContext<'a> {
         Self {
             sess,
             type_registry: TypeRegistry::new(),
-            facts: SemaNodeFactsState::default(),
+            facts: NodeFacts::default(),
             defs: Vec::new(),
             scopes: SymbolTable::new(),
             impl_index: SemaImplIndexState::default(),

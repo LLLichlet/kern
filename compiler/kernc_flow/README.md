@@ -7,3 +7,6 @@ consume without depending on the driver's internal flow implementation.
 facts are keyed by shared compiler identities from `kernc_ty` and source node
 IDs from `kernc_utils`, not by `kernc_sema` internals. Analysis logic should
 move here as the typed-body boundary becomes explicit.
+
+Shared typed node facts are imported from `kernc_middle` so flow can consume
+semantic output without reaching back into the semantic checker.

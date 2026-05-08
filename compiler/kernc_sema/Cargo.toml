@@ -10,4 +10,5 @@ kernc_utils = { workspace = true }
 kernc_ast = { workspace = true }
 kernc_parser = { workspace = true }
 kernc_ty = { workspace = true }
+kernc_middle = { workspace = true }
 kernc_consteval = { workspace = true }

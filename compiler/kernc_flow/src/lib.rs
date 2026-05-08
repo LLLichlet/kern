@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+pub use kernc_middle::NodeFacts;
 use kernc_ty::DefId;
 use kernc_utils::NodeId;
 use std::collections::{HashMap, HashSet};

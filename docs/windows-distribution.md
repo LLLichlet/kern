@@ -184,10 +184,10 @@ The script currently enforces the important Windows-specific rules:
 
 The default SDK deliberately omits source-build assets such as `clang++.exe`,
 `llvm-ar.exe`, `llvm-config.exe`, LLVM headers, LLVM libraries, and the Clang
-resource directory unless a future installed-user flow proves one of those
-files is required. The current Windows installed-user path uses Clang as a
-linker driver, `lld-link.exe` as the MSVC linker backend, and `llvm-lib.exe` for
-Windows archive/relocatable-link operations.
+resource directory. Those files belong in the standalone toolchain artifact
+unless the installed-user flow requires them. The current Windows installed-user
+path uses Clang as a linker driver, `lld-link.exe` as the MSVC linker backend,
+and `llvm-lib.exe` for Windows archive/relocatable-link operations.
 
 ## Installation Model
 

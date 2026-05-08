@@ -114,9 +114,9 @@ It means:
 - those runner images define the current official host packaging baseline
 - compatibility promises should not be stated more broadly than that baseline
   justifies
-- if the project wants broader Linux compatibility later, the correct move is to
-  intentionally shift the build baseline, not to quietly rely on whatever
-  `ubuntu-latest` happens to mean that month
+- broader Linux compatibility requires intentionally shifting the build
+  baseline, not quietly relying on whatever `ubuntu-latest` happens to mean
+  that month
 
 ## Canonical Build And Packaging Commands
 

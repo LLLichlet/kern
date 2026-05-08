@@ -51,8 +51,7 @@ These documents sit between public behavior and implementation detail.
 
 ## Source Of Truth By Topic
 
-When writing tutorials or a future "Kern Programming Language Guide", prefer
-these sources:
+When writing tutorials or guide material, prefer these sources:
 
 - language semantics and syntax: [`docs/design.md`](./design.md)
 - runtime and library layering: [`docs/runtime-architecture.md`](./runtime-architecture.md)

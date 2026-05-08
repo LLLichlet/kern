@@ -45,7 +45,18 @@ pub fn stderr() File {
     return .{ inner: fs.stderr() };
 }
 
-impl[T] &T
+/// A value that provides the hosted standard-stream print helpers.
+///
+/// `Printable` is the std-level convenience layer over `Formatable`: it does
+/// not replace generic formatting, but it keeps direct `print` APIs consistent.
+pub trait Printable {
+    fn print() void;
+    fn println() void;
+    fn eprint() void;
+    fn eprintln() void;
+};
+
+impl[T] &T : Printable
     where &T: Formatable,
 {
     /// Writes this value to standard output.
@@ -79,7 +90,7 @@ impl[T] &T
     }
 }
 
-impl Format {
+impl Format : Printable {
     /// Writes this formatted value to standard output.
     pub fn print() void {
         let mut out_file = stdout();
@@ -111,7 +122,7 @@ impl Format {
     }
 }
 
-impl[N: usize] [N]u8 {
+impl[N: usize] [N]u8 : Printable {
     /// Writes this byte string to standard output.
     pub fn print() void {
         let mut out_file = stdout();
@@ -139,6 +150,38 @@ impl[N: usize] [N]u8 {
         let mut err_file = stderr();
         let writer = &mut Write.{ err_file..& };
         _ = writer.write(self.&[0 .. N]);
+        _ = writer.write("\n");
+    }
+}
+
+impl &[u8] : Printable {
+    /// Writes this byte slice to standard output.
+    pub fn print() void {
+        let mut out_file = stdout();
+        let writer = &mut Write.{ out_file..& };
+        _ = writer.write(self);
+    }
+
+    /// Writes this byte slice to standard output followed by a newline.
+    pub fn println() void {
+        let mut out_file = stdout();
+        let writer = &mut Write.{ out_file..& };
+        _ = writer.write(self);
+        _ = writer.write("\n");
+    }
+
+    /// Writes this byte slice to standard error.
+    pub fn eprint() void {
+        let mut err_file = stderr();
+        let writer = &mut Write.{ err_file..& };
+        _ = writer.write(self);
+    }
+
+    /// Writes this byte slice to standard error followed by a newline.
+    pub fn eprintln() void {
+        let mut err_file = stderr();
+        let writer = &mut Write.{ err_file..& };
+        _ = writer.write(self);
         _ = writer.write("\n");
     }
 }

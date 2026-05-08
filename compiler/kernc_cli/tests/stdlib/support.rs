@@ -620,6 +620,63 @@ fn main() i32 {
 }
 
 #[test]
+fn hosted_std_io_prints_byte_slices_directly() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_io_print_byte_slices",
+        r#"
+use std.io;
+use std.io.Printable;
+
+fn write_line[T](value: T) void
+    where T: Printable,
+{
+    value.println();
+}
+
+fn write_err_line[T](value: T) void
+    where T: Printable,
+{
+    value.eprintln();
+}
+
+fn main() i32 {
+    let bytes = [5]u8.{ b'h', b'e', b'l', b'l', b'o' };
+    bytes.print();
+    " ".print();
+    bytes.&[1 .. 4].println();
+    bytes.eprint();
+    " ".eprint();
+    bytes.&[0 .. 2].eprintln();
+    write_line(bytes.&[2 .. 5]);
+    write_err_line(bytes.&[3 .. 5]);
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std io byte slice helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    assert_eq!(
+        String::from_utf8_lossy(&run_output.stdout),
+        "hello ell\nllo\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run_output.stderr),
+        "hello he\nlo\n"
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn hosted_std_io_formats_to_memory_writers() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_io_memory_writers",

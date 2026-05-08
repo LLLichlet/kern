@@ -19,6 +19,6 @@ fn main() i32 {
         },
     };
 
-    "{}".fmt(.{ out.&[0 .. written], }).println();
+    out.&[0 .. written].println();
     return 0;
 }

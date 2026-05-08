@@ -769,6 +769,63 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_check_intrinsic_value_and_source_capture() {
+    let output = build_and_run_source(
+        r#"
+const GLOBAL = @check(1 + 2);
+
+fn source_len[N: usize](source: [N]u8) usize {
+    return #source;
+}
+
+fn take(capture: struct { value: bool, source: &[u8] }) bool {
+    return capture.value;
+}
+
+fn main() i32 {
+    if (GLOBAL.value != 3) {
+        return 10;
+    }
+    if (GLOBAL.source != "1 + 2") {
+        return 11;
+    }
+
+    let x = 2;
+    let math = @check(x + 3);
+    if (math.value != 5) {
+        return 12;
+    }
+    if (math.source != "x + 3") {
+        return 13;
+    }
+    if (source_len(math.source) != #math.source) {
+        return 14;
+    }
+
+    let comparison = @check(x == 2);
+    if (!comparison.value) {
+        return 15;
+    }
+    if (comparison.source != "x == 2") {
+        return 16;
+    }
+    if (!take(comparison)) {
+        return 17;
+    }
+    return 0;
+}
+"#,
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "explicit @check regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_type_qualified_payloadless_enum_variants_in_const_and_runtime_contexts() {
     let output = build_and_run_source(
         r#"

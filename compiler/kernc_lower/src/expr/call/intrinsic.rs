@@ -149,6 +149,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let _ = callee_ty;
                 Some(self.lower_loc_intrinsic(result_ty, span))
             }
+            "@check" => {
+                let _ = callee_ty;
+                let arg = args.first()?;
+                let value_expr = arg_masts.remove(0);
+                Some(self.lower_check_intrinsic(result_ty, value_expr, arg.span, span))
+            }
             "@sizeOf" => {
                 let target_ty = self.intrinsic_generic_arg(callee_ty, 0);
                 let mut le = LayoutEngine::new(self.ctx);

@@ -3,7 +3,7 @@ use crate::LayoutEngine;
 use crate::checker::{ConstEvaluator, ConstValue};
 use crate::def::DefId;
 use crate::scope::ScopeId;
-use crate::ty::{ConstGenericValue, ConstGenericValueKind, TypeId, TypeKind};
+use crate::ty::{ConstGeneric, ConstGenericValue, ConstGenericValueKind, TypeId, TypeKind};
 use kernc_ast::Expr;
 use kernc_utils::{AtomicOrdering, Span};
 
@@ -51,6 +51,37 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 crate::ty::AnonymousField {
                     name: col_name,
                     ty: TypeId::USIZE,
+                },
+            ],
+        ))
+    }
+
+    pub(crate) fn check_intrinsic_result_type(
+        &mut self,
+        value_ty: TypeId,
+        arg_span: Span,
+    ) -> TypeId {
+        let value_name = self.ctx.intern("value");
+        let source_name = self.ctx.intern("source");
+        let source = self.ctx.sess.source_manager.slice_source(arg_span);
+        let source_ty = self.ctx.type_registry.intern(TypeKind::Array {
+            elem: TypeId::U8,
+            len: ConstGeneric::Value(ConstGenericValue {
+                ty: TypeId::USIZE,
+                kind: ConstGenericValueKind::Int(source.len() as i128),
+            }),
+        });
+
+        self.ctx.type_registry.intern(TypeKind::AnonymousStruct(
+            false,
+            vec![
+                crate::ty::AnonymousField {
+                    name: value_name,
+                    ty: value_ty,
+                },
+                crate::ty::AnonymousField {
+                    name: source_name,
+                    ty: source_ty,
                 },
             ],
         ))

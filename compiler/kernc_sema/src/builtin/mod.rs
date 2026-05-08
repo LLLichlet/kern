@@ -219,6 +219,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_bitwise("@ctz", int_trait_id);
         self.inject_bitwise("@bswap", int_trait_id);
         self.inject_loc();
+        self.inject_check();
         self.inject_void_intrinsic("@trap", true);
         self.inject_void_intrinsic("@breakpoint", false);
         self.inject_memory_intrinsic(MemoryIntrinsicKind::Memcpy);

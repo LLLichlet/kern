@@ -553,6 +553,13 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_builtin_function("@loc", vec![], vec![], TypeId::VOID);
     }
 
+    pub(super) fn inject_check(&mut self) {
+        let param_t = self.new_builtin_param("T");
+        let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
+        // `@check` has a call-site result type because `source` is `[N]u8`.
+        self.inject_builtin_function("@check", vec![param_t], vec![("value", t_ty)], TypeId::VOID);
+    }
+
     pub(super) fn inject_atomic_rmw(&mut self, name: &str) {
         let param_t = self.new_builtin_param("T");
         let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));

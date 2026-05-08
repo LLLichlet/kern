@@ -127,6 +127,91 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .kind
     }
 
+    pub(crate) fn lower_check_intrinsic(
+        &mut self,
+        result_ty: TypeId,
+        value_expr: MastExpr,
+        arg_span: Span,
+        span: Span,
+    ) -> MastExprKind {
+        let norm_result_ty = self.ctx.type_registry.normalize(result_ty);
+        let TypeKind::AnonymousStruct(_, _) = self.ctx.type_registry.get(norm_result_ty).clone()
+        else {
+            self.ctx
+                .struct_error(
+                    span,
+                    "`@check` must return an anonymous struct containing `value` and `source`",
+                )
+                .emit();
+            return MastExprKind::Trap;
+        };
+
+        let source_text = self
+            .ctx
+            .sess
+            .source_manager
+            .slice_source(arg_span)
+            .to_string();
+        let value_name = self.ctx.intern("value");
+        let source_name = self.ctx.intern("source");
+        let source_ty = self.ctx.type_registry.intern(TypeKind::Array {
+            elem: TypeId::U8,
+            len: self.usize_const_generic(source_text.len() as u64),
+        });
+        let natural_fields = vec![
+            AnonymousField {
+                name: value_name,
+                ty: value_expr.ty,
+            },
+            AnonymousField {
+                name: source_name,
+                ty: source_ty,
+            },
+        ];
+        let natural_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::AnonymousStruct(false, natural_fields.clone()));
+        let struct_id = self.instantiate_anon_struct(natural_ty);
+        let (_, physical_to_ast) =
+            self.cached_anon_struct_mapping(natural_ty, false, &natural_fields);
+
+        let mut field_exprs = Vec::with_capacity(natural_fields.len());
+        for &ast_idx in &physical_to_ast {
+            let field = &natural_fields[ast_idx];
+            let name = self.ctx.resolve(field.name);
+            let expr = match name {
+                "value" => value_expr.clone(),
+                "source" => MastExpr::new(
+                    field.ty,
+                    self.lower_string_literal_array(&source_text, arg_span),
+                    arg_span,
+                ),
+                _ => {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!(
+                                "`@check` result type contains unsupported field `{}`; expected only `value` and `source`",
+                                name
+                            ),
+                        )
+                        .emit();
+                    return MastExprKind::Trap;
+                }
+            };
+            field_exprs.push(expr);
+        }
+
+        let natural_kind = MastExprKind::StructInit {
+            struct_id,
+            fields: field_exprs,
+        };
+
+        self.apply_implicit_cast(natural_kind, natural_ty, result_ty, span)
+            .kind
+    }
+
     fn receiver_search_types(&mut self, receiver_ty: TypeId) -> Vec<TypeId> {
         let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
         let mut search_tys = vec![receiver_norm];

@@ -414,6 +414,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         let intrinsic_type_args = crate::ty::erase_non_type_generic_args(&generic_args);
         match name_str.as_str() {
             "@loc" => self.eval_loc(span),
+            "@check" => self.eval_check(args, depth, span),
             "@sizeOf" => self.eval_size_of(&intrinsic_type_args, span),
             "@alignOf" => self.eval_align_of(&intrinsic_type_args, span),
             "@popCount" | "@clz" | "@ctz" => {
@@ -467,6 +468,41 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     pub(super) fn eval_loc(&mut self, span: Span) -> ConstEvalResult<ConstValue> {
         Ok(self.source_location_value(span))
+    }
+
+    pub(super) fn eval_check(
+        &mut self,
+        args: &[Expr],
+        depth: usize,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        let Some(arg) = args.first() else {
+            self.ctx
+                .struct_error(span, "`@check` expects exactly one argument")
+                .emit();
+            return Err(ConstEvalError);
+        };
+        if args.len() != 1 {
+            self.ctx
+                .struct_error(span, "`@check` expects exactly one argument")
+                .emit();
+            return Err(ConstEvalError);
+        }
+
+        let value_name = self.ctx.intern("value");
+        let source_name = self.ctx.intern("source");
+        let source = self
+            .ctx
+            .sess
+            .source_manager
+            .slice_source(arg.span)
+            .to_string();
+        let value = self.eval_inner(arg, depth + 1)?;
+
+        let mut fields = HashMap::new();
+        fields.insert(value_name, value);
+        fields.insert(source_name, ConstValue::String(source));
+        Ok(ConstValue::Struct(fields))
     }
 
     pub(super) fn eval_align_of(

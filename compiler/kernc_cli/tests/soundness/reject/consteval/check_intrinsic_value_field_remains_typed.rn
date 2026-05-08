@@ -1,0 +1,16 @@
+// class: consteval-expression-capture
+// source: @check value field must not erase or weaken the captured expression type
+// stderr: expected `struct { value: bool, source: &[u8] }`
+// stderr: found `struct { value: usize, source: [9]u8 }`
+
+fn take_bool_capture(capture: struct { value: bool, source: &[u8] }) bool {
+    return capture.value;
+}
+
+fn main() i32 {
+    let captured = @check(usize.{1});
+    if (take_bool_capture(captured)) {
+        return 1;
+    }
+    return 0;
+}

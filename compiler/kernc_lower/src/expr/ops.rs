@@ -430,7 +430,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 } else if op == ast::BinaryOperator::NotEqual {
                     return MastExprKind::Bool(false);
                 }
-                // TODO: turn this into `unreachable()` plus an ICE.
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): void operand reached non-equality binary operator `{:?}`.",
+                        op
+                    ),
+                );
+                return MastExprKind::Trap;
             }
 
             let is_l_ptr = matches!(

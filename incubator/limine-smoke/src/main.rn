@@ -45,7 +45,7 @@ fn serial_can_write() bool {
 }
 
 fn serial_write_byte(byte: u8) void {
-    while (!serial_can_write()) {}
+    while (serial_can_write().not()) {}
     outb(COM1, byte);
 }
 

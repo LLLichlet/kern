@@ -70,8 +70,7 @@ fn print_stats(
     sink: usize,
 ) void {
     let total_bytes = (bytes_per_iter as u64) * (iterations as u64);
-    io.println(
-        "{} input={} bytes={} iterations={} elapsed_ms={} ops_per_sec={} bytes_per_sec={} sink={}",
+    "{} input={} bytes={} iterations={} elapsed_ms={} ops_per_sec={} bytes_per_sec={} sink={}".fmt(
         .{
             label,
             input_label,
@@ -82,7 +81,7 @@ fn print_stats(
             elapsed.units_per_sec(total_bytes),
             sink,
         }
-    );
+    ).println();
 }
 
 fn load_input(alloc: &mut base.mem.alloc.Allocator, path: &[u8]) BenchInput!fs.Error {
@@ -91,7 +90,7 @@ fn load_input(alloc: &mut base.mem.alloc.Allocator, path: &[u8]) BenchInput!fs.E
         let .{ Ok: storage } = stdin..&.read_to_string(alloc) else {
             .{ Err: err } => return .{ Err: err },
         };
-        return .{ Ok: BenchInput.{ storage: storage, label: "<stdin>", text: storage.&.as_str() } };
+        return .{ Ok: BenchInput.{ storage: storage, text: storage.&.as_str() } };
     }
 
     let .{ Ok: storage } = path.path().read_to_string(alloc) else {
@@ -611,7 +610,7 @@ fn main(argc: i32, argv: &&u8) i32 {
         .{ Some: value } => {
             let parsed = parse_iterations(value);
             if (parsed == 0) {
-                io.println("invalid iteration count: {}", .{ value, });
+                "invalid iteration count: {}".fmt(.{ value, }).println();
                 return 1;
             }
             parsed
@@ -623,7 +622,7 @@ fn main(argc: i32, argv: &&u8) i32 {
     let mut input = match (input_path) {
         .{ Some: path } => {
             let .{ Ok: input } = load_input(gpa, path) else {
-                io.println("failed to read input: {}", .{ path, });
+                "failed to read input: {}".fmt(.{ path, }).println();
                 return 1;
             };
             input
@@ -634,25 +633,25 @@ fn main(argc: i32, argv: &&u8) i32 {
 
     if (mode.is_some()) {
         let .{ Some: mode } = mode else return 1;
-        if (!run_bench(mode, iterations, input.label, input.text)) {
-            io.println("unknown or failed bench: {}", .{ mode, });
+        if (run_bench(mode, iterations, input.label, input.text).not()) {
+            "unknown or failed bench: {}".fmt(.{ mode, }).println();
             return 1;
         }
         return 0;
     }
 
-    if (!bench_parse(iterations, input.label, input.text)) return 1;
-    if (!bench_parse_packed_document(iterations, input.label, input.text)) return 1;
-    if (!bench_clone_document(iterations, input.label, input.text)) return 1;
-    if (!bench_materialize(iterations, input.label, input.text)) return 1;
-    if (!bench_clone_indexed_document(iterations, input.label, input.text)) return 1;
-    if (!bench_parse_packed_indexed_document(iterations, input.label, input.text)) return 1;
-    if (!bench_render_borrowed(iterations, input.label, input.text)) return 1;
-    if (!bench_render_owned(iterations, input.label, input.text)) return 1;
-    if (!bench_lookup_borrowed(iterations, input.label, input.text)) return 1;
-    if (!bench_lookup_owned(iterations, input.label, input.text)) return 1;
-    if (!bench_lookup_packed_document(iterations, input.label, input.text)) return 1;
-    if (!bench_lookup_indexed_document(iterations, input.label, input.text)) return 1;
-    if (!bench_lookup_packed_indexed_document(iterations, input.label, input.text)) return 1;
+    if (bench_parse(iterations, input.label, input.text).not()) return 1;
+    if (bench_parse_packed_document(iterations, input.label, input.text).not()) return 1;
+    if (bench_clone_document(iterations, input.label, input.text).not()) return 1;
+    if (bench_materialize(iterations, input.label, input.text).not()) return 1;
+    if (bench_clone_indexed_document(iterations, input.label, input.text).not()) return 1;
+    if (bench_parse_packed_indexed_document(iterations, input.label, input.text).not()) return 1;
+    if (bench_render_borrowed(iterations, input.label, input.text).not()) return 1;
+    if (bench_render_owned(iterations, input.label, input.text).not()) return 1;
+    if (bench_lookup_borrowed(iterations, input.label, input.text).not()) return 1;
+    if (bench_lookup_owned(iterations, input.label, input.text).not()) return 1;
+    if (bench_lookup_packed_document(iterations, input.label, input.text).not()) return 1;
+    if (bench_lookup_indexed_document(iterations, input.label, input.text).not()) return 1;
+    if (bench_lookup_packed_indexed_document(iterations, input.label, input.text).not()) return 1;
     return 0;
 }

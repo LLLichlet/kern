@@ -6,7 +6,7 @@ const INPUT = " { \"ok\" : true, \"items\" : [ 1, 2, 3 ] } ";
 fn main() i32 {
     let .{ Ok: value } = parse(INPUT) else {
         .{ Err: _ } => {
-            io.println("parse failed", .{});
+            "parse failed".println();
             return 1;
         },
     };
@@ -14,11 +14,11 @@ fn main() i32 {
     let mut out = [128]u8.{undef};
     let .{ Ok: written } = render_compact(value, out..&[0 .. 128]) else {
         .{ Err: _ } => {
-            io.println("render failed", .{});
+            "render failed".println();
             return 2;
         },
     };
 
-    io.println(out.&[0 .. written], .{});
+    "{}".fmt(.{ out.&[0 .. written], }).println();
     return 0;
 }

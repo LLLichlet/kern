@@ -255,11 +255,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        let active_bounds_ptr = std::ptr::from_ref(self.ctx.analysis.active_bounds.as_slice());
+        let active_bounds = self.ctx.analysis.active_bounds.clone();
         for inst_bound_norm in
-            crate::query::instantiated_env_trait_bounds(self.ctx, target_ty, unsafe {
-                &*active_bounds_ptr
-            })
+            crate::query::instantiated_env_trait_bounds(self.ctx, target_ty, &active_bounds)
         {
             if let Some(assoc_ty) = crate::query::trait_object_assoc_from_hierarchy(
                 self.ctx,

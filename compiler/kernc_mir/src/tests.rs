@@ -6,7 +6,7 @@ use crate::{
     verify_module,
 };
 use kernc_mono::{MonoId, MonoModuleMetadata};
-use kernc_sema::ty::TypeId;
+use kernc_ty::TypeId;
 use kernc_utils::{Span, SymbolId};
 
 fn instr(kind: MirInstruction) -> MirInstructionData {

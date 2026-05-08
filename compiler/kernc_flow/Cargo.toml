@@ -7,5 +7,5 @@ license.workspace = true
 readme = "README.md"
 
 [dependencies]
-kernc_sema = { workspace = true }
+kernc_ty = { workspace = true }
 kernc_utils = { workspace = true }

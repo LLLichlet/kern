@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use kernc_sema::def::DefId;
+use kernc_ty::DefId;
 use kernc_utils::NodeId;
 use std::collections::{HashMap, HashSet};
 

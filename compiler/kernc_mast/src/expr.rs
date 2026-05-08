@@ -1,7 +1,7 @@
 use super::MastBlock;
 use kernc_ast::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use kernc_mono::MonoId;
-use kernc_sema::ty::TypeId;
+use kernc_ty::TypeId;
 use kernc_utils::{AtomicOrdering, AtomicRmwOp, Span, SymbolId};
 
 /// Every MAST expression carries its fully resolved type explicitly.

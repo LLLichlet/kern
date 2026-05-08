@@ -2,13 +2,10 @@ use crate::scope::ScopeId;
 use crate::ty::TypeId;
 use kernc_ast as ast;
 pub use kernc_ast::Visibility;
+pub use kernc_ty::DefId;
 use kernc_utils::{FileId, Span, SymbolId};
 use std::collections::HashMap;
 use std::path::PathBuf;
-
-/// Identifier for a semantic definition collected from the AST.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DefId(pub u32);
 
 /// Unified representation for every top-level semantic definition.
 /// The collect pass lowers AST declarations into these records.

@@ -1,5 +1,5 @@
 use super::MastExpr;
-use kernc_sema::ty::TypeId;
+use kernc_ty::TypeId;
 use kernc_utils::SymbolId;
 
 #[derive(Debug, Clone)]

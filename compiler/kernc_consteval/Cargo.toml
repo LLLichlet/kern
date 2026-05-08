@@ -1,10 +1,10 @@
 [package]
-name = "kernc_mono"
+name = "kernc_consteval"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-readme = "README.md"
 
 [dependencies]
+kernc_utils = { workspace = true }
 kernc_ty = { workspace = true }

@@ -1840,6 +1840,40 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_const_fn_method_call_before_method_body_typecheck() {
+    let output = compile_source(
+        r#"
+struct N {
+    value: usize,
+};
+
+impl N {
+    pub const fn next() usize {
+        return self.value + 1;
+    }
+}
+
+const fn array_len(value: N) usize {
+    return value.next();
+}
+
+const BYTES = [array_len(N.{ value: 3 })]u8.{ 1, 2, 3, 4 };
+
+fn main() i32 {
+    return BYTES.[3] as i32;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_concrete_slice_impl_methods() {
     let output = compile_source(
         r#"

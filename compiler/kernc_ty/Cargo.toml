@@ -1,10 +1,9 @@
 [package]
-name = "kernc_mono"
+name = "kernc_ty"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-readme = "README.md"
 
 [dependencies]
-kernc_ty = { workspace = true }
+kernc_utils = { workspace = true }

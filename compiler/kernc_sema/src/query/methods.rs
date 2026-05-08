@@ -172,13 +172,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return false;
         }
 
-        let current_bounds = self.ctx.analysis.active_bounds.as_slice();
-        let can_use_cache = matches!(
-            &env.active_bounds,
-            Cow::Borrowed(bounds)
-                if bounds.len() == current_bounds.len()
-                    && std::ptr::eq(bounds.as_ptr(), current_bounds.as_ptr())
-        );
+        let can_use_cache = env.is_current_active_bounds(self.ctx);
 
         if can_use_cache
             && let Some(cached_matches) = self

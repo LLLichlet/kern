@@ -9,5 +9,5 @@ readme = "README.md"
 [dependencies]
 kernc_ast = { workspace = true }
 kernc_mono = { workspace = true }
-kernc_sema = { workspace = true }
+kernc_ty = { workspace = true }
 kernc_utils = { workspace = true }

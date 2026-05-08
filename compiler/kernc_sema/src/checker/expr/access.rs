@@ -1493,11 +1493,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> Option<crate::query::MemberResolution> {
         let lhs_ty = self.resolve_tv(lhs_ty);
-        let active_bounds_ptr = std::ptr::from_ref(self.ctx.analysis.active_bounds.as_slice());
         let current_module_id = self.cached_current_module_id();
-        // Safety: member queries only read active generic bounds. The query may mutate other
-        // semantic state, but it does not resize or replace `ctx.analysis.active_bounds`.
-        let env = unsafe { MemberQueryEnv::from_active_bounds(&*active_bounds_ptr) };
+        let env = MemberQueryEnv::from_current_active_bounds(self.ctx);
         let mut query = MemberQuery::new(self.ctx);
         if let Some(resolution) =
             query.resolve_named_member(current_module_id, lhs_ty, field, &env, span)
@@ -1565,11 +1562,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> Option<crate::query::MemberResolution> {
         let lhs_ty = self.resolve_tv(lhs_ty);
-        let active_bounds_ptr = std::ptr::from_ref(self.ctx.analysis.active_bounds.as_slice());
+        let env = MemberQueryEnv::from_current_active_bounds(self.ctx);
         let mut query = MemberQuery::new(self.ctx);
-        // Safety: member queries only read active generic bounds. The query may mutate other
-        // semantic state, but it does not resize or replace `ctx.analysis.active_bounds`.
-        let env = unsafe { MemberQueryEnv::from_active_bounds(&*active_bounds_ptr) };
         if let Some(resolution) = query.resolve_named_method(lhs_ty, field, &env, span) {
             return Some(resolution);
         }

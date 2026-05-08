@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use kernc_sema::def::DefId;
-use kernc_sema::ty::{GenericArg, TypeId};
+use kernc_ty::{DefId, GenericArg, TypeId};
 use std::collections::HashMap;
 
 /// Monomorphized item identifier.

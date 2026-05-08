@@ -808,12 +808,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return false;
         }
 
-        let active_bounds_ptr = std::ptr::from_ref(self.ctx.analysis.active_bounds.as_slice());
-        // Safety: this helper only reads `active_bounds`; it never resizes or replaces the vec.
+        let active_bounds = self.ctx.analysis.active_bounds.clone();
         for inst_env_bound in
-            crate::query::instantiated_env_trait_bounds(self.ctx, source_ty, unsafe {
-                &*active_bounds_ptr
-            })
+            crate::query::instantiated_env_trait_bounds(self.ctx, source_ty, &active_bounds)
         {
             if self.trait_obligation_matches_available_trait(inst_env_bound, target_trait_ty) {
                 return true;

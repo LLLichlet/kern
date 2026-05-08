@@ -87,6 +87,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernc_consteval"
+version = "0.7.5"
+dependencies = [
+ "kernc_ty",
+ "kernc_utils",
+]
+
+[[package]]
 name = "kernc_db"
 version = "0.7.5"
 
@@ -112,7 +120,7 @@ dependencies = [
 name = "kernc_flow"
 version = "0.7.5"
 dependencies = [
- "kernc_sema",
+ "kernc_ty",
  "kernc_utils",
 ]
 
@@ -141,7 +149,7 @@ version = "0.7.5"
 dependencies = [
  "kernc_ast",
  "kernc_mono",
- "kernc_sema",
+ "kernc_ty",
  "kernc_utils",
 ]
 
@@ -151,7 +159,7 @@ version = "0.7.5"
 dependencies = [
  "kernc_ast",
  "kernc_mono",
- "kernc_sema",
+ "kernc_ty",
  "kernc_utils",
 ]
 
@@ -171,7 +179,7 @@ dependencies = [
 name = "kernc_mono"
 version = "0.7.5"
 dependencies = [
- "kernc_sema",
+ "kernc_ty",
 ]
 
 [[package]]
@@ -188,7 +196,16 @@ name = "kernc_sema"
 version = "0.7.5"
 dependencies = [
  "kernc_ast",
+ "kernc_consteval",
  "kernc_parser",
+ "kernc_ty",
+ "kernc_utils",
+]
+
+[[package]]
+name = "kernc_ty"
+version = "0.7.5"
+dependencies = [
  "kernc_utils",
 ]
 

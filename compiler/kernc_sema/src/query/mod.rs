@@ -65,6 +65,10 @@ impl<'a> MemberQueryEnv<'a> {
         }
     }
 
+    pub fn from_current_active_bounds(ctx: &SemaContext<'_>) -> Self {
+        Self::from_active_bounds_owned(&ctx.analysis.active_bounds)
+    }
+
     pub fn from_active_bounds_owned(bounds: &[(TypeId, Vec<TypeId>)]) -> Self {
         Self {
             active_bounds: Cow::Owned(bounds.to_vec()),
@@ -117,12 +121,7 @@ impl<'a> MemberQueryEnv<'a> {
 
     fn is_current_active_bounds(&self, ctx: &SemaContext<'_>) -> bool {
         let current_bounds = ctx.analysis.active_bounds.as_slice();
-        matches!(
-            &self.active_bounds,
-            Cow::Borrowed(bounds)
-                if bounds.len() == current_bounds.len()
-                    && std::ptr::eq(bounds.as_ptr(), current_bounds.as_ptr())
-        )
+        self.active_bounds.as_ref() == current_bounds
     }
 }
 

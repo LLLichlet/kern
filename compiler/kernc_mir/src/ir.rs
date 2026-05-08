@@ -2,7 +2,7 @@ use crate::{MirBlockId, MirLocalId};
 use kernc_ast::MetaItem;
 use kernc_ast::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use kernc_mono::{MonoId, MonoModuleMetadata};
-use kernc_sema::ty::TypeId;
+use kernc_ty::TypeId;
 use kernc_utils::{AtomicOrdering, AtomicRmwOp, Span, SymbolId};
 
 #[derive(Debug, Clone)]

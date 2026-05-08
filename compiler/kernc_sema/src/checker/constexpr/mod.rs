@@ -1,12 +1,17 @@
 use crate::LayoutEngine;
 use crate::SemaContext;
 use crate::checker::Substituter;
-use crate::def::{Def, DefId};
+use crate::def::{Def, DefId, EnumDef, FunctionDef, GlobalDef, ModuleDef, StructDef, UnionDef};
 use crate::scope::ScopeId;
 use crate::scope::SymbolKind;
 use crate::ty::{GenericArg, PrimitiveType, TypeId, TypeKind};
 use kernc_ast::{
-    self as ast, AssignmentOperator, BinaryOperator, Expr, ExprKind, StmtKind, UnaryOperator,
+    self as ast, AssignmentOperator, BinaryOperator, Expr, ExprKind, UnaryOperator,
+};
+pub use kernc_consteval::{
+    ConstArithmeticError, ConstBinaryOp, ConstEvalCore, ConstEvalError, ConstEvalHost,
+    ConstEvalResult, ConstFunctionFrame, ConstPlace, ConstPlaceError, ConstValue, PlaceSegment,
+    LoopControl, ScriptHost, ScriptHostHandle,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 use std::collections::HashMap;
@@ -17,134 +22,190 @@ mod eval;
 mod place;
 mod state;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConstValue {
-    Int(i128),
-    Float(f64),
-    Bool(bool),
-    String(String),
-    Array(Vec<ConstValue>),
-    Struct(HashMap<SymbolId, ConstValue>),
-    Enum {
-        tag: i128,
-        payload: Option<Box<ConstValue>>,
-    },
-    Pointer {
-        root_scope: usize,
-        root_name: SymbolId,
-        path: Vec<PlaceSegment>,
-        is_mut: bool,
-    },
-    Void,
-    Undef,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ConstEvalError;
-
-type ConstEvalResult<T> = Result<T, ConstEvalError>;
-
-pub trait ScriptHost {
-    fn call_extern(
-        &mut self,
-        name: &str,
-        args: &[ConstValue],
-        span: Span,
-    ) -> Result<ConstValue, String>;
-}
-
-#[derive(Clone, Copy)]
-struct ScriptHostHandle {
-    data: *mut (),
-    call_extern: unsafe fn(*mut (), &str, &[ConstValue], Span) -> Result<ConstValue, String>,
-}
-
-unsafe fn call_script_host<H: ScriptHost>(
-    data: *mut (),
-    name: &str,
-    args: &[ConstValue],
-    span: Span,
-) -> Result<ConstValue, String> {
-    unsafe { (&mut *(data as *mut H)).call_extern(name, args, span) }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LoopControl {
-    Break,
-    Continue,
-}
-
-#[doc(hidden)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlaceSegment {
-    Field(SymbolId),
-    Index(usize),
-}
-
-#[derive(Debug, Clone)]
-struct ResolvedPlace {
-    root_scope: usize,
-    root_name: SymbolId,
-    path: Vec<PlaceSegment>,
-    require_root_mutability: bool,
-}
-
-pub struct ConstEvaluator<'a, 'ctx> {
+struct ConstEvalSemaHost<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
     const_scopes: Vec<ScopeId>,
-    local_scopes: Vec<HashMap<SymbolId, ConstValue>>,
-    local_type_scopes: Vec<HashMap<SymbolId, TypeId>>,
-    local_mut_scopes: Vec<HashMap<SymbolId, bool>>,
-    type_substs: Vec<HashMap<SymbolId, GenericArg>>,
-    expected_types: Vec<TypeId>,
-    function_return_types: Vec<TypeId>,
-    return_value: Option<ConstValue>,
-    function_depth: usize,
-    loop_depth: usize,
-    loop_control: Option<LoopControl>,
-    script_host: Option<ScriptHostHandle>,
-    allow_non_const_calls: bool,
 }
 
-impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
-    pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
+impl<'a, 'ctx> ConstEvalSemaHost<'a, 'ctx> {
+    fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
         let mut const_scopes = Vec::new();
         if let Some(scope_id) = ctx.scopes.current_scope_id() {
             const_scopes.push(scope_id);
         }
 
+        Self { ctx, const_scopes }
+    }
+
+    fn enter_def_scope(&mut self, owner_scope: Option<ScopeId>) -> DefScopeFrame {
+        let prev_scope = self.ctx.scopes.current_scope_id();
+        if let Some(owner_scope) = owner_scope {
+            self.ctx.scopes.set_current_scope(owner_scope);
+            self.const_scopes.push(owner_scope);
+        }
+
+        DefScopeFrame {
+            prev_scope,
+            owner_scope,
+        }
+    }
+
+    fn leave_def_scope(&mut self, frame: DefScopeFrame) {
+        if frame.owner_scope.is_some() {
+            let _ = self.const_scopes.pop();
+        }
+        if let Some(prev_scope) = frame.prev_scope {
+            self.ctx.scopes.set_current_scope(prev_scope);
+        }
+    }
+
+    fn function_def(&self, def_id: DefId) -> Option<FunctionDef> {
+        match self.ctx.defs.get(def_id.0 as usize)? {
+            Def::Function(func) => Some(func.clone()),
+            _ => None,
+        }
+    }
+
+    fn global_def(&self, def_id: DefId) -> Option<GlobalDef> {
+        match self.ctx.defs.get(def_id.0 as usize)? {
+            Def::Global(global) => Some(global.clone()),
+            _ => None,
+        }
+    }
+
+    fn module_def(&self, def_id: DefId) -> Option<&ModuleDef> {
+        match self.ctx.defs.get(def_id.0 as usize)? {
+            Def::Module(module) => Some(module),
+            _ => None,
+        }
+    }
+
+    fn enum_def(&self, def_id: DefId) -> Option<EnumDef> {
+        match self.ctx.defs.get(def_id.0 as usize)? {
+            Def::Enum(enum_def) => Some(enum_def.clone()),
+            _ => None,
+        }
+    }
+
+    fn struct_or_union_def(&self, def_id: DefId) -> Option<ConstDataDef> {
+        match self.ctx.defs.get(def_id.0 as usize)? {
+            Def::Struct(def) => Some(ConstDataDef::Struct(def.clone())),
+            Def::Union(def) => Some(ConstDataDef::Union(def.clone())),
+            _ => None,
+        }
+    }
+}
+
+impl<'a, 'ctx> ConstEvalHost for ConstEvalSemaHost<'a, 'ctx> {
+    fn emit_error(&mut self, span: Span, message: String) {
+        self.ctx.struct_error(span, message).emit();
+    }
+
+    fn emit_error_with_hints(&mut self, span: Span, message: String, hints: &[String]) {
+        let mut diagnostic = self.ctx.struct_error(span, message);
+        for hint in hints {
+            diagnostic = diagnostic.with_hint(hint.clone());
+        }
+        diagnostic.emit();
+    }
+
+    fn resolve_symbol(&self, symbol: SymbolId) -> String {
+        self.ctx.resolve(symbol).to_string()
+    }
+
+    fn ty_to_string(&self, ty: TypeId) -> String {
+        self.ctx.ty_to_string(ty)
+    }
+
+    fn normalize_type(&self, ty: TypeId) -> TypeId {
+        self.ctx.type_registry.normalize(ty)
+    }
+
+    fn type_kind(&self, ty: TypeId) -> TypeKind {
+        self.ctx.type_registry.get(ty).clone()
+    }
+
+    fn layout_size(&mut self, ty: TypeId) -> ConstEvalResult<u64> {
+        let errors_before = self.ctx.sess.error_count;
+        let size = {
+            let mut layout = LayoutEngine::new(self.ctx);
+            layout.compute_type_size(ty)
+        };
+        if self.ctx.sess.error_count != errors_before {
+            Err(ConstEvalError)
+        } else {
+            Ok(size)
+        }
+    }
+
+    fn layout_align(&mut self, ty: TypeId) -> ConstEvalResult<u64> {
+        let errors_before = self.ctx.sess.error_count;
+        let align = {
+            let mut layout = LayoutEngine::new(self.ctx);
+            layout.compute_type_align(ty)
+        };
+        if self.ctx.sess.error_count != errors_before {
+            Err(ConstEvalError)
+        } else {
+            Ok(align)
+        }
+    }
+
+    fn source_location_value(&mut self, span: Span) -> ConstValue {
+        let file_name = self.ctx.intern("file");
+        let line_name = self.ctx.intern("line");
+        let col_name = self.ctx.intern("col");
+        let file = self
+            .ctx
+            .sess
+            .source_manager
+            .get_file_path(span.file)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let (line, col) = self
+            .ctx
+            .sess
+            .source_manager
+            .lookup_location(span)
+            .map(|loc| (loc.line, loc.col))
+            .unwrap_or((0, 0));
+
+        let mut fields = HashMap::new();
+        fields.insert(file_name, ConstValue::String(file));
+        fields.insert(line_name, ConstValue::Int(line as i128));
+        fields.insert(col_name, ConstValue::Int(col as i128));
+        ConstValue::Struct(fields)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DefScopeFrame {
+    prev_scope: Option<ScopeId>,
+    owner_scope: Option<ScopeId>,
+}
+
+pub struct ConstEvaluator<'a, 'ctx> {
+    host: ConstEvalSemaHost<'a, 'ctx>,
+    core: ConstEvalCore,
+}
+
+impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
+    pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
         Self {
-            ctx,
-            const_scopes,
-            local_scopes: Vec::new(),
-            local_type_scopes: Vec::new(),
-            local_mut_scopes: Vec::new(),
-            type_substs: Vec::new(),
-            expected_types: Vec::new(),
-            function_return_types: Vec::new(),
-            return_value: None,
-            function_depth: 0,
-            loop_depth: 0,
-            loop_control: None,
-            script_host: None,
-            allow_non_const_calls: false,
+            host: ConstEvalSemaHost::new(ctx),
+            core: ConstEvalCore::default(),
         }
     }
 
     pub fn with_script_host<H: ScriptHost>(ctx: &'a mut SemaContext<'ctx>, host: &mut H) -> Self {
         let mut this = Self::new(ctx);
-        this.script_host = Some(ScriptHostHandle {
-            data: host as *mut H as *mut (),
-            call_extern: call_script_host::<H>,
-        });
-        this.allow_non_const_calls = true;
+        this.core.set_script_host(ScriptHostHandle::new(host));
+        this.core.set_allow_non_const_calls(true);
         this
     }
 
     pub fn with_type_substs(mut self, subst_map: &HashMap<SymbolId, GenericArg>) -> Self {
-        if !subst_map.is_empty() {
-            self.type_substs.push(subst_map.clone());
-        }
+        self.core.push_type_subst(subst_map.clone());
         self
     }
 
@@ -153,7 +214,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         match self.eval_inner(expr, 0) {
             Ok(ConstValue::Int(val)) => {
                 if val < 0 {
-                    self.ctx
+                    self.host.ctx
                         .struct_error(
                             expr.span,
                             "constant expression cannot evaluate to a negative number here",
@@ -165,7 +226,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     match u64::try_from(val) {
                         Ok(value) => Ok(value),
                         Err(_) => {
-                            self.ctx
+                            self.host.ctx
                                 .struct_error(
                                     expr.span,
                                     "constant expression is too large for this usize-like context",
@@ -181,7 +242,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
             }
             Ok(_) => {
-                self.ctx
+                self.host.ctx
                     .struct_error(expr.span, "expected an integer constant")
                     .emit();
                 Err(ConstEvalError)
@@ -195,7 +256,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         match self.eval_inner(expr, 0) {
             Ok(ConstValue::Int(val)) => Ok(val),
             Ok(_) => {
-                self.ctx
+                self.host.ctx
                     .struct_error(expr.span, "expected an integer constant")
                     .emit();
                 Err(ConstEvalError)
@@ -206,6 +267,74 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     pub fn eval_const_value(&mut self, expr: &Expr) -> ConstEvalResult<ConstValue> {
         self.eval_inner(expr, 0)
+    }
+
+    pub(super) fn layout_size(&mut self, ty: TypeId) -> ConstEvalResult<u64> {
+        self.host.layout_size(ty)
+    }
+
+    pub(super) fn layout_align(&mut self, ty: TypeId) -> ConstEvalResult<u64> {
+        self.host.layout_align(ty)
+    }
+
+    fn enter_def_scope(&mut self, def_id: DefId) -> DefScopeFrame {
+        let owner_scope = self.def_owner_scope(def_id);
+        self.host.enter_def_scope(owner_scope)
+    }
+
+    fn leave_def_scope(&mut self, frame: DefScopeFrame) {
+        self.host.leave_def_scope(frame);
+    }
+
+    fn enter_function_frame(
+        &mut self,
+        return_ty: TypeId,
+        has_generic_substs: bool,
+    ) -> ConstFunctionFrame {
+        self.core
+            .enter_function_frame(return_ty, has_generic_substs)
+    }
+
+    fn leave_function_frame(&mut self, frame: ConstFunctionFrame) -> Option<ConstValue> {
+        self.core.leave_function_frame(frame)
+    }
+
+    fn current_expected_type(&self) -> Option<TypeId> {
+        self.core.current_expected_type()
+    }
+
+    fn with_local_scope<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> ConstEvalResult<T>,
+    ) -> ConstEvalResult<T> {
+        self.push_local_scope();
+        let result = f(self);
+        self.pop_local_scope();
+        result
+    }
+
+    fn source_location_value(&mut self, span: Span) -> ConstValue {
+        self.host.source_location_value(span)
+    }
+
+    fn function_def(&self, def_id: DefId) -> Option<FunctionDef> {
+        self.host.function_def(def_id)
+    }
+
+    fn global_def(&self, def_id: DefId) -> Option<GlobalDef> {
+        self.host.global_def(def_id)
+    }
+
+    fn module_def(&self, def_id: DefId) -> Option<&ModuleDef> {
+        self.host.module_def(def_id)
+    }
+
+    fn enum_def(&self, def_id: DefId) -> Option<EnumDef> {
+        self.host.enum_def(def_id)
+    }
+
+    fn struct_or_union_def(&self, def_id: DefId) -> Option<ConstDataDef> {
+        self.host.struct_or_union_def(def_id)
     }
 
     fn kind_to_string(&self, kind: SymbolKind) -> &'static str {
@@ -220,4 +349,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             _ => "symbol",
         }
     }
+}
+
+#[derive(Debug, Clone)]
+enum ConstDataDef {
+    Struct(StructDef),
+    Union(UnionDef),
 }

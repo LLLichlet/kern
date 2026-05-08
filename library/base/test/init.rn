@@ -108,9 +108,25 @@ impl[T] ValueCheck[T] {
         return .{ passed: true, message };
     }
 
-    pub fn eq_fmt(expected: T) EqCheck[T]
-        where T: Eq[T],
+    pub fn sum[W](loc: Loc, report: &mut Report[W]) T
+        where &mut W: Write,
     {
+        if (!self.passed) {
+            report.fail_at(loc, self.message);
+        }
+
+        let .{ Some: payload } = self.value else {
+            report.fail_at(loc, "expected a value before finishing check");
+        };
+        return payload;
+    }
+}
+
+impl[T] ValueCheck[T]
+    where T: Eq[T],
+          &T: Formatable,
+{
+    pub fn eq(expected: T) EqCheck[T] {
         if (!self.passed) {
             return .{
                 passed: false,
@@ -147,19 +163,6 @@ impl[T] ValueCheck[T] {
             expected: .None,
             message,
         };
-    }
-
-    pub fn sum[W](loc: Loc, report: &mut Report[W]) T
-        where &mut W: Write,
-    {
-        if (!self.passed) {
-            report.fail_at(loc, self.message);
-        }
-
-        let .{ Some: payload } = self.value else {
-            report.fail_at(loc, "expected a value before finishing check");
-        };
-        return payload;
     }
 }
 

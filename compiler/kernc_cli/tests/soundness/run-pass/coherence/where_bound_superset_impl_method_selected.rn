@@ -1,0 +1,31 @@
+// class: specialization-dispatch
+// source: same-head impl methods may specialize by adding where-clause requirements to an existing base set
+// exit: 0
+
+trait Base {};
+trait Extra {};
+
+impl i32 : Base {}
+impl i32 : Extra {}
+
+struct Box[T] {
+    value: T,
+};
+
+impl[T] Box[T] where T: Base {
+    fn score() i32 {
+        return 1;
+    }
+}
+
+impl[T] Box[T] where T: Base,
+                    T: Extra
+{
+    fn score() i32 {
+        return 2;
+    }
+}
+
+fn main() i32 {
+    return Box[i32].{ value: 1 }.score() - 2;
+}

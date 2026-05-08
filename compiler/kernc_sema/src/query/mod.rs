@@ -490,6 +490,7 @@ pub fn compare_impl_specificity(
     match (left_specializes_right, right_specializes_left) {
         (true, false) => ImplSpecificity::LeftMoreSpecific,
         (false, true) => ImplSpecificity::RightMoreSpecific,
+        (true, true) => compare_impl_where_specificity(ctx, left_impl_id, right_impl_id),
         _ => ImplSpecificity::Ambiguous,
     }
 }
@@ -519,14 +520,14 @@ pub fn impl_head_specializes(
     }
 
     let mut checker = ExprChecker::new(ctx, None);
-    let (specialized_target, specialized_trait) = freshen_impl_head_types(
+    let specialized = freshen_impl_head_types(
         &mut checker,
         &specialized_impl,
         specialized_target_ty,
         specialized_trait_ty,
         ImplHeadFreshness::Rigid,
     );
-    let (general_target, general_trait) = freshen_impl_head_types(
+    let general = freshen_impl_head_types(
         &mut checker,
         &general_impl,
         general_target_ty,
@@ -537,11 +538,11 @@ pub fn impl_head_specializes(
     let mut type_map = FastHashMap::default();
     let mut const_map = FastHashMap::default();
     checker.match_available_type_against_requirement(
-        general_target,
-        specialized_target,
+        general.target_ty,
+        specialized.target_ty,
         &mut type_map,
         &mut const_map,
-    ) && match (general_trait, specialized_trait) {
+    ) && match (general.trait_ty, specialized.trait_ty) {
         (Some(general_trait), Some(specialized_trait)) => checker
             .match_available_type_against_requirement(
                 general_trait,
@@ -552,6 +553,89 @@ pub fn impl_head_specializes(
         (None, None) => true,
         _ => false,
     }
+}
+
+fn compare_impl_where_specificity(
+    ctx: &mut SemaContext<'_>,
+    left_impl_id: DefId,
+    right_impl_id: DefId,
+) -> ImplSpecificity {
+    let left_extends_right =
+        impl_where_requirements_strictly_extend(ctx, left_impl_id, right_impl_id);
+    let right_extends_left =
+        impl_where_requirements_strictly_extend(ctx, right_impl_id, left_impl_id);
+
+    match (left_extends_right, right_extends_left) {
+        (true, false) => ImplSpecificity::LeftMoreSpecific,
+        (false, true) => ImplSpecificity::RightMoreSpecific,
+        _ => ImplSpecificity::Ambiguous,
+    }
+}
+
+fn impl_where_requirements_strictly_extend(
+    ctx: &mut SemaContext<'_>,
+    specialized_impl_id: DefId,
+    general_impl_id: DefId,
+) -> bool {
+    let Some((specialized_impl, specialized_target_ty, specialized_trait_ty)) =
+        impl_head_signature(ctx, specialized_impl_id)
+    else {
+        return false;
+    };
+    let Some((general_impl, general_target_ty, general_trait_ty)) =
+        impl_head_signature(ctx, general_impl_id)
+    else {
+        return false;
+    };
+
+    let mut checker = ExprChecker::new(ctx, None);
+    let specialized = freshen_impl_head_types(
+        &mut checker,
+        &specialized_impl,
+        specialized_target_ty,
+        specialized_trait_ty,
+        ImplHeadFreshness::Rigid,
+    );
+    let general = freshen_impl_head_types(
+        &mut checker,
+        &general_impl,
+        general_target_ty,
+        general_trait_ty,
+        ImplHeadFreshness::Flexible,
+    );
+
+    let mut type_map = FastHashMap::default();
+    let mut const_map = FastHashMap::default();
+    if !checker.match_available_type_against_requirement(
+        general.target_ty,
+        specialized.target_ty,
+        &mut type_map,
+        &mut const_map,
+    ) || !match (general.trait_ty, specialized.trait_ty) {
+        (Some(general_trait), Some(specialized_trait)) => checker
+            .match_available_type_against_requirement(
+                general_trait,
+                specialized_trait,
+                &mut type_map,
+                &mut const_map,
+            ),
+        (None, None) => true,
+        _ => false,
+    } {
+        return false;
+    }
+
+    let specialized_requirements =
+        instantiate_where_requirements(&mut checker, &specialized_impl, &specialized.subst_map);
+    let general_requirements =
+        instantiate_where_requirements(&mut checker, &general_impl, &general.subst_map);
+    if specialized_requirements.len() <= general_requirements.len() {
+        return false;
+    }
+
+    general_requirements
+        .iter()
+        .all(|requirement| specialized_requirements.contains(requirement))
 }
 
 pub fn resolve_trait_impl_obligation(
@@ -1191,13 +1275,19 @@ pub(crate) fn erase_trait_assoc_bindings(ctx: &mut SemaContext<'_>, ty: TypeId) 
     }
 }
 
+struct FreshImplHead {
+    target_ty: TypeId,
+    trait_ty: Option<TypeId>,
+    subst_map: FastHashMap<SymbolId, crate::ty::GenericArg>,
+}
+
 fn freshen_impl_head_types(
     checker: &mut ExprChecker<'_, '_>,
     impl_def: &ImplDef,
     target_ty: TypeId,
     trait_ty: Option<TypeId>,
     freshness: ImplHeadFreshness,
-) -> (TypeId, Option<TypeId>) {
+) -> FreshImplHead {
     let mut subst_map = FastHashMap::default();
 
     for (index, param) in impl_def.generics.iter().enumerate() {
@@ -1228,10 +1318,49 @@ fn freshen_impl_head_types(
     }
 
     let mut subst = Substituter::new(&mut checker.ctx.type_registry, &subst_map);
-    (
-        subst.substitute(target_ty),
-        trait_ty.map(|trait_ty| subst.substitute(trait_ty)),
-    )
+    FreshImplHead {
+        target_ty: subst.substitute(target_ty),
+        trait_ty: trait_ty.map(|trait_ty| subst.substitute(trait_ty)),
+        subst_map,
+    }
+}
+
+fn instantiate_where_requirements(
+    checker: &mut ExprChecker<'_, '_>,
+    impl_def: &ImplDef,
+    subst_map: &FastHashMap<SymbolId, crate::ty::GenericArg>,
+) -> Vec<(TypeId, TypeId)> {
+    let mut requirements = Vec::new();
+    for clause in &impl_def.where_clauses {
+        let original_target = checker.ctx.node_type_or_error(clause.target_ty.id);
+        let target_ty = {
+            let mut subst = Substituter::new(&mut checker.ctx.type_registry, subst_map);
+            let substituted = subst.substitute(original_target);
+            checker.resolve_tv(substituted)
+        };
+
+        for bound in &clause.bounds {
+            let original_bound = checker.ctx.node_type_or_error(bound.id);
+            let trait_ty = {
+                let mut subst = Substituter::new(&mut checker.ctx.type_registry, subst_map);
+                let substituted = subst.substitute(original_bound);
+                checker.resolve_tv(substituted)
+            };
+            if target_ty != TypeId::ERROR
+                && trait_ty != TypeId::ERROR
+                && matches!(
+                    checker.ctx.type_registry.get(trait_ty),
+                    TypeKind::TraitObject(..)
+                )
+            {
+                let requirement = (target_ty, trait_ty);
+                if !requirements.contains(&requirement) {
+                    requirements.push(requirement);
+                }
+            }
+        }
+    }
+    requirements
 }
 
 #[derive(Clone, Copy)]

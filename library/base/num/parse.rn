@@ -1,5 +1,7 @@
 //! Allocation-free integer parsing.
 
+use base.io.{Formatable, Write};
+
 use ..USIZE_MAX;
 
 const U8_MAX_U128 = u128.{255};
@@ -21,6 +23,25 @@ pub enum ParseIntError {
     InvalidDigit,
     Overflow,
 };
+
+impl &ParseIntError : Formatable {
+    pub fn write_to(writer: &mut Write) void {
+        match (self.*) {
+            .Empty => {
+                _ = writer.write("ParseIntError.Empty");
+            },
+            .InvalidRadix => {
+                _ = writer.write("ParseIntError.InvalidRadix");
+            },
+            .InvalidDigit => {
+                _ = writer.write("ParseIntError.InvalidDigit");
+            },
+            .Overflow => {
+                _ = writer.write("ParseIntError.Overflow");
+            },
+        }
+    }
+}
 
 pub trait Parse[T] {
     fn parse_text() T!ParseIntError;

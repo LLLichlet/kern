@@ -1,0 +1,30 @@
+// class: coherence
+// source: same-head impl methods with incomparable where-clause requirements must not select arbitrarily
+// stderr: ambiguous impl method `score`
+// stderr: method lookup remains ambiguous
+
+trait NeedA {};
+trait NeedB {};
+
+impl i32 : NeedA {}
+impl i32 : NeedB {}
+
+struct Box[T] {
+    value: T,
+};
+
+impl[T] Box[T] where T: NeedA {
+    fn score() i32 {
+        return 1;
+    }
+}
+
+impl[T] Box[T] where T: NeedB {
+    fn score() i32 {
+        return 2;
+    }
+}
+
+fn main() i32 {
+    return Box[i32].{ value: 1 }.score();
+}

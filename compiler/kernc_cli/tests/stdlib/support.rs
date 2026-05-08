@@ -195,9 +195,9 @@ fn main() i32 {
 }
 
 #[test]
-fn test_eq_fmt_failure_reports_expected_and_actual_values() {
+fn test_eq_failure_reports_expected_and_actual_values_when_formattable() {
     let (source_path, executable_path) = build_temp_program(
-        "kernc_std_test_eq_fmt_fail",
+        "kernc_std_test_eq_fail_formattable",
         r#"
 use base.test;
 use std.io;
@@ -205,7 +205,7 @@ use std.io;
 fn main() i32 {
     let t = test.report(io.stderr())..&;
 
-    (?usize.{ Some: 4 }).should_some().eq_fmt(usize.{5}).sum(@loc(), t);
+    (?usize.{ Some: 4 }).should_some().eq(usize.{5}).sum(@loc(), t);
     return 0;
 }
 "#,

@@ -4,11 +4,29 @@
 //! keep the first layer allocator-free, explicit, and suitable for protocol or
 //! codec crates that need precise control over reads and writes.
 
+use base.io.{Formatable, Write};
+
 pub enum BitIoError {
     UnexpectedEof,
     BufferTooSmall,
     InvalidBitCount,
 };
+
+impl &BitIoError : Formatable {
+    pub fn write_to(writer: &mut Write) void {
+        match (self.*) {
+            .UnexpectedEof => {
+                _ = writer.write("BitIoError.UnexpectedEof");
+            },
+            .BufferTooSmall => {
+                _ = writer.write("BitIoError.BufferTooSmall");
+            },
+            .InvalidBitCount => {
+                _ = writer.write("BitIoError.InvalidBitCount");
+            },
+        }
+    }
+}
 
 pub struct BitReader {
     ptr: ?&u8 = .None,

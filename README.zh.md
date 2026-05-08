@@ -52,7 +52,6 @@ powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Ex
 mkdir hello
 cd hello
 craft init
-craft run
 ```
 
 `craft init` 会创建一个最小包，其中包含 `Craft.toml` 和 `src/main.rn`。编辑 `src/main.rn`：
@@ -61,7 +60,9 @@ craft run
 use std.io;
 
 fn main() i32 {
-    io.println("hello, {}!", .{"kern"});
+    "hello, {}!"
+        .fmt(.{"kern"})
+        .println();
     return 0;
 }
 ```
@@ -126,8 +127,8 @@ enum ParseResult {
 
 fn describe(result: ParseResult) void {
     match (result) {
-        .{ Number: value } => io.println("number = {}", .{value}),
-        .Missing => io.println("missing", .{}),
+        .{ Number: value } => "number = {}".fmt(.{value}).println(),
+        .Missing => "missing".println(),
     }
 }
 

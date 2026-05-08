@@ -62,7 +62,6 @@ Create a package:
 mkdir hello
 cd hello
 craft init
-craft run
 ```
 
 `craft init` creates a minimal package with `Craft.toml` and `src/main.rn`.
@@ -72,7 +71,9 @@ Edit `src/main.rn`:
 use std.io;
 
 fn main() i32 {
-    io.println("hello, {}!", .{"kern"});
+    "hello, {}!"
+        .fmt(.{"kern"})
+        .println();
     return 0;
 }
 ```
@@ -137,8 +138,8 @@ enum ParseResult {
 
 fn describe(result: ParseResult) void {
     match (result) {
-        .{ Number: value } => io.println("number = {}", .{value}),
-        .Missing => io.println("missing", .{}),
+        .{ Number: value } => "number = {}".fmt(.{value}).println(),
+        .Missing => "missing".println(),
     }
 }
 

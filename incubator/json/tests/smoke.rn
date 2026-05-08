@@ -107,63 +107,63 @@ fn check_value_lookup_helpers() void {
 fn check_borrowed_required_field_and_index_helpers() void {
     let t = test.report(io.stderr())..&;
     let value = parse("{\"msg\":\"hi\\n\",\"count\":12,\"items\":[\"x\\n\",7,{\"ok\":true}],\"dup\":1,\"dup\":2,\"flt\":1.5}").should_ok().sum(@loc(), t);
-    (value.require_u64_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_u32_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_u16_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_u8_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_i64_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_i32_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_i16_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_i8_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_usize_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_isize_field("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.require_f64_field("flt").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (value.require_f32_field("flt").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (value.require_string_text_field("msg").should_ok().sum(@loc(), t) == ("hi\\n")).should().sum(@loc(), t);
+    value.require_u64_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_u32_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_u16_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_u8_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_i64_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_i32_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_i16_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_i8_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_usize_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_isize_field("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.require_f64_field("flt").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    value.require_f32_field("flt").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    value.require_string_text_field("msg").should_ok().sum(@loc(), t).should().eq(("hi\\n")).sum(@loc(), t);
 
     let decoded_size = value.require_decoded_string_size_field("msg").should_ok().sum(@loc(), t);
-    (decoded_size == 3).should().sum(@loc(), t);
+    decoded_size.should().eq(3).sum(@loc(), t);
     let mut out = [8]u8.{undef};
     let written = value.write_required_decoded_string_field("msg", out..&[0 .. 8]).should_ok().sum(@loc(), t);
-    (written == decoded_size).should().sum(@loc(), t);
-    (out.&[0 .. written] == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    written.should().eq(decoded_size).sum(@loc(), t);
+    out.&[0 .. written].should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
 
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let mut cloned = value.clone_required_decoded_string_field("msg", gpa).should_ok().sum(@loc(), t);
     defer cloned..&.deinit(gpa);
-    (cloned.&.as_str() == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    cloned.&.as_str().should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
 
     let items = value.require_array_field("items").should_ok().sum(@loc(), t);
     items.is_array().should().sum(@loc(), t);
-    (items.require_string_raw_index(0).should_ok().sum(@loc(), t) == ("\"x\\n\"")).should().sum(@loc(), t);
-    (items.require_u64_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.require_u32_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.require_u16_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.require_u8_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.require_i64_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.require_i32_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.require_i16_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.require_i8_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.require_usize_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.require_isize_index(1).should_ok().sum(@loc(), t) == 7).should().sum(@loc(), t);
+    items.require_string_raw_index(0).should_ok().sum(@loc(), t).should().eq(("\"x\\n\"")).sum(@loc(), t);
+    items.require_u64_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.require_u32_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.require_u16_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.require_u8_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.require_i64_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.require_i32_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.require_i16_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.require_i8_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.require_usize_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.require_isize_index(1).should_ok().sum(@loc(), t).should().eq(7).sum(@loc(), t);
     let nested = items.require_object_index(2).should_ok().sum(@loc(), t);
-    (nested.require_bool_field("ok").should_ok().sum(@loc(), t) == true).should().sum(@loc(), t);
+    nested.require_bool_field("ok").should_ok().sum(@loc(), t).should().sum(@loc(), t);
 
     let mut cloned_item = items.clone_required_decoded_string_index(0, gpa).should_ok().sum(@loc(), t);
     defer cloned_item..&.deinit(gpa);
-    (cloned_item.&.as_str() == ([2]u8.{ b'x', b'\n' }.&[0 .. 2])).should().sum(@loc(), t);
+    cloned_item.&.as_str().should().eq(([2]u8.{ b'x', b'\n' }.&[0 .. 2])).sum(@loc(), t);
 
     match (value.require_bool_field("missing").should_err().sum(@loc(), t)) {
         .Missing => {},
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (value.require_bool_field("dup").should_err().sum(@loc(), t)) {
-        .{ Duplicate: count } => (count == 2).should().sum(@loc(), t),
+        .{ Duplicate: count } => count.should().eq(2).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (value.require_bool_field("msg").should_err().sum(@loc(), t)) {
-        .{ UnexpectedKind: kind } => (kind == Kind.String).should().sum(@loc(), t),
+        .{ UnexpectedKind: kind } => kind.should().eq(Kind.String).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (items.require_index(9).should_err().sum(@loc(), t)) {
@@ -171,17 +171,17 @@ fn check_borrowed_required_field_and_index_helpers() void {
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (items.require_u64_index(0).should_err().sum(@loc(), t)) {
-        .{ UnexpectedKind: kind } => (kind == Kind.String).should().sum(@loc(), t),
+        .{ UnexpectedKind: kind } => kind.should().eq(Kind.String).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     let scalar = parse("true").should_ok().sum(@loc(), t);
     match (scalar.require_field("x").should_err().sum(@loc(), t)) {
-        .{ UnexpectedKind: kind } => (kind == Kind.Bool).should().sum(@loc(), t),
+        .{ UnexpectedKind: kind } => kind.should().eq(Kind.Bool).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (scalar.require_index(0).should_err().sum(@loc(), t)) {
-        .{ UnexpectedKind: kind } => (kind == Kind.Bool).should().sum(@loc(), t),
+        .{ UnexpectedKind: kind } => kind.should().eq(Kind.Bool).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
@@ -206,42 +206,42 @@ fn check_packed_document_lookup_helpers() void {
     let root = doc.root();
 
     root.is_object().should().sum(@loc(), t);
-    (root.object_len().should_some().sum(@loc(), t) == 6).should().sum(@loc(), t);
-    (root.get_bool("ok").should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    root.object_len().should_some().sum(@loc(), t).should().eq(6).sum(@loc(), t);
+    root.get_bool("ok").should_some().sum(@loc(), t).should().sum(@loc(), t);
     root.has_field("user").should().sum(@loc(), t);
-    (root.count_fields("dup").should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    root.count_fields("dup").should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
     let mut collected = [2]json.PackedObjectEntry.{ undef, undef };
     let total = root.collect_fields("dup", collected..&[0 .. 2]).should_some().sum(@loc(), t);
-    (total == 2).should().sum(@loc(), t);
-    (collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
-    (collected.[1].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    total.should().eq(2).sum(@loc(), t);
+    collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
+    collected.[1].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
     let last_dup = root.get_last_field("dup").should_some().sum(@loc(), t);
-    (last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
-    (root.require_bool("ok").should_ok().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (root.require_f64("flt").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
+    last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
+    root.require_bool("ok").should_ok().sum(@loc(), t).should().sum(@loc(), t);
+    root.require_f64("flt").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
 
     let user = root.get_object("user").should_some().sum(@loc(), t);
-    (user.get_u64("id").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (user.get_u32("id").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (user.get_string("name").should_some().sum(@loc(), t) == ("kern")).should().sum(@loc(), t);
-    (user.require_string("name").should_ok().sum(@loc(), t) == ("kern")).should().sum(@loc(), t);
+    user.get_u64("id").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    user.get_u32("id").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    user.get_string("name").should_some().sum(@loc(), t).should().eq(("kern")).sum(@loc(), t);
+    user.require_string("name").should_ok().sum(@loc(), t).should().eq(("kern")).sum(@loc(), t);
 
     let items = root.get_array("items").should_some().sum(@loc(), t);
-    (items.array_len().should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    items.array_len().should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
     let item0 = items.get_index(0).should_some().sum(@loc(), t);
     let item1 = items.get_index(1).should_some().sum(@loc(), t);
-    (item0.get_string("sku").should_some().sum(@loc(), t) == ("abc")).should().sum(@loc(), t);
-    (item1.get_u64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 4).should().sum(@loc(), t);
-    (item1.get_i64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 4).should().sum(@loc(), t);
-    (item1.get_f64("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 5.75).should().sum(@loc(), t);
-    (item1.get_f32("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 5.75).should().sum(@loc(), t);
+    item0.get_string("sku").should_some().sum(@loc(), t).should().eq(("abc")).sum(@loc(), t);
+    item1.get_u64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(4).sum(@loc(), t);
+    item1.get_i64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(4).sum(@loc(), t);
+    item1.get_f64("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(5.75).sum(@loc(), t);
+    item1.get_f32("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(5.75).sum(@loc(), t);
 
     match (root.require_bool("dup").should_err().sum(@loc(), t)) {
-        .{ Duplicate: count } => (count == 2).should().sum(@loc(), t),
+        .{ Duplicate: count } => count.should().eq(2).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (root.require_u64("user").should_err().sum(@loc(), t)) {
-        .{ UnexpectedKind: kind } => (kind == Kind.Object).should().sum(@loc(), t),
+        .{ UnexpectedKind: kind } => kind.should().eq(Kind.Object).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
@@ -253,46 +253,46 @@ fn check_packed_indexed_object_document_api() void {
 
     let root = doc.root();
     root.is_object().should().sum(@loc(), t);
-    (root.object_len().should_some().sum(@loc(), t) == 6).should().sum(@loc(), t);
+    root.object_len().should_some().sum(@loc(), t).should().eq(6).sum(@loc(), t);
 
     let view = doc.view();
-    (view.len() == 6).should().sum(@loc(), t);
+    view.len().should().eq(6).sum(@loc(), t);
     (!view.is_empty()).should().sum(@loc(), t);
-    (view.get_bool("ok").should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    view.get_bool("ok").should_some().sum(@loc(), t).should().sum(@loc(), t);
     view.has_field("user").should().sum(@loc(), t);
-    (view.count_fields("dup") == 2).should().sum(@loc(), t);
+    view.count_fields("dup").should().eq(2).sum(@loc(), t);
 
     let first = view.get_entry(0).should_some().sum(@loc(), t);
     first.key_eq("ok").should().sum(@loc(), t);
     let dup = view.get_field("dup").should_some().sum(@loc(), t);
-    (dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+    dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
     let last_dup = view.get_last_field("dup").should_some().sum(@loc(), t);
-    (last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
 
     let mut collected = [1]json.PackedObjectEntry.{ undef };
     let total = view.collect_fields("dup", collected..&[0 .. 1]);
-    (total == 2).should().sum(@loc(), t);
-    (collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+    total.should().eq(2).sum(@loc(), t);
+    collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
 
-    (view.require_bool("ok").should_ok().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (view.require_f64("flt").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
+    view.require_bool("ok").should_ok().sum(@loc(), t).should().sum(@loc(), t);
+    view.require_f64("flt").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
     let user = view.require_object("user").should_ok().sum(@loc(), t);
-    (user.get_u64("id").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (user.get_string("name").should_some().sum(@loc(), t) == ("kern")).should().sum(@loc(), t);
+    user.get_u64("id").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    user.get_string("name").should_some().sum(@loc(), t).should().eq(("kern")).sum(@loc(), t);
 
     let items = view.require_array("items").should_ok().sum(@loc(), t);
     let item0 = items.get_index(0).should_some().sum(@loc(), t);
     let item1 = items.get_index(1).should_some().sum(@loc(), t);
-    (item0.get_string("sku").should_some().sum(@loc(), t) == ("abc")).should().sum(@loc(), t);
-    (item1.get_u64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 4).should().sum(@loc(), t);
-    (item1.get_f64("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 5.75).should().sum(@loc(), t);
+    item0.get_string("sku").should_some().sum(@loc(), t).should().eq(("abc")).sum(@loc(), t);
+    item1.get_u64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(4).sum(@loc(), t);
+    item1.get_f64("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(5.75).sum(@loc(), t);
 
     match (view.require_u64("dup").should_err().sum(@loc(), t)) {
-        .{ Duplicate: count } => (count == 2).should().sum(@loc(), t),
+        .{ Duplicate: count } => count.should().eq(2).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (view.require_u64("user").should_err().sum(@loc(), t)) {
-        .{ UnexpectedKind: kind } => (kind == Kind.Object).should().sum(@loc(), t),
+        .{ UnexpectedKind: kind } => kind.should().eq(Kind.Object).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (parse_packed_indexed_object_document("[1,2,3]").should_err().sum(@loc(), t)) {
@@ -304,17 +304,17 @@ fn check_packed_indexed_object_document_api() void {
 fn check_packed_document_string_decode_errors() void {
     let t = test.report(io.stderr())..&;
     match (parse_packed_document("\"\\uD800\"").should_err().sum(@loc(), t)) {
-        .{ String: .{ InvalidUnicodeEscape: offset } } => (offset == 1).should().sum(@loc(), t),
+        .{ String: .{ InvalidUnicodeEscape: offset } } => offset.should().eq(1).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (parse_packed_document("{\"\\uD800\":1}").should_err().sum(@loc(), t)) {
-        .{ String: .{ InvalidUnicodeEscape: offset } } => (offset == 1).should().sum(@loc(), t),
+        .{ String: .{ InvalidUnicodeEscape: offset } } => offset.should().eq(1).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
     match (parse_packed_indexed_object_document("{\"\\uD800\":1}").should_err().sum(@loc(), t)) {
-        .{ Materialize: .{ String: .{ InvalidUnicodeEscape: offset } } } => (offset == 1).should().sum(@loc(), t),
+        .{ Materialize: .{ String: .{ InvalidUnicodeEscape: offset } } } => offset.should().eq(1).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
@@ -323,64 +323,64 @@ fn check_borrowed_optional_schema_helpers() void {
     let t = test.report(io.stderr())..&;
     let value = parse("{\"flag\":true,\"count\":12,\"msg\":\"hi\\n\",\"items\":[\"x\\n\",7,{\"ok\":false}],\"nested\":{\"ok\":false},\"dup\":1,\"dup\":2,\"flt\":1.5}").should_ok().sum(@loc(), t);
 
-    (value.get_bool_field("flag").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (value.get_u64_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_u32_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_u16_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_u8_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_i64_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_i32_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_i16_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_i8_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_usize_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_isize_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (value.get_f64_field("flt").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (value.get_f32_field("flt").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (value.get_number_text_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == ("12")).should().sum(@loc(), t);
-    (value.get_string_raw_field("msg").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == ("\"hi\\n\"")).should().sum(@loc(), t);
-    (value.get_string_text_field("msg").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == ("hi\\n")).should().sum(@loc(), t);
-    (value.get_decoded_string_size_field("msg").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 3).should().sum(@loc(), t);
+    value.get_bool_field("flag").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().sum(@loc(), t);
+    value.get_u64_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_u32_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_u16_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_u8_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_i64_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_i32_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_i16_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_i8_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_usize_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_isize_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    value.get_f64_field("flt").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    value.get_f32_field("flt").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    value.get_number_text_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(("12")).sum(@loc(), t);
+    value.get_string_raw_field("msg").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(("\"hi\\n\"")).sum(@loc(), t);
+    value.get_string_text_field("msg").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(("hi\\n")).sum(@loc(), t);
+    value.get_decoded_string_size_field("msg").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(3).sum(@loc(), t);
 
     let mut out = [8]u8.{undef};
     let written = value.write_decoded_string_field("msg", out..&[0 .. 8]).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (written == 3).should().sum(@loc(), t);
-    (out.&[0 .. written] == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    written.should().eq(3).sum(@loc(), t);
+    out.&[0 .. written].should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
 
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let mut cloned = value.clone_decoded_string_field("msg", gpa).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     defer cloned..&.deinit(gpa);
-    (cloned.&.as_str() == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    cloned.&.as_str().should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
 
     let items = value.get_array_field("items").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     items.is_array().should().sum(@loc(), t);
-    (items.get_string_raw_index(0).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == ("\"x\\n\"")).should().sum(@loc(), t);
-    (items.get_string_text_index(0).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == ("x\\n")).should().sum(@loc(), t);
-    (items.get_decoded_string_size_index(0).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    items.get_string_raw_index(0).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(("\"x\\n\"")).sum(@loc(), t);
+    items.get_string_text_index(0).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(("x\\n")).sum(@loc(), t);
+    items.get_decoded_string_size_index(0).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
     let written_item = items.write_decoded_string_index(0, out..&[0 .. 8]).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (written_item == 2).should().sum(@loc(), t);
-    (out.&[0 .. written_item] == ([2]u8.{ b'x', b'\n' }.&[0 .. 2])).should().sum(@loc(), t);
+    written_item.should().eq(2).sum(@loc(), t);
+    out.&[0 .. written_item].should().eq(([2]u8.{ b'x', b'\n' }.&[0 .. 2])).sum(@loc(), t);
 
     let mut cloned_item = items.clone_decoded_string_index(0, gpa).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     defer cloned_item..&.deinit(gpa);
-    (cloned_item.&.as_str() == ([2]u8.{ b'x', b'\n' }.&[0 .. 2])).should().sum(@loc(), t);
+    cloned_item.&.as_str().should().eq(([2]u8.{ b'x', b'\n' }.&[0 .. 2])).sum(@loc(), t);
 
-    (items.get_u64_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.get_u32_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.get_u16_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.get_u8_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.get_i64_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.get_i32_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.get_i16_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.get_i8_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.get_usize_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (items.get_isize_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
+    items.get_u64_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.get_u32_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.get_u16_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.get_u8_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.get_i64_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.get_i32_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.get_i16_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.get_i8_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.get_usize_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    items.get_isize_index(1).should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
     let nested_item = items.get_object_index(2).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (nested_item.get_bool_field("ok").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == false).should().sum(@loc(), t);
+    nested_item.get_bool_field("ok").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).not().should().sum(@loc(), t);
 
     let nested = value.get_object_field("nested").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (nested.get_bool_field("ok").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == false).should().sum(@loc(), t);
-    (value.get_u64_field("dup").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+    nested.get_bool_field("ok").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).not().should().sum(@loc(), t);
+    value.get_u64_field("dup").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
 
     value.get_bool_field("msg").should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
     value.get_string_text_field("missing").should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
@@ -420,13 +420,13 @@ fn check_kind_helpers_and_scalar_accessors() void {
     array_value.is_array().should().sum(@loc(), t);
     object_value.is_object().should().sum(@loc(), t);
 
-    (true_value.bool_value().should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (false_value.bool_value().should_some().sum(@loc(), t) == false).should().sum(@loc(), t);
+    true_value.bool_value().should_some().sum(@loc(), t).should().sum(@loc(), t);
+    false_value.bool_value().should_some().sum(@loc(), t).not().should().sum(@loc(), t);
     number_value.bool_value().is_none().should().sum(@loc(), t);
 
-    (number_value.number_text().should_some().sum(@loc(), t) == ("-12.5e+2")).should().sum(@loc(), t);
-    (string_value.string_raw().should_some().sum(@loc(), t) == ("\"hi\\n\"")).should().sum(@loc(), t);
-    (string_value.string_text().should_some().sum(@loc(), t) == ("hi\\n")).should().sum(@loc(), t);
+    number_value.number_text().should_some().sum(@loc(), t).should().eq(("-12.5e+2")).sum(@loc(), t);
+    string_value.string_raw().should_some().sum(@loc(), t).should().eq(("\"hi\\n\"")).sum(@loc(), t);
+    string_value.string_text().should_some().sum(@loc(), t).should().eq(("hi\\n")).sum(@loc(), t);
     null_value.string_text().is_none().should().sum(@loc(), t);
 }
 
@@ -436,11 +436,11 @@ fn check_container_count_and_presence_helpers() void {
     let object = parse("{\"ok\":true,\"msg\":\"hi\"}").should_ok().sum(@loc(), t);
     let scalar = parse("true").should_ok().sum(@loc(), t);
 
-    (array.array_len().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 3).should().sum(@loc(), t);
-    (object.object_len().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    array.array_len().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(3).sum(@loc(), t);
+    object.object_len().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
     object.has_field("msg").should_ok().sum(@loc(), t).should().sum(@loc(), t);
     (!object.has_field("missing").should_ok().sum(@loc(), t)).should().sum(@loc(), t);
-    (array.has_field("msg").should_ok().sum(@loc(), t) == false).should().sum(@loc(), t);
+    array.has_field("msg").should_ok().sum(@loc(), t).not().should().sum(@loc(), t);
     scalar.array_len().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
     scalar.object_len().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
 }
@@ -454,16 +454,16 @@ fn check_typed_integer_accessors() void {
     let neg_byte = parse("-128").should_ok().sum(@loc(), t);
     let scalar = parse("true").should_ok().sum(@loc(), t);
 
-    (unsigned.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 18446744073709551615).should().sum(@loc(), t);
-    (signed.i64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == -9223372036854775808).should().sum(@loc(), t);
-    (small.u32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 42).should().sum(@loc(), t);
-    (small.i32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 42).should().sum(@loc(), t);
-    (small.u16_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 42).should().sum(@loc(), t);
-    (small.i16_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 42).should().sum(@loc(), t);
-    (byte.u8_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 255).should().sum(@loc(), t);
-    (neg_byte.i8_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == -128).should().sum(@loc(), t);
-    (small.usize_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 42).should().sum(@loc(), t);
-    (small.isize_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 42).should().sum(@loc(), t);
+    unsigned.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(18446744073709551615).sum(@loc(), t);
+    signed.i64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(-9223372036854775808).sum(@loc(), t);
+    small.u32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(42).sum(@loc(), t);
+    small.i32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(42).sum(@loc(), t);
+    small.u16_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(42).sum(@loc(), t);
+    small.i16_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(42).sum(@loc(), t);
+    byte.u8_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(255).sum(@loc(), t);
+    neg_byte.i8_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(-128).sum(@loc(), t);
+    small.usize_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(42).sum(@loc(), t);
+    small.isize_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(42).sum(@loc(), t);
 
     scalar.u64_value().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
     scalar.i64_value().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
@@ -511,7 +511,7 @@ fn check_typed_integer_errors() void {
     let invalid = json.Value.{ kind: Kind.Number, raw: "01" };
     match (invalid.u64_value().should_err().sum(@loc(), t)) {
         .{ Parse: err } => match (err) {
-            .{ InvalidNumber: offset } => (offset == 1).should().sum(@loc(), t),
+            .{ InvalidNumber: offset } => offset.should().eq(1).sum(@loc(), t),
             _ => t.fail_at(@loc(), "unexpected match arm"),
         },
         _ => t.fail_at(@loc(), "unexpected match arm"),
@@ -526,14 +526,14 @@ fn check_typed_float_accessors() void {
     let negative = parse("-12.5e+2").should_ok().sum(@loc(), t);
     let scalar = parse("false").should_ok().sum(@loc(), t);
 
-    (integer.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 42.0).should().sum(@loc(), t);
-    (fraction.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (exact_exp.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 0.125).should().sum(@loc(), t);
-    (negative.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == -1250.0).should().sum(@loc(), t);
-    (integer.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 42.0 as f32).should().sum(@loc(), t);
-    (fraction.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1.5 as f32).should().sum(@loc(), t);
-    (exact_exp.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 0.125 as f32).should().sum(@loc(), t);
-    (negative.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == -1250.0 as f32).should().sum(@loc(), t);
+    integer.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(42.0).sum(@loc(), t);
+    fraction.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    exact_exp.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(0.125).sum(@loc(), t);
+    negative.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(-1250.0).sum(@loc(), t);
+    integer.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(42.0 as f32).sum(@loc(), t);
+    fraction.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1.5 as f32).sum(@loc(), t);
+    exact_exp.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(0.125 as f32).sum(@loc(), t);
+    negative.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(-1250.0 as f32).sum(@loc(), t);
     scalar.f64_value().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
     scalar.f32_value().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
 }
@@ -556,27 +556,27 @@ fn check_typed_float_errors() void {
 
     let invalid = json.Value.{ kind: Kind.Number, raw: "01" };
     match (invalid.f64_value().should_err().sum(@loc(), t)) {
-        .{ Parse: .{ InvalidNumber: offset } } => (offset == 1).should().sum(@loc(), t),
+        .{ Parse: .{ InvalidNumber: offset } } => offset.should().eq(1).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (invalid.f32_value().should_err().sum(@loc(), t)) {
-        .{ Parse: .{ InvalidNumber: offset } } => (offset == 1).should().sum(@loc(), t),
+        .{ Parse: .{ InvalidNumber: offset } } => offset.should().eq(1).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
 
 fn check_raw_integer_parse_helpers() void {
     let t = test.report(io.stderr())..&;
-    (parse_u32_raw("42").should_ok().sum(@loc(), t) == 42).should().sum(@loc(), t);
-    (parse_i32_raw("-17").should_ok().sum(@loc(), t) == -17).should().sum(@loc(), t);
-    (parse_u16_raw("99").should_ok().sum(@loc(), t) == 99).should().sum(@loc(), t);
-    (parse_i16_raw("-99").should_ok().sum(@loc(), t) == -99).should().sum(@loc(), t);
-    (parse_u8_raw("255").should_ok().sum(@loc(), t) == 255).should().sum(@loc(), t);
-    (parse_i8_raw("-128").should_ok().sum(@loc(), t) == -128).should().sum(@loc(), t);
-    (parse_u64_raw("0").should_ok().sum(@loc(), t) == 0).should().sum(@loc(), t);
-    (parse_i64_raw("-17").should_ok().sum(@loc(), t) == -17).should().sum(@loc(), t);
-    (parse_usize_raw("99").should_ok().sum(@loc(), t) == 99).should().sum(@loc(), t);
-    (parse_isize_raw("-99").should_ok().sum(@loc(), t) == -99).should().sum(@loc(), t);
+    parse_u32_raw("42").should_ok().sum(@loc(), t).should().eq(42).sum(@loc(), t);
+    parse_i32_raw("-17").should_ok().sum(@loc(), t).should().eq(-17).sum(@loc(), t);
+    parse_u16_raw("99").should_ok().sum(@loc(), t).should().eq(99).sum(@loc(), t);
+    parse_i16_raw("-99").should_ok().sum(@loc(), t).should().eq(-99).sum(@loc(), t);
+    parse_u8_raw("255").should_ok().sum(@loc(), t).should().eq(255).sum(@loc(), t);
+    parse_i8_raw("-128").should_ok().sum(@loc(), t).should().eq(-128).sum(@loc(), t);
+    parse_u64_raw("0").should_ok().sum(@loc(), t).should().eq(0).sum(@loc(), t);
+    parse_i64_raw("-17").should_ok().sum(@loc(), t).should().eq(-17).sum(@loc(), t);
+    parse_usize_raw("99").should_ok().sum(@loc(), t).should().eq(99).sum(@loc(), t);
+    parse_isize_raw("-99").should_ok().sum(@loc(), t).should().eq(-99).sum(@loc(), t);
 
     match (parse_u64_raw("-7").should_err().sum(@loc(), t)) {
         .NegativeUnsigned => {},
@@ -600,7 +600,7 @@ fn check_raw_integer_parse_helpers() void {
     }
     match (parse_u64_raw("01").should_err().sum(@loc(), t)) {
         .{ Parse: err } => match (err) {
-            .{ InvalidNumber: offset } => (offset == 1).should().sum(@loc(), t),
+            .{ InvalidNumber: offset } => offset.should().eq(1).sum(@loc(), t),
             _ => t.fail_at(@loc(), "unexpected match arm"),
         },
         _ => t.fail_at(@loc(), "unexpected match arm"),
@@ -609,17 +609,17 @@ fn check_raw_integer_parse_helpers() void {
 
 fn check_raw_float_parse_helpers() void {
     let t = test.report(io.stderr())..&;
-    (parse_f32_raw("0").should_ok().sum(@loc(), t) == 0.0 as f32).should().sum(@loc(), t);
-    (parse_f32_raw("1.5").should_ok().sum(@loc(), t) == 1.5 as f32).should().sum(@loc(), t);
-    (parse_f32_raw("125e-3").should_ok().sum(@loc(), t) == 0.125 as f32).should().sum(@loc(), t);
-    (parse_f32_raw("-12.5e+2").should_ok().sum(@loc(), t) == -1250.0 as f32).should().sum(@loc(), t);
-    (parse_f32_raw("1e-50").should_ok().sum(@loc(), t) == 0.0 as f32).should().sum(@loc(), t);
-    (parse_f64_raw("0").should_ok().sum(@loc(), t) == 0.0).should().sum(@loc(), t);
-    (parse_f64_raw("1.5").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (parse_f64_raw("125e-3").should_ok().sum(@loc(), t) == 0.125).should().sum(@loc(), t);
-    (parse_f64_raw("-12.5e+2").should_ok().sum(@loc(), t) == -1250.0).should().sum(@loc(), t);
-    (parse_f64_raw("100000000000000000000").should_ok().sum(@loc(), t) == 1e20).should().sum(@loc(), t);
-    (parse_f64_raw("1e-400").should_ok().sum(@loc(), t) == 0.0).should().sum(@loc(), t);
+    parse_f32_raw("0").should_ok().sum(@loc(), t).should().eq(0.0 as f32).sum(@loc(), t);
+    parse_f32_raw("1.5").should_ok().sum(@loc(), t).should().eq(1.5 as f32).sum(@loc(), t);
+    parse_f32_raw("125e-3").should_ok().sum(@loc(), t).should().eq(0.125 as f32).sum(@loc(), t);
+    parse_f32_raw("-12.5e+2").should_ok().sum(@loc(), t).should().eq(-1250.0 as f32).sum(@loc(), t);
+    parse_f32_raw("1e-50").should_ok().sum(@loc(), t).should().eq(0.0 as f32).sum(@loc(), t);
+    parse_f64_raw("0").should_ok().sum(@loc(), t).should().eq(0.0).sum(@loc(), t);
+    parse_f64_raw("1.5").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    parse_f64_raw("125e-3").should_ok().sum(@loc(), t).should().eq(0.125).sum(@loc(), t);
+    parse_f64_raw("-12.5e+2").should_ok().sum(@loc(), t).should().eq(-1250.0).sum(@loc(), t);
+    parse_f64_raw("100000000000000000000").should_ok().sum(@loc(), t).should().eq(1e20).sum(@loc(), t);
+    parse_f64_raw("1e-400").should_ok().sum(@loc(), t).should().eq(0.0).sum(@loc(), t);
 
     match (parse_f64_raw("1e400").should_err().sum(@loc(), t)) {
         .Overflow => {},
@@ -631,11 +631,11 @@ fn check_raw_float_parse_helpers() void {
         .{ Ok: _ } => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (parse_f64_raw("01").should_err().sum(@loc(), t)) {
-        .{ Parse: .{ InvalidNumber: offset } } => (offset == 1).should().sum(@loc(), t),
+        .{ Parse: .{ InvalidNumber: offset } } => offset.should().eq(1).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (parse_f32_raw("01").should_err().sum(@loc(), t)) {
-        .{ Parse: .{ InvalidNumber: offset } } => (offset == 1).should().sum(@loc(), t),
+        .{ Parse: .{ InvalidNumber: offset } } => offset.should().eq(1).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
@@ -644,11 +644,11 @@ fn check_decoded_string_helpers() void {
     let t = test.report(io.stderr())..&;
     let escaped = parse("\"hi\\n\\u4F60\\u597D\\uD83D\\uDE03\"").should_ok().sum(@loc(), t);
     let decoded_size = escaped.decoded_string_size().should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (decoded_size == 13).should().sum(@loc(), t);
+    decoded_size.should().eq(13).sum(@loc(), t);
 
     let mut out = [32]u8.{undef};
     let written = escaped.write_decoded_string(out..&[0 .. 32]).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (written == decoded_size).should().sum(@loc(), t);
+    written.should().eq(decoded_size).sum(@loc(), t);
     (out.&[0 .. written] == ([
             13
         ]u8.{
@@ -671,7 +671,7 @@ fn check_decoded_string_helpers() void {
     let gpa = GPA.{ backing: page }..&;
     let mut owned = escaped.clone_decoded_string(gpa).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     defer owned..&.deinit(gpa);
-    (owned.&.as_str() == (out.&[0 .. written])).should().sum(@loc(), t);
+    owned.&.as_str().should().eq((out.&[0 .. written])).sum(@loc(), t);
 }
 
 fn check_decoded_string_errors() void {
@@ -692,11 +692,11 @@ fn check_decoded_string_errors() void {
 
     let invalid = json.Value.{ kind: Kind.String, raw: "\"\\uD800\"" };
     match (invalid.decoded_string_size().should_err().sum(@loc(), t)) {
-        .{ InvalidUnicodeEscape: offset } => (offset == 1).should().sum(@loc(), t),
+        .{ InvalidUnicodeEscape: offset } => offset.should().eq(1).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (invalid.write_decoded_string([16]u8.{undef}..&[0 .. 16]).should_err().sum(@loc(), t)) {
-        .{ InvalidUnicodeEscape: offset } => (offset == 1).should().sum(@loc(), t),
+        .{ InvalidUnicodeEscape: offset } => offset.should().eq(1).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
@@ -706,21 +706,21 @@ fn check_decoded_object_key_helpers() void {
     let object = parse("{\"a\\u0042\\uD83D\\uDE03\":1}").should_ok().sum(@loc(), t);
     let entry = object.get_field("a\\u0042\\uD83D\\uDE03").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     let decoded_size = entry.decoded_key_size().should_ok().sum(@loc(), t);
-    (decoded_size == 6).should().sum(@loc(), t);
+    decoded_size.should().eq(6).sum(@loc(), t);
 
     let mut out = [16]u8.{undef};
     let written = entry.write_decoded_key(out..&[0 .. 16]).should_ok().sum(@loc(), t);
-    (written == decoded_size).should().sum(@loc(), t);
-    (out.&[0 .. written] == ([6]u8.{ b'a', b'B', u8.{0xF0}, u8.{0x9F}, u8.{0x98}, u8.{0x83} }.&[0 .. 6])).should().sum(@loc(), t);
+    written.should().eq(decoded_size).sum(@loc(), t);
+    out.&[0 .. written].should().eq(([6]u8.{ b'a', b'B', u8.{0xF0}, u8.{0x9F}, u8.{0x98}, u8.{0x83} }.&[0 .. 6])).sum(@loc(), t);
 
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let mut owned = entry.clone_decoded_key(gpa).should_ok().sum(@loc(), t);
     defer owned..&.deinit(gpa);
-    (owned.&.as_str() == (out.&[0 .. written])).should().sum(@loc(), t);
+    owned.&.as_str().should().eq((out.&[0 .. written])).sum(@loc(), t);
 
-    (entry.number_text().should_some().sum(@loc(), t) == ("1")).should().sum(@loc(), t);
-    (entry.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+    entry.number_text().should_some().sum(@loc(), t).should().eq(("1")).sum(@loc(), t);
+    entry.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
 }
 
 fn check_borrowed_object_entry_value_helpers() void {
@@ -728,32 +728,32 @@ fn check_borrowed_object_entry_value_helpers() void {
     let object = parse("{\"flag\":true,\"count\":12,\"msg\":\"hi\\n\",\"flt\":1.5}").should_ok().sum(@loc(), t);
 
     let flag = object.get_field("flag").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (flag.bool_value().should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    flag.bool_value().should_some().sum(@loc(), t).should().sum(@loc(), t);
 
     let count = object.get_field("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (count.number_text().should_some().sum(@loc(), t) == ("12")).should().sum(@loc(), t);
-    (count.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (count.i32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (count.usize_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
+    count.number_text().should_some().sum(@loc(), t).should().eq(("12")).sum(@loc(), t);
+    count.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    count.i32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    count.usize_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
 
     let msg = object.get_field("msg").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (msg.string_raw().should_some().sum(@loc(), t) == ("\"hi\\n\"")).should().sum(@loc(), t);
-    (msg.string_text().should_some().sum(@loc(), t) == ("hi\\n")).should().sum(@loc(), t);
-    (msg.decoded_string_size().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 3).should().sum(@loc(), t);
+    msg.string_raw().should_some().sum(@loc(), t).should().eq(("\"hi\\n\"")).sum(@loc(), t);
+    msg.string_text().should_some().sum(@loc(), t).should().eq(("hi\\n")).sum(@loc(), t);
+    msg.decoded_string_size().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(3).sum(@loc(), t);
     let mut out = [8]u8.{undef};
     let written = msg.write_decoded_string(out..&[0 .. 8]).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (written == 3).should().sum(@loc(), t);
-    (out.&[0 .. written] == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    written.should().eq(3).sum(@loc(), t);
+    out.&[0 .. written].should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
 
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let mut cloned = msg.clone_decoded_string(gpa).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     defer cloned..&.deinit(gpa);
-    (cloned.&.as_str() == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    cloned.&.as_str().should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
 
     let flt = object.get_field("flt").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (flt.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (flt.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
+    flt.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    flt.f32_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
     match (flt.u64_value().should_err().sum(@loc(), t)) {
         .NotInteger => {},
         _ => t.fail_at(@loc(), "unexpected match arm"),
@@ -771,60 +771,60 @@ fn check_owned_materialization() void {
     defer owned..&.deinit(gpa);
 
     owned..&.is_object().should().sum(@loc(), t);
-    (owned..&.object_len().should_some().sum(@loc(), t) == 6).should().sum(@loc(), t);
+    owned..&.object_len().should_some().sum(@loc(), t).should().eq(6).sum(@loc(), t);
     owned..&.has_field("msg").should().sum(@loc(), t);
     (!owned..&.has_field("missing")).should().sum(@loc(), t);
-    (owned..&.get_string("msg").should_some().sum(@loc(), t) == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    owned..&.get_string("msg").should_some().sum(@loc(), t).should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
     owned..&.get_array("items").should_some().sum(@loc(), t).is_array().should().sum(@loc(), t);
     owned..&.get_object("nested").should_some().sum(@loc(), t).is_object().should().sum(@loc(), t);
     owned..&.get_array("msg").is_none().should().sum(@loc(), t);
-    (owned..&.get_bool("flag").should_some().sum(@loc(), t) == false).should().sum(@loc(), t);
+    owned..&.get_bool("flag").should_some().sum(@loc(), t).not().should().sum(@loc(), t);
 
     let msg = owned..&.get_field("msg").should_some().sum(@loc(), t);
     msg.key_eq("msg").should().sum(@loc(), t);
-    (msg.string_text().should_some().sum(@loc(), t) == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    msg.string_text().should_some().sum(@loc(), t).should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
     msg.u64_value().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
 
     let items = owned..&.get_field("items").should_some().sum(@loc(), t);
     items.key_eq("items").should().sum(@loc(), t);
-    (items.value.array_len().should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
-    (items.value.get_index(0).should_some().sum(@loc(), t).bool_value().should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    items.value.array_len().should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
+    items.value.get_index(0).should_some().sum(@loc(), t).bool_value().should_some().sum(@loc(), t).should().sum(@loc(), t);
     let item1 = items.value.get_index(1).should_some().sum(@loc(), t);
-    (item1.number_text().should_some().sum(@loc(), t) == ("12")).should().sum(@loc(), t);
-    (item1.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (item1.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12.0).should().sum(@loc(), t);
+    item1.number_text().should_some().sum(@loc(), t).should().eq(("12")).sum(@loc(), t);
+    item1.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    item1.f64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12.0).sum(@loc(), t);
 
     let nested = owned..&.get_field("nested").should_some().sum(@loc(), t);
     nested.key_eq("nested").should().sum(@loc(), t);
     let ok = nested.value.get_field("ok").should_some().sum(@loc(), t);
     ok.key_eq("ok").should().sum(@loc(), t);
-    (ok.value.bool_value().should_some().sum(@loc(), t) == false).should().sum(@loc(), t);
+    ok.value.bool_value().should_some().sum(@loc(), t).not().should().sum(@loc(), t);
 
     let object = match (owned) {
         .{ Object: object } => object,
         _ => t.fail_at(@loc(), "unexpected match arm"),
     };
-    (object.&.get_bool("flag").should_some().sum(@loc(), t) == false).should().sum(@loc(), t);
+    object.&.get_bool("flag").should_some().sum(@loc(), t).not().should().sum(@loc(), t);
     object.&.get_bool("missing").is_none().should().sum(@loc(), t);
     object.&.get_string("items").is_none().should().sum(@loc(), t);
-    (object.&.get_number_text("count").should_some().sum(@loc(), t) == ("12")).should().sum(@loc(), t);
-    (object.&.get_u64("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (object.&.get_i32("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (object.&.get_f64("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12.0).should().sum(@loc(), t);
-    (object.&.get_f32("pi").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1.25 as f32).should().sum(@loc(), t);
+    object.&.get_number_text("count").should_some().sum(@loc(), t).should().eq(("12")).sum(@loc(), t);
+    object.&.get_u64("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    object.&.get_i32("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    object.&.get_f64("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12.0).sum(@loc(), t);
+    object.&.get_f32("pi").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1.25 as f32).sum(@loc(), t);
     object.&.get_u64("msg").should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
 
     let dup_value = parse("{\"dup\":1,\"dup\":2,\"dup\":3}").should_ok().sum(@loc(), t);
     let mut dup_owned = dup_value.clone_owned(gpa).should_ok().sum(@loc(), t);
     defer dup_owned..&.deinit(gpa);
-    (dup_owned..&.count_fields("dup").should_some().sum(@loc(), t) == 3).should().sum(@loc(), t);
+    dup_owned..&.count_fields("dup").should_some().sum(@loc(), t).should().eq(3).sum(@loc(), t);
     let last_dup = dup_owned..&.get_last_field("dup").should_some().sum(@loc(), t);
-    (last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 3).should().sum(@loc(), t);
+    last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(3).sum(@loc(), t);
     let mut collected = [2]json.OwnedObjectEntry.{ undef, undef };
     let total = dup_owned..&.collect_fields("dup", collected..&[0 .. 2]).should_some().sum(@loc(), t);
-    (total == 3).should().sum(@loc(), t);
-    (collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
-    (collected.[1].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    total.should().eq(3).sum(@loc(), t);
+    collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
+    collected.[1].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
 }
 
 fn check_owned_materialization_with_arena_reset() void {
@@ -838,9 +838,9 @@ fn check_owned_materialization_with_arena_reset() void {
     while (round < 2) {
         let mut owned = value.clone_owned(arena..&).should_ok().sum(@loc(), t);
         owned..&.is_object().should().sum(@loc(), t);
-        (owned..&.object_len().should_some().sum(@loc(), t) == 4).should().sum(@loc(), t);
-        (owned..&.get_bool("flag").should_some().sum(@loc(), t) == false).should().sum(@loc(), t);
-        (owned..&.get_string("msg").should_some().sum(@loc(), t) == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+        owned..&.object_len().should_some().sum(@loc(), t).should().eq(4).sum(@loc(), t);
+        owned..&.get_bool("flag").should_some().sum(@loc(), t).not().should().sum(@loc(), t);
+        owned..&.get_string("msg").should_some().sum(@loc(), t).should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
         owned..&.get_array("items").should_some().sum(@loc(), t).is_array().should().sum(@loc(), t);
         arena..&.reset();
         round += 1;
@@ -858,30 +858,30 @@ fn check_indexed_object_view() void {
     let view = owned.build_indexed_object_view(gpa).should_ok().sum(@loc(), t).should_some().sum(@loc(), t)..&;
     defer view.deinit(gpa);
 
-    (view.len() == 5).should().sum(@loc(), t);
+    view.len().should().eq(5).sum(@loc(), t);
     (!view.is_empty()).should().sum(@loc(), t);
     view.has_field("msg").should().sum(@loc(), t);
     (!view.has_field("missing")).should().sum(@loc(), t);
-    (view.get_bool("flag").should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (view.get_string("msg").should_some().sum(@loc(), t) == ("hi")).should().sum(@loc(), t);
+    view.get_bool("flag").should_some().sum(@loc(), t).should().sum(@loc(), t);
+    view.get_string("msg").should_some().sum(@loc(), t).should().eq(("hi")).sum(@loc(), t);
     view.get_array("msg").is_none().should().sum(@loc(), t);
-    (view.get_number_text("a").should_some().sum(@loc(), t) == ("1")).should().sum(@loc(), t);
-    (view.get_u64("a").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
-    (view.get_i32("dup").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
-    (view.get_f64("a").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1.0).should().sum(@loc(), t);
+    view.get_number_text("a").should_some().sum(@loc(), t).should().eq(("1")).sum(@loc(), t);
+    view.get_u64("a").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
+    view.get_i32("dup").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
+    view.get_f64("a").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1.0).sum(@loc(), t);
     view.get_u64("msg").should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
 
     let dup = view.get_field("dup").should_some().sum(@loc(), t);
-    (dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+    dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
     let second = view.get_entry(1).should_some().sum(@loc(), t);
-    (second.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
-    (view.count_fields("dup") == 2).should().sum(@loc(), t);
+    second.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
+    view.count_fields("dup").should().eq(2).sum(@loc(), t);
     let last_dup = view.get_last_field("dup").should_some().sum(@loc(), t);
-    (last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
     let mut collected = [1]json.OwnedObjectEntry.{ undef };
     let total = view.collect_fields("dup", collected..&[0 .. 1]);
-    (total == 2).should().sum(@loc(), t);
-    (collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+    total.should().eq(2).sum(@loc(), t);
+    collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
 
     let scalar = parse("true").should_ok().sum(@loc(), t);
     let scalar_owned = scalar.clone_owned(gpa).should_ok().sum(@loc(), t)..&;
@@ -908,11 +908,11 @@ fn check_indexed_object_view_with_arena_reset() void {
     while (round < 2) {
         let owned = value.clone_owned(arena).should_ok().sum(@loc(), t)..&;
         let view = owned.build_indexed_object_view(arena).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-        (view.&.len() == 5).should().sum(@loc(), t);
-        (view.&.get_bool("flag").should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
-        (view.&.get_string("msg").should_some().sum(@loc(), t) == ("hi")).should().sum(@loc(), t);
-        (view.&.count_fields("dup") == 2).should().sum(@loc(), t);
-        (view.&.get_field("a").should_some().sum(@loc(), t).u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+        view.&.len().should().eq(5).sum(@loc(), t);
+        view.&.get_bool("flag").should_some().sum(@loc(), t).should().sum(@loc(), t);
+        view.&.get_string("msg").should_some().sum(@loc(), t).should().eq(("hi")).sum(@loc(), t);
+        view.&.count_fields("dup").should().eq(2).sum(@loc(), t);
+        view.&.get_field("a").should_some().sum(@loc(), t).u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
         arena.reset();
         round += 1;
     }
@@ -925,9 +925,9 @@ fn check_owned_document_api() void {
 
     let root = doc.&.root();
     root.is_object().should().sum(@loc(), t);
-    (root.object_len().should_some().sum(@loc(), t) == 3).should().sum(@loc(), t);
-    (root.get_bool("flag").should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (root.get_string("msg").should_some().sum(@loc(), t) == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    root.object_len().should_some().sum(@loc(), t).should().eq(3).sum(@loc(), t);
+    root.get_bool("flag").should_some().sum(@loc(), t).should().sum(@loc(), t);
+    root.get_string("msg").should_some().sum(@loc(), t).should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
     root.get_array("items").should_some().sum(@loc(), t).is_array().should().sum(@loc(), t);
 }
 
@@ -939,38 +939,38 @@ fn check_owned_document_schema_and_duplicate_helpers() void {
     let root = doc.&.root();
     root.has_field("msg").should().sum(@loc(), t);
     (!root.has_field("missing")).should().sum(@loc(), t);
-    (root.count_fields("dup").should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    root.count_fields("dup").should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
 
     let msg = root.get_field("msg").should_some().sum(@loc(), t);
     msg.key_eq("msg").should().sum(@loc(), t);
-    (msg.string_text().should_some().sum(@loc(), t) == ("hi")).should().sum(@loc(), t);
+    msg.string_text().should_some().sum(@loc(), t).should().eq(("hi")).sum(@loc(), t);
 
     let last_dup = root.get_last_field("dup").should_some().sum(@loc(), t);
-    (last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
     let mut collected = [1]json.DocumentObjectEntryRef.{ undef };
     let total = root.collect_fields("dup", collected..&[0 .. 1]).should_some().sum(@loc(), t);
-    (total == 2).should().sum(@loc(), t);
-    (collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+    total.should().eq(2).sum(@loc(), t);
+    collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
 
-    (root.require_bool("flag").should_ok().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (root.require_u64("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (root.require_f64("flt").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
+    root.require_bool("flag").should_ok().sum(@loc(), t).should().sum(@loc(), t);
+    root.require_u64("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    root.require_f64("flt").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
     let nested = root.require_object("nested").should_ok().sum(@loc(), t);
-    (nested.require_bool("ok").should_ok().sum(@loc(), t) == false).should().sum(@loc(), t);
+    nested.require_bool("ok").should_ok().sum(@loc(), t).not().should().sum(@loc(), t);
     let items = root.require_array("items").should_ok().sum(@loc(), t);
     let second = items.get_index(1).should_some().sum(@loc(), t);
-    (second.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    second.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
 
     match (root.require_bool("missing").should_err().sum(@loc(), t)) {
         .Missing => {},
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (root.require_bool("dup").should_err().sum(@loc(), t)) {
-        .{ Duplicate: count } => (count == 2).should().sum(@loc(), t),
+        .{ Duplicate: count } => count.should().eq(2).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (root.require_bool("msg").should_err().sum(@loc(), t)) {
-        .{ UnexpectedKind: kind } => (kind == Kind.String).should().sum(@loc(), t),
+        .{ UnexpectedKind: kind } => kind.should().eq(Kind.String).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
@@ -982,21 +982,21 @@ fn check_indexed_object_document_api() void {
 
     let root = doc.&.root();
     root.is_object().should().sum(@loc(), t);
-    (root.object_len().should_some().sum(@loc(), t) == 5).should().sum(@loc(), t);
+    root.object_len().should_some().sum(@loc(), t).should().eq(5).sum(@loc(), t);
     let dup_entry = root.get_field("dup").should_some().sum(@loc(), t);
-    (dup_entry.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+    dup_entry.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
 
     let view = doc.&.view();
-    (view.len() == 5).should().sum(@loc(), t);
-    (view.count_fields("dup") == 2).should().sum(@loc(), t);
-    (view.get_bool("flag").should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    view.len().should().eq(5).sum(@loc(), t);
+    view.count_fields("dup").should().eq(2).sum(@loc(), t);
+    view.get_bool("flag").should_some().sum(@loc(), t).should().sum(@loc(), t);
     let last_dup = view.get_last_field("dup").should_some().sum(@loc(), t);
-    (last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 2).should().sum(@loc(), t);
+    last_dup.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
     let mut collected = [1]json.DocumentObjectEntryRef.{ undef };
     let total = view.collect_fields("dup", collected..&[0 .. 1]);
-    (total == 2).should().sum(@loc(), t);
-    (collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
-    (view.get_string("msg").should_some().sum(@loc(), t) == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    total.should().eq(2).sum(@loc(), t);
+    collected.[0].u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
+    view.get_string("msg").should_some().sum(@loc(), t).should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
     view.get_array("items").should_some().sum(@loc(), t).is_array().should().sum(@loc(), t);
 
     match (parse_indexed_object_document("[1,2,3]").should_err().sum(@loc(), t)) {
@@ -1011,20 +1011,20 @@ fn check_indexed_object_document_nested_lookup() void {
     defer doc..&.deinit();
 
     let view = doc.&.view();
-    (view.get_bool("ok").should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    view.get_bool("ok").should_some().sum(@loc(), t).should().sum(@loc(), t);
     let user = view.get_object("user").should_some().sum(@loc(), t);
-    (user.get_u64("id").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 7).should().sum(@loc(), t);
-    (user.get_string("name").should_some().sum(@loc(), t) == ("kern")).should().sum(@loc(), t);
+    user.get_u64("id").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(7).sum(@loc(), t);
+    user.get_string("name").should_some().sum(@loc(), t).should().eq(("kern")).sum(@loc(), t);
 
     let items = view.get_array("items").should_some().sum(@loc(), t);
     let item0 = items.get_index(0).should_some().sum(@loc(), t);
     let item1 = items.get_index(1).should_some().sum(@loc(), t);
-    (item0.get_string("sku").should_some().sum(@loc(), t) == ("abc")).should().sum(@loc(), t);
-    (item0.get_u64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
-    (item0.get_f64("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12.5).should().sum(@loc(), t);
-    (item1.get_string("sku").should_some().sum(@loc(), t) == ("xyz")).should().sum(@loc(), t);
-    (item1.get_u64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 4).should().sum(@loc(), t);
-    (item1.get_f64("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 5.75).should().sum(@loc(), t);
+    item0.get_string("sku").should_some().sum(@loc(), t).should().eq(("abc")).sum(@loc(), t);
+    item0.get_u64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
+    item0.get_f64("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12.5).sum(@loc(), t);
+    item1.get_string("sku").should_some().sum(@loc(), t).should().eq(("xyz")).sum(@loc(), t);
+    item1.get_u64("qty").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(4).sum(@loc(), t);
+    item1.get_f64("price").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(5.75).sum(@loc(), t);
 }
 
 fn check_arena_mark_rewind_with_json_materialization() void {
@@ -1036,12 +1036,12 @@ fn check_arena_mark_rewind_with_json_materialization() void {
     let baseline = arena.mark();
     let value1 = parse("{\"flag\":true}").should_ok().sum(@loc(), t);
     let owned1 = value1.clone_owned(arena).should_ok().sum(@loc(), t)..&;
-    (owned1.get_bool("flag").should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    owned1.get_bool("flag").should_some().sum(@loc(), t).should().sum(@loc(), t);
 
     let scratch = arena.mark();
     let value2 = parse("{\"msg\":\"hi\",\"items\":[1]}").should_ok().sum(@loc(), t);
     let owned2 = value2.clone_owned(arena).should_ok().sum(@loc(), t)..&;
-    (owned2.get_string("msg").should_some().sum(@loc(), t) == ("hi")).should().sum(@loc(), t);
+    owned2.get_string("msg").should_some().sum(@loc(), t).should().eq(("hi")).sum(@loc(), t);
     arena.rewind(scratch).should().sum(@loc(), t);
     (!arena.rewind(scratch)).should().sum(@loc(), t);
 
@@ -1060,20 +1060,20 @@ fn check_required_field_decode_helpers() void {
     let owned = value.clone_owned(gpa).should_ok().sum(@loc(), t)..&;
     defer owned.deinit(gpa);
 
-    (owned.require_bool("flag").should_ok().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (owned.require_u64("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_u32("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_u16("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_u8("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_i64("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_i32("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_i16("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_i8("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_usize("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_isize("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (owned.require_f64("flt").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (owned.require_f32("flt").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (owned.require_string("msg").should_ok().sum(@loc(), t) == ("hi")).should().sum(@loc(), t);
+    owned.require_bool("flag").should_ok().sum(@loc(), t).should().sum(@loc(), t);
+    owned.require_u64("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_u32("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_u16("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_u8("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_i64("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_i32("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_i16("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_i8("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_usize("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_isize("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    owned.require_f64("flt").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    owned.require_f32("flt").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    owned.require_string("msg").should_ok().sum(@loc(), t).should().eq(("hi")).sum(@loc(), t);
     owned.require_object("nested").should_ok().sum(@loc(), t).is_object().should().sum(@loc(), t);
     owned.require_array("items").should_ok().sum(@loc(), t).is_array().should().sum(@loc(), t);
 
@@ -1082,11 +1082,11 @@ fn check_required_field_decode_helpers() void {
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (owned.require_bool("dup").should_err().sum(@loc(), t)) {
-        .{ Duplicate: count } => (count == 2).should().sum(@loc(), t),
+        .{ Duplicate: count } => count.should().eq(2).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (owned.require_bool("msg").should_err().sum(@loc(), t)) {
-        .{ UnexpectedKind: kind } => (kind == Kind.String).should().sum(@loc(), t),
+        .{ UnexpectedKind: kind } => kind.should().eq(Kind.String).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
     match (owned.require_u64("flt").should_err().sum(@loc(), t)) {
@@ -1096,20 +1096,20 @@ fn check_required_field_decode_helpers() void {
 
     let view = owned.build_indexed_object_view(gpa).should_ok().sum(@loc(), t).should_some().sum(@loc(), t)..&;
     defer view.deinit(gpa);
-    (view.require_u64("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_u32("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_u16("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_u8("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_i64("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_i32("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_i16("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_i8("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_usize("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_isize("count").should_ok().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (view.require_f64("flt").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
-    (view.require_f32("flt").should_ok().sum(@loc(), t) == 1.5).should().sum(@loc(), t);
+    view.require_u64("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_u32("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_u16("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_u8("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_i64("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_i32("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_i16("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_i8("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_usize("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_isize("count").should_ok().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    view.require_f64("flt").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
+    view.require_f32("flt").should_ok().sum(@loc(), t).should().eq(1.5).sum(@loc(), t);
     match (view.require_u64("dup").should_err().sum(@loc(), t)) {
-        .{ Duplicate: count } => (count == 2).should().sum(@loc(), t),
+        .{ Duplicate: count } => count.should().eq(2).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 
@@ -1117,7 +1117,7 @@ fn check_required_field_decode_helpers() void {
     let scalar_owned = scalar.clone_owned(gpa).should_ok().sum(@loc(), t)..&;
     defer scalar_owned.deinit(gpa);
     match (scalar_owned.require_bool("flag").should_err().sum(@loc(), t)) {
-        .{ UnexpectedKind: kind } => (kind == Kind.Bool).should().sum(@loc(), t),
+        .{ UnexpectedKind: kind } => kind.should().eq(Kind.Bool).sum(@loc(), t),
         _ => t.fail_at(@loc(), "unexpected match arm"),
     }
 }
@@ -1131,17 +1131,17 @@ fn check_owned_compact_render_round_trip() void {
     defer owned.deinit(gpa);
 
     let expected = "{\"msg\":\"hi\\n\\t\\\"\\\\\",\"ctrl\":\"\\u0001\",\"items\":[true,null,12],\"nested\":{\"ok\":false}}";
-    (owned.compact_size() == compact_size_owned(owned)).should().sum(@loc(), t);
-    (owned.compact_size() == #expected).should().sum(@loc(), t);
+    owned.compact_size().should().eq(compact_size_owned(owned)).sum(@loc(), t);
+    owned.compact_size().should().eq(#expected).sum(@loc(), t);
 
     let mut out = [256]u8.{undef};
     let written = owned.render_compact(out..&[0 .. 256]).should_ok().sum(@loc(), t);
-    (written == owned.compact_size()).should().sum(@loc(), t);
-    (out.&[0 .. written] == (expected)).should().sum(@loc(), t);
+    written.should().eq(owned.compact_size()).sum(@loc(), t);
+    out.&[0 .. written].should().eq((expected)).sum(@loc(), t);
 
     let written2 = render_compact_owned(owned, out..&[0 .. 256]).should_ok().sum(@loc(), t);
-    (written2 == written).should().sum(@loc(), t);
-    (out.&[0 .. written2] == (expected)).should().sum(@loc(), t);
+    written2.should().eq(written).sum(@loc(), t);
+    out.&[0 .. written2].should().eq((expected)).sum(@loc(), t);
 }
 
 fn check_owned_compact_render_reports_small_buffer() void {
@@ -1170,10 +1170,10 @@ fn check_owned_dom_build_and_mutation() void {
     root.reserve_object_fields(5).should().sum(@loc(), t);
 
     let msg = root.append_object_string("msg", [3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3]).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (msg.string_text().should_some().sum(@loc(), t) == ([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).should().sum(@loc(), t);
+    msg.string_text().should_some().sum(@loc(), t).should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
     _ = root.append_object_number_text("count", "12").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     let flag = root.append_object_field("flag", .{ Bool: false }).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (flag.bool_value().should_some().sum(@loc(), t) == false).should().sum(@loc(), t);
+    flag.bool_value().should_some().sum(@loc(), t).not().should().sum(@loc(), t);
 
     let nested = root.append_object_field("nested", .{ Object: json.OwnedObject.{} }).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     _ = nested.append_object_field("ok", .{ Bool: true }).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
@@ -1188,24 +1188,24 @@ fn check_owned_dom_build_and_mutation() void {
     (!items.remove_array_index(9)).should().sum(@loc(), t);
 
     let flag2 = root.set_object_field("flag", .{ Bool: true }).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
-    (flag2.bool_value().should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    flag2.bool_value().should_some().sum(@loc(), t).should().sum(@loc(), t);
     root.remove_object_field("msg").should().sum(@loc(), t);
     (!root.remove_object_field("missing")).should().sum(@loc(), t);
 
     root.get_string("msg").is_none().should().sum(@loc(), t);
-    (root.get_u64("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 12).should().sum(@loc(), t);
-    (root.get_bool("flag").should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (items.array_len().should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
-    (items.get_index(0).should_some().sum(@loc(), t).bool_value().should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    root.get_u64("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);
+    root.get_bool("flag").should_some().sum(@loc(), t).should().sum(@loc(), t);
+    items.array_len().should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
+    items.get_index(0).should_some().sum(@loc(), t).bool_value().should_some().sum(@loc(), t).should().sum(@loc(), t);
 
     let mut out = [128]u8.{undef};
     let written = root.render_compact(out..&[0 .. 128]).should_ok().sum(@loc(), t);
-    (out.&[0 .. written] == ("{\"count\":12,\"flag\":true,\"nested\":{\"ok\":true},\"items\":[true]}")).should().sum(@loc(), t);
+    out.&[0 .. written].should().eq(("{\"count\":12,\"flag\":true,\"nested\":{\"ok\":true},\"items\":[true]}")).sum(@loc(), t);
 
     nested.clear_object_fields().should().sum(@loc(), t);
-    (nested.object_len().should_some().sum(@loc(), t) == 0).should().sum(@loc(), t);
+    nested.object_len().should_some().sum(@loc(), t).should().eq(0).sum(@loc(), t);
     items.clear_array_items().should().sum(@loc(), t);
-    (items.array_len().should_some().sum(@loc(), t) == 0).should().sum(@loc(), t);
+    items.array_len().should_some().sum(@loc(), t).should().eq(0).sum(@loc(), t);
 }
 
 fn check_owned_dom_node_pool_reuse() void {
@@ -1217,53 +1217,53 @@ fn check_owned_dom_node_pool_reuse() void {
     defer array..&.deinit(gpa);
 
     let first = array..&.push_number_text(gpa, "1").should_ok().sum(@loc(), t);
-    (first.number_text().should_some().sum(@loc(), t) == ("1")).should().sum(@loc(), t);
+    first.number_text().should_some().sum(@loc(), t).should().eq(("1")).sum(@loc(), t);
     let mut removed = array..&.pop(gpa).should_some().sum(@loc(), t);
     defer removed..&.deinit(gpa);
-    (removed..&.number_text().should_some().sum(@loc(), t) == ("1")).should().sum(@loc(), t);
+    removed..&.number_text().should_some().sum(@loc(), t).should().eq(("1")).sum(@loc(), t);
 
     let second = array..&.push_string(gpa, "two").should_ok().sum(@loc(), t);
-    (second.string_text().should_some().sum(@loc(), t) == ("two")).should().sum(@loc(), t);
+    second.string_text().should_some().sum(@loc(), t).should().eq(("two")).sum(@loc(), t);
     _ = array..&.push(gpa, .{ Bool: true }).should_ok().sum(@loc(), t);
-    (array.&.len() == 2).should().sum(@loc(), t);
-    (array.&.get(0).should_some().sum(@loc(), t).string_text().should_some().sum(@loc(), t) == ("two")).should().sum(@loc(), t);
-    (array.&.get(1).should_some().sum(@loc(), t).bool_value().should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
+    array.&.len().should().eq(2).sum(@loc(), t);
+    array.&.get(0).should_some().sum(@loc(), t).string_text().should_some().sum(@loc(), t).should().eq(("two")).sum(@loc(), t);
+    array.&.get(1).should_some().sum(@loc(), t).bool_value().should_some().sum(@loc(), t).should().sum(@loc(), t);
 
     let mut object = json.OwnedObject.{};
     defer object..&.deinit(gpa);
 
     let count = object..&.append_number_text(gpa, "count", "1").should_ok().sum(@loc(), t);
-    (count.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t) == 1).should().sum(@loc(), t);
+    count.u64_value().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(1).sum(@loc(), t);
     object..&.remove_field(gpa, "count").should().sum(@loc(), t);
 
     let label = object..&.append_string(gpa, "label", "fresh").should_ok().sum(@loc(), t);
-    (label.string_text().should_some().sum(@loc(), t) == ("fresh")).should().sum(@loc(), t);
+    label.string_text().should_some().sum(@loc(), t).should().eq(("fresh")).sum(@loc(), t);
     let flag = object..&.append(gpa, "flag", .{ Bool: true }).should_ok().sum(@loc(), t);
-    (flag.bool_value().should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (object.&.get_value("flag").should_some().sum(@loc(), t).bool_value().should_some().sum(@loc(), t) == true).should().sum(@loc(), t);
-    (object.&.get_string("label").should_some().sum(@loc(), t) == ("fresh")).should().sum(@loc(), t);
+    flag.bool_value().should_some().sum(@loc(), t).should().sum(@loc(), t);
+    object.&.get_value("flag").should_some().sum(@loc(), t).bool_value().should_some().sum(@loc(), t).should().sum(@loc(), t);
+    object.&.get_string("label").should_some().sum(@loc(), t).should().eq(("fresh")).sum(@loc(), t);
 }
 
 fn check_parse_scalar_kinds() void {
     let t = test.report(io.stderr())..&;
-    (parse("null").should_ok().sum(@loc(), t).kind == Kind.Null).should().sum(@loc(), t);
-    (parse("true").should_ok().sum(@loc(), t).kind == Kind.Bool).should().sum(@loc(), t);
-    (parse("-12.5e+2").should_ok().sum(@loc(), t).kind == Kind.Number).should().sum(@loc(), t);
-    (parse("\"hi\"").should_ok().sum(@loc(), t).kind == Kind.String).should().sum(@loc(), t);
+    parse("null").should_ok().sum(@loc(), t).kind.should().eq(Kind.Null).sum(@loc(), t);
+    parse("true").should_ok().sum(@loc(), t).kind.should().eq(Kind.Bool).sum(@loc(), t);
+    parse("-12.5e+2").should_ok().sum(@loc(), t).kind.should().eq(Kind.Number).sum(@loc(), t);
+    parse("\"hi\"").should_ok().sum(@loc(), t).kind.should().eq(Kind.String).sum(@loc(), t);
 }
 
 fn check_parse_trims_outer_whitespace_and_preserves_raw_value() void {
     let t = test.report(io.stderr())..&;
     let value = parse(" \n\t { \"ok\" : true } \r\n").should_ok().sum(@loc(), t);
-    (value.kind == Kind.Object).should().sum(@loc(), t);
-    (value.raw == ("{ \"ok\" : true }")).should().sum(@loc(), t);
+    value.kind.should().eq(Kind.Object).sum(@loc(), t);
+    value.raw.should().eq(("{ \"ok\" : true }")).sum(@loc(), t);
 }
 
 fn check_parse_prefix_returns_remaining_suffix() void {
     let t = test.report(io.stderr())..&;
     let parsed = parse_prefix(" [1, 2] tail").should_ok().sum(@loc(), t);
-    (parsed.value.kind == Kind.Array).should().sum(@loc(), t);
-    (parsed.remaining == (" tail")).should().sum(@loc(), t);
+    parsed.value.kind.should().eq(Kind.Array).sum(@loc(), t);
+    parsed.remaining.should().eq((" tail")).sum(@loc(), t);
 }
 
 fn check_validate_accepts_complete_document() void {
@@ -1322,7 +1322,7 @@ fn check_compact_render_strips_insignificant_whitespace() void {
     let value = parse("{ \"ok\" : [ 1, 2 , 3 ], \"msg\" : \"hi\\n\" }").should_ok().sum(@loc(), t);
     let mut out = [128]u8.{undef};
     let written = render_compact(value, out..&[0 .. 128]).should_ok().sum(@loc(), t);
-    (out.&[0 .. written] == ("{\"ok\":[1,2,3],\"msg\":\"hi\\n\"}")).should().sum(@loc(), t);
+    out.&[0 .. written].should().eq(("{\"ok\":[1,2,3],\"msg\":\"hi\\n\"}")).sum(@loc(), t);
 }
 
 fn check_compact_size_matches_rendered_size() void {
@@ -1331,7 +1331,7 @@ fn check_compact_size_matches_rendered_size() void {
     let expected = compact_size(value).should_ok().sum(@loc(), t);
     let mut out = [128]u8.{undef};
     let written = render_compact(value, out..&[0 .. 128]).should_ok().sum(@loc(), t);
-    (written == expected).should().sum(@loc(), t);
+    written.should().eq(expected).sum(@loc(), t);
 }
 
 fn check_compact_render_reports_small_buffer() void {
@@ -1349,11 +1349,11 @@ fn check_error_location_reports_line_and_column() void {
     let input = "{\n  \"ok\" true\n}";
     let err = parse(input).should_err().sum(@loc(), t);
     let offset = error_offset(err).should_some().sum(@loc(), t);
-    (offset == 9).should().sum(@loc(), t);
+    offset.should().eq(9).sum(@loc(), t);
     let loc = locate_error(input, err).should_some().sum(@loc(), t);
-    (loc.offset == 9).should().sum(@loc(), t);
-    (loc.line == 2).should().sum(@loc(), t);
-    (loc.column == 8).should().sum(@loc(), t);
+    loc.offset.should().eq(9).sum(@loc(), t);
+    loc.line.should().eq(2).sum(@loc(), t);
+    loc.column.should().eq(8).sum(@loc(), t);
 }
 
 fn main() i32 {

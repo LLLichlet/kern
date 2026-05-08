@@ -1085,11 +1085,11 @@ Kern strictly enforces single-responsibility for attribute brackets. The content
 
 #### 1\. Conditional Compilation (`if(...)`)
 
-Uses a strict boolean evaluator at compile-time. If the condition evaluates to `false`, the target node (or file) is entirely pruned before semantic analysis. It supports logical operators (`and`, `or`, `not`) and checking custom compiler flags (`--define key=value`).
+Uses a strict boolean evaluator at compile-time. If the condition evaluates to `false`, the target node (or file) is entirely pruned before semantic analysis. It supports logical operators (`and`, `or`, `!`) and checking custom compiler flags (`--define key=value`).
 
 ```kern
 #![if(os == "bare_metal")]
-#[if(not debug_mode)]
+#[if(!debug_mode)]
 ```
 
 #### 2\. Metadata Tags

@@ -18,7 +18,8 @@ The important rule is simple:
 
 These are the current public reference documents.
 
-- [`README.md`](../README.md): repository front page, high-level language/toolchain overview, installation, and documentation entry points
+- [`README.md`](../README.md): default English repository front page, high-level language/toolchain overview, installation, and documentation entry points; the Simplified Chinese version is [`README.zh.md`](../README.zh.md)
+- [`docs/tutorial/`](./tutorial/README.md): default English guided tour through tools, language basics, core semantics, library usage, and freestanding entry points; the Simplified Chinese version is [`docs/tutorial/zh/README.md`](./tutorial/zh/README.md)
 - [`docs/design.md`](./design.md): current language semantics and syntax
 - [`docs/kernc.md`](./kernc.md): `kernc` CLI/driver behavior
 - [`docs/craft.md`](./craft.md): package manager, lockfile, resolution, and build orchestration model

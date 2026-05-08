@@ -9,6 +9,11 @@
 </p>
 
 <p align="center">
+  English |
+  <a href="./README.zh.md">简体中文</a>
+</p>
+
+<p align="center">
   <a href="#install">Install</a> |
   <a href="#quick-start">Quick Start</a> |
   <a href="#examples">Examples</a> |
@@ -222,6 +227,9 @@ python -m ops release package --version v0.7.5 --target <host-target>
 
 - [Documentation Map](docs/documentation-map.md): where each kind of
   documentation lives.
+- [Kern Tutorial](docs/tutorial/README.md): introductory guided tour through
+  tools, language basics, core semantics, libraries, and freestanding entry
+  points. Also available in [Simplified Chinese](docs/tutorial/zh/README.md).
 - [Kern Language Design](docs/design.md): current language semantics and syntax.
 - [Source Style Guide](docs/style.md): repository-level Kern code style.
 - [The `kernc` Compiler Guide](docs/kernc.md): CLI, linking, LLVM output, and

@@ -418,6 +418,7 @@ fn canceled_document_request_skips_analysis_work() {
         json!(44),
         &uri,
         SchedulerLane::Interactive,
+        "textDocument/hover",
         |_| {
             analyzed = true;
             Ok::<Value, String>(json!({ "ok": true }))
@@ -445,6 +446,7 @@ fn panicking_document_request_returns_error_response() {
         json!(47),
         &uri,
         SchedulerLane::Interactive,
+        "textDocument/hover",
         |_| panic!("synthetic analysis panic"),
     )
     .unwrap();

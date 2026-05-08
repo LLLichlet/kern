@@ -74,6 +74,68 @@ fn document_symbols_use_clean_surface_when_dirty_body_is_incomplete() {
 }
 
 #[test]
+fn dirty_document_symbols_do_not_create_dirty_surface_cache_entries() {
+    let mut analysis = AnalysisEngine::default();
+    let clean = concat!(
+        "struct Point { x: i32 }\n",
+        "fn helper(point: Point) i32 {\n",
+        "    return point.x;\n",
+        "}\n",
+    );
+    let dirty = concat!(
+        "struct Point { x: i32 }\n",
+        "fn helper(point: Point) i32 {\n",
+        "    return point.x\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("document_symbols_dirty_clean_surface_only", clean);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: clean.to_string(),
+        },
+    });
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+    analysis.parse_cache.borrow_mut().clear();
+    analysis.surface_cache.borrow_mut().clear();
+    analysis.structure_cache.borrow_mut().clear();
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let symbols = analysis.document_symbols(&uri).unwrap();
+    let names = symbols
+        .iter()
+        .map(|symbol| symbol.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(names.contains(&"Point"));
+    assert!(names.contains(&"helper"));
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Surface));
+    assert_eq!(analysis.surface_cache.borrow().len(), 1);
+    assert!(
+        analysis
+            .surface_cache
+            .borrow()
+            .keys()
+            .all(AnalysisCacheKey::is_clean)
+    );
+    assert_eq!(analysis.parse_cache.borrow().len(), 0);
+    assert_eq!(analysis.structure_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+}
+
+#[test]
 fn document_symbols_use_surface_cache_without_body_artifact() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

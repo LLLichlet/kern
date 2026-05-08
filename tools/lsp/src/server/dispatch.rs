@@ -203,6 +203,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| analysis.document_symbols(&params.text_document.uri),
             )?;
         }
@@ -219,6 +220,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| analysis.goto_definition(&params.text_document.uri, params.position),
             )?;
         }
@@ -235,6 +237,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| analysis.document_highlights(&params.text_document.uri, params.position),
             )?;
         }
@@ -251,6 +254,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| {
                     analysis.references(
                         &params.text_document.uri,
@@ -271,6 +275,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| analysis.hover(&params.text_document.uri, params.position),
             )?;
         }
@@ -287,6 +292,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| analysis.signature_help(&params.text_document.uri, params.position),
             )?;
         }
@@ -303,6 +309,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| analysis.completion(&params.text_document.uri, params.position),
             )?;
         }
@@ -319,6 +326,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| analysis.semantic_tokens(&params.text_document.uri),
             )?;
         }
@@ -335,6 +343,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| analysis.prepare_rename(&params.text_document.uri, params.position),
             )?;
         }
@@ -349,6 +358,7 @@ pub(super) fn handle_message(
                 id,
                 &params.text_document.uri,
                 SchedulerLane::Interactive,
+                method,
                 |analysis| {
                     analysis.rename(&params.text_document.uri, params.position, &params.new_name)
                 },
@@ -368,6 +378,7 @@ pub(super) fn handle_message(
                     id,
                     &params.text_document.uri,
                     SchedulerLane::Interactive,
+                    method,
                     |_| Ok::<Value, String>(Value::Array(Vec::new())),
                 )?;
             } else {
@@ -377,6 +388,7 @@ pub(super) fn handle_message(
                     id,
                     &params.text_document.uri,
                     SchedulerLane::Interactive,
+                    method,
                     |analysis| {
                         analysis.code_actions(&params.text_document.uri, params.range.clone())
                     },

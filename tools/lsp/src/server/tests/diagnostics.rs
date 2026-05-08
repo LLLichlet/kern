@@ -45,6 +45,43 @@ fn verbose_trace_reports_diagnostics_lane_analysis() {
 }
 
 #[test]
+fn verbose_trace_reports_interactive_request_method() {
+    let mut state = initialized_state();
+    state.trace = super::super::lifecycle::TraceValue::Verbose;
+    let source = "fn main() void {}\n";
+    let uri = temp_file_uri("server_interactive_method_trace", source);
+
+    let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+    let messages = dispatch_messages(
+        &mut state,
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: Some(json!(81)),
+            method: Some("textDocument/documentSymbol".to_string()),
+            params: Some(json!({
+                "textDocument": { "uri": uri }
+            })),
+        },
+    );
+
+    let trace = messages
+        .iter()
+        .find(|message| {
+            message["method"] == "$/logTrace"
+                && message["params"]["message"] == "analysis tier selected"
+        })
+        .expect("expected interactive analysis trace");
+    let verbose = trace["params"]["verbose"].as_str().unwrap();
+    assert!(verbose.contains("tier=surface"), "{verbose}");
+    assert!(
+        verbose.contains("method=textDocument/documentSymbol"),
+        "{verbose}"
+    );
+    assert!(verbose.contains("elapsed_ms="), "{verbose}");
+    assert!(verbose.contains("budget=ok"), "{verbose}");
+}
+
+#[test]
 fn verbose_trace_reports_workspace_refresh_latency() {
     let mut state = initialized_state();
     state.trace = super::super::lifecycle::TraceValue::Verbose;

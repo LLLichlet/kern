@@ -218,6 +218,7 @@ pub(super) fn execute_document_request<T, F>(
     id: Value,
     target_uri: &str,
     lane: SchedulerLane,
+    method: &str,
     analysis: F,
 ) -> Result<(), ServerError>
 where
@@ -249,7 +250,7 @@ where
             ),
         ),
     }?;
-    emit_analysis_tier_trace(state, writer, target_uri, lane, elapsed_ms)
+    emit_analysis_tier_trace(state, writer, target_uri, lane, method, elapsed_ms)
 }
 
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
@@ -268,6 +269,7 @@ pub(super) fn execute_optional_document_request<T, F>(
     id: Value,
     target_uri: &str,
     lane: SchedulerLane,
+    method: &str,
     analysis: F,
 ) -> Result<(), ServerError>
 where
@@ -300,7 +302,7 @@ where
             ),
         ),
     }?;
-    emit_analysis_tier_trace(state, writer, target_uri, lane, elapsed_ms)
+    emit_analysis_tier_trace(state, writer, target_uri, lane, method, elapsed_ms)
 }
 
 fn emit_analysis_tier_trace(
@@ -308,6 +310,7 @@ fn emit_analysis_tier_trace(
     writer: &mut MessageWriter<impl io::Write>,
     target_uri: &str,
     lane: SchedulerLane,
+    method: &str,
     elapsed_ms: u128,
 ) -> Result<(), ServerError> {
     let Some(tier) = state.analysis.last_analysis_tier() else {
@@ -322,11 +325,12 @@ fn emit_analysis_tier_trace(
         writer,
         "analysis tier selected",
         Some(format!(
-            "tier={} elapsed_ms={} budget={} lane={:?} target={}",
+            "tier={} elapsed_ms={} budget={} lane={:?} method={} target={}",
             tier.as_str(),
             elapsed_ms,
             budget_status,
             lane,
+            method,
             target_uri
         )),
         true,

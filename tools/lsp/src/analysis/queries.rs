@@ -4,22 +4,19 @@ use std::collections::BTreeSet;
 impl AnalysisEngine {
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<DocumentSymbol>, String> {
         let context = self.resolve_analysis_context(uri)?;
-        let surface = match self.analyze_surface_artifact(uri) {
-            Ok(surface) => {
-                self.record_analysis_tier(AnalysisTier::Surface);
-                surface
-            }
-            Err(_) if !context.dirty_documents.is_clean() => {
-                match self.analyze_clean_surface_for_context(&context) {
-                    Some(surface) => {
-                        self.record_analysis_tier(AnalysisTier::Surface);
-                        surface
-                    }
-                    None => return Ok(Vec::new()),
-                }
-            }
-            Err(_) => return Ok(Vec::new()),
+        let surface =
+            if context.dirty_documents.is_clean() || !context.resolved.input_file.is_file() {
+                self.analyze_surface_artifact(uri)
+                    .ok()
+                    .or_else(|| self.analyze_clean_surface_for_context(&context))
+            } else {
+                self.analyze_clean_surface_for_context(&context)
+            };
+        let Some(surface) = surface else {
+            return Ok(Vec::new());
         };
+        self.record_analysis_tier(AnalysisTier::Surface);
+
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested document symbols for a document that is not open".to_string());
         };

@@ -240,6 +240,12 @@ Bug reports, documentation fixes, tests, and focused implementation patches are
 welcome. For language design changes or new syntax, open an issue first so the
 proposal can be checked against Kern's freestanding, explicit semantics.
 
+## Star History
+
+<a href="https://www.star-history.com/#softfault/kern&Date">
+  <img src="https://api.star-history.com/svg?repos=softfault/kern&type=Date" alt="Star History Chart">
+</a>
+
 ## License
 
 Kern is licensed under the [MIT License](LICENSE).

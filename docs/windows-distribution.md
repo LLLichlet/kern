@@ -202,6 +202,14 @@ unless the installed-user flow requires them. The current Windows installed-user
 path uses Clang as a linker driver, `lld-link.exe` as the MSVC linker backend,
 and `llvm-lib.exe` for Windows archive/relocatable-link operations.
 
+The SDK manifest makes that boundary explicit. `manifest/sdk.json` records the
+resolved LLVM provenance, the bundled runtime component set, and the health
+checks expected for each bundled tool. For Windows that means the default SDK
+requires `clang`, `lld`, and `llvm_lib`, while the standalone
+`manifest/toolchain.json` from `package-toolchain` requires the full development
+prefix components such as `clangxx`, `llvm_ar`, `llvm_config`, `lib_dir`, and
+`include_dir`.
+
 ## Installation Model
 
 The user-facing Windows installer is the repository root [install.ps1](../install.ps1)

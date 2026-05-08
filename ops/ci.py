@@ -24,6 +24,7 @@ from .common import (
     resolve_bundled_toolchain,
     run,
     run_capture,
+    full_toolchain_required_components,
     sha256_directory,
     sha256_file,
 )
@@ -423,9 +424,10 @@ def _validate_toolchain_root(toolchain_root: Path, expected_target: str) -> None
     components = manifest.get("components")
     ensure(isinstance(components, dict), "toolchain manifest components are invalid")
 
-    required = ["clang", "clangxx", "lld", "llvm_ar", "llvm_config", "lib_dir", "include_dir"]
-    if expected_target.endswith("windows-msvc"):
-        required.append("llvm_lib")
+    required = _manifest_required_components(
+        manifest,
+        fallback=full_toolchain_required_components(expected_target),
+    )
 
     for component in required:
         entry = components.get(component)
@@ -438,6 +440,56 @@ def _validate_toolchain_root(toolchain_root: Path, expected_target: str) -> None
 
     if expected_target.endswith("apple-darwin"):
         _validate_macos_toolchain_relocation(toolchain_root)
+
+    for check in _manifest_health_checks(manifest, fallback_components=required):
+        component = check["component"]
+        entry = components.get(component)
+        ensure(isinstance(entry, dict), f"toolchain manifest is missing component `{component}`")
+        _validate_manifest_health_check(toolchain_root, component, entry, check["kind"])
+
+
+def _manifest_required_components(manifest: dict[str, object], *, fallback: list[str]) -> list[str]:
+    required = manifest.get("required_components")
+    if required is None:
+        return fallback
+    ensure(
+        isinstance(required, list) and all(isinstance(item, str) and item for item in required),
+        "toolchain manifest `required_components` is invalid",
+    )
+    return list(required)
+
+
+def _manifest_health_checks(
+    manifest: dict[str, object],
+    *,
+    fallback_components: list[str],
+) -> list[dict[str, str]]:
+    checks = manifest.get("health_checks")
+    if checks is None:
+        return [
+            {
+                "component": component,
+                "kind": "creates-empty-library"
+                if component == "llvm_lib"
+                else "exists"
+                if component.endswith("_dir")
+                else "starts-with-version",
+            }
+            for component in fallback_components
+        ]
+
+    ensure(isinstance(checks, list), "toolchain manifest `health_checks` is invalid")
+    normalized: list[dict[str, str]] = []
+    for raw in checks:
+        ensure(isinstance(raw, dict), "toolchain manifest health check is invalid")
+        component = raw.get("component")
+        kind = raw.get("kind")
+        ensure(
+            isinstance(component, str) and component and isinstance(kind, str) and kind,
+            "toolchain manifest health check is missing `component` or `kind`",
+        )
+        normalized.append({"component": component, "kind": kind})
+    return normalized
 
 
 def _validate_component_record(root: Path, component: str, entry: dict[str, object]) -> None:
@@ -475,6 +527,44 @@ def _validate_component_record(root: Path, component: str, entry: dict[str, obje
             actual_sha == expected_sha,
             f"toolchain component `{component}` checksum mismatch at `{target}`",
         )
+
+
+def _validate_manifest_health_check(
+    root: Path,
+    component: str,
+    entry: dict[str, object],
+    kind: str,
+) -> None:
+    if kind == "exists":
+        _validate_component_record(root, component, entry)
+        return
+    if kind == "starts-with-version":
+        _validate_component_record(root, component, entry)
+        target = root / str(entry["path"])
+        completed = run_capture([str(target), "--version"])
+        ensure(
+            completed.returncode == 0,
+            f"toolchain component `{component}` did not answer `--version`: {(completed.stdout or '')}{(completed.stderr or '')}".strip(),
+        )
+        return
+    if kind == "creates-empty-library":
+        _validate_component_record(root, component, entry)
+        target = root / str(entry["path"])
+        temp_root = make_temp_dir("kern-llvm-lib-probe-")
+        try:
+            probe_output = temp_root / "empty.lib"
+            completed = run_capture(
+                [str(target), "/llvmlibempty", f"/out:{probe_output}"],
+                cwd=temp_root,
+            )
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
+        ensure(
+            completed.returncode == 0,
+            f"toolchain component `{component}` failed empty library probe: {(completed.stdout or '')}{(completed.stderr or '')}".strip(),
+        )
+        return
+    raise OpsError(f"toolchain manifest component `{component}` has unsupported health check `{kind}`")
 
 
 def _validate_macos_toolchain_relocation(toolchain_root: Path) -> None:

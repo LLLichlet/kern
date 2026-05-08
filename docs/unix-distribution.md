@@ -63,6 +63,20 @@ If a dependency is part of the host OS ABI baseline, document the baseline and
 verify startup. If a dependency is part of the SDK's controlled LLVM/Clang tool
 surface, bundle it or fail packaging.
 
+Every packaged SDK writes `manifest/sdk.json`. When a bundled LLVM/Clang
+payload is present, the manifest records:
+
+- the resolved host LLVM provenance under `toolchain.provenance`
+- the component set required by that SDK under `toolchain.required_components`
+- the startup or existence probes expected for those components under
+  `toolchain.health_checks`
+- the copied component paths, checksums, and sizes under `toolchain.components`
+
+The standalone `package-toolchain` artifact writes the same release-engineering
+contract to `manifest/toolchain.json` for the full development prefix. Install
+and CI verification read those manifest fields first, with legacy fallbacks only
+for older archives that do not yet carry the explicit schema.
+
 Today that means a clean user machine can still fail because of:
 
 - missing shared libraries such as `libstdc++`, `zlib`, or `zstd`

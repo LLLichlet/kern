@@ -187,6 +187,10 @@ def sdk_manifest(
         "sysroot_dir": "toolchain/host/sysroot",
     }
 
+    required_components: list[str] = []
+    health_checks: list[dict[str, str]] = []
+    provenance: dict[str, object] | None = None
+
     if bundled_toolchain is not None:
         bundled = True
         strategy = "bundled-first"
@@ -194,6 +198,11 @@ def sdk_manifest(
             "label": bundled_toolchain.source_label,
             "version": bundled_toolchain.version,
         }
+        provenance = toolchain_provenance(
+            bundled_toolchain,
+            archive_target,
+            package_role="sdk-runtime-subset",
+        )
         components = {}
         if bundled_component_records is not None:
             components = {
@@ -247,6 +256,9 @@ def sdk_manifest(
                 "Clone the repository and configure the host environment directly for source builds.",
             ]
 
+        required_components = sdk_runtime_required_components(archive_target)
+        health_checks = toolchain_component_health_checks(required_components)
+
     return {
         "schema_version": 1,
         "sdk_version": version,
@@ -265,6 +277,9 @@ def sdk_manifest(
                 "system-path",
             ],
             "source": source,
+            "provenance": provenance,
+            "required_components": required_components,
+            "health_checks": health_checks,
             "components": components,
             "notes": toolchain_notes,
         },
@@ -286,6 +301,48 @@ def canonical_toolchain_component_names(archive_target: str) -> dict[str, str]:
         "llvm_ar": f"llvm-ar{exe_suffix}",
         "llvm_config": f"llvm-config{exe_suffix}",
         "llvm_lib": "llvm-lib.exe",
+    }
+
+
+def sdk_runtime_required_components(archive_target: str) -> list[str]:
+    if archive_target.endswith("windows-msvc"):
+        return ["clang", "lld", "llvm_lib"]
+    return ["clang", "lld"]
+
+
+def full_toolchain_required_components(archive_target: str) -> list[str]:
+    required = ["clang", "clangxx", "lld", "llvm_ar", "llvm_config", "lib_dir", "include_dir"]
+    if archive_target.endswith("windows-msvc"):
+        required.append("llvm_lib")
+    return required
+
+
+def toolchain_component_health_checks(components: Iterable[str]) -> list[dict[str, str]]:
+    checks: list[dict[str, str]] = []
+    for component in components:
+        if component == "llvm_lib":
+            checks.append({"component": component, "kind": "creates-empty-library"})
+        elif component.endswith("_dir"):
+            checks.append({"component": component, "kind": "exists"})
+        else:
+            checks.append({"component": component, "kind": "starts-with-version"})
+    return checks
+
+
+def toolchain_provenance(
+    bundled_toolchain: BundledToolchain,
+    archive_target: str,
+    *,
+    package_role: str,
+) -> dict[str, object]:
+    return {
+        "kind": "resolved-host-llvm",
+        "package_role": package_role,
+        "host_target": archive_target,
+        "source": {
+            "label": bundled_toolchain.source_label,
+            "version": bundled_toolchain.version,
+        },
     }
 
 
@@ -352,6 +409,8 @@ def toolchain_manifest(
             "kind": "directory",
         }
 
+    required_components = full_toolchain_required_components(archive_target)
+
     return {
         "schema_version": 1,
         "toolchain_version": version,
@@ -363,6 +422,13 @@ def toolchain_manifest(
             "label": bundled_toolchain.source_label,
             "version": bundled_toolchain.version,
         },
+        "provenance": toolchain_provenance(
+            bundled_toolchain,
+            archive_target,
+            package_role="standalone-development-prefix",
+        ),
+        "required_components": required_components,
+        "health_checks": toolchain_component_health_checks(required_components),
         "components": components,
         "notes": [
             "This archive contains the controlled host LLVM/Clang toolchain used by Kern packaging.",

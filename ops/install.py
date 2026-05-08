@@ -24,6 +24,7 @@ if __package__ in (None, ""):
         info,
         make_temp_dir,
         read_json,
+        sdk_runtime_required_components,
         sha256_directory,
         sha256_file,
     )
@@ -37,6 +38,7 @@ else:
         info,
         make_temp_dir,
         read_json,
+        sdk_runtime_required_components,
         sha256_directory,
         sha256_file,
     )
@@ -200,10 +202,11 @@ def _validate_manifest_toolchain(sdk_root: Path, manifest: dict[str, object]) ->
     if not bundled:
         return
 
-    required = ["clang", "lld"]
     host_target = str(manifest.get("host_target", ""))
-    if host_target.endswith("windows-msvc"):
-        required.extend(["llvm_lib"])
+    required = _manifest_required_components(
+        toolchain,
+        fallback=sdk_runtime_required_components(host_target),
+    )
 
     for component in required:
         entry = components.get(component)
@@ -213,10 +216,51 @@ def _validate_manifest_toolchain(sdk_root: Path, manifest: dict[str, object]) ->
         ensure(isinstance(entry, dict), f"SDK manifest component `{component}` is invalid")
         _validate_component_record(sdk_root, component, entry)
 
-    for component in required:
-        entry = components[component]
-        assert isinstance(entry, dict)
-        _verify_bundled_toolchain_component_starts(sdk_root, component, entry, host_target)
+    for check in _manifest_health_checks(toolchain, fallback_components=required):
+        component = check["component"]
+        entry = components.get(component)
+        ensure(isinstance(entry, dict), f"SDK manifest is missing bundled component `{component}`")
+        _verify_manifest_health_check(sdk_root, component, entry, host_target, check["kind"])
+
+
+def _manifest_required_components(toolchain: dict[str, object], *, fallback: list[str]) -> list[str]:
+    required = toolchain.get("required_components")
+    if required is None:
+        return fallback
+    ensure(
+        isinstance(required, list) and all(isinstance(item, str) and item for item in required),
+        "SDK manifest toolchain `required_components` is invalid",
+    )
+    return list(required)
+
+
+def _manifest_health_checks(
+    toolchain: dict[str, object],
+    *,
+    fallback_components: list[str],
+) -> list[dict[str, str]]:
+    checks = toolchain.get("health_checks")
+    if checks is None:
+        return [
+            {
+                "component": component,
+                "kind": "creates-empty-library" if component == "llvm_lib" else "starts-with-version",
+            }
+            for component in fallback_components
+        ]
+
+    ensure(isinstance(checks, list), "SDK manifest toolchain `health_checks` is invalid")
+    normalized: list[dict[str, str]] = []
+    for raw in checks:
+        ensure(isinstance(raw, dict), "SDK manifest toolchain health check is invalid")
+        component = raw.get("component")
+        kind = raw.get("kind")
+        ensure(
+            isinstance(component, str) and component and isinstance(kind, str) and kind,
+            "SDK manifest toolchain health check is missing `component` or `kind`",
+        )
+        normalized.append({"component": component, "kind": kind})
+    return normalized
 
 
 def _validate_component_record(sdk_root: Path, component: str, entry: dict[str, object]) -> None:
@@ -313,6 +357,22 @@ def _verify_bundled_toolchain_component_starts(
         f"SDK bundled runtime component `{component}` failed to start at `{target}`:\n"
         f"{output.strip()}"
     )
+
+
+def _verify_manifest_health_check(
+    sdk_root: Path,
+    component: str,
+    entry: dict[str, object],
+    host_target: str,
+    kind: str,
+) -> None:
+    if kind == "starts-with-version" or kind == "creates-empty-library":
+        _verify_bundled_toolchain_component_starts(sdk_root, component, entry, host_target)
+        return
+    if kind == "exists":
+        _validate_component_record(sdk_root, component, entry)
+        return
+    raise OpsError(f"SDK manifest component `{component}` has unsupported health check `{kind}`")
 
 
 def copy_sdk_contents(sdk_root: Path, install_root: Path) -> None:

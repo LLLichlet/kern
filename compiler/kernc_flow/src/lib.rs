@@ -267,6 +267,48 @@ pub struct AnalysisFlowOwner {
     pub binding_summaries: Vec<AnalysisFlowBindingSummary>,
 }
 
+#[derive(Clone)]
+pub struct FlowOwnerFacts {
+    pub def_id: DefId,
+    pub definition_span: Span,
+    pub owner_span: Span,
+    pub body_span: Span,
+    pub kind: AnalysisFlowOwnerKind,
+    pub referenced_def_ids: Vec<DefId>,
+    pub referenced_definition_spans: Vec<Span>,
+    pub cfg: AnalysisFlowCfg,
+    pub node_facts: Vec<AnalysisFlowNodeFacts>,
+    pub node_effects: Vec<AnalysisFlowNodeEffects>,
+    pub node_transfers: Vec<AnalysisFlowNodeTransfer>,
+    pub use_defs: Vec<AnalysisFlowUseDef>,
+    pub def_uses: Vec<AnalysisFlowDefUse>,
+    pub definition_facts: Vec<AnalysisFlowDefinitionFacts>,
+    pub resolved_uses: Vec<AnalysisFlowResolvedUse>,
+    pub single_source_uses: Vec<AnalysisFlowSingleSourceUse>,
+    pub liveness: Vec<AnalysisFlowLiveness>,
+    pub computed_liveness: Option<ComputedLiveness>,
+    pub reaching_definitions: Vec<AnalysisFlowReaching>,
+    pub control_regions: Vec<FlowRegionFacts>,
+    pub summary: AnalysisFlowSummary,
+    pub bindings: Vec<FlowBindingFacts>,
+    pub binding_summaries: Vec<AnalysisFlowBindingSummary>,
+}
+
+#[derive(Clone)]
+pub struct FlowBindingFacts {
+    pub id: AnalysisFlowBindingId,
+    pub definition_span: Span,
+    pub kind: AnalysisFlowBindingKind,
+    pub is_mut: bool,
+    pub reference_spans: Vec<Span>,
+}
+
+#[derive(Clone, Copy)]
+pub struct FlowRegionFacts {
+    pub span: Span,
+    pub kind: AnalysisFlowRegionKind,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FlowLoweringHints {
     owners: HashMap<DefId, FlowLoweringOwnerHints>,

@@ -195,6 +195,53 @@ fn main() i32 {
 }
 
 #[test]
+fn test_eq_fmt_failure_reports_expected_and_actual_values() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_test_eq_fmt_fail",
+        r#"
+use base.test;
+use std.io;
+
+fn main() i32 {
+    let t = test.report(io.stderr())..&;
+
+    (?usize.{ Some: 4 }).should_some().eq_fmt(usize.{5}).sum(@loc(), t);
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        !run_output.status.success(),
+        "expected base.test formatted equality failure to abort with a diagnostic:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&run_output.stderr);
+    assert!(
+        stderr.contains("test failed: expected values to be equal"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("expected: 5"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("actual: 4"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn test_eq_supports_payloadless_user_enums() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_enum_eq",

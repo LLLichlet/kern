@@ -940,6 +940,20 @@ fn run_tests(
     }
     let execution = execute::test_built(&build_plan, &action_plan, &tests, build?, &runtime_args)?;
     render_execution_timings(&render, &execution.build);
+    if !execution.failures.is_empty() {
+        let mut message = format!(
+            "{} of {} test target(s) failed",
+            execution.failures.len(),
+            execution.executed
+        );
+        for failure in &execution.failures {
+            message.push_str("\n  ");
+            message.push_str(&failure.label);
+            message.push_str(" exited with status ");
+            message.push_str(&failure.status.to_string());
+        }
+        return Err(Error::Execution(message));
+    }
     render.ok(format!(
         "test run completed ({} executed)",
         execution.executed

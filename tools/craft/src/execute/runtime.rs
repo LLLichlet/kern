@@ -2,9 +2,9 @@ use super::build_with_command;
 use crate::build_plan::{ActionPlan, BuildPlan, BuildUnit, LinkAction};
 use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 #[cfg(test)]
 use std::process::Stdio;
+use std::process::{Command, ExitStatus};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunSummary {
@@ -15,7 +15,14 @@ pub struct RunSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestSummary {
     pub executed: usize,
+    pub failures: Vec<TestFailure>,
     pub build: super::ExecutionSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestFailure {
+    pub label: String,
+    pub status: ExitStatus,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -82,6 +89,7 @@ pub fn test_built(
     args: &[String],
 ) -> Result<TestSummary> {
     let mut executed = 0;
+    let mut failures = Vec::new();
     for unit in units {
         let action = find_link_action(action_plan, unit)?;
         let executable_path = resolve_invocation_path(&action.artifact_path)?;
@@ -89,16 +97,30 @@ pub fn test_built(
             .status()
             .map_err(Error::from_io_plain)?;
         if !status.success() {
-            return Err(Error::Execution(format!(
-                "test `{}` exited with status {}",
-                action.artifact_path.display(),
-                status
-            )));
+            failures.push(TestFailure {
+                label: test_unit_label(unit, action),
+                status,
+            });
         }
         executed += 1;
     }
 
-    Ok(TestSummary { executed, build })
+    Ok(TestSummary {
+        executed,
+        failures,
+        build,
+    })
+}
+
+fn test_unit_label(unit: &BuildUnit, action: &LinkAction) -> String {
+    let name = unit.target_name.as_deref().unwrap_or(&unit.artifact_name);
+    format!(
+        "{} {} `{}` ({})",
+        unit.package_id.name,
+        unit.target_kind.as_str(),
+        name,
+        action.artifact_path.display()
+    )
 }
 
 fn runtime_command(

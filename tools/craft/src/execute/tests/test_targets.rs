@@ -54,6 +54,90 @@ return 0;
 }
 
 #[test]
+fn executes_all_test_units_before_reporting_failures() {
+    let root = temp_dir("craft-exec-test-aggregate-failures");
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[test]
+roots = ["tests/alpha.rn", "tests/beta.rn", "tests/gamma.rn"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("tests/alpha.rn"),
+        r#"
+fn main() i32 {
+return 1;
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("tests/beta.rn"),
+        r#"
+fn main() i32 {
+return 0;
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("tests/gamma.rn"),
+        r#"
+fn main() i32 {
+return 3;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Test,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Test).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let test_units = build_plan.packages[0]
+        .units
+        .iter()
+        .filter(|unit| unit.target_kind == crate::plan::TargetKind::Test)
+        .collect::<Vec<_>>();
+
+    let summary = test(&build_plan, &action_plan, &test_units).unwrap();
+
+    assert_eq!(summary.executed, 3);
+    assert_eq!(summary.failures.len(), 2);
+    assert!(
+        summary
+            .failures
+            .iter()
+            .any(|failure| failure.label.contains("alpha"))
+    );
+    assert!(
+        summary
+            .failures
+            .iter()
+            .any(|failure| failure.label.contains("gamma"))
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn builds_and_executes_release_thinlto_test_units() {
     let root = temp_dir("craft-exec-test-release-thin");
     fs::create_dir_all(root.join("tests")).unwrap();

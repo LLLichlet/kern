@@ -39,6 +39,21 @@ impl[W] &mut Report[W]
         _ = out.write("\n");
         @trap();
     }
+
+    pub fn fail_eq_at[T](loc: Loc, actual: T, expected: T) !
+        where &mut W: Write,
+              &T: Formatable,
+    {
+        let out = &mut Write.{ self.writer..& };
+        _ = out.write(loc.file);
+        ":{}:{}: ".fmt(.{loc.line, loc.col}).write_to(out);
+        _ = out.write("test failed: expected values to be equal\n  expected: ");
+        expected.&.write_to(out);
+        _ = out.write("\n  actual: ");
+        actual.&.write_to(out);
+        _ = out.write("\n");
+        @trap();
+    }
 }
 
 impl Check {
@@ -64,6 +79,13 @@ pub struct ValueCheck[T] {
     message: &[u8],
 };
 
+pub struct EqCheck[T] {
+    passed: bool,
+    actual: ?T,
+    expected: ?T,
+    message: &[u8],
+};
+
 impl[T] ValueCheck[T] {
     pub fn eq(expected: T) Check
         where T: Eq[T],
@@ -86,6 +108,47 @@ impl[T] ValueCheck[T] {
         return .{ passed: true, message };
     }
 
+    pub fn eq_fmt(expected: T) EqCheck[T]
+        where T: Eq[T],
+    {
+        if (!self.passed) {
+            return .{
+                passed: false,
+                actual: .None,
+                expected: .{ Some: expected },
+                message: self.message,
+            };
+        }
+
+        let .{ Some: actual } = self.value else {
+            static message = "expected a value before equality check";
+            return .{
+                passed: false,
+                actual: .None,
+                expected: .{ Some: expected },
+                message,
+            };
+        };
+
+        if (!(actual == expected)) {
+            static message = "expected values to be equal";
+            return .{
+                passed: false,
+                actual: .{ Some: actual },
+                expected: .{ Some: expected },
+                message,
+            };
+        }
+
+        static message = "";
+        return .{
+            passed: true,
+            actual: .None,
+            expected: .None,
+            message,
+        };
+    }
+
     pub fn sum[W](loc: Loc, report: &mut Report[W]) T
         where &mut W: Write,
     {
@@ -97,6 +160,25 @@ impl[T] ValueCheck[T] {
             report.fail_at(loc, "expected a value before finishing check");
         };
         return payload;
+    }
+}
+
+impl[T] EqCheck[T] {
+    pub fn sum[W](loc: Loc, report: &mut Report[W]) void
+        where &mut W: Write,
+              &T: Formatable,
+    {
+        if (self.passed) {
+            return;
+        }
+
+        match (self.actual) {
+            .{ Some: actual } => match (self.expected) {
+                .{ Some: expected } => report.fail_eq_at(loc, actual, expected),
+                .None => report.fail_at(loc, self.message),
+            },
+            .None => report.fail_at(loc, self.message),
+        }
     }
 }
 

@@ -1,5 +1,13 @@
 #![doc = include_str!("../README.md")]
 
+mod dataflow;
+
+pub use dataflow::{
+    CfgTopology, ComputedLiveness, ComputedReaching, collect_binding_summaries, collect_def_uses,
+    collect_definition_facts, collect_node_facts, collect_node_transfers, collect_resolved_uses,
+    collect_single_source_uses, collect_use_defs, compute_liveness, compute_reaching_definitions,
+    materialize_liveness, materialize_reaching_definitions,
+};
 pub use kernc_middle::NodeFacts;
 use kernc_ty::DefId;
 use kernc_utils::{NodeId, Span};

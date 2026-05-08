@@ -1,14 +1,14 @@
 use super::control::collect_control_facts;
-use super::dataflow::{
+use super::optimize::collect_owner_optimization_facts;
+use super::*;
+use crate::compiler::{AnalysisFlowOwner, AnalysisFlowRegion};
+use kernc_flow::FlowLoweringHints;
+use kernc_flow::{
     CfgTopology, collect_binding_summaries, collect_def_uses, collect_definition_facts,
     collect_node_facts, collect_node_transfers, collect_resolved_uses, collect_single_source_uses,
     collect_use_defs, compute_liveness, compute_reaching_definitions, materialize_liveness,
     materialize_reaching_definitions,
 };
-use super::optimize::collect_owner_optimization_facts;
-use super::*;
-use crate::compiler::{AnalysisFlowOwner, AnalysisFlowRegion};
-use kernc_flow::FlowLoweringHints;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId};
 use kernc_sema::semantic::SemanticSymbolKind;
@@ -306,7 +306,7 @@ impl FlowModel {
                     record(&mut phase_totals, "  flow_single_source_uses", started);
                     let started = Instant::now();
                     owner.binding_summaries = collect_binding_summaries(
-                        &owner.bindings,
+                        owner.bindings.len(),
                         &owner.cfg,
                         &owner.node_facts,
                         &computed_liveness,
@@ -382,7 +382,7 @@ impl FlowModel {
                     record(&mut phase_totals, "  flow_single_source_uses", started);
                     let started = Instant::now();
                     owner.binding_summaries = collect_binding_summaries(
-                        &owner.bindings,
+                        owner.bindings.len(),
                         &owner.cfg,
                         &owner.node_facts,
                         &computed_liveness,

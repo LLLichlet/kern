@@ -4,17 +4,17 @@ mod control;
 mod dataflow;
 mod optimize;
 
-use self::dataflow::ComputedLiveness;
 use super::{
     AnalysisDeadStore, AnalysisDeadStoreKind, AnalysisFlowBinding, AnalysisFlowBindingId,
     AnalysisFlowBindingKind, AnalysisFlowBindingSummary, AnalysisFlowCfg, AnalysisFlowCfgEdge,
-    AnalysisFlowCfgEdgeKind, AnalysisFlowCfgNode, AnalysisFlowCfgNodeKind, AnalysisFlowDefUse,
-    AnalysisFlowDefinitionFacts, AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef,
-    AnalysisFlowLiveness, AnalysisFlowNodeEffects, AnalysisFlowNodeFacts, AnalysisFlowNodeId,
-    AnalysisFlowNodeTransfer, AnalysisFlowOwnerKind, AnalysisFlowReaching, AnalysisFlowRegionKind,
-    AnalysisFlowResolvedUse, AnalysisFlowSingleSourceUse, AnalysisFlowSummary, AnalysisFlowUseDef,
+    AnalysisFlowCfgEdgeKind, AnalysisFlowCfgNode, AnalysisFlowCfgNodeKind,
+    AnalysisFlowDefinitionFacts, AnalysisFlowDefinitionKind, AnalysisFlowLiveness,
+    AnalysisFlowNodeEffects, AnalysisFlowNodeFacts, AnalysisFlowNodeId, AnalysisFlowNodeTransfer,
+    AnalysisFlowOwnerKind, AnalysisFlowReaching, AnalysisFlowRegionKind, AnalysisFlowResolvedUse,
+    AnalysisFlowSingleSourceUse, AnalysisFlowSummary, AnalysisFlowUseDef,
 };
 use kernc_ast as ast;
+use kernc_flow::ComputedLiveness;
 use kernc_sema::SemaContext;
 use kernc_sema::def::DefId;
 use kernc_utils::Span;

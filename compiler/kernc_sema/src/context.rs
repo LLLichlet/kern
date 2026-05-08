@@ -245,6 +245,14 @@ impl<'a> SemaContext<'a> {
         self.facts.node_types = node_types;
     }
 
+    pub(crate) fn node_facts_snapshot(&self) -> NodeFacts {
+        self.facts.clone()
+    }
+
+    pub(crate) fn restore_node_facts(&mut self, facts: NodeFacts) {
+        self.facts = facts;
+    }
+
     pub fn atomic_ordering(&self, node_id: NodeId) -> Option<AtomicOrdering> {
         self.facts.atomic_orderings.get(&node_id).copied()
     }

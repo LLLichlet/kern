@@ -1547,12 +1547,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let lhs_ty = self.resolve_tv(lhs_ty);
         let env = MemberQueryEnv::from_current_active_bounds(self.ctx);
         let mut query = MemberQuery::new(self.ctx);
-        if let Some(resolution) = query.resolve_named_method(lhs_ty, field, &env, span) {
+        if let Some(resolution) = query.resolve_named_method(lhs_ty, field, &env, Some(span)) {
             return Some(resolution);
         }
         let slice_ty = self.immutable_slice_view_ty(lhs_ty)?;
         let mut query = MemberQuery::new(self.ctx);
-        let resolution = query.resolve_named_method(slice_ty, field, &env, span)?;
+        let resolution = query.resolve_named_method(slice_ty, field, &env, Some(span))?;
         Some(crate::query::MemberResolution {
             owner_trait_ty: Some(resolution.owner_trait_ty.unwrap_or(slice_ty)),
             candidate: resolution.candidate,

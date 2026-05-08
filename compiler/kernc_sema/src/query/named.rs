@@ -289,7 +289,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_ty: TypeId,
         member_name: SymbolId,
         env: &MemberQueryEnv,
-        access_span: Span,
+        diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
         let started = self.ctx.collects_timings().then(Instant::now);
         if matches!(
@@ -299,7 +299,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             search_norm,
             member_name,
             receiver_ty,
-            Some(access_span),
+            diagnostic_span,
         ) {
             if let Some(started) = started {
                 self.ctx
@@ -318,7 +318,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
         let started = self.ctx.collects_timings().then(Instant::now);
         if let Some(resolution) =
-            self.resolve_bound_member(search_norm, receiver_ty, member_name, env, access_span)
+            self.resolve_bound_member(search_norm, receiver_ty, member_name, env, diagnostic_span)
         {
             if let Some(started) = started {
                 self.ctx.analysis.expr_timing_stats.access_field_query_bound += started.elapsed();
@@ -333,14 +333,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             search_norm,
             receiver_ty,
             member_name,
-            access_span,
+            diagnostic_span,
         ) {
             return Some(resolution);
         }
 
         let started = self.ctx.collects_timings().then(Instant::now);
         let resolution = self
-            .resolve_named_impl_method(search_norm, member_name, Some(access_span))
+            .resolve_named_impl_method(search_norm, member_name, diagnostic_span)
             .map(|candidate| MemberResolution {
                 candidate,
                 owner_trait_ty: None,

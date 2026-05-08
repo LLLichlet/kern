@@ -363,7 +363,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         if let Some(resolution) =
-            self.resolve_named_method(receiver_ty, member_name, env, access_span)
+            self.resolve_named_method(receiver_ty, member_name, env, Some(access_span))
         {
             self.cache_member_resolution(cache_key, can_use_cache, &resolution);
             return Some(resolution);
@@ -377,7 +377,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_ty: TypeId,
         member_name: SymbolId,
         env: &MemberQueryEnv<'_>,
-        access_span: Span,
+        diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
         let search_types = self.search_types(receiver_ty);
         for search_norm in search_types.iter() {
@@ -386,7 +386,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 receiver_ty,
                 member_name,
                 env,
-                access_span,
+                diagnostic_span,
             ) {
                 return Some(resolution);
             }

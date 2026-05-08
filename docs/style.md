@@ -75,11 +75,13 @@ code or documentation.
 
 ### 3. Let contextual typing do the routine work
 
-Kern has strong contextual typing, and plain integer literals default to
-`i32`.
+Kern has strong source- and context-driven type inference. When the local type
+source already fixes the type, omit the type/provider. Repository code,
+standard-library code, incubator examples, and docs should exercise that
+inference instead of spelling types out defensively.
 
-Do not write redundant providers when the type is already fixed by the local
-context:
+Do not write redundant annotations or providers when the type is already fixed
+by the local context:
 
 ```kern
 let mut i = 0;
@@ -89,14 +91,19 @@ while (i < #text) {
 }
 ```
 
-The same rule applies to BNC more broadly: if the receiving site already fixes
-the type, do not add qualification only because it is available.
+The same rule applies to BNC, enum variants, associated items, generic
+qualification, and literal providers more broadly: if the receiving site
+already provides the type source, do not add qualification only because it is
+available. Redundant providers make Kern code look half-inferred and weaken the
+robustness coverage that the standard library should give the compiler.
 
 Keep explicit providers when:
 
 - width or signedness is part of the logic
 - removing the provider would silently change the type to `i32`
 - the provider materially improves local readability
+- the boundary is ABI-facing, serialization-facing, or otherwise intentionally
+  machine-facing
 
 ### 4. Be explicit when width is part of the meaning
 

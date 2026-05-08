@@ -924,6 +924,50 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_eq_methods_inside_test_assertion_chains() {
+    let output = build_and_run(
+        "kernc_eq_methods_inside_test_assertion_chains",
+        r#"
+use base.coll.{list, string};
+use base.mem.alloc.gpa;
+use base.test;
+use std.io;
+use sys.mem.page;
+
+fn main() i32 {
+    let t = test.report(io.stderr())..&;
+    let page = page()..&;
+    let gpa = gpa().on(page)..&;
+
+    let list = list[i32]()..&;
+    defer list.deinit(gpa);
+    list.push(gpa, 1).should().sum(@loc(), t);
+    list.push(gpa, 2).should().sum(@loc(), t);
+    list.push(gpa, 3).should().sum(@loc(), t);
+    list.as_slice().eq([3]i32.{ 1, 2, 3 }).should().sum(@loc(), t);
+
+    let text = string()..&;
+    defer text.deinit(gpa);
+    text.push_str(gpa, "Hello").should().sum(@loc(), t);
+    text.push_str(gpa, ", ").should().sum(@loc(), t);
+    text.push_str(gpa, "Kern").should().sum(@loc(), t);
+    text.as_str().eq("Hello, Kern").should().sum(@loc(), t);
+
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_argument_inferred_generic_trait_method_impl() {
     let output = build_and_run(
         "kernc_argument_inferred_generic_trait_method_impl",

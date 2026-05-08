@@ -329,7 +329,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         let env = MemberQueryEnv::from_current_active_bounds(self.ctx);
         let mut query = MemberQuery::new(self.ctx);
         let resolution =
-            query.resolve_named_method(receiver_ty, method_name, &env, receiver.span)?;
+            query.resolve_named_method(receiver_ty, method_name, &env, Some(receiver.span))?;
         let TypeKind::FnDef(def_id, generic_args) = self
             .ctx
             .type_registry

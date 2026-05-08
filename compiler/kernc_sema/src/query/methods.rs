@@ -69,7 +69,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_ty: TypeId,
         member_name: SymbolId,
         env: &MemberQueryEnv<'_>,
-        access_span: Span,
+        diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
         let mut resolution = None;
         self.for_each_matching_bound_trait_object(search_norm, env, |this, bound_norm| {
@@ -77,7 +77,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 bound_norm,
                 member_name,
                 receiver_ty,
-                Some(access_span),
+                diagnostic_span,
             ) {
                 resolution = Some(found);
                 return true;
@@ -92,7 +92,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         search_norm: TypeId,
         receiver_ty: TypeId,
         member_name: SymbolId,
-        access_span: Span,
+        diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
         let TypeKind::Projection {
             target,
@@ -153,7 +153,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 bound_ty,
                 member_name,
                 receiver_ty,
-                Some(access_span),
+                diagnostic_span,
             ) {
                 return Some(resolution);
             }

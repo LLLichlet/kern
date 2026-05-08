@@ -27,6 +27,7 @@ struct ArgumentInferredMethodCandidate {
     method_span: Span,
     impl_args: Vec<GenericArg>,
     receiver_ty: TypeId,
+    arg_match_score: usize,
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -45,8 +46,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let callee_ty = self.with_uninstantiated_generic_function_items_allowed(|this| {
-            this.check_method_callee_expr(callee)
-                .or_else(|| this.check_method_callee_expr_with_arguments(callee, args))
+            this.check_method_callee_expr(callee, Some(args))
                 .unwrap_or_else(|| this.check_expr(callee, None))
         });
         let norm_callee = self.resolve_tv(callee_ty);
@@ -236,7 +236,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn check_method_callee_expr(&mut self, callee: &Expr) -> Option<TypeId> {
+    fn check_method_callee_expr(&mut self, callee: &Expr, args: Option<&[Expr]>) -> Option<TypeId> {
         let ExprKind::FieldAccess {
             lhs,
             field,
@@ -246,7 +246,83 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         };
 
-        self.check_method_member_access(callee.id, lhs, *field, *field_span, callee.span)
+        let receiver_ty = self.check_value_or_namespace_expr(lhs);
+        if receiver_ty == TypeId::ERROR {
+            return Some(TypeId::ERROR);
+        }
+
+        let base_norm = self.method_receiver_base_type(receiver_ty);
+        if matches!(self.ctx.type_registry.get(base_norm), TypeKind::Module(..)) {
+            return None;
+        }
+
+        let env = crate::query::MemberQueryEnv::from_current_active_bounds(self.ctx);
+        let mut query = crate::query::MemberQuery::new(self.ctx);
+        let resolution = query.resolve_named_method(receiver_ty, *field, &env, None);
+
+        let resolution = match resolution {
+            Some(resolution) if resolution.candidate.type_id != TypeId::ERROR => resolution,
+            Some(_) if args.is_some() => {
+                let candidate = match self.resolve_method_with_call_arguments(
+                    receiver_ty,
+                    *field,
+                    args.unwrap(),
+                    callee.span,
+                ) {
+                    Ok(Some(candidate)) => candidate,
+                    Ok(None) => {
+                        return self.check_method_member_access(
+                            callee.id,
+                            lhs,
+                            *field,
+                            *field_span,
+                            callee.span,
+                        );
+                    }
+                    Err(()) => {
+                        self.ctx.set_node_type(callee.id, TypeId::ERROR);
+                        self.touched_expr_nodes.push(callee.id);
+                        return Some(TypeId::ERROR);
+                    }
+                };
+                self.ctx
+                    .record_identifier_reference(*field_span, candidate.method_span);
+                if candidate.receiver_ty != receiver_ty {
+                    self.ctx
+                        .set_method_owner_ty(callee.id, candidate.receiver_ty);
+                }
+                let type_id = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(candidate.method_id, candidate.impl_args));
+                self.ctx.set_node_type(callee.id, type_id);
+                self.touched_expr_nodes.push(callee.id);
+                return Some(type_id);
+            }
+            Some(_) => {
+                return self.check_method_member_access(
+                    callee.id,
+                    lhs,
+                    *field,
+                    *field_span,
+                    callee.span,
+                );
+            }
+            None if args.is_some() => {
+                return self.check_method_callee_expr_with_arguments(callee, args.unwrap());
+            }
+            None => return None,
+        };
+
+        self.ctx
+            .record_identifier_reference(*field_span, resolution.candidate.definition_span);
+        if let Some(owner_trait_ty) = resolution.owner_trait_ty {
+            self.ctx.set_method_owner_ty(callee.id, owner_trait_ty);
+        }
+        self.ctx
+            .set_node_type(callee.id, resolution.candidate.type_id);
+        self.touched_expr_nodes.push(callee.id);
+        Some(resolution.candidate.type_id)
     }
 
     fn check_method_callee_expr_with_arguments(
@@ -272,12 +348,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        let arg_tys = args
-            .iter()
-            .map(|arg| self.check_expr(arg, None))
-            .collect::<Vec<_>>();
+        let arg_tys = self.check_call_argument_types_silently(args);
         if arg_tys.contains(&TypeId::ERROR) {
-            return Some(TypeId::ERROR);
+            return None;
         }
 
         let candidate =
@@ -353,6 +426,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             })
             .map(|(_, candidate)| candidate.clone())
             .collect::<Vec<_>>();
+        let best_score = maximal
+            .iter()
+            .map(|candidate| candidate.arg_match_score)
+            .min()
+            .unwrap_or(0);
+        let maximal = maximal
+            .into_iter()
+            .filter(|candidate| candidate.arg_match_score == best_score)
+            .collect::<Vec<_>>();
 
         if maximal.len() > 1 {
             let method_name_str = self.ctx.resolve(method_name).to_string();
@@ -366,6 +448,37 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         Ok(maximal.into_iter().next())
+    }
+
+    fn resolve_method_with_call_arguments(
+        &mut self,
+        receiver_ty: TypeId,
+        method_name: kernc_utils::SymbolId,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<Option<ArgumentInferredMethodCandidate>, ()> {
+        let arg_tys = self.check_call_argument_types_silently(args);
+        if arg_tys.contains(&TypeId::ERROR) {
+            return Ok(None);
+        }
+
+        self.resolve_argument_inferred_method(receiver_ty, method_name, &arg_tys, span)
+    }
+
+    fn check_call_argument_types_silently(&mut self, args: &[Expr]) -> Vec<TypeId> {
+        let old_err_cnt = self.ctx.sess.error_count;
+        let old_diag_len = self.ctx.sess.diagnostics.len();
+        let old_node_facts = self.ctx.node_facts_snapshot();
+
+        let arg_tys = args
+            .iter()
+            .map(|arg| self.check_expr(arg, None))
+            .collect::<Vec<_>>();
+
+        self.ctx.sess.error_count = old_err_cnt;
+        self.ctx.sess.diagnostics.truncate(old_diag_len);
+        self.ctx.restore_node_facts(old_node_facts);
+        arg_tys
     }
 
     fn infer_impl_method_from_call_arguments(
@@ -441,8 +554,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
 
             let mut argument_inference_matches = true;
+            let mut arg_match_score = 0;
             for (param_ty, arg_ty) in params.iter().skip(1).zip(arg_tys.iter().copied()) {
-                let substituted_param =
+                let mut substituted_param =
                     self.substitute_type_with_unification_maps(*param_ty, &type_map, &const_map);
                 if self.type_contains_unresolved_params(substituted_param)
                     && !self.infer_generic_args_from_types(
@@ -455,6 +569,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     argument_inference_matches = false;
                     break;
                 }
+                substituted_param =
+                    self.substitute_type_with_unification_maps(*param_ty, &type_map, &const_map);
+                let Some(score) = self.call_argument_match_score(substituted_param, arg_ty) else {
+                    argument_inference_matches = false;
+                    break;
+                };
+                arg_match_score += score;
             }
             if !argument_inference_matches {
                 continue;
@@ -493,11 +614,70 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     method_span,
                     impl_args,
                     receiver_ty: search_ty,
+                    arg_match_score,
                 });
             }
         }
 
         None
+    }
+
+    fn call_argument_match_score(&mut self, expected: TypeId, actual: TypeId) -> Option<usize> {
+        let expected = self.resolve_tv(expected);
+        let actual = self.resolve_tv(actual);
+        if expected == actual || expected == TypeId::ERROR || actual == TypeId::ERROR {
+            return Some(0);
+        }
+        if actual == TypeId::NEVER {
+            return Some(1);
+        }
+
+        let expected_kind = self.ctx.type_registry.get(expected).clone();
+        let actual_kind = self.ctx.type_registry.get(actual).clone();
+
+        match (&expected_kind, &actual_kind) {
+            (
+                TypeKind::Slice {
+                    is_mut: false,
+                    elem: expected_elem,
+                },
+                TypeKind::Array {
+                    elem: actual_elem, ..
+                }
+                | TypeKind::ArrayInfer { elem: actual_elem },
+            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
+            (
+                TypeKind::Slice {
+                    is_mut: false,
+                    elem: expected_elem,
+                },
+                TypeKind::Slice {
+                    is_mut: true,
+                    elem: actual_elem,
+                },
+            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
+            (
+                TypeKind::Pointer {
+                    is_mut: false,
+                    elem: expected_elem,
+                },
+                TypeKind::Pointer {
+                    is_mut: true,
+                    elem: actual_elem,
+                },
+            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
+            (
+                TypeKind::VolatilePtr {
+                    is_mut: false,
+                    elem: expected_elem,
+                },
+                TypeKind::VolatilePtr {
+                    is_mut: true,
+                    elem: actual_elem,
+                },
+            ) if self.resolve_tv(*expected_elem) == self.resolve_tv(*actual_elem) => Some(1),
+            _ => None,
+        }
     }
 
     fn method_receiver_search_types(&mut self, receiver_ty: TypeId) -> Vec<TypeId> {
@@ -551,6 +731,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         search_tys
+    }
+
+    fn method_receiver_base_type(&mut self, receiver_ty: TypeId) -> TypeId {
+        let mut base_ty = receiver_ty;
+        loop {
+            let norm = self.resolve_tv(base_ty);
+            match self.ctx.type_registry.get(norm) {
+                TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                    base_ty = *elem;
+                }
+                _ => return norm,
+            }
+        }
     }
 
     fn receiver_base_is_module(&mut self, receiver_ty: TypeId) -> bool {

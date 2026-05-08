@@ -1,7 +1,7 @@
 use super::control::collect_control_facts;
 use super::optimize::collect_owner_optimization_facts;
 use super::*;
-use crate::compiler::{AnalysisFlowOwner, AnalysisFlowRegion};
+use crate::compiler::AnalysisFlowOwner;
 use kernc_flow::FlowLoweringHints;
 use kernc_flow::{
     CfgTopology, collect_binding_summaries, collect_def_uses, collect_definition_facts,
@@ -445,44 +445,7 @@ impl FlowModel {
     pub fn public_owners(&self) -> Vec<AnalysisFlowOwner> {
         self.owners
             .iter()
-            .map(|owner| AnalysisFlowOwner {
-                definition_span: owner.definition_span,
-                body_span: owner.body_span,
-                kind: owner.kind,
-                referenced_definition_spans: owner.referenced_definition_spans.clone(),
-                cfg: owner.cfg.clone(),
-                node_facts: owner.node_facts.clone(),
-                node_effects: owner.node_effects.clone(),
-                node_transfers: owner.node_transfers.clone(),
-                use_defs: owner.use_defs.clone(),
-                def_uses: owner.def_uses.clone(),
-                definition_facts: owner.definition_facts.clone(),
-                resolved_uses: owner.resolved_uses.clone(),
-                single_source_uses: owner.single_source_uses.clone(),
-                liveness: owner.liveness.clone(),
-                reaching_definitions: owner.reaching_definitions.clone(),
-                control_regions: owner
-                    .control_regions
-                    .iter()
-                    .map(|region| AnalysisFlowRegion {
-                        span: region.span,
-                        kind: region.kind,
-                    })
-                    .collect(),
-                summary: owner.summary,
-                bindings: owner
-                    .bindings
-                    .iter()
-                    .map(|binding| AnalysisFlowBinding {
-                        id: binding.id,
-                        definition_span: binding.definition_span,
-                        kind: binding.kind,
-                        is_mut: binding.is_mut,
-                        reference_spans: binding.reference_spans.clone(),
-                    })
-                    .collect(),
-                binding_summaries: owner.binding_summaries.clone(),
-            })
+            .map(FlowOwnerFacts::public_view)
             .collect()
     }
 

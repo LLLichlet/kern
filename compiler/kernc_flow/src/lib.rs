@@ -309,6 +309,61 @@ pub struct FlowRegionFacts {
     pub kind: AnalysisFlowRegionKind,
 }
 
+impl FlowOwnerFacts {
+    pub fn public_view(&self) -> AnalysisFlowOwner {
+        AnalysisFlowOwner {
+            definition_span: self.definition_span,
+            body_span: self.body_span,
+            kind: self.kind,
+            referenced_definition_spans: self.referenced_definition_spans.clone(),
+            cfg: self.cfg.clone(),
+            node_facts: self.node_facts.clone(),
+            node_effects: self.node_effects.clone(),
+            node_transfers: self.node_transfers.clone(),
+            use_defs: self.use_defs.clone(),
+            def_uses: self.def_uses.clone(),
+            definition_facts: self.definition_facts.clone(),
+            resolved_uses: self.resolved_uses.clone(),
+            single_source_uses: self.single_source_uses.clone(),
+            liveness: self.liveness.clone(),
+            reaching_definitions: self.reaching_definitions.clone(),
+            control_regions: self
+                .control_regions
+                .iter()
+                .map(FlowRegionFacts::public_view)
+                .collect(),
+            summary: self.summary,
+            bindings: self
+                .bindings
+                .iter()
+                .map(FlowBindingFacts::public_view)
+                .collect(),
+            binding_summaries: self.binding_summaries.clone(),
+        }
+    }
+}
+
+impl FlowBindingFacts {
+    pub fn public_view(&self) -> AnalysisFlowBinding {
+        AnalysisFlowBinding {
+            id: self.id,
+            definition_span: self.definition_span,
+            kind: self.kind,
+            is_mut: self.is_mut,
+            reference_spans: self.reference_spans.clone(),
+        }
+    }
+}
+
+impl FlowRegionFacts {
+    pub fn public_view(&self) -> AnalysisFlowRegion {
+        AnalysisFlowRegion {
+            span: self.span,
+            kind: self.kind,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FlowLoweringHints {
     owners: HashMap<DefId, FlowLoweringOwnerHints>,

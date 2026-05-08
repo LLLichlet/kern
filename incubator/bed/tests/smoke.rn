@@ -265,7 +265,7 @@ fn check_editor_resize_and_command_cursor() void {
     defer state.deinit(gpa);
 
     state.resize(40, 120).should().sum(@loc(), t);
-    (!state.resize(40, 120)).should().sum(@loc(), t);
+    state.resize(40, 120).not().should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b':' });
     state.handle_key(gpa, .{ Byte: b'w' });
@@ -275,7 +275,7 @@ fn check_editor_resize_and_command_cursor() void {
     state.handle_key(gpa, .End);
     state.handle_key(gpa, .Backspace);
     state.handle_key(gpa, .Escape);
-    (!state.should_quit()).should().sum(@loc(), t);
+    state.should_quit().not().should().sum(@loc(), t);
 }
 
 fn check_editor_normal_mode_subset() void {
@@ -512,7 +512,7 @@ fn check_split_window_and_window_commands() void {
     state.handle_key(gpa, .{ Byte: b'o' });
     frame.clear();
     state.render_into(gpa, frame, true).should().sum(@loc(), t);
-    (!contains(frame.as_str(), "[window W2/2]")).should().sum(@loc(), t);
+    contains(frame.as_str(), "[window W2/2]").not().should().sum(@loc(), t);
 }
 
 fn check_split_window_keeps_window_local_buffers() void {
@@ -879,7 +879,7 @@ fn check_ctrl_w_rearrange_commands() void {
     state.render_into(gpa, frame, true).should().sum(@loc(), t);
     let first_top = line_slice(frame.as_str(), 0);
     contains(first_top, "B0").should().sum(@loc(), t);
-    (!contains(first_top, "L0")).should().sum(@loc(), t);
+    contains(first_top, "L0").not().should().sum(@loc(), t);
 
     ctrl_w(state, gpa, b'J');
     frame.clear();
@@ -1028,7 +1028,7 @@ fn check_shell_prompt_and_output_render() void {
 
     frame.clear();
     state.render_into(gpa, frame, true).should().sum(@loc(), t);
-    (!contains(frame.as_str(), "[OUTPUT TEMP")).should().sum(@loc(), t);
+    contains(frame.as_str(), "[OUTPUT TEMP").not().should().sum(@loc(), t);
     contains(frame.as_str(), "-- NORMAL [EDITOR] --").should().sum(@loc(), t);
 
     state.handle_key(gpa, .{ Byte: b'\t' });
@@ -1043,7 +1043,7 @@ fn check_shell_prompt_and_output_render() void {
     state.handle_key(gpa, .{ Byte: b'Q' });
     frame.clear();
     state.render_into(gpa, frame, true).should().sum(@loc(), t);
-    (!contains(frame.as_str(), "[OUTPUT TEMP")).should().sum(@loc(), t);
+    contains(frame.as_str(), "[OUTPUT TEMP").not().should().sum(@loc(), t);
 }
 
 fn main() i32 {

@@ -257,7 +257,7 @@ fn check_packed_indexed_object_document_api() void {
 
     let view = doc.view();
     view.len().should().eq(6).sum(@loc(), t);
-    (!view.is_empty()).should().sum(@loc(), t);
+    view.is_empty().not().should().sum(@loc(), t);
     view.get_bool("ok").should_some().sum(@loc(), t).should().sum(@loc(), t);
     view.has_field("user").should().sum(@loc(), t);
     view.count_fields("dup").should().eq(2).sum(@loc(), t);
@@ -400,7 +400,7 @@ fn check_container_helpers() void {
 
     array.is_container().should().sum(@loc(), t);
     object.is_container().should().sum(@loc(), t);
-    (!scalar.is_container()).should().sum(@loc(), t);
+    scalar.is_container().not().should().sum(@loc(), t);
 }
 
 fn check_kind_helpers_and_scalar_accessors() void {
@@ -439,7 +439,7 @@ fn check_container_count_and_presence_helpers() void {
     array.array_len().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(3).sum(@loc(), t);
     object.object_len().should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
     object.has_field("msg").should_ok().sum(@loc(), t).should().sum(@loc(), t);
-    (!object.has_field("missing").should_ok().sum(@loc(), t)).should().sum(@loc(), t);
+    object.has_field("missing").should_ok().sum(@loc(), t).not().should().sum(@loc(), t);
     array.has_field("msg").should_ok().sum(@loc(), t).not().should().sum(@loc(), t);
     scalar.array_len().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
     scalar.object_len().should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
@@ -773,7 +773,7 @@ fn check_owned_materialization() void {
     owned..&.is_object().should().sum(@loc(), t);
     owned..&.object_len().should_some().sum(@loc(), t).should().eq(6).sum(@loc(), t);
     owned..&.has_field("msg").should().sum(@loc(), t);
-    (!owned..&.has_field("missing")).should().sum(@loc(), t);
+    owned..&.has_field("missing").not().should().sum(@loc(), t);
     owned..&.get_string("msg").should_some().sum(@loc(), t).should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
     owned..&.get_array("items").should_some().sum(@loc(), t).is_array().should().sum(@loc(), t);
     owned..&.get_object("nested").should_some().sum(@loc(), t).is_object().should().sum(@loc(), t);
@@ -859,9 +859,9 @@ fn check_indexed_object_view() void {
     defer view.deinit(gpa);
 
     view.len().should().eq(5).sum(@loc(), t);
-    (!view.is_empty()).should().sum(@loc(), t);
+    view.is_empty().not().should().sum(@loc(), t);
     view.has_field("msg").should().sum(@loc(), t);
-    (!view.has_field("missing")).should().sum(@loc(), t);
+    view.has_field("missing").not().should().sum(@loc(), t);
     view.get_bool("flag").should_some().sum(@loc(), t).should().sum(@loc(), t);
     view.get_string("msg").should_some().sum(@loc(), t).should().eq(("hi")).sum(@loc(), t);
     view.get_array("msg").is_none().should().sum(@loc(), t);
@@ -938,7 +938,7 @@ fn check_owned_document_schema_and_duplicate_helpers() void {
 
     let root = doc.&.root();
     root.has_field("msg").should().sum(@loc(), t);
-    (!root.has_field("missing")).should().sum(@loc(), t);
+    root.has_field("missing").not().should().sum(@loc(), t);
     root.count_fields("dup").should_some().sum(@loc(), t).should().eq(2).sum(@loc(), t);
 
     let msg = root.get_field("msg").should_some().sum(@loc(), t);
@@ -1043,13 +1043,13 @@ fn check_arena_mark_rewind_with_json_materialization() void {
     let owned2 = value2.clone_owned(arena).should_ok().sum(@loc(), t)..&;
     owned2.get_string("msg").should_some().sum(@loc(), t).should().eq(("hi")).sum(@loc(), t);
     arena.rewind(scratch).should().sum(@loc(), t);
-    (!arena.rewind(scratch)).should().sum(@loc(), t);
+    arena.rewind(scratch).not().should().sum(@loc(), t);
 
     let fresh = arena.mark();
     let owned3 = value2.clone_owned(arena).should_ok().sum(@loc(), t)..&;
     owned3.get_array("items").should_some().sum(@loc(), t).is_array().should().sum(@loc(), t);
     arena.rewind(fresh).should().sum(@loc(), t);
-    (!arena.rewind(baseline)).should().sum(@loc(), t);
+    arena.rewind(baseline).not().should().sum(@loc(), t);
 }
 
 fn check_required_field_decode_helpers() void {
@@ -1185,12 +1185,12 @@ fn check_owned_dom_build_and_mutation() void {
     items.pop_array_item().should().sum(@loc(), t);
     _ = items.push_array_number_text("9").should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     items.remove_array_index(1).should().sum(@loc(), t);
-    (!items.remove_array_index(9)).should().sum(@loc(), t);
+    items.remove_array_index(9).not().should().sum(@loc(), t);
 
     let flag2 = root.set_object_field("flag", .{ Bool: true }).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     flag2.bool_value().should_some().sum(@loc(), t).should().sum(@loc(), t);
     root.remove_object_field("msg").should().sum(@loc(), t);
-    (!root.remove_object_field("missing")).should().sum(@loc(), t);
+    root.remove_object_field("missing").not().should().sum(@loc(), t);
 
     root.get_string("msg").is_none().should().sum(@loc(), t);
     root.get_u64("count").should_ok().sum(@loc(), t).should_some().sum(@loc(), t).should().eq(12).sum(@loc(), t);

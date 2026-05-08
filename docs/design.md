@@ -404,7 +404,7 @@ Kern treats Anonymous Structs as first-class citizens to facilitate lightweight 
 
 ```kern
 // Native layout (optimized size)
-let val: struct { a: u8, b: u64 } = .{ a: 1, b: 2 };
+let val = struct { a: u8, b: u64 }.{ a: 1, b: 2 };
 
 // Extern layout (C-ABI compatible, maintains padding)
 extern {fn process_c_data(data: &extern struct { a: u8, b: u64 }) void; }

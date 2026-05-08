@@ -135,6 +135,43 @@ fn limine_smoke_resolves_real_freestanding_project_runtime() {
 }
 
 #[test]
+fn limine_mkiso_resolves_real_hosted_build_tool_runtime() {
+    let mut analysis = AnalysisEngine::default();
+    let path = workspace_root().join("incubator/limine-mkiso/src/main.rn");
+    let (uri, source) = open_workspace_document(&mut analysis, &path);
+
+    let resolved = analysis.resolve_analysis(&uri).unwrap();
+    assert_eq!(normalize_path(&resolved.input_file), normalize_path(&path));
+    assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::Rt);
+    assert_eq!(resolved.compile_options.library_bundle, LibraryBundle::Std);
+    assert!(resolved.compile_options.module_aliases.contains_key("base"));
+    assert!(resolved.compile_options.module_aliases.contains_key("std"));
+    assert!(resolved.compile_options.module_aliases.contains_key("sys"));
+
+    let diagnostics = analysis.analyze_document_uri(&uri);
+    let target_bundle = diagnostics
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("diagnostic bundle for limine-mkiso tool");
+    assert!(
+        target_bundle.diagnostics.is_empty(),
+        "unexpected diagnostics: {:?}",
+        target_bundle.diagnostics
+    );
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(&source, "push_shell_arg", 1, 2))
+        .unwrap()
+        .unwrap();
+    assert!(
+        hover.contents.value.contains("fn push_shell_arg:"),
+        "{}",
+        hover.contents.value
+    );
+}
+
+#[test]
 fn bitio_hover_renders_real_optional_mut_pointer_field() {
     let mut analysis = AnalysisEngine::default();
     let path = workspace_root().join("incubator/bitio/src/lib.rn");

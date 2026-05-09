@@ -48,7 +48,8 @@
 - [ ] Add constructor-convention style suggestions where the signal is strong:
   prefer helpers such as `string()`, `list()`, `map()`, or domain-specific
   constructors such as `page()` only when they express a real constructor,
-  allocator, builder, or capability boundary.
+  allocator, builder, or capability boundary. Deferred until the signal can be
+  made precise enough to avoid freestanding/runtime false positives.
 - [x] Keep style rules configurable by severity and scope so incubators,
   low-level runtime code, and mature packages can choose different strictness.
 - [x] Add tests for lint metrics and CLI output before enabling stricter rules.
@@ -57,7 +58,9 @@
 
 - [x] Update docs/style.md with docstring, match, formatter, lint, comment
   ratio, and test-coverage expectations.
-- [ ] Define package maturity gates: minimum public-doc coverage, comment ratio
+- [x] Define package maturity gates: minimum public-doc coverage, comment ratio
   bands, smoke tests, and optional benchmark coverage.
 - [ ] Wire new checks into `craft publish` or release-policy validation only
-  after the standalone commands have stabilized.
+  after the standalone commands have stabilized. Deliberately deferred while
+  `craft fmt`, `craft style`, and semantic doc metrics collect real package
+  data.

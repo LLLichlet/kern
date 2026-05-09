@@ -375,3 +375,26 @@ newlines, but does not yet rewrite AST layout or method-chain wrapping. Until
 the full formatter exists, keep formatting consistent with nearby code and
 split long method chains across lines when a postfix chain stops being quickly
 scannable.
+
+## Maturity Gates
+
+Package maturity is a release policy decision, not a language rule. The current
+recommended gates are:
+
+- incubator: `craft check` passes; smoke tests exist for the primary path;
+  public-doc coverage is measured but not enforced
+- usable third-party package: `craft fmt --check`, `craft style`, and
+  `craft test` pass locally; public-doc coverage is moving upward and missing
+  docs are triaged
+- mature public package: public-doc coverage is high enough for API review,
+  comment ratio is reviewed for invariants and boundaries, smoke tests cover
+  the common workflow, and focused regression tests cover discovered edge cases
+- performance-sensitive package: optional benchmarks or timing smoke tests
+  track the operations that users rely on
+
+Keep the numbers configurable by package role. Generated Vulkan bindings,
+runtime internals, freestanding support code, and hand-authored application
+libraries should not share one hard-coded threshold. When these checks are
+eventually wired into publish readiness, they should report the configured
+policy and the measured values together so review can distinguish missing
+coverage from intentionally relaxed scope.

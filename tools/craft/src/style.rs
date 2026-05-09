@@ -14,6 +14,9 @@ pub struct StyleSummary {
     pub inline_comment_lines: usize,
     pub block_comment_lines: usize,
     pub doc_comment_lines: usize,
+    pub public_items: usize,
+    pub documented_public_items: usize,
+    pub undocumented_public_items: usize,
 }
 
 impl StyleSummary {
@@ -29,6 +32,10 @@ impl StyleSummary {
         ratio(self.doc_comment_lines, self.code_lines)
     }
 
+    pub fn public_doc_coverage(&self) -> f64 {
+        ratio(self.documented_public_items, self.public_items)
+    }
+
     pub fn merge(&mut self, other: &Self) {
         self.packages += other.packages;
         self.files += other.files;
@@ -38,6 +45,9 @@ impl StyleSummary {
         self.inline_comment_lines += other.inline_comment_lines;
         self.block_comment_lines += other.block_comment_lines;
         self.doc_comment_lines += other.doc_comment_lines;
+        self.public_items += other.public_items;
+        self.documented_public_items += other.documented_public_items;
+        self.undocumented_public_items += other.undocumented_public_items;
     }
 }
 
@@ -125,12 +135,14 @@ fn is_skipped_dir(path: &Path) -> bool {
 fn count_source_metrics(source: &str) -> StyleSummary {
     let mut metrics = StyleSummary::default();
     let mut in_block_comment = false;
+    let mut pending_doc = false;
 
     for line in source.lines() {
         metrics.total_lines += 1;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             metrics.blank_lines += 1;
+            pending_doc = false;
             continue;
         }
 
@@ -144,13 +156,25 @@ fn count_source_metrics(source: &str) -> StyleSummary {
 
         if trimmed.starts_with("///") || trimmed.starts_with("//!") {
             metrics.doc_comment_lines += 1;
+            pending_doc = true;
             continue;
         }
 
         if trimmed.starts_with("//") {
             metrics.inline_comment_lines += 1;
+            pending_doc = false;
             continue;
         }
+
+        if is_public_declaration_line(trimmed) {
+            metrics.public_items += 1;
+            if pending_doc {
+                metrics.documented_public_items += 1;
+            } else {
+                metrics.undocumented_public_items += 1;
+            }
+        }
+        pending_doc = false;
 
         let line_comment = find_token_outside_string(line, "//");
         let block_comment = find_token_outside_string(line, "/*");
@@ -180,6 +204,33 @@ fn count_source_metrics(source: &str) -> StyleSummary {
     }
 
     metrics
+}
+
+fn is_public_declaration_line(trimmed: &str) -> bool {
+    let Some(rest) = trimmed.strip_prefix("pub") else {
+        return false;
+    };
+    let rest = rest
+        .strip_prefix("..")
+        .or_else(|| rest.strip_prefix('/'))
+        .unwrap_or(rest)
+        .trim_start();
+    matches!(
+        rest.split(|ch: char| ch.is_ascii_whitespace() || ch == '[')
+            .next(),
+        Some(
+            "mod"
+                | "use"
+                | "fn"
+                | "const"
+                | "static"
+                | "struct"
+                | "union"
+                | "enum"
+                | "trait"
+                | "type"
+        )
+    )
 }
 
 fn find_token_outside_string(line: &str, token: &str) -> Option<usize> {
@@ -234,14 +285,16 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{StyleSummary, count_source_metrics, find_token_outside_string};
+    use super::{
+        StyleSummary, count_source_metrics, find_token_outside_string, is_public_declaration_line,
+    };
 
     #[test]
     fn counts_comment_and_doc_comment_lines() {
         let metrics = count_source_metrics(
             r#"
 /// Documents the function.
-fn demo() void {
+pub fn demo() void {
     // explain a branch
     call();
     let text = "http://example.invalid";
@@ -250,6 +303,7 @@ fn demo() void {
      block detail
      */
 }
+pub fn undocumented() void {}
 "#,
         );
 
@@ -258,15 +312,19 @@ fn demo() void {
             StyleSummary {
                 packages: 0,
                 files: 0,
-                total_lines: 11,
-                code_lines: 5,
+                total_lines: 12,
+                code_lines: 6,
                 blank_lines: 1,
                 inline_comment_lines: 2,
                 block_comment_lines: 3,
                 doc_comment_lines: 1,
+                public_items: 2,
+                documented_public_items: 1,
+                undocumented_public_items: 1,
             }
         );
         assert_eq!(metrics.comment_lines(), 6);
+        assert_eq!(metrics.public_doc_coverage(), 50.0);
     }
 
     #[test]
@@ -279,5 +337,15 @@ fn demo() void {
             find_token_outside_string(r#"let value = "/* nope */"; // yes"#, "//"),
             Some(26)
         );
+    }
+
+    #[test]
+    fn recognizes_public_declaration_lines() {
+        assert!(is_public_declaration_line("pub fn run() void {"));
+        assert!(is_public_declaration_line("pub.. struct Page {"));
+        assert!(is_public_declaration_line("pub/ trait Write {"));
+        assert!(is_public_declaration_line("pub use .parse.{parse_i32};"));
+        assert!(!is_public_declaration_line("puberty = true;"));
+        assert!(!is_public_declaration_line("fn private() void {}"));
     }
 }

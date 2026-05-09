@@ -37,8 +37,10 @@
 - [x] Start with source metrics: source files, code lines, blank lines, inline
   comments (`//`, `/* */`), doc comments (`///`, `//!`), comment ratio, doc
   ratio, and doc-line totals.
-- [ ] Add public-doc coverage to `craft style` after public item discovery is
-  available without forcing a full build.
+- [x] Add source-level public-doc coverage to `craft style` without forcing a
+  full build.
+- [ ] Add semantic public-doc coverage from compiler metadata for release-grade
+  documentation policy.
 - [ ] Add style suggestions that have already appeared in real packages:
   prefer `page()`, `string()`, `list()`, `map()` constructors; prefer `for`
   over index-only `while`; use handle-style temporaries for stateful cursors;

@@ -783,6 +783,15 @@ fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
             total.doc_ratio()
         ),
     );
+    render.summary(
+        "public-docs",
+        format!(
+            "{} documented, {} missing, coverage {:.1}%",
+            total.documented_public_items,
+            total.undocumented_public_items,
+            total.public_doc_coverage()
+        ),
+    );
     if render.is_verbose() {
         render.section("packages");
         for summary in &summaries {
@@ -791,11 +800,11 @@ fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
                 "metric",
                 &summary.label,
                 format!(
-                    "{} file(s), code {}, comments {}, ratio {:.1}%",
+                    "{} file(s), code {}, comments {}, public-docs {:.1}%",
                     summary.metrics.files,
                     summary.metrics.code_lines,
                     summary.metrics.comment_lines(),
-                    summary.metrics.comment_ratio()
+                    summary.metrics.public_doc_coverage()
                 ),
             );
         }

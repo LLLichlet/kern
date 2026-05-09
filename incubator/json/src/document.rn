@@ -1,5 +1,5 @@
 use base.mem.{layout_of};
-use base.mem.alloc.Arena;
+use base.mem.alloc.{Arena, arena};
 use base.num.USIZE_MAX;
 use sys.mem.Page;
 use ..{
@@ -174,7 +174,7 @@ pub/ fn clone_owned_document(
     let raw = page.alloc(layout).ok_or(MaterializeError.OutOfMemory).!;
     let state = raw as &mut OwnedDocumentState;
     state.page = Page.{};
-    state.arena = Arena.{ backing: state.page..& };
+    state.arena = arena().on(state.page..&);
     let chunk_size = document_arena_chunk_size(#value.raw);
     state.arena..&.set_chunk_size(chunk_size);
     state.root = OwnedValue.Null;
@@ -200,7 +200,7 @@ pub/ fn clone_indexed_object_document(
         .ok_or(IndexedObjectDocumentError.{ Materialize: MaterializeError.OutOfMemory }).!;
     let state = raw as &mut IndexedObjectDocumentState;
     state.page = Page.{};
-    state.arena = Arena.{ backing: state.page..& };
+    state.arena = arena().on(state.page..&);
     let chunk_size = document_arena_chunk_size(#value.raw);
     state.arena..&.set_chunk_size(chunk_size);
     state.root = OwnedValue.Null;

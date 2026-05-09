@@ -1,5 +1,5 @@
 use base.coll.String;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use std.fs;
 use std.io;
 use std.proc;
@@ -72,7 +72,7 @@ fn enter_raw_mode() ?term.RawMode {
 
 fn main(argc: i32, argv: &&u8) i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let args = proc.args(argc, argv);
 
     let .{ Some: editor_state } = open_editor_state(gpa, args) else return 1;

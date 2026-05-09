@@ -1,5 +1,5 @@
 use base.coll.String;
-use base.mem.alloc.{Arena, GPA};
+use base.mem.alloc.{Arena, arena, gpa};
 use sys.mem.Page;
 use std.fs;
 use std.io;
@@ -170,7 +170,7 @@ fn bench_parse_packed_document(iterations: usize, input_label: &[u8], text: &[u8
 fn bench_clone_gpa(iterations: usize, input_label: &[u8], text: &[u8]) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let mut sink = usize.{0};
     let start = time.monotonic().now();
 
@@ -189,7 +189,7 @@ fn bench_clone_gpa(iterations: usize, input_label: &[u8], text: &[u8]) bool {
 fn bench_clone_arena(iterations: usize, input_label: &[u8], text: &[u8]) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
-    let mut arena = Arena.{ backing: page };
+    let mut arena = arena().on(page);
     defer arena..&.deinit();
     let mut sink = usize.{0};
     let start = time.monotonic().now();
@@ -243,7 +243,7 @@ fn bench_render_borrowed(iterations: usize, input_label: &[u8], text: &[u8]) boo
     let .{ Ok: value } = parse(text) else return false;
     let .{ Ok: render_size } = compact_size(value) else return false;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let out = String.{}..&;
     defer out.deinit(gpa);
     let .{ Some: _ } = out.append_uninit(gpa, render_size)
@@ -265,7 +265,7 @@ fn bench_render_borrowed(iterations: usize, input_label: &[u8], text: &[u8]) boo
 fn bench_render_owned(iterations: usize, input_label: &[u8], text: &[u8]) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let .{ Ok: mut document } = clone_owned_document(value) else return false;
     defer document..&.deinit();
     let root = document.&.root();
@@ -460,7 +460,7 @@ fn test_packed_indexed_document_lookup_body(indexed: PackedIndexedObjectView) us
 fn bench_build_indexed(iterations: usize, input_label: &[u8], text: &[u8]) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let mut sink = usize.{0};
     let start = time.monotonic().now();
 
@@ -484,7 +484,7 @@ fn bench_build_indexed(iterations: usize, input_label: &[u8], text: &[u8]) bool 
 fn bench_build_indexed_arena(iterations: usize, input_label: &[u8], text: &[u8]) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
-    let mut arena = Arena.{ backing: page };
+    let mut arena = arena().on(page);
     defer arena..&.deinit();
     let mut sink = usize.{0};
     let start = time.monotonic().now();
@@ -506,7 +506,7 @@ fn bench_build_indexed_arena(iterations: usize, input_label: &[u8], text: &[u8])
 fn bench_lookup_indexed(iterations: usize, input_label: &[u8], text: &[u8]) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let .{ Ok: mut owned } = value.clone_owned(gpa) else return false;
     defer owned..&.deinit(gpa);
     let .{ Ok: .{ Some: mut indexed } } = owned..&.build_indexed_object_view(gpa)
@@ -605,7 +605,7 @@ fn run_bench(name: &[u8], iterations: usize, input_label: &[u8], text: &[u8]) bo
 fn main(argc: i32, argv: &&u8) i32 {
     let args = proc.args(argc, argv);
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let iterations = match (args.get(1)) {
         .{ Some: value } => {
             let parsed = parse_iterations(value);

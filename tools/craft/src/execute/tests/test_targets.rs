@@ -355,12 +355,12 @@ roots = ["tests/cwd.rn"]
         app_dir.join("tests/cwd.rn"),
         r#"
 use std.fs;
-use base.mem.alloc.{Allocator, GPA};
+use base.mem.alloc.{Allocator, gpa};
 use sys.mem.Page;
 
 fn main() i32 {
 let mut page = Page.{};
-let mut gpa = GPA.{ backing: &mut Allocator.{ page..& } };
+let mut gpa = gpa().on(&mut Allocator.{ page..& });
 defer gpa..&.deinit();
 let alloc = &mut Allocator.{ gpa..& };
 
@@ -437,12 +437,12 @@ roots = ["tests/env.rn"]
         app_dir.join("tests/env.rn"),
         r#"
 use std.env;
-use base.mem.alloc.{Allocator, GPA};
+use base.mem.alloc.{Allocator, gpa};
 use sys.mem.Page;
 
 fn main() i32 {
 let mut page = Page.{};
-let mut gpa = GPA.{ backing: &mut Allocator.{ page..& } };
+let mut gpa = gpa().on(&mut Allocator.{ page..& });
 defer gpa..&.deinit();
 let alloc = &mut Allocator.{ gpa..& };
 

@@ -1,7 +1,7 @@
 use base.coll.{List, Map, String};
 use base.hash.hash_bytes;
 use base.mem.layout_of;
-use base.mem.alloc.{Allocator, Arena};
+use base.mem.alloc.{Allocator, Arena, arena};
 use sys.mem.Page;
 use ..{
     FieldDecodeError,
@@ -455,7 +455,7 @@ fn create_packed_document_state() (&mut PackedDocumentState)!MaterializeError {
     let raw = page.alloc(layout).ok_or(MaterializeError.OutOfMemory).!;
     let state = raw as &mut PackedDocumentState;
     state.page = Page.{};
-    state.arena = Arena.{ backing: state.page..& };
+    state.arena = arena().on(state.page..&);
     state.strings = String.{};
     state.values = List[PackedValueNode].{};
     state.array_items = List[usize].{};
@@ -475,7 +475,7 @@ fn parse_packed_document_state(text: &[u8]) (&mut PackedDocumentState)!Materiali
             .{ Err: err } => return .{ Err: err },
         };
     let mut scratch_page = Page.{};
-    let mut scratch_arena = Arena.{ backing: scratch_page..& };
+    let mut scratch_arena = arena().on(scratch_page..&);
     defer scratch_arena..&.deinit();
 
     let .{ Ok: root } = parse_packed_value_from_start(state, scratch_arena..&, text, start)

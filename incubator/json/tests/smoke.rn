@@ -1,4 +1,4 @@
-use base.mem.alloc.{Arena, GPA};
+use base.mem.alloc.{Arena, arena, gpa};
 use sys.mem.Page;
 use base.test;
 use std.io;
@@ -129,7 +129,7 @@ fn check_borrowed_required_field_and_index_helpers() void {
     out.&[0 .. written].should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
 
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let mut cloned = value.clone_required_decoded_string_field("msg", gpa).should_ok().sum(@loc(), t);
     defer cloned..&.deinit(gpa);
     cloned.&.as_str().should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
@@ -347,7 +347,7 @@ fn check_borrowed_optional_schema_helpers() void {
     out.&[0 .. written].should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
 
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let mut cloned = value.clone_decoded_string_field("msg", gpa).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     defer cloned..&.deinit(gpa);
     cloned.&.as_str().should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
@@ -668,7 +668,7 @@ fn check_decoded_string_helpers() void {
         }.&[0 .. 13])).should().sum(@loc(), t);
 
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let mut owned = escaped.clone_decoded_string(gpa).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     defer owned..&.deinit(gpa);
     owned.&.as_str().should().eq((out.&[0 .. written])).sum(@loc(), t);
@@ -687,7 +687,7 @@ fn check_decoded_string_errors() void {
     let mut out = [4]u8.{undef};
     scalar.write_decoded_string(out..&[0 .. 4]).should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     scalar.clone_decoded_string(gpa).should_ok().sum(@loc(), t).is_none().should().sum(@loc(), t);
 
     let invalid = json.Value.{ kind: Kind.String, raw: "\"\\uD800\"" };
@@ -714,7 +714,7 @@ fn check_decoded_object_key_helpers() void {
     out.&[0 .. written].should().eq(([6]u8.{ b'a', b'B', u8.{0xF0}, u8.{0x9F}, u8.{0x98}, u8.{0x83} }.&[0 .. 6])).sum(@loc(), t);
 
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let mut owned = entry.clone_decoded_key(gpa).should_ok().sum(@loc(), t);
     defer owned..&.deinit(gpa);
     owned.&.as_str().should().eq((out.&[0 .. written])).sum(@loc(), t);
@@ -746,7 +746,7 @@ fn check_borrowed_object_entry_value_helpers() void {
     out.&[0 .. written].should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
 
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let mut cloned = msg.clone_decoded_string(gpa).should_ok().sum(@loc(), t).should_some().sum(@loc(), t);
     defer cloned..&.deinit(gpa);
     cloned.&.as_str().should().eq(([3]u8.{ b'h', b'i', b'\n' }.&[0 .. 3])).sum(@loc(), t);
@@ -766,7 +766,7 @@ fn check_owned_materialization() void {
             "{\"msg\":\"hi\\n\",\"items\":[true,12],\"nested\":{\"ok\":false},\"count\":12,\"pi\":1.25,\"flag\":false}"
         ).should_ok().sum(@loc(), t);
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let mut owned = value.clone_owned(gpa).should_ok().sum(@loc(), t);
     defer owned..&.deinit(gpa);
 
@@ -831,7 +831,7 @@ fn check_owned_materialization_with_arena_reset() void {
     let t = test.report(io.stderr())..&;
     let value = parse("{\"msg\":\"hi\\n\",\"items\":[true,12],\"nested\":{\"ok\":false},\"flag\":false}").should_ok().sum(@loc(), t);
     let page = Page.{}..&;
-    let mut arena = Arena.{ backing: page };
+    let mut arena = arena().on(page);
     defer arena..&.deinit();
 
     let mut round = 0;
@@ -851,7 +851,7 @@ fn check_indexed_object_view() void {
     let t = test.report(io.stderr())..&;
     let value = parse("{\"a\":1,\"dup\":1,\"dup\":2,\"msg\":\"hi\",\"flag\":true}").should_ok().sum(@loc(), t);
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let owned = value.clone_owned(gpa).should_ok().sum(@loc(), t)..&;
     defer owned.deinit(gpa);
 
@@ -901,7 +901,7 @@ fn check_indexed_object_view_with_arena_reset() void {
     let t = test.report(io.stderr())..&;
     let value = parse("{\"a\":1,\"dup\":1,\"dup\":2,\"msg\":\"hi\",\"flag\":true}").should_ok().sum(@loc(), t);
     let page = Page.{}..&;
-    let arena = Arena.{ backing: page }..&;
+    let arena = arena().on(page)..&;
     defer arena.deinit();
 
     let mut round = 0;
@@ -1030,7 +1030,7 @@ fn check_indexed_object_document_nested_lookup() void {
 fn check_arena_mark_rewind_with_json_materialization() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let arena = Arena.{ backing: page }..&;
+    let arena = arena().on(page)..&;
     defer arena.deinit();
 
     let baseline = arena.mark();
@@ -1056,7 +1056,7 @@ fn check_required_field_decode_helpers() void {
     let t = test.report(io.stderr())..&;
     let value = parse("{\"flag\":true,\"count\":12,\"msg\":\"hi\",\"nested\":{\"ok\":false},\"items\":[1],\"dup\":1,\"dup\":2,\"flt\":1.5}").should_ok().sum(@loc(), t);
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let owned = value.clone_owned(gpa).should_ok().sum(@loc(), t)..&;
     defer owned.deinit(gpa);
 
@@ -1126,7 +1126,7 @@ fn check_owned_compact_render_round_trip() void {
     let t = test.report(io.stderr())..&;
     let value = parse("{\"msg\":\"hi\\n\\t\\\"\\\\\",\"ctrl\":\"\\u0001\",\"items\":[true,null,12],\"nested\":{\"ok\":false}}").should_ok().sum(@loc(), t);
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let owned = value.clone_owned(gpa).should_ok().sum(@loc(), t)..&;
     defer owned.deinit(gpa);
 
@@ -1148,7 +1148,7 @@ fn check_owned_compact_render_reports_small_buffer() void {
     let t = test.report(io.stderr())..&;
     let value = parse("{\"msg\":\"hi\"}").should_ok().sum(@loc(), t);
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let owned = value.clone_owned(gpa).should_ok().sum(@loc(), t)..&;
     defer owned.deinit(gpa);
 
@@ -1211,7 +1211,7 @@ fn check_owned_dom_build_and_mutation() void {
 fn check_owned_dom_node_pool_reuse() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let mut array = json.OwnedArray.{};
     defer array..&.deinit(gpa);

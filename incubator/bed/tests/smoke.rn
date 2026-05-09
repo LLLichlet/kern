@@ -1,5 +1,5 @@
 use base.coll.String;
-use base.mem.alloc.GPA;
+use base.mem.alloc.{GPA, gpa};
 use std.fs;
 use base.test;
 use std.io;
@@ -214,7 +214,7 @@ fn check_command_parse() void {
 fn check_buffer_editing() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let text = buffer.empty(gpa, "").should_ok().sum(@loc(), t)..&;
     defer text.deinit(gpa);
@@ -259,7 +259,7 @@ fn check_escape_decode() void {
 fn check_editor_resize_and_command_cursor() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -281,7 +281,7 @@ fn check_editor_resize_and_command_cursor() void {
 fn check_editor_normal_mode_subset() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -323,7 +323,7 @@ fn check_editor_normal_mode_subset() void {
 fn check_editor_extended_normal_motions() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -413,7 +413,7 @@ fn check_editor_extended_normal_motions() void {
 fn check_command_line_viewport_render() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -436,7 +436,7 @@ fn check_command_line_viewport_render() void {
 fn check_insert_tab_and_line_number_render() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -474,7 +474,7 @@ fn check_insert_tab_and_line_number_render() void {
 fn check_split_window_and_window_commands() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -518,7 +518,7 @@ fn check_split_window_and_window_commands() void {
 fn check_split_window_keeps_window_local_buffers() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let path_a = smoke_temp_path(gpa, "bed-window-a.txt")..&;
     let path_b = smoke_temp_path(gpa, "bed-window-b.txt")..&;
     defer path_a.deinit(gpa);
@@ -574,7 +574,7 @@ fn check_split_window_keeps_window_local_buffers() void {
 fn check_multi_window_cycle_and_close() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -627,7 +627,7 @@ fn check_multi_window_cycle_and_close() void {
 fn check_ctrl_w_navigation_commands() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -678,7 +678,7 @@ fn check_ctrl_w_navigation_commands() void {
 fn check_window_and_layout_slots_are_reused() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -700,7 +700,7 @@ fn check_window_and_layout_slots_are_reused() void {
 fn check_vsplit_layout_and_window_resize_commands() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let path_a = smoke_temp_path(gpa, "bed-vsplit-a.txt")..&;
     let path_b = smoke_temp_path(gpa, "bed-vsplit-b.txt")..&;
     defer path_a.deinit(gpa);
@@ -772,7 +772,7 @@ fn check_vsplit_layout_and_window_resize_commands() void {
 fn check_nested_split_tree_layout() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let path_left = smoke_temp_path(gpa, "bed-tree-left.txt")..&;
     let path_top = smoke_temp_path(gpa, "bed-tree-top.txt")..&;
     let path_bottom = smoke_temp_path(gpa, "bed-tree-bottom.txt")..&;
@@ -824,7 +824,7 @@ fn check_nested_split_tree_layout() void {
 fn check_ctrl_w_rearrange_commands() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let path_left = smoke_temp_path(gpa, "bed-tree-left.txt")..&;
     let path_top = smoke_temp_path(gpa, "bed-tree-top.txt")..&;
     let path_bottom = smoke_temp_path(gpa, "bed-tree-bottom.txt")..&;
@@ -893,7 +893,7 @@ fn check_ctrl_w_rearrange_commands() void {
 fn check_additional_jump_keys() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -931,7 +931,7 @@ fn check_additional_jump_keys() void {
 fn check_prompt_history_navigation() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -970,7 +970,7 @@ fn check_prompt_history_navigation() void {
 fn check_cursor_shape_changes_with_mode() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);
@@ -998,7 +998,7 @@ fn check_cursor_shape_changes_with_mode() void {
 fn check_shell_prompt_and_output_render() void {
     let t = test.report(io.stderr())..&;
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let state = editor.empty(gpa).should_ok().sum(@loc(), t)..&;
     defer state.deinit(gpa);

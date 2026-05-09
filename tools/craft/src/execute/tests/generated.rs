@@ -1782,14 +1782,14 @@ root = "src/main.rn"
     fs::write(
         tool_dir.join("src/main.rn"),
         r#"
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use std.fs;
 use std.proc;
 use sys.mem.Page;
 
 fn main(argc: i32, argv: &&u8) i32 {
 let page = Page.{}..&;
-let gpa = GPA.{ backing: page }..&;
+let gpa = gpa().on(page)..&;
 let args = proc.args(argc, argv);
 let .{ Some: path } = args.get(1) else return 1;
 let .{ Ok: text } = path.path().read_to_string(gpa) else return 1;

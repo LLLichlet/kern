@@ -300,7 +300,7 @@ This separation is intentional. `craft` is not a compiler pass. It is a top-leve
 It stays readable and sufficient for ordinary packages. Most packages do not
 need either script file.
 
-The current schema includes:
+The schema includes:
 
 - `[package]`
 - `[craft]`
@@ -427,7 +427,7 @@ workspace root. A package may opt out entirely with `publish = false`.
 `craft` must not treat all command-line inputs as one undifferentiated planning
 surface.
 
-The current command surface accepts:
+The command surface accepts:
 
 - `--project-path <path>`
 - `--profile <dev|release>`
@@ -596,7 +596,7 @@ Lockfile non-responsibilities:
 
 The source model is deliberately simple.
 
-Current direction:
+Supported source forms:
 
 - path dependencies
 - git dependencies
@@ -629,7 +629,7 @@ limine = { git = "https://github.com/limine-bootloader/limine.git", tag = "v11.4
 assets = { path = "vendor/assets" }
 ```
 
-Current resource rules:
+Resource rules:
 
 - resources are declared per package
 - a resource must declare exactly one source backend: `path` or `git`
@@ -812,9 +812,9 @@ Dependency edges added with `depend(output, dependency)` are not just ordering h
 
 This keeps build behavior explicit and inspectable instead of hiding it behind arbitrary script side effects.
 
-## Current `build.rn` Capability Surface
+## `build.rn` Capability Surface
 
-The current `Builder` API includes:
+The `Builder` API includes:
 
 - package, workspace, target, profile, command, and unit inspection
 - explicit host/target inspection for cross compilation aware logic
@@ -873,7 +873,7 @@ The current `Builder` API includes:
 
 The important property is not API breadth by itself. The important property is that these effects are represented in the build plan rather than being hidden behavior.
 
-Current domain behavior:
+Domain behavior:
 
 - ordinary package units are target-domain units
 - `build.rn` executes with both host and target context available
@@ -926,7 +926,7 @@ This keeps package management, graph resolution, and code generation cleanly sep
 
 ## Command Surface
 
-The current command surface is intentionally narrow:
+The command surface is intentionally narrow:
 
 - `craft help`
 - `craft check`
@@ -941,7 +941,7 @@ The current command surface is intentionally narrow:
 - `craft run`
 - `craft test`
 
-Current behavior:
+Command behavior:
 
 - `init` creates `Craft.toml`, package stubs when needed, `.gitignore`, and the initial `Craft.lock`
 - `check` loads the package graph, auto-synchronizes `Craft.lock`, evaluates scripts, derives the build plan, materializes staged inputs, and runs semantic analysis for every selected compile unit without codegen or final linking
@@ -950,9 +950,8 @@ Current behavior:
   - resource source backends are explicit package-relative paths or git repositories
 - `publish` auto-synchronizes `Craft.lock` and runs release-oriented metadata and source-policy checks without uploading anywhere
 - `doc` auto-synchronizes `Craft.lock`, builds the selected package graph, and renders Markdown package docs under `.craft/docs`
-- `fmt` normalizes Kern source text deterministically; the first version only
-  trims trailing horizontal whitespace and ensures one final newline, while
-  AST-level layout remains future formatter work
+- `fmt` normalizes Kern source text deterministically by removing trailing
+  horizontal whitespace and enforcing final-newline consistency
 - `style` reports source metrics, public-doc coverage, and configurable
   advisory style suggestions without mutating source files
 - `build` auto-synchronizes `Craft.lock` and executes the selected build plan

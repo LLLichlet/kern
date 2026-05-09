@@ -1,7 +1,6 @@
 # Kern Source Style
 
-This document records the current source-style guidance for Kern code in this
-repository.
+This document records source-style guidance for Kern code in this repository.
 
 It is intentionally short. Language semantics live in
 [`docs/design.md`](./design.md); this file only says how to express those
@@ -16,7 +15,7 @@ Prefer source that makes Kern's design visible:
 - expression-driven without hiding control flow
 - based on orthogonal language mechanisms, not special-case habits
 
-## Current Guidance
+## Guidance
 
 ### 0. Write public docs as Markdown-first API text
 
@@ -347,7 +346,7 @@ failure should report at least its source location and failure kind.
 ## Tooling Expectations
 
 Run `craft style` during review for source-health metrics. The command is
-non-mutating and currently reports source files, code lines, blank lines,
+non-mutating and reports source files, code lines, blank lines,
 inline and block comments, doc comments, comment ratios, and public-doc
 coverage. Treat these numbers as review signals before they become package
 policy.
@@ -363,18 +362,16 @@ For mature public packages, the expected direction is:
   so high that comments restate obvious local code
 
 Low-level runtime code, incubators, generated bindings, and experiments may
-use different thresholds. Style and policy tools should therefore expose
-severity and scope controls before any check is wired into publishing.
+use different thresholds. Style and policy tools expose severity and scope
+controls so packages can choose appropriate review strictness.
 Use `[craft.style]` in `Craft.toml` to turn advisory suggestions off, mark them
 as warning-level review items, disable specific rules, or exclude generated and
 low-level source subtrees from suggestion collection.
 
-`craft fmt` is the deterministic formatting entry point. The first version is
-intentionally conservative: it normalizes trailing whitespace and final
-newlines, but does not yet rewrite AST layout or method-chain wrapping. Until
-the full formatter exists, keep formatting consistent with nearby code and
-split long method chains across lines when a postfix chain stops being quickly
-scannable.
+`craft fmt` is the deterministic formatting entry point for source-text
+normalization. Use it before review, keep higher-level layout consistent with
+nearby code, and split long method chains across lines when a postfix chain
+stops being quickly scannable.
 
 ## Maturity Gates
 
@@ -394,7 +391,6 @@ recommended gates are:
 
 Keep the numbers configurable by package role. Generated Vulkan bindings,
 runtime internals, freestanding support code, and hand-authored application
-libraries should not share one hard-coded threshold. When these checks are
-eventually wired into publish readiness, they should report the configured
-policy and the measured values together so review can distinguish missing
-coverage from intentionally relaxed scope.
+libraries should not share one hard-coded threshold. Publish-readiness checks
+should report the configured policy and the measured values together so review
+can distinguish missing coverage from intentionally relaxed scope.

@@ -32,6 +32,9 @@
 ## P2 Style, Formatting, And Lint Tooling
 
 - [x] Add `craft fmt` as a deterministic formatter entry point.
+  The implementation currently normalizes trailing horizontal whitespace and
+  final-newline consistency. AST-level layout and method-chain wrapping remain
+  future formatter work.
 - [x] Add `craft lint` or `craft style` as a non-mutating analyzer for project
   health and Kern idioms.
 - [x] Start with source metrics: source files, code lines, blank lines, inline

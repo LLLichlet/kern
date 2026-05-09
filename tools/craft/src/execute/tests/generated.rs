@@ -1180,6 +1180,154 @@ return 0;
 }
 
 #[test]
+fn host_tool_generated_source_rebuilds_when_tool_submodule_changes() {
+    let root = temp_dir("craft-exec-host-tool-submodule-change");
+    let app_dir = root.join("app");
+    let tool_dir = root.join("tool");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::create_dir_all(tool_dir.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["app", "tool"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.5"
+
+[[bin]]
+name = "app"
+root = "src/placeholder.rn"
+
+[build-dependencies]
+codegen = { path = "../tool", package = "tool" }
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: &mut builder.Builder) void {
+let generated = b.emit_generated_from_tool("codegen", "codegen", "src/main.rn", .{});
+b.set_source_root(generated);
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        tool_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "tool"
+version = "0.1.0"
+kern = "0.7.5"
+
+[[bin]]
+name = "codegen"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        tool_dir.join("src").join("main.rn"),
+        r#"
+mod helper;
+use std.io;
+use base.io.Write;
+
+fn main() i32 {
+let mut out = io.stdout();
+let writer = &mut Write.{ out..& };
+helper.emit(writer);
+return 0;
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        tool_dir.join("src").join("helper.rn"),
+        r#"
+use base.io.Write;
+
+pub/ fn emit(writer: &mut Write) void {
+let _ = writer.write("fn main() i32 { return 0; }\n");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan =
+        crate::build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let app_action = action_plan
+        .compile_actions
+        .iter()
+        .find(|action| {
+            action.domain == crate::graph::BuildDomain::Target && action.package_id.name == "app"
+        })
+        .unwrap();
+    let generated_source = app_action.generated_root_path.join("src").join("main.rn");
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert!(first.compile_actions >= 2);
+    assert!(first.link_actions >= 2);
+    assert!(first.action_cache_stats.staged_misses >= 1);
+    assert_eq!(
+        fs::read_to_string(&generated_source).unwrap(),
+        "fn main() i32 { return 0; }\n"
+    );
+
+    fs::write(
+        tool_dir.join("src").join("helper.rn"),
+        r#"
+use base.io.Write;
+
+pub/ fn emit(writer: &mut Write) void {
+let _ = writer.write("fn main() i32 { return 1; }\n");
+}
+"#,
+    )
+    .unwrap();
+
+    let rebuilt = build(&build_plan, &action_plan).unwrap();
+    assert!(rebuilt.compile_actions >= 2);
+    assert!(rebuilt.link_actions >= 2);
+    assert!(rebuilt.action_cache_stats.staged_misses >= 1);
+    assert_eq!(
+        fs::read_to_string(&generated_source).unwrap(),
+        "fn main() i32 { return 1; }\n"
+    );
+
+    let cached = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(cached.compile_actions, 0);
+    assert_eq!(cached.link_actions, 0);
+    assert_eq!(cached.action_cache_stats.staged_misses, 0);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn check_builds_runnable_host_tool_for_generated_source() {
     let root = temp_dir("craft-exec-check-host-tool-generated");
     let app_dir = root.join("app");

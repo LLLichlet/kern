@@ -1,16 +1,13 @@
 use crate::error::{Error, Result};
 use crate::local_state;
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const ACTION_STATE_VERSION: u32 = 2;
 
 static CURRENT_PROCESS_DIGEST: OnceLock<String> = OnceLock::new();
-static FILE_DIGEST_CACHE: OnceLock<Mutex<HashMap<PathBuf, FileDigestCacheEntry>>> = OnceLock::new();
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionState {
     fingerprint: String,
@@ -31,13 +28,6 @@ enum Section {
     Root,
     Input(usize),
     Output(usize),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FileDigestCacheEntry {
-    len: u64,
-    modified_nanos: u128,
-    digest: String,
 }
 
 type DigestedPath = (String, Option<u64>, Option<u128>);
@@ -81,18 +71,12 @@ pub(crate) fn record_action_state(
     inputs: &[PathBuf],
     outputs: &[PathBuf],
 ) -> Result<()> {
-    invalidate_file_digest(primary_output);
-    for path in outputs {
-        invalidate_file_digest(path);
-    }
-
     let state = ActionState {
         fingerprint,
         inputs: collect_state_paths(inputs)?,
         outputs: collect_state_paths(outputs)?,
     };
     let state_path = action_state_path(primary_output);
-    invalidate_file_digest(&state_path);
     local_state::write_file_atomic(&state_path, state.render())
 }
 
@@ -165,7 +149,7 @@ fn digest_path(path: &Path) -> Result<Option<DigestedPath>> {
         let modified_nanos =
             metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
         return Ok(Some((
-            digest_file_cached(path)?,
+            digest_file_contents(path)?,
             Some(metadata.len()),
             Some(modified_nanos),
         )));
@@ -181,19 +165,14 @@ fn digest_path(path: &Path) -> Result<Option<DigestedPath>> {
 }
 
 fn path_matches_digest(path: &Path, entry: &ActionStatePath) -> Result<bool> {
-    if let (Some(expected_len), Some(expected_modified_nanos)) = (entry.len, entry.modified_nanos) {
+    if let Some(expected_len) = entry.len {
         let metadata = match fs::metadata(path) {
             Ok(metadata) => metadata,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
             Err(err) => return Err(Error::from_io(path, err)),
         };
-        let modified_nanos =
-            metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
-        if metadata.is_file()
-            && metadata.len() == expected_len
-            && modified_nanos == expected_modified_nanos
-        {
-            return Ok(true);
+        if !metadata.is_file() || metadata.len() != expected_len {
+            return Ok(false);
         }
     }
 
@@ -254,46 +233,6 @@ fn collect_tree_entries(root: &Path, dir: &Path, entries: &mut Vec<TreeEntry>) -
         }
     }
     Ok(())
-}
-
-fn file_digest_cache() -> &'static Mutex<HashMap<PathBuf, FileDigestCacheEntry>> {
-    FILE_DIGEST_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn invalidate_file_digest(path: &Path) {
-    let cache = file_digest_cache();
-    let mut cache = cache.lock().unwrap();
-    cache.remove(path);
-}
-
-fn digest_file_cached(path: &Path) -> Result<String> {
-    let metadata = fs::metadata(path).map_err(|err| Error::from_io(path, err))?;
-    let modified_nanos =
-        metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
-    let len = metadata.len();
-
-    let cache = file_digest_cache();
-    {
-        let cache = cache.lock().unwrap();
-        if let Some(entry) = cache.get(path)
-            && entry.len == len
-            && entry.modified_nanos == modified_nanos
-        {
-            return Ok(entry.digest.clone());
-        }
-    }
-
-    let digest = digest_file_contents(path)?;
-    let mut cache = cache.lock().unwrap();
-    cache.insert(
-        path.to_path_buf(),
-        FileDigestCacheEntry {
-            len,
-            modified_nanos,
-            digest: digest.clone(),
-        },
-    );
-    Ok(digest)
 }
 
 fn metadata_modified_nanos(modified: &SystemTime) -> Result<u128> {
@@ -657,6 +596,8 @@ fn fnv1a64_update(mut hash: u64, bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{action_state_is_current, record_action_state};
+    #[cfg(unix)]
+    use std::ffi::CString;
     use std::fs;
     use std::path::PathBuf;
     use std::thread;
@@ -720,6 +661,33 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn action_state_detects_same_size_file_changes_with_unchanged_timestamp() {
+        let root = temp_dir("craft-build-state-same-timestamp");
+        let input = root.join("input.txt");
+        let output = root.join("output.txt");
+
+        fs::write(&input, "alpha").unwrap();
+        fs::write(&output, "output").unwrap();
+        record_action_state(
+            &output,
+            "fingerprint".to_string(),
+            std::slice::from_ref(&input),
+            std::slice::from_ref(&output),
+        )
+        .unwrap();
+
+        let metadata = fs::metadata(&input).unwrap();
+        let modified = metadata.modified().unwrap();
+        fs::write(&input, "bravo").unwrap();
+        set_modified_time(&input, modified);
+
+        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn action_state_detects_empty_directory_changes() {
         let root = temp_dir("craft-build-state-empty-dir");
@@ -743,5 +711,27 @@ mod tests {
         assert!(!action_state_is_current(&output, "fingerprint").unwrap());
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    fn set_modified_time(path: &std::path::Path, modified: SystemTime) {
+        use std::os::unix::ffi::OsStrExt;
+
+        let duration = modified.duration_since(UNIX_EPOCH).unwrap();
+        let seconds = duration.as_secs() as libc::time_t;
+        let nanoseconds = duration.subsec_nanos() as libc::c_long;
+        let times = [
+            libc::timespec {
+                tv_sec: seconds,
+                tv_nsec: nanoseconds,
+            },
+            libc::timespec {
+                tv_sec: seconds,
+                tv_nsec: nanoseconds,
+            },
+        ];
+        let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        let result = unsafe { libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), 0) };
+        assert_eq!(result, 0);
     }
 }

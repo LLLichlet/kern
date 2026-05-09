@@ -330,6 +330,84 @@ return 0;
 }
 
 #[test]
+fn incremental_build_recompiles_when_loaded_submodule_changes() {
+    let root = temp_dir("craft-exec-incremental-submodule-change");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+mod helper;
+
+fn main() i32 {
+return helper.answer();
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/helper.rn"),
+        r#"
+pub/ fn answer() i32 {
+return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.compile_actions, 1);
+    assert_eq!(first.link_actions, 1);
+
+    fs::write(
+        root.join("src/helper.rn"),
+        r#"
+pub/ fn answer() i32 {
+return 1;
+}
+"#,
+    )
+    .unwrap();
+
+    let rebuilt = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(rebuilt.compile_actions, 1);
+    assert_eq!(rebuilt.link_actions, 1);
+
+    let cached = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(cached.compile_actions, 0);
+    assert_eq!(cached.link_actions, 0);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn incremental_build_recovers_when_primary_object_is_missing() {
     let root = temp_dir("craft-exec-incremental-missing-object");
     fs::create_dir_all(root.join("src")).unwrap();

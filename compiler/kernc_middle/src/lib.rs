@@ -12,4 +12,5 @@ pub struct NodeFacts {
     pub call_arg_expected_tys: FastHashMap<NodeId, TypeId>,
     pub binary_operator_lhs_trait_self_tys: FastHashMap<NodeId, TypeId>,
     pub binary_operator_rhs_trait_arg_tys: FastHashMap<NodeId, TypeId>,
+    pub match_value_pattern_binary_exprs: FastHashMap<NodeId, NodeId>,
 }

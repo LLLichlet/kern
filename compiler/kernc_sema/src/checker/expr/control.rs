@@ -65,6 +65,7 @@ enum ScalarCoverageState {
 }
 
 struct MatchArmCheckState<'a> {
+    target: &'a Expr,
     norm_target: TypeId,
     has_constructor_coverage: bool,
     common_ret_ty: Option<TypeId>,
@@ -1083,6 +1084,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         for arm in arms {
             let mut arm_state = MatchArmCheckState {
+                target,
                 norm_target,
                 has_constructor_coverage,
                 common_ret_ty,
@@ -1160,8 +1162,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         for pat in &arm.patterns {
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
-                    let v_ty = self.check_expr(v, Some(state.norm_target));
-                    self.check_coercion(v, state.norm_target, v_ty);
+                    if self.match_value_pattern_should_use_equality(v, state.norm_target) {
+                        let binary_id = self.ctx.next_node_id();
+                        let equality_ty = self.check_binary(
+                            binary_id,
+                            state.target,
+                            ast::BinaryOperator::Equal,
+                            v,
+                            Some(TypeId::BOOL),
+                        );
+                        self.ctx.set_node_type(binary_id, equality_ty);
+                        self.ctx
+                            .set_match_value_pattern_binary_expr(v.id, binary_id);
+                    } else {
+                        let v_ty = self.check_expr(v, Some(state.norm_target));
+                        self.check_coercion(v, state.norm_target, v_ty);
+                    }
                     if *state.match_closed {
                         self.warn_unreachable_match_pattern(pat.span);
                     } else if state.has_constructor_coverage
@@ -1276,6 +1292,30 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         });
         self.ctx.scopes.exit_scope();
         body_ty
+    }
+
+    fn match_value_pattern_should_use_equality(&mut self, value: &Expr, target_ty: TypeId) -> bool {
+        let norm_target = self.resolve_tv(target_ty);
+        match &value.kind {
+            ExprKind::Grouped { expr, .. } => {
+                self.match_value_pattern_should_use_equality(expr, target_ty)
+            }
+            ExprKind::Bool(_) => false,
+            ExprKind::EnumLiteral { .. } => false,
+            ExprKind::FieldAccess { .. }
+                if matches!(
+                    self.ctx.type_registry.get(norm_target),
+                    TypeKind::Enum(..) | TypeKind::AnonymousEnum(_)
+                ) =>
+            {
+                false
+            }
+            ExprKind::DataInit {
+                literal: ast::DataLiteralKind::Struct(_),
+                ..
+            } => false,
+            _ => true,
+        }
     }
 
     pub(crate) fn check_return(&mut self, val: Option<&Expr>, span: Span) -> TypeId {

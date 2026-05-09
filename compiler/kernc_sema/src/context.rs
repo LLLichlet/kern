@@ -305,6 +305,19 @@ impl<'a> SemaContext<'a> {
             .copied()
     }
 
+    pub fn set_match_value_pattern_binary_expr(&mut self, pattern_id: NodeId, binary_id: NodeId) {
+        self.facts
+            .match_value_pattern_binary_exprs
+            .insert(pattern_id, binary_id);
+    }
+
+    pub fn match_value_pattern_binary_expr(&self, pattern_id: NodeId) -> Option<NodeId> {
+        self.facts
+            .match_value_pattern_binary_exprs
+            .get(&pattern_id)
+            .copied()
+    }
+
     pub fn global_impl_entries(&self) -> Vec<IndexedImplDef> {
         self.impl_index
             .global_impls

@@ -755,6 +755,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         match_context.subst_map,
                     ) {
                         cond
+                    } else if let Some(binary_id) =
+                        this.ctx.match_value_pattern_binary_expr(value.id)
+                    {
+                        MastExpr::new(
+                            TypeId::BOOL,
+                            this.lower_match_value_equality_condition(
+                                binary_id,
+                                value,
+                                match_context,
+                                pattern.span,
+                            ),
+                            pattern.span,
+                        )
                     } else {
                         let value_expr = this.lower_expr(
                             value,
@@ -856,6 +869,43 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }),
             },
             arm.span,
+        )
+    }
+
+    fn lower_match_value_equality_condition(
+        &mut self,
+        binary_id: kernc_utils::NodeId,
+        value: &Expr,
+        match_context: &MatchLowerContext<'_>,
+        span: Span,
+    ) -> MastExprKind {
+        let rhs_sema_ty = self
+            .ctx
+            .binary_operator_rhs_trait_arg_ty(binary_id)
+            .or_else(|| self.ctx.node_type(value.id))
+            .unwrap_or(match_context.target_ty);
+        let rhs_ty = self.substitute_type_with_map(rhs_sema_ty, match_context.subst_map);
+        let value_expr = self.lower_expr(value, match_context.subst_map, Some(rhs_ty));
+
+        if self.has_builtin_binary_fast_path(
+            ast::BinaryOperator::Equal,
+            match_context.target_var_expr.ty,
+            value_expr.ty,
+        ) {
+            return MastExprKind::Binary {
+                op: ast::BinaryOperator::Equal,
+                lhs: Box::new(match_context.target_var_expr.clone()),
+                rhs: Box::new(value_expr),
+            };
+        }
+
+        self.lower_custom_binary_operator(
+            match_context.target_var_expr.clone(),
+            value_expr,
+            rhs_ty,
+            ast::BinaryOperator::Equal,
+            TypeId::BOOL,
+            span,
         )
     }
 }

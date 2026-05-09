@@ -894,6 +894,60 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_match_value_patterns_through_eq_trait() {
+    let output = build_and_run(
+        "kernc_match_value_patterns_eq_trait",
+        r#"
+use base.coll.String;
+use base.mem.alloc.gpa;
+use sys.mem.Page;
+
+fn classify_text(text: &mut String) i32 {
+    return match (text) {
+        "kern" => 1,
+        "lang" => 2,
+        _ => 3,
+    };
+}
+
+fn classify_slice(slice: &[i32]) i32 {
+    return match (slice) {
+        [4]i32.{1, 2, 3, 4} => 4,
+        [3]i32.{1, 2, 3} => 5,
+        _ => 6,
+    };
+}
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = gpa().on(page)..&;
+    let text = String.{}..&;
+    defer text.deinit(gpa);
+    let _ = text.push_str(gpa, "kern");
+    if (classify_text(text) != 1) {
+        return 1;
+    }
+
+    let array = [4]i32.{1, 2, 3, 4};
+    if (classify_slice(array.&[0 .. 4]) != 4) {
+        return 2;
+    }
+
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_slice_array_eq_method_impls() {
     let output = build_and_run(
         "kernc_slice_array_eq_method_impls",

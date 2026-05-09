@@ -50,7 +50,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    fn has_builtin_binary_fast_path(
+    pub(super) fn has_builtin_binary_fast_path(
         &mut self,
         op: ast::BinaryOperator,
         lhs_ty: TypeId,
@@ -239,7 +239,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         })
     }
 
-    fn lower_custom_binary_operator(
+    pub(super) fn lower_custom_binary_operator(
         &mut self,
         lhs: MastExpr,
         rhs: MastExpr,

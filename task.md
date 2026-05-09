@@ -17,15 +17,15 @@
 
 ## P1 Match Over Comparable Values
 
-- [ ] Specify the semantics for value-pattern match arms over non-scalar values:
+- [x] Specify the semantics for value-pattern match arms over non-scalar values:
   arm patterns are evaluated in order and compare with the scrutinee through
   the appropriate equality operator.
-- [ ] Decide whether the capability is `Eq[T]` directly or a dedicated pattern
+- [x] Decide whether the capability is `Eq[T]` directly or a dedicated pattern
   trait. Start conservatively with `Eq[T]` for literal/const-like patterns.
-- [ ] Extend parsing/AST/sema/lowering so string and slice-like values can be
+- [x] Extend parsing/AST/sema/lowering so string and slice-like values can be
   matched without `if name == "...";` chains.
-- [ ] Add positive tests for `match` over `&[u8]`, `String`, and custom `Eq`
-  types, plus ambiguity/type-error tests.
+- [ ] Add positive tests for custom `Eq` match value patterns, plus
+  ambiguity/type-error tests.
 - [ ] Document the feature in design.md and tutorials with guidance on when
   `match` improves dispatch readability.
 

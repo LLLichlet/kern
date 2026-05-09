@@ -95,6 +95,18 @@ impl Lockfile {
             push_string_line(&mut out, "target-id", &dependency.target_id);
         }
 
+        for proof in &self.publish_proofs {
+            out.push('\n');
+            out.push_str("[[publish-proof]]\n");
+            push_string_line(&mut out, "package-id", &proof.package_id);
+            push_string_line(&mut out, "package", &proof.package);
+            push_string_line(&mut out, "version", &proof.version);
+            push_string_line(&mut out, "kern", &proof.kern);
+            push_string_line(&mut out, "repository", &proof.repository);
+            push_string_line(&mut out, "manifest-sha256", &proof.manifest_sha256);
+            push_string_line(&mut out, "source-sha256", &proof.source_sha256);
+        }
+
         out
     }
 }

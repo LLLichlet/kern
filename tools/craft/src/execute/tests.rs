@@ -9,7 +9,6 @@ use crate::build_plan::{self, StagedActionKind};
 use crate::elaborate::{FeatureSelection, plan};
 use crate::lockfile;
 use crate::manifest::Manifest;
-use crate::publish_proof;
 use crate::workspace;
 use kernc_utils::llvm_bitcode::file_has_llvm_bitcode_magic;
 use std::fs;
@@ -1252,7 +1251,6 @@ fn write_publish_artifacts(repo: &Path) {
     )
     .unwrap();
     lockfile::sync_lockfile(&manifest_path, &elaboration).unwrap();
-    publish_proof::write_test_publish_proof(repo, &toml_string_literal(repo)).unwrap();
 }
 
 fn add_repository_to_manifest(manifest: &str, repo: &Path) -> String {

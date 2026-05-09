@@ -1,69 +1,29 @@
 use crate::error::{Error, Result};
 use crate::graph::SourceId;
-use crate::local_state;
 use crate::manifest::Manifest;
 use crate::resolver::ExternalPackageId;
 use crate::source::{FetchedSource, FetchedSourceBackend};
-use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-const PROOF_FILE: &str = "Craft.publish.toml";
-const PROOF_FORMAT: &str = "craft.publish.v1";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct PublishProof {
+    pub(crate) package_id: String,
     pub(crate) package: String,
     pub(crate) version: String,
     pub(crate) kern: String,
     pub(crate) repository: String,
     pub(crate) manifest_sha256: String,
-    pub(crate) lockfile_sha256: String,
     pub(crate) source_sha256: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProofWriteResult {
-    Current,
-    Created,
-    Updated,
-}
-
-pub(crate) fn proof_path(package_root: &Path) -> PathBuf {
-    package_root.join(PROOF_FILE)
-}
-
-pub(crate) fn ensure_publish_proof_current(
+pub(crate) fn expected_publish_proof(
+    package_id: impl Into<String>,
     package_root: &Path,
-    lockfile_path: &Path,
     manifest: &Manifest,
     repository: &str,
-) -> Result<ProofWriteResult> {
-    let expected = PublishProof::expected(package_root, lockfile_path, manifest, repository)?;
-    let path = proof_path(package_root);
-    let rendered = expected.render();
-    let result = match fs::read_to_string(&path) {
-        Ok(existing) if existing == rendered => ProofWriteResult::Current,
-        Ok(_) => ProofWriteResult::Updated,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => ProofWriteResult::Created,
-        Err(err) => return Err(Error::from_io(&path, err)),
-    };
-    if result != ProofWriteResult::Current {
-        local_state::write_file_atomic(&path, rendered)?;
-    }
-    Ok(result)
-}
-
-#[cfg(test)]
-pub(crate) fn write_test_publish_proof(package_root: &Path, repository: &str) -> Result<()> {
-    let manifest = Manifest::load(&package_root.join("Craft.toml"))?;
-    let expected = PublishProof::expected(
-        package_root,
-        &package_root.join("Craft.lock"),
-        &manifest,
-        repository,
-    )?;
-    local_state::write_file_atomic(&proof_path(package_root), expected.render())
+) -> Result<PublishProof> {
+    PublishProof::expected(package_id.into(), package_root, manifest, repository)
 }
 
 pub(crate) fn validate_git_dependency_publish_proof(
@@ -75,19 +35,15 @@ pub(crate) fn validate_git_dependency_publish_proof(
         return Ok(());
     }
 
-    let proof_path = proof_path(package_root);
-    let proof_source = fs::read_to_string(&proof_path).map_err(|err| {
-        if err.kind() == std::io::ErrorKind::NotFound {
-            Error::Validation {
-                path: proof_path.clone(),
-                message: "git dependency is missing `Craft.publish.toml`; run `craft publish`, commit the proof, and depend on that published revision"
-                    .to_string(),
-            }
-        } else {
-            Error::from_io(&proof_path, err)
-        }
-    })?;
-    let actual = PublishProof::parse(&proof_source, &proof_path)?;
+    let lockfile_path = package_root.join("Craft.lock");
+    if !lockfile_path.is_file() {
+        return Err(Error::Validation {
+            path: lockfile_path,
+            message: "git dependency is missing committed `Craft.lock` publish proof; run `craft check`, commit Craft.lock, and depend on that published revision"
+                .to_string(),
+        });
+    }
+    let lockfile = crate::lockfile::Lockfile::load(&lockfile_path)?;
     let manifest_path = package_root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path)?;
     let package = manifest.package.as_ref().ok_or_else(|| Error::Validation {
@@ -103,16 +59,26 @@ pub(crate) fn validate_git_dependency_publish_proof(
                 .to_string(),
     }
         })?;
+    let Some(actual) = lockfile
+        .publish_proofs
+        .iter()
+        .find(|proof| proof.package == package.name && proof.version == package.version)
+    else {
+        return Err(Error::Validation {
+            path: lockfile_path,
+            message: "git dependency is missing a matching `Craft.lock` publish proof".to_string(),
+        });
+    };
     let expected = PublishProof::expected(
+        actual.package_id.clone(),
         package_root,
-        &package_root.join("Craft.lock"),
         &manifest,
         repository,
     )?;
 
-    if actual != expected {
+    if *actual != expected {
         return Err(Error::Validation {
-            path: proof_path,
+            path: lockfile_path,
             message: "git dependency publish proof does not match package contents or metadata"
                 .to_string(),
         });
@@ -159,8 +125,8 @@ pub(crate) fn validate_git_dependency_publish_proof(
 
 impl PublishProof {
     fn expected(
+        package_id: String,
         package_root: &Path,
-        lockfile_path: &Path,
         manifest: &Manifest,
         repository: &str,
     ) -> Result<Self> {
@@ -169,140 +135,18 @@ impl PublishProof {
             message: "publish proof requires `[package]` metadata".to_string(),
         })?;
         Ok(Self {
+            package_id,
             package: package.name.clone(),
             version: package.version.clone(),
             kern: package.kern.clone(),
             repository: repository.to_string(),
             manifest_sha256: sha256_file_prefixed(&package_root.join("Craft.toml"))?,
-            lockfile_sha256: sha256_file_prefixed(lockfile_path)?,
             source_sha256: sha256_tree_prefixed(package_root)?,
         })
     }
-
-    fn render(&self) -> String {
-        let mut out = String::new();
-        push_string_line(&mut out, "format", PROOF_FORMAT);
-        push_string_line(&mut out, "package", &self.package);
-        push_string_line(&mut out, "version", &self.version);
-        push_string_line(&mut out, "kern", &self.kern);
-        push_string_line(&mut out, "repository", &self.repository);
-        push_string_line(&mut out, "manifest-sha256", &self.manifest_sha256);
-        push_string_line(&mut out, "lockfile-sha256", &self.lockfile_sha256);
-        push_string_line(&mut out, "source-sha256", &self.source_sha256);
-        out
-    }
-
-    fn parse(source: &str, path: &Path) -> Result<Self> {
-        let mut values = BTreeMap::new();
-        for raw_line in source.lines() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let Some((key, value)) = line.split_once('=') else {
-                return Err(proof_parse_error(
-                    path,
-                    format!("expected `key = value`, got `{line}`"),
-                ));
-            };
-            values.insert(key.trim().to_string(), parse_string(value.trim(), path)?);
-        }
-
-        let format = take_field(&mut values, path, "format")?;
-        if format != PROOF_FORMAT {
-            return Err(proof_parse_error(
-                path,
-                format!("unsupported publish proof format `{format}`"),
-            ));
-        }
-        let proof = Self {
-            package: take_field(&mut values, path, "package")?,
-            version: take_field(&mut values, path, "version")?,
-            kern: take_field(&mut values, path, "kern")?,
-            repository: take_field(&mut values, path, "repository")?,
-            manifest_sha256: take_sha256_field(&mut values, path, "manifest-sha256")?,
-            lockfile_sha256: take_sha256_field(&mut values, path, "lockfile-sha256")?,
-            source_sha256: take_sha256_field(&mut values, path, "source-sha256")?,
-        };
-        if let Some(extra) = values.keys().next() {
-            return Err(proof_parse_error(
-                path,
-                format!("unsupported publish proof key `{extra}`"),
-            ));
-        }
-        Ok(proof)
-    }
 }
 
-fn take_field(values: &mut BTreeMap<String, String>, path: &Path, key: &str) -> Result<String> {
-    values
-        .remove(key)
-        .ok_or_else(|| proof_parse_error(path, format!("missing `{key}`")))
-}
-
-fn take_sha256_field(
-    values: &mut BTreeMap<String, String>,
-    path: &Path,
-    key: &str,
-) -> Result<String> {
-    let value = take_field(values, path, key)?;
-    if !valid_sha256_digest(&value) {
-        return Err(proof_parse_error(
-            path,
-            format!("`{key}` must be a `sha256:` digest"),
-        ));
-    }
-    Ok(value)
-}
-
-fn parse_string(raw: &str, path: &Path) -> Result<String> {
-    if !raw.starts_with('"') || !raw.ends_with('"') || raw.len() < 2 {
-        return Err(proof_parse_error(path, "expected a string literal"));
-    }
-    let mut out = String::new();
-    let mut chars = raw[1..raw.len() - 1].chars();
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            let Some(escaped) = chars.next() else {
-                return Err(proof_parse_error(path, "unterminated string escape"));
-            };
-            match escaped {
-                '\\' => out.push('\\'),
-                '"' => out.push('"'),
-                'n' => out.push('\n'),
-                't' => out.push('\t'),
-                _ => return Err(proof_parse_error(path, "unsupported string escape")),
-            }
-        } else {
-            out.push(ch);
-        }
-    }
-    Ok(out)
-}
-
-fn proof_parse_error(path: &Path, message: impl Into<String>) -> Error {
-    Error::Validation {
-        path: path.to_path_buf(),
-        message: format!("invalid publish proof: {}", message.into()),
-    }
-}
-
-fn push_string_line(out: &mut String, key: &str, value: &str) {
-    out.push_str(key);
-    out.push_str(" = \"");
-    for ch in value.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            _ => out.push(ch),
-        }
-    }
-    out.push_str("\"\n");
-}
-
-fn valid_sha256_digest(value: &str) -> bool {
+pub(crate) fn valid_sha256_digest(value: &str) -> bool {
     let Some(hex) = value.strip_prefix("sha256:") else {
         return false;
     };
@@ -351,7 +195,7 @@ fn collect_tree_entries(root: &Path, current: &Path, entries: &mut Vec<TreeEntry
         let name = entry.file_name();
         if name == std::ffi::OsStr::new(".git")
             || name == std::ffi::OsStr::new(".craft")
-            || name == std::ffi::OsStr::new(PROOF_FILE)
+            || name == std::ffi::OsStr::new("Craft.lock")
         {
             continue;
         }
@@ -383,7 +227,7 @@ fn collect_tree_entries(root: &Path, current: &Path, entries: &mut Vec<TreeEntry
     Ok(())
 }
 
-fn repository_urls_match(repository: &str, remote: &str) -> bool {
+pub(crate) fn repository_urls_match(repository: &str, remote: &str) -> bool {
     normalize_repository_url(repository) == normalize_repository_url(remote)
 }
 

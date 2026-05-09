@@ -1,5 +1,6 @@
 use super::Lockfile;
 use crate::error::{Error, Result};
+use crate::publish_proof;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -224,6 +225,40 @@ impl Lockfile {
             }
         }
 
+        let mut publish_proof_keys = BTreeSet::new();
+        for proof in &self.publish_proofs {
+            validate_non_empty(path, "[[publish-proof]].package-id", &proof.package_id)?;
+            if !package_ids.contains(proof.package_id.as_str()) {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "[[publish-proof]] references unknown package id `{}`",
+                        proof.package_id
+                    ),
+                });
+            }
+            validate_non_empty(path, "[[publish-proof]].package", &proof.package)?;
+            validate_non_empty(path, "[[publish-proof]].version", &proof.version)?;
+            validate_non_empty(path, "[[publish-proof]].kern", &proof.kern)?;
+            validate_non_empty(path, "[[publish-proof]].repository", &proof.repository)?;
+            validate_sha256_digest(
+                path,
+                "[[publish-proof]].manifest-sha256",
+                &proof.manifest_sha256,
+            )?;
+            validate_sha256_digest(
+                path,
+                "[[publish-proof]].source-sha256",
+                &proof.source_sha256,
+            )?;
+            if !publish_proof_keys.insert(proof.package_id.as_str()) {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!("duplicate publish proof for package `{}`", proof.package_id),
+                });
+            }
+        }
+
         Ok(())
     }
 }
@@ -265,6 +300,17 @@ fn validate_digest(path: &Path, field: &str, value: &str) -> Result<()> {
         return Err(Error::LockfileValidation {
             path: path.to_path_buf(),
             message: format!("{field} must be an `fnv1a64:` digest"),
+        });
+    }
+    Ok(())
+}
+
+fn validate_sha256_digest(path: &Path, field: &str, value: &str) -> Result<()> {
+    validate_non_empty(path, field, value)?;
+    if !publish_proof::valid_sha256_digest(value) {
+        return Err(Error::LockfileValidation {
+            path: path.to_path_buf(),
+            message: format!("{field} must be a `sha256:` digest"),
         });
     }
     Ok(())

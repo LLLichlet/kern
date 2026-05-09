@@ -86,12 +86,12 @@
 
 ## P5 Distributed Publish Proofs
 
-- [x] Add committed `Craft.publish.toml` as a distributed publish proof instead
-  of depending on a central registry.
+- [x] Add committed `Craft.lock` publish proofs instead of depending on a
+  central registry or a separate publish artifact.
 - [x] Record package identity, repository, and SHA-256 digests for
-  `Craft.toml`, `Craft.lock`, and package source contents.
-- [x] Make `craft publish` generate or update stale proofs and then require the
-  proof to be committed before publish succeeds.
+  `Craft.toml` and package source contents.
+- [x] Make normal lockfile synchronization generate or update stale proofs and
+  require the current lockfile to be committed before publish succeeds.
 - [x] Verify Git dependencies automatically while fetching, without requiring a
   caller opt-in policy.
 - [x] Reject Git dependencies with missing proofs, stale proofs, package/version

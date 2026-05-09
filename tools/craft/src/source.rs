@@ -978,7 +978,6 @@ mod tests {
     use crate::elaborate::{FeatureSelection, plan};
     use crate::lockfile;
     use crate::manifest::Manifest;
-    use crate::publish_proof;
     use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
@@ -1356,7 +1355,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
         let root = temp_dir("craft-fetch-git-no-proof");
         let repo = root.join("log.git");
         init_git_package(&repo, "pub fn x() i32 { return 0; }\n");
-        fs::remove_file(repo.join("Craft.publish.toml")).unwrap();
+        remove_publish_proof_from_lockfile(&repo);
         run_git(&repo, ["add", "."]).unwrap();
         run_git(&repo, ["commit", "-m", "remove proof"]).unwrap();
 
@@ -1390,7 +1389,10 @@ log = {{ git = "{}", branch = "main", version = "1" }}
         .unwrap();
 
         let err = fetch_external_packages(&elaboration.resolved_graph).unwrap_err();
-        assert!(err.to_string().contains("missing `Craft.publish.toml`"));
+        assert!(
+            err.to_string()
+                .contains("missing a matching `Craft.lock` publish proof")
+        );
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1629,7 +1631,7 @@ root = "src/lib.rn"
         )
         .unwrap();
         fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
-        write_publish_artifacts(repo, &toml_string_literal(repo));
+        write_publish_artifacts(repo);
         run_git(repo, ["init", "--initial-branch=main"]).unwrap();
         run_git(repo, ["config", "user.name", "Craft Tests"]).unwrap();
         run_git(
@@ -1655,12 +1657,12 @@ root = "src/lib.rn"
 
     fn commit_git_package(repo: &PathBuf, lib_source: &str) {
         fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
-        write_publish_artifacts(repo, &toml_string_literal(repo));
+        write_publish_artifacts(repo);
         run_git(repo, ["add", "."]).unwrap();
         run_git(repo, ["commit", "-m", "update"]).unwrap();
     }
 
-    fn write_publish_artifacts(repo: &PathBuf, repository: &str) {
+    fn write_publish_artifacts(repo: &PathBuf) {
         let manifest_path = repo.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let elaboration = plan(
@@ -1673,7 +1675,27 @@ root = "src/lib.rn"
         )
         .unwrap();
         lockfile::sync_lockfile(&manifest_path, &elaboration).unwrap();
-        publish_proof::write_test_publish_proof(repo, repository).unwrap();
+    }
+
+    fn remove_publish_proof_from_lockfile(repo: &PathBuf) {
+        let lockfile_path = repo.join("Craft.lock");
+        let source = fs::read_to_string(&lockfile_path).unwrap();
+        let mut filtered = String::new();
+        let mut skipping = false;
+        for line in source.lines() {
+            if line == "[[publish-proof]]" {
+                skipping = true;
+                continue;
+            }
+            if skipping && line.starts_with("[[") {
+                skipping = false;
+            }
+            if !skipping {
+                filtered.push_str(line);
+                filtered.push('\n');
+            }
+        }
+        fs::write(lockfile_path, filtered).unwrap();
     }
 
     fn git_head(repo: &PathBuf) -> String {

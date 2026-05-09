@@ -414,10 +414,7 @@ The current rules are:
   would be created or updated, publish fails without rewriting the lockfile
 - each publishable package's `repository` URL must match a configured Git
   remote after normalizing common HTTPS and SSH GitHub forms
-- each publishable package must have a current `Craft.publish.toml` proof in
-  its package root
-- if `Craft.publish.toml` is missing or stale, `craft publish` creates or
-  updates it and then fails; commit the proof and rerun `craft publish`
+- each publishable package must have a current publish proof in `Craft.lock`
 - `craft publish` runs deterministic source formatting checks and reports
   source-style and public-doc metrics without rewriting source files
 
@@ -434,19 +431,18 @@ also be placed in `[workspace.package]` for shared package metadata. If
 `readme` comes from `[workspace.package]`, it is resolved relative to the
 workspace root. A package may opt out entirely with `publish = false`.
 
-`Craft.publish.toml` is a distributed publish proof, not a registry entry. It
-is committed with the package and records the package name, version, Kern
-version, repository URL, and SHA-256 digests for `Craft.toml`, `Craft.lock`,
-and the package source tree. The source-tree digest excludes `.git`, `.craft`,
-and `Craft.publish.toml` itself so the proof can be committed without changing
-the digest it proves.
+`Craft.lock` records a distributed publish proof for each publishable package,
+not a registry entry. The proof records the package name, version, Kern version,
+repository URL, and SHA-256 digests for `Craft.toml` and the package source
+tree. The source-tree digest excludes `.git`, `.craft`, and `Craft.lock` so the
+lockfile can carry the proof without changing the digest it proves.
 
 Git dependencies are verified automatically when they are fetched. A Git
-dependency is rejected if it has no `Craft.publish.toml`, if the proof does not
-match the fetched package contents, if the proof metadata does not match the
-requested package and version, or if the proof repository does not match the
-fetched Git source. This is the default ecosystem boundary for Git packages;
-callers do not opt in to it with a local policy flag.
+dependency is rejected if it has no committed `Craft.lock` publish proof, if
+the proof does not match the fetched package contents, if the proof metadata
+does not match the requested package and version, or if the proof repository
+does not match the fetched Git source. This is the default ecosystem boundary
+for Git packages; callers do not opt in to it with a local policy flag.
 
 ## Resolution And Execution Inputs
 
@@ -975,9 +971,9 @@ Command behavior:
   - package source backends are explicit package paths or git repositories
   - resource source backends are explicit package-relative paths or git repositories
 - `publish` requires a clean Git worktree with committed `Craft.lock`, a
-  current committed `Craft.publish.toml`, and a matching repository remote,
-  then runs release-oriented metadata, source-policy, format, style, and
-  public-doc checks without uploading anywhere
+  current lockfile publish proof, and a matching repository remote, then runs
+  release-oriented metadata, source-policy, format, style, and public-doc checks
+  without uploading anywhere
 - `doc` auto-synchronizes `Craft.lock`, builds the selected package graph, and renders Markdown package docs under `.craft/docs`
 - `fmt` normalizes Kern source text deterministically by removing trailing
   horizontal whitespace and enforcing final-newline consistency

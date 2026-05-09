@@ -48,6 +48,7 @@ pub struct CraftConfig {
     pub release_source_policy: Option<ReleaseSourcePolicy>,
     pub allow_floating_git: Vec<String>,
     pub allow_insecure_source: Vec<String>,
+    pub style: Option<CraftStyleConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +64,30 @@ impl ReleaseSourcePolicy {
             Self::Enforce => "enforce",
             Self::Warn => "warn",
             Self::Off => "off",
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CraftStyleConfig {
+    pub suggestions: Option<CraftStyleSuggestionLevel>,
+    pub disabled_rules: Vec<String>,
+    pub exclude: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CraftStyleSuggestionLevel {
+    Off,
+    Info,
+    Warn,
+}
+
+impl CraftStyleSuggestionLevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Info => "info",
+            Self::Warn => "warn",
         }
     }
 }
@@ -156,6 +181,7 @@ pub(super) enum Section {
     Root,
     Package,
     Craft,
+    CraftStyle,
     Runtime,
     Lib,
     Bin(usize),

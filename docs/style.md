@@ -365,6 +365,9 @@ For mature public packages, the expected direction is:
 Low-level runtime code, incubators, generated bindings, and experiments may
 use different thresholds. Style and policy tools should therefore expose
 severity and scope controls before any check is wired into publishing.
+Use `[craft.style]` in `Craft.toml` to turn advisory suggestions off, mark them
+as warning-level review items, disable specific rules, or exclude generated and
+low-level source subtrees from suggestion collection.
 
 `craft fmt` is intended to become the deterministic formatting entry point.
 Until it exists, keep formatting consistent with nearby code and split long

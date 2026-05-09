@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
-use crate::manifest::Manifest;
+use crate::manifest::{CraftStyleConfig, CraftStyleSuggestionLevel, Manifest};
 use crate::workspace::WorkspaceMember;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -63,6 +64,7 @@ pub struct PackageStyleSummary {
 pub struct StyleSuggestion {
     pub path: PathBuf,
     pub line: usize,
+    pub severity: SuggestionSeverity,
     pub rule: StyleRule,
     pub message: String,
 }
@@ -82,6 +84,94 @@ impl StyleRule {
             Self::RepeatedBorrowReceiver => "repeated-borrow-receiver",
         }
     }
+
+    pub fn is_known_code(code: &str) -> bool {
+        matches!(
+            code,
+            "index-while" | "long-postfix-chain" | "repeated-borrow-receiver"
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuggestionSeverity {
+    Info,
+    Warn,
+}
+
+impl SuggestionSeverity {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Info => "info",
+            Self::Warn => "warn",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StyleConfig {
+    pub suggestions_enabled: bool,
+    pub suggestion_severity: SuggestionSeverity,
+    disabled_rules: BTreeSet<&'static str>,
+    exclude: Vec<String>,
+}
+
+impl Default for StyleConfig {
+    fn default() -> Self {
+        Self {
+            suggestions_enabled: true,
+            suggestion_severity: SuggestionSeverity::Info,
+            disabled_rules: BTreeSet::new(),
+            exclude: Vec::new(),
+        }
+    }
+}
+
+impl StyleConfig {
+    pub fn from_manifest(manifest: &Manifest) -> Self {
+        let mut config = Self::default();
+        let Some(style) = manifest
+            .craft
+            .as_ref()
+            .and_then(|craft| craft.style.as_ref())
+        else {
+            return config;
+        };
+        config.apply(style);
+        config
+    }
+
+    fn apply(&mut self, style: &CraftStyleConfig) {
+        match style.suggestions.unwrap_or(CraftStyleSuggestionLevel::Info) {
+            CraftStyleSuggestionLevel::Off => self.suggestions_enabled = false,
+            CraftStyleSuggestionLevel::Info => {
+                self.suggestions_enabled = true;
+                self.suggestion_severity = SuggestionSeverity::Info;
+            }
+            CraftStyleSuggestionLevel::Warn => {
+                self.suggestions_enabled = true;
+                self.suggestion_severity = SuggestionSeverity::Warn;
+            }
+        }
+        self.disabled_rules = style
+            .disabled_rules
+            .iter()
+            .filter_map(|rule| known_rule_code(rule))
+            .collect();
+        self.exclude = style.exclude.clone();
+    }
+
+    fn rule_enabled(&self, rule: StyleRule) -> bool {
+        !self.disabled_rules.contains(rule.code())
+    }
+
+    fn path_in_scope(&self, path: &Path) -> bool {
+        let text = path.to_string_lossy();
+        !self
+            .exclude
+            .iter()
+            .any(|pattern| path_matches(&text, pattern))
+    }
 }
 
 pub fn collect_workspace_style_metrics(
@@ -90,11 +180,16 @@ pub fn collect_workspace_style_metrics(
     members: &[WorkspaceMember],
 ) -> Result<Vec<PackageStyleSummary>> {
     let mut summaries = Vec::new();
-    summaries.push(collect_package_style_metrics(manifest_path, manifest)?);
+    summaries.push(collect_package_style_metrics(
+        manifest_path,
+        manifest,
+        &StyleConfig::from_manifest(manifest),
+    )?);
     for member in members {
         summaries.push(collect_package_style_metrics(
             &member.manifest_path,
             &member.manifest,
+            &StyleConfig::from_manifest(&member.manifest),
         )?);
     }
     summaries.sort_by(|lhs, rhs| lhs.label.cmp(&rhs.label).then(lhs.root.cmp(&rhs.root)));
@@ -104,6 +199,7 @@ pub fn collect_workspace_style_metrics(
 fn collect_package_style_metrics(
     manifest_path: &Path,
     manifest: &Manifest,
+    config: &StyleConfig,
 ) -> Result<PackageStyleSummary> {
     let root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let mut metrics = StyleSummary {
@@ -115,7 +211,7 @@ fn collect_package_style_metrics(
     for path in kern_source_files(root)? {
         let source = fs::read_to_string(&path).map_err(|err| Error::from_io(&path, err))?;
         metrics.merge(&count_source_metrics(&source));
-        suggestions.extend(collect_source_suggestions(root, &path, &source));
+        suggestions.extend(collect_source_suggestions(root, &path, &source, config));
         metrics.files += 1;
     }
 
@@ -262,8 +358,19 @@ fn is_public_declaration_line(trimmed: &str) -> bool {
     )
 }
 
-fn collect_source_suggestions(root: &Path, path: &Path, source: &str) -> Vec<StyleSuggestion> {
+fn collect_source_suggestions(
+    root: &Path,
+    path: &Path,
+    source: &str,
+    config: &StyleConfig,
+) -> Vec<StyleSuggestion> {
+    if !config.suggestions_enabled {
+        return Vec::new();
+    }
     let display_path = path.strip_prefix(root).unwrap_or(path).to_path_buf();
+    if !config.path_in_scope(&display_path) {
+        return Vec::new();
+    }
     let mut suggestions = Vec::new();
     for (line_index, line) in source.lines().enumerate() {
         let line_number = line_index + 1;
@@ -271,10 +378,11 @@ fn collect_source_suggestions(root: &Path, path: &Path, source: &str) -> Vec<Sty
         if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("//!") {
             continue;
         }
-        if is_index_while_line(trimmed) {
+        if config.rule_enabled(StyleRule::IndexWhile) && is_index_while_line(trimmed) {
             suggestions.push(StyleSuggestion {
                 path: display_path.clone(),
                 line: line_number,
+                severity: config.suggestion_severity,
                 rule: StyleRule::IndexWhile,
                 message:
                     "consider `for` or an iterator when a loop only walks collection positions"
@@ -282,19 +390,23 @@ fn collect_source_suggestions(root: &Path, path: &Path, source: &str) -> Vec<Sty
             });
         }
         let postfix_calls = postfix_call_count_outside_string(trimmed);
-        if postfix_calls >= 5 {
+        if config.rule_enabled(StyleRule::LongPostfixChain) && postfix_calls >= 5 {
             suggestions.push(StyleSuggestion {
                 path: display_path.clone(),
                 line: line_number,
+                severity: config.suggestion_severity,
                 rule: StyleRule::LongPostfixChain,
                 message: "split long postfix chains across lines or bind an intermediate handle"
                     .to_string(),
             });
         }
-        if borrowed_receiver_count(trimmed) >= 2 {
+        if config.rule_enabled(StyleRule::RepeatedBorrowReceiver)
+            && borrowed_receiver_count(trimmed) >= 2
+        {
             suggestions.push(StyleSuggestion {
                 path: display_path.clone(),
                 line: line_number,
+                severity: config.suggestion_severity,
                 rule: StyleRule::RepeatedBorrowReceiver,
                 message: "bind a stack-mode handle when repeated `..&.` access dominates the line"
                     .to_string(),
@@ -302,6 +414,22 @@ fn collect_source_suggestions(root: &Path, path: &Path, source: &str) -> Vec<Sty
         }
     }
     suggestions
+}
+
+fn known_rule_code(rule: &str) -> Option<&'static str> {
+    match rule {
+        "index-while" => Some("index-while"),
+        "long-postfix-chain" => Some("long-postfix-chain"),
+        "repeated-borrow-receiver" => Some("repeated-borrow-receiver"),
+        _ => None,
+    }
+}
+
+fn path_matches(path: &str, pattern: &str) -> bool {
+    if let Some(prefix) = pattern.strip_suffix("/**") {
+        return path == prefix || path.starts_with(&format!("{prefix}/"));
+    }
+    path == pattern || path.starts_with(&format!("{pattern}/"))
 }
 
 fn is_index_while_line(trimmed: &str) -> bool {
@@ -430,10 +558,12 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        StyleRule, StyleSummary, borrowed_receiver_count, collect_source_suggestions,
-        count_source_metrics, find_token_outside_string, is_index_while_line,
-        is_public_declaration_line, postfix_call_count_outside_string,
+        StyleConfig, StyleRule, StyleSummary, SuggestionSeverity, borrowed_receiver_count,
+        collect_source_suggestions, count_source_metrics, find_token_outside_string,
+        is_index_while_line, is_public_declaration_line, path_matches,
+        postfix_call_count_outside_string,
     };
+    use crate::manifest::{CraftConfig, CraftStyleConfig, CraftStyleSuggestionLevel, Manifest};
     use std::path::Path;
 
     #[test]
@@ -529,6 +659,7 @@ fn demo() void {
     source..&.next(); other..&.next();
 }
 "#,
+            &StyleConfig::default(),
         );
 
         assert_eq!(suggestions.len(), 3);
@@ -537,5 +668,93 @@ fn demo() void {
         assert_eq!(suggestions[0].rule, StyleRule::IndexWhile);
         assert_eq!(suggestions[1].rule, StyleRule::LongPostfixChain);
         assert_eq!(suggestions[2].rule, StyleRule::RepeatedBorrowReceiver);
+    }
+
+    #[test]
+    fn style_config_controls_suggestions() {
+        let source = r#"
+fn demo() void {
+    while (index < #items) {
+        index += 1;
+    }
+    value.should_ok().sum(@loc(), t).name.eq("root").should();
+}
+"#;
+        let mut manifest = Manifest::default();
+        manifest.craft = Some(CraftConfig {
+            style: Some(CraftStyleConfig {
+                suggestions: Some(CraftStyleSuggestionLevel::Warn),
+                disabled_rules: vec!["long-postfix-chain".to_string()],
+                exclude: Vec::new(),
+            }),
+            ..CraftConfig::default()
+        });
+        let config = StyleConfig::from_manifest(&manifest);
+        assert_eq!(config.suggestion_severity, SuggestionSeverity::Warn);
+
+        let suggestions = collect_source_suggestions(
+            Path::new("/pkg"),
+            Path::new("/pkg/src/main.rn"),
+            source,
+            &config,
+        );
+        assert_eq!(suggestions.len(), 1);
+        assert_eq!(suggestions[0].rule, StyleRule::IndexWhile);
+
+        manifest
+            .craft
+            .as_mut()
+            .unwrap()
+            .style
+            .as_mut()
+            .unwrap()
+            .suggestions = Some(CraftStyleSuggestionLevel::Off);
+        let off_config = StyleConfig::from_manifest(&manifest);
+        assert!(
+            collect_source_suggestions(
+                Path::new("/pkg"),
+                Path::new("/pkg/src/main.rn"),
+                source,
+                &off_config,
+            )
+            .is_empty()
+        );
+
+        manifest
+            .craft
+            .as_mut()
+            .unwrap()
+            .style
+            .as_mut()
+            .unwrap()
+            .suggestions = Some(CraftStyleSuggestionLevel::Info);
+        manifest
+            .craft
+            .as_mut()
+            .unwrap()
+            .style
+            .as_mut()
+            .unwrap()
+            .exclude = vec!["src/**".to_string()];
+        let excluded_config = StyleConfig::from_manifest(&manifest);
+        assert!(
+            collect_source_suggestions(
+                Path::new("/pkg"),
+                Path::new("/pkg/src/main.rn"),
+                source,
+                &excluded_config,
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn path_scope_supports_plain_prefixes_and_globs() {
+        assert!(path_matches("src/generated/bindings.rn", "src/generated"));
+        assert!(path_matches(
+            "src/generated/bindings.rn",
+            "src/generated/**"
+        ));
+        assert!(!path_matches("src/xml/init.rn", "src/generated/**"));
     }
 }

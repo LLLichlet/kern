@@ -1,4 +1,4 @@
-use super::{DependencySpec, Manifest, ReleaseSourcePolicy};
+use super::{CraftStyleSuggestionLevel, DependencySpec, Manifest, ReleaseSourcePolicy};
 use crate::plan::TargetKind;
 use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 
@@ -199,6 +199,55 @@ allow-insecure-source = ["mirror"]
 }
 
 #[test]
+fn parses_craft_style_config() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[craft.style]
+suggestions = "warn"
+disabled-rules = ["index-while"]
+exclude = ["src/generated/**"]
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let style = manifest.craft.as_ref().unwrap().style.as_ref().unwrap();
+    assert_eq!(style.suggestions, Some(CraftStyleSuggestionLevel::Warn));
+    assert_eq!(style.disabled_rules, vec!["index-while"]);
+    assert_eq!(style.exclude, vec!["src/generated/**"]);
+    manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap();
+}
+
+#[test]
+fn rejects_unknown_craft_style_rule() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[craft.style]
+disabled-rules = ["unknown-rule"]
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let err = manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap_err();
+    assert!(err.to_string().contains("unknown style rule"));
+}
+
+#[test]
 fn rejects_invalid_release_source_policy_value() {
     let err = Manifest::parse(
         r#"
@@ -217,6 +266,28 @@ release-source-policy = "strict"
     assert!(
         err.to_string()
             .contains("release-source-policy has unsupported value")
+    );
+}
+
+#[test]
+fn rejects_invalid_craft_style_suggestion_level() {
+    let err = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[craft.style]
+suggestions = "strict"
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("[craft.style].suggestions has unsupported value")
     );
 }
 

@@ -49,7 +49,7 @@
   prefer helpers such as `string()`, `list()`, `map()`, or domain-specific
   constructors such as `page()` only when they express a real constructor,
   allocator, builder, or capability boundary.
-- [ ] Keep style rules configurable by severity and scope so incubators,
+- [x] Keep style rules configurable by severity and scope so incubators,
   low-level runtime code, and mature packages can choose different strictness.
 - [x] Add tests for lint metrics and CLI output before enabling stricter rules.
 

@@ -304,6 +304,7 @@ The current schema includes:
 
 - `[package]`
 - `[craft]`
+- `[craft.style]`
 - `[runtime]`
 - `[lib]`
 - `[[bin]]`
@@ -352,6 +353,11 @@ default = []
 tls = []
 simd = []
 
+[craft.style]
+suggestions = "info"
+disabled-rules = []
+exclude = []
+
 [profile.dev]
 opt = 0
 debug = true
@@ -382,6 +388,13 @@ Manifest rules:
 - profile optimization policy is explicit: `opt`, `debug`, `codegen-units`, and `lto` are separate knobs
 - default `release` keeps LTO off unless the manifest opts in explicitly
 - target-domain `lto = "thin"` keeps compile actions in ThinLTO linker-input form until the final link step, so cross-package optimization is preserved instead of being collapsed inside each package
+- `[craft.style]` configures advisory source-style analysis only; it does not
+  change compilation, formatting, or publish readiness
+- `[craft.style].suggestions` accepts `info`, `warn`, or `off`
+- `[craft.style].disabled-rules` may contain `index-while`,
+  `long-postfix-chain`, or `repeated-borrow-receiver`
+- `[craft.style].exclude` matches package-relative path prefixes, with
+  `/**` accepted for subtree notation
 - declarative package-graph structure belongs in `Craft.toml` plus lock-stable `craft.rn`
 - invocation-sensitive adaptation belongs in `build.rn`
 

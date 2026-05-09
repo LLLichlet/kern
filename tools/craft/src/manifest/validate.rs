@@ -1,6 +1,6 @@
 use super::{
-    CURRENT_KERN_VERSION, DependencySpec, Manifest, Package, Profile, ResourceSpec,
-    WorkspacePackage,
+    CURRENT_KERN_VERSION, CraftStyleConfig, DependencySpec, Manifest, Package, Profile,
+    ResourceSpec, WorkspacePackage,
 };
 use crate::error::{Error, Result};
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,6 +34,9 @@ impl Manifest {
             }
             for name in &craft.allow_insecure_source {
                 validate_source_name(path, "[craft].allow-insecure-source[]", name)?;
+            }
+            if let Some(style) = &craft.style {
+                validate_craft_style(path, style)?;
             }
         }
 
@@ -84,6 +87,25 @@ impl Manifest {
 
         Ok(())
     }
+}
+
+fn validate_craft_style(path: &Path, style: &CraftStyleConfig) -> Result<()> {
+    if let Some(suggestions) = style.suggestions {
+        let _ = suggestions;
+    }
+    for rule in &style.disabled_rules {
+        validate_non_empty(path, "[craft.style].disabled-rules[]", rule)?;
+        if !crate::style::StyleRule::is_known_code(rule) {
+            return Err(Error::Validation {
+                path: path.to_path_buf(),
+                message: format!("[craft.style].disabled-rules[] unknown style rule `{rule}`"),
+            });
+        }
+    }
+    for pattern in &style.exclude {
+        validate_non_empty(path, "[craft.style].exclude[]", pattern)?;
+    }
+    Ok(())
 }
 
 fn validate_named_targets(

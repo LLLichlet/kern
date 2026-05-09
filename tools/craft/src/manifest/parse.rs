@@ -1,7 +1,7 @@
 use super::{
-    CraftConfig, DependencySpec, DetailedDependency, LibTarget, Manifest, NamedTarget, Package,
-    Profile, Profiles, ReleaseSourcePolicy, ResourceSpec, RuntimeConfig, Section, Workspace,
-    WorkspacePackage,
+    CraftConfig, CraftStyleConfig, CraftStyleSuggestionLevel, DependencySpec, DetailedDependency,
+    LibTarget, Manifest, NamedTarget, Package, Profile, Profiles, ReleaseSourcePolicy,
+    ResourceSpec, RuntimeConfig, Section, Workspace, WorkspacePackage,
 };
 use crate::error::{Error, Result};
 use kernc_utils::config::{LibraryBundle, LtoMode, RuntimeEntry};
@@ -75,6 +75,11 @@ fn enter_table_section(
         "[craft]" => {
             manifest.craft.get_or_insert_with(CraftConfig::default);
             Ok(Section::Craft)
+        }
+        "[craft.style]" => {
+            let craft = manifest.craft.get_or_insert_with(CraftConfig::default);
+            craft.style.get_or_insert_with(CraftStyleConfig::default);
+            Ok(Section::CraftStyle)
         }
         "[runtime]" => {
             manifest.runtime.get_or_insert_with(RuntimeConfig::default);
@@ -157,6 +162,22 @@ fn assign_key_value(
                     craft.allow_insecure_source = parse_string_array(raw_value)?
                 }
                 _ => return Err(format!("unsupported [craft] key `{key}`")),
+            }
+            Ok(())
+        }
+        Section::CraftStyle => {
+            let style = manifest
+                .craft
+                .get_or_insert_with(CraftConfig::default)
+                .style
+                .get_or_insert_with(CraftStyleConfig::default);
+            match key {
+                "suggestions" => {
+                    style.suggestions = Some(parse_craft_style_suggestion_level(raw_value)?)
+                }
+                "disabled-rules" => style.disabled_rules = parse_string_array(raw_value)?,
+                "exclude" => style.exclude = parse_string_array(raw_value)?,
+                _ => return Err(format!("unsupported [craft.style] key `{key}`")),
             }
             Ok(())
         }
@@ -721,6 +742,19 @@ fn parse_release_source_policy(
         "off" => Ok(ReleaseSourcePolicy::Off),
         other => Err(format!(
             "[craft].release-source-policy has unsupported value `{other}`"
+        )),
+    }
+}
+
+fn parse_craft_style_suggestion_level(
+    raw_value: &str,
+) -> std::result::Result<CraftStyleSuggestionLevel, String> {
+    match parse_string(raw_value)?.as_str() {
+        "off" => Ok(CraftStyleSuggestionLevel::Off),
+        "info" => Ok(CraftStyleSuggestionLevel::Info),
+        "warn" => Ok(CraftStyleSuggestionLevel::Warn),
+        other => Err(format!(
+            "[craft.style].suggestions has unsupported value `{other}`"
         )),
     }
 }

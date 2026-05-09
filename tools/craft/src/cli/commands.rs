@@ -829,7 +829,12 @@ fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
                             suggestion.path.display(),
                             suggestion.line
                         ),
-                        format!("{}: {}", suggestion.rule.code(), suggestion.message),
+                        format!(
+                            "{} {}: {}",
+                            suggestion.severity.label(),
+                            suggestion.rule.code(),
+                            suggestion.message
+                        ),
                     );
                 }
             }

@@ -12,8 +12,8 @@
   prose labels.
 - [x] Add parser/doc tests covering Markdown labels, headings, lists, code
   fences, and section parsing.
-- [ ] Add doc quality metrics to generated docs or lint output: documented
-  public items, undocumented public items, doc-line totals, and warning counts.
+- [ ] Add public API doc quality metrics to generated docs or lint output:
+  documented public items, undocumented public items, and warning counts.
 
 ## P1 Match Over Comparable Values
 
@@ -32,18 +32,20 @@
 ## P2 Style, Formatting, And Lint Tooling
 
 - [ ] Add `craft fmt` as a deterministic formatter entry point.
-- [ ] Add `craft lint` or `craft style` as a non-mutating analyzer for project
+- [x] Add `craft lint` or `craft style` as a non-mutating analyzer for project
   health and Kern idioms.
-- [ ] Start with project metrics: source files, code lines, blank lines, inline
+- [x] Start with source metrics: source files, code lines, blank lines, inline
   comments (`//`, `/* */`), doc comments (`///`, `//!`), comment ratio, doc
-  ratio, and public-doc coverage.
+  ratio, and doc-line totals.
+- [ ] Add public-doc coverage to `craft style` after public item discovery is
+  available without forcing a full build.
 - [ ] Add style suggestions that have already appeared in real packages:
   prefer `page()`, `string()`, `list()`, `map()` constructors; prefer `for`
   over index-only `while`; use handle-style temporaries for stateful cursors;
   split long method chains.
 - [ ] Keep style rules configurable by severity and scope so incubators,
   low-level runtime code, and mature packages can choose different strictness.
-- [ ] Add tests for lint metrics and CLI output before enabling stricter rules.
+- [x] Add tests for lint metrics and CLI output before enabling stricter rules.
 
 ## P3 Adoption And Policy
 

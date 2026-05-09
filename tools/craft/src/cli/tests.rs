@@ -848,6 +848,26 @@ fn parses_doc_with_verbose_output() {
 }
 
 #[test]
+fn parses_style_with_path_and_verbose_output() {
+    let cmd = parse_args([
+        "style".to_string(),
+        "--project-path".to_string(),
+        "demo".to_string(),
+        "--verbose".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Style { path, ui } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert_eq!(ui.verbosity, Verbosity::Verbose);
+            assert_eq!(ui.color, ColorChoice::Auto);
+        }
+        other => panic!("expected style command, got {other:?}"),
+    }
+}
+
+#[test]
 fn parses_run_with_path() {
     let cmd = parse_args([
         "run".to_string(),

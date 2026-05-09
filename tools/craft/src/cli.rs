@@ -51,6 +51,10 @@ pub enum Command {
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
     },
+    Style {
+        path: Option<PathBuf>,
+        ui: UiOptions,
+    },
     Build {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
@@ -179,6 +183,7 @@ fn known_command(name: &str) -> bool {
             | "fetch"
             | "publish"
             | "doc"
+            | "style"
             | "build"
             | "install"
             | "uninstall"
@@ -337,6 +342,13 @@ where
                 ui: options.ui,
             })
         }
+        "style" => {
+            let options = parse_command_options(rest, style_option_mode())?;
+            Ok(Command::Style {
+                path: options.path,
+                ui: options.ui,
+            })
+        }
         "build" => {
             let options = parse_command_options(rest, build_option_mode())?;
             Ok(Command::Build {
@@ -428,6 +440,18 @@ fn init_option_mode() -> CommandOptionMode {
 fn clean_option_mode() -> CommandOptionMode {
     CommandOptionMode {
         command_name: "clean",
+        allow_feature_selection: false,
+        allow_examples: false,
+        allow_bin_selection: false,
+        allow_example_selection: false,
+        allow_install_root: false,
+        allow_runtime_args: false,
+    }
+}
+
+fn style_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        command_name: "style",
         allow_feature_selection: false,
         allow_examples: false,
         allow_bin_selection: false,

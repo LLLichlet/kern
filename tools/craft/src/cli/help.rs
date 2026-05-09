@@ -37,6 +37,7 @@ fn overview_doc() -> HelpDoc {
                 )
                 .entry("publish", "Run release-oriented publish readiness checks")
                 .entry("doc", "Render package docs to Markdown")
+                .entry("style", "Report source metrics and comment ratios")
                 .entry("install", "Build bin targets and install them under a root")
                 .entry(
                     "uninstall",
@@ -139,6 +140,25 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
                 "craft doc --verbose",
                 "Show generated doc files and actions",
             )],
+        ),
+        "style" => command_template(
+            "style",
+            "Report source metrics, comment ratios, and doc comment ratios",
+            &["craft style [OPTIONS]"],
+            HelpSection::new("Options")
+                .entry(
+                    "--project-path, -p <PATH>",
+                    "Select the package root, workspace root, or Craft.toml manifest",
+                )
+                .entry("--verbose, -v/-vv/-vvv", "Show per-package metrics")
+                .entry("--color <WHEN>", "Color mode: auto, always, never"),
+            &[
+                ("craft style", "Report metrics for the current package"),
+                (
+                    "craft style --project-path library --verbose",
+                    "Report per-package metrics for a workspace",
+                ),
+            ],
         ),
         "build" => command_template(
             "build",

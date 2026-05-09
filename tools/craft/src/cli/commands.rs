@@ -12,6 +12,7 @@ use crate::manifest::Manifest;
 use crate::operation_lock::WorkspaceOperationLock;
 use crate::plan::TargetKind;
 use crate::source;
+use crate::style;
 use crate::workspace;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -60,6 +61,7 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             feature_selection,
             ui,
         } => run_doc(path, feature_selection, ui),
+        Command::Style { path, ui } => run_style(path, ui),
         Command::Build {
             path,
             feature_selection,
@@ -710,6 +712,95 @@ fn run_doc(
         "doc generation completed (compile {}, link {})",
         execution.compile_actions, execution.link_actions
     ));
+
+    Ok(())
+}
+
+fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
+    let render = Renderer::new(ui);
+    let manifest_path = discover::resolve_project_manifest_path(path.as_deref())?;
+    let selected_manifest_path = path
+        .as_deref()
+        .map(|path| discover::resolve_manifest_path(Some(path)))
+        .transpose()?;
+    let manifest = Manifest::load(&manifest_path)?;
+    manifest.validate(&manifest_path)?;
+    let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
+    let selected_manifest = if let Some(selected_manifest_path) = selected_manifest_path
+        && selected_manifest_path != manifest_path
+    {
+        let selected_manifest = Manifest::load(&selected_manifest_path)?;
+        selected_manifest.validate(&selected_manifest_path)?;
+        Some((selected_manifest_path, selected_manifest))
+    } else {
+        None
+    };
+    let summaries = if let Some((selected_manifest_path, selected_manifest)) = &selected_manifest {
+        style::collect_workspace_style_metrics(selected_manifest_path, selected_manifest, &[])?
+    } else {
+        style::collect_workspace_style_metrics(&manifest_path, &manifest, &workspace_members)?
+    };
+    let mut total = style::StyleSummary::default();
+    for summary in &summaries {
+        total.merge(&summary.metrics);
+    }
+    let feature_selection = elaborate::FeatureSelection::default();
+
+    let (header_manifest_path, header_manifest) = selected_manifest
+        .as_ref()
+        .map(|(path, manifest)| (path, manifest))
+        .unwrap_or((&manifest_path, &manifest));
+    render.header_with_path(
+        "style",
+        header_manifest,
+        header_manifest_path,
+        &feature_selection,
+    );
+    render.summary(
+        "sources",
+        format!(
+            "{} package(s), {} file(s), {} total line(s)",
+            total.packages, total.files, total.total_lines
+        ),
+    );
+    render.summary(
+        "lines",
+        format!(
+            "code {}, blank {}, comments {}",
+            total.code_lines,
+            total.blank_lines,
+            total.comment_lines()
+        ),
+    );
+    render.summary(
+        "comments",
+        format!(
+            "inline {}, block {}, doc {}, ratio {:.1}%, doc {:.1}%",
+            total.inline_comment_lines,
+            total.block_comment_lines,
+            total.doc_comment_lines,
+            total.comment_ratio(),
+            total.doc_ratio()
+        ),
+    );
+    if render.is_verbose() {
+        render.section("packages");
+        for summary in &summaries {
+            render.action(
+                Tone::Muted,
+                "metric",
+                &summary.label,
+                format!(
+                    "{} file(s), code {}, comments {}, ratio {:.1}%",
+                    summary.metrics.files,
+                    summary.metrics.code_lines,
+                    summary.metrics.comment_lines(),
+                    summary.metrics.comment_ratio()
+                ),
+            );
+        }
+    }
+    render.ok("style metrics completed");
 
     Ok(())
 }

@@ -7,6 +7,7 @@ pub mod graph;
 pub mod manifest;
 pub mod plan;
 pub mod project;
+pub mod style;
 pub mod workspace;
 
 mod build_plan;

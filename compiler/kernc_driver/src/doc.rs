@@ -523,6 +523,9 @@ fn parse_section_title(line: &str) -> Option<String> {
     {
         return None;
     }
+    if classify_section(title) == KernDocSectionKind::Custom {
+        return None;
+    }
     Some(title.to_string())
 }
 
@@ -641,23 +644,14 @@ fn lint_doc_block(
         });
     }
 
-    let mut current_section = None::<String>;
+    let mut current_section = None::<KernDocSectionKind>;
     for line in &block.lines {
         if let Some(title) = parse_section_title(&line.text) {
-            if classify_section(&title) == KernDocSectionKind::Custom {
-                warnings.push(DocLint {
-                    span: line.span,
-                    message: format!("unknown doc section `{title}` in {target}"),
-                    hint: Some(
-                        "supported sections: Args, Returns, Errors, Safety, Effects, Requires, Ensures, State, Boundary, Design, Rationale, Example, See, Note, Warning".to_string(),
-                    ),
-                });
-            }
-            current_section = Some(title);
+            current_section = Some(classify_section(&title));
             continue;
         }
 
-        if current_section.as_deref() == Some("Args") {
+        if current_section == Some(KernDocSectionKind::Args) {
             lint_args_line(line, target, valid_args, warnings);
         }
     }
@@ -944,7 +938,9 @@ fn type_signature<'a>(
     generics: &[ast::GenericParam],
     fields: impl Iterator<Item = &'a ast::StructFieldDef>,
 ) -> String {
-    let public_fields = fields.filter(|field| field.vis.is_public()).collect::<Vec<_>>();
+    let public_fields = fields
+        .filter(|field| field.vis.is_public())
+        .collect::<Vec<_>>();
     let mut out = format!("{kind} {name}{}", generic_params_label(ctx, generics));
     if public_fields.is_empty() {
         return out;
@@ -1014,7 +1010,9 @@ fn toml_quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::collect_kmeta_doc_items;
+    use super::{
+        DocLint, KernDocSectionKind, collect_kmeta_doc_items, lint_doc_block, normalize_doc,
+    };
     use kernc_ast as ast;
     use kernc_sema::SemaContext;
     use kernc_sema::def::{Def, DefId, FunctionDef, ImplDef, ModuleDef, StructDef, Visibility};
@@ -1022,6 +1020,65 @@ mod tests {
     use kernc_utils::{NodeId, Session, Span};
     use std::collections::HashMap;
     use std::path::PathBuf;
+
+    #[test]
+    fn normalize_doc_preserves_markdown_labels_and_known_sections() {
+        let docs = doc_block_lines(&[
+            "Parse an XML document.",
+            "",
+            "State machine:",
+            "starts in document mode and consumes tokens.",
+            "",
+            "## Examples",
+            "",
+            "```kern",
+            "let doc = xml.parse(text);",
+            "```",
+            "",
+            "Safety:",
+            "- caller: must keep the input buffer alive.",
+        ]);
+
+        let normalized = normalize_doc(&docs);
+
+        assert_eq!(normalized.summary, "Parse an XML document.");
+        assert!(normalized.details.contains("State machine:"));
+        assert!(normalized.details.contains("## Examples"));
+        assert!(normalized.details.contains("```kern"));
+        assert_eq!(normalized.sections.len(), 1);
+        assert_eq!(normalized.sections[0].kind, KernDocSectionKind::Safety);
+        assert_eq!(normalized.sections[0].title, "Safety");
+        assert_eq!(normalized.sections[0].entries.len(), 1);
+        assert_eq!(
+            normalized.sections[0].entries[0].name.as_deref(),
+            Some("caller")
+        );
+        assert!(normalized.raw_text.contains("State machine:"));
+    }
+
+    #[test]
+    fn lint_doc_block_ignores_markdown_labels() {
+        let docs = doc_block_lines(&[
+            "Tokenizes input.",
+            "",
+            "State machine:",
+            "- start: waits for `<`.",
+            "",
+            "Args:",
+            "- input: source text.",
+        ]);
+        let valid_args = ["input".to_string()].into_iter().collect();
+        let mut warnings = Vec::<DocLint>::new();
+
+        lint_doc_block(
+            &docs,
+            "function `tokenize`",
+            Some(&valid_args),
+            &mut warnings,
+        );
+
+        assert!(warnings.is_empty());
+    }
 
     #[test]
     fn collect_kmeta_doc_items_distinguishes_trait_impl_methods() {
@@ -1379,12 +1436,19 @@ mod tests {
     }
 
     fn doc_block(text: &str) -> ast::DocBlock {
+        doc_block_lines(&[text])
+    }
+
+    fn doc_block_lines(lines: &[&str]) -> ast::DocBlock {
         ast::DocBlock {
             span: Span::default(),
-            lines: vec![ast::DocLine {
-                span: Span::default(),
-                text: text.to_string(),
-            }],
+            lines: lines
+                .iter()
+                .map(|text| ast::DocLine {
+                    span: Span::default(),
+                    text: text.to_string(),
+                })
+                .collect(),
         }
     }
 

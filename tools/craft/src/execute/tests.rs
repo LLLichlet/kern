@@ -7,7 +7,9 @@ use super::{
 };
 use crate::build_plan::{self, StagedActionKind};
 use crate::elaborate::{FeatureSelection, plan};
+use crate::lockfile;
 use crate::manifest::Manifest;
+use crate::publish_proof;
 use crate::workspace;
 use kernc_utils::llvm_bitcode::file_has_llvm_bitcode_magic;
 use std::fs;
@@ -1217,8 +1219,10 @@ int craft_appears_value(void) {
 
 fn init_git_package(repo: &Path, manifest: &str, lib_source: &str) {
     fs::create_dir_all(repo.join("src")).unwrap();
+    let manifest = add_repository_to_manifest(manifest, repo);
     fs::write(repo.join("Craft.toml"), manifest).unwrap();
     fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
+    write_publish_artifacts(repo);
     run_git(repo, ["init", "--initial-branch=main"]);
     run_git(repo, ["config", "user.name", "Craft Tests"]);
     run_git(
@@ -1227,6 +1231,42 @@ fn init_git_package(repo: &Path, manifest: &str, lib_source: &str) {
     );
     run_git(repo, ["add", "."]);
     run_git(repo, ["commit", "-m", "initial"]);
+}
+
+fn commit_git_package(repo: &Path, message: &str) {
+    write_publish_artifacts(repo);
+    run_git(repo, ["add", "."]);
+    run_git(repo, ["commit", "-m", message]);
+}
+
+fn write_publish_artifacts(repo: &Path) {
+    let manifest_path = repo.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Check,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    lockfile::sync_lockfile(&manifest_path, &elaboration).unwrap();
+    publish_proof::write_test_publish_proof(repo, &toml_string_literal(repo)).unwrap();
+}
+
+fn add_repository_to_manifest(manifest: &str, repo: &Path) -> String {
+    if manifest.contains("repository =") {
+        return manifest.to_string();
+    }
+    manifest.replacen(
+        "kern = \"0.7.5\"",
+        &format!(
+            "kern = \"0.7.5\"\nrepository = \"{}\"",
+            toml_string_literal(repo)
+        ),
+        1,
+    )
 }
 
 fn toml_string_literal(path: &Path) -> String {

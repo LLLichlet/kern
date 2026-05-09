@@ -83,3 +83,18 @@
 - [x] Add publish tests for missing Git worktrees, dirty worktrees, missing or
   damaged committed lockfiles, remote mismatches, normalized SSH remotes, source
   policy, formatting, style, and workspace package metadata.
+
+## P5 Distributed Publish Proofs
+
+- [x] Add committed `Craft.publish.toml` as a distributed publish proof instead
+  of depending on a central registry.
+- [x] Record package identity, repository, and SHA-256 digests for
+  `Craft.toml`, `Craft.lock`, and package source contents.
+- [x] Make `craft publish` generate or update stale proofs and then require the
+  proof to be committed before publish succeeds.
+- [x] Verify Git dependencies automatically while fetching, without requiring a
+  caller opt-in policy.
+- [x] Reject Git dependencies with missing proofs, stale proofs, package/version
+  mismatches, or repository/source mismatches.
+- [x] Keep path dependencies as local/development sources outside the default
+  ecosystem proof boundary.

@@ -383,8 +383,7 @@ return 43;
 "#,
     )
     .unwrap();
-    run_git(&repo, ["add", "."]);
-    run_git(&repo, ["commit", "-m", "update answer"]);
+    commit_git_package(&repo, "update answer");
 
     let manifest = Manifest::load(&manifest_path).unwrap();
     let elaboration = plan(

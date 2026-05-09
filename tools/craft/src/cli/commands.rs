@@ -12,6 +12,7 @@ use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::operation_lock::WorkspaceOperationLock;
 use crate::plan::TargetKind;
+use crate::publish_proof::{self, ProofWriteResult};
 use crate::source;
 use crate::style;
 use crate::workspace;
@@ -19,7 +20,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::policy::{
-    publish_summary, summarize_check_sources, summarize_source_security,
+    publish_repository, publish_summary, summarize_check_sources, summarize_source_security,
     validate_check_source_policy, validate_publish_metadata, validate_publish_vcs,
 };
 use super::render::{
@@ -526,8 +527,6 @@ fn run_publish(
                 .to_string(),
         });
     }
-    let vcs_summary =
-        validate_publish_vcs(&manifest_path, &manifest, &workspace_members, &summary)?;
     let format_summaries = fmt::format_workspace_sources(
         &manifest_path,
         &manifest,
@@ -557,6 +556,17 @@ fn run_publish(
     for summary in &style_summaries {
         style_total.merge(&summary.metrics);
     }
+    let proof_update =
+        ensure_publish_proofs_current(&manifest_path, &manifest, &workspace_members, &summary)?;
+    if let Some(proof_path) = proof_update {
+        return Err(Error::Validation {
+            path: proof_path,
+            message: "publish proof check failed: Craft.publish.toml was created or updated; commit it and rerun `craft publish`"
+                .to_string(),
+        });
+    }
+    let vcs_summary =
+        validate_publish_vcs(&manifest_path, &manifest, &workspace_members, &summary)?;
 
     render.header_with_path("publish", &manifest, &manifest_path, &feature_selection);
     render.summary(
@@ -607,6 +617,7 @@ fn run_publish(
         "style",
         format!("{style_suggestion_count} advisory source style suggestion(s)"),
     );
+    render.summary("publish-proof", "current");
     render.summary(
         "lockfile",
         match lockfile_write_result {
@@ -661,6 +672,57 @@ fn run_publish(
     render.ok("publish check completed");
 
     Ok(())
+}
+
+fn ensure_publish_proofs_current(
+    root_manifest_path: &Path,
+    root_manifest: &Manifest,
+    workspace_members: &[workspace::WorkspaceMember],
+    summary: &super::policy::PublishSummary,
+) -> Result<Option<PathBuf>> {
+    let mut result = None;
+    for package in &summary.ready {
+        let (manifest_path, manifest) = if package.manifest_path == root_manifest_path {
+            (root_manifest_path, root_manifest)
+        } else {
+            let member = workspace_members
+                .iter()
+                .find(|member| member.manifest_path == package.manifest_path)
+                .ok_or_else(|| Error::Validation {
+                    path: package.manifest_path.clone(),
+                    message:
+                        "publish proof check failed: package manifest is not part of the workspace"
+                            .to_string(),
+                })?;
+            (member.manifest_path.as_path(), &member.manifest)
+        };
+        let package_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+        let repository = publish_repository(
+            manifest
+                .package
+                .as_ref()
+                .expect("publish proof package has manifest package"),
+            root_manifest
+                .workspace
+                .as_ref()
+                .and_then(|workspace| workspace.package.as_ref()),
+        )
+        .expect("publish metadata validation ensures repository exists");
+        let lockfile_path = root_manifest_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("Craft.lock");
+        let package_result = publish_proof::ensure_publish_proof_current(
+            package_root,
+            &lockfile_path,
+            manifest,
+            repository,
+        )?;
+        if package_result != ProofWriteResult::Current {
+            result = Some(publish_proof::proof_path(package_root));
+        }
+    }
+    Ok(result)
 }
 
 fn run_build(

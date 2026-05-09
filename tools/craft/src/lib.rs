@@ -18,6 +18,7 @@ mod execute;
 mod local_state;
 mod lockfile;
 mod operation_lock;
+mod publish_proof;
 mod resolver;
 mod script;
 mod sdk;

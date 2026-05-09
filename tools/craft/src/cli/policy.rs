@@ -581,7 +581,7 @@ fn publish_readme<'a>(
         })
 }
 
-fn publish_repository<'a>(
+pub(super) fn publish_repository<'a>(
     package: &'a crate::manifest::Package,
     defaults: Option<&'a crate::manifest::WorkspacePackage>,
 ) -> Option<&'a str> {

@@ -3,6 +3,7 @@ use crate::error::{Error, Result};
 use crate::graph::{PackageId, SourceId};
 use crate::local_state;
 use crate::manifest::{Manifest, ResourceSpec};
+use crate::publish_proof;
 use crate::resolver::{ExternalPackageId, ResolvedGraph};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -104,6 +105,11 @@ pub fn fetch_external_packages(resolved: &ResolvedGraph) -> Result<Vec<FetchedPa
         let cache_path = cache_path_for_external(&cache_root, &package.id)?;
         let status = materialize_tree(&resolved_source.source_path, &cache_path)?;
         validate_fetched_manifest(&cache_path)?;
+        publish_proof::validate_git_dependency_publish_proof(
+            &cache_path,
+            &package.id,
+            &resolved_source.identity,
+        )?;
         packages.push(FetchedPackage {
             id: package.id.clone(),
             source_path: resolved_source.source_path,
@@ -970,7 +976,9 @@ mod tests {
         fetch_package_resources, format_git_command, summarize_fetch, summarize_fetch_resources,
     };
     use crate::elaborate::{FeatureSelection, plan};
+    use crate::lockfile;
     use crate::manifest::Manifest;
+    use crate::publish_proof;
     use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
@@ -1344,6 +1352,94 @@ log = {{ git = "{}", branch = "main", version = "1" }}
     }
 
     #[test]
+    fn rejects_git_dependency_without_publish_proof() {
+        let root = temp_dir("craft-fetch-git-no-proof");
+        let repo = root.join("log.git");
+        init_git_package(&repo, "pub fn x() i32 { return 0; }\n");
+        fs::remove_file(repo.join("Craft.publish.toml")).unwrap();
+        run_git(&repo, ["add", "."]).unwrap();
+        run_git(&repo, ["commit", "-m", "remove proof"]).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            format!(
+                r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.5"
+
+[dependencies]
+log = {{ git = "{}", branch = "main", version = "1" }}
+"#,
+                toml_string_literal(&repo)
+            ),
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let err = fetch_external_packages(&elaboration.resolved_graph).unwrap_err();
+        assert!(err.to_string().contains("missing `Craft.publish.toml`"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_git_dependency_with_stale_publish_proof() {
+        let root = temp_dir("craft-fetch-git-stale-proof");
+        let repo = root.join("log.git");
+        init_git_package(&repo, "pub fn x() i32 { return 0; }\n");
+        fs::write(repo.join("src/lib.rn"), "pub fn x() i32 { return 2; }\n").unwrap();
+        run_git(&repo, ["add", "."]).unwrap();
+        run_git(&repo, ["commit", "-m", "stale proof"]).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            format!(
+                r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.5"
+
+[dependencies]
+log = {{ git = "{}", branch = "main", version = "1" }}
+"#,
+                toml_string_literal(&repo)
+            ),
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let err = fetch_external_packages(&elaboration.resolved_graph).unwrap_err();
+        assert!(err.to_string().contains("publish proof does not match"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn fetches_git_resources_without_materializing_git_metadata() {
         let root = temp_dir("craft-fetch-git-resource");
         let repo = root.join("limine.git");
@@ -1517,18 +1613,23 @@ log = {{ git = "{}", rev = "{}", version = "1" }}
         fs::create_dir_all(repo.join("src")).unwrap();
         fs::write(
             repo.join("Craft.toml"),
-            r#"
+            format!(
+                r#"
 [package]
 name = "log"
 version = "1"
 kern = "0.7.5"
+repository = "{}"
 
 [lib]
 root = "src/lib.rn"
 "#,
+                toml_string_literal(repo)
+            ),
         )
         .unwrap();
         fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
+        write_publish_artifacts(repo, &toml_string_literal(repo));
         run_git(repo, ["init", "--initial-branch=main"]).unwrap();
         run_git(repo, ["config", "user.name", "Craft Tests"]).unwrap();
         run_git(
@@ -1554,8 +1655,25 @@ root = "src/lib.rn"
 
     fn commit_git_package(repo: &PathBuf, lib_source: &str) {
         fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
+        write_publish_artifacts(repo, &toml_string_literal(repo));
         run_git(repo, ["add", "."]).unwrap();
         run_git(repo, ["commit", "-m", "update"]).unwrap();
+    }
+
+    fn write_publish_artifacts(repo: &PathBuf, repository: &str) {
+        let manifest_path = repo.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        lockfile::sync_lockfile(&manifest_path, &elaboration).unwrap();
+        publish_proof::write_test_publish_proof(repo, repository).unwrap();
     }
 
     fn git_head(repo: &PathBuf) -> String {

@@ -127,6 +127,21 @@ fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) {
     );
 }
 
+fn commit_publish_proof(root: &Path) {
+    let err = run_command(Command::Publish {
+        path: Some(root.to_path_buf()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("publish proof check failed"));
+    run_git(root, ["add", "Craft.publish.toml"]);
+    run_git(root, ["commit", "-m", "publish proof"]);
+}
+
 fn assert_lockfile_is_current(root: &Path) {
     let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
     assert!(lockfile.contains("manifest = \"Craft.toml\""));
@@ -2429,6 +2444,7 @@ fn publish_auto_syncs_release_lock_and_checks_metadata() {
     .unwrap();
     run_git(&root, ["add", "Craft.lock"]);
     run_git(&root, ["commit", "-m", "lock"]);
+    commit_publish_proof(&root);
 
     run_command(Command::Publish {
         path: Some(root.clone()),
@@ -2590,6 +2606,7 @@ fn publish_matches_repository_against_normalized_ssh_remote() {
     })
     .unwrap();
     init_publish_git_repo(&root, "git@github.com:owner/repo.git");
+    commit_publish_proof(&root);
 
     run_command(Command::Publish {
         path: Some(root.clone()),
@@ -2688,6 +2705,7 @@ fn main() i32 {
     })
     .unwrap();
     init_publish_git_repo(&root, "https://example.com/demo");
+    commit_publish_proof(&root);
 
     run_command(Command::Publish {
         path: Some(root.clone()),
@@ -2745,6 +2763,18 @@ root = "src/main.rn"
     })
     .unwrap();
     init_publish_git_repo(&root, "https://example.com/workspace");
+    let _err = run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+    assert!(member.join("Craft.publish.toml").is_file());
+    run_git(&root, ["add", "member/Craft.publish.toml"]);
+    run_git(&root, ["commit", "-m", "publish proof"]);
 
     run_command(Command::Publish {
         path: Some(root.clone()),

@@ -948,6 +948,91 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_match_value_patterns_with_custom_eq_impl() {
+    let output = build_and_run(
+        "kernc_match_value_patterns_custom_eq",
+        r#"
+struct Key {
+    raw: i32,
+    bias: i32,
+};
+
+impl Key : Eq[Key] {
+    pub fn eq(other: Key) bool {
+        return (self.raw + self.bias) == (other.raw + other.bias);
+    }
+}
+
+fn classify(key: Key) i32 {
+    return match (key) {
+        make_key(1, 2) => 3,
+        make_key(4, 5) => 9,
+        _ => 0,
+    };
+}
+
+fn make_key(raw: i32, bias: i32) Key {
+    return Key.{ raw: raw, bias: bias };
+}
+
+fn main() i32 {
+    if (classify(Key.{ raw: 2, bias: 1 }) != 3) {
+        return 1;
+    }
+    if (classify(Key.{ raw: 8, bias: 1 }) != 9) {
+        return 2;
+    }
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_match_value_pattern_without_eq_impl() {
+    let output = compile_source(
+        r#"
+struct Token {
+    id: i32,
+};
+
+fn classify(token: Token) i32 {
+    return match (token) {
+        make_token(1) => 1,
+        _ => 0,
+    };
+}
+
+fn make_token(id: i32) Token {
+    return Token.{ id: id };
+}
+
+fn main() i32 {
+    return classify(make_token(1));
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("operator `==` is not available"), "{stderr}");
+    assert!(stderr.contains("Eq[Token]"), "{stderr}");
+}
+
+#[test]
 fn runs_slice_array_eq_method_impls() {
     let output = build_and_run(
         "kernc_slice_array_eq_method_impls",

@@ -385,6 +385,34 @@ let color = match (raw_data) {
 };
 ```
 
+### 5.3.1 Match Value Patterns
+
+`match` supports both structural patterns and value patterns. Structural
+patterns describe the shape of the scrutinee, such as enum variants,
+destructured payloads, struct fields, `_`, and ranges over scalar domains.
+
+Ordinary value patterns compare the scrutinee with the arm pattern in arm order
+through the same equality capability as `==`. In trait terms, matching `target`
+against a value pattern `candidate` requires the target type to implement the
+appropriate `Eq[CandidateType]` capability, including existing heterogeneous
+implementations such as `String : Eq[&[u8]]`.
+
+```kern
+fn classify(text: &mut String) i32 {
+    return match (text) {
+        "kern" => 1,
+        "lang" => 2,
+        _ => 0,
+    };
+}
+```
+
+This is intentionally not a separate pattern trait. It keeps `match` dispatch
+consistent with operator semantics and avoids a second equality protocol. The
+exhaustiveness rules remain conservative: structural enum and scalar matches can
+be proven exhaustive by the compiler, while open-ended `Eq` value matches still
+need a catch-all arm unless another pattern form closes the domain.
+
 ### 5.4 Conversions
 
 Type conversions are explicitly and uniformly handled by the `as` operator.

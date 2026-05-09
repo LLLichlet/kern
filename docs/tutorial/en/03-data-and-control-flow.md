@@ -123,6 +123,23 @@ fn class_of(byte: u8) i32 {
 }
 ```
 
+Value patterns use the same equality capability as `==`. That means matching a
+string-like value against a string literal works when the scrutinee type
+implements the relevant `Eq[...]` capability:
+
+```kern
+fn command_id(command: &[u8]) i32 {
+    return match (command) {
+        "run" => 1,
+        "test" => 2,
+        _ => 0,
+    };
+}
+```
+
+For open-ended value domains, keep a `_` arm unless every possible value is
+covered by structural or scalar patterns.
+
 For enums, patterns can test the variant and unpack payloads:
 
 ```kern

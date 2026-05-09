@@ -24,9 +24,9 @@
   trait. Start conservatively with `Eq[T]` for literal/const-like patterns.
 - [x] Extend parsing/AST/sema/lowering so string and slice-like values can be
   matched without `if name == "...";` chains.
-- [ ] Add positive tests for custom `Eq` match value patterns, plus
+- [x] Add positive tests for custom `Eq` match value patterns, plus
   ambiguity/type-error tests.
-- [ ] Document the feature in design.md and tutorials with guidance on when
+- [x] Document the feature in design.md and tutorials with guidance on when
   `match` improves dispatch readability.
 
 ## P2 Style, Formatting, And Lint Tooling

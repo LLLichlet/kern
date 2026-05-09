@@ -398,7 +398,7 @@ impl CompilerDriver {
                                 kind: AnalysisSemanticKind::Property,
                                 role: AnalysisSemanticRole::Definition,
                                 is_mut: false,
-                                is_pub: field.is_pub,
+                                is_pub: field.vis.is_public(),
                             });
                     }
                 }
@@ -412,7 +412,7 @@ impl CompilerDriver {
                                 kind: AnalysisSemanticKind::Property,
                                 role: AnalysisSemanticRole::Definition,
                                 is_mut: false,
-                                is_pub: field.is_pub,
+                                is_pub: field.vis.is_public(),
                             });
                     }
                 }

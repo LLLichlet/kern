@@ -5,12 +5,12 @@ fn runs_hosted_program_using_std_coll_tree() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Tree, tree};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
     let mut lazy_calls = i32.{0};
@@ -106,7 +106,7 @@ fn runs_hosted_program_using_custom_ord_tree_key() {
         r#"
 use base.coll.{Tree, tree};
 use base.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 struct Key {
@@ -134,7 +134,7 @@ impl Key : Ord[Key] {}
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = tree[Key, i32]()..&;
     defer map.deinit(gpa);
 
@@ -215,12 +215,12 @@ fn runs_hosted_program_using_tree_ordered_traversal_helpers() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Tree, tree, String, string};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
 
@@ -278,12 +278,12 @@ fn runs_hosted_program_using_tree_boundary_queries() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Tree, tree};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
 
@@ -359,12 +359,12 @@ fn runs_hosted_program_using_tree_remove() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Tree, tree, String, string};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
 

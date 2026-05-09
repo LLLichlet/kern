@@ -5,12 +5,12 @@ fn runs_hosted_program_using_std_coll_map() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Map, map};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = map[i32, i32]()..&;
     defer map.deinit(gpa);
 
@@ -113,7 +113,7 @@ fn runs_hosted_program_using_custom_hash_map_key_with_collisions() {
         r#"
 use base.coll.{Map, map};
 use base.hash.Hash;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 struct Key {
@@ -135,7 +135,7 @@ impl Key : Hash[Key] {
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = map[Key, i32]()..&;
     defer map.deinit(gpa);
 
@@ -221,12 +221,12 @@ fn runs_hosted_program_using_byte_slice_keys() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Map, map};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = map[&[u8], i32]()..&;
     defer map.deinit(gpa);
 
@@ -287,12 +287,12 @@ fn runs_hosted_program_using_string_traits_for_ordering_and_hashing() {
 use base.coll.{String, string};
 use base.cmp.{LESS, EQUAL, GREATER};
 use base.hash.hash_of;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let alpha = string()..&;
     defer alpha.deinit(gpa);
@@ -354,12 +354,12 @@ fn runs_hosted_program_using_map_get_or_insert_apis() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Map, map};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = map[i32, i32]()..&;
     defer map.deinit(gpa);
     let mut lazy_calls = i32.{0};
@@ -459,12 +459,12 @@ fn runs_hosted_program_using_map_traversal_and_filter_helpers() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Map, map};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = map[i32, i32]()..&;
     defer map.deinit(gpa);
 
@@ -539,12 +539,12 @@ fn runs_hosted_program_using_map_predicate_algorithms() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Map, map};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = map[i32, i32]()..&;
     defer map.deinit(gpa);
 
@@ -649,12 +649,12 @@ fn runs_hosted_program_using_map_list_bridge_helpers() {
     let output = build_and_run_hosted(
         r#"
 use base.coll.{Map, map, List, list};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let map = map[i32, i32]()..&;
     defer map.deinit(gpa);
     let keys = list[i32]()..&;

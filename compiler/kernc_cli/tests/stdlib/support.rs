@@ -46,12 +46,12 @@ fn base_abi_cstr_owned_tracks_pointer_and_length() {
         "kernc_base_abi_cstr_owned",
         r#"
 use base.abi;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let .{ Some: owned } = abi.cstr.owned(gpa, "kern") else {
         return 9;
@@ -444,12 +444,12 @@ fn hosted_std_io_prints_base_string_and_list_values() {
         r#"
 use std.io;
 use base.coll.{List, list, String, string};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let mut text = string();
     defer text..&.deinit(gpa);
@@ -683,7 +683,7 @@ fn hosted_std_io_formats_to_memory_writers() {
         r#"
 use base.io.Write;
 use base.coll.{String, string};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
@@ -712,7 +712,7 @@ fn main() i32 {
     }
 
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     defer gpa.deinit();
 
     let out = string()..&;
@@ -761,7 +761,7 @@ fn hosted_std_io_reads_from_memory_readers() {
         "kernc_std_io_memory_readers",
         r#"
 use base.io.Read;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
@@ -794,7 +794,7 @@ fn main() i32 {
     }
 
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     defer gpa.deinit();
 
     let mut reader2 = "kern-io".reader();
@@ -840,7 +840,7 @@ use base.io.{
     discard,
 };
 use base.coll.{String, string};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
@@ -868,7 +868,7 @@ fn main() i32 {
     }
 
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     defer gpa.deinit();
 
     let mut text = string();

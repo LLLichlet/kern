@@ -821,12 +821,12 @@ fn runs_string_slice_eq_operator_impls() {
         "kernc_string_slice_eq_operator_impls",
         r#"
 use base.coll.String;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let text = String.{}..&;
     defer text.deinit(gpa);
     let _ = text.push_str(gpa, "kern");

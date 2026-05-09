@@ -18,9 +18,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             match &*def_ptr {
                 Def::Struct(struct_def) => {
                     for field in &struct_def.fields {
-                        if !field.is_pub
-                            && def_owner_module_id(self.ctx, def_id) != current_module_id
-                        {
+                        if !field_visibility_allows_access(self.ctx, field, def_id, current_module_id) {
                             continue;
                         }
 
@@ -44,9 +42,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 }
                 Def::Union(union_def) => {
                     for field in &union_def.fields {
-                        if !field.is_pub
-                            && def_owner_module_id(self.ctx, def_id) != current_module_id
-                        {
+                        if !field_visibility_allows_access(self.ctx, field, def_id, current_module_id) {
                             continue;
                         }
 
@@ -120,7 +116,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                             .insert(cache_key, None);
                         return None;
                     };
-                    if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
+                    if !field_visibility_allows_access(self.ctx, field, def_id, current_module_id) {
                         self.ctx
                             .struct_error(
                                 access_span,
@@ -131,7 +127,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                                 ),
                             )
                             .with_hint(
-                                "mark the field `pub`, or access it from within the defining module",
+                                "widen the field visibility, or access it from a module allowed by its visibility",
                             )
                             .emit();
                         return Some(MemberCandidate {
@@ -176,7 +172,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                             .insert(cache_key, None);
                         return None;
                     };
-                    if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
+                    if !field_visibility_allows_access(self.ctx, field, def_id, current_module_id) {
                         self.ctx
                             .struct_error(
                                 access_span,
@@ -187,7 +183,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                                 ),
                             )
                             .with_hint(
-                                "mark the field `pub`, or access it from within the defining module",
+                                "widen the field visibility, or access it from a module allowed by its visibility",
                             )
                             .emit();
                         return Some(MemberCandidate {

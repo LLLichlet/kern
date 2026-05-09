@@ -125,7 +125,7 @@ pub.. fn consume_find_map[T, U](it: &mut Iterator[Item = T], call_back: &Fn(T) ?
 }
 
 pub struct SliceIter[T] {
-    data: &[T],
+    pub.. data: &[T],
     index: usize = 0,
 };
 
@@ -184,7 +184,7 @@ impl[T] &mut SliceIter[T] {
 }
 
 pub struct SliceMutIter[T] {
-    data: &mut [T],
+    pub.. data: &mut [T],
     index: usize = 0,
 };
 

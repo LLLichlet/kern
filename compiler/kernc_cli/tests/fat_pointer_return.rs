@@ -12,7 +12,7 @@ fn build_and_run_source_with_std(source: &str) -> std::process::Output {
 fn returns_struct_containing_allocator_fat_pointer_inside_result() {
     let output = build_and_run_source_with_std(
         r#"
-use base.mem.alloc.{Allocator, Arena};
+use base.mem.alloc.{Allocator, arena};
 use sys.mem.Page;
 
 struct Ref {
@@ -27,7 +27,7 @@ fn make_ref(alloc: &mut Allocator, value: &mut i32) Ref!i32 {
 fn main() i32 {
 
     let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: &mut Allocator.{ page } };
+    let mut arena = arena().on(&mut Allocator.{ page });
     let mut value = i32.{42};
 
     let r = match (make_ref(&mut Allocator.{ arena..& }, value..&)) {
@@ -53,7 +53,7 @@ fn main() i32 {
 fn returns_struct_containing_allocator_fat_pointer_inside_option() {
     let output = build_and_run_source_with_std(
         r#"
-use base.mem.alloc.{Allocator, Arena};
+use base.mem.alloc.{Allocator, arena};
 use sys.mem.Page;
 
 struct Ref {
@@ -68,7 +68,7 @@ fn make_ref(alloc: &mut Allocator, value: &mut i32) ?Ref {
 fn main() i32 {
 
     let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: &mut Allocator.{ page } };
+    let mut arena = arena().on(&mut Allocator.{ page });
     let mut value = i32.{42};
 
     let r = match (make_ref(&mut Allocator.{ arena..& }, value..&)) {
@@ -94,7 +94,7 @@ fn main() i32 {
 fn returns_struct_containing_allocator_fat_pointer_from_mut_method_result() {
     let output = build_and_run_source_with_std(
         r#"
-use base.mem.alloc.{Allocator, Arena};
+use base.mem.alloc.{Allocator, arena};
 use sys.mem.Page;
 
 struct Ref {
@@ -116,7 +116,7 @@ impl &mut Holder {
 fn main() i32 {
 
     let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: &mut Allocator.{ page } };
+    let mut arena = arena().on(&mut Allocator.{ page });
     let mut value = i32.{42};
     let mut holder = Holder.{};
 

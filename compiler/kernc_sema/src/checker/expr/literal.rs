@@ -11,12 +11,22 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
 type StructLiteralDefInfo = (
-    Vec<(kernc_utils::SymbolId, TypeId, bool, Option<Span>)>,
+    Vec<StructLiteralFieldInfo>,
     String,
     Vec<ast::GenericParam>,
     Vec<GenericArg>,
     bool,
 );
+
+#[derive(Clone, Copy)]
+struct StructLiteralFieldInfo {
+    name: kernc_utils::SymbolId,
+    ty: TypeId,
+    has_default: bool,
+    definition_span: Option<Span>,
+    vis: Option<ast::Visibility>,
+    owner_def: Option<crate::def::DefId>,
+}
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn data_field_init_is_pun(&self, field: &ast::StructFieldInit) -> bool {
@@ -829,12 +839,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             .fields
                             .iter()
                             .map(|field| {
-                                (
-                                    field.name,
-                                    self.ctx.node_type_or_error(field.type_node.id),
-                                    field.default_value.is_some(),
-                                    Some(field.name_span),
-                                )
+                                StructLiteralFieldInfo {
+                                    name: field.name,
+                                    ty: self.ctx.node_type_or_error(field.type_node.id),
+                                    has_default: field.default_value.is_some(),
+                                    definition_span: Some(field.name_span),
+                                    vis: Some(field.vis),
+                                    owner_def: Some(*def_id),
+                                }
                             })
                             .collect();
                         (
@@ -850,12 +862,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             .fields
                             .iter()
                             .map(|field| {
-                                (
-                                    field.name,
-                                    self.ctx.node_type_or_error(field.type_node.id),
-                                    false,
-                                    Some(field.name_span),
-                                )
+                                StructLiteralFieldInfo {
+                                    name: field.name,
+                                    ty: self.ctx.node_type_or_error(field.type_node.id),
+                                    has_default: false,
+                                    definition_span: Some(field.name_span),
+                                    vis: Some(field.vis),
+                                    owner_def: Some(*def_id),
+                                }
                             })
                             .collect();
                         (
@@ -881,7 +895,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             {
                 let defs: Vec<_> = fields
                     .iter()
-                    .map(|field| (field.name, field.ty, false, None))
+                    .map(|field| StructLiteralFieldInfo {
+                        name: field.name,
+                        ty: field.ty,
+                        has_default: false,
+                        definition_span: None,
+                        vis: None,
+                        owner_def: None,
+                    })
                     .collect();
                 (
                     defs,
@@ -894,7 +915,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             {
                 let defs: Vec<_> = fields
                     .iter()
-                    .map(|field| (field.name, field.ty, false, None))
+                    .map(|field| StructLiteralFieldInfo {
+                        name: field.name,
+                        ty: field.ty,
+                        has_default: false,
+                        definition_span: None,
+                        vis: None,
+                        owner_def: None,
+                    })
                     .collect();
                 (
                     defs,
@@ -917,12 +945,32 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 2. Check the types of user-provided field initializers.
         for init_f in init_fields {
-            if let Some(def_f) = def_fields.iter().find(|f| f.0 == init_f.name) {
-                if let Some(definition_span) = def_f.3 {
+            if let Some(def_f) = def_fields.iter().find(|f| f.name == init_f.name) {
+                if let Some(definition_span) = def_f.definition_span {
                     self.ctx
                         .record_identifier_reference(init_f.name_span, definition_span);
                 }
-                let mut f_ty = def_f.1;
+                if let (Some(vis), Some(owner_def)) = (def_f.vis, def_f.owner_def) {
+                    let current_module = self.cached_current_module_id();
+                    if !self
+                        .ctx
+                        .field_visibility_allows_access(vis, owner_def, current_module)
+                    {
+                        initialized.insert(init_f.name);
+                        let name_str = self.ctx.resolve(init_f.name);
+                        self.ctx
+                            .struct_error(
+                                init_f.span,
+                                format!("field `{}` of type `{}` is private", name_str, def_name),
+                            )
+                            .with_hint(
+                                "widen the field visibility, or construct the value from a module allowed by its visibility",
+                            )
+                            .emit();
+                        continue;
+                    }
+                }
+                let mut f_ty = def_f.ty;
 
                 if f_ty == TypeId::ERROR {
                     self.ctx.struct_error(init_f.span, "internal compiler error: field type was unresolved prior to Typeck")
@@ -984,8 +1032,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         } else {
             // Structs do not get implicit zero initialization.
             for def_f in &def_fields {
-                if !initialized.contains(&def_f.0) && !def_f.2 {
-                    let name_str = self.ctx.resolve(def_f.0).to_string();
+                if !initialized.contains(&def_f.name) && !def_f.has_default {
+                    let name_str = self.ctx.resolve(def_f.name).to_string();
                     self.ctx.struct_error(span, format!("field `{}` is missing and has no default value", name_str))
                         .with_hint("Kern structs do not zero-initialize implicitly.")
                         .with_hint(format!("use `{}: type.{{undef}}` if you intentionally want to leave memory uninitialized", name_str))

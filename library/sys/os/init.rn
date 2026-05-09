@@ -28,7 +28,7 @@ pub enum FileType {
 
 /// Low-level filesystem metadata.
 pub struct Metadata {
-    file_type: FileType,
+    pub.. file_type: FileType,
     //// File length in bytes when the platform provides it.
     pub size: usize,
 };

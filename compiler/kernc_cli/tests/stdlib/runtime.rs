@@ -302,13 +302,13 @@ fn runs_hosted_program_using_std_proc_shell_capture() {
     let run_output = build_and_run(
         "kernc_std_proc_shell_capture",
         r#"
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use std.proc;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let mut capture = match ("echo shell_capture".shell_capture(gpa)) {
         .{ Ok: value } => value,
@@ -1099,12 +1099,12 @@ fn runs_hosted_program_using_std_env_get() {
         &source_path,
         r#"
 use std.env;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     if (!"KERN_STD_ENV_TEST".env().has(gpa)) {
         return 10;

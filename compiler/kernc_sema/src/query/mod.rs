@@ -459,15 +459,13 @@ fn base_type(ctx: &SemaContext<'_>, mut ty: TypeId) -> TypeId {
     }
 }
 
-fn def_owner_module_id(ctx: &SemaContext<'_>, def_id: DefId) -> Option<DefId> {
-    match ctx.defs.get(def_id.0 as usize) {
-        Some(Def::Struct(def)) => def.parent_module,
-        Some(Def::Union(def)) => def.parent_module,
-        Some(Def::Enum(_)) | Some(Def::Trait(_)) | Some(Def::TypeAlias(_)) => {
-            ctx.def_parent_module(def_id)
-        }
-        _ => None,
-    }
+fn field_visibility_allows_access(
+    ctx: &SemaContext<'_>,
+    field: &ast::StructFieldDef,
+    def_id: DefId,
+    current_module_id: Option<DefId>,
+) -> bool {
+    ctx.field_visibility_allows_access(field.vis, def_id, current_module_id)
 }
 
 fn trait_method_span(trait_def: &crate::def::TraitDef, method_name: SymbolId) -> Span {
@@ -1917,7 +1915,7 @@ mod tests {
         trait_def.methods.push(kernc_ast::StructFieldDef {
             name: method_name,
             name_span: Span::default(),
-            is_pub: false,
+            vis: kernc_ast::Visibility::Private,
             docs: None,
             type_node: kernc_ast::TypeNode {
                 id: type_node_id,

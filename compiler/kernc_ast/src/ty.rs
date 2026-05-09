@@ -125,7 +125,7 @@ pub enum GenericArg {
 pub struct StructFieldDef {
     pub name: SymbolId,
     pub name_span: Span,
-    pub is_pub: bool,
+    pub vis: super::Visibility,
     pub docs: Option<DocBlock>,
     pub type_node: TypeNode,
     pub default_value: Option<Box<Expr>>,

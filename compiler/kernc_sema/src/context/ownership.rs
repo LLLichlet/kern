@@ -124,6 +124,18 @@ impl<'a> SemaContext<'a> {
         }
     }
 
+    pub fn field_visibility_allows_access(
+        &self,
+        field_vis: Visibility,
+        def_id: DefId,
+        current_module: Option<DefId>,
+    ) -> bool {
+        let Some(owner_module) = self.def_parent_module(def_id) else {
+            return field_vis.is_public();
+        };
+        self.visibility_allows_access(field_vis, owner_module, current_module)
+    }
+
     pub fn register_module_scope(&mut self, module_id: DefId, scope_id: ScopeId) {
         self.resolution
             .module_ownership

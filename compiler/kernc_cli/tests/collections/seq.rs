@@ -77,12 +77,12 @@ fn runs_hosted_program_using_list_slice_and_string_algorithms() {
         r#"
 use base.coll.{List, list, String, string, find_byte, rfind_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
 use base.cmp.{LESS, GREATER, EQUAL};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let items = list[i32]()..&;
     defer items.deinit(gpa);
@@ -621,12 +621,12 @@ fn runs_hosted_program_using_coll_iteration_and_copy_helpers() {
         r#"
 use base.coll.{List, list, String, string};
 use base.cmp.{Ordering, GREATER};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let base = [4]i32.{1, 2, 3, 4};
     let base_view = base.&[0 .. 4];

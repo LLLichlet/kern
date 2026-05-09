@@ -916,3 +916,198 @@ pub fn make() Bag {
         stderr
     );
 }
+
+#[test]
+fn parent_and_sibling_modules_can_access_pub_super_struct_fields() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_field_access",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod left;
+mod right;
+
+fn main() i32 {
+    let bag = left.make();
+    return bag.shared + right.read();
+}
+"#,
+            ),
+            (
+                "left.rn",
+                r#"
+pub.. struct Bag {
+    pub.. shared: i32,
+};
+
+pub fn make() Bag {
+    return Bag.{ shared: 2 };
+}
+"#,
+            ),
+            (
+                "right.rn",
+                r#"
+use ..left.Bag as Bag;
+
+pub fn read() i32 {
+    let bag = Bag.{ shared: 3 };
+    return bag.shared;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn grandparent_module_cannot_access_pub_super_struct_fields() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_field_grandparent_rejected",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod outer;
+
+fn main() i32 {
+    let bag = outer.mid.make();
+    return bag.shared;
+}
+"#,
+            ),
+            (
+                "outer.rn",
+                r#"
+pub mod mid;
+"#,
+            ),
+            (
+                "mid.rn",
+                r#"
+pub struct Bag {
+    pub.. shared: i32,
+};
+
+pub fn make() Bag {
+    return Bag.{ shared: 2 };
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted grandparent access to pub.. field:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("field `shared` of type `Bag` is private"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn grandparent_module_cannot_initialize_pub_super_struct_fields() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_super_field_init_grandparent_rejected",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod outer;
+
+fn main() i32 {
+    let bag = outer.mid.Bag.{ shared: 2 };
+    return 0;
+}
+"#,
+            ),
+            (
+                "outer.rn",
+                r#"
+pub mod mid;
+"#,
+            ),
+            (
+                "mid.rn",
+                r#"
+pub struct Bag {
+    pub.. shared: i32,
+};
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted grandparent initialization of pub.. field:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("field `shared` of type `Bag` is private"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn sibling_module_can_access_pub_package_struct_fields() {
+    let output = compile_source_tree_with_args(
+        "kernc_pub_package_field_access",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+pub mod left;
+mod right;
+
+fn main() i32 {
+    return right.read();
+}
+"#,
+            ),
+            (
+                "left.rn",
+                r#"
+pub/ struct Bag {
+    pub/ shared: i32,
+};
+"#,
+            ),
+            (
+                "right.rn",
+                r#"
+use ..left.Bag as Bag;
+
+pub fn read() i32 {
+    let bag = Bag.{ shared: 3 };
+    return bag.shared;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert_success(&output, "kernc");
+}

@@ -562,7 +562,7 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
             let docs = self.parse_item_doc_block(doc_target);
-            let is_pub = self.match_token(&[TokenType::Pub]);
+            let (vis, _) = self.parse_visibility();
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
             self.expect(TokenType::Colon)?;
@@ -582,7 +582,7 @@ impl<'a> Parser<'a> {
             fields.push(StructFieldDef {
                 name: name_id,
                 name_span: name_token.span,
-                is_pub,
+                vis,
                 docs,
                 type_node: field_type,
                 default_value,
@@ -758,7 +758,7 @@ impl<'a> Parser<'a> {
                 methods.push(StructFieldDef {
                     name: name_id,
                     name_span: name_token.span,
-                    is_pub: false,
+                    vis: Visibility::Private,
                     docs,
                     default_value: None,
                     span: name_token.span.to(method_type.span),

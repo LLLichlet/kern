@@ -924,6 +924,36 @@ fn helper() i32 {
     }
 
     #[test]
+    fn parses_struct_field_visibility_with_and_without_space() {
+        let source = r#"
+struct Config {
+    pub visible: i32,
+    pub.. parent_visible: i32,
+    pub .. spaced_parent_visible: i32,
+    pub/ package_visible: i32,
+    pub / spaced_package_visible: i32,
+    private: i32,
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+        let ast::DeclKind::Struct { fields, .. } = &module.decls[0].kind else {
+            panic!("expected struct declaration");
+        };
+        assert_eq!(fields[0].vis, ast::Visibility::Public);
+        assert_eq!(fields[1].vis, ast::Visibility::Super);
+        assert_eq!(fields[2].vis, ast::Visibility::Super);
+        assert_eq!(fields[3].vis, ast::Visibility::Package);
+        assert_eq!(fields[4].vis, ast::Visibility::Package);
+        assert_eq!(fields[5].vis, ast::Visibility::Private);
+    }
+
+    #[test]
     fn parses_package_root_and_anchored_parent_paths() {
         let source = r#"
 use /util.answer;

@@ -944,7 +944,7 @@ fn type_signature<'a>(
     generics: &[ast::GenericParam],
     fields: impl Iterator<Item = &'a ast::StructFieldDef>,
 ) -> String {
-    let public_fields = fields.filter(|field| field.is_pub).collect::<Vec<_>>();
+    let public_fields = fields.filter(|field| field.vis.is_public()).collect::<Vec<_>>();
     let mut out = format!("{kind} {name}{}", generic_params_label(ctx, generics));
     if public_fields.is_empty() {
         return out;
@@ -1345,7 +1345,7 @@ mod tests {
                 ast::StructFieldDef {
                     name: enabled_name,
                     name_span: Span::default(),
-                    is_pub: true,
+                    vis: Visibility::Public,
                     docs: None,
                     type_node: enabled_type,
                     default_value: None,
@@ -1354,7 +1354,7 @@ mod tests {
                 ast::StructFieldDef {
                     name: hidden_name,
                     name_span: Span::default(),
-                    is_pub: false,
+                    vis: Visibility::Private,
                     docs: None,
                     type_node: hidden_type,
                     default_value: None,

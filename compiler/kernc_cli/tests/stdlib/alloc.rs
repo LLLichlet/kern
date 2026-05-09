@@ -137,12 +137,12 @@ fn rejects_gpa_invalid_free_usage() {
         "kernc_std_alloc_invalid_free",
         r#"
 use base.mem.Layout;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     defer gpa.deinit();
 
     let good = Layout.{ size: 16, align: 16 };
@@ -176,7 +176,7 @@ fn runs_hosted_program_using_typed_allocation_helpers() {
         "kernc_std_alloc_typed",
         r#"
 use base.mem.alloc.Allocator;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 struct Pair {
@@ -192,7 +192,7 @@ fn sum(items: &[i32]) i32 {
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let alloc = (&mut Allocator).{ gpa };
     defer gpa.deinit();
 

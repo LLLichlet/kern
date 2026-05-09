@@ -13,12 +13,12 @@ fn runs_hosted_program_using_std_fs_metadata_and_directories() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     let dir_exists_before = match ("{dir_path}".path().exists(gpa)) {{
         .{{ Ok: exists }} => exists,
@@ -159,12 +159,12 @@ fn runs_hosted_program_using_std_fs_create_dir_all() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     match ("{dir_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
@@ -247,12 +247,12 @@ fn runs_hosted_program_using_std_fs_read_dir() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     match ("{alpha_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
@@ -363,7 +363,7 @@ fn runs_hosted_program_using_std_fs_owned_dir_entries_and_errors() {
         r#"
 use base.cmp.Ordering;
 use std.{{fs, io}};
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn entry_cmp(left: fs.OwnedDirEntry, right: fs.OwnedDirEntry) Ordering {{
@@ -372,7 +372,7 @@ fn entry_cmp(left: fs.OwnedDirEntry, right: fs.OwnedDirEntry) Ordering {{
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     match ("{alpha_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
@@ -468,12 +468,12 @@ fn runs_hosted_program_using_std_fs_remove_dir_all() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     match ("{nested_dir_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
@@ -548,12 +548,12 @@ fn runs_hosted_program_using_std_fs_walk_dir() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     match ("{beta_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
@@ -702,12 +702,12 @@ fn runs_hosted_program_using_std_fs_if_exists_helpers() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     let missing_dir = match ("{root_path}".path().remove_dir_if_exists(gpa)) {{
         .{{ Ok: removed }} => removed,
@@ -805,12 +805,12 @@ fn runs_hosted_program_using_std_fs_path_directory_combinators() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
     let root = "{root_path}".path();
     let file = "{file_path}".path();
 

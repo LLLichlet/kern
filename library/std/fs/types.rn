@@ -148,7 +148,7 @@ pub/ type Metadata = os.Metadata;
 pub/ struct DirEntry {
     //// The entry name without the parent path.
     pub name: &[u8],
-    file_type: FileType,
+    pub.. file_type: FileType,
 };
 
 impl DirEntry {

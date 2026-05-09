@@ -85,12 +85,12 @@ fn runs_hosted_program_using_std_fs_path_join_and_normalize() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let mut joined = match (fs.join(gpa, "/tmp/kern", "src/main.rn")) {
         .{ Ok: path } => path,
@@ -182,12 +182,12 @@ fn runs_hosted_program_using_std_fs_path_replacements() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     let mut renamed = match (fs.with_file_name(gpa, "/tmp/kern/main.rn", "lib.rn")) {
         .{ Ok: path } => path,
@@ -257,12 +257,12 @@ fn runs_hosted_program_using_std_fs_path_combinators() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     let path = "/tmp/kern/archive.tar".path();
 
     if (!path.file_name().is_some_and([](name: &[u8]) bool {
@@ -347,12 +347,12 @@ fn runs_hosted_program_using_std_fs_windows_path_semantics() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
 
     if (!fs.parent("C:\\kern\\src\\main.rn").is_some_and([](dir: &[u8]) bool {
         return dir == "C:\\kern\\src";
@@ -468,12 +468,12 @@ fn runs_hosted_program_using_std_fs_unicode_paths_on_windows() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     match ("{root_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},

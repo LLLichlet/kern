@@ -648,7 +648,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .emit();
     }
 
-    fn cached_current_module_id(&mut self) -> Option<DefId> {
+    pub(super) fn cached_current_module_id(&mut self) -> Option<DefId> {
         let current_scope = self.ctx.scopes.current_scope_id()?;
         if let Some((cached_scope, module_id)) = self.current_module_cache
             && cached_scope == current_scope

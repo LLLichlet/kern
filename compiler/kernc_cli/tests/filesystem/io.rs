@@ -9,7 +9,7 @@ fn runs_hosted_program_with_fs_create_followed_by_another_result_match() {
         r#"
 use std.fs;
 use sys.os;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn ok_bool() bool!os.Error {{
@@ -18,7 +18,7 @@ fn ok_bool() bool!os.Error {{
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     let mut writer = match ("{path}".path().create(gpa)) {{
         .{{ Ok: file }} => file,
@@ -60,12 +60,12 @@ fn runs_hosted_program_using_std_fs_convenience_functions() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     let written = match ("{path}".path().write_all(gpa, "abc123")) {{
         .{{ Ok: count }} => count,
@@ -162,12 +162,12 @@ fn runs_hosted_program_using_std_fs_path_view_methods() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
     let path = "{path}".path();
 
     let written = match (path.write_all(gpa, "via path")) {{
@@ -228,12 +228,12 @@ fn runs_hosted_program_using_owned_string_path_view_methods() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
     let root = "{root_path}".path();
 
     match (root.create_dir_all(gpa)) {{
@@ -295,12 +295,12 @@ fn runs_hosted_program_using_std_fs_roundtrip() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     let mut writer = match ("{path}".path().create(gpa)) {{
         .{{ Ok: file }} => file,
@@ -365,12 +365,12 @@ fn runs_hosted_program_using_std_fs_exact_and_byte_reads() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     let written = match ("{path}".path().write_all(gpa, "abcdef")) {{
         .{{ Ok: count }} => count,
@@ -452,12 +452,12 @@ fn runs_hosted_program_using_std_fs_seek_truncate_and_flush() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     let options = fs.OpenOptions.{{
         read: true,
@@ -588,12 +588,12 @@ fn runs_hosted_program_using_std_fs_open_variants() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     let mut created = match ("{path}".path().create_new(gpa)) {{
         .{{ Ok: file }} => file,
@@ -690,12 +690,12 @@ fn runs_hosted_program_using_std_fs_rename() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     match ("{old_dir_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
@@ -809,12 +809,12 @@ use std.fs;
 use std.proc;
 use base.io.Write;
 use base.coll.String;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     match ("{root_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},
@@ -982,12 +982,12 @@ fn runs_hosted_program_using_std_fs_copy_and_append() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
-    let gpa = GPA.{{ backing: page }}..&;
+    let gpa = gpa().on(page)..&;
 
     match ("{root_path}".path().create_dir_all(gpa)) {{
         .{{ Ok: _ }} => {{}},

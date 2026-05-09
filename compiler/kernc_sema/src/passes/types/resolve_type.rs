@@ -237,7 +237,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             let f_ty = self.resolve_type(&f.type_node, env_scope);
             self.ensure_sized(f_ty, f.type_node.span);
 
-            if f.is_pub {
+            if !f.vis.is_private() {
                 let msg = format!("anonymous {} fields cannot be declared pub", kind_name);
                 self.ctx
                     .struct_error(f.span, msg)

@@ -184,6 +184,184 @@ fn main() i32 {
 }
 
 #[test]
+fn imported_package_cannot_access_pub_package_struct_fields() {
+    let root = unique_temp_path("kernc_pub_package_field_external", "dir");
+    let lib_dir = root.join("lib");
+    let metadata_dir = root.join("kmeta");
+    let lib_entry = lib_dir.join("init.rn");
+    let lib_object = root.join("util.o");
+    let main_source = root.join("main.rn");
+
+    fs::create_dir_all(&lib_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+
+    fs::write(
+        &lib_entry,
+        r#"
+pub struct Bag {
+    pub/ shared: i32,
+};
+
+pub fn make() Bag {
+    return Bag.{ shared: 42 };
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_entry_arg = lib_entry.to_string_lossy().into_owned();
+    let lib_object_arg = lib_object.to_string_lossy().into_owned();
+    let metadata_arg = metadata_dir.to_string_lossy().into_owned();
+    let lib_output = run_kernc([
+        "-c",
+        "--module-root-name",
+        "util",
+        "--metadata-output",
+        metadata_arg.as_str(),
+        lib_entry_arg.as_str(),
+        "-o",
+        lib_object_arg.as_str(),
+    ]);
+    assert_success(&lib_output, "kernc library compile");
+
+    fs::write(
+        &main_source,
+        r#"
+fn main() i32 {
+    let bag = dep.make();
+    return bag.shared;
+}
+"#,
+    )
+    .unwrap();
+
+    let main_source_arg = main_source.to_string_lossy().into_owned();
+    let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
+    let base_mapping = format!("base={}", repo_root().join("library/base").display());
+    let sys_mapping = format!("sys={}", repo_root().join("library/sys").display());
+    let app_output = run_kernc([
+        "--runtime-entry",
+        "crt",
+        "--runtime-libc",
+        "yes",
+        "--module-path",
+        base_mapping.as_str(),
+        "--module-path",
+        sys_mapping.as_str(),
+        "--module-interface-path",
+        dep_mapping.as_str(),
+        "--link-input",
+        lib_object_arg.as_str(),
+        main_source_arg.as_str(),
+        "-o",
+        root.join("app.out").to_string_lossy().as_ref(),
+    ]);
+
+    assert!(
+        !app_output.status.success(),
+        "kernc unexpectedly allowed external access to pub/ field:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&app_output.stdout),
+        String::from_utf8_lossy(&app_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&app_output.stderr);
+    assert!(
+        stderr.contains("field `shared` of type `Bag` is private"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn imported_package_cannot_initialize_pub_package_struct_fields() {
+    let root = unique_temp_path("kernc_pub_package_field_init_external", "dir");
+    let lib_dir = root.join("lib");
+    let metadata_dir = root.join("kmeta");
+    let lib_entry = lib_dir.join("init.rn");
+    let lib_object = root.join("util.o");
+    let main_source = root.join("main.rn");
+
+    fs::create_dir_all(&lib_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+
+    fs::write(
+        &lib_entry,
+        r#"
+pub struct Bag {
+    pub/ shared: i32,
+};
+"#,
+    )
+    .unwrap();
+
+    let lib_entry_arg = lib_entry.to_string_lossy().into_owned();
+    let lib_object_arg = lib_object.to_string_lossy().into_owned();
+    let metadata_arg = metadata_dir.to_string_lossy().into_owned();
+    let lib_output = run_kernc([
+        "-c",
+        "--module-root-name",
+        "util",
+        "--metadata-output",
+        metadata_arg.as_str(),
+        lib_entry_arg.as_str(),
+        "-o",
+        lib_object_arg.as_str(),
+    ]);
+    assert_success(&lib_output, "kernc library compile");
+
+    fs::write(
+        &main_source,
+        r#"
+fn main() i32 {
+    let bag = dep.Bag.{ shared: 42 };
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let main_source_arg = main_source.to_string_lossy().into_owned();
+    let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
+    let base_mapping = format!("base={}", repo_root().join("library/base").display());
+    let sys_mapping = format!("sys={}", repo_root().join("library/sys").display());
+    let app_output = run_kernc([
+        "--runtime-entry",
+        "crt",
+        "--runtime-libc",
+        "yes",
+        "--module-path",
+        base_mapping.as_str(),
+        "--module-path",
+        sys_mapping.as_str(),
+        "--module-interface-path",
+        dep_mapping.as_str(),
+        "--link-input",
+        lib_object_arg.as_str(),
+        main_source_arg.as_str(),
+        "-o",
+        root.join("app.out").to_string_lossy().as_ref(),
+    ]);
+
+    assert!(
+        !app_output.status.success(),
+        "kernc unexpectedly allowed external initialization of pub/ field:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&app_output.stdout),
+        String::from_utf8_lossy(&app_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&app_output.stderr);
+    assert!(
+        stderr.contains("field `shared` of type `Bag` is private"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn rejects_orphan_impl_of_imported_trait_for_foreign_primitive() {
     let root = unique_temp_path("kernc_orphan_foreign_primitive", "dir");
     let lib_dir = root.join("lib");
@@ -676,7 +854,7 @@ fn preserves_outer_binding_after_shadowing_match_payload() {
     let output = build_and_run_source_with_std(
         r#"
 use base.coll.String;
-use base.mem.alloc.GPA;
+use base.mem.alloc.gpa;
 use sys.mem.Page;
 
 fn make_text(alloc: &mut base.mem.alloc.Allocator, text: &[u8]) String!i32 {
@@ -689,7 +867,7 @@ fn make_text(alloc: &mut base.mem.alloc.Allocator, text: &[u8]) String!i32 {
 
 fn main() i32 {
     let page = Page.{}..&;
-    let gpa = GPA.{ backing: page }..&;
+    let gpa = gpa().on(page)..&;
     defer gpa.deinit();
 
     let mut text = match (make_text(gpa, "kern-lang")) {

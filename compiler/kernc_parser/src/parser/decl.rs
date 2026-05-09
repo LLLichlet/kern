@@ -64,7 +64,7 @@ impl<'a> Parser<'a> {
         Ok((kind, path, target, binding_span))
     }
 
-    fn parse_visibility(&mut self) -> (Visibility, Span) {
+    pub(super) fn parse_visibility(&mut self) -> (Visibility, Span) {
         if !self.match_token(&[TokenType::Pub]) {
             let span = self.peek().span;
             return (Visibility::Private, span);

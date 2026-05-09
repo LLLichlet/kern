@@ -5,6 +5,7 @@ use crate::doc;
 use crate::elaborate;
 use crate::error::{Error, Result};
 use crate::execute;
+use crate::fmt;
 use crate::graph;
 use crate::local_state;
 use crate::lockfile;
@@ -61,6 +62,7 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             feature_selection,
             ui,
         } => run_doc(path, feature_selection, ui),
+        Command::Fmt { path, ui, check } => run_fmt(path, ui, check),
         Command::Style { path, ui } => run_style(path, ui),
         Command::Build {
             path,
@@ -95,6 +97,89 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             runtime_args,
         } => run_tests(path, feature_selection, ui, runtime_args),
     }
+}
+
+fn run_fmt(path: Option<PathBuf>, ui: super::UiOptions, check: bool) -> Result<()> {
+    let render = Renderer::new(ui);
+    let manifest_path = discover::resolve_project_manifest_path(path.as_deref())?;
+    let selected_manifest_path = path
+        .as_deref()
+        .map(|path| discover::resolve_manifest_path(Some(path)))
+        .transpose()?;
+    let manifest = Manifest::load(&manifest_path)?;
+    manifest.validate(&manifest_path)?;
+    let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
+    let selected_manifest = if let Some(selected_manifest_path) = selected_manifest_path
+        && selected_manifest_path != manifest_path
+    {
+        let selected_manifest = Manifest::load(&selected_manifest_path)?;
+        selected_manifest.validate(&selected_manifest_path)?;
+        Some((selected_manifest_path, selected_manifest))
+    } else {
+        None
+    };
+    let mode = if check {
+        fmt::FormatMode::Check
+    } else {
+        fmt::FormatMode::Write
+    };
+    let summaries = if let Some((selected_manifest_path, selected_manifest)) = &selected_manifest {
+        fmt::format_workspace_sources(selected_manifest_path, selected_manifest, &[], mode)?
+    } else {
+        fmt::format_workspace_sources(&manifest_path, &manifest, &workspace_members, mode)?
+    };
+    let mut total = fmt::FormatSummary::default();
+    for summary in &summaries {
+        total.merge(&summary.summary);
+    }
+    let feature_selection = elaborate::FeatureSelection::default();
+    let (header_manifest_path, header_manifest) = selected_manifest
+        .as_ref()
+        .map(|(path, manifest)| (path, manifest))
+        .unwrap_or((&manifest_path, &manifest));
+
+    render.header_with_path(
+        "fmt",
+        header_manifest,
+        header_manifest_path,
+        &feature_selection,
+    );
+    render.summary(
+        "sources",
+        format!(
+            "{} package(s), {} file(s), {} changed",
+            total.packages, total.files, total.changed_files
+        ),
+    );
+    if render.is_verbose() && total.changed_files > 0 {
+        render.section("changes");
+        for summary in &summaries {
+            for path in &summary.changed_paths {
+                render.action(
+                    Tone::Generate,
+                    if check { "check" } else { "format" },
+                    &summary.label,
+                    path.display(),
+                );
+            }
+        }
+    }
+    if check && total.changed_files > 0 {
+        return Err(Error::Usage(format!(
+            "{} file(s) need formatting; run `craft fmt{}`",
+            total.changed_files,
+            path.as_ref()
+                .map(|path| format!(" --project-path {}", path.display()))
+                .unwrap_or_default()
+        )));
+    }
+    render.ok(if check {
+        "format check completed"
+    } else {
+        "format completed"
+    });
+
+    Ok(())
 }
 
 fn run_init(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {

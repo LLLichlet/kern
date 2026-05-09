@@ -868,6 +868,27 @@ fn parses_style_with_path_and_verbose_output() {
 }
 
 #[test]
+fn parses_fmt_with_path_and_check() {
+    let cmd = parse_args([
+        "fmt".to_string(),
+        "--project-path".to_string(),
+        "demo".to_string(),
+        "--check".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Fmt { path, ui, check } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert_eq!(ui.verbosity, Verbosity::Normal);
+            assert_eq!(ui.color, ColorChoice::Auto);
+            assert!(check);
+        }
+        other => panic!("expected fmt command, got {other:?}"),
+    }
+}
+
+#[test]
 fn parses_run_with_path() {
     let cmd = parse_args([
         "run".to_string(),

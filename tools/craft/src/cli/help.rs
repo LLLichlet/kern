@@ -37,6 +37,7 @@ fn overview_doc() -> HelpDoc {
                 )
                 .entry("publish", "Run release-oriented publish readiness checks")
                 .entry("doc", "Render package docs to Markdown")
+                .entry("fmt", "Normalize Kern source text deterministically")
                 .entry("style", "Report source metrics and comment ratios")
                 .entry("install", "Build bin targets and install them under a root")
                 .entry(
@@ -140,6 +141,29 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
                 "craft doc --verbose",
                 "Show generated doc files and actions",
             )],
+        ),
+        "fmt" => command_template(
+            "fmt",
+            "Normalize Kern source text deterministically",
+            &["craft fmt [OPTIONS]"],
+            HelpSection::new("Options")
+                .entry(
+                    "--project-path, -p <PATH>",
+                    "Select the package root, workspace root, or Craft.toml manifest",
+                )
+                .entry(
+                    "--check",
+                    "Report files that would change without writing them",
+                )
+                .entry("--verbose, -v/-vv/-vvv", "Show changed source files")
+                .entry("--color <WHEN>", "Color mode: auto, always, never"),
+            &[
+                ("craft fmt", "Normalize source text in the current package"),
+                (
+                    "craft fmt --check",
+                    "Check whether source text is already normalized",
+                ),
+            ],
         ),
         "style" => command_template(
             "style",

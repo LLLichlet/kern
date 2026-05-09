@@ -933,6 +933,8 @@ The current command surface is intentionally narrow:
 - `craft fetch`
 - `craft publish`
 - `craft doc`
+- `craft fmt`
+- `craft style`
 - `craft build`
 - `craft install`
 - `craft uninstall`
@@ -948,6 +950,11 @@ Current behavior:
   - resource source backends are explicit package-relative paths or git repositories
 - `publish` auto-synchronizes `Craft.lock` and runs release-oriented metadata and source-policy checks without uploading anywhere
 - `doc` auto-synchronizes `Craft.lock`, builds the selected package graph, and renders Markdown package docs under `.craft/docs`
+- `fmt` normalizes Kern source text deterministically; the first version only
+  trims trailing horizontal whitespace and ensures one final newline, while
+  AST-level layout remains future formatter work
+- `style` reports source metrics, public-doc coverage, and configurable
+  advisory style suggestions without mutating source files
 - `build` auto-synchronizes `Craft.lock` and executes the selected build plan
 - `install` auto-synchronizes `Craft.lock`, builds selected package `bin` targets, and copies them into the active install root's `bin/` directory
 - `uninstall` auto-synchronizes `Craft.lock` and removes installed package `bin` targets from that same install root

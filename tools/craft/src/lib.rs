@@ -3,6 +3,7 @@ pub mod cli;
 pub mod discover;
 pub mod doc;
 pub mod error;
+pub mod fmt;
 pub mod graph;
 pub mod manifest;
 pub mod plan;

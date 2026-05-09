@@ -31,7 +31,7 @@
 
 ## P2 Style, Formatting, And Lint Tooling
 
-- [ ] Add `craft fmt` as a deterministic formatter entry point.
+- [x] Add `craft fmt` as a deterministic formatter entry point.
 - [x] Add `craft lint` or `craft style` as a non-mutating analyzer for project
   health and Kern idioms.
 - [x] Start with source metrics: source files, code lines, blank lines, inline

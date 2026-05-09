@@ -51,6 +51,11 @@ pub enum Command {
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
     },
+    Fmt {
+        path: Option<PathBuf>,
+        ui: UiOptions,
+        check: bool,
+    },
     Style {
         path: Option<PathBuf>,
         ui: UiOptions,
@@ -183,6 +188,7 @@ fn known_command(name: &str) -> bool {
             | "fetch"
             | "publish"
             | "doc"
+            | "fmt"
             | "style"
             | "build"
             | "install"
@@ -342,6 +348,14 @@ where
                 ui: options.ui,
             })
         }
+        "fmt" => {
+            let options = parse_command_options(rest, fmt_option_mode())?;
+            Ok(Command::Fmt {
+                path: options.path,
+                ui: options.ui,
+                check: options.check,
+            })
+        }
         "style" => {
             let options = parse_command_options(rest, style_option_mode())?;
             Ok(Command::Style {
@@ -419,6 +433,7 @@ struct ParsedCommandOptions {
     feature_selection: elaborate::FeatureSelection,
     ui: UiOptions,
     include_examples: bool,
+    check: bool,
     bin_name: Option<String>,
     example_name: Option<String>,
     install_root: Option<PathBuf>,
@@ -452,6 +467,18 @@ fn clean_option_mode() -> CommandOptionMode {
 fn style_option_mode() -> CommandOptionMode {
     CommandOptionMode {
         command_name: "style",
+        allow_feature_selection: false,
+        allow_examples: false,
+        allow_bin_selection: false,
+        allow_example_selection: false,
+        allow_install_root: false,
+        allow_runtime_args: false,
+    }
+}
+
+fn fmt_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        command_name: "fmt",
         allow_feature_selection: false,
         allow_examples: false,
         allow_bin_selection: false,
@@ -543,6 +570,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
     let mut feature_selection = elaborate::FeatureSelection::default();
     let mut ui = UiOptions::default();
     let mut include_examples = false;
+    let mut check = false;
     let mut bin_name: Option<String> = None;
     let mut example_name: Option<String> = None;
     let mut install_root: Option<PathBuf> = None;
@@ -597,6 +625,17 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
                 )));
             }
             include_examples = true;
+            idx += 1;
+            continue;
+        }
+        if arg == "--check" {
+            if mode.command_name != "fmt" {
+                return Err(Error::Usage(format!(
+                    "unsupported option `{arg}`\n\n{}",
+                    mode_usage_text(mode)
+                )));
+            }
+            check = true;
             idx += 1;
             continue;
         }
@@ -796,6 +835,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
         feature_selection,
         ui,
         include_examples,
+        check,
         bin_name,
         example_name,
         install_root,

@@ -48,11 +48,11 @@
   appeared in real packages: prefer `for`/iterators over simple index-only
   `while`; use handle-style temporaries for repeated borrowed receivers; split
   long postfix chains.
-- [ ] Add constructor-convention style suggestions where the signal is strong:
-  prefer helpers such as `string()`, `list()`, `map()`, or domain-specific
-  constructors such as `page()` only when they express a real constructor,
-  allocator, builder, or capability boundary. Deferred until the signal can be
-  made precise enough to avoid freestanding/runtime false positives.
+- [x] Do not add constructor-convention style suggestions yet. Real code uses
+  `T.{}` legitimately for field defaults, resets, runtime internals,
+  freestanding support, tests, and plain aggregates. Keep the style guidance in
+  docs/style.md, and revisit an automated rule only with semantic information
+  about real constructor, allocator, builder, or capability-boundary APIs.
 - [x] Keep style rules configurable by severity and scope so incubators,
   low-level runtime code, and mature packages can choose different strictness.
 - [x] Add tests for lint metrics and CLI output before enabling stricter rules.

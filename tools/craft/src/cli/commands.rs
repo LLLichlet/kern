@@ -688,13 +688,28 @@ fn run_doc(
     }
     let execution = execution?;
     let docs = doc::sync_workspace_docs(&build_plan, &action_plan)?;
+    let mut doc_quality = doc::DocQualitySummary::default();
+    for doc in &docs {
+        doc_quality.merge(&doc.quality);
+    }
     render.summary(
         "docs",
         format!(
-            "{} package(s), {} documented item(s), output {}",
+            "{} package(s), {} metadata item(s), output {}",
             docs.len(),
             docs.iter().map(|doc| doc.item_count).sum::<usize>(),
             build_plan.workspace_root.join(".craft/docs").display()
+        ),
+    );
+    render.summary(
+        "doc-quality",
+        format!(
+            "{} public item(s), {} documented, {} missing, coverage {:.1}%, warnings {}",
+            doc_quality.public_items,
+            doc_quality.documented_public_items,
+            doc_quality.undocumented_public_items,
+            doc_quality.coverage(),
+            doc_quality.warning_count
         ),
     );
     if render.is_verbose() {

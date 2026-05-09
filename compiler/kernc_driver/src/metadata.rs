@@ -681,6 +681,7 @@ fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
                     path: String::new(),
                     kind: String::new(),
                     signature: None,
+                    is_public: false,
                     docs: KernDoc {
                         summary: String::new(),
                         details: String::new(),
@@ -739,26 +740,25 @@ fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
             continue;
         }
 
-        let value = parse_quoted(value.trim()).ok_or_else(|| {
-            format!(
-                "invalid docs line {}: expected a quoted string value for `{}`",
-                index + 1,
-                key
-            )
-        })?;
-
         match active {
             Some(SectionKind::Item) => {
                 let item = current_item
                     .as_mut()
                     .ok_or_else(|| format!("docs line {} appears outside `[[item]]`", index + 1))?;
                 match key {
-                    "path" => item.path = value,
-                    "kind" => item.kind = value,
-                    "signature" => item.signature = Some(value),
-                    "summary" => item.docs.summary = value,
-                    "details" => item.docs.details = value,
-                    "raw" => item.docs.raw_text = value,
+                    "path" => item.path = parse_docs_string(index + 1, key, value.trim())?,
+                    "kind" => item.kind = parse_docs_string(index + 1, key, value.trim())?,
+                    "signature" => {
+                        item.signature = Some(parse_docs_string(index + 1, key, value.trim())?)
+                    }
+                    "public" => item.is_public = parse_docs_bool(index + 1, key, value.trim())?,
+                    "summary" => {
+                        item.docs.summary = parse_docs_string(index + 1, key, value.trim())?
+                    }
+                    "details" => {
+                        item.docs.details = parse_docs_string(index + 1, key, value.trim())?
+                    }
+                    "raw" => item.docs.raw_text = parse_docs_string(index + 1, key, value.trim())?,
                     _ => {
                         return Err(format!(
                             "unknown docs item field `{}` on line {}",
@@ -773,9 +773,12 @@ fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
                     format!("docs line {} appears outside `[[item.section]]`", index + 1)
                 })?;
                 match key {
-                    "kind" => section.kind = parse_section_kind(&value),
-                    "title" => section.title = value,
-                    "body" => section.body = value,
+                    "kind" => {
+                        section.kind =
+                            parse_section_kind(&parse_docs_string(index + 1, key, value.trim())?)
+                    }
+                    "title" => section.title = parse_docs_string(index + 1, key, value.trim())?,
+                    "body" => section.body = parse_docs_string(index + 1, key, value.trim())?,
                     _ => {
                         return Err(format!(
                             "unknown docs section field `{}` on line {}",
@@ -799,8 +802,8 @@ fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
                     )
                 })?;
                 match key {
-                    "name" => entry.name = Some(value),
-                    "body" => entry.body = value,
+                    "name" => entry.name = Some(parse_docs_string(index + 1, key, value.trim())?),
+                    "body" => entry.body = parse_docs_string(index + 1, key, value.trim())?,
                     _ => {
                         return Err(format!(
                             "unknown docs section entry field `{}` on line {}",
@@ -945,6 +948,22 @@ fn parse_quoted(raw: &str) -> Option<String> {
     Some(out)
 }
 
+fn parse_docs_string(line: usize, key: &str, raw: &str) -> Result<String, String> {
+    parse_quoted(raw).ok_or_else(|| {
+        format!("invalid docs line {line}: expected a quoted string value for `{key}`")
+    })
+}
+
+fn parse_docs_bool(line: usize, key: &str, raw: &str) -> Result<bool, String> {
+    match raw {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(format!(
+            "invalid docs line {line}: expected a boolean value for `{key}`"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -975,6 +994,7 @@ format_version = 1
 [[item]]
 path = "root::uart::Uart::read"
 kind = "function"
+public = true
 signature = "fn read: fn(u16) u8"
 summary = "Read one byte."
 details = ""
@@ -993,6 +1013,7 @@ body = "must point to a mapped UART object."
         let docs = parse_docs(contents).expect("expected docs to parse");
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].path, "root::uart::Uart::read");
+        assert!(docs[0].is_public);
         assert_eq!(docs[0].docs.summary, "Read one byte.");
         assert_eq!(docs[0].docs.sections.len(), 1);
         assert_eq!(docs[0].docs.sections[0].title, "Safety");
@@ -1011,6 +1032,7 @@ format_version = 1
 [[item]]
 path = "root::toml"
 kind = "module"
+public = true
 summary = "Line one\nLine two"
 details = "Indented\tvalue"
 raw = "Line one\nLine two\r\nTabbed\tvalue"
@@ -1018,6 +1040,7 @@ raw = "Line one\nLine two\r\nTabbed\tvalue"
 
         let docs = parse_docs(contents).expect("expected docs to parse");
         assert_eq!(docs.len(), 1);
+        assert!(docs[0].is_public);
         assert_eq!(docs[0].docs.summary, "Line one\nLine two");
         assert_eq!(docs[0].docs.details, "Indented\tvalue");
         assert_eq!(docs[0].docs.raw_text, "Line one\nLine two\r\nTabbed\tvalue");

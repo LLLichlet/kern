@@ -51,6 +51,7 @@ pub struct KmetaDocItem {
     pub path: String,
     pub kind: String,
     pub signature: Option<String>,
+    pub is_public: bool,
     pub docs: KernDoc,
 }
 
@@ -310,6 +311,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     module_path(ctx, module.id),
                     "module",
                     Some(format!("module {}", ctx.resolve(module.name))),
+                    true,
                     module.docs.as_ref(),
                 );
             }
@@ -320,6 +322,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     def_path(ctx, function.id),
                     if is_method { "method" } else { "function" },
                     function_signature(ctx, function),
+                    function.vis.is_public(),
                     function.docs.as_ref(),
                 );
             }
@@ -335,6 +338,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         &def.generics,
                         def.fields.iter(),
                     )),
+                    def.vis.is_public(),
                     def.docs.as_ref(),
                 );
                 for field in &def.fields {
@@ -344,6 +348,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         def.id,
                         "field",
                         ctx.resolve(field.name),
+                        field.vis.is_public(),
                         field.docs.as_ref(),
                         Some(format!(
                             "field {}: {}",
@@ -365,6 +370,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         &def.generics,
                         def.fields.iter(),
                     )),
+                    def.vis.is_public(),
                     def.docs.as_ref(),
                 );
                 for field in &def.fields {
@@ -374,6 +380,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         def.id,
                         "field",
                         ctx.resolve(field.name),
+                        field.vis.is_public(),
                         field.docs.as_ref(),
                         Some(format!(
                             "field {}: {}",
@@ -389,6 +396,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     def_path(ctx, def.id),
                     "enum",
                     Some(format!("enum {}", ctx.resolve(def.name))),
+                    def.vis.is_public(),
                     def.docs.as_ref(),
                 );
                 for variant in &def.variants {
@@ -407,6 +415,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         def.id,
                         "variant",
                         ctx.resolve(variant.name),
+                        def.vis.is_public(),
                         variant.docs.as_ref(),
                         signature,
                     );
@@ -418,6 +427,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     def_path(ctx, def.id),
                     "trait",
                     Some(format!("trait {}", ctx.resolve(def.name))),
+                    def.vis.is_public(),
                     def.docs.as_ref(),
                 );
                 for method in &def.methods {
@@ -427,6 +437,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         def.id,
                         "trait_method",
                         ctx.resolve(method.name),
+                        def.vis.is_public(),
                         method.docs.as_ref(),
                         trait_method_signature(ctx, method),
                     );
@@ -449,6 +460,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     def_path(ctx, def.id),
                     kind,
                     signature,
+                    def.vis.is_public(),
                     def.docs.as_ref(),
                 );
             }
@@ -462,6 +474,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         ctx.resolve(def.name),
                         type_node_label(ctx, &def.target)
                     )),
+                    def.vis.is_public(),
                     def.docs.as_ref(),
                 );
             }
@@ -481,6 +494,7 @@ pub fn render_kmeta_docs_toml(items: &[KmetaDocItem]) -> String {
         out.push_str("[[item]]\n");
         out.push_str(&format!("path = {}\n", toml_quote(&item.path)));
         out.push_str(&format!("kind = {}\n", toml_quote(&item.kind)));
+        out.push_str(&format!("public = {}\n", item.is_public));
         if let Some(signature) = &item.signature {
             out.push_str(&format!("signature = {}\n", toml_quote(signature)));
         }
@@ -708,16 +722,18 @@ fn push_item(
     path: String,
     kind: &str,
     signature: Option<String>,
+    is_public: bool,
     docs: Option<&ast::DocBlock>,
 ) {
-    let Some(docs) = docs else {
+    if docs.is_none() && !is_public {
         return;
-    };
+    }
     items.push(KmetaDocItem {
         path,
         kind: kind.to_string(),
         signature,
-        docs: normalize_doc(docs),
+        is_public,
+        docs: docs.map(normalize_doc).unwrap_or_else(empty_doc),
     });
 }
 
@@ -727,18 +743,29 @@ fn push_member_item(
     parent: DefId,
     kind: &str,
     name: &str,
+    is_public: bool,
     docs: Option<&ast::DocBlock>,
     signature: Option<String>,
 ) {
-    let Some(docs) = docs else {
+    if docs.is_none() && !is_public {
         return;
-    };
+    }
     items.push(KmetaDocItem {
         path: format!("{}.{}", def_path(ctx, parent), name),
         kind: kind.to_string(),
         signature,
-        docs: normalize_doc(docs),
+        is_public,
+        docs: docs.map(normalize_doc).unwrap_or_else(empty_doc),
     });
+}
+
+fn empty_doc() -> KernDoc {
+    KernDoc {
+        summary: String::new(),
+        details: String::new(),
+        sections: Vec::new(),
+        raw_text: String::new(),
+    }
 }
 
 fn def_path(ctx: &SemaContext<'_>, def_id: DefId) -> String {
@@ -1433,6 +1460,86 @@ mod tests {
         assert!(signature.contains("struct Config {"));
         assert!(signature.contains("pub enabled: bool,"));
         assert!(!signature.contains("hidden"));
+    }
+
+    #[test]
+    fn collect_kmeta_doc_items_includes_undocumented_public_api() {
+        let mut session = Session::new();
+        let file_id = session
+            .source_manager
+            .add_file("doc_test.rn".to_string(), "Result".to_string());
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_name = ctx.intern("toml");
+        let parse_name = ctx.intern("parse");
+        let helper_name = ctx.intern("helper");
+        let result_name = ctx.intern("Result");
+
+        let module_id = ctx.add_def(Def::Module(ModuleDef {
+            id: DefId(0),
+            name: root_name,
+            parent: None,
+            is_imported: false,
+            scope_id: ScopeId(0),
+            dir_path: PathBuf::new(),
+            file_id,
+            submodules: HashMap::new(),
+            items: vec![DefId(1), DefId(2)],
+            imports: Vec::new(),
+            is_init: true,
+            docs: None,
+        }));
+
+        let result_type = path_type(file_id, 0, 6, result_name);
+        ctx.add_def(Def::Function(FunctionDef {
+            id: DefId(1),
+            name: parse_name,
+            name_span: Span::default(),
+            vis: Visibility::Public,
+            parent: Some(module_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: result_type.clone(),
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: None,
+            attributes: Vec::new(),
+        }));
+        ctx.add_def(Def::Function(FunctionDef {
+            id: DefId(2),
+            name: helper_name,
+            name_span: Span::default(),
+            vis: Visibility::Private,
+            parent: Some(module_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: result_type,
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: None,
+            attributes: Vec::new(),
+        }));
+
+        let items = collect_kmeta_doc_items(&ctx);
+        let parse = items.iter().find(|item| item.path == "toml.parse").unwrap();
+        assert!(parse.is_public);
+        assert!(parse.docs.raw_text.is_empty());
+        assert!(parse.docs.summary.is_empty());
+        assert!(items.iter().all(|item| item.path != "toml.helper"));
     }
 
     fn doc_block(text: &str) -> ast::DocBlock {

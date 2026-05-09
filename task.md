@@ -12,7 +12,7 @@
   prose labels.
 - [x] Add parser/doc tests covering Markdown labels, headings, lists, code
   fences, and section parsing.
-- [ ] Add public API doc quality metrics to generated docs or lint output:
+- [x] Add public API doc quality metrics to generated docs or lint output:
   documented public items, undocumented public items, and warning counts.
 
 ## P1 Match Over Comparable Values
@@ -39,7 +39,7 @@
   ratio, and doc-line totals.
 - [x] Add source-level public-doc coverage to `craft style` without forcing a
   full build.
-- [ ] Add semantic public-doc coverage from compiler metadata for release-grade
+- [x] Add semantic public-doc coverage from compiler metadata for release-grade
   documentation policy.
 - [x] Add first advisory source-level style suggestions that have already
   appeared in real packages: prefer `for`/iterators over simple index-only

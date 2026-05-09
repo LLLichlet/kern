@@ -12,6 +12,31 @@ pub struct RenderedDoc {
     pub metadata_root: PathBuf,
     pub markdown_path: PathBuf,
     pub item_count: usize,
+    pub quality: DocQualitySummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DocQualitySummary {
+    pub public_items: usize,
+    pub documented_public_items: usize,
+    pub undocumented_public_items: usize,
+    pub warning_count: usize,
+}
+
+impl DocQualitySummary {
+    pub fn merge(&mut self, other: &Self) {
+        self.public_items += other.public_items;
+        self.documented_public_items += other.documented_public_items;
+        self.undocumented_public_items += other.undocumented_public_items;
+        self.warning_count += other.warning_count;
+    }
+
+    pub fn coverage(&self) -> f64 {
+        if self.public_items == 0 {
+            return 0.0;
+        }
+        self.documented_public_items as f64 * 100.0 / self.public_items as f64
+    }
 }
 
 pub fn sync_workspace_docs(
@@ -85,6 +110,7 @@ pub fn sync_workspace_docs(
             metadata_root: metadata_root.clone(),
             markdown_path,
             item_count: docs.len(),
+            quality: summarize_doc_quality(&docs),
         });
     }
 
@@ -100,6 +126,23 @@ pub fn sync_workspace_docs(
     fs::write(&index_path, index).map_err(|err| Error::from_io(&index_path, err))?;
 
     Ok(outputs)
+}
+
+pub fn summarize_doc_quality(items: &[KmetaDocItem]) -> DocQualitySummary {
+    let mut summary = DocQualitySummary::default();
+    for item in items {
+        if !item.is_public {
+            continue;
+        }
+        summary.public_items += 1;
+        if item.docs.raw_text.trim().is_empty() && item.docs.summary.trim().is_empty() {
+            summary.undocumented_public_items += 1;
+            summary.warning_count += 1;
+        } else {
+            summary.documented_public_items += 1;
+        }
+    }
+    summary
 }
 
 pub fn render_package_markdown(
@@ -507,7 +550,7 @@ fn anchor_for(prefix: &str, value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render_package_markdown;
+    use super::{render_package_markdown, summarize_doc_quality};
     use kernc_driver::{KernDoc, KernDocEntry, KernDocSection, KernDocSectionKind, KmetaDocItem};
 
     #[test]
@@ -520,6 +563,7 @@ mod tests {
                     path: "uart".to_string(),
                     kind: "module".to_string(),
                     signature: Some("module uart".to_string()),
+                    is_public: true,
                     docs: KernDoc {
                         summary: "UART package.".to_string(),
                         details: String::new(),
@@ -531,6 +575,7 @@ mod tests {
                     path: "uart.io".to_string(),
                     kind: "module".to_string(),
                     signature: Some("module io".to_string()),
+                    is_public: true,
                     docs: KernDoc {
                         summary: "I/O utilities.".to_string(),
                         details: String::new(),
@@ -542,6 +587,7 @@ mod tests {
                     path: "uart.io.Uart".to_string(),
                     kind: "struct".to_string(),
                     signature: Some("struct Uart {\n    pub base: u16,\n}".to_string()),
+                    is_public: true,
                     docs: KernDoc {
                         summary: "Typed UART handle.".to_string(),
                         details: String::new(),
@@ -553,6 +599,7 @@ mod tests {
                     path: "uart.io.Uart.read".to_string(),
                     kind: "method".to_string(),
                     signature: Some("fn read(self: Uart, port: u16) u8".to_string()),
+                    is_public: true,
                     docs: KernDoc {
                         summary: "Read one byte from the receiver register.".to_string(),
                         details: String::new(),
@@ -572,6 +619,7 @@ mod tests {
                     path: "uart.io.Uart as Reader.read".to_string(),
                     kind: "method".to_string(),
                     signature: Some("fn read(self: Uart) u8".to_string()),
+                    is_public: true,
                     docs: KernDoc {
                         summary: "Read through the reader trait.".to_string(),
                         details: String::new(),
@@ -598,5 +646,54 @@ mod tests {
         assert!(markdown.contains("```kern\nfn read(self: Uart, port: u16) u8\n```"));
         assert!(markdown.contains("### Safety"));
         assert!(markdown.contains("- `self`: must point to a mapped UART object."));
+    }
+
+    #[test]
+    fn summarizes_public_doc_quality() {
+        let items = vec![
+            KmetaDocItem {
+                path: "pkg.Documented".to_string(),
+                kind: "struct".to_string(),
+                signature: None,
+                is_public: true,
+                docs: KernDoc {
+                    summary: "Documented item.".to_string(),
+                    details: String::new(),
+                    sections: Vec::new(),
+                    raw_text: "Documented item.".to_string(),
+                },
+            },
+            KmetaDocItem {
+                path: "pkg.Missing".to_string(),
+                kind: "struct".to_string(),
+                signature: None,
+                is_public: true,
+                docs: KernDoc {
+                    summary: String::new(),
+                    details: String::new(),
+                    sections: Vec::new(),
+                    raw_text: String::new(),
+                },
+            },
+            KmetaDocItem {
+                path: "pkg.Private".to_string(),
+                kind: "function".to_string(),
+                signature: None,
+                is_public: false,
+                docs: KernDoc {
+                    summary: String::new(),
+                    details: String::new(),
+                    sections: Vec::new(),
+                    raw_text: String::new(),
+                },
+            },
+        ];
+
+        let summary = summarize_doc_quality(&items);
+        assert_eq!(summary.public_items, 2);
+        assert_eq!(summary.documented_public_items, 1);
+        assert_eq!(summary.undocumented_public_items, 1);
+        assert_eq!(summary.warning_count, 1);
+        assert_eq!(summary.coverage(), 50.0);
     }
 }

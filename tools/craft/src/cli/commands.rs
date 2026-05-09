@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use super::policy::{
     publish_summary, summarize_check_sources, summarize_source_security,
-    validate_check_source_policy, validate_publish_metadata,
+    validate_check_source_policy, validate_publish_metadata, validate_publish_vcs,
 };
 use super::render::{
     Renderer, Tone, format_unit_label, format_yes_no, print_compile_actions,
@@ -487,24 +487,51 @@ fn run_publish(
     ui: super::UiOptions,
 ) -> Result<()> {
     let render = Renderer::new(ui);
-    let (loaded, _workspace_lock) = load_package_graph(
-        path.as_deref(),
+    let manifest_path = discover::resolve_project_manifest_path(path.as_deref())?;
+    let manifest = Manifest::load(&manifest_path)?;
+    manifest.validate(&manifest_path)?;
+    let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
+    let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let _workspace_lock = WorkspaceOperationLock::acquire(workspace_root, "publish")?;
+    #[cfg(test)]
+    crate::test_support::hit(crate::test_support::FAILPOINT_AFTER_WORKSPACE_LOCK);
+    let summary = publish_summary(&manifest_path, &manifest, &workspace_members)?;
+    validate_publish_metadata(&summary)?;
+    let _preflight_vcs_summary =
+        validate_publish_vcs(&manifest_path, &manifest, &workspace_members, &summary)?;
+    let security_summary = summarize_source_security(&manifest);
+    validate_check_source_policy(&manifest_path, &feature_selection, &security_summary)?;
+    let lock_path = workspace_root.join("Craft.lock");
+    if !lock_path.is_file() {
+        return Err(Error::Validation {
+            path: lock_path,
+            message: "publish lockfile check failed: Craft.lock is missing; run `craft check` and commit Craft.lock before publishing"
+                .to_string(),
+        });
+    }
+    let elaboration = elaborate::plan(
+        &manifest_path,
+        &manifest,
+        &workspace_members,
+        manifest.workspace.is_some(),
         crate::script::ScriptCommand::Check,
         &feature_selection,
-        "publish",
     )?;
-    let summary = publish_summary(
-        &loaded.manifest_path,
-        &loaded.manifest,
-        &loaded.workspace_members,
-    )?;
-    validate_publish_metadata(&summary)?;
-    let security_summary = summarize_source_security(&loaded.manifest);
-    validate_check_source_policy(&loaded.manifest_path, &feature_selection, &security_summary)?;
+    let (_, lockfile_write_result) =
+        lockfile::check_lockfile_current(&manifest_path, &elaboration)?;
+    if lockfile_write_result != lockfile::LockWriteResult::Unchanged {
+        return Err(Error::Validation {
+            path: lock_path,
+            message: "publish lockfile check failed: Craft.lock is not current; run `craft check` and commit Craft.lock before publishing"
+                .to_string(),
+        });
+    }
+    let vcs_summary =
+        validate_publish_vcs(&manifest_path, &manifest, &workspace_members, &summary)?;
     let format_summaries = fmt::format_workspace_sources(
-        &loaded.manifest_path,
-        &loaded.manifest,
-        &loaded.workspace_members,
+        &manifest_path,
+        &manifest,
+        &workspace_members,
         fmt::FormatMode::Check,
     )?;
     let mut format_total = fmt::FormatSummary::default();
@@ -513,18 +540,15 @@ fn run_publish(
     }
     if format_total.changed_files > 0 {
         return Err(Error::Validation {
-            path: loaded.manifest_path.clone(),
+            path: manifest_path.clone(),
             message: format!(
                 "publish format check failed: {} file(s) need formatting; run `craft fmt --check`",
                 format_total.changed_files
             ),
         });
     }
-    let style_summaries = style::collect_workspace_style_metrics(
-        &loaded.manifest_path,
-        &loaded.manifest,
-        &loaded.workspace_members,
-    )?;
+    let style_summaries =
+        style::collect_workspace_style_metrics(&manifest_path, &manifest, &workspace_members)?;
     let mut style_total = style::StyleSummary::default();
     let style_suggestion_count: usize = style_summaries
         .iter()
@@ -534,12 +558,7 @@ fn run_publish(
         style_total.merge(&summary.metrics);
     }
 
-    render.header_with_path(
-        "publish",
-        &loaded.manifest,
-        &loaded.manifest_path,
-        &feature_selection,
-    );
+    render.header_with_path("publish", &manifest, &manifest_path, &feature_selection);
     render.summary(
         "packages",
         format!(
@@ -557,6 +576,15 @@ fn run_publish(
             security_summary.suppressed_count(),
             security_summary.floating_git_sources,
             security_summary.insecure_transport_sources
+        ),
+    );
+    render.summary(
+        "vcs",
+        format!(
+            "git {}, remotes {}, head {}",
+            vcs_summary.repo_root.display(),
+            vcs_summary.remote_count,
+            vcs_summary.head.chars().take(12).collect::<String>()
         ),
     );
     render.summary(
@@ -581,7 +609,7 @@ fn run_publish(
     );
     render.summary(
         "lockfile",
-        match loaded.lockfile_write_result {
+        match lockfile_write_result {
             lockfile::LockWriteResult::Created => "created (release)",
             lockfile::LockWriteResult::Updated => "updated (release)",
             lockfile::LockWriteResult::Unchanged => "current (release)",

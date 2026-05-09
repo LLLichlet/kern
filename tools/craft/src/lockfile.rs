@@ -89,8 +89,7 @@ pub fn sync_lockfile(
     elaboration: &ElaborationPlan,
 ) -> Result<(PathBuf, LockWriteResult)> {
     let lock_path = elaboration.resolved_graph.workspace_root.join("Craft.lock");
-    let expected = Lockfile::from_elaboration(manifest_path, elaboration)?;
-    let rendered = expected.render();
+    let rendered = render_lockfile(manifest_path, elaboration)?;
 
     if lock_path.is_file() {
         let actual =
@@ -108,6 +107,27 @@ pub fn sync_lockfile(
 
     local_state::write_file_atomic(&lock_path, rendered)?;
     Ok((lock_path, result))
+}
+
+pub fn check_lockfile_current(
+    manifest_path: &Path,
+    elaboration: &ElaborationPlan,
+) -> Result<(PathBuf, LockWriteResult)> {
+    let lock_path = elaboration.resolved_graph.workspace_root.join("Craft.lock");
+    let rendered = render_lockfile(manifest_path, elaboration)?;
+    if !lock_path.is_file() {
+        return Ok((lock_path, LockWriteResult::Created));
+    }
+    let actual = fs::read_to_string(&lock_path).map_err(|err| Error::from_io(&lock_path, err))?;
+    if actual == rendered {
+        Ok((lock_path, LockWriteResult::Unchanged))
+    } else {
+        Ok((lock_path, LockWriteResult::Updated))
+    }
+}
+
+fn render_lockfile(manifest_path: &Path, elaboration: &ElaborationPlan) -> Result<String> {
+    Ok(Lockfile::from_elaboration(manifest_path, elaboration)?.render())
 }
 
 impl Lockfile {

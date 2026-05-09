@@ -91,6 +91,42 @@ root = "src/main.rn"
     fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 }
 
+fn init_publish_git_repo(root: &Path, remote: &str) {
+    fs::write(root.join(".gitignore"), ".craft/\n").unwrap();
+    run_git(root, ["init", "--initial-branch=main"]);
+    run_git(root, ["config", "user.name", "Craft Tests"]);
+    run_git(root, ["config", "user.email", "craft-tests@example.com"]);
+    run_git(root, ["remote", "add", "origin", remote]);
+    run_git(root, ["add", "."]);
+    run_git(root, ["commit", "-m", "initial"]);
+}
+
+fn write_publishable_git_bin_package(root: &Path) {
+    write_publishable_bin_package(root);
+    run_command(Command::Check {
+        path: Some(root.to_path_buf()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+    init_publish_git_repo(root, "https://example.com/demo");
+}
+
+fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) {
+    let output = ProcessCommand::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn assert_lockfile_is_current(root: &Path) {
     let lockfile = fs::read_to_string(root.join("Craft.lock")).unwrap();
     assert!(lockfile.contains("manifest = \"Craft.toml\""));
@@ -2158,18 +2194,6 @@ fn package_graph_commands_resync_missing_and_damaged_lockfiles() {
         },
     );
     assert_command_resyncs_missing_and_damaged_lockfile(
-        "craft-cli-publish-lock-resync",
-        write_publishable_bin_package,
-        |root| Command::Publish {
-            path: Some(root.to_path_buf()),
-            feature_selection: FeatureSelection {
-                profile: crate::script::ProfileSelection::Release,
-                ..Default::default()
-            },
-            ui: UiOptions::default(),
-        },
-    );
-    assert_command_resyncs_missing_and_damaged_lockfile(
         "craft-cli-doc-lock-resync",
         write_minimal_lib_package,
         |root| Command::Doc {
@@ -2382,28 +2406,29 @@ root = "src/main.rn"
 #[test]
 fn publish_auto_syncs_release_lock_and_checks_metadata() {
     let root = temp_dir("craft-cli-publish");
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(
-        root.join("Craft.toml"),
-        r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.7.5"
-description = "Demo package"
-license = "MIT"
-authors = ["Demo <demo@example.com>"]
-readme = "README.md"
-repository = "https://example.com/demo"
+    write_publishable_bin_package(&root);
+    init_publish_git_repo(&root, "https://example.com/demo");
 
-[[bin]]
-name = "demo"
-root = "src/main.rn"
-"#,
-    )
+    let err = run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+
+    assert!(err.to_string().contains("Craft.lock is missing"));
+    assert!(!root.join("Craft.lock").exists());
+    run_command(Command::Check {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+    })
     .unwrap();
-    fs::write(root.join("README.md"), "# demo\n").unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    run_git(&root, ["add", "Craft.lock"]);
+    run_git(&root, ["commit", "-m", "lock"]);
 
     run_command(Command::Publish {
         path: Some(root.clone()),
@@ -2415,7 +2440,156 @@ root = "src/main.rn"
     })
     .unwrap();
 
-    assert!(root.join("Craft.lock").exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn publish_rejects_missing_committed_lockfile_without_mutating_it() {
+    let root = temp_dir("craft-cli-publish-missing-lock");
+    write_publishable_git_bin_package(&root);
+
+    fs::remove_file(root.join("Craft.lock")).unwrap();
+    let err = run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("git worktree has uncommitted changes")
+    );
+    assert!(!root.join("Craft.lock").exists());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn publish_rejects_damaged_committed_lockfile_without_mutating_it() {
+    let root = temp_dir("craft-cli-publish-damaged-lock");
+    write_publishable_git_bin_package(&root);
+
+    fs::write(root.join("Craft.lock"), "partial lockfile\n").unwrap();
+    run_git(&root, ["add", "Craft.lock"]);
+    run_git(&root, ["commit", "-m", "damage lock"]);
+    let err = run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("publish lockfile check failed: Craft.lock is not current")
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("Craft.lock")).unwrap(),
+        "partial lockfile\n"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn publish_rejects_non_git_worktree() {
+    let root = temp_dir("craft-cli-publish-no-git");
+    write_publishable_bin_package(&root);
+
+    let err = run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("package is not inside a git worktree")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn publish_rejects_dirty_git_worktree() {
+    let root = temp_dir("craft-cli-publish-dirty-git");
+    write_publishable_git_bin_package(&root);
+    fs::write(root.join("README.md"), "# demo\n\nlocal edit\n").unwrap();
+
+    let err = run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("git worktree has uncommitted changes")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn publish_rejects_repository_without_matching_remote() {
+    let root = temp_dir("craft-cli-publish-remote-mismatch");
+    write_publishable_bin_package(&root);
+    run_command(Command::Check {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+    init_publish_git_repo(&root, "https://example.com/other");
+
+    let err = run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+
+    assert!(err.to_string().contains("does not match any git remote"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn publish_matches_repository_against_normalized_ssh_remote() {
+    let root = temp_dir("craft-cli-publish-ssh-remote");
+    write_publishable_bin_package(&root);
+    let manifest = fs::read_to_string(root.join("Craft.toml"))
+        .unwrap()
+        .replace(
+            "repository = \"https://example.com/demo\"",
+            "repository = \"https://github.com/owner/repo.git\"",
+        );
+    fs::write(root.join("Craft.toml"), manifest).unwrap();
+    run_command(Command::Check {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+    init_publish_git_repo(&root, "git@github.com:owner/repo.git");
 
     run_command(Command::Publish {
         path: Some(root.clone()),
@@ -2435,6 +2609,13 @@ fn publish_rejects_unformatted_sources() {
     let root = temp_dir("craft-cli-publish-format");
     write_publishable_bin_package(&root);
     fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }  \n").unwrap();
+    run_command(Command::Check {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+    init_publish_git_repo(&root, "https://example.com/demo");
 
     let err = run_command(Command::Publish {
         path: Some(root.clone()),
@@ -2466,6 +2647,7 @@ floating = { git = "https://example.com/floating.git", branch = "main" }
 "#,
     );
     fs::write(root.join("Craft.toml"), manifest).unwrap();
+    init_publish_git_repo(&root, "https://example.com/demo");
 
     let err = run_command(Command::Publish {
         path: Some(root.clone()),
@@ -2490,7 +2672,8 @@ fn publish_allows_advisory_style_findings() {
         root.join("src/main.rn"),
         r#"
 fn main() i32 {
-    while (index < #items) {
+    let mut index = usize.{0};
+    while (index < usize.{3}) {
         index += 1;
     }
     return 0;
@@ -2498,6 +2681,13 @@ fn main() i32 {
 "#,
     )
     .unwrap();
+    run_command(Command::Check {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+    init_publish_git_repo(&root, "https://example.com/demo");
 
     run_command(Command::Publish {
         path: Some(root.clone()),
@@ -2548,6 +2738,13 @@ root = "src/main.rn"
     )
     .unwrap();
     fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    run_command(Command::Check {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+    init_publish_git_repo(&root, "https://example.com/workspace");
 
     run_command(Command::Publish {
         path: Some(root.clone()),

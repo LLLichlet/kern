@@ -406,8 +406,14 @@ anywhere, talk to a registry, or rewrite dependency state.
 The current rules are:
 
 - `craft publish` always evaluates release-mode publish readiness
-- `craft publish` auto-synchronizes the canonical `Craft.lock`
-- if the lockfile changes, `craft publish` reports that synchronized state as part of the command result
+- `craft publish` requires the package to be inside a Git worktree with a
+  resolvable `HEAD`
+- the Git worktree must be clean before release checks run
+- the canonical `Craft.lock` must already exist and be committed
+- after release graph resolution, `Craft.lock` must still be current; if it
+  would be created or updated, publish fails without rewriting the lockfile
+- each publishable package's `repository` URL must match a configured Git
+  remote after normalizing common HTTPS and SSH GitHub forms
 - `craft publish` runs deterministic source formatting checks and reports
   source-style and public-doc metrics without rewriting source files
 
@@ -950,7 +956,8 @@ Command behavior:
 - `fetch` auto-synchronizes `Craft.lock`, then materializes both external package sources and declared package resources into the local cache
   - package source backends are explicit package paths or git repositories
   - resource source backends are explicit package-relative paths or git repositories
-- `publish` auto-synchronizes `Craft.lock` and runs release-oriented metadata,
+- `publish` requires a clean Git worktree with committed `Craft.lock` and a
+  matching repository remote, then runs release-oriented metadata,
   source-policy, format, style, and public-doc checks without uploading anywhere
 - `doc` auto-synchronizes `Craft.lock`, builds the selected package graph, and renders Markdown package docs under `.craft/docs`
 - `fmt` normalizes Kern source text deterministically by removing trailing

@@ -4,6 +4,7 @@ use crate::manifest::Manifest;
 use crate::workspace;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CheckSourceSummary {
@@ -55,6 +56,13 @@ pub(super) struct PublishIssue {
 pub(super) struct PublishSummary {
     pub(super) ready: Vec<PublishPackageSummary>,
     pub(super) blocked: Vec<PublishIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PublishVcsSummary {
+    pub(super) repo_root: PathBuf,
+    pub(super) head: String,
+    pub(super) remote_count: usize,
 }
 
 pub(super) fn summarize_check_sources(
@@ -318,6 +326,153 @@ pub(super) fn validate_publish_metadata(summary: &PublishSummary) -> Result<()> 
         path: summary.blocked[0].manifest_path.clone(),
         message: format!("publish metadata check failed: {message}"),
     })
+}
+
+pub(super) fn validate_publish_vcs(
+    root_manifest_path: &Path,
+    root_manifest: &Manifest,
+    workspace_members: &[workspace::WorkspaceMember],
+    summary: &PublishSummary,
+) -> Result<PublishVcsSummary> {
+    let workspace_root = root_manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let repo_root =
+        git_output(workspace_root, ["rev-parse", "--show-toplevel"]).map_err(|err| {
+            Error::Validation {
+                path: root_manifest_path.to_path_buf(),
+                message: format!(
+                    "publish vcs check failed: package is not inside a git worktree ({err})"
+                ),
+            }
+        })?;
+    let repo_root = PathBuf::from(repo_root);
+    let head = git_output(&repo_root, ["rev-parse", "HEAD"]).map_err(|err| Error::Validation {
+        path: root_manifest_path.to_path_buf(),
+        message: format!("publish vcs check failed: git HEAD is not available ({err})"),
+    })?;
+    let status =
+        git_output(&repo_root, ["status", "--porcelain"]).map_err(|err| Error::Validation {
+            path: root_manifest_path.to_path_buf(),
+            message: format!("publish vcs check failed: could not read git status ({err})"),
+        })?;
+    if !status.trim().is_empty() {
+        return Err(Error::Validation {
+            path: root_manifest_path.to_path_buf(),
+            message: "publish vcs check failed: git worktree has uncommitted changes".to_string(),
+        });
+    }
+
+    let remotes = git_output(&repo_root, ["remote", "-v"]).map_err(|err| Error::Validation {
+        path: root_manifest_path.to_path_buf(),
+        message: format!("publish vcs check failed: could not read git remotes ({err})"),
+    })?;
+    let remote_urls = parse_remote_urls(&remotes);
+    for package in &summary.ready {
+        let manifest = manifest_for_publish_package(
+            root_manifest_path,
+            root_manifest,
+            workspace_members,
+            &package.manifest_path,
+        )?;
+        let repository = publish_repository(
+            manifest
+                .package
+                .as_ref()
+                .expect("publish package has manifest package"),
+            root_manifest
+                .workspace
+                .as_ref()
+                .and_then(|workspace| workspace.package.as_ref()),
+        )
+        .expect("publish metadata validation ensures repository exists");
+        if !remote_urls
+            .iter()
+            .any(|remote| repository_urls_match(repository, remote))
+        {
+            return Err(Error::Validation {
+                path: package.manifest_path.clone(),
+                message: format!(
+                    "publish vcs check failed: repository `{repository}` does not match any git remote"
+                ),
+            });
+        }
+    }
+
+    Ok(PublishVcsSummary {
+        repo_root,
+        head,
+        remote_count: remote_urls.len(),
+    })
+}
+
+fn manifest_for_publish_package<'a>(
+    root_manifest_path: &Path,
+    root_manifest: &'a Manifest,
+    workspace_members: &'a [workspace::WorkspaceMember],
+    manifest_path: &Path,
+) -> Result<&'a Manifest> {
+    if manifest_path == root_manifest_path {
+        return Ok(root_manifest);
+    }
+    for member in workspace_members {
+        if member.manifest_path == manifest_path {
+            return Ok(&member.manifest);
+        }
+    }
+    Err(Error::Validation {
+        path: manifest_path.to_path_buf(),
+        message: "publish metadata check failed: package manifest is not part of the workspace"
+            .to_string(),
+    })
+}
+
+fn parse_remote_urls(remotes: &str) -> Vec<String> {
+    remotes
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let _name = fields.next()?;
+            let url = fields.next()?;
+            Some(url.to_string())
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn repository_urls_match(repository: &str, remote: &str) -> bool {
+    normalize_repository_url(repository) == normalize_repository_url(remote)
+}
+
+fn normalize_repository_url(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
+    if let Some(rest) = without_git.strip_prefix("git@github.com:") {
+        return format!("https://github.com/{rest}");
+    }
+    without_git.to_string()
+}
+
+fn git_output<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|err| Error::Execution(format!("failed to run git: {err}")))?;
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let detail = if !stderr.trim().is_empty() {
+        stderr.trim().to_string()
+    } else if !stdout.trim().is_empty() {
+        stdout.trim().to_string()
+    } else {
+        format!("git exited with status {}", output.status)
+    };
+    Err(Error::Execution(detail))
 }
 
 fn classify_publish_package(

@@ -67,3 +67,19 @@
   thresholds: deterministic `craft fmt --check` semantics are enforced, while
   style suggestions and public-doc metrics are reported as review signals until
   explicit release-policy thresholds exist.
+
+## P4 Publish Safety
+
+- [x] Treat `craft publish` as a strict local release gate instead of a mutating
+  package-preparation command.
+- [x] Require publishable packages to be inside a Git worktree with a resolvable
+  `HEAD`.
+- [x] Reject dirty Git worktrees before release checks run.
+- [x] Require `Craft.lock` to exist and be committed before publish.
+- [x] Check release graph lockfile freshness without rewriting `Craft.lock` so
+  stale lockfiles cannot be silently repaired during publish.
+- [x] Require each publishable package's `repository` metadata to match a
+  configured Git remote, including normalized HTTPS/SSH GitHub forms.
+- [x] Add publish tests for missing Git worktrees, dirty worktrees, missing or
+  damaged committed lockfiles, remote mismatches, normalized SSH remotes, source
+  policy, formatting, style, and workspace package metadata.

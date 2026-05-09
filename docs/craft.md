@@ -389,7 +389,7 @@ Manifest rules:
 - default `release` keeps LTO off unless the manifest opts in explicitly
 - target-domain `lto = "thin"` keeps compile actions in ThinLTO linker-input form until the final link step, so cross-package optimization is preserved instead of being collapsed inside each package
 - `[craft.style]` configures advisory source-style analysis only; it does not
-  change compilation, formatting, or publish readiness
+  change compilation or formatting
 - `[craft.style].suggestions` accepts `info`, `warn`, or `off`
 - `[craft.style].disabled-rules` may contain `index-while`,
   `long-postfix-chain`, or `repeated-borrow-receiver`
@@ -408,6 +408,8 @@ The current rules are:
 - `craft publish` always evaluates release-mode publish readiness
 - `craft publish` auto-synchronizes the canonical `Craft.lock`
 - if the lockfile changes, `craft publish` reports that synchronized state as part of the command result
+- `craft publish` runs deterministic source formatting checks and reports
+  source-style and public-doc metrics without rewriting source files
 
 Required package metadata for a publishable package is:
 
@@ -948,7 +950,8 @@ Command behavior:
 - `fetch` auto-synchronizes `Craft.lock`, then materializes both external package sources and declared package resources into the local cache
   - package source backends are explicit package paths or git repositories
   - resource source backends are explicit package-relative paths or git repositories
-- `publish` auto-synchronizes `Craft.lock` and runs release-oriented metadata and source-policy checks without uploading anywhere
+- `publish` auto-synchronizes `Craft.lock` and runs release-oriented metadata,
+  source-policy, format, style, and public-doc checks without uploading anywhere
 - `doc` auto-synchronizes `Craft.lock`, builds the selected package graph, and renders Markdown package docs under `.craft/docs`
 - `fmt` normalizes Kern source text deterministically by removing trailing
   horizontal whitespace and enforcing final-newline consistency

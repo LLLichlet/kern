@@ -499,6 +499,40 @@ fn run_publish(
         &loaded.workspace_members,
     )?;
     validate_publish_metadata(&summary)?;
+    let security_summary = summarize_source_security(&loaded.manifest);
+    validate_check_source_policy(&loaded.manifest_path, &feature_selection, &security_summary)?;
+    let format_summaries = fmt::format_workspace_sources(
+        &loaded.manifest_path,
+        &loaded.manifest,
+        &loaded.workspace_members,
+        fmt::FormatMode::Check,
+    )?;
+    let mut format_total = fmt::FormatSummary::default();
+    for summary in &format_summaries {
+        format_total.merge(&summary.summary);
+    }
+    if format_total.changed_files > 0 {
+        return Err(Error::Validation {
+            path: loaded.manifest_path.clone(),
+            message: format!(
+                "publish format check failed: {} file(s) need formatting; run `craft fmt --check`",
+                format_total.changed_files
+            ),
+        });
+    }
+    let style_summaries = style::collect_workspace_style_metrics(
+        &loaded.manifest_path,
+        &loaded.manifest,
+        &loaded.workspace_members,
+    )?;
+    let mut style_total = style::StyleSummary::default();
+    let style_suggestion_count: usize = style_summaries
+        .iter()
+        .map(|summary| summary.suggestions.len())
+        .sum();
+    for summary in &style_summaries {
+        style_total.merge(&summary.metrics);
+    }
 
     render.header_with_path(
         "publish",
@@ -513,6 +547,37 @@ fn run_publish(
             summary.ready.len(),
             summary.blocked.len()
         ),
+    );
+    render.summary(
+        "source-policy",
+        format!(
+            "mode {}, warnings {}, suppressed {}, floating git {}, insecure transport {}",
+            security_summary.policy_mode.as_str(),
+            security_summary.warning_count(),
+            security_summary.suppressed_count(),
+            security_summary.floating_git_sources,
+            security_summary.insecure_transport_sources
+        ),
+    );
+    render.summary(
+        "format",
+        format!(
+            "{} package(s), {} file(s), {} changed",
+            format_total.packages, format_total.files, format_total.changed_files
+        ),
+    );
+    render.summary(
+        "public-docs",
+        format!(
+            "{} documented, {} missing, coverage {:.1}%",
+            style_total.documented_public_items,
+            style_total.undocumented_public_items,
+            style_total.public_doc_coverage()
+        ),
+    );
+    render.summary(
+        "style",
+        format!("{style_suggestion_count} advisory source style suggestion(s)"),
     );
     render.summary(
         "lockfile",
@@ -533,6 +598,36 @@ fn run_publish(
                     package.manifest_path.display()
                 ),
             );
+        }
+        if !format_summaries.is_empty() {
+            render.section("format");
+            for summary in &format_summaries {
+                render.action(
+                    Tone::Muted,
+                    "check",
+                    &summary.label,
+                    format!(
+                        "{} file(s), {} changed",
+                        summary.summary.files, summary.summary.changed_files
+                    ),
+                );
+            }
+        }
+        if !style_summaries.is_empty() {
+            render.section("style");
+            for summary in &style_summaries {
+                render.action(
+                    Tone::Muted,
+                    "metric",
+                    &summary.label,
+                    format!(
+                        "{} file(s), public-docs {:.1}%, suggestions {}",
+                        summary.metrics.files,
+                        summary.metrics.public_doc_coverage(),
+                        summary.suggestions.len()
+                    ),
+                );
+            }
         }
     }
     render.ok("publish check completed");

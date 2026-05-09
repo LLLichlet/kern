@@ -63,7 +63,7 @@
   ratio, and test-coverage expectations.
 - [x] Define package maturity gates: minimum public-doc coverage, comment ratio
   bands, smoke tests, and optional benchmark coverage.
-- [ ] Wire new checks into `craft publish` or release-policy validation only
-  after the standalone commands have stabilized. Deliberately deferred while
-  `craft fmt`, `craft style`, and semantic doc metrics collect real package
-  data.
+- [x] Wire stabilized checks into `craft publish` without hard-coding maturity
+  thresholds: deterministic `craft fmt --check` semantics are enforced, while
+  style suggestions and public-doc metrics are reported as review signals until
+  explicit release-policy thresholds exist.

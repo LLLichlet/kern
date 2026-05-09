@@ -2431,6 +2431,88 @@ root = "src/main.rn"
 }
 
 #[test]
+fn publish_rejects_unformatted_sources() {
+    let root = temp_dir("craft-cli-publish-format");
+    write_publishable_bin_package(&root);
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }  \n").unwrap();
+
+    let err = run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+
+    assert!(err.to_string().contains("publish format check failed"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn publish_enforces_release_source_policy() {
+    let root = temp_dir("craft-cli-publish-source-policy");
+    write_publishable_bin_package(&root);
+    let mut manifest = fs::read_to_string(root.join("Craft.toml")).unwrap();
+    manifest.push_str(
+        r#"
+[craft]
+release-source-policy = "enforce"
+
+[dependencies]
+floating = { git = "https://example.com/floating.git", branch = "main" }
+"#,
+    );
+    fs::write(root.join("Craft.toml"), manifest).unwrap();
+
+    let err = run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap_err();
+
+    assert!(err.to_string().contains("release source policy rejected"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn publish_allows_advisory_style_findings() {
+    let root = temp_dir("craft-cli-publish-style");
+    write_publishable_bin_package(&root);
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+fn main() i32 {
+    while (index < #items) {
+        index += 1;
+    }
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    run_command(Command::Publish {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..Default::default()
+        },
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn publish_accepts_workspace_package_metadata_for_members() {
     let root = temp_dir("craft-cli-publish-workspace");
     let member = root.join("member");

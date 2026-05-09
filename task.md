@@ -41,17 +41,21 @@
   full build.
 - [ ] Add semantic public-doc coverage from compiler metadata for release-grade
   documentation policy.
-- [ ] Add style suggestions that have already appeared in real packages:
-  prefer `page()`, `string()`, `list()`, `map()` constructors; prefer `for`
-  over index-only `while`; use handle-style temporaries for stateful cursors;
-  split long method chains.
+- [x] Add first advisory source-level style suggestions that have already
+  appeared in real packages: prefer `for`/iterators over simple index-only
+  `while`; use handle-style temporaries for repeated borrowed receivers; split
+  long postfix chains.
+- [ ] Add constructor-convention style suggestions where the signal is strong:
+  prefer helpers such as `string()`, `list()`, `map()`, or domain-specific
+  constructors such as `page()` only when they express a real constructor,
+  allocator, builder, or capability boundary.
 - [ ] Keep style rules configurable by severity and scope so incubators,
   low-level runtime code, and mature packages can choose different strictness.
 - [x] Add tests for lint metrics and CLI output before enabling stricter rules.
 
 ## P3 Adoption And Policy
 
-- [ ] Update docs/style.md with docstring, match, formatter, lint, comment
+- [x] Update docs/style.md with docstring, match, formatter, lint, comment
   ratio, and test-coverage expectations.
 - [ ] Define package maturity gates: minimum public-doc coverage, comment ratio
   bands, smoke tests, and optional benchmark coverage.

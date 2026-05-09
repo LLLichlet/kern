@@ -18,6 +18,24 @@ Prefer source that makes Kern's design visible:
 
 ## Current Guidance
 
+### 0. Write public docs as Markdown-first API text
+
+Public API docs should be useful when read as Markdown. Use ordinary prose,
+headings, lists, code fences, links, and examples directly in `///` or `//!`
+comments. Labels such as `Encoding:` or `Compatibility:` are normal prose
+unless they are one of the recognized structured doc section names.
+
+Prefer documenting the contract that callers need:
+
+- what the item represents or does
+- ownership, lifetime, allocation, and failure behavior
+- invariants that are not obvious from the type
+- short examples for APIs whose shape is new or easy to misuse
+
+Keep implementation notes in `//` comments near the implementation. A public
+doc comment is for the API boundary; an inline comment is for the local
+maintenance problem.
+
 ### 1. Prefer straight-line unwrapping for simple propagation
 
 When control flow only unwraps a value and immediately exits on failure, keep
@@ -55,6 +73,22 @@ success arm, or when the control flow is no longer a simple unwrap-and-return.
 
 Do not force `.?` or `.!` into places where a visible pattern is clearer than a
 symbol.
+
+For dispatch over comparable values, prefer `match` over an `if` chain when the
+scrutinee and arm values have an `Eq` implementation and the arms describe a
+closed local decision:
+
+```kern
+match (name) {
+    "utf-8" => return .Utf8,
+    "utf-16" => return .Utf16,
+    _ => return .Unknown,
+}
+```
+
+Keep `if` when the branch condition is not equality, when each branch needs a
+different guard expression, or when ordering is the main behavior being
+documented.
 
 ### 2. Use `{}` for intentionally empty loop bodies
 
@@ -163,9 +197,30 @@ call sites and the code is semantically operating on one stack-local object.
 Do not force stack mode for one or two isolated calls. In short stretches,
 `value..&.method(...)` is often clearer.
 
+The same applies to iterator and cursor handles. If a local parser, reader, or
+element stream is advanced repeatedly, bind the handle once and call through the
+handle:
+
+```kern
+let source = reader("<root><leaf/></root>");
+let elements = source..&.elements()..&;
+
+let root = elements.next().?.?;
+let leaf = elements.next().?.?;
+```
+
+This is a readability rule, not a semantic distinction. Use it when the code is
+really operating on one stateful object for several steps.
+
 String literals are byte-array value expressions. Use them directly when the
 code wants fixed bytes or ordinary array-to-slice decay; bind the value first
 when a longer-lived slice or repeated mutation needs a named storage location.
+
+Constructor-shaped helper functions such as `list()`, `map()`, `string()`, or
+domain-specific helpers such as `page()` are a package API convention, not a
+freestanding language requirement. Prefer them when they express a real
+constructor, allocator, builder, or capability boundary. Do not add a helper
+only to avoid `T.{}` for a plain aggregate whose fields are the clearest API.
 
 ### 7. Prefer explicit module visibility over forwarding boilerplate
 
@@ -288,3 +343,29 @@ buffer.is_empty().should().sum(@loc(), t);
 
 Avoid public test helpers whose only behavior is a silent `@trap()`. A test
 failure should report at least its source location and failure kind.
+
+## Tooling Expectations
+
+Run `craft style` during review for source-health metrics. The command is
+non-mutating and currently reports source files, code lines, blank lines,
+inline and block comments, doc comments, comment ratios, and public-doc
+coverage. Treat these numbers as review signals before they become package
+policy.
+
+For mature public packages, the expected direction is:
+
+- public APIs are documented unless the item is intentionally internal to the
+  package boundary
+- examples and smoke tests cover the primary user-facing workflow
+- focused regression tests cover language or library edge cases discovered
+  during development
+- comment density is high enough to explain invariants and boundaries, but not
+  so high that comments restate obvious local code
+
+Low-level runtime code, incubators, generated bindings, and experiments may
+use different thresholds. Style and policy tools should therefore expose
+severity and scope controls before any check is wired into publishing.
+
+`craft fmt` is intended to become the deterministic formatting entry point.
+Until it exists, keep formatting consistent with nearby code and split long
+method chains across lines when a postfix chain stops being quickly scannable.

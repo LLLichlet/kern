@@ -56,6 +56,32 @@ pub struct PackageStyleSummary {
     pub label: String,
     pub root: PathBuf,
     pub metrics: StyleSummary,
+    pub suggestions: Vec<StyleSuggestion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StyleSuggestion {
+    pub path: PathBuf,
+    pub line: usize,
+    pub rule: StyleRule,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StyleRule {
+    IndexWhile,
+    LongPostfixChain,
+    RepeatedBorrowReceiver,
+}
+
+impl StyleRule {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::IndexWhile => "index-while",
+            Self::LongPostfixChain => "long-postfix-chain",
+            Self::RepeatedBorrowReceiver => "repeated-borrow-receiver",
+        }
+    }
 }
 
 pub fn collect_workspace_style_metrics(
@@ -84,10 +110,12 @@ fn collect_package_style_metrics(
         packages: 1,
         ..StyleSummary::default()
     };
+    let mut suggestions = Vec::new();
 
     for path in kern_source_files(root)? {
         let source = fs::read_to_string(&path).map_err(|err| Error::from_io(&path, err))?;
         metrics.merge(&count_source_metrics(&source));
+        suggestions.extend(collect_source_suggestions(root, &path, &source));
         metrics.files += 1;
     }
 
@@ -95,6 +123,7 @@ fn collect_package_style_metrics(
         label: package_label(manifest),
         root: root.to_path_buf(),
         metrics,
+        suggestions,
     })
 }
 
@@ -233,6 +262,121 @@ fn is_public_declaration_line(trimmed: &str) -> bool {
     )
 }
 
+fn collect_source_suggestions(root: &Path, path: &Path, source: &str) -> Vec<StyleSuggestion> {
+    let display_path = path.strip_prefix(root).unwrap_or(path).to_path_buf();
+    let mut suggestions = Vec::new();
+    for (line_index, line) in source.lines().enumerate() {
+        let line_number = line_index + 1;
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("//!") {
+            continue;
+        }
+        if is_index_while_line(trimmed) {
+            suggestions.push(StyleSuggestion {
+                path: display_path.clone(),
+                line: line_number,
+                rule: StyleRule::IndexWhile,
+                message:
+                    "consider `for` or an iterator when a loop only walks collection positions"
+                        .to_string(),
+            });
+        }
+        let postfix_calls = postfix_call_count_outside_string(trimmed);
+        if postfix_calls >= 5 {
+            suggestions.push(StyleSuggestion {
+                path: display_path.clone(),
+                line: line_number,
+                rule: StyleRule::LongPostfixChain,
+                message: "split long postfix chains across lines or bind an intermediate handle"
+                    .to_string(),
+            });
+        }
+        if borrowed_receiver_count(trimmed) >= 2 {
+            suggestions.push(StyleSuggestion {
+                path: display_path.clone(),
+                line: line_number,
+                rule: StyleRule::RepeatedBorrowReceiver,
+                message: "bind a stack-mode handle when repeated `..&.` access dominates the line"
+                    .to_string(),
+            });
+        }
+    }
+    suggestions
+}
+
+fn is_index_while_line(trimmed: &str) -> bool {
+    let Some(condition) = trimmed
+        .strip_prefix("while (")
+        .and_then(|rest| rest.split_once(')').map(|(condition, _)| condition.trim()))
+    else {
+        return false;
+    };
+    if !condition.contains('<') || !condition.contains('#') {
+        return false;
+    }
+    let Some((lhs, rhs)) = condition.split_once('<') else {
+        return false;
+    };
+    is_simple_identifier(lhs.trim())
+        && rhs.trim_start().starts_with('#')
+        && !condition.contains(" and ")
+        && !condition.contains(" or ")
+}
+
+fn is_simple_identifier(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn postfix_call_count_outside_string(line: &str) -> usize {
+    let bytes = line.as_bytes();
+    let mut idx = 0usize;
+    let mut count = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    while idx + 2 < bytes.len() {
+        let byte = bytes[idx];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            idx += 1;
+            continue;
+        }
+        if byte == b'"' {
+            in_string = true;
+            idx += 1;
+            continue;
+        }
+        if byte == b'.' && bytes[idx + 1].is_ascii_alphabetic() && bytes[idx + 1..].contains(&b'(')
+        {
+            count += 1;
+        }
+        idx += 1;
+    }
+
+    count
+}
+
+fn borrowed_receiver_count(line: &str) -> usize {
+    let mut count = 0usize;
+    let mut rest = line;
+    while let Some(index) = rest.find("..&.") {
+        count += 1;
+        rest = &rest[index + 4..];
+    }
+    count
+}
+
 fn find_token_outside_string(line: &str, token: &str) -> Option<usize> {
     let bytes = line.as_bytes();
     let token_bytes = token.as_bytes();
@@ -286,8 +430,11 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        StyleSummary, count_source_metrics, find_token_outside_string, is_public_declaration_line,
+        StyleRule, StyleSummary, borrowed_receiver_count, collect_source_suggestions,
+        count_source_metrics, find_token_outside_string, is_index_while_line,
+        is_public_declaration_line, postfix_call_count_outside_string,
     };
+    use std::path::Path;
 
     #[test]
     fn counts_comment_and_doc_comment_lines() {
@@ -347,5 +494,48 @@ pub fn undocumented() void {}
         assert!(is_public_declaration_line("pub use .parse.{parse_i32};"));
         assert!(!is_public_declaration_line("puberty = true;"));
         assert!(!is_public_declaration_line("fn private() void {}"));
+    }
+
+    #[test]
+    fn recognizes_source_style_suggestions() {
+        assert!(is_index_while_line("while (index < #items) {"));
+        assert!(!is_index_while_line(
+            "while (index < #items and keep_going) {"
+        ));
+        assert_eq!(
+            postfix_call_count_outside_string(
+                r#"value.should_ok().sum(@loc(), t).name.eq("root").should()"#
+            ),
+            5
+        );
+        assert_eq!(postfix_call_count_outside_string(r#""a.b().c()""#), 0);
+        assert_eq!(
+            borrowed_receiver_count("source..&.next(); other..&.next();"),
+            2
+        );
+    }
+
+    #[test]
+    fn collects_source_suggestions_with_locations() {
+        let suggestions = collect_source_suggestions(
+            Path::new("/pkg"),
+            Path::new("/pkg/src/main.rn"),
+            r#"
+fn demo() void {
+    while (index < #items) {
+        index += 1;
+    }
+    value.should_ok().sum(@loc(), t).name.eq("root").should();
+    source..&.next(); other..&.next();
+}
+"#,
+        );
+
+        assert_eq!(suggestions.len(), 3);
+        assert_eq!(suggestions[0].path, Path::new("src/main.rn"));
+        assert_eq!(suggestions[0].line, 3);
+        assert_eq!(suggestions[0].rule, StyleRule::IndexWhile);
+        assert_eq!(suggestions[1].rule, StyleRule::LongPostfixChain);
+        assert_eq!(suggestions[2].rule, StyleRule::RepeatedBorrowReceiver);
     }
 }

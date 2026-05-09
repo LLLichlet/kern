@@ -741,6 +741,10 @@ fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
         style::collect_workspace_style_metrics(&manifest_path, &manifest, &workspace_members)?
     };
     let mut total = style::StyleSummary::default();
+    let suggestion_count: usize = summaries
+        .iter()
+        .map(|summary| summary.suggestions.len())
+        .sum();
     for summary in &summaries {
         total.merge(&summary.metrics);
     }
@@ -792,6 +796,10 @@ fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
             total.public_doc_coverage()
         ),
     );
+    render.summary(
+        "suggestions",
+        format!("{suggestion_count} advisory source style suggestion(s)"),
+    );
     if render.is_verbose() {
         render.section("packages");
         for summary in &summaries {
@@ -807,6 +815,24 @@ fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
                     summary.metrics.public_doc_coverage()
                 ),
             );
+        }
+        if suggestion_count > 0 {
+            render.section("suggestions");
+            for summary in &summaries {
+                for suggestion in &summary.suggestions {
+                    render.action(
+                        Tone::Muted,
+                        "style",
+                        format!(
+                            "{}:{}:{}",
+                            summary.label,
+                            suggestion.path.display(),
+                            suggestion.line
+                        ),
+                        format!("{}: {}", suggestion.rule.code(), suggestion.message),
+                    );
+                }
+            }
         }
     }
     render.ok("style metrics completed");

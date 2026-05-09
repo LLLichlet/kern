@@ -143,14 +143,17 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
         ),
         "style" => command_template(
             "style",
-            "Report source metrics, comment ratios, and doc comment ratios",
+            "Report source metrics, doc coverage, and advisory style suggestions",
             &["craft style [OPTIONS]"],
             HelpSection::new("Options")
                 .entry(
                     "--project-path, -p <PATH>",
                     "Select the package root, workspace root, or Craft.toml manifest",
                 )
-                .entry("--verbose, -v/-vv/-vvv", "Show per-package metrics")
+                .entry(
+                    "--verbose, -v/-vv/-vvv",
+                    "Show per-package metrics and suggestion locations",
+                )
                 .entry("--color <WHEN>", "Color mode: auto, always, never"),
             &[
                 ("craft style", "Report metrics for the current package"),

@@ -1,0 +1,28 @@
+// class: coherence
+// source: ordinary method lookup should prefer an inherent method over same-name trait impl methods
+// exit: 0
+
+trait Stream {
+    fn next() i32;
+};
+
+struct Reader {
+    value: i32,
+};
+
+impl &mut Reader {
+    pub fn next() i32 {
+        return self.value;
+    }
+}
+
+impl &mut Reader : Stream {
+    pub fn next() i32 {
+        return 99;
+    }
+}
+
+fn main() i32 {
+    let mut reader = Reader.{ value: 7 };
+    return reader..&.next() - 7;
+}

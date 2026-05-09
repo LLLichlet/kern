@@ -430,7 +430,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 !candidates.iter().enumerate().any(|(other_index, other)| {
                     other_index != *index
                         && matches!(
-                            crate::query::compare_impl_specificity(
+                            crate::query::compare_method_impl_specificity(
                                 self.ctx,
                                 other.impl_id,
                                 candidate.impl_id,

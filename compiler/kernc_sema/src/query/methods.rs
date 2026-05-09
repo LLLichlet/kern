@@ -376,7 +376,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     !applicable.iter().enumerate().any(|(other_index, other)| {
                         other_index != *index
                             && matches!(
-                                super::compare_impl_specificity(
+                                super::compare_method_impl_specificity(
                                     self.ctx,
                                     other.impl_id,
                                     candidate.impl_id,

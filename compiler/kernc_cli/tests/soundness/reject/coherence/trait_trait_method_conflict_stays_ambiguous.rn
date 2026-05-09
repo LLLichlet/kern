@@ -1,0 +1,31 @@
+// class: coherence
+// source: same-name trait impl methods must remain ambiguous when no inherent method applies
+// stderr: ambiguous impl method `next`
+// stderr: method lookup remains ambiguous
+
+trait StreamA {
+    fn next() i32;
+};
+
+trait StreamB {
+    fn next() i32;
+};
+
+struct Reader {};
+
+impl &mut Reader : StreamA {
+    pub fn next() i32 {
+        return 1;
+    }
+}
+
+impl &mut Reader : StreamB {
+    pub fn next() i32 {
+        return 2;
+    }
+}
+
+fn main() i32 {
+    let mut reader = Reader.{};
+    return reader..&.next();
+}

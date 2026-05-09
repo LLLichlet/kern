@@ -1,0 +1,26 @@
+// class: coherence
+// source: argument-inferred method lookup should prefer an inherent method over same-name trait impl methods
+// exit: 0
+
+trait Stream[T] {
+    fn next(value: T) i32;
+};
+
+struct Reader {};
+
+impl &mut Reader {
+    pub fn next(value: i32) i32 {
+        return value;
+    }
+}
+
+impl &mut Reader : Stream[i32] {
+    pub fn next(value: i32) i32 {
+        return value + 100;
+    }
+}
+
+fn main() i32 {
+    let mut reader = Reader.{};
+    return reader..&.next(5) - 5;
+}

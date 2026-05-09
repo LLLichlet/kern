@@ -493,6 +493,30 @@ pub fn compare_impl_specificity(
     }
 }
 
+pub(crate) fn compare_method_impl_specificity(
+    ctx: &mut SemaContext<'_>,
+    left_impl_id: DefId,
+    right_impl_id: DefId,
+) -> ImplSpecificity {
+    match (
+        impl_is_inherent(ctx, left_impl_id),
+        impl_is_inherent(ctx, right_impl_id),
+    ) {
+        (true, false) => return ImplSpecificity::LeftMoreSpecific,
+        (false, true) => return ImplSpecificity::RightMoreSpecific,
+        _ => {}
+    }
+
+    compare_impl_specificity(ctx, left_impl_id, right_impl_id)
+}
+
+fn impl_is_inherent(ctx: &SemaContext<'_>, impl_id: DefId) -> bool {
+    match ctx.defs.get(impl_id.0 as usize) {
+        Some(Def::Impl(impl_def)) => impl_def.trait_type.is_none(),
+        _ => false,
+    }
+}
+
 pub fn impl_head_specializes(
     ctx: &mut SemaContext<'_>,
     specialized_impl_id: DefId,

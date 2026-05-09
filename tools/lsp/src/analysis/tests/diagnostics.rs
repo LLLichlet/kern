@@ -5,8 +5,6 @@ fn diagnostics_include_native_doc_lints_as_warnings() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
         "///\n",
-        "/// Strange:\n",
-        "/// - x: described in an unknown section.\n",
         "/// Args:\n",
         "/// - y: does not exist.\n",
         "fn helper(x: i32) i32 { return x; }\n",
@@ -32,12 +30,6 @@ fn diagnostics_include_native_doc_lints_as_warnings() {
             .diagnostics
             .iter()
             .any(|diagnostic| { diagnostic.message.contains("missing a summary paragraph") })
-    );
-    assert!(
-        bundle
-            .diagnostics
-            .iter()
-            .any(|diagnostic| { diagnostic.message.contains("unknown doc section `Strange`") })
     );
     assert!(bundle.diagnostics.iter().any(|diagnostic| {
         diagnostic

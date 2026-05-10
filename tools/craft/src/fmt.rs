@@ -50,6 +50,8 @@ pub struct FormatConfig {
     pub line_width: usize,
     pub postfix_chain_threshold: usize,
     pub boolean_chain_threshold: usize,
+    pub function_parameter_threshold: usize,
+    pub call_argument_threshold: usize,
 }
 
 impl Default for FormatConfig {
@@ -58,6 +60,8 @@ impl Default for FormatConfig {
             line_width: 100,
             postfix_chain_threshold: 3,
             boolean_chain_threshold: 3,
+            function_parameter_threshold: 3,
+            call_argument_threshold: 3,
         }
     }
 }
@@ -88,6 +92,22 @@ impl FormatConfig {
             .and_then(|fmt| fmt.boolean_chain_threshold)
         {
             config.boolean_chain_threshold = threshold;
+        }
+        if let Some(threshold) = manifest
+            .craft
+            .as_ref()
+            .and_then(|craft| craft.fmt.as_ref())
+            .and_then(|fmt| fmt.function_parameter_threshold)
+        {
+            config.function_parameter_threshold = threshold;
+        }
+        if let Some(threshold) = manifest
+            .craft
+            .as_ref()
+            .and_then(|craft| craft.fmt.as_ref())
+            .and_then(|fmt| fmt.call_argument_threshold)
+        {
+            config.call_argument_threshold = threshold;
         }
         config
     }
@@ -234,7 +254,13 @@ fn format_source_text_with_config_inner(source: &str, config: FormatConfig) -> S
 
 fn format_line(line: &str, config: FormatConfig) -> String {
     format_postfix_chain(
-        &format_boolean_chain(&format_grouped_use(line, config), config),
+        &format_call_arguments(
+            &format_function_parameters(
+                &format_boolean_chain(&format_grouped_use(line, config), config),
+                config,
+            ),
+            config,
+        ),
         config,
     )
 }
@@ -314,6 +340,94 @@ fn format_boolean_chain(line: &str, config: FormatConfig) -> String {
     out
 }
 
+fn format_function_parameters(line: &str, config: FormatConfig) -> String {
+    let indent_len = line.len() - line.trim_start().len();
+    let indent = &line[..indent_len];
+    let trimmed = line.trim_start();
+    if line.contains('\n')
+        || trimmed.contains("//")
+        || trimmed.contains("/*")
+        || !(trimmed.starts_with("fn ") || trimmed.starts_with("pub/ fn "))
+    {
+        return line.to_string();
+    }
+
+    let Some(open) = find_top_level_char(trimmed, '(') else {
+        return line.to_string();
+    };
+    let Some(close) = find_matching_delimiter(trimmed, open, '(', ')') else {
+        return line.to_string();
+    };
+    let params = split_top_level(trimmed[open + 1..close].trim(), ',');
+    if params.len() < config.function_parameter_threshold && line_width(line) <= config.line_width {
+        return line.to_string();
+    }
+    if params.is_empty() {
+        return line.to_string();
+    }
+
+    let mut out = String::new();
+    out.push_str(indent);
+    out.push_str(trimmed[..open + 1].trim_end());
+    out.push('\n');
+    for param in params {
+        out.push_str(indent);
+        out.push_str("    ");
+        out.push_str(param);
+        out.push_str(",\n");
+    }
+    out.push_str(indent);
+    out.push(')');
+    let suffix = trimmed[close + 1..].trim_start();
+    if !suffix.is_empty() {
+        out.push(' ');
+        out.push_str(suffix);
+    }
+    out
+}
+
+fn format_call_arguments(line: &str, config: FormatConfig) -> String {
+    let indent_len = line.len() - line.trim_start().len();
+    let indent = &line[..indent_len];
+    let trimmed = line.trim_start();
+    if line.contains('\n')
+        || trimmed.contains("//")
+        || trimmed.contains("/*")
+        || !trimmed.ends_with(';')
+        || trimmed.starts_with("fn ")
+        || trimmed.starts_with("pub/ fn ")
+    {
+        return line.to_string();
+    }
+
+    let statement = trimmed[..trimmed.len() - 1].trim_end();
+    let Some(call) = parse_call_arguments(statement) else {
+        return line.to_string();
+    };
+    if call.arguments.len() < config.call_argument_threshold
+        && line_width(line) <= config.line_width
+    {
+        return line.to_string();
+    }
+
+    let mut out = String::new();
+    out.push_str(indent);
+    out.push_str(call.head.trim_end());
+    out.push('(');
+    out.push('\n');
+    for argument in call.arguments {
+        out.push_str(indent);
+        out.push_str("    ");
+        out.push_str(argument);
+        out.push_str(",\n");
+    }
+    out.push_str(indent);
+    out.push(')');
+    out.push_str(call.tail.trim_start());
+    out.push(';');
+    out
+}
+
 fn format_postfix_chain(line: &str, config: FormatConfig) -> String {
     if line.contains('\n') || line.contains("//") || line.contains("/*") {
         return line.to_string();
@@ -359,6 +473,74 @@ struct PostfixChain<'a> {
 struct BooleanChain<'a> {
     operator: &'static str,
     parts: Vec<&'a str>,
+}
+
+struct CallArguments<'a> {
+    head: &'a str,
+    arguments: Vec<&'a str>,
+    tail: &'a str,
+}
+
+fn parse_call_arguments(input: &str) -> Option<CallArguments<'_>> {
+    let (open, close) = find_last_top_level_call(input)?;
+    let args = input[open + 1..close].trim();
+    if args.is_empty() {
+        return None;
+    }
+    let arguments = split_top_level(args, ',');
+    if arguments.is_empty() {
+        return None;
+    }
+    Some(CallArguments {
+        head: &input[..open],
+        arguments,
+        tail: &input[close + 1..],
+    })
+}
+
+fn find_last_top_level_call(input: &str) -> Option<(usize, usize)> {
+    let mut scanner = Scanner::default();
+    let mut candidate = None;
+    let mut index = 0usize;
+    while index < input.len() {
+        let ch = input[index..].chars().next()?;
+        let is_top_level = scanner.is_top_level();
+        if is_top_level
+            && ch == '('
+            && let Some(close) = find_matching_delimiter(input, index, '(', ')')
+            && is_call_head(input, index)
+        {
+            candidate = Some((index, close));
+            scanner = Scanner::default();
+            for (replay_index, replay_ch) in input[..=close].char_indices() {
+                scanner.scan(replay_index, replay_ch);
+            }
+            index = close + 1;
+            continue;
+        }
+
+        if !scanner.scan(index, ch) {
+            index += ch.len_utf8();
+            continue;
+        }
+
+        index += ch.len_utf8();
+    }
+    candidate
+}
+
+fn is_call_head(input: &str, open: usize) -> bool {
+    let before = input[..open].trim_end();
+    let Some(last) = before.chars().next_back() else {
+        return false;
+    };
+    if !(last == ']' || last == ')' || is_ident_continue(last)) {
+        return false;
+    }
+    !before.ends_with("if")
+        && !before.ends_with("while")
+        && !before.ends_with("for")
+        && !before.ends_with("match")
 }
 
 fn parse_boolean_chain(input: &str) -> Option<BooleanChain<'_>> {
@@ -477,6 +659,17 @@ fn find_top_level_assignment(input: &str) -> Option<usize> {
     None
 }
 
+fn find_top_level_char(input: &str, needle: char) -> Option<usize> {
+    let mut scanner = Scanner::default();
+    for (index, ch) in input.char_indices() {
+        if scanner.is_top_level() && ch == needle {
+            return Some(index);
+        }
+        scanner.scan(index, ch);
+    }
+    None
+}
+
 fn parse_postfix_chain(input: &str) -> Option<PostfixChain<'_>> {
     let mut segments = Vec::new();
     let mut receiver_segments = 0usize;
@@ -570,15 +763,14 @@ fn parse_ident(input: &str, start: usize) -> Option<usize> {
 }
 
 fn find_matching_call_end(input: &str, open: usize) -> Option<usize> {
-    let mut scanner = Scanner::default();
-    for (index, ch) in input[open..].char_indices() {
-        let absolute = open + index;
-        scanner.scan(absolute, ch);
-        if absolute > open && scanner.paren_depth == 0 {
-            return Some(absolute + ch.len_utf8());
-        }
-    }
-    None
+    find_matching_delimiter(input, open, '(', ')').map(|close| {
+        close
+            + input[close..]
+                .chars()
+                .next()
+                .map(char::len_utf8)
+                .unwrap_or(0)
+    })
 }
 
 fn previous_byte(input: &str, index: usize) -> Option<u8> {
@@ -600,6 +792,78 @@ fn is_ident_continue(ch: char) -> bool {
 
 fn line_width(line: &str) -> usize {
     line.chars().count()
+}
+
+fn find_matching_delimiter(
+    input: &str,
+    open: usize,
+    open_ch: char,
+    close_ch: char,
+) -> Option<usize> {
+    let mut in_string = false;
+    let mut in_char = false;
+    let mut escape = false;
+    let mut depth = 0usize;
+    for (offset, ch) in input[open..].char_indices() {
+        let index = open + offset;
+        if escape {
+            escape = false;
+            continue;
+        }
+
+        if in_string {
+            match ch {
+                '\\' => escape = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        if in_char {
+            match ch {
+                '\\' => escape = true,
+                '\'' => in_char = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '\'' => in_char = true,
+            _ if ch == open_ch => depth += 1,
+            _ if ch == close_ch => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn split_top_level(input: &str, separator: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut scanner = Scanner::default();
+    let mut start = 0usize;
+    for (index, ch) in input.char_indices() {
+        if scanner.scan(index, ch) && scanner.is_top_level() && ch == separator {
+            let part = input[start..index].trim();
+            if !part.is_empty() {
+                parts.push(part);
+            }
+            start = index + ch.len_utf8();
+        }
+    }
+
+    let tail = input[start..].trim();
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+    parts
 }
 
 #[derive(Debug, Default)]
@@ -797,6 +1061,56 @@ mod tests {
                 "fn main(t: &mut Test) void {\n    plain.&.qualified_name().should_none().sum(@loc(), t);\n}\n"
             ),
             "fn main(t: &mut Test) void {\n    plain.&.qualified_name()\n        .should_none()\n        .sum(@loc(), t);\n}\n"
+        );
+    }
+
+    #[test]
+    fn splits_function_parameters_at_threshold() {
+        assert_eq!(
+            format_source_text(
+                "fn write_all(writer: &mut Write, text: &[u8], offset: usize) void!RenderError {\n}\n"
+            ),
+            "fn write_all(\n    writer: &mut Write,\n    text: &[u8],\n    offset: usize,\n) void!RenderError {\n}\n"
+        );
+    }
+
+    #[test]
+    fn leaves_function_parameters_under_configured_threshold() {
+        let config = FormatConfig {
+            function_parameter_threshold: 4,
+            ..FormatConfig::default()
+        };
+        assert_eq!(
+            format_source_text_with_config(
+                "fn write_all(writer: &mut Write, text: &[u8], offset: usize) void!RenderError {\n}\n",
+                config,
+            ),
+            "fn write_all(writer: &mut Write, text: &[u8], offset: usize) void!RenderError {\n}\n"
+        );
+    }
+
+    #[test]
+    fn splits_call_arguments_at_threshold() {
+        assert_eq!(
+            format_source_text(
+                "fn main() void {\n    print_stats(\"parse\", input_label, #text, iterations, start.elapsed(), sink);\n}\n"
+            ),
+            "fn main() void {\n    print_stats(\n        \"parse\",\n        input_label,\n        #text,\n        iterations,\n        start.elapsed(),\n        sink,\n    );\n}\n"
+        );
+    }
+
+    #[test]
+    fn leaves_call_arguments_under_configured_threshold() {
+        let config = FormatConfig {
+            call_argument_threshold: 4,
+            ..FormatConfig::default()
+        };
+        assert_eq!(
+            format_source_text_with_config(
+                "fn main() void {\n    write_all(writer, text, offset);\n}\n",
+                config,
+            ),
+            "fn main() void {\n    write_all(writer, text, offset);\n}\n"
         );
     }
 

@@ -107,6 +107,12 @@ fn validate_craft_fmt(path: &Path, fmt: &CraftFmtConfig) -> Result<()> {
     if let Some(threshold) = fmt.boolean_chain_threshold {
         validate_fmt_threshold(path, "[craft.fmt].boolean-chain-threshold", threshold)?;
     }
+    if let Some(threshold) = fmt.function_parameter_threshold {
+        validate_fmt_threshold(path, "[craft.fmt].function-parameter-threshold", threshold)?;
+    }
+    if let Some(threshold) = fmt.call_argument_threshold {
+        validate_fmt_threshold(path, "[craft.fmt].call-argument-threshold", threshold)?;
+    }
     Ok(())
 }
 

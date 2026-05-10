@@ -238,6 +238,8 @@ kern = "0.7.5"
 line-width = 88
 postfix-chain-threshold = 4
 boolean-chain-threshold = 2
+function-parameter-threshold = 5
+call-argument-threshold = 6
 "#,
         std::path::Path::new("Craft.toml"),
     )
@@ -247,6 +249,8 @@ boolean-chain-threshold = 2
     assert_eq!(fmt.line_width, Some(88));
     assert_eq!(fmt.postfix_chain_threshold, Some(4));
     assert_eq!(fmt.boolean_chain_threshold, Some(2));
+    assert_eq!(fmt.function_parameter_threshold, Some(5));
+    assert_eq!(fmt.call_argument_threshold, Some(6));
     manifest
         .validate(std::path::Path::new("Craft.toml"))
         .unwrap();

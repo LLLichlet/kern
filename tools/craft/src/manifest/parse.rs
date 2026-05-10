@@ -184,6 +184,12 @@ fn assign_key_value(
                 "boolean-chain-threshold" => {
                     fmt.boolean_chain_threshold = Some(parse_usize(raw_value)?)
                 }
+                "function-parameter-threshold" => {
+                    fmt.function_parameter_threshold = Some(parse_usize(raw_value)?)
+                }
+                "call-argument-threshold" => {
+                    fmt.call_argument_threshold = Some(parse_usize(raw_value)?)
+                }
                 _ => return Err(format!("unsupported [craft.fmt] key `{key}`")),
             }
             Ok(())

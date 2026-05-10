@@ -18,7 +18,12 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             match &*def_ptr {
                 Def::Struct(struct_def) => {
                     for field in &struct_def.fields {
-                        if !field_visibility_allows_access(self.ctx, field, def_id, current_module_id) {
+                        if !field_visibility_allows_access(
+                            self.ctx,
+                            field,
+                            def_id,
+                            current_module_id,
+                        ) {
                             continue;
                         }
 
@@ -42,7 +47,12 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 }
                 Def::Union(union_def) => {
                     for field in &union_def.fields {
-                        if !field_visibility_allows_access(self.ctx, field, def_id, current_module_id) {
+                        if !field_visibility_allows_access(
+                            self.ctx,
+                            field,
+                            def_id,
+                            current_module_id,
+                        ) {
                             continue;
                         }
 

@@ -32,10 +32,10 @@ pub(crate) use self::text::single_server_diagnostic;
 pub(crate) use self::text::uri_to_file_path;
 use self::text::{
     apply_content_change, byte_offset_to_position, completion_context,
-    completion_is_binding_name_context, completion_is_in_comment_or_literal,
-    completion_is_member_access, completion_member_access_has_receiver, completion_prefix,
-    fallback_keyword_completion_labels, file_path_to_uri, has_following_call_paren,
-    is_valid_identifier, keyword_completion_labels, match_position_in_file, normalize_path,
+    completion_is_binding_name_context, completion_is_member_access,
+    completion_member_access_has_receiver, completion_prefix, fallback_keyword_completion_labels,
+    file_path_to_uri, has_following_call_paren, is_valid_identifier, keyword_completion_labels,
+    match_position_in_file, normalize_path, position_is_in_comment_or_literal,
     position_to_byte_offset, span_contains_offset, span_to_range, trim_line_ending,
     uri_to_analysis_path,
 };

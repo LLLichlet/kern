@@ -2,6 +2,25 @@ use super::*;
 use std::collections::BTreeSet;
 
 impl AnalysisEngine {
+    fn semantic_query_offset(
+        &self,
+        uri: &str,
+        position: &Position,
+    ) -> Result<Option<usize>, String> {
+        let Some(target_doc) = self.documents.get(uri) else {
+            return Err("requested semantic query for a document that is not open".to_string());
+        };
+        let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
+        let Some(offset) = position_to_byte_offset(&file, position) else {
+            return Ok(None);
+        };
+        if position_is_in_comment_or_literal(&target_doc.text, offset) {
+            self.record_analysis_tier(AnalysisTier::Lexical);
+            return Ok(None);
+        }
+        Ok(Some(offset))
+    }
+
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<DocumentSymbol>, String> {
         let context = self.resolve_analysis_context(uri)?;
         let surface =
@@ -49,6 +68,9 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<Location>, String> {
+        if self.semantic_query_offset(uri, &position)?.is_none() {
+            return Ok(None);
+        }
         let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
@@ -75,6 +97,9 @@ impl AnalysisEngine {
         position: Position,
         include_declaration: bool,
     ) -> Result<Vec<Location>, String> {
+        if self.semantic_query_offset(uri, &position)?.is_none() {
+            return Ok(Vec::new());
+        }
         let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(Vec::new()),
@@ -102,6 +127,9 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Vec<DocumentHighlight>, String> {
+        if self.semantic_query_offset(uri, &position)?.is_none() {
+            return Ok(Vec::new());
+        }
         let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(Vec::new()),
@@ -124,6 +152,9 @@ impl AnalysisEngine {
     }
 
     pub fn hover(&self, uri: &str, position: Position) -> Result<Option<Hover>, String> {
+        if self.semantic_query_offset(uri, &position)?.is_none() {
+            return Ok(None);
+        }
         let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
@@ -147,6 +178,9 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<SignatureHelp>, String> {
+        let Some(offset) = self.semantic_query_offset(uri, &position)? else {
+            return Ok(None);
+        };
         let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
@@ -155,10 +189,6 @@ impl AnalysisEngine {
             return Err("requested signature help for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
-        let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
-        let Some(offset) = position_to_byte_offset(&file, &position) else {
-            return Ok(None);
-        };
 
         Ok(artifact
             .signature_help(&target_path, offset)
@@ -174,7 +204,7 @@ impl AnalysisEngine {
         let Some(offset) = position_to_byte_offset(&file, &position) else {
             return Ok(Vec::new());
         };
-        if completion_is_in_comment_or_literal(&target_doc.text, offset) {
+        if position_is_in_comment_or_literal(&target_doc.text, offset) {
             self.record_analysis_tier(AnalysisTier::Lexical);
             return Ok(Vec::new());
         }
@@ -263,6 +293,9 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<PrepareRenameResult>, String> {
+        if self.semantic_query_offset(uri, &position)?.is_none() {
+            return Ok(None);
+        }
         let artifact = match self.analyze_interactive_artifact(uri) {
             Ok(artifact) => artifact,
             Err(_) => return Ok(None),
@@ -295,6 +328,9 @@ impl AnalysisEngine {
     ) -> Result<WorkspaceEdit, String> {
         if !is_valid_identifier(new_name) {
             return Err(format!("`{}` is not a valid Kern identifier", new_name));
+        }
+        if self.semantic_query_offset(uri, &position)?.is_none() {
+            return Err("rename target is not a supported identifier".to_string());
         }
 
         let artifact = self

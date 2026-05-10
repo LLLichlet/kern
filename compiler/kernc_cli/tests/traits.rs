@@ -1028,7 +1028,10 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("operator `==` is not available"), "{stderr}");
+    assert!(
+        stderr.contains("operator `==` is not available"),
+        "{stderr}"
+    );
     assert!(stderr.contains("Eq[Token]"), "{stderr}");
 }
 

@@ -3,6 +3,7 @@
 mod compiler;
 mod doc;
 mod frontend;
+mod language;
 mod loader;
 mod metadata;
 

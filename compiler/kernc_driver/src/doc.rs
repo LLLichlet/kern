@@ -1,3 +1,4 @@
+use crate::language::is_language_builtin_def;
 use kernc_ast as ast;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, FunctionDef, ImplDef};
@@ -113,7 +114,7 @@ pub fn lint_docs(ctx: &mut SemaContext<'_>) {
     let mut warnings = Vec::new();
 
     for def in &ctx.defs {
-        if is_language_builtin_doc_def(ctx, def) {
+        if is_language_builtin_def(ctx, def) {
             continue;
         }
 
@@ -308,7 +309,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
     let mut items = Vec::new();
 
     for def in &ctx.defs {
-        if is_language_builtin_doc_def(ctx, def) {
+        if is_language_builtin_def(ctx, def) {
             continue;
         }
 
@@ -492,51 +493,6 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
 
     items.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path).then(lhs.kind.cmp(&rhs.kind)));
     items
-}
-
-fn is_language_builtin_doc_def(ctx: &SemaContext<'_>, def: &Def) -> bool {
-    match def {
-        Def::Function(function) => {
-            function.is_intrinsic
-                || function
-                    .parent
-                    .is_some_and(|parent| is_language_builtin_impl(ctx, parent))
-        }
-        Def::Trait(def) => def.is_builtin,
-        Def::AssociatedType(def) => {
-            def.parent_trait
-                .is_some_and(|parent| is_builtin_trait(ctx, parent))
-                || def
-                    .parent_impl
-                    .is_some_and(|parent| is_language_builtin_impl(ctx, parent))
-        }
-        Def::Impl(def) => is_language_builtin_impl(ctx, def.id),
-        _ => false,
-    }
-}
-
-fn is_language_builtin_impl(ctx: &SemaContext<'_>, impl_id: DefId) -> bool {
-    let Def::Impl(def) = &ctx.defs[impl_id.0 as usize] else {
-        return false;
-    };
-    let Some(trait_type) = &def.trait_type else {
-        return false;
-    };
-    let Some(kernc_sema::ty::TypeKind::TraitObject(trait_id, _, _)) = ctx
-        .node_type(trait_type.id)
-        .map(|ty| ctx.type_registry.get(ctx.type_registry.normalize(ty)))
-    else {
-        return false;
-    };
-
-    is_builtin_trait(ctx, *trait_id)
-}
-
-fn is_builtin_trait(ctx: &SemaContext<'_>, trait_id: DefId) -> bool {
-    matches!(
-        &ctx.defs[trait_id.0 as usize],
-        Def::Trait(def) if def.is_builtin
-    )
 }
 
 pub fn render_kmeta_docs_toml(items: &[KmetaDocItem]) -> String {

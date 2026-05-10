@@ -1099,6 +1099,105 @@ fn signature_help_resolves_function_parameters_and_active_argument() {
 }
 
 #[test]
+fn semantic_position_queries_skip_comments_and_literals() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper(first: i32) i32 { return first; }\n",
+        "fn main() i32 {\n",
+        "    // helper(1)\n",
+        "    let text = \"helper(1)\";\n",
+        "    return helper(1);\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("semantic_queries_skip_text_contexts", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    analysis.parse_cache.borrow_mut().clear();
+    analysis.surface_cache.borrow_mut().clear();
+    analysis.structure_cache.borrow_mut().clear();
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let comment_position = position_of_nth(source, "helper(1)", 0, 1);
+    assert!(
+        analysis
+            .hover(&uri, comment_position.clone())
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+    assert!(analysis.artifact_cache.borrow().is_empty());
+
+    analysis.clear_last_analysis_tier();
+    assert!(
+        analysis
+            .goto_definition(&uri, comment_position.clone())
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+    assert!(analysis.artifact_cache.borrow().is_empty());
+
+    analysis.clear_last_analysis_tier();
+    assert!(
+        analysis
+            .references(&uri, comment_position.clone(), true)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+    assert!(analysis.artifact_cache.borrow().is_empty());
+
+    analysis.clear_last_analysis_tier();
+    assert!(
+        analysis
+            .document_highlights(&uri, comment_position.clone())
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+    assert!(analysis.artifact_cache.borrow().is_empty());
+
+    analysis.clear_last_analysis_tier();
+    assert!(
+        analysis
+            .prepare_rename(&uri, comment_position.clone())
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+    assert!(analysis.artifact_cache.borrow().is_empty());
+
+    analysis.clear_last_analysis_tier();
+    assert_eq!(
+        analysis
+            .rename(&uri, comment_position, "assist")
+            .unwrap_err(),
+        "rename target is not a supported identifier"
+    );
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+    assert!(analysis.artifact_cache.borrow().is_empty());
+
+    analysis.clear_last_analysis_tier();
+    let literal_position = position_of_nth(source, "helper(1)", 1, 8);
+    assert!(
+        analysis
+            .signature_help(&uri, literal_position)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+    assert!(analysis.artifact_cache.borrow().is_empty());
+}
+
+#[test]
 fn hover_resolves_local_definition_without_references() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn main() i32 {\n    let value = i32.{1};\n    return 0;\n}\n";

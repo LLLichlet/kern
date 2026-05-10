@@ -838,15 +838,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         let fields = s
                             .fields
                             .iter()
-                            .map(|field| {
-                                StructLiteralFieldInfo {
-                                    name: field.name,
-                                    ty: self.ctx.node_type_or_error(field.type_node.id),
-                                    has_default: field.default_value.is_some(),
-                                    definition_span: Some(field.name_span),
-                                    vis: Some(field.vis),
-                                    owner_def: Some(*def_id),
-                                }
+                            .map(|field| StructLiteralFieldInfo {
+                                name: field.name,
+                                ty: self.ctx.node_type_or_error(field.type_node.id),
+                                has_default: field.default_value.is_some(),
+                                definition_span: Some(field.name_span),
+                                vis: Some(field.vis),
+                                owner_def: Some(*def_id),
                             })
                             .collect();
                         (
@@ -861,15 +859,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         let fields = u
                             .fields
                             .iter()
-                            .map(|field| {
-                                StructLiteralFieldInfo {
-                                    name: field.name,
-                                    ty: self.ctx.node_type_or_error(field.type_node.id),
-                                    has_default: false,
-                                    definition_span: Some(field.name_span),
-                                    vis: Some(field.vis),
-                                    owner_def: Some(*def_id),
-                                }
+                            .map(|field| StructLiteralFieldInfo {
+                                name: field.name,
+                                ty: self.ctx.node_type_or_error(field.type_node.id),
+                                has_default: false,
+                                definition_span: Some(field.name_span),
+                                vis: Some(field.vis),
+                                owner_def: Some(*def_id),
                             })
                             .collect();
                         (

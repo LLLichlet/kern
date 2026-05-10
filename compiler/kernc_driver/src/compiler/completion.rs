@@ -12,6 +12,7 @@ use self::facts::{
 };
 use self::model::push_completion_item;
 use super::{AnalysisCompletionItem, AnalysisCompletionKind, CompilerDriver};
+use crate::language::is_language_builtin_def_id;
 use kernc_ast as ast;
 use kernc_sema::def::DefId;
 use kernc_sema::{MemberCandidate, MemberQuery, MemberQueryEnv, SemaContext};
@@ -289,7 +290,10 @@ impl CompilerDriver {
         name: kernc_utils::SymbolId,
         info: &kernc_sema::scope::SymbolInfo,
     ) -> Option<AnalysisCompletionItem> {
-        if is_language_builtin_completion_symbol(ctx, info) {
+        if info
+            .def_id
+            .is_some_and(|def_id| is_language_builtin_def_id(ctx, def_id))
+        {
             return None;
         }
 
@@ -408,7 +412,10 @@ impl CompilerDriver {
         ctx: &SemaContext<'_>,
         candidate: MemberCandidate,
     ) -> Option<AnalysisCompletionItem> {
-        if is_language_builtin_member_candidate(ctx, &candidate) {
+        if candidate
+            .def_id
+            .is_some_and(|def_id| is_language_builtin_def_id(ctx, def_id))
+        {
             return None;
         }
 
@@ -473,47 +480,6 @@ impl CompilerDriver {
             detail,
             insert_text: candidate_completion_insert_text(ctx, &candidate),
         })
-    }
-}
-
-fn is_language_builtin_member_candidate(
-    ctx: &SemaContext<'_>,
-    candidate: &MemberCandidate,
-) -> bool {
-    let Some(def_id) = candidate.def_id else {
-        return false;
-    };
-
-    match &ctx.defs[def_id.0 as usize] {
-        kernc_sema::def::Def::Function(function) => function.is_intrinsic,
-        kernc_sema::def::Def::AssociatedType(def) => def.parent_trait.is_some_and(|trait_id| {
-            matches!(
-                &ctx.defs[trait_id.0 as usize],
-                kernc_sema::def::Def::Trait(trait_def) if trait_def.is_builtin
-            )
-        }),
-        _ => false,
-    }
-}
-
-fn is_language_builtin_completion_symbol(
-    ctx: &SemaContext<'_>,
-    info: &kernc_sema::scope::SymbolInfo,
-) -> bool {
-    let Some(def_id) = info.def_id else {
-        return false;
-    };
-
-    match &ctx.defs[def_id.0 as usize] {
-        kernc_sema::def::Def::Function(function) => function.is_intrinsic,
-        kernc_sema::def::Def::Trait(def) => def.is_builtin,
-        kernc_sema::def::Def::AssociatedType(def) => def.parent_trait.is_some_and(|trait_id| {
-            matches!(
-                &ctx.defs[trait_id.0 as usize],
-                kernc_sema::def::Def::Trait(trait_def) if trait_def.is_builtin
-            )
-        }),
-        _ => false,
     }
 }
 

@@ -470,7 +470,7 @@ pub(super) fn completion_member_access_has_receiver(text: &str, offset: usize) -
         .is_some()
 }
 
-pub(super) fn completion_is_in_comment_or_literal(text: &str, offset: usize) -> bool {
+pub(super) fn position_is_in_comment_or_literal(text: &str, offset: usize) -> bool {
     let bytes = text.as_bytes();
     let end = offset.min(bytes.len());
     let mut index = 0;

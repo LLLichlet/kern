@@ -310,6 +310,31 @@ ordinary argument only because that shape existed first. If shared
 implementation is needed, put it behind a private or parent-private helper and
 expose one ordinary method-shaped path to users.
 
+Keep module-level functions for constructors, loaders, global state, and
+operations without one honest receiver. Once a value exists, let that value be
+the action surface:
+
+```kern
+let shader = shaders.load_shader("sprite.vs\0", "sprite.fs\0");
+defer shader.unload();
+
+let source = "<root><item/></root>";
+source.validate(gpa).!;
+let index = source.build_index(gpa).!..&;
+defer index.deinit(gpa);
+```
+
+This keeps public APIs searchable from the domain object a caller already has:
+`font.measure(...)`, `path.file_exists()`, `stream.drain_into(sink)`,
+`event.render_to(writer)`, and `index.first_child_named(...)` are clearer than a
+module full of same-shaped helpers that all repeat the receiver as their first
+argument.
+
+Do not preserve old wrapper names just for compatibility before a package has
+made a stability promise. A pre-1.0 package should choose the fluent API shape
+directly and remove the duplicate public path, so generated docs and completion
+show one idiomatic route.
+
 For resources, prefer an owned handle that carries the metadata needed to release
 it. Do not expose paired public helpers that require the caller to remember an
 original slice, layout, or length just to free the resource:

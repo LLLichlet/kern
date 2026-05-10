@@ -6,7 +6,11 @@ struct Point {
     y: i32,
 };
 
-fn translate(point: Point, dx: i32, dy: i32) Point {
+fn translate(
+    point: Point,
+    dx: i32,
+    dy: i32,
+) Point {
     return .{
         x: point.x + dx,
         y: point.y + dy,

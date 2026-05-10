@@ -6,7 +6,7 @@
 
 use base.hash.Hash;
 use base.mem.{Layout, array_layout_of};
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 use base.num.USIZE_MAX;
 use ..base.{
     EMPTY,
@@ -66,13 +66,15 @@ impl[K, V] &mut Map[K, V]
     }
 
     /// Allocates a raw table with empty control bytes.
-    fn alloc_table(alloc: &mut Allocator, capacity: usize) ?Table[K, V] {
-        let .{ Some: ctrl_layout } = array_layout_of[u8](capacity) else return .None;
-        let .{ Some: entries_layout } = array_layout_of[Entry[K, V]](capacity) else return .None;
+    fn alloc_table(alloc: &mut Allocator, capacity: usize) Table[K, V]!AllocError {
+        let .{ Some: ctrl_layout } = array_layout_of[u8](capacity)
+            else return .{ Err: .CapacityOverflow };
+        let .{ Some: entries_layout } = array_layout_of[Entry[K, V]](capacity)
+            else return .{ Err: .CapacityOverflow };
         let .{ Some: entries_offset } = self.align_up(ctrl_layout.size, entries_layout.align)
-            else return .None;
+            else return .{ Err: .CapacityOverflow };
         if (entries_layout.size > USIZE_MAX - entries_offset) {
-            return .None;
+            return .{ Err: .CapacityOverflow };
         }
         let total_size = entries_offset + entries_layout.size;
         let layout = Layout.{
@@ -80,13 +82,13 @@ impl[K, V] &mut Map[K, V]
             align: self.max_usize(ctrl_layout.align, entries_layout.align),
         };
 
-        let .{ Some: storage } = alloc.alloc(layout) else return .None;
+        let .{ Some: storage } = alloc.alloc(layout) else return .{ Err: .OutOfMemory };
         let ctrl = storage;
         let entries = ((storage as usize) + entries_offset).as_mut_ptr[Entry[K, V]]();
         @memset(ctrl, EMPTY, capacity);
 
         return .{
-            Some: Table[K, V].{
+            Ok: Table[K, V].{
                 ctrl: ctrl,
                 entries: entries,
                 capacity: capacity,
@@ -152,10 +154,10 @@ impl[K, V] &mut Map[K, V]
     }
 
     /// Rebuilds the table into a new allocation and drops tombstones.
-    fn rebuild(alloc: &mut Allocator, requested_capacity: usize) bool {
+    fn rebuild(alloc: &mut Allocator, requested_capacity: usize) void!AllocError {
         let new_capacity =
             if (requested_capacity < MIN_CAPACITY) MIN_CAPACITY else requested_capacity;
-        let .{ Some: table } = self.alloc_table(alloc, new_capacity) else return false;
+        let table = self.alloc_table(alloc, new_capacity).!;
 
         let mut i = usize.{0};
         while (i < self.capacity) {
@@ -174,7 +176,7 @@ impl[K, V] &mut Map[K, V]
                 entry.value,
             )) {
                 self.free_table(alloc, table.ctrl, table.capacity);
-                return false;
+                return .{ Err: .CapacityOverflow };
             }
 
             i += 1;
@@ -185,29 +187,30 @@ impl[K, V] &mut Map[K, V]
         self.entries = table.entries;
         self.capacity = table.capacity;
         self.tombstones = 0;
-        return true;
+        return .{ Ok: {} };
     }
 
     /// Ensures room for `additional` new live entries.
     ///
     /// Passing `0` means "keep the current length but compact tombstones away".
-    fn reserve_internal(alloc: &mut Allocator, additional: usize) bool {
+    fn reserve_internal(alloc: &mut Allocator, additional: usize) void!AllocError {
         if (additional == 0) {
-            if (self.capacity == 0) return true;
-            if (self.tombstones == 0) return true;
+            if (self.capacity == 0) return .{ Ok: {} };
+            if (self.tombstones == 0) return .{ Ok: {} };
             return self.rebuild(alloc, self.capacity);
         }
 
         if (additional > USIZE_MAX - self.len()) {
-            return false;
+            return .{ Err: .CapacityOverflow };
         }
 
         let required_len = self.len() + additional;
         let required_occupied = required_len + self.tombstones;
-        let .{ Some: target } = self.capacity_for_len(required_occupied) else return false;
+        let .{ Some: target } = self.capacity_for_len(required_occupied)
+            else return .{ Err: .CapacityOverflow };
 
         if (target == self.capacity and self.tombstones == 0) {
-            return true;
+            return .{ Ok: {} };
         }
 
         return self.rebuild(alloc, target);
@@ -267,103 +270,102 @@ impl[K, V] &mut Map[K, V]
     }
 
     /// Reserves space for at least `additional` new entries.
-    pub fn reserve(alloc: &mut Allocator, additional: usize) bool {
+    pub fn try_reserve(alloc: &mut Allocator, additional: usize) void!AllocError {
         return self.reserve_internal(alloc, additional);
     }
 
     /// Rebuilds the table to remove tombstones without changing the target length.
-    pub fn compact(alloc: &mut Allocator) bool {
+    pub fn try_compact(alloc: &mut Allocator) void!AllocError {
         return self.reserve_internal(alloc, 0);
     }
 
     /// Shrinks table capacity toward the current number of entries.
-    pub fn shrink_to_fit(alloc: &mut Allocator) bool {
+    pub fn try_shrink_to_fit(alloc: &mut Allocator) void!AllocError {
         if (self.len() == 0) {
             self.deinit(alloc);
-            return true;
+            return .{ Ok: {} };
         }
 
-        let .{ Some: target } = self.capacity_for_len(self.len()) else return false;
+        let .{ Some: target } = self.capacity_for_len(self.len())
+            else return .{ Err: .CapacityOverflow };
 
         if (target == self.capacity and self.tombstones == 0) {
-            return true;
+            return .{ Ok: {} };
         }
 
         return self.rebuild(alloc, target);
     }
 
     /// Inserts or replaces a key-value pair.
-    pub fn insert(alloc: &mut Allocator, key: K, value: V) bool {
+    pub fn try_insert(alloc: &mut Allocator, key: K, value: V) void!AllocError {
         let hash = key_hash(key);
         if (self.capacity > 0) {
             match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
                 .{ Some: index } => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     entry.value = value;
-                    return true;
+                    return .{ Ok: {} };
                 }
                 .None => {}
             }
         }
 
-        if (!self.reserve_internal(alloc, 1)) {
-            return false;
-        }
+        self.reserve_internal(alloc, 1).!;
 
         // Reserve may rebuild, so the insertion slot must be chosen afterwards.
-        let .{ Some: slot } = self.find_insert_slot(hash) else return false;
+        let .{ Some: slot } = self.find_insert_slot(hash) else return .{ Err: .CapacityOverflow };
         _ = self.write_slot(
             slot,
             hash,
             key,
             value,
         );
-        return true;
+        return .{ Ok: {} };
     }
 
     /// Returns a mutable pointer to the existing value or inserts `value`.
-    pub fn get_or_insert(alloc: &mut Allocator, key: K, value: V) ?&mut V {
+    pub fn try_get_or_insert(alloc: &mut Allocator, key: K, value: V) (&mut V)!AllocError {
         let hash = key_hash(key);
         if (self.capacity > 0) {
             match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
                 .{ Some: index } => {
                     let entry = entry_ptr[K, V](self.entries, index);
-                    return .{ Some: entry.value..& };
+                    return .{ Ok: entry.value..& };
                 }
                 .None => {}
             }
         }
 
-        if (!self.reserve_internal(alloc, 1)) {
-            return .None;
-        }
+        self.reserve_internal(alloc, 1).!;
 
         // The table shape may have changed during reserve.
-        let .{ Some: slot } = self.find_insert_slot(hash) else return .None;
-        return .{ Some: self.write_slot(slot, hash, key, value) };
+        let .{ Some: slot } = self.find_insert_slot(hash) else return .{ Err: .CapacityOverflow };
+        return .{ Ok: self.write_slot(slot, hash, key, value) };
     }
 
     /// Returns a mutable pointer to the existing value or inserts a lazily created one.
-    pub fn get_or_insert_with(alloc: &mut Allocator, key: K, make_value: &Fn() V) ?&mut V {
+    pub fn try_get_or_insert_with(
+        alloc: &mut Allocator,
+        key: K,
+        make_value: &Fn() V,
+    ) (&mut V)!AllocError {
         let hash = key_hash(key);
         if (self.capacity > 0) {
             match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
                 .{ Some: index } => {
                     let entry = entry_ptr[K, V](self.entries, index);
-                    return .{ Some: entry.value..& };
+                    return .{ Ok: entry.value..& };
                 }
                 .None => {}
             }
         }
 
-        if (!self.reserve_internal(alloc, 1)) {
-            return .None;
-        }
+        self.reserve_internal(alloc, 1).!;
 
         let value = make_value();
         // The lazily produced value is written only after capacity is secured.
-        let .{ Some: slot } = self.find_insert_slot(hash) else return .None;
-        return .{ Some: self.write_slot(slot, hash, key, value) };
+        let .{ Some: slot } = self.find_insert_slot(hash) else return .{ Err: .CapacityOverflow };
+        return .{ Ok: self.write_slot(slot, hash, key, value) };
     }
 
     /// Returns a mutable pointer to the value stored for `key`.

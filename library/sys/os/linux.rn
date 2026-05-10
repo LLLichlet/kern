@@ -413,9 +413,9 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
 
     let wrapped = String.{}..&;
     defer wrapped.deinit(alloc);
-    if (!wrapped.push_str(alloc, "(")
-        or !wrapped.push_str(alloc, command)
-        or !wrapped.push_str(alloc, ") 2>&1"))
+    if (wrapped.try_push_str(alloc, "(").is_err()
+        or wrapped.try_push_str(alloc, command).is_err()
+        or wrapped.try_push_str(alloc, ") 2>&1").is_err())
     {
         return .{ Err: .{ code: 12 } };
     }
@@ -503,7 +503,7 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
         if (read == 0) {
             break;
         }
-        if (!output.push_str(alloc, chunk.&[0 .. read])) {
+        if (output.try_push_str(alloc, chunk.&[0 .. read]).is_err()) {
             _ = close_file(read_end);
             output.deinit(alloc);
             let mut raw_status = i32.{0};

@@ -6,7 +6,7 @@
 use sys.os;
 use base.coll.{List, String};
 use base.mem.array_layout_of;
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 use base.num;
 use ..types.{Error, FileType, DirEntry, Path};
 use ..path.{is_path_separator, root_prefix_len, trim_trailing_separators, build_child_path};
@@ -55,21 +55,17 @@ impl &mut DirEntries {
         return self.raw..&.as_mut_slice();
     }
 
-    fn reserve(
+    fn try_reserve(
         alloc: &mut Allocator,
         entry_count: usize,
         name_bytes: usize,
-    ) bool {
-        if (!self.raw..&.reserve_exact(alloc, entry_count)) {
-            return false;
-        }
+    ) void!AllocError {
+        self.raw..&.try_reserve_exact(alloc, entry_count).!;
         if (name_bytes > self.names.&.capacity()) {
             let additional = name_bytes - self.names.&.len();
-            if (!self.names..&.reserve(alloc, additional)) {
-                return false;
-            }
+            self.names..&.try_reserve(alloc, additional).!;
         }
-        return true;
+        return .{ Ok: {} };
     }
 
     fn can_push_reserved(name_len: usize) bool {
@@ -79,20 +75,16 @@ impl &mut DirEntries {
         return needed <= self.names.&.capacity();
     }
 
-    fn push_copy_reserved(alloc: &mut Allocator, entry: DirEntry) bool {
+    fn push_copy_reserved(alloc: &mut Allocator, entry: DirEntry) void!AllocError {
         if (!self.can_push_reserved(#entry.name)) {
-            return false;
+            return .{ Err: .CapacityOverflow };
         }
         let start = self.names.&.len();
-        if (!self.names..&.push_str(alloc, entry.name)) {
-            return false;
-        }
+        self.names..&.try_push_str(alloc, entry.name).!;
         let end = self.names.&.len();
         let name = self.names.&.as_str().&[start .. end];
-        if (!self.raw..&.push(alloc, OwnedDirEntry.{ name: name, file_type: entry.file_type() })) {
-            return false;
-        }
-        return true;
+        self.raw..&.try_push(alloc, OwnedDirEntry.{ name: name, file_type: entry.file_type() }).!;
+        return .{ Ok: {} };
     }
 }
 
@@ -115,6 +107,10 @@ impl &DirEntries {
 
 fn wrap_os_error(err: os.Error) Error {
     return .{ Os: err };
+}
+
+fn wrap_alloc_error(_: AllocError) Error {
+    return .OutOfMemory;
 }
 
 fn already_exists_is_false_if_dir(
@@ -320,17 +316,17 @@ fn read_dir_entries_into(
         return .{ Err: .OutOfMemory };
     }
 
-    if (!entries.reserve(alloc, entry_count, name_bytes)) {
-        return .{ Err: .OutOfMemory };
-    }
+    entries.try_reserve(alloc, entry_count, name_bytes).map_err(wrap_alloc_error).!;
 
     let mut copy_err = ?Error.None;
     let copy = [alloc, entries, copy_err = copy_err..&](entry: DirEntry) bool {
-        if (!entries.push_copy_reserved(alloc, entry)) {
-            copy_err.* = .{ Some: .OutOfMemory };
-            return false;
+        match (entries.push_copy_reserved(alloc, entry)) {
+            .{ Ok: _ } => return true,
+            .{ Err: err } => {
+                copy_err.* = .{ Some: wrap_alloc_error(err) };
+                return false;
+            },
         }
-        return true;
     };
 
     let visited = match (read_dir(alloc, path, copy)) {

@@ -13,26 +13,6 @@ pub/ struct String {
 };
 
 impl &mut String {
-    /// Appends a single byte.
-    pub fn push_char(alloc: &mut Allocator, c: u8) bool {
-        return self.raw..&.push(alloc, c);
-    }
-
-    /// Appends a byte slice.
-    pub fn push_str(alloc: &mut Allocator, text: &[u8]) bool {
-        return self.raw..&.append_slice(alloc, text);
-    }
-
-    /// Appends `count` copies of `byte`.
-    pub fn push_repeat(alloc: &mut Allocator, byte: u8, count: usize) bool {
-        return self.raw..&.append_repeat(alloc, byte, count);
-    }
-
-    /// Appends another string.
-    pub fn push_string(alloc: &mut Allocator, other: &String) bool {
-        return self.push_str(alloc, other.as_str());
-    }
-
     /// Inserts a single byte at `index`.
     pub fn insert_char(alloc: &mut Allocator, index: usize, byte: u8) bool {
         return self.raw..&.insert(alloc, index, byte);
@@ -48,31 +28,9 @@ impl &mut String {
         return self.insert_str(alloc, index, other.as_str());
     }
 
-    /// Replaces the contents of the string with `text`.
-    pub fn clone_from(alloc: &mut Allocator, text: &[u8]) bool {
-        self.clear();
-        return self.push_str(alloc, text);
-    }
-
-    /// Replaces the contents of the string with `text`, using exact growth when needed.
-    pub fn clone_from_exact(alloc: &mut Allocator, text: &[u8]) bool {
-        self.clear();
-        return self.raw..&.append_slice_exact(alloc, text);
-    }
-
-    /// Replaces the contents of the string with another string.
-    pub fn clone_from_string(alloc: &mut Allocator, other: &String) bool {
-        return self.clone_from(alloc, other.as_str());
-    }
-
     /// Returns a mutable byte slice view.
     pub fn as_mut_bytes() &mut [u8] {
         return self.raw..&.as_mut_slice();
-    }
-
-    /// Reserves space for at least `additional` more bytes.
-    pub fn reserve(alloc: &mut Allocator, additional: usize) bool {
-        return self.raw..&.reserve(alloc, additional);
     }
 
     /// Reserves space and reports whether overflow or allocation failed.
@@ -90,22 +48,36 @@ impl &mut String {
         return self.raw..&.try_append_slice(alloc, text);
     }
 
-    /// Grows the string by `count` bytes and returns the appended region.
-    ///
-    /// Design:
-    /// callers must write valid initialized bytes into the returned slice.
-    pub fn append_uninit(alloc: &mut Allocator, count: usize) ?&mut [u8] {
-        return self.raw..&.append_uninit(alloc, count);
+    /// Appends `count` copies of `byte` or returns a structured allocation error.
+    pub fn try_push_repeat(alloc: &mut Allocator, byte: u8, count: usize) void!AllocError {
+        return self.raw..&.try_append_repeat(alloc, byte, count);
+    }
+
+    /// Appends another string or returns a structured allocation error.
+    pub fn try_push_string(alloc: &mut Allocator, other: &String) void!AllocError {
+        return self.try_push_str(alloc, other.as_str());
+    }
+
+    /// Replaces the contents of the string with `text`.
+    pub fn try_clone_from(alloc: &mut Allocator, text: &[u8]) void!AllocError {
+        self.clear();
+        return self.try_push_str(alloc, text);
+    }
+
+    /// Replaces the contents of the string with `text`, using exact growth when needed.
+    pub fn try_clone_from_exact(alloc: &mut Allocator, text: &[u8]) void!AllocError {
+        self.clear();
+        return self.raw..&.try_append_slice_exact(alloc, text);
+    }
+
+    /// Replaces the contents of the string with another string.
+    pub fn try_clone_from_string(alloc: &mut Allocator, other: &String) void!AllocError {
+        return self.try_clone_from(alloc, other.as_str());
     }
 
     /// Grows the string and returns the appended range or an allocation error.
     pub fn try_append_uninit(alloc: &mut Allocator, count: usize) (&mut [u8])!AllocError {
         return self.raw..&.try_append_uninit(alloc, count);
-    }
-
-    /// Grows the string by `count` bytes using exact growth when needed.
-    pub fn append_uninit_exact(alloc: &mut Allocator, count: usize) ?&mut [u8] {
-        return self.raw..&.append_uninit_exact(alloc, count);
     }
 
     /// Grows the string exactly and returns the appended range or an allocation error.
@@ -127,8 +99,8 @@ impl &mut String {
     }
 
     /// Shrinks capacity down to the current length.
-    pub fn shrink_to_fit(alloc: &mut Allocator) bool {
-        return self.raw..&.shrink_to_fit(alloc);
+    pub fn try_shrink_to_fit(alloc: &mut Allocator) void!AllocError {
+        return self.raw..&.try_shrink_to_fit(alloc);
     }
 
     /// Releases the backing allocation.

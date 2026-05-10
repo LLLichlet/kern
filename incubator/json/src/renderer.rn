@@ -21,12 +21,20 @@ struct CompactProgress {
     written: usize,
 };
 
-fn write_byte_unchecked(out: &mut [u8], offset: usize, value: u8) usize {
+fn write_byte_unchecked(
+    out: &mut [u8],
+    offset: usize,
+    value: u8,
+) usize {
     out.[offset] = value;
     return offset + 1;
 }
 
-fn write_bytes_unchecked(out: &mut [u8], offset: usize, text: &[u8]) usize {
+fn write_bytes_unchecked(
+    out: &mut [u8],
+    offset: usize,
+    text: &[u8],
+) usize {
     let end = offset + #text;
     _ = out..&[offset .. end].copy_from(text);
     return end;
@@ -64,7 +72,11 @@ fn compact_owned_string_size(text: &[u8]) usize {
     return written;
 }
 
-fn write_escaped_byte_unchecked(out: &mut [u8], offset: usize, byte: u8) usize {
+fn write_escaped_byte_unchecked(
+    out: &mut [u8],
+    offset: usize,
+    byte: u8,
+) usize {
     if (byte == b'"') {
         let offset = write_byte_unchecked(out, offset, b'\\');
         return write_byte_unchecked(out, offset, b'"');
@@ -104,7 +116,11 @@ fn write_escaped_byte_unchecked(out: &mut [u8], offset: usize, byte: u8) usize {
     return write_byte_unchecked(out, offset, byte);
 }
 
-fn write_escaped_string_unchecked(out: &mut [u8], offset: usize, text: &[u8]) usize {
+fn write_escaped_string_unchecked(
+    out: &mut [u8],
+    offset: usize,
+    text: &[u8],
+) usize {
     let mut written = write_byte_unchecked(out, offset, b'"');
     let mut i = usize.{0};
     while (i < #text) {
@@ -155,7 +171,11 @@ fn compact_owned_object_size(object: &OwnedObject) usize {
     return written;
 }
 
-fn render_owned_array_unchecked(array: &OwnedArray, out: &mut [u8], offset: usize) usize {
+fn render_owned_array_unchecked(
+    array: &OwnedArray,
+    out: &mut [u8],
+    offset: usize,
+) usize {
     let mut written = write_byte_unchecked(out, offset, b'[');
     let items = array.items.&.as_slice();
     if (#items == 0) {
@@ -172,7 +192,11 @@ fn render_owned_array_unchecked(array: &OwnedArray, out: &mut [u8], offset: usiz
     return write_byte_unchecked(out, written, b']');
 }
 
-fn render_owned_object_unchecked(object: &OwnedObject, out: &mut [u8], offset: usize) usize {
+fn render_owned_object_unchecked(
+    object: &OwnedObject,
+    out: &mut [u8],
+    offset: usize,
+) usize {
     let mut written = write_byte_unchecked(out, offset, b'{');
     let entries = object.entries.&.as_slice();
     if (#entries == 0) {
@@ -195,7 +219,11 @@ fn render_owned_object_unchecked(object: &OwnedObject, out: &mut [u8], offset: u
     return write_byte_unchecked(out, written, b'}');
 }
 
-fn render_owned_compact_inner_unchecked(value: &mut OwnedValue, out: &mut [u8], offset: usize) usize {
+fn render_owned_compact_inner_unchecked(
+    value: &mut OwnedValue,
+    out: &mut [u8],
+    offset: usize,
+) usize {
     return match (value.*) {
         .Null => write_bytes_unchecked(out, offset, "null"),
         .{ Bool: bool_value } => if (bool_value) {

@@ -9,7 +9,12 @@ use base.mem.alloc.Allocator;
 use ..ansi;
 use ..{Editor, NO_NAME, TextBuffer, WindowRect};
 
-fn push_truncated(out: &mut String, alloc: &mut Allocator, text: &[u8], remaining: &mut usize) bool {
+fn push_truncated(
+    out: &mut String,
+    alloc: &mut Allocator,
+    text: &[u8],
+    remaining: &mut usize,
+) bool {
     if (remaining.* == 0) {
         return true;
     }
@@ -18,14 +23,19 @@ fn push_truncated(out: &mut String, alloc: &mut Allocator, text: &[u8], remainin
     if (limit == 0) {
         return true;
     }
-    if (!out.push_str(alloc, text.&[0 .. limit])) {
+    if (!out.try_push_str(alloc, text.&[0 .. limit]).is_ok()) {
         return false;
     }
     remaining.* -= limit;
     return true;
 }
 
-fn push_rendered_line(out: &mut String, alloc: &mut Allocator, text: &[u8], max_cols: usize) bool {
+fn push_rendered_line(
+    out: &mut String,
+    alloc: &mut Allocator,
+    text: &[u8],
+    max_cols: usize,
+) bool {
     let mut used = usize.{0};
     let mut i = usize.{0};
     while (i < #text and used < max_cols) {
@@ -37,7 +47,7 @@ fn push_rendered_line(out: &mut String, alloc: &mut Allocator, text: &[u8], max_
             }
             let mut j = usize.{0};
             while (j < fill) {
-                if (!out.push_char(alloc, b' ')) {
+                if (!out.try_push_char(alloc, b' ').is_ok()) {
                     return false;
                 }
                 j += 1;
@@ -48,7 +58,7 @@ fn push_rendered_line(out: &mut String, alloc: &mut Allocator, text: &[u8], max_
         }
 
         let shown = if (byte < 32 and byte != b' ') { b'?' } else byte;
-        if (!out.push_char(alloc, shown)) {
+        if (!out.try_push_char(alloc, shown).is_ok()) {
             return false;
         }
         used += 1;
@@ -74,7 +84,7 @@ fn render_buffer_rows(
                 return false;
             }
         } else if (fill_tilde) {
-            if (!out.push_char(alloc, b'~')) {
+            if (!out.try_push_char(alloc, b'~').is_ok()) {
                 return false;
             }
         }
@@ -90,9 +100,13 @@ fn render_buffer_rows(
     return true;
 }
 
-fn push_i32(out: &mut String, alloc: &mut Allocator, value: i32) bool {
+fn push_i32(
+    out: &mut String,
+    alloc: &mut Allocator,
+    value: i32,
+) bool {
     if (value < 0) {
-        if (!out.push_char(alloc, b'-')) {
+        if (!out.try_push_char(alloc, b'-').is_ok()) {
             return false;
         }
         return ansi.push_usize(out, alloc, (i32.{0} - value) as usize);
@@ -117,10 +131,14 @@ fn abs_diff_usize(lhs: usize, rhs: usize) usize {
     return rhs - lhs;
 }
 
-fn push_spaces(out: &mut String, alloc: &mut Allocator, count: usize) bool {
+fn push_spaces(
+    out: &mut String,
+    alloc: &mut Allocator,
+    count: usize,
+) bool {
     let mut i = usize.{0};
     while (i < count) {
-        if (!out.push_char(alloc, b' ')) {
+        if (!out.try_push_char(alloc, b' ').is_ok()) {
             return false;
         }
         i += 1;
@@ -137,22 +155,31 @@ fn push_window_label(
 ) bool {
     let digits = String.{}..&;
     defer digits.deinit(alloc);
-    if (!digits.push_char(alloc, b'W')) {
+    if (!digits.try_push_char(alloc, b'W').is_ok()) {
         return false;
     }
     if (!ansi.push_usize(digits, alloc, index + 1)) {
         return false;
     }
-    if (!digits.push_char(alloc, b'/')) {
+    if (!digits.try_push_char(alloc, b'/').is_ok()) {
         return false;
     }
     if (!ansi.push_usize(digits, alloc, total)) {
         return false;
     }
-    return push_truncated(out, alloc, digits.as_str(), remaining);
+    return push_truncated(
+        out,
+        alloc,
+        digits.as_str(),
+        remaining,
+    );
 }
 
-fn editor_gutter_width(text_buffer: &TextBuffer, show_line_numbers: bool, relative_line_numbers: bool) usize {
+fn editor_gutter_width(
+    text_buffer: &TextBuffer,
+    show_line_numbers: bool,
+    relative_line_numbers: bool,
+) usize {
     if (!show_line_numbers and !relative_line_numbers) {
         return usize.{0};
     }
@@ -191,7 +218,7 @@ fn render_editor_row_segment(
             if (!ansi.push_usize(out, alloc, number)) {
                 return false;
             }
-            if (!out.push_char(alloc, b' ')) {
+            if (!out.try_push_char(alloc, b' ').is_ok()) {
                 return false;
             }
         }
@@ -202,7 +229,7 @@ fn render_editor_row_segment(
         if (gutter > 0 and !push_spaces(out, alloc, gutter)) {
             return false;
         }
-        if (fill_tilde and !out.push_char(alloc, b'~')) {
+        if (fill_tilde and !out.try_push_char(alloc, b'~').is_ok()) {
             return false;
         }
     }
@@ -223,7 +250,11 @@ fn render_editor_row_segment(
 }
 
 impl &mut Editor {
-    fn render_status_line(alloc: &mut Allocator, cols: usize, out: &mut String) bool {
+    fn render_status_line(
+        alloc: &mut Allocator,
+        cols: usize,
+        out: &mut String,
+    ) bool {
         let mut remaining = cols;
 
         if (self.mode == .Command) {
@@ -233,7 +264,12 @@ impl &mut Editor {
             let view_col = self.command_view_col(cols);
             let text = self.command_line.&.as_str();
             let slice = if (view_col < #text) text.&[view_col .. #text] else "";
-            return push_truncated(out, alloc, slice, remaining..&);
+            return push_truncated(
+                out,
+                alloc,
+                slice,
+                remaining..&,
+            );
         }
 
         if (!push_truncated(out, alloc, "-- ", remaining..&)) {
@@ -279,7 +315,11 @@ impl &mut Editor {
         return true;
     }
 
-    fn render_output_separator(alloc: &mut Allocator, cols: usize, out: &mut String) bool {
+    fn render_output_separator(
+        alloc: &mut Allocator,
+        cols: usize,
+        out: &mut String,
+    ) bool {
         let mut remaining = cols;
         let label = if (self.active_pane == .Output) "[OUTPUT TEMP " else "[output temp ";
         if (!push_truncated(out, alloc, label, remaining..&)) {
@@ -292,7 +332,7 @@ impl &mut Editor {
         if (!ansi.push_usize(digits, alloc, position)) {
             return false;
         }
-        if (!digits.push_char(alloc, b'/')) {
+        if (!digits.try_push_char(alloc, b'/').is_ok()) {
             return false;
         }
         if (!ansi.push_usize(digits, alloc, total)) {
@@ -326,7 +366,12 @@ impl &mut Editor {
         return true;
     }
 
-    fn render_window_separator(alloc: &mut Allocator, cols: usize, out: &mut String, index: usize) bool {
+    fn render_window_separator(
+        alloc: &mut Allocator,
+        cols: usize,
+        out: &mut String,
+        index: usize,
+    ) bool {
         let mut remaining = cols;
         let active = self.active_pane == .Editor and self.active_window == index;
         let prefix = if (active) "[WINDOW " else "[window ";
@@ -336,10 +381,20 @@ impl &mut Editor {
         if (!push_window_label(out, alloc, self.window_ordinal(index), self.window_count, remaining..&)) {
             return false;
         }
-        return push_truncated(out, alloc, "]", remaining..&);
+        return push_truncated(
+            out,
+            alloc,
+            "]",
+            remaining..&,
+        );
     }
 
-    fn render_window_separator_segment(alloc: &mut Allocator, cols: usize, out: &mut String, index: usize) bool {
+    fn render_window_separator_segment(
+        alloc: &mut Allocator,
+        cols: usize,
+        out: &mut String,
+        index: usize,
+    ) bool {
         let temp = String.{}..&;
         defer temp.deinit(alloc);
         if (!self.render_window_separator(alloc, cols, temp, index)) {
@@ -356,14 +411,25 @@ impl &mut Editor {
         return true;
     }
 
-    fn render_col_window_separator(alloc: &mut Allocator, out: &mut String, left_index: usize, right_index: usize) bool {
+    fn render_col_window_separator(
+        alloc: &mut Allocator,
+        out: &mut String,
+        left_index: usize,
+        right_index: usize,
+    ) bool {
         let active = self.active_pane == .Editor
             and (self.active_window == left_index or self.active_window == right_index);
         let byte = if (active) b'#' else b'|';
-        return out.push_char(alloc, byte);
+        return out.try_push_char(alloc, byte).is_ok();
     }
 
-    fn render_layout_row(alloc: &mut Allocator, out: &mut String, node_index: usize, rect: WindowRect, row_in_rect: usize) bool {
+    fn render_layout_row(
+        alloc: &mut Allocator,
+        out: &mut String,
+        node_index: usize,
+        rect: WindowRect,
+        row_in_rect: usize,
+    ) bool {
         if (rect.cols == 0) {
             return true;
         }
@@ -404,12 +470,29 @@ impl &mut Editor {
         match (node.axis) {
             .Rows => {
                 if (row_in_rect < first_rect.rows) {
-                    return self.render_layout_row(alloc, out, node.first, first_rect, row_in_rect);
+                    return self.render_layout_row(
+                        alloc,
+                        out,
+                        node.first,
+                        first_rect,
+                        row_in_rect,
+                    );
                 }
                 if (row_in_rect == first_rect.rows) {
-                    return self.render_window_separator_segment(alloc, rect.cols, out, self.first_window_in_node(node.second));
+                    return self.render_window_separator_segment(
+                        alloc,
+                        rect.cols,
+                        out,
+                        self.first_window_in_node(node.second),
+                    );
                 }
-                return self.render_layout_row(alloc, out, node.second, second_rect, row_in_rect - first_rect.rows - 1);
+                return self.render_layout_row(
+                    alloc,
+                    out,
+                    node.second,
+                    second_rect,
+                    row_in_rect - first_rect.rows - 1,
+                );
             },
             .Cols => {
                 if (!self.render_layout_row(alloc, out, node.first, first_rect, row_in_rect)) {
@@ -423,7 +506,13 @@ impl &mut Editor {
                 )) {
                     return false;
                 }
-                return self.render_layout_row(alloc, out, node.second, second_rect, row_in_rect);
+                return self.render_layout_row(
+                    alloc,
+                    out,
+                    node.second,
+                    second_rect,
+                    row_in_rect,
+                );
             },
         }
     }
@@ -523,7 +612,11 @@ impl &mut Editor {
         } else if (self.active_pane == .Output and output_rows > 0) {
             self.output_cursor.col + 1
         } else {
-            let gutter = editor_gutter_width(self.active_buffer(), self.show_line_numbers, self.relative_line_numbers);
+            let gutter = editor_gutter_width(
+                self.active_buffer(),
+                self.show_line_numbers,
+                self.relative_line_numbers,
+            );
             let rect = self.active_window_rect();
             rect.col + self.active_cursor().col + gutter
         };
@@ -539,7 +632,12 @@ impl &mut Editor {
         if (!ansi.show_cursor(out, alloc)) {
             return false;
         }
-        return ansi.move_cursor(out, alloc, cursor_row, cursor_col);
+        return ansi.move_cursor(
+            out,
+            alloc,
+            cursor_row,
+            cursor_col,
+        );
     }
 
     pub fn should_quit() bool {

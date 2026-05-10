@@ -19,28 +19,32 @@ fn fail(text: &[u8]) i32 {
     return 1;
 }
 
-fn push_shell_arg(out: &mut String, alloc: &mut base.mem.alloc.Allocator, arg: &[u8]) bool {
-    if (out.is_empty().not() and out.push_char(alloc, b' ').not()) {
+fn push_shell_arg(
+    out: &mut String,
+    alloc: &mut base.mem.alloc.Allocator,
+    arg: &[u8],
+) bool {
+    if (out.is_empty().not() and out.try_push_char(alloc, b' ').is_ok().not()) {
         return false;
     }
-    if (out.push_char(alloc, b'\'').not()) {
+    if (out.try_push_char(alloc, b'\'').is_ok().not()) {
         return false;
     }
     let mut i = usize.{0};
     while (i < #arg) {
         if (arg.[i] == b'\'') {
-            if (out.push_str(alloc, "'\"'\"'").not()) {
+            if (out.try_push_str(alloc, "'\"'\"'").is_ok().not()) {
                 return false;
             }
             i += 1;
             continue;
         }
-        if (out.push_char(alloc, arg.[i]).not()) {
+        if (out.try_push_char(alloc, arg.[i]).is_ok().not()) {
             return false;
         }
         i += 1;
     }
-    return out.push_char(alloc, b'\'');
+    return out.try_push_char(alloc, b'\'').is_ok();
 }
 
 fn run_shell(
@@ -85,9 +89,15 @@ fn main(argc: i32, argv: &&u8) i32 {
         return fail("usage: limine-mkiso <kernel-path> <build-root> <limine-root>");
     }
 
-    let .{ Some: kernel_path } = args.get(1) else return fail("usage: limine-mkiso <kernel-path> <build-root> <limine-root>");
-    let .{ Some: build_root } = args.get(2) else return fail("usage: limine-mkiso <kernel-path> <build-root> <limine-root>");
-    let .{ Some: limine_root } = args.get(3) else return fail("usage: limine-mkiso <kernel-path> <build-root> <limine-root>");
+    let .{ Some: kernel_path } = args.get(1) else return fail(
+        "usage: limine-mkiso <kernel-path> <build-root> <limine-root>",
+    );
+    let .{ Some: build_root } = args.get(2) else return fail(
+        "usage: limine-mkiso <kernel-path> <build-root> <limine-root>",
+    );
+    let .{ Some: limine_root } = args.get(3) else return fail(
+        "usage: limine-mkiso <kernel-path> <build-root> <limine-root>",
+    );
     let .{ Some: iso_root } = fs.parent(kernel_path) else {
         return fail("limine-mkiso: kernel path did not include an iso-root parent");
     };
@@ -106,13 +116,16 @@ fn main(argc: i32, argv: &&u8) i32 {
     let limine_tool = limine_tool..&;
     defer limine_tool.deinit(gpa);
 
-    _ = tmp_iso.as_str().path().remove_file_if_exists(gpa);
+    _ = tmp_iso
+        .as_str()
+        .path()
+        .remove_file_if_exists(gpa);
 
     let make_cmd = String.{}..&;
     defer make_cmd.deinit(gpa);
-    if (make_cmd.push_str(gpa, "make -C").not()
+    if (make_cmd.try_push_str(gpa, "make -C").is_ok().not()
         or push_shell_arg(make_cmd, gpa, limine_root).not()
-        or make_cmd.push_str(gpa, " limine").not())
+        or make_cmd.try_push_str(gpa, " limine").is_ok().not())
     {
         return fail("limine-mkiso: failed to build limine make command");
     }
@@ -122,13 +135,13 @@ fn main(argc: i32, argv: &&u8) i32 {
 
     let xorriso_cmd = String.{}..&;
     defer xorriso_cmd.deinit(gpa);
-    if (xorriso_cmd.push_str(gpa, "xorriso -as mkisofs").not()
-        or xorriso_cmd.push_str(gpa, " -b boot/limine-bios-cd.bin").not()
-        or xorriso_cmd.push_str(gpa, " -no-emul-boot -boot-load-size 4 -boot-info-table").not()
-        or xorriso_cmd.push_str(gpa, " --efi-boot boot/limine-uefi-cd.bin").not()
-        or xorriso_cmd.push_str(gpa, " -efi-boot-part --efi-boot-image --protective-msdos-label").not()
+    if (xorriso_cmd.try_push_str(gpa, "xorriso -as mkisofs").is_ok().not()
+        or xorriso_cmd.try_push_str(gpa, " -b boot/limine-bios-cd.bin").is_ok().not()
+        or xorriso_cmd.try_push_str(gpa, " -no-emul-boot -boot-load-size 4 -boot-info-table").is_ok().not()
+        or xorriso_cmd.try_push_str(gpa, " --efi-boot boot/limine-uefi-cd.bin").is_ok().not()
+        or xorriso_cmd.try_push_str(gpa, " -efi-boot-part --efi-boot-image --protective-msdos-label").is_ok().not()
         or push_shell_arg(xorriso_cmd, gpa, iso_root).not()
-        or xorriso_cmd.push_str(gpa, " -o").not()
+        or xorriso_cmd.try_push_str(gpa, " -o").is_ok().not()
         or push_shell_arg(xorriso_cmd, gpa, tmp_iso.as_str()).not())
     {
         return fail("limine-mkiso: failed to build xorriso command");
@@ -140,7 +153,7 @@ fn main(argc: i32, argv: &&u8) i32 {
     let bios_install_cmd = String.{}..&;
     defer bios_install_cmd.deinit(gpa);
     if (push_shell_arg(bios_install_cmd, gpa, limine_tool.as_str()).not()
-        or bios_install_cmd.push_str(gpa, " bios-install").not()
+        or bios_install_cmd.try_push_str(gpa, " bios-install").is_ok().not()
         or push_shell_arg(bios_install_cmd, gpa, tmp_iso.as_str()).not())
     {
         return fail("limine-mkiso: failed to build bios-install command");
@@ -161,6 +174,9 @@ fn main(argc: i32, argv: &&u8) i32 {
         return fail("limine-mkiso: failed to stream ISO to stdout");
     };
 
-    _ = tmp_iso.as_str().path().remove_file_if_exists(gpa);
+    _ = tmp_iso
+        .as_str()
+        .path()
+        .remove_file_if_exists(gpa);
     return 0;
 }

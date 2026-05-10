@@ -24,7 +24,11 @@ fn hex_value(byte: u8) ?u32 {
     return .None;
 }
 
-fn decode_hex_quad(raw: &[u8], start: usize, slash_index: usize) u32!StringDecodeError {
+fn decode_hex_quad(
+    raw: &[u8],
+    start: usize,
+    slash_index: usize,
+) u32!StringDecodeError {
     if (start + 4 > #raw) {
         return .{ Err: .{ Parse: ParseError.UnexpectedEof } };
     }
@@ -65,7 +69,11 @@ fn utf8_scalar_width(scalar: u32) usize {
     return usize.{4};
 }
 
-fn write_utf8_scalar_unchecked(out: &mut [u8], offset: usize, scalar: u32) usize {
+fn write_utf8_scalar_unchecked(
+    out: &mut [u8],
+    offset: usize,
+    scalar: u32,
+) usize {
     if (scalar <= u32.{0x7F}) {
         out.[offset] = scalar as u8;
         return offset + 1;
@@ -320,7 +328,12 @@ pub/ fn write_decoded_string_raw(raw: &[u8], out: &mut [u8]) usize!StringDecodeE
     if (prefix_len != usize.{0}) {
         @memcpy(out.[0].& as &mut u8, raw.[1].& as &u8, prefix_len);
     }
-    return decode_string_tail_into_checked(raw, escape_index, out, prefix_len);
+    return decode_string_tail_into_checked(
+        raw,
+        escape_index,
+        out,
+        prefix_len,
+    );
 }
 
 pub/ fn write_decoded_parsed_string_raw(
@@ -344,7 +357,12 @@ pub/ fn write_decoded_parsed_string_raw(
     if (prefix_len != usize.{0}) {
         @memcpy(out.[0].& as &mut u8, raw.[1].& as &u8, prefix_len);
     }
-    return decode_string_tail_into_unchecked(raw, escape_index, out, prefix_len);
+    return decode_string_tail_into_unchecked(
+        raw,
+        escape_index,
+        out,
+        prefix_len,
+    );
 }
 
 pub/ fn clone_decoded_string_raw(
@@ -376,7 +394,7 @@ fn clone_decoded_string_single_pass_with_end(
 ) String!StringDecodeError {
     let upper_bound = end - 1;
     let mut out = String.{};
-    let .{ Some: buf } = out..&.append_uninit_exact(alloc, upper_bound)
+    let .{ Ok: buf } = out..&.try_append_uninit_exact(alloc, upper_bound)
         else return .{ Err: StringDecodeError.OutOfMemory };
 
     let .{ Some: escape_index } = first_raw_escape_index(raw, end)
@@ -419,7 +437,7 @@ fn clone_decoded_string_single_pass_with_end_in_arena(
     let upper_bound = end - 1;
     let alloc = &mut Allocator.{ arena };
     let mut out = String.{};
-    let .{ Some: buf } = out..&.append_uninit_exact(alloc, upper_bound)
+    let .{ Ok: buf } = out..&.try_append_uninit_exact(alloc, upper_bound)
         else return .{ Err: StringDecodeError.OutOfMemory };
 
     let .{ Some: escape_index } = first_raw_escape_index(raw, end)

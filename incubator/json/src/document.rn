@@ -680,11 +680,17 @@ impl DocumentValueMut {
     }
 
     pub fn get_field(name: &[u8]) ?DocumentObjectEntry {
-        return wrap_document_object_entry_option(self.state_ptr(), self.value_ptr().get_field(name));
+        return wrap_document_object_entry_option(
+            self.state_ptr(),
+            self.value_ptr().get_field(name),
+        );
     }
 
     pub fn get_last_field(name: &[u8]) ?DocumentObjectEntry {
-        return wrap_document_object_entry_option(self.state_ptr(), self.value_ptr().get_last_field(name));
+        return wrap_document_object_entry_option(
+            self.state_ptr(),
+            self.value_ptr().get_last_field(name),
+        );
     }
 
     pub fn count_fields(name: &[u8]) ?usize {
@@ -878,8 +884,8 @@ impl DocumentValueMut {
         self.value_ptr().replace(self.state_ptr().arena..&, value);
     }
 
-    pub fn reserve_array_items(additional: usize) bool {
-        return self.value_ptr().reserve_array_items(self.state_ptr().arena..&, additional);
+    pub fn try_reserve_array_items(additional: usize) void!OwnedBuildError {
+        return self.value_ptr().try_reserve_array_items(self.state_ptr().arena..&, additional);
     }
 
     pub fn push_array_item(
@@ -945,8 +951,8 @@ impl DocumentValueMut {
         };
     }
 
-    pub fn reserve_object_fields(additional: usize) bool {
-        return self.value_ptr().reserve_object_fields(self.state_ptr().arena..&, additional);
+    pub fn try_reserve_object_fields(additional: usize) void!OwnedBuildError {
+        return self.value_ptr().try_reserve_object_fields(self.state_ptr().arena..&, additional);
     }
 
     pub fn append_object_field(

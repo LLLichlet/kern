@@ -11,7 +11,11 @@ fn flush_output(file: &mut fs.File, text: &[u8]) bool {
     return file.write_all(text).is_ok();
 }
 
-fn enter_ui(alloc: &mut base.mem.alloc.Allocator, frame: &mut String, stdout: &mut fs.File) bool {
+fn enter_ui(
+    alloc: &mut base.mem.alloc.Allocator,
+    frame: &mut String,
+    stdout: &mut fs.File,
+) bool {
     frame.clear();
     if (!ansi.enter_alt_screen(frame, alloc)) {
         return false;
@@ -25,7 +29,11 @@ fn enter_ui(alloc: &mut base.mem.alloc.Allocator, frame: &mut String, stdout: &m
     return flush_output(stdout, frame.as_str());
 }
 
-fn leave_ui(alloc: &mut base.mem.alloc.Allocator, frame: &mut String, stdout: &mut fs.File) void {
+fn leave_ui(
+    alloc: &mut base.mem.alloc.Allocator,
+    frame: &mut String,
+    stdout: &mut fs.File,
+) void {
     frame.clear();
     _ = ansi.reset_cursor_shape(frame, alloc);
     _ = ansi.show_cursor(frame, alloc);
@@ -130,7 +138,7 @@ fn main(argc: i32, argv: &&u8) i32 {
                 if (!flush_output(stdout, frame.as_str())) {
                     return 1;
                 }
-                if (!last_frame.clone_from(gpa, frame.as_str())) {
+                if (!last_frame.try_clone_from(gpa, frame.as_str().is_ok())) {
                     return 1;
                 }
             }

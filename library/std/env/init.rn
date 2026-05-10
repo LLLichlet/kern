@@ -96,7 +96,7 @@ fn clone_c_value(
     len: usize,
 ) ?String {
     let mut value = String.{};
-    if (!value..&.push_str(alloc, ptr.&[0 .. len])) {
+    if (value..&.try_push_str(alloc, ptr.&[0 .. len]).is_err()) {
         value..&.deinit(alloc);
         return .None;
     }
@@ -297,7 +297,7 @@ impl Key {
     pub fn get_or(alloc: &mut Allocator, fallback: &[u8]) ?String {
         return self.get(alloc).or_else([alloc, fallback]() ?String {
                 let mut value = String.{};
-                if (!value..&.push_str(alloc, fallback)) {
+                if (value..&.try_push_str(alloc, fallback).is_err()) {
                     value..&.deinit(alloc);
                     return .None;
                 }

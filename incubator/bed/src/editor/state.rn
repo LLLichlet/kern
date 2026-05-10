@@ -230,14 +230,14 @@ pub.. struct Editor {
 
 fn editor_with_buffer(alloc: &mut Allocator, text_buffer: TextBuffer) Editor!BufferError {
     let mut editor = Editor.{};
-    if (!editor.layout_nodes..&.push(alloc, .{ window_index: 0 })) {
+    if (editor.layout_nodes..&.try_push(alloc, .{ window_index: 0 }).is_err()) {
         return .{ Err: .OutOfMemory };
     }
-    if (!editor.buffers..&.push(alloc, .{ text: text_buffer, ref_count: 1 })) {
+    if (editor.buffers..&.try_push(alloc, .{ text: text_buffer, ref_count: 1 }).is_err()) {
         editor.layout_nodes..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
     }
-    if (!editor.windows..&.push(alloc, .{ view: EditorView.{}, buffer_index: 0, layout_node: 0 })) {
+    if (editor.windows..&.try_push(alloc, .{ view: EditorView.{}, buffer_index: 0, layout_node: 0 }).is_err()) {
         let buffers = editor.buffers..&.as_mut_slice();
         buffers.[0].text..&.deinit(alloc);
         editor.buffers..&.deinit(alloc);

@@ -63,9 +63,9 @@ pub enum Error {
 #[if(os == "darwin")]
 fn build_shell_command(alloc: &mut Allocator, command: &[u8]) String!Error {
     let mut wrapped = String.{};
-    if (!wrapped..&.push_str(alloc, "(")
-        or !wrapped..&.push_str(alloc, command)
-        or !wrapped..&.push_str(alloc, ") 2>&1"))
+    if (wrapped..&.try_push_str(alloc, "(").is_err()
+        or wrapped..&.try_push_str(alloc, command).is_err()
+        or wrapped..&.try_push_str(alloc, ") 2>&1").is_err())
     {
         wrapped..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
@@ -145,7 +145,7 @@ impl &[u8] {
                 if (read == 0) {
                     break;
                 }
-                if (!output.push_str(alloc, chunk.&[0 .. read])) {
+                if (output.try_push_str(alloc, chunk.&[0 .. read]).is_err()) {
                     _ = system_pclose(stream);
                     output.deinit(alloc);
                     return .{ Err: .OutOfMemory };

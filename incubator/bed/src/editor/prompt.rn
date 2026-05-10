@@ -8,7 +8,13 @@ use base.mem.alloc.Allocator;
 use std.proc;
 use ..buffer;
 use ..command;
-use ..state.{OUTPUT_HISTORY_LIMIT, PROMPT_HISTORY_LIMIT, open_path, trim_output_history, trim_string_history};
+use ..state.{
+    OUTPUT_HISTORY_LIMIT,
+    PROMPT_HISTORY_LIMIT,
+    open_path,
+    trim_output_history,
+    trim_string_history,
+};
 use ..{
     Editor,
     Key,
@@ -17,7 +23,11 @@ use ..{
 };
 
 impl &mut Editor {
-    fn set_buffer_error_message(alloc: &mut Allocator, err: buffer.Error, fallback: &[u8]) void {
+    fn set_buffer_error_message(
+        alloc: &mut Allocator,
+        err: buffer.Error,
+        fallback: &[u8],
+    ) void {
         match (err) {
             .OutOfMemory => self.set_message(alloc, "out of memory"),
             .MissingPath => self.set_message(alloc, "no file name"),
@@ -54,7 +64,7 @@ impl &mut Editor {
     }
 
     fn set_command_line_text(alloc: &mut Allocator, text: &[u8]) bool {
-        if (!self.command_line..&.clone_from(alloc, text)) {
+        if (self.command_line..&.try_clone_from(alloc, text).is_err()) {
             self.set_message(alloc, "command edit failed");
             return false;
         }
@@ -77,10 +87,10 @@ impl &mut Editor {
         }
 
         let mut entry = String.{};
-        if (!entry..&.clone_from(alloc, line)) {
+        if (entry..&.try_clone_from(alloc, line).is_err()) {
             return;
         }
-        if (!history.push(alloc, entry)) {
+        if (history.try_push(alloc, entry).is_err()) {
             entry..&.deinit(alloc);
             return;
         }
@@ -94,7 +104,7 @@ impl &mut Editor {
         }
 
         if (!self.has_prompt_history_index) {
-            if (!self.prompt_history_draft..&.clone_from(alloc, self.command_line.&.as_str())) {
+            if (self.prompt_history_draft..&.try_clone_from(alloc, self.command_line.&.as_str()).is_err()) {
                 self.set_message(alloc, "command edit failed");
                 return;
             }
@@ -145,7 +155,11 @@ impl &mut Editor {
         }
     }
 
-    fn restore_output_history_entry(alloc: &mut Allocator, index: usize, focus_output: bool) bool {
+    fn restore_output_history_entry(
+        alloc: &mut Allocator,
+        index: usize,
+        focus_output: bool,
+    ) bool {
         if (index >= self.output_history.&.len()) {
             return false;
         }
@@ -167,7 +181,7 @@ impl &mut Editor {
         self.output_cursor = .{ row: 0, col: 0 };
         self.output_preferred_col = 0;
         self.output_scroll_row = 0;
-        if (!self.output_command..&.clone_from(alloc, entry.command.&.as_str())) {
+        if (self.output_command..&.try_clone_from(alloc, entry.command.&.as_str()).is_err()) {
             self.output..&.deinit(alloc);
             self.has_output = false;
             return false;
@@ -178,16 +192,21 @@ impl &mut Editor {
         return true;
     }
 
-    fn push_output_history_entry(alloc: &mut Allocator, command_text: &[u8], text: &[u8], status: i32) bool {
+    fn push_output_history_entry(
+        alloc: &mut Allocator,
+        command_text: &[u8],
+        text: &[u8],
+        status: i32,
+    ) bool {
         let mut entry = ShellOutputEntry.{ status: status };
-        if (!entry.command..&.clone_from(alloc, command_text)
-            or !entry.text..&.clone_from(alloc, text))
+        if (entry.command..&.try_clone_from(alloc, command_text).is_err()
+            or entry.text..&.try_clone_from(alloc, text).is_err())
         {
             entry..&.deinit(alloc);
             return false;
         }
 
-        if (!self.output_history..&.push(alloc, entry)) {
+        if (self.output_history..&.try_push(alloc, entry).is_err()) {
             entry..&.deinit(alloc);
             return false;
         }
@@ -199,7 +218,11 @@ impl &mut Editor {
         return true;
     }
 
-    fn show_output_history(alloc: &mut Allocator, index: usize, focus_output: bool) void {
+    fn show_output_history(
+        alloc: &mut Allocator,
+        index: usize,
+        focus_output: bool,
+    ) void {
         if (!self.restore_output_history_entry(alloc, index, focus_output)) {
             self.set_message(alloc, "shell output failed");
         }
@@ -260,7 +283,12 @@ impl &mut Editor {
         self.set_message(alloc, "hid shell output");
     }
 
-    fn install_output(alloc: &mut Allocator, command_text: &[u8], text: &[u8], status: i32) bool {
+    fn install_output(
+        alloc: &mut Allocator,
+        command_text: &[u8],
+        text: &[u8],
+        status: i32,
+    ) bool {
         if (!self.push_output_history_entry(alloc, command_text, text, status)) {
             return false;
         }
@@ -364,7 +392,12 @@ impl &mut Editor {
         let .{ Ok: mut capture } = command_text.shell_capture(alloc) else {
             .{ Err: err } => {
                 self.set_shell_error_message(alloc, err);
-                _ = self.install_output(alloc, command_text, "shell command failed", -1);
+                _ = self.install_output(
+                    alloc,
+                    command_text,
+                    "shell command failed",
+                    -1,
+                );
                 self.command_line..&.clear();
                 self.finish_command();
                 return;

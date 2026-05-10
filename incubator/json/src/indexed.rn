@@ -486,7 +486,7 @@ impl &OwnedObject {
     pub fn build_indexed_view(alloc: &mut Allocator) IndexedObjectView!IndexBuildError {
         let mut out = IndexedObjectView.{ object: self.* };
 
-        if (!out.index..&.reserve(alloc, self.entries.&.len())) {
+        if (out.index..&.try_reserve(alloc, self.entries.&.len()).is_err()) {
             return .{ Err: IndexBuildError.OutOfMemory };
         }
 
@@ -494,11 +494,11 @@ impl &OwnedObject {
         while (i < self.entries.&.len()) {
             let .{ Some: entry } = self.entries.&.get(i) else { i += 1; continue; };
             let hash = hash_bytes(entry.key.&.as_str());
-            let .{ Some: bucket } = out.index..&.get_or_insert(alloc, hash, List[usize].{}) else {
+            let .{ Ok: bucket } = out.index..&.try_get_or_insert(alloc, hash, List[usize].{}) else {
                 out..&.deinit(alloc);
                 return .{ Err: IndexBuildError.OutOfMemory };
             };
-            if (!bucket.push(alloc, i)) {
+            if (bucket.try_push(alloc, i).is_err()) {
                 out..&.deinit(alloc);
                 return .{ Err: IndexBuildError.OutOfMemory };
             }

@@ -1,4 +1,11 @@
-use base.sync.{ACQUIRE, RELAXED, SEQ_CST, atomic, once, spin_lock};
+use base.sync.{
+    ACQUIRE,
+    RELAXED,
+    SEQ_CST,
+    atomic,
+    once,
+    spin_lock,
+};
 use std.io;
 use base.test;
 

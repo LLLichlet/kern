@@ -5,7 +5,13 @@
 
 use base.coll.List;
 use base.mem.alloc.Allocator;
-use ..{Editor, LayoutAxis, LayoutNode, WindowRect, WindowState};
+use ..{
+    Editor,
+    LayoutAxis,
+    LayoutNode,
+    WindowRect,
+    WindowState,
+};
 
 const MIN_WINDOW_ROWS = usize.{3};
 const MIN_WINDOW_COLS = usize.{16};
@@ -30,7 +36,11 @@ impl &mut Editor {
         }
     }
 
-    fn update_parent_child(parent_index: usize, old_child: usize, new_child: usize) void {
+    fn update_parent_child(
+        parent_index: usize,
+        old_child: usize,
+        new_child: usize,
+    ) void {
         let parent = self.layout_node_mut(parent_index);
         if (parent.first == old_child) {
             parent.first = new_child;
@@ -196,15 +206,15 @@ impl &mut Editor {
         self.layout_nodes..&.deinit(alloc);
         self.layout_nodes = List[LayoutNode].{};
         self.first_free_layout_node = .None;
-        if (!self.layout_nodes..&.push(alloc, .{ window_index: 0 })) {
+        if (self.layout_nodes..&.try_push(alloc, .{ window_index: 0 }).is_err()) {
             self.set_message(alloc, "out of memory");
             return;
         }
-        if (!self.windows..&.push(alloc, .{
+        if (self.windows..&.try_push(alloc, .{
             view: keep.view,
             buffer_index: keep.buffer_index,
             layout_node: 0,
-        })) {
+        }).is_err()) {
             self.set_message(alloc, "out of memory");
             return;
         }

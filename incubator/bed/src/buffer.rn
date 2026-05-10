@@ -47,12 +47,16 @@ fn wrap_fs_error(err: fs.Error) Error {
     return .{ Fs: err };
 }
 
-fn push_line(alloc: &mut Allocator, lines: &mut List[String], text: &[u8]) bool {
+fn push_line(
+    alloc: &mut Allocator,
+    lines: &mut List[String],
+    text: &[u8],
+) bool {
     let mut line = String.{};
-    if (!line..&.push_str(alloc, text)) {
+    if (line..&.try_push_str(alloc, text).is_err()) {
         return false;
     }
-    if (!lines.push(alloc, line)) {
+    if (lines.try_push(alloc, line).is_err()) {
         line..&.deinit(alloc);
         return false;
     }
@@ -62,7 +66,7 @@ fn push_line(alloc: &mut Allocator, lines: &mut List[String], text: &[u8]) bool 
 /// Creates an empty single-line buffer.
 pub fn empty(alloc: &mut Allocator, path: &[u8]) TextBuffer!Error {
     let mut buffer = TextBuffer.{};
-    if (!buffer.path..&.clone_from(alloc, path)) {
+    if (buffer.path..&.try_clone_from(alloc, path).is_err()) {
         return .{ Err: .OutOfMemory };
     }
     if (!push_line(alloc, buffer.lines..&, "")) {
@@ -79,7 +83,7 @@ pub fn open(alloc: &mut Allocator, path: &[u8]) TextBuffer!Error {
     defer storage..&.deinit(alloc);
 
     let mut buffer = TextBuffer.{};
-    if (!buffer.path..&.clone_from(alloc, path)) {
+    if (buffer.path..&.try_clone_from(alloc, path).is_err()) {
         return .{ Err: .OutOfMemory };
     }
 
@@ -109,7 +113,7 @@ pub fn open(alloc: &mut Allocator, path: &[u8]) TextBuffer!Error {
 /// Creates a buffer from in-memory text without touching the filesystem.
 pub fn from_text(alloc: &mut Allocator, path: &[u8], text: &[u8]) TextBuffer!Error {
     let mut buffer = TextBuffer.{};
-    if (!buffer.path..&.clone_from(alloc, path)) {
+    if (buffer.path..&.try_clone_from(alloc, path).is_err()) {
         return .{ Err: .OutOfMemory };
     }
 
@@ -151,7 +155,7 @@ impl &mut TextBuffer {
 
     /// Replaces the current path.
     pub fn set_path(alloc: &mut Allocator, path: &[u8]) bool {
-        return self.path..&.clone_from(alloc, path);
+        return self.path..&.try_clone_from(alloc, path).is_ok();
     }
 
     /// Inserts one byte into one line.
@@ -180,7 +184,7 @@ impl &mut TextBuffer {
         }
 
         let mut tail = String.{};
-        if (!tail..&.push_str(alloc, text.&[col .. #text])) {
+        if (tail..&.try_push_str(alloc, text.&[col .. #text]).is_err()) {
             return false;
         }
         if (!self.lines..&.insert(alloc, row + 1, tail)) {
@@ -241,7 +245,7 @@ impl &mut TextBuffer {
         let current_text = self.line(row);
         let lines = self.lines..&.as_mut_slice();
         let prev = lines.[prev_row]..&;
-        if (!prev.push_str(alloc, current_text)) {
+        if (prev.try_push_str(alloc, current_text).is_err()) {
             return .{ row: row, col: col };
         }
 
@@ -273,7 +277,7 @@ impl &mut TextBuffer {
         let next_text = self.line(row + 1);
         let lines = self.lines..&.as_mut_slice();
         let line = lines.[row]..&;
-        if (!line.push_str(alloc, next_text)) {
+        if (line.try_push_str(alloc, next_text).is_err()) {
             return false;
         }
 
@@ -294,10 +298,10 @@ impl &mut TextBuffer {
 
         let mut i = usize.{0};
         while (i < self.lines.&.len()) {
-            if (!text..&.push_str(alloc, self.line(i))) {
+            if (text..&.try_push_str(alloc, self.line(i)).is_err()) {
                 return .{ Err: .OutOfMemory };
             }
-            if (i + 1 < self.lines.&.len() and !text..&.push_char(alloc, b'\n')) {
+            if (i + 1 < self.lines.&.len() and text..&.try_push_char(alloc, b'\n').is_err()) {
                 return .{ Err: .OutOfMemory };
             }
             i += 1;

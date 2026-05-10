@@ -1,7 +1,7 @@
 //! In-memory reader adapters.
 
 use base.coll.List;
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 use base.num;
 use ..traits.{Read, Write};
 
@@ -141,17 +141,20 @@ impl &mut Read {
     }
 
     /// Reads all remaining bytes into a new list.
-    pub fn read_to_end(alloc: &mut Allocator) ?List[u8] {
+    pub fn read_to_end(alloc: &mut Allocator) List[u8]!AllocError {
         let out = List[u8].{}..&;
         let mut scratch = [256]u8.{undef};
         while (true) {
             let n = self.read(scratch..&[0 .. 256]);
             if (n == 0) {
-                return .{ Some: out.* };
+                return .{ Ok: out.* };
             }
-            if (!out.append_slice(alloc, scratch.&[0 .. n])) {
-                out.deinit(alloc);
-                return .None;
+            match (out.try_append_slice(alloc, scratch.&[0 .. n])) {
+                .{ Ok: _ } => {},
+                .{ Err: err } => {
+                    out.deinit(alloc);
+                    return .{ Err: err };
+                },
             }
         }
     }

@@ -112,7 +112,7 @@ fn append_raw_text(state: &mut PackedDocumentState, text: &[u8]) ?PackedText {
     if (len == 0) {
         return .{ Some: PackedText.{ start: start, len: len } };
     }
-    let .{ Some: out } = state.*.strings..&.append_uninit(state.*.arena..&, len)
+    let .{ Ok: out } = state.*.strings..&.try_append_uninit(state.*.arena..&, len)
         else return .None;
     @memcpy(out.[0].& as &mut u8, text.[0].& as &u8, len);
     return .{ Some: PackedText.{ start: start, len: len } };
@@ -132,7 +132,7 @@ fn append_decoded_parsed_text_raw(
         return .{ Ok: PackedText.{ start: start, len: 0 } };
     }
 
-    let .{ Some: out } = state.*.strings..&.append_uninit(state.*.arena..&, upper_bound)
+    let .{ Ok: out } = state.*.strings..&.try_append_uninit(state.*.arena..&, upper_bound)
         else return .{ Err: StringDecodeError.OutOfMemory };
 
     let .{ Ok: written } = write_decoded_parsed_string_raw(raw, out)
@@ -157,7 +157,7 @@ fn append_value_node(
     node: PackedValueNode,
 ) usize!MaterializeError {
     let index = state.*.values.&.len();
-    if (!state.*.values..&.push(state.*.arena..&, node)) {
+    if (state.*.values..&.try_push(state.*.arena..&, node).is_err()) {
         return .{ Err: MaterializeError.OutOfMemory };
     }
     return .{ Ok: index };
@@ -259,7 +259,7 @@ fn parse_packed_array(
             else {
                 .{ Err: err } => return .{ Err: err },
             };
-        if (!items..&.push(scratch, item.index)) {
+        if (items..&.try_push(scratch, item.index).is_err()) {
             return .{ Err: MaterializeError.OutOfMemory };
         }
         let end = skip_ws(text, item.next);
@@ -275,7 +275,7 @@ fn parse_packed_array(
         }
         if (text.[end] == b']') {
             let items_start = state.*.array_items.&.len();
-            if (!state.*.array_items..&.append_slice(state.*.arena..&, items.&.as_slice())) {
+            if (state.*.array_items..&.try_append_slice(state.*.arena..&, items.&.as_slice()).is_err()) {
                 return .{ Err: MaterializeError.OutOfMemory };
             }
             let .{ Some: slot } = state.*.values..&.get_ptr(index)
@@ -344,7 +344,7 @@ fn parse_packed_object(
             else {
                 .{ Err: err } => return .{ Err: err },
             };
-        if (!entries..&.push(scratch, PackedObjectEntryNode.{ key: key, value: value.index })) {
+        if (entries..&.try_push(scratch, PackedObjectEntryNode.{ key: key, value: value.index }).is_err()) {
             return .{ Err: MaterializeError.OutOfMemory };
         }
         let end = skip_ws(text, value.next);
@@ -360,7 +360,7 @@ fn parse_packed_object(
         }
         if (text.[end] == b'}') {
             let entries_start = state.*.object_entries.&.len();
-            if (!state.*.object_entries..&.append_slice(state.*.arena..&, entries.&.as_slice())) {
+            if (state.*.object_entries..&.try_append_slice(state.*.arena..&, entries.&.as_slice()).is_err()) {
                 return .{ Err: MaterializeError.OutOfMemory };
             }
             let .{ Some: slot } = state.*.values..&.get_ptr(index)
@@ -514,7 +514,7 @@ fn build_root_packed_index(state: &mut PackedDocumentState) void!IndexBuildError
     if (node.kind != Kind.Object) {
         return .{ Ok: {} };
     }
-    if (!state.index..&.reserve(state.arena..&, node.data1)) {
+    if (state.index..&.try_reserve(state.arena..&, node.data1).is_err()) {
         return .{ Err: IndexBuildError.OutOfMemory };
     }
     let entries = state.object_entries.&.as_slice();
@@ -523,12 +523,12 @@ fn build_root_packed_index(state: &mut PackedDocumentState) void!IndexBuildError
         let entry_index = node.data0 + i;
         let entry = entries.[entry_index];
         let hash = hash_bytes(packed_text_slice(state, entry.key));
-        let .{ Some: bucket } = state.index..&.get_or_insert(state.arena..&, hash, List[usize].{})
+        let .{ Ok: bucket } = state.index..&.try_get_or_insert(state.arena..&, hash, List[usize].{})
             else {
                 deinit_packed_index(state);
                 return .{ Err: IndexBuildError.OutOfMemory };
             };
-        if (!bucket.push(state.arena..&, entry_index)) {
+        if (bucket.try_push(state.arena..&, entry_index).is_err()) {
             deinit_packed_index(state);
             return .{ Err: IndexBuildError.OutOfMemory };
         }
@@ -1480,7 +1480,9 @@ impl PackedValue {
     }
 
     pub fn require_value(name: &[u8]) PackedValue!FieldDecodeError {
-        let .{ Some: total } = self.count_fields(name) else return .{ Err: packed_unexpected_kind(self) };
+        let .{ Some: total } = self.count_fields(
+            name,
+        )else return .{ Err: packed_unexpected_kind(self) };
         if (total == 0) {
             return .{ Err: FieldDecodeError.Missing };
         }

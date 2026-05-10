@@ -1,7 +1,11 @@
 use std.io;
 use base.test;
 
-fn apply_operation(op: &fn(i32, i32) i32, a: i32, b: i32) i32 {
+fn apply_operation(
+    op: &fn(i32, i32) i32,
+    a: i32,
+    b: i32,
+) i32 {
     return op(a, b);
 }
 

@@ -99,7 +99,11 @@ fn load_input(alloc: &mut base.mem.alloc.Allocator, path: &[u8]) BenchInput!fs.E
     return .{ Ok: BenchInput.{ storage: storage, label: path, text: storage.&.as_str() } };
 }
 
-fn bench_parse(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_parse(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let mut sink = usize.{0};
     let start = time.monotonic().now();
 
@@ -111,11 +115,22 @@ fn bench_parse(iterations: usize, input_label: &[u8], text: &[u8]) bool {
         i += 1;
     }
 
-    print_stats("parse", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "parse",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_materialize(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_materialize(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let mut sink = usize.{0};
     let start = time.monotonic().now();
@@ -130,11 +145,22 @@ fn bench_materialize(iterations: usize, input_label: &[u8], text: &[u8]) bool {
         i += 1;
     }
 
-    print_stats("materialize", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "materialize",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_clone_document(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_clone_document(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let mut sink = usize.{0};
     let start = time.monotonic().now();
@@ -147,11 +173,22 @@ fn bench_clone_document(iterations: usize, input_label: &[u8], text: &[u8]) bool
         i += 1;
     }
 
-    print_stats("clone_doc", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "clone_doc",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_parse_packed_document(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_parse_packed_document(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let mut sink = usize.{0};
     let start = time.monotonic().now();
 
@@ -163,11 +200,22 @@ fn bench_parse_packed_document(iterations: usize, input_label: &[u8], text: &[u8
         i += 1;
     }
 
-    print_stats("parse_packed_doc", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "parse_packed_doc",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_clone_gpa(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_clone_gpa(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let gpa = gpa().on(page)..&;
@@ -182,11 +230,22 @@ fn bench_clone_gpa(iterations: usize, input_label: &[u8], text: &[u8]) bool {
         i += 1;
     }
 
-    print_stats("clone_gpa", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "clone_gpa",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_clone_arena(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_clone_arena(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let mut arena = arena().on(page);
@@ -202,11 +261,22 @@ fn bench_clone_arena(iterations: usize, input_label: &[u8], text: &[u8]) bool {
         i += 1;
     }
 
-    print_stats("clone_arena", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "clone_arena",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_clone_indexed_document(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_clone_indexed_document(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let mut sink = usize.{0};
     let start = time.monotonic().now();
@@ -219,11 +289,22 @@ fn bench_clone_indexed_document(iterations: usize, input_label: &[u8], text: &[u
         i += 1;
     }
 
-    print_stats("clone_indexed_doc", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "clone_indexed_doc",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_parse_packed_indexed_document(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_parse_packed_indexed_document(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let mut sink = usize.{0};
     let start = time.monotonic().now();
 
@@ -235,18 +316,29 @@ fn bench_parse_packed_indexed_document(iterations: usize, input_label: &[u8], te
         i += 1;
     }
 
-    print_stats("parse_packed_indexed_doc", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "parse_packed_indexed_doc",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_render_borrowed(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_render_borrowed(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let .{ Ok: render_size } = compact_size(value) else return false;
     let page = Page.{}..&;
     let gpa = gpa().on(page)..&;
     let out = String.{}..&;
     defer out.deinit(gpa);
-    let .{ Some: _ } = out.append_uninit(gpa, render_size)
+    let .{ Ok: _ } = out.try_append_uninit(gpa, render_size)
         else return false;
     let mut sink = usize.{0};
     let start = time.monotonic().now();
@@ -258,11 +350,22 @@ fn bench_render_borrowed(iterations: usize, input_label: &[u8], text: &[u8]) boo
         i += 1;
     }
 
-    print_stats("render_borrowed", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "render_borrowed",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_render_owned(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_render_owned(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let gpa = gpa().on(page)..&;
@@ -273,7 +376,7 @@ fn bench_render_owned(iterations: usize, input_label: &[u8], text: &[u8]) bool {
     let render_size = root.compact_size();
     let out = String.{}..&;
     defer out.deinit(gpa);
-    let .{ Some: _ } = out.append_uninit(gpa, render_size)
+    let .{ Ok: _ } = out.try_append_uninit(gpa, render_size)
         else return false;
     let mut sink = usize.{0};
     let start = time.monotonic().now();
@@ -285,7 +388,14 @@ fn bench_render_owned(iterations: usize, input_label: &[u8], text: &[u8]) bool {
         i += 1;
     }
 
-    print_stats("render_owned", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "render_owned",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
@@ -313,7 +423,11 @@ fn test_borrowed_lookup_body(value: Value) usize {
     return sink;
 }
 
-fn bench_lookup_borrowed(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_lookup_borrowed(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let mut sink = usize.{0};
     let start = time.monotonic().now();
@@ -324,7 +438,14 @@ fn bench_lookup_borrowed(iterations: usize, input_label: &[u8], text: &[u8]) boo
         i += 1;
     }
 
-    print_stats("lookup_borrowed", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "lookup_borrowed",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
@@ -376,7 +497,11 @@ fn test_packed_lookup_body(value: PackedValue) usize {
     return sink;
 }
 
-fn bench_lookup_owned(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_lookup_owned(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let .{ Ok: mut document } = clone_owned_document(value) else return false;
     defer document..&.deinit();
@@ -390,11 +515,22 @@ fn bench_lookup_owned(iterations: usize, input_label: &[u8], text: &[u8]) bool {
         i += 1;
     }
 
-    print_stats("lookup_owned", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "lookup_owned",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_lookup_packed_document(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_lookup_packed_document(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: mut document } = parse_packed_document(text) else return false;
     defer document..&.deinit();
     let root = document.&.root();
@@ -407,7 +543,14 @@ fn bench_lookup_packed_document(iterations: usize, input_label: &[u8], text: &[u
         i += 1;
     }
 
-    print_stats("lookup_packed_doc", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "lookup_packed_doc",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
@@ -457,7 +600,11 @@ fn test_packed_indexed_document_lookup_body(indexed: PackedIndexedObjectView) us
     return sink;
 }
 
-fn bench_build_indexed(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_build_indexed(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let gpa = gpa().on(page)..&;
@@ -477,11 +624,22 @@ fn bench_build_indexed(iterations: usize, input_label: &[u8], text: &[u8]) bool 
         i += 1;
     }
 
-    print_stats("build_indexed", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "build_indexed",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_build_indexed_arena(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_build_indexed_arena(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let mut arena = arena().on(page);
@@ -499,11 +657,22 @@ fn bench_build_indexed_arena(iterations: usize, input_label: &[u8], text: &[u8])
         i += 1;
     }
 
-    print_stats("build_indexed_arena", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "build_indexed_arena",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_lookup_indexed(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_lookup_indexed(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let page = Page.{}..&;
     let gpa = gpa().on(page)..&;
@@ -539,11 +708,22 @@ fn bench_lookup_indexed(iterations: usize, input_label: &[u8], text: &[u8]) bool
         i += 1;
     }
 
-    print_stats("lookup_indexed", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "lookup_indexed",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_lookup_indexed_document(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_lookup_indexed_document(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: value } = parse(text) else return false;
     let .{ Ok: mut document } = clone_indexed_object_document(value) else return false;
     defer document..&.deinit();
@@ -558,11 +738,22 @@ fn bench_lookup_indexed_document(iterations: usize, input_label: &[u8], text: &[
         i += 1;
     }
 
-    print_stats("lookup_indexed_doc", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "lookup_indexed_doc",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn bench_lookup_packed_indexed_document(iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn bench_lookup_packed_indexed_document(
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     let .{ Ok: mut document } = parse_packed_indexed_object_document(text) else return false;
     defer document..&.deinit();
     let indexed = document.&.view();
@@ -576,29 +767,69 @@ fn bench_lookup_packed_indexed_document(iterations: usize, input_label: &[u8], t
         i += 1;
     }
 
-    print_stats("lookup_packed_indexed_doc", input_label, #text, iterations, start.elapsed(), sink);
+    print_stats(
+        "lookup_packed_indexed_doc",
+        input_label,
+        #text,
+        iterations,
+        start.elapsed(),
+        sink,
+    );
     return true;
 }
 
-fn run_bench(name: &[u8], iterations: usize, input_label: &[u8], text: &[u8]) bool {
+fn run_bench(
+    name: &[u8],
+    iterations: usize,
+    input_label: &[u8],
+    text: &[u8],
+) bool {
     if (name == "parse") return bench_parse(iterations, input_label, text);
-    if (name == "parse_packed_doc") return bench_parse_packed_document(iterations, input_label, text);
+    if (name == "parse_packed_doc") return bench_parse_packed_document(
+        iterations,
+        input_label,
+        text,
+    );
     if (name == "clone_doc") return bench_clone_document(iterations, input_label, text);
     if (name == "materialize") return bench_materialize(iterations, input_label, text);
     if (name == "clone_gpa") return bench_clone_gpa(iterations, input_label, text);
     if (name == "clone_arena") return bench_clone_arena(iterations, input_label, text);
-    if (name == "clone_indexed_doc") return bench_clone_indexed_document(iterations, input_label, text);
-    if (name == "parse_packed_indexed_doc") return bench_parse_packed_indexed_document(iterations, input_label, text);
+    if (name == "clone_indexed_doc") return bench_clone_indexed_document(
+        iterations,
+        input_label,
+        text,
+    );
+    if (name == "parse_packed_indexed_doc") return bench_parse_packed_indexed_document(
+        iterations,
+        input_label,
+        text,
+    );
     if (name == "render_borrowed") return bench_render_borrowed(iterations, input_label, text);
     if (name == "render_owned") return bench_render_owned(iterations, input_label, text);
     if (name == "lookup_borrowed") return bench_lookup_borrowed(iterations, input_label, text);
     if (name == "lookup_owned") return bench_lookup_owned(iterations, input_label, text);
-    if (name == "lookup_packed_doc") return bench_lookup_packed_document(iterations, input_label, text);
+    if (name == "lookup_packed_doc") return bench_lookup_packed_document(
+        iterations,
+        input_label,
+        text,
+    );
     if (name == "build_indexed") return bench_build_indexed(iterations, input_label, text);
-    if (name == "build_indexed_arena") return bench_build_indexed_arena(iterations, input_label, text);
+    if (name == "build_indexed_arena") return bench_build_indexed_arena(
+        iterations,
+        input_label,
+        text,
+    );
     if (name == "lookup_indexed") return bench_lookup_indexed(iterations, input_label, text);
-    if (name == "lookup_indexed_doc") return bench_lookup_indexed_document(iterations, input_label, text);
-    if (name == "lookup_packed_indexed_doc") return bench_lookup_packed_indexed_document(iterations, input_label, text);
+    if (name == "lookup_indexed_doc") return bench_lookup_indexed_document(
+        iterations,
+        input_label,
+        text,
+    );
+    if (name == "lookup_packed_indexed_doc") return bench_lookup_packed_indexed_document(
+        iterations,
+        input_label,
+        text,
+    );
     return false;
 }
 

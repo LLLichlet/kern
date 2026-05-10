@@ -12,13 +12,22 @@ fn main() i32 {
 
     let text = string()..&;
     defer text.deinit(gpa);
-    
-    text.push_str(gpa, "Hello").should().sum(@loc(), t);
-    text.push_str(gpa, ", ").should().sum(@loc(), t);
-    text.push_str(gpa, "Kern").should().sum(@loc(), t);
-    
+
+    text
+        .try_push_str(gpa, "Hello")
+        .should_ok()
+        .sum(@loc(), t);
+    text
+        .try_push_str(gpa, ", ")
+        .should_ok()
+        .sum(@loc(), t);
+    text
+        .try_push_str(gpa, "Kern")
+        .should_ok()
+        .sum(@loc(), t);
+
     (text.as_str() == "Hello, Kern").should().sum(@loc(), t);
     "string: {}".fmt(.{text}).println();
-    
+
     return 0;
 }

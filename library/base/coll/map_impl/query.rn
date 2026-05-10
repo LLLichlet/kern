@@ -1,6 +1,6 @@
 use base.hash.Hash;
 use base.coll.List;
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 use ..base.{
     Entry,
     Map,
@@ -127,16 +127,17 @@ impl[K, V] &Map[K, V]
     }
 
     /// Appends every key into `out`.
-    pub fn append_keys(alloc: &mut Allocator, out: &mut List[K]) bool {
-        if (!out.reserve(alloc, self.len())) {
-            return false;
-        }
+    pub fn try_append_keys(alloc: &mut Allocator, out: &mut List[K]) void!AllocError {
+        out.try_reserve(alloc, self.len()).!;
 
-        let mut ok = true;
-        let visit = [out, alloc, ok = ok..&](entry: &mut Entry[K, V]) bool {
-            if (!out.push(alloc, entry.key)) {
-                ok.* = false;
-                return false;
+        let mut err = ?AllocError.None;
+        let visit = [out, alloc, err = err..&](entry: &mut Entry[K, V]) bool {
+            match (out.try_push(alloc, entry.key)) {
+                .{ Ok: _ } => {}
+                .{ Err: alloc_err } => {
+                    err.* = .{ Some: alloc_err };
+                    return false;
+                }
             }
             return true;
         };
@@ -146,20 +147,24 @@ impl[K, V] &Map[K, V]
             self.capacity,
             visit,
         );
-        return ok;
+        match (err) {
+            .{ Some: alloc_err } => return .{ Err: alloc_err },
+            .None => return .{ Ok: {} },
+        }
     }
 
     /// Appends every value into `out`.
-    pub fn append_values(alloc: &mut Allocator, out: &mut List[V]) bool {
-        if (!out.reserve(alloc, self.len())) {
-            return false;
-        }
+    pub fn try_append_values(alloc: &mut Allocator, out: &mut List[V]) void!AllocError {
+        out.try_reserve(alloc, self.len()).!;
 
-        let mut ok = true;
-        let visit = [out, alloc, ok = ok..&](entry: &mut Entry[K, V]) bool {
-            if (!out.push(alloc, entry.value)) {
-                ok.* = false;
-                return false;
+        let mut err = ?AllocError.None;
+        let visit = [out, alloc, err = err..&](entry: &mut Entry[K, V]) bool {
+            match (out.try_push(alloc, entry.value)) {
+                .{ Ok: _ } => {}
+                .{ Err: alloc_err } => {
+                    err.* = .{ Some: alloc_err };
+                    return false;
+                }
             }
             return true;
         };
@@ -169,27 +174,34 @@ impl[K, V] &Map[K, V]
             self.capacity,
             visit,
         );
-        return ok;
+        match (err) {
+            .{ Some: alloc_err } => return .{ Err: alloc_err },
+            .None => return .{ Ok: {} },
+        }
     }
 
     /// Collects all keys into a new list.
-    pub fn keys(alloc: &mut Allocator) ?List[K] {
+    pub fn keys(alloc: &mut Allocator) List[K]!AllocError {
         let mut out = List[K].{};
-        if (!self.append_keys(alloc, out..&)) {
-            out..&.deinit(alloc);
-            return .None;
+        match (self.try_append_keys(alloc, out..&)) {
+            .{ Ok: _ } => return .{ Ok: out },
+            .{ Err: err } => {
+                out..&.deinit(alloc);
+                return .{ Err: err };
+            }
         }
-        return .{ Some: out };
     }
 
     /// Collects all values into a new list.
-    pub fn values(alloc: &mut Allocator) ?List[V] {
+    pub fn values(alloc: &mut Allocator) List[V]!AllocError {
         let mut out = List[V].{};
-        if (!self.append_values(alloc, out..&)) {
-            out..&.deinit(alloc);
-            return .None;
+        match (self.try_append_values(alloc, out..&)) {
+            .{ Ok: _ } => return .{ Ok: out },
+            .{ Err: err } => {
+                out..&.deinit(alloc);
+                return .{ Err: err };
+            }
         }
-        return .{ Some: out };
     }
 
     /// Returns the value stored for `key`.

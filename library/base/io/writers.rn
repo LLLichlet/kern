@@ -58,7 +58,7 @@ impl &mut StringWriter : Write {
         if (self.failed) {
             return 0;
         }
-        if (!self.string.push_str(self.alloc, buf)) {
+        if (self.string.try_push_str(self.alloc, buf).is_err()) {
             self.failed = true;
             return 0;
         }

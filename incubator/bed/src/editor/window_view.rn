@@ -11,7 +11,14 @@ impl &mut Editor {
         };
     }
 
-    fn split_rect(rect: WindowRect, axis: LayoutAxis, first_weight: usize, second_weight: usize, first: &mut WindowRect, second: &mut WindowRect) void {
+    fn split_rect(
+        rect: WindowRect,
+        axis: LayoutAxis,
+        first_weight: usize,
+        second_weight: usize,
+        first: &mut WindowRect,
+        second: &mut WindowRect,
+    ) void {
         let total = if (first_weight + second_weight > 0) first_weight + second_weight else usize.{1};
         match (axis) {
             .Rows => {
@@ -61,7 +68,12 @@ impl &mut Editor {
         return self.first_window_in_node(node.first);
     }
 
-    fn window_rect_in_node(node_index: usize, rect: WindowRect, target_window: usize, out: &mut WindowRect) bool {
+    fn window_rect_in_node(
+        node_index: usize,
+        rect: WindowRect,
+        target_window: usize,
+        out: &mut WindowRect,
+    ) bool {
         let node = self.layout_node(node_index);
         if (!node.alive) {
             return false;
@@ -75,16 +87,33 @@ impl &mut Editor {
         }
         let mut first_rect = WindowRect.{};
         let mut second_rect = WindowRect.{};
-        self.split_rect(rect, node.axis, self.layout_node(node.first).weight, self.layout_node(node.second).weight, first_rect..&, second_rect..&);
+        self.split_rect(
+            rect,
+            node.axis,
+            self.layout_node(node.first).weight,
+            self.layout_node(node.second).weight,
+            first_rect..&,
+            second_rect..&,
+        );
         if (self.window_rect_in_node(node.first, first_rect, target_window, out)) {
             return true;
         }
-        return self.window_rect_in_node(node.second, second_rect, target_window, out);
+        return self.window_rect_in_node(
+            node.second,
+            second_rect,
+            target_window,
+            out,
+        );
     }
 
     fn window_rect(index: usize) WindowRect {
         let mut rect = WindowRect.{};
-        _ = self.window_rect_in_node(self.layout_root, self.editor_area_rect(), index, rect..&);
+        _ = self.window_rect_in_node(
+            self.layout_root,
+            self.editor_area_rect(),
+            index,
+            rect..&,
+        );
         return rect;
     }
 

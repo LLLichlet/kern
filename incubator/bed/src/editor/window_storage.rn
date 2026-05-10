@@ -6,7 +6,15 @@
 //! explicit free-lists so split-heavy editing does not keep growing the lists.
 
 use base.mem.alloc.Allocator;
-use ..{BufferSlot, Cursor, Editor, EditorView, LayoutNode, TextBuffer, WindowState};
+use ..{
+    BufferSlot,
+    Cursor,
+    Editor,
+    EditorView,
+    LayoutNode,
+    TextBuffer,
+    WindowState,
+};
 
 impl &mut Editor {
     fn is_live_window(index: usize) bool {
@@ -169,7 +177,11 @@ impl &mut Editor {
         }
     }
 
-    fn store_buffer_slot(alloc: &mut Allocator, text: TextBuffer, index_out: &mut usize) bool {
+    fn store_buffer_slot(
+        alloc: &mut Allocator,
+        text: TextBuffer,
+        index_out: &mut usize,
+    ) bool {
         // Reuse an empty shared-buffer slot first so window-local `:e` does not
         // leave permanently abandoned holes behind after split churn.
         let slots = self.buffers..&.as_mut_slice();
@@ -182,7 +194,7 @@ impl &mut Editor {
             }
             i += 1;
         }
-        if (!self.buffers..&.push(alloc, .{ text: text, ref_count: 1 })) {
+        if (self.buffers..&.try_push(alloc, .{ text: text, ref_count: 1 }).is_err()) {
             return false;
         }
         index_out.* = self.buffers.&.len() - 1;
@@ -197,7 +209,7 @@ impl &mut Editor {
     fn allocate_window_slot(alloc: &mut Allocator, window: WindowState) ?usize {
         let .{ Some: index } = self.first_free_window else {
             let index = self.windows.&.len();
-            if (!self.windows..&.push(alloc, window)) {
+            if (self.windows..&.try_push(alloc, window).is_err()) {
                 return .None;
             }
             return .{ Some: index };
@@ -233,7 +245,7 @@ impl &mut Editor {
     fn allocate_layout_node(alloc: &mut Allocator, node: LayoutNode) ?usize {
         let .{ Some: index } = self.first_free_layout_node else {
             let index = self.layout_nodes.&.len();
-            if (!self.layout_nodes..&.push(alloc, node)) {
+            if (self.layout_nodes..&.try_push(alloc, node).is_err()) {
                 return .None;
             }
             return .{ Some: index };

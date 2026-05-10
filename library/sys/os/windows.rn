@@ -309,8 +309,8 @@ fn out_of_memory_error() Error {
 
 fn build_shell_command_line(alloc: &mut Allocator, command: &[u8]) String!Error {
     let wrapped = String.{}..&;
-    if (!wrapped.push_str(alloc, "cmd.exe /d /c ")
-        or !wrapped.push_str(alloc, command))
+    if (wrapped.try_push_str(alloc, "cmd.exe /d /c ").is_err()
+        or wrapped.try_push_str(alloc, command).is_err())
     {
         wrapped.deinit(alloc);
         return .{ Err: out_of_memory_error() };
@@ -517,7 +517,7 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
                 if (read == 0) {
                     break;
                 }
-                if (!output.push_str(alloc, chunk.&[0 .. read])) {
+                if (output.try_push_str(alloc, chunk.&[0 .. read]).is_err()) {
                     _ = CloseHandle(read_pipe);
                     _ = wait_for_process_exit(proc_info.hProcess);
                     output.deinit(alloc);

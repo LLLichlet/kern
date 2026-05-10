@@ -1,7 +1,7 @@
 //! File operations and owned file handles.
 
 use sys.os;
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 use base.coll.{List, String};
 use ..types.{
     Error,
@@ -28,6 +28,10 @@ fn to_os_open_options(options: &OpenOptions) os.OpenOptions {
 
 fn wrap_os_error(err: os.Error) Error {
     return .{ Os: err };
+}
+
+fn wrap_alloc_error(_: AllocError) Error {
+    return .OutOfMemory;
 }
 
 fn metadata_exists(_: Metadata) bool {
@@ -75,7 +79,7 @@ fn append_usize_decimal(
     value: usize,
 ) bool {
     if (value == 0) {
-        return out.push_char(alloc, b'0');
+        return out.try_push_char(alloc, b'0').is_ok();
     }
 
     let mut buf = [40]u8.{undef};
@@ -89,7 +93,7 @@ fn append_usize_decimal(
         curr /= usize.{10};
     }
 
-    return out.push_str(alloc, buf.&[i .. 40]);
+    return out.try_push_str(alloc, buf.&[i .. 40]).is_ok();
 }
 
 fn atomic_tmp_path(
@@ -98,10 +102,10 @@ fn atomic_tmp_path(
     attempt: usize,
 ) String!Error {
     let mut tmp = String.{};
-    if (!tmp..&.push_str(alloc, path)
-        or !tmp..&.push_str(alloc, ".tmp.")
+    if (tmp..&.try_push_str(alloc, path).is_err()
+        or tmp..&.try_push_str(alloc, ".tmp.").is_err()
         or !append_usize_decimal(tmp..&, alloc, os.process_id())
-        or !tmp..&.push_char(alloc, b'.')
+        or tmp..&.try_push_char(alloc, b'.').is_err()
         or !append_usize_decimal(tmp..&, alloc, attempt))
     {
         tmp..&.deinit(alloc);
@@ -624,9 +628,12 @@ impl &mut File {
                 return .{ Ok: out };
             }
 
-            if (!out..&.push_str(alloc, chunk.&[0 .. read])) {
-                out..&.deinit(alloc);
-                return .{ Err: .OutOfMemory };
+            match (out..&.try_push_str(alloc, chunk.&[0 .. read])) {
+                .{ Ok: _ } => {},
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: wrap_alloc_error(err) };
+                },
             }
         }
     }
@@ -648,9 +655,12 @@ impl &mut File {
                 return .{ Ok: out };
             }
 
-            if (!out..&.append_slice(alloc, chunk.&[0 .. read])) {
-                out..&.deinit(alloc);
-                return .{ Err: .OutOfMemory };
+            match (out..&.try_append_slice(alloc, chunk.&[0 .. read])) {
+                .{ Ok: _ } => {},
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: wrap_alloc_error(err) };
+                },
             }
         }
     }

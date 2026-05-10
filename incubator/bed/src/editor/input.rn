@@ -3,7 +3,7 @@ use ..{Editor, Key, TAB_STOP};
 
 impl &mut Editor {
     fn set_message(alloc: &mut Allocator, text: &[u8]) void {
-        _ = self.message..&.clone_from(alloc, text);
+        _ = self.message..&.try_clone_from(alloc, text).is_ok();
     }
 
     fn clear_pending_count() void {

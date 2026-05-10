@@ -76,24 +76,24 @@ impl[T] &mut List[T] {
 
     /// Ensures the backing buffer can store at least `required_cap` items.
     #[inline]
-    fn ensure_capacity(alloc: &mut Allocator, required_cap: usize) bool {
-        if (self.cap >= required_cap) return true;
+    fn ensure_capacity(alloc: &mut Allocator, required_cap: usize) void!AllocError {
+        if (self.cap >= required_cap) return .{ Ok: {} };
 
         let elem_size = @sizeOf[T]();
         if (elem_size == 0) {
             // Zero-sized elements never require a real backing allocation.
             self.ptr = self.zst_ptr();
             self.cap = USIZE_MAX;
-            return true;
+            return .{ Ok: {} };
         }
 
         let max_alloc_items = USIZE_MAX / elem_size;
         if (required_cap > max_alloc_items) {
-            return false;
+            return .{ Err: .CapacityOverflow };
         }
 
         let mut new_cap = if (self.cap == 0) usize.{8} else self.cap;
-                while (new_cap < required_cap) {
+        while (new_cap < required_cap) {
             if (new_cap > max_alloc_items / 2) {
                 new_cap = required_cap;
                 break;
@@ -102,7 +102,7 @@ impl[T] &mut List[T] {
         }
 
         let new_layout = self.fixed_layout(new_cap, elem_size);
-        let .{ Some: new_ptr_u8 } = alloc.alloc(new_layout) else return false;
+        let .{ Some: new_ptr_u8 } = alloc.alloc(new_layout) else return .{ Err: .OutOfMemory };
 
         let new_ptr = new_ptr_u8 as &mut T;
 
@@ -117,29 +117,29 @@ impl[T] &mut List[T] {
 
         self.ptr = new_ptr;
         self.cap = new_cap;
-        return true;
+        return .{ Ok: {} };
     }
 
     /// Ensures the backing buffer can store exactly `required_cap` items
     /// when growth is needed, instead of applying geometric growth.
     #[inline]
-    fn ensure_capacity_exact(alloc: &mut Allocator, required_cap: usize) bool {
-        if (self.cap >= required_cap) return true;
+    fn ensure_capacity_exact(alloc: &mut Allocator, required_cap: usize) void!AllocError {
+        if (self.cap >= required_cap) return .{ Ok: {} };
 
         let elem_size = @sizeOf[T]();
         if (elem_size == 0) {
             self.ptr = self.zst_ptr();
             self.cap = USIZE_MAX;
-            return true;
+            return .{ Ok: {} };
         }
 
         let max_alloc_items = USIZE_MAX / elem_size;
         if (required_cap > max_alloc_items) {
-            return false;
+            return .{ Err: .CapacityOverflow };
         }
 
         let new_layout = self.fixed_layout(required_cap, elem_size);
-        let .{ Some: new_ptr_u8 } = alloc.alloc(new_layout) else return false;
+        let .{ Some: new_ptr_u8 } = alloc.alloc(new_layout) else return .{ Err: .OutOfMemory };
         let new_ptr = new_ptr_u8 as &mut T;
 
         if (self.cap > 0 and self.len > 0) {
@@ -153,25 +153,7 @@ impl[T] &mut List[T] {
 
         self.ptr = new_ptr;
         self.cap = required_cap;
-        return true;
-    }
-
-    /// Reserves space for at least `additional` more items.
-    #[inline]
-    pub fn reserve(alloc: &mut Allocator, additional: usize) bool {
-        if (additional > USIZE_MAX - self.len) {
-            return false;
-        }
-        return self.ensure_capacity(alloc, self.len + additional);
-    }
-
-    /// Reserves exactly enough space for `additional` more items when growth is needed.
-    #[inline]
-    pub fn reserve_exact(alloc: &mut Allocator, additional: usize) bool {
-        if (additional > USIZE_MAX - self.len) {
-            return false;
-        }
-        return self.ensure_capacity_exact(alloc, self.len + additional);
+        return .{ Ok: {} };
     }
 
     /// Reserves space and reports whether overflow or allocation failed.
@@ -183,10 +165,7 @@ impl[T] &mut List[T] {
         if (@sizeOf[T]() != 0 and required > USIZE_MAX / @sizeOf[T]()) {
             return .{ Err: .CapacityOverflow };
         }
-        if (!self.ensure_capacity(alloc, required)) {
-            return .{ Err: .OutOfMemory };
-        }
-        return .{ Ok: {} };
+        return self.ensure_capacity(alloc, required);
     }
 
     /// Reserves exact space and reports whether overflow or allocation failed.
@@ -198,27 +177,7 @@ impl[T] &mut List[T] {
         if (@sizeOf[T]() != 0 and required > USIZE_MAX / @sizeOf[T]()) {
             return .{ Err: .CapacityOverflow };
         }
-        if (!self.ensure_capacity_exact(alloc, required)) {
-            return .{ Err: .OutOfMemory };
-        }
-        return .{ Ok: {} };
-    }
-
-    /// Appends one item to the end of the list.
-    #[inline]
-    pub fn push(alloc: &mut Allocator, item: T) bool {
-        if (self.len == USIZE_MAX) {
-            return false;
-        }
-        if (self.len == self.cap and !self.ensure_capacity(alloc, self.len + 1)) {
-            return false;
-        }
-        if (@sizeOf[T]() != 0) {
-            let target = self.ptr + self.len;
-            target.* = item;
-        }
-        self.len += 1;
-        return true;
+        return self.ensure_capacity_exact(alloc, required);
     }
 
     /// Appends one item or returns a structured allocation error.
@@ -242,7 +201,7 @@ impl[T] &mut List[T] {
     /// Inserts one item at `index`.
     pub fn insert(alloc: &mut Allocator, index: usize, item: T) bool {
         if (index > self.len) return false;
-        if (!self.reserve(alloc, 1)) return false;
+        if (self.try_reserve(alloc, 1).is_err()) return false;
 
         if (self.is_zst()) {
             self.len += 1;
@@ -276,7 +235,7 @@ impl[T] &mut List[T] {
         }
 
         let old_len = self.len;
-        if (!self.reserve(alloc, additional)) {
+        if (self.try_reserve(alloc, additional).is_err()) {
             return false;
         }
 
@@ -400,17 +359,14 @@ impl[T] &mut List[T] {
         return .{ Some: removed_val };
     }
 
-    /// Appends every element from `slice`.
-    pub fn append_slice(alloc: &mut Allocator, slice: &[T]) bool {
-        let additional = #slice;
-        if (additional == 0) return true;
-
-        let old_len = self.len;
-        if (!self.reserve(alloc, additional)) return false;
-
+    fn append_slice_reserved(
+        slice: &[T],
+        old_len: usize,
+        additional: usize,
+    ) void {
         if (self.is_zst()) {
             self.len = old_len + additional;
-            return true;
+            return;
         }
 
         let mut src_ptr = slice.[0].& as &T;
@@ -428,65 +384,27 @@ impl[T] &mut List[T] {
         let copy_bytes = additional * self.elem_size();
         _ = memmove(target_ptr as &mut u8, src_ptr as &u8, copy_bytes);
         self.len = old_len + additional;
-        return true;
     }
 
     /// Appends every element from `slice` or returns a structured allocation error.
     pub fn try_append_slice(alloc: &mut Allocator, slice: &[T]) void!AllocError {
-        if (!self.append_slice(alloc, slice)) {
-            let additional = #slice;
-            if (additional > USIZE_MAX - self.len) {
-                return .{ Err: .CapacityOverflow };
-            }
-            if (@sizeOf[T]() != 0 and self.len + additional > USIZE_MAX / @sizeOf[T]()) {
-                return .{ Err: .CapacityOverflow };
-            }
-            return .{ Err: .OutOfMemory };
-        }
+        let additional = #slice;
+        if (additional == 0) return .{ Ok: {} };
+
+        let old_len = self.len;
+        self.try_reserve(alloc, additional).!;
+        self.append_slice_reserved(slice, old_len, additional);
         return .{ Ok: {} };
     }
 
     /// Appends every element from `slice`, growing exactly when reallocation is needed.
-    pub fn append_slice_exact(alloc: &mut Allocator, slice: &[T]) bool {
+    pub fn try_append_slice_exact(alloc: &mut Allocator, slice: &[T]) void!AllocError {
         let additional = #slice;
-        if (additional == 0) return true;
+        if (additional == 0) return .{ Ok: {} };
 
         let old_len = self.len;
-        if (!self.reserve_exact(alloc, additional)) return false;
-
-        if (self.is_zst()) {
-            self.len = old_len + additional;
-            return true;
-        }
-
-        let mut src_ptr = slice.[0].& as &T;
-        let base_addr = self.ptr as usize;
-        let end_addr = (self.ptr + old_len) as usize;
-        let src_addr = src_ptr as usize;
-        if (src_addr >= base_addr and src_addr < end_addr) {
-            let src_offset = (src_addr - base_addr) / self.elem_size();
-            src_ptr = self.ptr + src_offset;
-        }
-
-        let target_ptr = self.ptr + old_len;
-        let copy_bytes = additional * self.elem_size();
-        _ = memmove(target_ptr as &mut u8, src_ptr as &u8, copy_bytes);
-        self.len = old_len + additional;
-        return true;
-    }
-
-    /// Appends every element from `slice` with exact growth or returns an allocation error.
-    pub fn try_append_slice_exact(alloc: &mut Allocator, slice: &[T]) void!AllocError {
-        if (!self.append_slice_exact(alloc, slice)) {
-            let additional = #slice;
-            if (additional > USIZE_MAX - self.len) {
-                return .{ Err: .CapacityOverflow };
-            }
-            if (@sizeOf[T]() != 0 and self.len + additional > USIZE_MAX / @sizeOf[T]()) {
-                return .{ Err: .CapacityOverflow };
-            }
-            return .{ Err: .OutOfMemory };
-        }
+        self.try_reserve_exact(alloc, additional).!;
+        self.append_slice_reserved(slice, old_len, additional);
         return .{ Ok: {} };
     }
 
@@ -495,147 +413,105 @@ impl[T] &mut List[T] {
     /// Design:
     /// callers must initialize the returned elements before exposing them
     /// through safe higher-level APIs.
-    pub fn append_uninit(alloc: &mut Allocator, count: usize) ?&mut [T] {
+    pub fn try_append_uninit(alloc: &mut Allocator, count: usize) (&mut [T])!AllocError {
         if (count == 0) {
-            return .{ Some: self.zst_ptr()..&[0 .. 0] };
+            return .{ Ok: self.zst_ptr()..&[0 .. 0] };
         }
 
         let old_len = self.len;
-        if (!self.reserve(alloc, count)) {
-            return .None;
-        }
+        self.try_reserve(alloc, count).!;
 
         self.len = old_len + count;
         if (self.is_zst()) {
-            return .{ Some: self.zst_ptr()..&[0 .. count] };
+            return .{ Ok: self.zst_ptr()..&[0 .. count] };
         }
-        return .{ Some: (self.ptr + old_len)..&[0 .. count] };
-    }
-
-    /// Grows the list and returns the appended range or a structured allocation error.
-    pub fn try_append_uninit(alloc: &mut Allocator, count: usize) (&mut [T])!AllocError {
-        let .{ Some: out } = self.append_uninit(alloc, count) else {
-            if (count > USIZE_MAX - self.len) {
-                return .{ Err: .CapacityOverflow };
-            }
-            if (@sizeOf[T]() != 0 and self.len + count > USIZE_MAX / @sizeOf[T]()) {
-                return .{ Err: .CapacityOverflow };
-            }
-            return .{ Err: .OutOfMemory };
-        };
-        return .{ Ok: out };
+        return .{ Ok: (self.ptr + old_len)..&[0 .. count] };
     }
 
     /// Grows the list by `count` items using exact growth when reallocation is needed.
-    pub fn append_uninit_exact(alloc: &mut Allocator, count: usize) ?&mut [T] {
+    pub fn try_append_uninit_exact(alloc: &mut Allocator, count: usize) (&mut [T])!AllocError {
         if (count == 0) {
-            return .{ Some: self.zst_ptr()..&[0 .. 0] };
+            return .{ Ok: self.zst_ptr()..&[0 .. 0] };
         }
 
         let old_len = self.len;
-        if (!self.reserve_exact(alloc, count)) {
-            return .None;
-        }
+        self.try_reserve_exact(alloc, count).!;
 
         self.len = old_len + count;
         if (self.is_zst()) {
-            return .{ Some: self.zst_ptr()..&[0 .. count] };
+            return .{ Ok: self.zst_ptr()..&[0 .. count] };
         }
-        return .{ Some: (self.ptr + old_len)..&[0 .. count] };
-    }
-
-    /// Grows the list exactly and returns the appended range or an allocation error.
-    pub fn try_append_uninit_exact(alloc: &mut Allocator, count: usize) (&mut [T])!AllocError {
-        let .{ Some: out } = self.append_uninit_exact(alloc, count) else {
-            if (count > USIZE_MAX - self.len) {
-                return .{ Err: .CapacityOverflow };
-            }
-            if (@sizeOf[T]() != 0 and self.len + count > USIZE_MAX / @sizeOf[T]()) {
-                return .{ Err: .CapacityOverflow };
-            }
-            return .{ Err: .OutOfMemory };
-        };
-        return .{ Ok: out };
-    }
-
-    /// Alias for `append_slice`.
-    pub fn extend(alloc: &mut Allocator, items: &[T]) bool {
-        return self.append_slice(alloc, items);
-    }
-
-    /// Appends every element from another list.
-    pub fn extend_from_list(alloc: &mut Allocator, other: &List[T]) bool {
-        return self.append_slice(alloc, other.as_slice());
+        return .{ Ok: (self.ptr + old_len)..&[0 .. count] };
     }
 
     /// Appends `count` copies of `item`.
-    pub fn append_repeat(alloc: &mut Allocator, item: T, count: usize) bool {
-        if (!self.reserve(alloc, count)) {
-            return false;
-        }
+    pub fn try_append_repeat(alloc: &mut Allocator, item: T, count: usize) void!AllocError {
+        self.try_reserve(alloc, count).!;
 
         if (self.is_zst()) {
             self.len += count;
-            return true;
+            return .{ Ok: {} };
         }
 
         let start = self.len;
-                let mut i = usize.{0};
+        let mut i = usize.{0};
         while (i < count) {
             (self.ptr + start + i).* = item;
 
             i += 1;
         }
         self.len = start + count;
-        return true;
+        return .{ Ok: {} };
     }
 
     /// Changes the list length, filling new elements with `fill`.
-    pub fn resize(alloc: &mut Allocator, new_len: usize, fill: T) bool {
+    pub fn try_resize(alloc: &mut Allocator, new_len: usize, fill: T) void!AllocError {
         if (new_len <= self.len) {
             self.truncate(new_len);
-            return true;
+            return .{ Ok: {} };
         }
 
-        return self.append_repeat(alloc, fill, new_len - self.len);
+        return self.try_append_repeat(alloc, fill, new_len - self.len);
     }
 
     /// Replaces the contents of the list with `items`.
-    pub fn clone_from(alloc: &mut Allocator, items: &[T]) bool {
+    pub fn try_clone_from(alloc: &mut Allocator, items: &[T]) void!AllocError {
         self.clear();
-        return self.append_slice(alloc, items);
+        return self.try_append_slice(alloc, items);
     }
 
     /// Replaces the contents of the list with `items`, using exact growth when needed.
-    pub fn clone_from_exact(alloc: &mut Allocator, items: &[T]) bool {
+    pub fn try_clone_from_exact(alloc: &mut Allocator, items: &[T]) void!AllocError {
         self.clear();
-        return self.append_slice_exact(alloc, items);
+        return self.try_append_slice_exact(alloc, items);
     }
 
     /// Shrinks capacity down to the current length.
-    pub fn shrink_to_fit(alloc: &mut Allocator) bool {
-        if (self.cap == self.len) return true;
+    pub fn try_shrink_to_fit(alloc: &mut Allocator) void!AllocError {
+        if (self.cap == self.len) return .{ Ok: {} };
         if (self.len == 0) {
             self.deinit(alloc);
-            return true;
+            return .{ Ok: {} };
         }
         if (self.is_zst()) {
             self.cap = USIZE_MAX;
-            return true;
+            return .{ Ok: {} };
         }
 
-        let .{ Some: exact_layout } = self.buffer_layout(self.len) else return false;
-        let .{ Some: new_ptr_u8 } = alloc.alloc(exact_layout) else return false;
+        let .{ Some: exact_layout } = self.buffer_layout(self.len)
+            else return .{ Err: .CapacityOverflow };
+        let .{ Some: new_ptr_u8 } = alloc.alloc(exact_layout) else return .{ Err: .OutOfMemory };
 
         let new_ptr = new_ptr_u8 as &mut T;
 
         @memcpy(new_ptr as &mut u8, self.ptr as &mut u8, exact_layout.size);
-        let .{ Some: old_layout } = self.buffer_layout(self.cap) else return false;
+        let .{ Some: old_layout } = self.buffer_layout(self.cap)
+            else return .{ Err: .CapacityOverflow };
         alloc.free(self.ptr as &mut u8, old_layout);
 
         self.ptr = new_ptr;
         self.cap = self.len;
-        return true;
+        return .{ Ok: {} };
     }
 
     /// Reverses the element order in place.

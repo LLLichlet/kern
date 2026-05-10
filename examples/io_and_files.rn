@@ -13,10 +13,16 @@ fn main() i32 {
     let path = ".craft/example-atomic-write.txt".path();
     _ = path.remove_file_if_exists(gpa);
 
-    let written = path.write_all_atomic(gpa, "kern examples\n").should_ok().sum(@loc(), t);
+    let written = path
+        .write_all_atomic(gpa, "kern examples\n")
+        .should_ok()
+        .sum(@loc(), t);
     (written == usize.{14}).should().sum(@loc(), t);
 
-    let mut text = path.read_to_string(gpa).should_ok().sum(@loc(), t);
+    let mut text = path
+        .read_to_string(gpa)
+        .should_ok()
+        .sum(@loc(), t);
     defer text..&.deinit(gpa);
     (text.&.as_str() == "kern examples\n").should().sum(@loc(), t);
 

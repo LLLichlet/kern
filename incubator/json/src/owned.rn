@@ -291,7 +291,7 @@ impl &mut OwnedValuePool {
 
 fn clone_number_text(alloc: &mut Allocator, raw: &[u8]) String!MaterializeError {
     let mut out = String.{};
-    if (!out..&.clone_from_exact(alloc, raw)) {
+    if (out..&.try_clone_from_exact(alloc, raw).is_err()) {
         return .{ Err: MaterializeError.OutOfMemory };
     }
     return .{ Ok: out };
@@ -300,7 +300,7 @@ fn clone_number_text(alloc: &mut Allocator, raw: &[u8]) String!MaterializeError 
 fn clone_number_text_in_arena(arena: &mut Arena, raw: &[u8]) String!MaterializeError {
     let alloc = &mut Allocator.{ arena };
     let mut out = String.{};
-    if (!out..&.clone_from_exact(alloc, raw)) {
+    if (out..&.try_clone_from_exact(alloc, raw).is_err()) {
         return .{ Err: MaterializeError.OutOfMemory };
     }
     return .{ Ok: out };
@@ -308,7 +308,7 @@ fn clone_number_text_in_arena(arena: &mut Arena, raw: &[u8]) String!MaterializeE
 
 fn clone_owned_text(alloc: &mut Allocator, text: &[u8]) String!OwnedBuildError {
     let mut out = String.{};
-    if (!out..&.clone_from_exact(alloc, text)) {
+    if (out..&.try_clone_from_exact(alloc, text).is_err()) {
         return .{ Err: OwnedBuildError.OutOfMemory };
     }
     return .{ Ok: out };
@@ -443,7 +443,7 @@ fn parse_owned_array_from_start(
             out..&.deinit(alloc);
             return .{ Err: MaterializeError.OutOfMemory };
         };
-        if (!out.items..&.push(alloc, item_ptr)) {
+        if (out.items..&.try_push(alloc, item_ptr).is_err()) {
             deinit_owned_value_contents(alloc, item_ptr);
             out.nodes..&.free_node(item_ptr);
             out..&.deinit(alloc);
@@ -508,7 +508,7 @@ fn parse_owned_array_from_start_in_arena(
             out..&.deinit(alloc);
             return .{ Err: MaterializeError.OutOfMemory };
         };
-        if (!out.items..&.push(alloc, item_ptr)) {
+        if (out.items..&.try_push(alloc, item_ptr).is_err()) {
             deinit_owned_value_contents(alloc, item_ptr);
             out.nodes..&.free_node(item_ptr);
             out..&.deinit(alloc);
@@ -613,7 +613,7 @@ fn parse_owned_object_from_start(
             return .{ Err: MaterializeError.OutOfMemory };
         };
         let mut entry = OwnedObjectEntry.{ key: key, value: value_ptr };
-        if (!out.entries..&.push(alloc, entry)) {
+        if (out.entries..&.try_push(alloc, entry).is_err()) {
             deinit_owned_object_entry_contents(alloc, entry..&);
             out.nodes..&.free_node(entry.value);
             out..&.deinit(alloc);
@@ -719,7 +719,7 @@ fn parse_owned_object_from_start_in_arena(
             return .{ Err: MaterializeError.OutOfMemory };
         };
         let mut entry = OwnedObjectEntry.{ key: key, value: value_ptr };
-        if (!out.entries..&.push(alloc, entry)) {
+        if (out.entries..&.try_push(alloc, entry).is_err()) {
             deinit_owned_object_entry_contents(alloc, entry..&);
             out.nodes..&.free_node(entry.value);
             out..&.deinit(alloc);
@@ -1022,8 +1022,11 @@ impl &OwnedArray {
 }
 
 impl &mut OwnedArray {
-    pub fn reserve(alloc: &mut Allocator, additional: usize) bool {
-        return self.*.items..&.reserve(alloc, additional);
+    pub fn try_reserve(alloc: &mut Allocator, additional: usize) void!OwnedBuildError {
+        match (self.*.items..&.try_reserve(alloc, additional)) {
+            .{ Ok: _ } => return .{ Ok: {} },
+            .{ Err: _ } => return .{ Err: .OutOfMemory },
+        }
     }
 
     pub fn push(alloc: &mut Allocator, value: OwnedValue) (&mut OwnedValue)!OwnedBuildError {
@@ -1032,7 +1035,7 @@ impl &mut OwnedArray {
             owned_value..&.deinit(alloc);
             return .{ Err: OwnedBuildError.OutOfMemory };
         };
-        if (!self.*.items..&.push(alloc, value_ptr)) {
+        if (self.*.items..&.try_push(alloc, value_ptr).is_err()) {
             deinit_owned_value_contents(alloc, value_ptr);
             self.*.nodes..&.free_node(value_ptr);
             return .{ Err: OwnedBuildError.OutOfMemory };
@@ -1425,8 +1428,11 @@ impl &OwnedObject {
 }
 
 impl &mut OwnedObject {
-    pub fn reserve(alloc: &mut Allocator, additional: usize) bool {
-        return self.*.entries..&.reserve(alloc, additional);
+    pub fn try_reserve(alloc: &mut Allocator, additional: usize) void!OwnedBuildError {
+        match (self.*.entries..&.try_reserve(alloc, additional)) {
+            .{ Ok: _ } => return .{ Ok: {} },
+            .{ Err: _ } => return .{ Err: .OutOfMemory },
+        }
     }
 
     pub fn append(
@@ -1446,7 +1452,7 @@ impl &mut OwnedObject {
                 return .{ Err: OwnedBuildError.OutOfMemory };
             };
         let mut entry = OwnedObjectEntry.{ key: owned_key, value: value_ptr };
-        if (!self.*.entries..&.push(alloc, entry)) {
+        if (self.*.entries..&.try_push(alloc, entry).is_err()) {
             deinit_owned_object_entry_contents(alloc, entry..&);
             self.*.nodes..&.free_node(value_ptr);
             return .{ Err: OwnedBuildError.OutOfMemory };
@@ -1560,14 +1566,14 @@ impl &mut OwnedValue {
         self.* = value;
     }
 
-    pub fn reserve_array_items(alloc: &mut Allocator, additional: usize) bool {
+    pub fn try_reserve_array_items(alloc: &mut Allocator, additional: usize) void!OwnedBuildError {
         return match (self.*) {
             .{ Array: mut array } => {
-                let ok = array..&.reserve(alloc, additional);
+                array..&.try_reserve(alloc, additional).!;
                 self.* = .{ Array: array };
-                ok
+                .{ Ok: {} }
             },
-            _ => false,
+            _ => .{ Ok: {} },
         };
     }
 
@@ -1633,14 +1639,14 @@ impl &mut OwnedValue {
         };
     }
 
-    pub fn reserve_object_fields(alloc: &mut Allocator, additional: usize) bool {
+    pub fn try_reserve_object_fields(alloc: &mut Allocator, additional: usize) void!OwnedBuildError {
         return match (self.*) {
             .{ Object: mut object } => {
-                let ok = object..&.reserve(alloc, additional);
+                object..&.try_reserve(alloc, additional).!;
                 self.* = .{ Object: object };
-                ok
+                .{ Ok: {} }
             },
-            _ => false,
+            _ => .{ Ok: {} },
         };
     }
 

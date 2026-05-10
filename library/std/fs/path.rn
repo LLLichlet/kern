@@ -3,9 +3,13 @@
 //! Design:
 //! keep normalization lexical and avoid hidden filesystem queries.
 
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 use base.coll.{String, List};
 use ..types.{Error, Path};
+
+fn wrap_alloc_error(_: AllocError) Error {
+    return .OutOfMemory;
+}
 
 /// Returns `true` when `byte` is treated as a path separator on the current platform.
 pub/ fn is_path_separator(byte: u8) bool {
@@ -126,18 +130,16 @@ pub/ fn build_child_path(
 ) String!Error {
     let mut out = String.{};
     let sep = preferred_separator_byte(base);
-    if (!out..&.push_str(alloc, base)) {
-        return .{ Err: .OutOfMemory };
-    }
+    out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).!;
 
     if (#base > 0 and !is_path_separator(base.[#base - 1])) {
-        if (!out..&.push_char(alloc, sep)) {
+        if (out..&.try_push_char(alloc, sep).is_err()) {
             out..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
         }
     }
 
-    if (!out..&.push_str(alloc, name)) {
+    if (out..&.try_push_str(alloc, name).is_err()) {
         out..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
     }
@@ -158,12 +160,12 @@ fn append_path_segment(
         !is_path_separator(out.as_str().[out_len - 1]) and
         (prefix_len == 0 or out_len > prefix_len)
     ) {
-        if (!out.push_char(alloc, sep)) {
+        if (out.try_push_char(alloc, sep).is_err()) {
             return false;
         }
     }
 
-    return out.push_str(alloc, segment);
+    return out.try_push_str(alloc, segment).is_ok();
 }
 
 fn last_separator(path: &[u8]) ?usize {
@@ -256,25 +258,19 @@ pub/ fn join(
 ) String!Error {
     if (root_prefix_len(child) > 0) {
         let mut out = String.{};
-        if (!out..&.push_str(alloc, child)) {
-            return .{ Err: .OutOfMemory };
-        }
+        out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).!;
         return .{ Ok: out };
     }
 
     if (#base == 0) {
         let mut out = String.{};
-        if (!out..&.push_str(alloc, child)) {
-            return .{ Err: .OutOfMemory };
-        }
+        out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).!;
         return .{ Ok: out };
     }
 
     if (#child == 0) {
         let mut out = String.{};
-        if (!out..&.push_str(alloc, base)) {
-            return .{ Err: .OutOfMemory };
-        }
+        out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).!;
         return .{ Ok: out };
     }
 
@@ -318,32 +314,24 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
             if (can_pop) {
                 _ = segments.pop();
             } else if (prefix_len == 0) {
-                if (!segments.push(alloc, segment)) {
-                    return .{ Err: .OutOfMemory };
-                }
+                segments.try_push(alloc, segment).map_err(wrap_alloc_error).!;
             }
             continue;
         }
 
-        if (!segments.push(alloc, segment)) {
-            return .{ Err: .OutOfMemory };
-        }
+        segments.try_push(alloc, segment).map_err(wrap_alloc_error).!;
     }
 
     let mut out = String.{};
     if (prefix_len > 0) {
-        if (!out..&.push_str(alloc, path.&[0 .. prefix_len])) {
-            return .{ Err: .OutOfMemory };
-        }
+        out..&.try_push_str(alloc, path.&[0 .. prefix_len]).map_err(wrap_alloc_error).!;
     }
 
     if (segments.is_empty()) {
         if (prefix_len > 0) {
             return .{ Ok: out };
         }
-        if (!out..&.push_str(alloc, ".")) {
-            return .{ Err: .OutOfMemory };
-        }
+        out..&.try_push_str(alloc, ".").map_err(wrap_alloc_error).!;
         return .{ Ok: out };
     }
 
@@ -400,16 +388,14 @@ pub/ fn with_extension(
     let stem = file_stem(path).ok_or(.InvalidPath).!;
 
     let mut new_name = String.{};
-    if (!new_name..&.push_str(alloc, stem)) {
-        return .{ Err: .OutOfMemory };
-    }
+    new_name..&.try_push_str(alloc, stem).map_err(wrap_alloc_error).!;
 
     if (#ext > 0) {
-        if (!new_name..&.push_char(alloc, b'.')) {
+        if (new_name..&.try_push_char(alloc, b'.').is_err()) {
             new_name..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
         }
-        if (!new_name..&.push_str(alloc, ext)) {
+        if (new_name..&.try_push_str(alloc, ext).is_err()) {
             new_name..&.deinit(alloc);
             return .{ Err: .OutOfMemory };
         }

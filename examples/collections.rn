@@ -13,9 +13,18 @@ fn main() i32 {
     let list = list[i32]()..&;
     defer list.deinit(gpa);
 
-    list.push(gpa, 3).should().sum(@loc(), t);
-    list.push(gpa, 1).should().sum(@loc(), t);
-    list.push(gpa, 2).should().sum(@loc(), t);
+    list
+        .try_push(gpa, 3)
+        .should_ok()
+        .sum(@loc(), t);
+    list
+        .try_push(gpa, 1)
+        .should_ok()
+        .sum(@loc(), t);
+    list
+        .try_push(gpa, 2)
+        .should_ok()
+        .sum(@loc(), t);
 
     list.as_mut_slice().sort();
     (list.as_slice() == [3]i32.{ 1, 2, 3 }).should().sum(@loc(), t);

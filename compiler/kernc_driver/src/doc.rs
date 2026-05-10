@@ -58,8 +58,6 @@ pub struct KmetaDocItem {
     pub docs: KernDoc,
 }
 
-const KMETA_DOCS_FORMAT_VERSION: u32 = 2;
-
 pub fn normalize_doc(block: &ast::DocBlock) -> KernDoc {
     let raw_lines = block
         .lines
@@ -518,7 +516,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
 
 pub fn render_kmeta_docs_toml(items: &[KmetaDocItem]) -> String {
     let mut out = String::new();
-    out.push_str(&format!("format_version = {KMETA_DOCS_FORMAT_VERSION}\n\n"));
+    out.push_str("format_version = 2\n\n");
 
     for item in items {
         out.push_str("[[item]]\n");

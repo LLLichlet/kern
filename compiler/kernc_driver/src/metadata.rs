@@ -735,7 +735,7 @@ fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
                     index + 1
                 )
             })?;
-            if !matches!(version, 1 | 2) {
+            if version != 2 {
                 return Err(format!("unsupported docs format version `{version}`"));
             }
             seen_format_version = true;
@@ -998,7 +998,7 @@ mod tests {
     #[test]
     fn parses_native_docs_toml_with_nested_sections() {
         let contents = r#"
-format_version = 1
+format_version = 2
 
 [[item]]
 path = "root::uart::Uart::read"
@@ -1040,7 +1040,7 @@ body = "must point to a mapped UART object."
     #[test]
     fn parses_native_docs_toml_with_escaped_control_characters() {
         let contents = r#"
-format_version = 1
+format_version = 2
 
 [[item]]
 path = "root::toml"

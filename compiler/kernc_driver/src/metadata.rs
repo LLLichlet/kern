@@ -681,6 +681,8 @@ fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
                     path: String::new(),
                     kind: String::new(),
                     signature: None,
+                    impl_trait_path: None,
+                    impl_trait_external: false,
                     is_public: false,
                     docs: KernDoc {
                         summary: String::new(),
@@ -733,7 +735,7 @@ fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
                     index + 1
                 )
             })?;
-            if version != 1 {
+            if !matches!(version, 1 | 2) {
                 return Err(format!("unsupported docs format version `{version}`"));
             }
             seen_format_version = true;
@@ -750,6 +752,13 @@ fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
                     "kind" => item.kind = parse_docs_string(index + 1, key, value.trim())?,
                     "signature" => {
                         item.signature = Some(parse_docs_string(index + 1, key, value.trim())?)
+                    }
+                    "impl_trait_path" => {
+                        item.impl_trait_path =
+                            Some(parse_docs_string(index + 1, key, value.trim())?)
+                    }
+                    "impl_trait_external" => {
+                        item.impl_trait_external = parse_docs_bool(index + 1, key, value.trim())?
                     }
                     "public" => item.is_public = parse_docs_bool(index + 1, key, value.trim())?,
                     "summary" => {
@@ -996,6 +1005,8 @@ path = "root::uart::Uart::read"
 kind = "function"
 public = true
 signature = "fn read: fn(u16) u8"
+impl_trait_path = "root::io::Reader"
+impl_trait_external = true
 summary = "Read one byte."
 details = ""
 raw = "Read one byte."
@@ -1014,6 +1025,8 @@ body = "must point to a mapped UART object."
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].path, "root::uart::Uart::read");
         assert!(docs[0].is_public);
+        assert_eq!(docs[0].impl_trait_path.as_deref(), Some("root::io::Reader"));
+        assert!(docs[0].impl_trait_external);
         assert_eq!(docs[0].docs.summary, "Read one byte.");
         assert_eq!(docs[0].docs.sections.len(), 1);
         assert_eq!(docs[0].docs.sections[0].title, "Safety");

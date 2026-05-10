@@ -224,6 +224,7 @@ struct ModuleDocGroup<'a> {
     types: Vec<&'a KmetaDocItem>,
     values: Vec<&'a KmetaDocItem>,
     impls: BTreeMap<String, Vec<&'a KmetaDocItem>>,
+    capabilities: BTreeMap<String, Vec<&'a KmetaDocItem>>,
     members: BTreeMap<String, Vec<&'a KmetaDocItem>>,
 }
 
@@ -251,7 +252,15 @@ fn collect_module_groups<'a>(
                 let Some(owner_path) = owner_path(&item.path) else {
                     continue;
                 };
-                module.impls.entry(owner_path).or_default().push(item);
+                if item.impl_trait_external {
+                    module
+                        .capabilities
+                        .entry(owner_path)
+                        .or_default()
+                        .push(item);
+                } else {
+                    module.impls.entry(owner_path).or_default().push(item);
+                }
             }
             "field" | "variant" | "trait_method" => {
                 let Some(owner_path) = owner_path(&item.path) else {
@@ -267,6 +276,9 @@ fn collect_module_groups<'a>(
         module.types.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path));
         module.values.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path));
         for items in module.impls.values_mut() {
+            items.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path));
+        }
+        for items in module.capabilities.values_mut() {
             items.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path));
         }
         for items in module.members.values_mut() {
@@ -331,37 +343,20 @@ fn render_module_markdown(out: &mut String, module: &ModuleDocGroup<'_>) {
     }
 
     for (owner_path, methods) in &module.impls {
-        let (impl_kind, impl_target) = impl_heading_parts(&module.path, owner_path);
-        out.push_str("\n\n<a id=\"");
-        out.push_str(&anchor_for("impl", owner_path));
-        out.push_str("\"></a>");
-        out.push_str("\n\n### ");
-        out.push_str(impl_kind);
-        out.push_str(" `");
-        out.push_str(&impl_target);
-        out.push_str("`\n");
+        render_impl_markdown(out, module, owner_path, methods, false);
+    }
 
-        if !methods.is_empty() {
-            out.push_str("\n\n#### Methods");
-            render_anchor_links(
-                out,
-                methods.iter().map(|method| {
-                    (
-                        short_name(&method.path).to_string(),
-                        anchor_for("item", &method.path),
-                    )
-                }),
-            );
-        }
-
-        for method in methods {
-            render_item_markdown(out, method, 4, &format!("`{}`", short_name(&method.path)));
-        }
+    for (owner_path, methods) in &module.capabilities {
+        render_impl_markdown(out, module, owner_path, methods, true);
     }
 }
 
 fn render_module_quick_links(out: &mut String, module: &ModuleDocGroup<'_>) {
-    if module.types.is_empty() && module.values.is_empty() && module.impls.is_empty() {
+    if module.types.is_empty()
+        && module.values.is_empty()
+        && module.impls.is_empty()
+        && module.capabilities.is_empty()
+    {
         return;
     }
 
@@ -401,6 +396,56 @@ fn render_module_quick_links(out: &mut String, module: &ModuleDocGroup<'_>) {
                 )
             }),
         );
+    }
+    if !module.capabilities.is_empty() {
+        out.push_str("\n\n#### Capabilities");
+        render_anchor_links(
+            out,
+            module.capabilities.keys().map(|owner_path| {
+                (
+                    capability_display_name(&module.path, owner_path),
+                    anchor_for("capability", owner_path),
+                )
+            }),
+        );
+    }
+}
+
+fn render_impl_markdown(
+    out: &mut String,
+    module: &ModuleDocGroup<'_>,
+    owner_path: &str,
+    methods: &[&KmetaDocItem],
+    capability: bool,
+) {
+    let (impl_kind, impl_target) = impl_heading_parts(&module.path, owner_path, capability);
+    out.push_str("\n\n<a id=\"");
+    out.push_str(&anchor_for(
+        if capability { "capability" } else { "impl" },
+        owner_path,
+    ));
+    out.push_str("\"></a>");
+    out.push_str("\n\n### ");
+    out.push_str(impl_kind);
+    out.push_str(" `");
+    out.push_str(&impl_target);
+    out.push_str("`\n");
+
+    if !methods.is_empty() {
+        out.push_str("\n\n#### Methods");
+        render_anchor_links(
+            out,
+            methods.iter().map(|method| {
+                (
+                    short_name(&method.path).to_string(),
+                    anchor_for("item", &method.path),
+                )
+            }),
+        );
+    }
+
+    for method in methods {
+        render_item_markdown(out, method, 4, &format!("`{}`", short_name(&method.path)));
     }
 }
 
@@ -520,12 +565,24 @@ fn kind_heading(kind: &str) -> &'static str {
 }
 
 fn impl_display_name(module_path: &str, owner_path: &str) -> String {
-    let (kind, label) = impl_heading_parts(module_path, owner_path);
+    let (kind, label) = impl_heading_parts(module_path, owner_path, false);
     format!("{kind}: {label}")
 }
 
-fn impl_heading_parts(module_path: &str, owner_path: &str) -> (&'static str, String) {
+fn capability_display_name(module_path: &str, owner_path: &str) -> String {
+    let (_, label) = impl_heading_parts(module_path, owner_path, true);
+    label
+}
+
+fn impl_heading_parts(
+    module_path: &str,
+    owner_path: &str,
+    capability: bool,
+) -> (&'static str, String) {
     let label = relative_name(module_path, owner_path);
+    if capability {
+        return ("Capability", label);
+    }
     if label.contains(" as ") {
         return ("Trait Impl", label);
     }
@@ -563,6 +620,8 @@ mod tests {
                     path: "uart".to_string(),
                     kind: "module".to_string(),
                     signature: Some("module uart".to_string()),
+                    impl_trait_path: None,
+                    impl_trait_external: false,
                     is_public: true,
                     docs: KernDoc {
                         summary: "UART package.".to_string(),
@@ -575,6 +634,8 @@ mod tests {
                     path: "uart.io".to_string(),
                     kind: "module".to_string(),
                     signature: Some("module io".to_string()),
+                    impl_trait_path: None,
+                    impl_trait_external: false,
                     is_public: true,
                     docs: KernDoc {
                         summary: "I/O utilities.".to_string(),
@@ -587,6 +648,8 @@ mod tests {
                     path: "uart.io.Uart".to_string(),
                     kind: "struct".to_string(),
                     signature: Some("struct Uart {\n    pub base: u16,\n}".to_string()),
+                    impl_trait_path: None,
+                    impl_trait_external: false,
                     is_public: true,
                     docs: KernDoc {
                         summary: "Typed UART handle.".to_string(),
@@ -599,6 +662,8 @@ mod tests {
                     path: "uart.io.Uart.read".to_string(),
                     kind: "method".to_string(),
                     signature: Some("fn read(self: Uart, port: u16) u8".to_string()),
+                    impl_trait_path: None,
+                    impl_trait_external: false,
                     is_public: true,
                     docs: KernDoc {
                         summary: "Read one byte from the receiver register.".to_string(),
@@ -619,9 +684,27 @@ mod tests {
                     path: "uart.io.Uart as Reader.read".to_string(),
                     kind: "method".to_string(),
                     signature: Some("fn read(self: Uart) u8".to_string()),
+                    impl_trait_path: Some("uart.io.Reader".to_string()),
+                    impl_trait_external: false,
                     is_public: true,
                     docs: KernDoc {
                         summary: "Read through the reader trait.".to_string(),
+                        details: String::new(),
+                        sections: Vec::new(),
+                        raw_text: String::new(),
+                    },
+                },
+                KmetaDocItem {
+                    path: "uart.io.Uart as Formatable.write_to".to_string(),
+                    kind: "method".to_string(),
+                    signature: Some(
+                        "fn write_to(self: Uart, writer: &mut dyn Writer) void".to_string(),
+                    ),
+                    impl_trait_path: Some("core.fmt.Formatable".to_string()),
+                    impl_trait_external: true,
+                    is_public: true,
+                    docs: KernDoc {
+                        summary: "Write through the formatting trait.".to_string(),
                         details: String::new(),
                         sections: Vec::new(),
                         raw_text: String::new(),
@@ -637,11 +720,14 @@ mod tests {
         assert!(markdown.contains("### Quick Links"));
         assert!(markdown.contains("#### Types"));
         assert!(markdown.contains("#### Impls"));
+        assert!(markdown.contains("#### Capabilities"));
         assert!(markdown.contains("### Struct `Uart`"));
         assert!(markdown.contains("### Inherent Impl `Uart`"));
         assert!(markdown.contains("### Trait Impl `Uart as Reader`"));
+        assert!(markdown.contains("### Capability `Uart as Formatable`"));
         assert!(markdown.contains("#### Methods"));
         assert!(markdown.contains("#### `read`"));
+        assert!(markdown.contains("#### `write_to`"));
         assert!(!markdown.contains("Path: `uart.io.Uart.read`"));
         assert!(markdown.contains("```kern\nfn read(self: Uart, port: u16) u8\n```"));
         assert!(markdown.contains("### Safety"));
@@ -655,6 +741,8 @@ mod tests {
                 path: "pkg.Documented".to_string(),
                 kind: "struct".to_string(),
                 signature: None,
+                impl_trait_path: None,
+                impl_trait_external: false,
                 is_public: true,
                 docs: KernDoc {
                     summary: "Documented item.".to_string(),
@@ -667,6 +755,8 @@ mod tests {
                 path: "pkg.Missing".to_string(),
                 kind: "struct".to_string(),
                 signature: None,
+                impl_trait_path: None,
+                impl_trait_external: false,
                 is_public: true,
                 docs: KernDoc {
                     summary: String::new(),
@@ -679,6 +769,8 @@ mod tests {
                 path: "pkg.Private".to_string(),
                 kind: "function".to_string(),
                 signature: None,
+                impl_trait_path: None,
+                impl_trait_external: false,
                 is_public: false,
                 docs: KernDoc {
                     summary: String::new(),

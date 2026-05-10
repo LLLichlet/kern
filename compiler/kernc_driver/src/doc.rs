@@ -2,7 +2,7 @@ use crate::language::is_language_builtin_def;
 use kernc_ast as ast;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, FunctionDef, ImplDef};
-use kernc_utils::Span;
+use kernc_utils::{Span, SymbolId};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,9 +52,13 @@ pub struct KmetaDocItem {
     pub path: String,
     pub kind: String,
     pub signature: Option<String>,
+    pub impl_trait_path: Option<String>,
+    pub impl_trait_external: bool,
     pub is_public: bool,
     pub docs: KernDoc,
 }
+
+const KMETA_DOCS_FORMAT_VERSION: u32 = 2;
 
 pub fn normalize_doc(block: &ast::DocBlock) -> KernDoc {
     let raw_lines = block
@@ -320,22 +324,22 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     module_path(ctx, module.id),
                     "module",
                     Some(format!("module {}", ctx.resolve(module.name))),
+                    None,
+                    false,
                     true,
                     module.docs.as_ref(),
                 );
             }
             Def::Function(function) if !function.is_imported => {
-                if function_receiver_impl(ctx, function)
-                    .is_some_and(|impl_def| impl_trait_is_external(ctx, impl_def))
-                {
-                    continue;
-                }
-                let is_method = function_receiver_impl(ctx, function).is_some();
+                let receiver_impl = function_receiver_impl(ctx, function);
+                let is_method = receiver_impl.is_some();
                 push_item(
                     &mut items,
                     def_path(ctx, function.id),
                     if is_method { "method" } else { "function" },
                     function_signature(ctx, function),
+                    receiver_impl.and_then(|impl_def| impl_trait_path(ctx, impl_def)),
+                    receiver_impl.is_some_and(|impl_def| impl_trait_is_external(ctx, impl_def)),
                     function.vis.is_public(),
                     function.docs.as_ref(),
                 );
@@ -352,6 +356,8 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         &def.generics,
                         def.fields.iter(),
                     )),
+                    None,
+                    false,
                     def.vis.is_public(),
                     def.docs.as_ref(),
                 );
@@ -384,6 +390,8 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         &def.generics,
                         def.fields.iter(),
                     )),
+                    None,
+                    false,
                     def.vis.is_public(),
                     def.docs.as_ref(),
                 );
@@ -410,6 +418,8 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     def_path(ctx, def.id),
                     "enum",
                     Some(format!("enum {}", ctx.resolve(def.name))),
+                    None,
+                    false,
                     def.vis.is_public(),
                     def.docs.as_ref(),
                 );
@@ -441,6 +451,8 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     def_path(ctx, def.id),
                     "trait",
                     Some(format!("trait {}", ctx.resolve(def.name))),
+                    None,
+                    false,
                     def.vis.is_public(),
                     def.docs.as_ref(),
                 );
@@ -474,6 +486,8 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     def_path(ctx, def.id),
                     kind,
                     signature,
+                    None,
+                    false,
                     def.vis.is_public(),
                     def.docs.as_ref(),
                 );
@@ -488,6 +502,8 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         ctx.resolve(def.name),
                         type_node_label(ctx, &def.target)
                     )),
+                    None,
+                    false,
                     def.vis.is_public(),
                     def.docs.as_ref(),
                 );
@@ -502,7 +518,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
 
 pub fn render_kmeta_docs_toml(items: &[KmetaDocItem]) -> String {
     let mut out = String::new();
-    out.push_str("format_version = 1\n\n");
+    out.push_str(&format!("format_version = {KMETA_DOCS_FORMAT_VERSION}\n\n"));
 
     for item in items {
         out.push_str("[[item]]\n");
@@ -511,6 +527,16 @@ pub fn render_kmeta_docs_toml(items: &[KmetaDocItem]) -> String {
         out.push_str(&format!("public = {}\n", item.is_public));
         if let Some(signature) = &item.signature {
             out.push_str(&format!("signature = {}\n", toml_quote(signature)));
+        }
+        if let Some(impl_trait_path) = &item.impl_trait_path {
+            out.push_str(&format!(
+                "impl_trait_path = {}\n",
+                toml_quote(impl_trait_path)
+            ));
+            out.push_str(&format!(
+                "impl_trait_external = {}\n",
+                item.impl_trait_external
+            ));
         }
         out.push_str(&format!("summary = {}\n", toml_quote(&item.docs.summary)));
         out.push_str(&format!("details = {}\n", toml_quote(&item.docs.details)));
@@ -736,6 +762,8 @@ fn push_item(
     path: String,
     kind: &str,
     signature: Option<String>,
+    impl_trait_path: Option<String>,
+    impl_trait_external: bool,
     is_public: bool,
     docs: Option<&ast::DocBlock>,
 ) {
@@ -746,6 +774,8 @@ fn push_item(
         path,
         kind: kind.to_string(),
         signature,
+        impl_trait_path,
+        impl_trait_external,
         is_public,
         docs: docs.map(normalize_doc).unwrap_or_else(empty_doc),
     });
@@ -768,6 +798,8 @@ fn push_member_item(
         path: format!("{}.{}", def_path(ctx, parent), name),
         kind: kind.to_string(),
         signature,
+        impl_trait_path: None,
+        impl_trait_external: false,
         is_public,
         docs: docs.map(normalize_doc).unwrap_or_else(empty_doc),
     });
@@ -931,10 +963,16 @@ fn impl_trait_is_external(ctx: &SemaContext<'_>, impl_def: &ImplDef) -> bool {
     let trait_module = ctx.def_parent_module(trait_def_id);
     match (impl_module, trait_module) {
         (Some(impl_module), Some(trait_module)) => {
-            root_module_id(ctx, impl_module) != root_module_id(ctx, trait_module)
+            module_locality(ctx, impl_module) != module_locality(ctx, trait_module)
         }
         _ => false,
     }
+}
+
+fn impl_trait_path(ctx: &SemaContext<'_>, impl_def: &ImplDef) -> Option<String> {
+    let trait_type = impl_def.trait_type.as_ref()?;
+    let trait_def_id = trait_def_id_for_type_node(ctx, trait_type)?;
+    Some(def_path(ctx, trait_def_id))
 }
 
 fn trait_def_id_for_type_node(ctx: &SemaContext<'_>, trait_type: &ast::TypeNode) -> Option<DefId> {
@@ -958,6 +996,19 @@ fn root_module_id(ctx: &SemaContext<'_>, module_id: DefId) -> DefId {
         current = module.parent;
     }
     root
+}
+
+fn module_locality(ctx: &SemaContext<'_>, module_id: DefId) -> DocImplLocality {
+    ctx.root_module_package_name(module_id).map_or_else(
+        || DocImplLocality::Root(root_module_id(ctx, module_id)),
+        DocImplLocality::Package,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DocImplLocality {
+    Package(SymbolId),
+    Root(DefId),
 }
 
 fn generic_params_label(ctx: &SemaContext<'_>, generics: &[ast::GenericParam]) -> String {
@@ -1174,6 +1225,7 @@ mod tests {
 
         let root_name = ctx.intern("root");
         let read_name = ctx.intern("read");
+        let service_name = ctx.intern("Service");
 
         let module_id = ctx.add_def(Def::Module(ModuleDef {
             id: DefId(0),
@@ -1189,12 +1241,37 @@ mod tests {
             is_init: true,
             docs: None,
         }));
+        let service_trait_id = ctx.add_def(Def::Trait(TraitDef {
+            id: DefId(1),
+            name: service_name,
+            vis: Visibility::Public,
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            supertraits: Vec::new(),
+            resolved_supertraits: Vec::new(),
+            assoc_types: Vec::new(),
+            methods: Vec::new(),
+            resolved_methods: Vec::new(),
+            span: Span::default(),
+            is_builtin: false,
+            docs: None,
+        }));
+        ctx.register_def_owner(service_trait_id, Some(module_id), None);
 
         let target_type = path_type(file_id, 0, 6, ctx.intern("Device"));
-        let trait_type = path_type(file_id, 7, 14, ctx.intern("Service"));
+        let trait_type = path_type_with_id(file_id, 7, 14, service_name, NodeId(41));
+        let trait_ty = ctx
+            .type_registry
+            .intern(kernc_sema::ty::TypeKind::TraitObject(
+                service_trait_id,
+                Vec::new(),
+                Vec::new(),
+            ));
+        ctx.set_node_type(trait_type.id, trait_ty);
 
         let inherent_impl_id = ctx.add_def(Def::Impl(ImplDef {
-            id: DefId(1),
+            id: DefId(2),
             parent_module: Some(module_id),
             is_imported: false,
             generics: Vec::new(),
@@ -1207,7 +1284,7 @@ mod tests {
         }));
 
         let trait_impl_id = ctx.add_def(Def::Impl(ImplDef {
-            id: DefId(2),
+            id: DefId(3),
             parent_module: Some(module_id),
             is_imported: false,
             generics: Vec::new(),
@@ -1220,7 +1297,7 @@ mod tests {
         }));
 
         ctx.add_def(Def::Function(FunctionDef {
-            id: DefId(3),
+            id: DefId(4),
             name: read_name,
             name_span: Span::default(),
             vis: Visibility::Private,
@@ -1242,7 +1319,7 @@ mod tests {
         }));
 
         ctx.add_def(Def::Function(FunctionDef {
-            id: DefId(4),
+            id: DefId(5),
             name: read_name,
             name_span: Span::default(),
             vis: Visibility::Private,
@@ -1271,10 +1348,19 @@ mod tests {
 
         assert!(paths.contains(&"root.Device.read"));
         assert!(paths.contains(&"root.Device as Service.read"));
+        let trait_impl_method = items
+            .iter()
+            .find(|item| item.path == "root.Device as Service.read")
+            .expect("expected trait impl method doc item");
+        assert_eq!(
+            trait_impl_method.impl_trait_path.as_deref(),
+            Some("root.Service")
+        );
+        assert!(!trait_impl_method.impl_trait_external);
     }
 
     #[test]
-    fn collect_kmeta_doc_items_excludes_external_trait_impl_methods() {
+    fn collect_kmeta_doc_items_marks_external_trait_impl_methods() {
         let mut session = Session::new();
         let source = "Device Service";
         let file_id = session
@@ -1380,12 +1466,13 @@ mod tests {
         }));
 
         let items = collect_kmeta_doc_items(&ctx);
-        let paths = items
+        let item = items
             .iter()
-            .map(|item| item.path.as_str())
-            .collect::<Vec<_>>();
+            .find(|item| item.path == "root.Device as Service.read")
+            .expect("expected external trait impl method doc item");
 
-        assert!(!paths.contains(&"root.Device as Service.read"), "{paths:?}");
+        assert_eq!(item.impl_trait_path.as_deref(), Some("base.Service"));
+        assert!(item.impl_trait_external);
     }
 
     #[test]

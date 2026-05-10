@@ -240,6 +240,7 @@ postfix-chain-threshold = 4
 boolean-chain-threshold = 2
 function-parameter-threshold = 5
 call-argument-threshold = 6
+exclude = ["src/generated/**"]
 "#,
         std::path::Path::new("Craft.toml"),
     )
@@ -251,6 +252,7 @@ call-argument-threshold = 6
     assert_eq!(fmt.boolean_chain_threshold, Some(2));
     assert_eq!(fmt.function_parameter_threshold, Some(5));
     assert_eq!(fmt.call_argument_threshold, Some(6));
+    assert_eq!(fmt.exclude, vec!["src/generated/**"]);
     manifest
         .validate(std::path::Path::new("Craft.toml"))
         .unwrap();

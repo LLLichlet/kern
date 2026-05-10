@@ -190,6 +190,7 @@ fn assign_key_value(
                 "call-argument-threshold" => {
                     fmt.call_argument_threshold = Some(parse_usize(raw_value)?)
                 }
+                "exclude" => fmt.exclude = parse_string_array(raw_value)?,
                 _ => return Err(format!("unsupported [craft.fmt] key `{key}`")),
             }
             Ok(())

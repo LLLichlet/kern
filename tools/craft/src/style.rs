@@ -217,6 +217,10 @@ fn collect_package_style_metrics(
     let mut suggestions = Vec::new();
 
     for path in kern_source_files(root)? {
+        let display_path = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
+        if !config.path_in_scope(&display_path) {
+            continue;
+        }
         let source = fs::read_to_string(&path).map_err(|err| Error::from_io(&path, err))?;
         metrics.merge(&count_source_metrics(&source));
         suggestions.extend(collect_source_suggestions(root, &path, &source, config));

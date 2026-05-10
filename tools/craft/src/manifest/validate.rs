@@ -113,6 +113,9 @@ fn validate_craft_fmt(path: &Path, fmt: &CraftFmtConfig) -> Result<()> {
     if let Some(threshold) = fmt.call_argument_threshold {
         validate_fmt_threshold(path, "[craft.fmt].call-argument-threshold", threshold)?;
     }
+    for pattern in &fmt.exclude {
+        validate_non_empty(path, "[craft.fmt].exclude[]", pattern)?;
+    }
     Ok(())
 }
 

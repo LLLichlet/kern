@@ -83,6 +83,7 @@ pub struct CraftFmtConfig {
     pub boolean_chain_threshold: Option<usize>,
     pub function_parameter_threshold: Option<usize>,
     pub call_argument_threshold: Option<usize>,
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

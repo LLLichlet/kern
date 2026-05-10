@@ -45,13 +45,14 @@ pub struct FormatDiagnostic {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatConfig {
     pub line_width: usize,
     pub postfix_chain_threshold: usize,
     pub boolean_chain_threshold: usize,
     pub function_parameter_threshold: usize,
     pub call_argument_threshold: usize,
+    pub exclude: Vec<String>,
 }
 
 impl Default for FormatConfig {
@@ -62,6 +63,7 @@ impl Default for FormatConfig {
             boolean_chain_threshold: 3,
             function_parameter_threshold: 3,
             call_argument_threshold: 4,
+            exclude: Vec::new(),
         }
     }
 }
@@ -109,7 +111,18 @@ impl FormatConfig {
         {
             config.call_argument_threshold = threshold;
         }
+        if let Some(fmt) = manifest.craft.as_ref().and_then(|craft| craft.fmt.as_ref()) {
+            config.exclude = fmt.exclude.clone();
+        }
         config
+    }
+
+    fn path_in_scope(&self, path: &Path) -> bool {
+        let text = path.to_string_lossy();
+        !self
+            .exclude
+            .iter()
+            .any(|pattern| path_matches(&text, pattern))
     }
 }
 
@@ -147,18 +160,22 @@ fn format_package_sources(
     let mut diagnostics = Vec::new();
 
     for path in kern_source_files(root)? {
+        let display_path = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
+        if !config.path_in_scope(&display_path) {
+            continue;
+        }
         let source = fs::read_to_string(&path).map_err(|err| Error::from_io(&path, err))?;
-        let formatted = format_source_text_with_config(&source, config);
+        let formatted = format_source_text_with_config(&source, &config);
         summary.files += 1;
         if formatted != source {
             summary.changed_files += 1;
-            changed_paths.push(path.strip_prefix(root).unwrap_or(&path).to_path_buf());
+            changed_paths.push(display_path);
             if mode == FormatMode::Write {
                 fs::write(&path, &formatted).map_err(|err| Error::from_io(&path, err))?;
             }
         }
 
-        for diagnostic in collect_format_diagnostics(root, &path, &formatted, config) {
+        for diagnostic in collect_format_diagnostics(root, &path, &formatted, &config) {
             diagnostics.push(diagnostic);
             summary.diagnostics += 1;
         }
@@ -207,11 +224,18 @@ fn is_skipped_dir(path: &Path) -> bool {
     )
 }
 
+fn path_matches(path: &str, pattern: &str) -> bool {
+    if let Some(prefix) = pattern.strip_suffix("/**") {
+        return path == prefix || path.starts_with(&format!("{prefix}/"));
+    }
+    path == pattern || path.starts_with(&format!("{pattern}/"))
+}
+
 fn collect_format_diagnostics(
     root: &Path,
     path: &Path,
     source: &str,
-    config: FormatConfig,
+    config: &FormatConfig,
 ) -> Vec<FormatDiagnostic> {
     let mut diagnostics = Vec::new();
     for (line_index, line) in source.lines().enumerate() {
@@ -231,14 +255,14 @@ fn collect_format_diagnostics(
 }
 
 pub fn format_source_text(source: &str) -> String {
-    format_source_text_with_config(source, FormatConfig::default())
+    format_source_text_with_config(source, &FormatConfig::default())
 }
 
-fn format_source_text_with_config(source: &str, config: FormatConfig) -> String {
+fn format_source_text_with_config(source: &str, config: &FormatConfig) -> String {
     format_source_text_with_config_inner(source, config)
 }
 
-fn format_source_text_with_config_inner(source: &str, config: FormatConfig) -> String {
+fn format_source_text_with_config_inner(source: &str, config: &FormatConfig) -> String {
     let mut out = String::new();
     for line in source.lines() {
         let trimmed_end = line.trim_end_matches([' ', '\t']);
@@ -252,20 +276,20 @@ fn format_source_text_with_config_inner(source: &str, config: FormatConfig) -> S
     out
 }
 
-fn format_line(line: &str, config: FormatConfig) -> String {
+fn format_line(line: &str, config: &FormatConfig) -> String {
     format_postfix_chain(
         &format_call_arguments(
             &format_function_parameters(
                 &format_boolean_chain(&format_grouped_use(line, config), config),
-                config,
+                &config,
             ),
-            config,
+            &config,
         ),
-        config,
+        &config,
     )
 }
 
-fn format_grouped_use(line: &str, config: FormatConfig) -> String {
+fn format_grouped_use(line: &str, config: &FormatConfig) -> String {
     let indent_len = line.len() - line.trim_start().len();
     let indent = &line[..indent_len];
     let trimmed = line.trim_start();
@@ -307,7 +331,7 @@ fn format_grouped_use(line: &str, config: FormatConfig) -> String {
     out
 }
 
-fn format_boolean_chain(line: &str, config: FormatConfig) -> String {
+fn format_boolean_chain(line: &str, config: &FormatConfig) -> String {
     let indent_len = line.len() - line.trim_start().len();
     let indent = &line[..indent_len];
     let trimmed = line.trim_start();
@@ -340,7 +364,7 @@ fn format_boolean_chain(line: &str, config: FormatConfig) -> String {
     out
 }
 
-fn format_function_parameters(line: &str, config: FormatConfig) -> String {
+fn format_function_parameters(line: &str, config: &FormatConfig) -> String {
     let indent_len = line.len() - line.trim_start().len();
     let indent = &line[..indent_len];
     let trimmed = line.trim_start();
@@ -386,7 +410,7 @@ fn format_function_parameters(line: &str, config: FormatConfig) -> String {
     out
 }
 
-fn format_call_arguments(line: &str, config: FormatConfig) -> String {
+fn format_call_arguments(line: &str, config: &FormatConfig) -> String {
     let indent_len = line.len() - line.trim_start().len();
     let indent = &line[..indent_len];
     let trimmed = line.trim_start();
@@ -428,7 +452,7 @@ fn format_call_arguments(line: &str, config: FormatConfig) -> String {
     out
 }
 
-fn format_postfix_chain(line: &str, config: FormatConfig) -> String {
+fn format_postfix_chain(line: &str, config: &FormatConfig) -> String {
     if line.contains('\n') || line.contains("//") || line.contains("/*") {
         return line.to_string();
     }
@@ -997,7 +1021,7 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn main(byte: u8) void {\n    let valid = byte == b':' or byte == b'_' or byte >= 0x80;\n}\n",
-                config,
+                &config,
             ),
             "fn main(byte: u8) void {\n    let valid = byte == b':' or byte == b'_' or byte >= 0x80;\n}\n"
         );
@@ -1008,7 +1032,7 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn test(t: &mut Test) void {\n    let duplicate_decl_attr_err = duplicate_decl_attr..&.next().should_err().sum(@loc(), t);\n}\n",
-                FormatConfig::default(),
+                &FormatConfig::default(),
             ),
             "fn test(t: &mut Test) void {\n    let duplicate_decl_attr_err = duplicate_decl_attr\n        ..&.next()\n        .should_err()\n        .sum(@loc(), t);\n}\n"
         );
@@ -1019,7 +1043,7 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn main() void {\n    \"hello, {}!\".fmt(.{\"kern\"}).println();\n}\n",
-                FormatConfig {
+                &FormatConfig {
                     line_width: 40,
                     ..FormatConfig::default()
                 },
@@ -1033,7 +1057,7 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn main() void {\n    value.foo().bar();\n}\n",
-                FormatConfig::default(),
+                &FormatConfig::default(),
             ),
             "fn main() void {\n    value.foo().bar();\n}\n"
         );
@@ -1048,7 +1072,7 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn main() void {\n    value.foo().bar().baz();\n}\n",
-                config,
+                &config,
             ),
             "fn main() void {\n    value.foo().bar().baz();\n}\n"
         );
@@ -1083,7 +1107,7 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn write_all(writer: &mut Write, text: &[u8], offset: usize) void!RenderError {\n}\n",
-                config,
+                &config,
             ),
             "fn write_all(writer: &mut Write, text: &[u8], offset: usize) void!RenderError {\n}\n"
         );
@@ -1104,7 +1128,7 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn main() void {\n    write_all(writer, very_long_text_slice_name_that_pushes_the_call_over_the_configured_width, offset);\n}\n",
-                FormatConfig {
+                &FormatConfig {
                     line_width: 80,
                     ..FormatConfig::default()
                 },
@@ -1122,7 +1146,7 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn main() void {\n    write_all(writer, text, offset);\n}\n",
-                config,
+                &config,
             ),
             "fn main() void {\n    write_all(writer, text, offset);\n}\n"
         );
@@ -1134,7 +1158,7 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 source,
-                FormatConfig {
+                &FormatConfig {
                     line_width: 40,
                     ..FormatConfig::default()
                 },
@@ -1147,7 +1171,7 @@ mod tests {
     fn reports_unresolved_long_lines_after_formatting() {
         let formatted = format_source_text_with_config(
             "fn main() void {\n    let very_long_name = this_expression_is_still_too_long_even_after_the_formatter_runs;\n}\n",
-            FormatConfig {
+            &FormatConfig {
                 line_width: 60,
                 ..FormatConfig::default()
             },
@@ -1156,7 +1180,7 @@ mod tests {
             Path::new("."),
             Path::new("src/lib.rn"),
             &formatted,
-            FormatConfig {
+            &FormatConfig {
                 line_width: 60,
                 ..FormatConfig::default()
             },
@@ -1166,5 +1190,16 @@ mod tests {
         assert_eq!(diagnostics[0].path, Path::new("src/lib.rn"));
         assert_eq!(diagnostics[0].line, 2);
         assert_eq!(diagnostics[0].limit, 60);
+    }
+
+    #[test]
+    fn excludes_configured_paths_from_formatting_scope() {
+        let config = FormatConfig {
+            exclude: vec!["src/generated/**".to_string()],
+            ..FormatConfig::default()
+        };
+
+        assert!(!config.path_in_scope(Path::new("src/generated/bindings.rn")));
+        assert!(config.path_in_scope(Path::new("src/lib.rn")));
     }
 }

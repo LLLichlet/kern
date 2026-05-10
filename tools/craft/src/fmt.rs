@@ -123,13 +123,116 @@ fn is_skipped_dir(path: &Path) -> bool {
 pub fn format_source_text(source: &str) -> String {
     let mut out = String::new();
     for line in source.lines() {
-        out.push_str(line.trim_end_matches([' ', '\t']));
+        let trimmed_end = line.trim_end_matches([' ', '\t']);
+        let formatted_line = format_line(trimmed_end);
+        out.push_str(&formatted_line);
         out.push('\n');
     }
     if source.is_empty() {
         return String::new();
     }
     out
+}
+
+fn format_line(line: &str) -> String {
+    format_boolean_chain(&format_grouped_use(line))
+}
+
+fn format_grouped_use(line: &str) -> String {
+    let indent_len = line.len() - line.trim_start().len();
+    let indent = &line[..indent_len];
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with("use ") || !trimmed.ends_with(';') {
+        return line.to_string();
+    }
+    let Some(open) = trimmed.find('{') else {
+        return line.to_string();
+    };
+    let Some(close) = trimmed.rfind('}') else {
+        return line.to_string();
+    };
+    if close < open || trimmed[open + 1..close].contains('{') {
+        return line.to_string();
+    }
+    let items = trimmed[open + 1..close]
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
+    if items.len() < 5 {
+        return line.to_string();
+    }
+
+    let prefix = trimmed[..open + 1].trim_end();
+    let suffix = trimmed[close..].trim_start();
+    let mut out = String::new();
+    out.push_str(indent);
+    out.push_str(prefix);
+    out.push('\n');
+    for item in items {
+        out.push_str(indent);
+        out.push_str("    ");
+        out.push_str(item);
+        out.push_str(",\n");
+    }
+    out.push_str(indent);
+    out.push_str(suffix);
+    out
+}
+
+fn format_boolean_chain(line: &str) -> String {
+    let indent_len = line.len() - line.trim_start().len();
+    let indent = &line[..indent_len];
+    let trimmed = line.trim_start();
+    if trimmed.contains("//") || trimmed.contains("/*") {
+        return line.to_string();
+    }
+    let Some((head, operator)) = boolean_chain_head(trimmed) else {
+        return line.to_string();
+    };
+    if !trimmed.ends_with(';') {
+        return line.to_string();
+    }
+    let body = trimmed[head.len()..trimmed.len() - 1].trim();
+    let parts = split_boolean_parts(body, operator);
+    if parts.len() < 3 {
+        return line.to_string();
+    }
+
+    let mut out = String::new();
+    out.push_str(indent);
+    out.push_str(head);
+    out.push_str(parts[0]);
+    for part in parts.iter().skip(1) {
+        out.push('\n');
+        out.push_str(indent);
+        out.push_str("    ");
+        out.push_str(operator);
+        out.push(' ');
+        out.push_str(part);
+    }
+    out.push(';');
+    out
+}
+
+fn boolean_chain_head(trimmed: &str) -> Option<(&str, &str)> {
+    if trimmed.starts_with("return ") {
+        if trimmed.contains(" or ") {
+            return Some(("return ", "or"));
+        }
+        if trimmed.contains(" and ") {
+            return Some(("return ", "and"));
+        }
+    }
+    None
+}
+
+fn split_boolean_parts<'a>(body: &'a str, operator: &str) -> Vec<&'a str> {
+    let delimiter = format!(" {operator} ");
+    body.split(&delimiter)
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect()
 }
 
 fn package_label(manifest: &Manifest) -> String {
@@ -155,5 +258,25 @@ mod tests {
     #[test]
     fn preserves_empty_files() {
         assert_eq!(format_source_text(""), "");
+    }
+
+    #[test]
+    fn expands_long_grouped_use_lists() {
+        assert_eq!(
+            format_source_text(
+                "use .xml.{AlphaName, BetaName, GammaName, DeltaName, EpsilonName, ZetaName};\n"
+            ),
+            "use .xml.{\n    AlphaName,\n    BetaName,\n    GammaName,\n    DeltaName,\n    EpsilonName,\n    ZetaName,\n};\n"
+        );
+    }
+
+    #[test]
+    fn splits_long_boolean_return_chains() {
+        assert_eq!(
+            format_source_text(
+                "pub/ fn is_name_start(byte: u8) bool {\n    return byte == b':' or byte == b'_' or (byte >= b'A' and byte <= b'Z') or (byte >= b'a' and byte <= b'z') or byte >= 0x80;\n}\n"
+            ),
+            "pub/ fn is_name_start(byte: u8) bool {\n    return byte == b':'\n        or byte == b'_'\n        or (byte >= b'A' and byte <= b'Z')\n        or (byte >= b'a' and byte <= b'z')\n        or byte >= 0x80;\n}\n"
+        );
     }
 }

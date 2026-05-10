@@ -74,8 +74,6 @@ pub enum StyleRule {
     IndexWhile,
     LongPostfixChain,
     RepeatedBorrowReceiver,
-    LongLine,
-    LongUseList,
     MissingModuleDoc,
     UndocumentedPrivateHelper,
 }
@@ -86,8 +84,6 @@ impl StyleRule {
             Self::IndexWhile => "index-while",
             Self::LongPostfixChain => "long-postfix-chain",
             Self::RepeatedBorrowReceiver => "repeated-borrow-receiver",
-            Self::LongLine => "long-line",
-            Self::LongUseList => "long-use-list",
             Self::MissingModuleDoc => "missing-module-doc",
             Self::UndocumentedPrivateHelper => "undocumented-private-helper",
         }
@@ -99,8 +95,6 @@ impl StyleRule {
             "index-while"
                 | "long-postfix-chain"
                 | "repeated-borrow-receiver"
-                | "long-line"
-                | "long-use-list"
                 | "missing-module-doc"
                 | "undocumented-private-helper"
         )
@@ -429,27 +423,6 @@ fn collect_source_suggestions(
                     .to_string(),
             });
         }
-        if config.rule_enabled(StyleRule::LongLine) && line.chars().count() > 100 {
-            suggestions.push(StyleSuggestion {
-                path: display_path.clone(),
-                line: line_number,
-                severity: config.suggestion_severity,
-                rule: StyleRule::LongLine,
-                message: "split long source lines so boolean clauses, imports, or call chains stay readable"
-                    .to_string(),
-            });
-        }
-        if config.rule_enabled(StyleRule::LongUseList) && is_long_use_list(trimmed) {
-            suggestions.push(StyleSuggestion {
-                path: display_path.clone(),
-                line: line_number,
-                severity: config.suggestion_severity,
-                rule: StyleRule::LongUseList,
-                message:
-                    "split large grouped imports across multiple lines or smaller use statements"
-                        .to_string(),
-            });
-        }
         if config.rule_enabled(StyleRule::IndexWhile) && is_index_while_line(trimmed) {
             suggestions.push(StyleSuggestion {
                 path: display_path.clone(),
@@ -495,8 +468,6 @@ fn known_rule_code(rule: &str) -> Option<&'static str> {
         "index-while" => Some("index-while"),
         "long-postfix-chain" => Some("long-postfix-chain"),
         "repeated-borrow-receiver" => Some("repeated-borrow-receiver"),
-        "long-line" => Some("long-line"),
-        "long-use-list" => Some("long-use-list"),
         "missing-module-doc" => Some("missing-module-doc"),
         "undocumented-private-helper" => Some("undocumented-private-helper"),
         _ => None,
@@ -560,13 +531,6 @@ fn first_significant_line(source: &str) -> Option<usize> {
 
 fn is_private_helper_declaration_line(trimmed: &str) -> bool {
     trimmed.starts_with("fn ") && trimmed.contains('(')
-}
-
-fn is_long_use_list(trimmed: &str) -> bool {
-    trimmed.starts_with("use ")
-        && trimmed.contains('{')
-        && trimmed.contains('}')
-        && trimmed.matches(',').count() >= 5
 }
 
 fn postfix_call_count_outside_string(line: &str) -> usize {
@@ -669,9 +633,8 @@ mod tests {
     use super::{
         StyleConfig, StyleRule, StyleSummary, SuggestionSeverity, borrowed_receiver_count,
         collect_source_suggestions, count_source_metrics, find_token_outside_string,
-        is_index_while_line, is_long_use_list, is_private_helper_declaration_line,
-        is_public_declaration_line, missing_module_doc, path_matches,
-        postfix_call_count_outside_string,
+        is_index_while_line, is_private_helper_declaration_line, is_public_declaration_line,
+        missing_module_doc, path_matches, postfix_call_count_outside_string,
     };
     use crate::manifest::{CraftConfig, CraftStyleConfig, CraftStyleSuggestionLevel, Manifest};
     use std::path::Path;
@@ -747,7 +710,6 @@ pub fn undocumented() void {}
             "//! Module docs.\n\nfn demo() void {}\n"
         ));
         assert!(is_private_helper_declaration_line("fn parse() void {"));
-        assert!(is_long_use_list("use .xml.{A, B, C, D, E, F};"));
         assert_eq!(
             postfix_call_count_outside_string(
                 r#"value.should_ok().sum(@loc(), t).name.eq("root").should()"#
@@ -881,25 +843,21 @@ fn demo() void {
     }
 
     #[test]
-    fn collects_documentation_and_layout_suggestions() {
+    fn collects_documentation_suggestions() {
         let suggestions = collect_source_suggestions(
             Path::new("/pkg"),
             Path::new("/pkg/src/parser.rn"),
             r#"
-use .xml.{Alpha, Beta, Gamma, Delta, Epsilon, Zeta};
-
 fn parse_name(text: &[u8], start: usize) usize!Error {
-    return if (start < #text and text.[start] == b'<' and text.[start + 1] == b'?' and text.[start + 2] == b'x') start + 3 else start;
+    return start;
 }
 "#,
             &StyleConfig::default(),
         );
 
-        assert_eq!(suggestions.len(), 4);
+        assert_eq!(suggestions.len(), 2);
         assert_eq!(suggestions[0].rule, StyleRule::MissingModuleDoc);
-        assert_eq!(suggestions[1].rule, StyleRule::LongUseList);
-        assert_eq!(suggestions[2].rule, StyleRule::UndocumentedPrivateHelper);
-        assert_eq!(suggestions[3].rule, StyleRule::LongLine);
+        assert_eq!(suggestions[1].rule, StyleRule::UndocumentedPrivateHelper);
     }
 
     #[test]

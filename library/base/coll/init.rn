@@ -31,7 +31,21 @@ pub use .ranges.{
     range_down,
     range_down_inclusive,
 };
-pub use .slice.{bytes_eq, find_byte, rfind_byte, contains_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
+pub use .slice.{
+    bytes_eq,
+    find_byte,
+    rfind_byte,
+    contains_byte,
+    trim_ascii_start,
+    trim_ascii_end,
+    trim_ascii,
+    is_ascii_whitespace,
+    is_ascii_digit,
+    is_ascii_upper,
+    is_ascii_lower,
+    is_ascii_alpha,
+    is_ascii_alnum,
+};
 pub use .string_impl.String;
 pub use .tree_impl.Tree;
 

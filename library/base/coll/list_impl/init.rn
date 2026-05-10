@@ -3,7 +3,7 @@
 //! `List[T]` is the standard owned sequence type. It stores elements in a
 //! contiguous buffer and grows geometrically.
 
-use base.mem.alloc.{Allocator, Arena};
+use base.mem.alloc.{AllocError, Allocator};
 use base.mem.{Layout, memmove};
 use base.num.USIZE_MAX;
 use base.coll.{SliceIter, SliceMutIter};
@@ -156,73 +156,6 @@ impl[T] &mut List[T] {
         return true;
     }
 
-    #[inline]
-    fn ensure_capacity_in_arena(arena: &mut Arena, required_cap: usize) bool {
-        if (self.cap >= required_cap) return true;
-
-        let elem_size = @sizeOf[T]();
-        if (elem_size == 0) {
-            self.ptr = self.zst_ptr();
-            self.cap = USIZE_MAX;
-            return true;
-        }
-
-        let max_alloc_items = USIZE_MAX / elem_size;
-        if (required_cap > max_alloc_items) {
-            return false;
-        }
-
-        let mut new_cap = if (self.cap == 0) usize.{8} else self.cap;
-                while (new_cap < required_cap) {
-            if (new_cap > max_alloc_items / 2) {
-                new_cap = required_cap;
-                break;
-            }
-            new_cap *= 2;
-        }
-
-        let new_layout = self.fixed_layout(new_cap, elem_size);
-        let .{ Some: new_ptr_u8 } = arena.alloc(new_layout) else return false;
-        let new_ptr = new_ptr_u8 as &mut T;
-
-        if (self.cap > 0 and self.len > 0) {
-            @memcpy(new_ptr as &mut u8, self.ptr as &mut u8, self.len * elem_size);
-        }
-
-        self.ptr = new_ptr;
-        self.cap = new_cap;
-        return true;
-    }
-
-    #[inline]
-    fn ensure_capacity_exact_in_arena(arena: &mut Arena, required_cap: usize) bool {
-        if (self.cap >= required_cap) return true;
-
-        let elem_size = @sizeOf[T]();
-        if (elem_size == 0) {
-            self.ptr = self.zst_ptr();
-            self.cap = USIZE_MAX;
-            return true;
-        }
-
-        let max_alloc_items = USIZE_MAX / elem_size;
-        if (required_cap > max_alloc_items) {
-            return false;
-        }
-
-        let new_layout = self.fixed_layout(required_cap, elem_size);
-        let .{ Some: new_ptr_u8 } = arena.alloc(new_layout) else return false;
-        let new_ptr = new_ptr_u8 as &mut T;
-
-        if (self.cap > 0 and self.len > 0) {
-            @memcpy(new_ptr as &mut u8, self.ptr as &mut u8, self.len * elem_size);
-        }
-
-        self.ptr = new_ptr;
-        self.cap = required_cap;
-        return true;
-    }
-
     /// Reserves space for at least `additional` more items.
     #[inline]
     pub fn reserve(alloc: &mut Allocator, additional: usize) bool {
@@ -241,20 +174,34 @@ impl[T] &mut List[T] {
         return self.ensure_capacity_exact(alloc, self.len + additional);
     }
 
-    #[inline]
-    pub fn reserve_in_arena(arena: &mut Arena, additional: usize) bool {
+    /// Reserves space and reports whether overflow or allocation failed.
+    pub fn try_reserve(alloc: &mut Allocator, additional: usize) void!AllocError {
         if (additional > USIZE_MAX - self.len) {
-            return false;
+            return .{ Err: .CapacityOverflow };
         }
-        return self.ensure_capacity_in_arena(arena, self.len + additional);
+        let required = self.len + additional;
+        if (@sizeOf[T]() != 0 and required > USIZE_MAX / @sizeOf[T]()) {
+            return .{ Err: .CapacityOverflow };
+        }
+        if (!self.ensure_capacity(alloc, required)) {
+            return .{ Err: .OutOfMemory };
+        }
+        return .{ Ok: {} };
     }
 
-    #[inline]
-    pub fn reserve_exact_in_arena(arena: &mut Arena, additional: usize) bool {
+    /// Reserves exact space and reports whether overflow or allocation failed.
+    pub fn try_reserve_exact(alloc: &mut Allocator, additional: usize) void!AllocError {
         if (additional > USIZE_MAX - self.len) {
-            return false;
+            return .{ Err: .CapacityOverflow };
         }
-        return self.ensure_capacity_exact_in_arena(arena, self.len + additional);
+        let required = self.len + additional;
+        if (@sizeOf[T]() != 0 and required > USIZE_MAX / @sizeOf[T]()) {
+            return .{ Err: .CapacityOverflow };
+        }
+        if (!self.ensure_capacity_exact(alloc, required)) {
+            return .{ Err: .OutOfMemory };
+        }
+        return .{ Ok: {} };
     }
 
     /// Appends one item to the end of the list.
@@ -274,20 +221,15 @@ impl[T] &mut List[T] {
         return true;
     }
 
-    #[inline]
-    pub fn push_in_arena(arena: &mut Arena, item: T) bool {
-        if (self.len == USIZE_MAX) {
-            return false;
-        }
-        if (self.len == self.cap and !self.ensure_capacity_in_arena(arena, self.len + 1)) {
-            return false;
-        }
+    /// Appends one item or returns a structured allocation error.
+    pub fn try_push(alloc: &mut Allocator, item: T) void!AllocError {
+        self.try_reserve(alloc, 1).!;
         if (@sizeOf[T]() != 0) {
             let target = self.ptr + self.len;
             target.* = item;
         }
         self.len += 1;
-        return true;
+        return .{ Ok: {} };
     }
 
     /// Removes and returns the last item.
@@ -310,7 +252,11 @@ impl[T] &mut List[T] {
         let moved = self.len - index;
         if (moved > 0) {
             let bytes = moved * self.elem_size();
-            _ = memmove((self.ptr + (index + usize.{1})) as &mut u8, (self.ptr + index) as &u8, bytes);
+            _ = memmove(
+                (self.ptr + (index + usize.{1})) as &mut u8,
+                (self.ptr + index) as &u8,
+                bytes,
+            );
         }
 
         (self.ptr + index).* = item;
@@ -367,7 +313,11 @@ impl[T] &mut List[T] {
         if (moved > 0) {
             // `memmove` keeps insertion correct even when source and target overlap.
             let move_bytes = moved * elem_size;
-            _ = memmove((self.ptr + index + additional) as &mut u8, (self.ptr + index) as &u8, move_bytes);
+            _ = memmove(
+                (self.ptr + index + additional) as &mut u8,
+                (self.ptr + index) as &u8,
+                move_bytes,
+            );
         }
 
         let copy_bytes = additional * elem_size;
@@ -386,7 +336,11 @@ impl[T] &mut List[T] {
             let moved = self.len - index - 1;
             if (moved > 0) {
                 let bytes = moved * self.elem_size();
-                _ = memmove((self.ptr + index) as &mut u8, (self.ptr + (index + usize.{1})) as &u8, bytes);
+                _ = memmove(
+                    (self.ptr + index) as &mut u8,
+                    (self.ptr + (index + usize.{1})) as &u8,
+                    bytes,
+                );
             }
         }
 
@@ -477,6 +431,21 @@ impl[T] &mut List[T] {
         return true;
     }
 
+    /// Appends every element from `slice` or returns a structured allocation error.
+    pub fn try_append_slice(alloc: &mut Allocator, slice: &[T]) void!AllocError {
+        if (!self.append_slice(alloc, slice)) {
+            let additional = #slice;
+            if (additional > USIZE_MAX - self.len) {
+                return .{ Err: .CapacityOverflow };
+            }
+            if (@sizeOf[T]() != 0 and self.len + additional > USIZE_MAX / @sizeOf[T]()) {
+                return .{ Err: .CapacityOverflow };
+            }
+            return .{ Err: .OutOfMemory };
+        }
+        return .{ Ok: {} };
+    }
+
     /// Appends every element from `slice`, growing exactly when reallocation is needed.
     pub fn append_slice_exact(alloc: &mut Allocator, slice: &[T]) bool {
         let additional = #slice;
@@ -506,32 +475,19 @@ impl[T] &mut List[T] {
         return true;
     }
 
-    pub fn append_slice_exact_in_arena(arena: &mut Arena, slice: &[T]) bool {
-        let additional = #slice;
-        if (additional == 0) return true;
-
-        let old_len = self.len;
-        if (!self.reserve_exact_in_arena(arena, additional)) return false;
-
-        if (self.is_zst()) {
-            self.len = old_len + additional;
-            return true;
+    /// Appends every element from `slice` with exact growth or returns an allocation error.
+    pub fn try_append_slice_exact(alloc: &mut Allocator, slice: &[T]) void!AllocError {
+        if (!self.append_slice_exact(alloc, slice)) {
+            let additional = #slice;
+            if (additional > USIZE_MAX - self.len) {
+                return .{ Err: .CapacityOverflow };
+            }
+            if (@sizeOf[T]() != 0 and self.len + additional > USIZE_MAX / @sizeOf[T]()) {
+                return .{ Err: .CapacityOverflow };
+            }
+            return .{ Err: .OutOfMemory };
         }
-
-        let mut src_ptr = slice.[0].& as &T;
-        let base_addr = self.ptr as usize;
-        let end_addr = (self.ptr + old_len) as usize;
-        let src_addr = src_ptr as usize;
-        if (src_addr >= base_addr and src_addr < end_addr) {
-            let src_offset = (src_addr - base_addr) / self.elem_size();
-            src_ptr = self.ptr + src_offset;
-        }
-
-        let target_ptr = self.ptr + old_len;
-        let copy_bytes = additional * self.elem_size();
-        _ = memmove(target_ptr as &mut u8, src_ptr as &u8, copy_bytes);
-        self.len = old_len + additional;
-        return true;
+        return .{ Ok: {} };
     }
 
     /// Grows the list by `count` items and returns the newly appended range.
@@ -556,6 +512,20 @@ impl[T] &mut List[T] {
         return .{ Some: (self.ptr + old_len)..&[0 .. count] };
     }
 
+    /// Grows the list and returns the appended range or a structured allocation error.
+    pub fn try_append_uninit(alloc: &mut Allocator, count: usize) (&mut [T])!AllocError {
+        let .{ Some: out } = self.append_uninit(alloc, count) else {
+            if (count > USIZE_MAX - self.len) {
+                return .{ Err: .CapacityOverflow };
+            }
+            if (@sizeOf[T]() != 0 and self.len + count > USIZE_MAX / @sizeOf[T]()) {
+                return .{ Err: .CapacityOverflow };
+            }
+            return .{ Err: .OutOfMemory };
+        };
+        return .{ Ok: out };
+    }
+
     /// Grows the list by `count` items using exact growth when reallocation is needed.
     pub fn append_uninit_exact(alloc: &mut Allocator, count: usize) ?&mut [T] {
         if (count == 0) {
@@ -574,35 +544,18 @@ impl[T] &mut List[T] {
         return .{ Some: (self.ptr + old_len)..&[0 .. count] };
     }
 
-    #[inline]
-    pub fn append_uninit_exact_in_arena(arena: &mut Arena, count: usize) ?&mut [T] {
-        if (count == 0) {
-            return .{ Some: self.zst_ptr()..&[0 .. 0] };
-        }
-
-        if (count > USIZE_MAX - self.len) {
-            return .None;
-        }
-
-        let old_len = self.len;
-        let new_len = old_len + count;
-
-        if (self.cap < new_len) {
-            if (@sizeOf[T]() != 0 and old_len == 0 and self.cap == 0) {
-                let layout = self.fixed_layout(count, @sizeOf[T]());
-                let new_ptr_u8 = arena.alloc(layout).?;
-                self.ptr = new_ptr_u8 as &mut T;
-                self.cap = count;
-            } else if (!self.ensure_capacity_exact_in_arena(arena, new_len)) {
-                return .None;
+    /// Grows the list exactly and returns the appended range or an allocation error.
+    pub fn try_append_uninit_exact(alloc: &mut Allocator, count: usize) (&mut [T])!AllocError {
+        let .{ Some: out } = self.append_uninit_exact(alloc, count) else {
+            if (count > USIZE_MAX - self.len) {
+                return .{ Err: .CapacityOverflow };
             }
-        }
-
-        self.len = new_len;
-        if (@sizeOf[T]() == 0) {
-            return .{ Some: self.zst_ptr()..&[0 .. count] };
-        }
-        return .{ Some: (self.ptr + old_len)..&[0 .. count] };
+            if (@sizeOf[T]() != 0 and self.len + count > USIZE_MAX / @sizeOf[T]()) {
+                return .{ Err: .CapacityOverflow };
+            }
+            return .{ Err: .OutOfMemory };
+        };
+        return .{ Ok: out };
     }
 
     /// Alias for `append_slice`.
@@ -657,11 +610,6 @@ impl[T] &mut List[T] {
     pub fn clone_from_exact(alloc: &mut Allocator, items: &[T]) bool {
         self.clear();
         return self.append_slice_exact(alloc, items);
-    }
-
-    pub fn clone_from_exact_in_arena(arena: &mut Arena, items: &[T]) bool {
-        self.clear();
-        return self.append_slice_exact_in_arena(arena, items);
     }
 
     /// Shrinks capacity down to the current length.

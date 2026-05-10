@@ -90,7 +90,11 @@ fn split_var(entry: &[u8]) ?Var {
 }
 
 #[if((os == "linux" or os == "darwin") or os == "windows")]
-fn clone_c_value(alloc: &mut Allocator, ptr: &u8, len: usize) ?String {
+fn clone_c_value(
+    alloc: &mut Allocator,
+    ptr: &u8,
+    len: usize,
+) ?String {
     let mut value = String.{};
     if (!value..&.push_str(alloc, ptr.&[0 .. len])) {
         value..&.deinit(alloc);

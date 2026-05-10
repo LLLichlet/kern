@@ -51,7 +51,10 @@ extern {
     pub fn FlushFileBuffers(hFile: Handle) i32;
     pub fn GetConsoleMode(hConsoleHandle: Handle, lpMode: &mut u32) i32;
     pub fn SetConsoleMode(hConsoleHandle: Handle, dwMode: u32) i32;
-    pub fn GetConsoleScreenBufferInfo(hConsoleOutput: Handle, lpConsoleScreenBufferInfo: &mut ConsoleScreenBufferInfo) i32;
+    pub fn GetConsoleScreenBufferInfo(
+        hConsoleOutput: Handle,
+        lpConsoleScreenBufferInfo: &mut ConsoleScreenBufferInfo,
+    )i32;
     pub fn CloseHandle(hObject: Handle) i32;
     pub fn DeleteFileW(lpFileName: &u16) i32;
     pub fn MoveFileExW(lpExistingFileName: &u16, lpNewFileName: &u16, dwFlags: u32) i32;
@@ -60,7 +63,11 @@ extern {
     pub fn FindFirstFileW(lpFileName: &u16, lpFindFileData: &mut Win32FindDataW) Handle;
     pub fn FindNextFileW(hFindFile: Handle, lpFindFileData: &mut Win32FindDataW) i32;
     pub fn FindClose(hFindFile: Handle) i32;
-    pub fn GetFileAttributesExW(lpFileName: &u16, fInfoLevelId: u32, lpFileInformation: &mut Win32FileAttributeData) i32;
+    pub fn GetFileAttributesExW(
+        lpFileName: &u16,
+        fInfoLevelId: u32,
+        lpFileInformation: &mut Win32FileAttributeData,
+    )i32;
     pub fn GetLastError() u32;
     pub fn GetCurrentProcessId() u32;
     pub fn ExitProcess(uExitCode: u32) void;
@@ -71,7 +78,12 @@ extern {
     pub fn GetEnvironmentVariableA(lpName: &u8, lpBuffer: &mut u8, nSize: u32) u32;
     pub fn GetEnvironmentStringsA() &mut u8;
     pub fn FreeEnvironmentStringsA(penv: &mut u8) i32;
-    pub fn CreatePipe(hReadPipe: &mut Handle, hWritePipe: &mut Handle, lpPipeAttributes: &mut SecurityAttributes, nSize: u32) i32;
+    pub fn CreatePipe(
+        hReadPipe: &mut Handle,
+        hWritePipe: &mut Handle,
+        lpPipeAttributes: &mut SecurityAttributes,
+        nSize: u32,
+    )i32;
     pub fn SetHandleInformation(hObject: Handle, dwMask: u32, dwFlags: u32) i32;
     pub fn CreateProcessW(
         lpApplicationName: &u16,
@@ -87,8 +99,24 @@ extern {
     ) i32;
     pub fn WaitForSingleObject(hHandle: Handle, dwMilliseconds: u32) u32;
     pub fn GetExitCodeProcess(hProcess: Handle, lpExitCode: &mut u32) i32;
-    pub fn MultiByteToWideChar(CodePage: u32, dwFlags: u32, lpMultiByteStr: &u8, cbMultiByte: i32, lpWideCharStr: &mut u16, cchWideChar: i32) i32;
-    pub fn WideCharToMultiByte(CodePage: u32, dwFlags: u32, lpWideCharStr: &u16, cchWideChar: i32, lpMultiByteStr: &mut u8, cbMultiByte: i32, lpDefaultChar: &u8, lpUsedDefaultChar: &mut u8) i32;
+    pub fn MultiByteToWideChar(
+        CodePage: u32,
+        dwFlags: u32,
+        lpMultiByteStr: &u8,
+        cbMultiByte: i32,
+        lpWideCharStr: &mut u16,
+        cchWideChar: i32,
+    )i32;
+    pub fn WideCharToMultiByte(
+        CodePage: u32,
+        dwFlags: u32,
+        lpWideCharStr: &u16,
+        cchWideChar: i32,
+        lpMultiByteStr: &mut u8,
+        cbMultiByte: i32,
+        lpDefaultChar: &u8,
+        lpUsedDefaultChar: &mut u8,
+    )i32;
 }
 
 /// Writes raw bytes to standard output through the Win32 console handle.
@@ -98,7 +126,13 @@ pub fn write_stdout(ptr: &u8, len: usize) usize {
     let mut written = u32.{0};
 
     // The Win32 API expects a 32-bit length parameter.
-    _ = WriteFile(handle, ptr, len as u32, written..&, null_mut_ptr[void]());
+    _ = WriteFile(
+        handle,
+        ptr,
+        len as u32,
+        written..&,
+        null_mut_ptr[void](),
+    );
     return written as usize;
 }
 
@@ -414,7 +448,9 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
     let command_line = build_shell_command_line(alloc, command).!..&;
     defer command_line.deinit(alloc);
 
-    let command_line_c = abi.cstr.owned(alloc, command_line.as_str()).ok_or(out_of_memory_error()).!..&;
+    let command_line_c = abi.cstr.owned(alloc, command_line.as_str()).ok_or(
+        out_of_memory_error(),
+    ).!..&;
     defer command_line_c.deinit(alloc);
 
     let wide_command_line = utf8_z_to_wide(command_line_c.ptr()).!;
@@ -575,7 +611,14 @@ pub fn free_utf8_units(ptr: &mut u8) void {
 /// Converts a zero-terminated UTF-8 path into an owned zero-terminated UTF-16 buffer.
 pub fn utf8_z_to_wide(path: &u8) (&mut u16)!Error {
     let bytes = path.cstr_len();
-    let required = MultiByteToWideChar(CP_UTF8, 0, path, bytes as i32, null_mut_ptr[u16](), 0);
+    let required = MultiByteToWideChar(
+        CP_UTF8,
+        0,
+        path,
+        bytes as i32,
+        null_mut_ptr[u16](),
+        0,
+    );
     if (required <= 0) {
         return .{ Err: last_error() };
     }
@@ -647,7 +690,16 @@ pub fn wide_z_to_utf8_alloc(ptr: &u16) (&mut u8)!Error {
         return .{ Ok: out };
     }
 
-    let required = WideCharToMultiByte(CP_UTF8, 0, ptr, len as i32, null_mut_ptr[u8](), 0, null_ptr[u8](), null_mut_ptr[u8]());
+    let required = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        ptr,
+        len as i32,
+        null_mut_ptr[u8](),
+        0,
+        null_ptr[u8](),
+        null_mut_ptr[u8](),
+    );
     if (required <= 0) {
         return .{ Err: last_error() };
     }
@@ -921,7 +973,12 @@ pub fn write(handle: Handle, ptr: &u8, len: usize) usize {
 
 extern {
     /// Reserves or commits page-backed virtual memory.
-    pub fn VirtualAlloc(lpAddress: &mut void, dwSize: usize, flAllocationType: u32, flProtect: u32) &mut void;
+    pub fn VirtualAlloc(
+        lpAddress: &mut void,
+        dwSize: usize,
+        flAllocationType: u32,
+        flProtect: u32,
+    )&mut void;
     /// Releases memory previously returned by `VirtualAlloc`.
     pub fn VirtualFree(lpAddress: &mut void, dwSize: usize, dwFreeType: u32) i32;
 }

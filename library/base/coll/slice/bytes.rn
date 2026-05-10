@@ -5,7 +5,11 @@ use base.cmp.{Comparable, Ord, Ordering};
 const USIZE_BYTES = @sizeOf[usize]();
 
 #[inline]
-fn eq_byte_range(lhs: &u8, rhs: &u8, len: usize) bool {
+fn eq_byte_range(
+    lhs: &u8,
+    rhs: &u8,
+    len: usize,
+) bool {
         let mut i = usize.{0};
     while (i < len) {
         if ((lhs + i).* != (rhs + i).*) {
@@ -18,7 +22,11 @@ fn eq_byte_range(lhs: &u8, rhs: &u8, len: usize) bool {
 }
 
 #[inline]
-fn eq_usize_range(lhs: &usize, rhs: &usize, len: usize) bool {
+fn eq_usize_range(
+    lhs: &usize,
+    rhs: &usize,
+    len: usize,
+) bool {
         let mut i = usize.{0};
     while (i < len) {
         if ((lhs + i).* != (rhs + i).*) {
@@ -97,6 +105,30 @@ impl &[u8] : Comparable[&[u8]] {
 impl &[u8] : Ord[&[u8]] {}
 
 impl &[u8] {
+    /// Returns `true` when this slice starts with `prefix`.
+    pub fn starts_with(prefix: &[u8]) bool {
+        if (#prefix > #self) return false;
+        return self.&[0 .. #prefix] == prefix;
+    }
+
+    /// Returns `true` when this slice ends with `suffix`.
+    pub fn ends_with(suffix: &[u8]) bool {
+        if (#suffix > #self) return false;
+        return self.&[#self - #suffix .. #self] == suffix;
+    }
+
+    /// Removes `prefix` from the start of the slice when present.
+    pub fn strip_prefix(prefix: &[u8]) ?&[u8] {
+        if (!self.starts_with(prefix)) return .None;
+        return .{ Some: self.&[#prefix .. #self] };
+    }
+
+    /// Removes `suffix` from the end of the slice when present.
+    pub fn strip_suffix(suffix: &[u8]) ?&[u8] {
+        if (!self.ends_with(suffix)) return .None;
+        return .{ Some: self.&[0 .. #self - #suffix] };
+    }
+
     /// Returns the first index of `byte`.
     pub fn find_byte(byte: u8) ?usize {
                 let mut i = usize.{0};
@@ -132,14 +164,7 @@ impl &[u8] {
                 let mut start = usize.{0};
         while (start < #self) {
             let b = self.[start];
-            if (
-                b != b' ' and
-                b != b'\t' and
-                b != b'\n' and
-                b != b'\r' and
-                b != u8.{11} and
-                b != u8.{12}
-            ) {
+            if (!is_ascii_whitespace(b)) {
                 return self.&[start .. #self];
             }
 
@@ -153,14 +178,7 @@ impl &[u8] {
                 let mut end = #self;
         while (end > 0) {
             let b = self.[end - 1];
-            if (
-                b != b' ' and
-                b != b'\t' and
-                b != b'\n' and
-                b != b'\r' and
-                b != u8.{11} and
-                b != u8.{12}
-            ) {
+            if (!is_ascii_whitespace(b)) {
                 return self.&[0 .. end];
             }
             end -= 1;
@@ -172,6 +190,41 @@ impl &[u8] {
     pub fn trim_ascii() &[u8] {
         return self.trim_ascii_start().trim_ascii_end();
     }
+}
+
+/// Returns `true` for ASCII whitespace bytes.
+pub/ fn is_ascii_whitespace(byte: u8) bool {
+    return byte == b' '
+        or byte == b'\t'
+        or byte == b'\n'
+        or byte == b'\r'
+        or byte == u8.{11}
+        or byte == u8.{12};
+}
+
+/// Returns `true` for ASCII decimal digits.
+pub/ fn is_ascii_digit(byte: u8) bool {
+    return byte >= b'0' and byte <= b'9';
+}
+
+/// Returns `true` for ASCII uppercase letters.
+pub/ fn is_ascii_upper(byte: u8) bool {
+    return byte >= b'A' and byte <= b'Z';
+}
+
+/// Returns `true` for ASCII lowercase letters.
+pub/ fn is_ascii_lower(byte: u8) bool {
+    return byte >= b'a' and byte <= b'z';
+}
+
+/// Returns `true` for ASCII alphabetic letters.
+pub/ fn is_ascii_alpha(byte: u8) bool {
+    return is_ascii_upper(byte) or is_ascii_lower(byte);
+}
+
+/// Returns `true` for ASCII letters or decimal digits.
+pub/ fn is_ascii_alnum(byte: u8) bool {
+    return is_ascii_alpha(byte) or is_ascii_digit(byte);
 }
 
 /// Returns the first index of `byte` in `text`.

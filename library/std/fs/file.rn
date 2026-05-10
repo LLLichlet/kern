@@ -3,7 +3,14 @@
 use sys.os;
 use base.mem.alloc.Allocator;
 use base.coll.{List, String};
-use ..types.{Error, File, Metadata, OpenOptions, Path, SeekFrom};
+use ..types.{
+    Error,
+    File,
+    Metadata,
+    OpenOptions,
+    Path,
+    SeekFrom,
+};
 use ..c_path.c_path;
 
 const MAX_ATOMIC_TMP_ATTEMPTS = usize.{32};
@@ -62,7 +69,11 @@ fn is_already_exists_error(err: Error) bool {
     }
 }
 
-fn append_usize_decimal(out: &mut String, alloc: &mut Allocator, value: usize) bool {
+fn append_usize_decimal(
+    out: &mut String,
+    alloc: &mut Allocator,
+    value: usize,
+) bool {
     if (value == 0) {
         return out.push_char(alloc, b'0');
     }
@@ -81,7 +92,11 @@ fn append_usize_decimal(out: &mut String, alloc: &mut Allocator, value: usize) b
     return out.push_str(alloc, buf.&[i .. 40]);
 }
 
-fn atomic_tmp_path(alloc: &mut Allocator, path: &[u8], attempt: usize) String!Error {
+fn atomic_tmp_path(
+    alloc: &mut Allocator,
+    path: &[u8],
+    attempt: usize,
+) String!Error {
     let mut tmp = String.{};
     if (!tmp..&.push_str(alloc, path)
         or !tmp..&.push_str(alloc, ".tmp.")
@@ -132,7 +147,11 @@ fn seek_offset(value: SeekFrom) isize!Error {
     };
 }
 
-fn open_path(alloc: &mut Allocator, path: &[u8], options: &OpenOptions) File!Error {
+fn open_path(
+    alloc: &mut Allocator,
+    path: &[u8],
+    options: &OpenOptions,
+) File!Error {
     if (!options.read and !options.write) {
         return .{ Err: .InvalidOptions };
     }
@@ -252,13 +271,22 @@ fn write_all_atomic_unique_tmp(
 }
 
 /// Writes `buf` through a same-directory temporary path and renames it over `path`.
-fn write_all_atomic(alloc: &mut Allocator, path: &[u8], buf: &[u8]) usize!Error {
+fn write_all_atomic(
+    alloc: &mut Allocator,
+    path: &[u8],
+    buf: &[u8],
+) usize!Error {
     let mut attempt = usize.{0};
     let mut last_err = Error.InvalidPath;
 
     while (attempt < MAX_ATOMIC_TMP_ATTEMPTS) {
         let mut tmp = atomic_tmp_path(alloc, path, attempt).!;
-        let result = write_all_atomic_unique_tmp(alloc, path, tmp.&.as_str(), buf);
+        let result = write_all_atomic_unique_tmp(
+            alloc,
+            path,
+            tmp.&.as_str(),
+            buf,
+        );
         tmp..&.deinit(alloc);
 
         match (result) {
@@ -414,7 +442,12 @@ impl Path {
         tmp_path: &[u8],
         buf: &[u8],
     ) usize!Error {
-        return write_all_atomic_tmp(alloc, self.raw, tmp_path, buf);
+        return write_all_atomic_tmp(
+            alloc,
+            self.raw,
+            tmp_path,
+            buf,
+        );
     }
 
     /// Writes `buf` through a same-directory temporary path and renames it over this path.

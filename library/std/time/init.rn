@@ -5,7 +5,14 @@
 //! `Instant` and `Duration` support benchmark-style elapsed-time measurement
 //! without pulling date/time-zone policy into the core standard library.
 
-use base.cmp.{Comparable, Ord, Ordering, LESS, EQUAL, GREATER};
+use base.cmp.{
+    Comparable,
+    Ord,
+    Ordering,
+    LESS,
+    EQUAL,
+    GREATER,
+};
 use base.hash.{Hash, mix_u64};
 
 const U64_MAX = ~u64.{0};

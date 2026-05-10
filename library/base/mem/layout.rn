@@ -1,7 +1,8 @@
 //! Memory layout descriptions.
 //!
 //! Design:
-//! keep allocation requirements as plain data so allocators and containers can share one vocabulary.
+//! keep allocation requirements as plain data so allocators and containers can
+//! share one vocabulary.
 
 use base.num.USIZE_MAX;
 

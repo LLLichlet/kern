@@ -72,7 +72,11 @@ impl[K, V] &mut Tree[K, V]
     }
 
     /// Splits a full child into two siblings and promotes the median key.
-    fn split_child(alloc: &mut Allocator, parent: &mut Node[K, V], index: usize) bool {
+    fn split_child(
+        alloc: &mut Allocator,
+        parent: &mut Node[K, V],
+        index: usize,
+    ) bool {
         let child = child_at[K, V](parent, index);
         let .{ Some: right } = self.alloc_node(alloc, child.is_leaf) else return false;
 
@@ -122,7 +126,12 @@ impl[K, V] &mut Tree[K, V]
     }
 
     /// Inserts into a node that is known not to be full.
-    fn insert_non_full(alloc: &mut Allocator, node: &mut Node[K, V], key: K, value: V) bool {
+    fn insert_non_full(
+        alloc: &mut Allocator,
+        node: &mut Node[K, V],
+        key: K,
+        value: V,
+    ) bool {
         let slot = self.search_slot(node, key);
 
         if (slot < node.len and self.compare(key_at[K, V](node, slot), key) == 0) {
@@ -164,7 +173,12 @@ impl[K, V] &mut Tree[K, V]
             }
         }
 
-        return self.insert_non_full(alloc, child_at[K, V](node, child_index), key, value);
+        return self.insert_non_full(
+            alloc,
+            child_at[K, V](node, child_index),
+            key,
+            value,
+        );
     }
 
     /// Recursively releases a subtree.
@@ -235,7 +249,12 @@ impl[K, V] &mut Tree[K, V]
         }
 
         let .{ Some: root } = self.root else return false;
-        return self.insert_non_full(alloc, root, key, value);
+        return self.insert_non_full(
+            alloc,
+            root,
+            key,
+            value,
+        );
     }
 
     /// Releases every node in the tree.

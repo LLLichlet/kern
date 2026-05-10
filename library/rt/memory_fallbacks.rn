@@ -22,7 +22,11 @@ fn word_mut_ptr(addr: usize) &mut usize {
 }
 
 #[inline]
-fn copy_forward_bytes(dest: &mut u8, src: &u8, len: usize) void {
+fn copy_forward_bytes(
+    dest: &mut u8,
+    src: &u8,
+    len: usize,
+) void {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
         let mut i = usize.{0};
@@ -34,7 +38,11 @@ fn copy_forward_bytes(dest: &mut u8, src: &u8, len: usize) void {
 }
 
 #[inline]
-fn copy_backward_bytes(dest: &mut u8, src: &u8, len: usize) void {
+fn copy_backward_bytes(
+    dest: &mut u8,
+    src: &u8,
+    len: usize,
+) void {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
         let mut i = len;
@@ -45,7 +53,11 @@ fn copy_backward_bytes(dest: &mut u8, src: &u8, len: usize) void {
 }
 
 #[inline]
-fn can_copy_words(dest_addr: usize, src_addr: usize, len: usize) bool {
+fn can_copy_words(
+    dest_addr: usize,
+    src_addr: usize,
+    len: usize,
+) bool {
     return WORD_BYTES > usize.{1} and
         len >= WORD_BYTES and
         (((dest_addr ^ src_addr) & WORD_MASK) == 0);
@@ -63,7 +75,11 @@ fn backward_suffix(dest_addr: usize, len: usize) usize {
 }
 
 #[inline]
-fn copy_forward_words(dest: &mut u8, src: &u8, len: usize) void {
+fn copy_forward_words(
+    dest: &mut u8,
+    src: &u8,
+    len: usize,
+) void {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
     let word_len = len / WORD_BYTES;
@@ -78,7 +94,11 @@ fn copy_forward_words(dest: &mut u8, src: &u8, len: usize) void {
 }
 
 #[inline]
-fn copy_backward_words(dest_addr: usize, src_addr: usize, len: usize) void {
+fn copy_backward_words(
+    dest_addr: usize,
+    src_addr: usize,
+    len: usize,
+) void {
     let mut copied = usize.{0};
     let mut d_word_addr = dest_addr + len;
     let mut s_word_addr = src_addr + len;
@@ -108,7 +128,11 @@ fn fill_word(byte: u8) usize {
 }
 
 #[inline]
-fn fill_words(dest: &mut u8, word: usize, len: usize) void {
+fn fill_words(
+    dest: &mut u8,
+    word: usize,
+    len: usize,
+) void {
     let dest_addr = dest as usize;
     let word_len = len / WORD_BYTES;
 
@@ -121,7 +145,11 @@ fn fill_words(dest: &mut u8, word: usize, len: usize) void {
 }
 
 #[inline]
-fn memcpy_impl(dest: &mut u8, src: &u8, len: usize) void {
+fn memcpy_impl(
+    dest: &mut u8,
+    src: &u8,
+    len: usize,
+) void {
     let dest_addr = dest as usize;
     let src_addr = src as usize;
 

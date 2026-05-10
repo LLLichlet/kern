@@ -16,7 +16,12 @@ extern {
     fn system_pclose(stream: &mut PipeStream) i32;
 
     #[export_name("fread")]
-    fn system_fread(ptr: &mut u8, size: usize, count: usize, stream: &mut PipeStream) usize;
+    fn system_fread(
+        ptr: &mut u8,
+        size: usize,
+        count: usize,
+        stream: &mut PipeStream,
+    ) usize;
 
     #[export_name("ferror")]
     fn system_ferror(stream: &mut PipeStream) i32;
@@ -31,7 +36,12 @@ extern {
     fn system_pclose(stream: &mut PipeStream) i32;
 
     #[export_name("fread")]
-    fn system_fread(ptr: &mut u8, size: usize, count: usize, stream: &mut PipeStream) usize;
+    fn system_fread(
+        ptr: &mut u8,
+        size: usize,
+        count: usize,
+        stream: &mut PipeStream,
+    ) usize;
 
     #[export_name("ferror")]
     fn system_ferror(stream: &mut PipeStream) i32;
@@ -126,7 +136,12 @@ impl &[u8] {
             let output = String.{}..&;
             let mut chunk = [1024]u8.{undef};
             while (true) {
-                let read = system_fread(chunk.[0]..&, 1, 1024, stream);
+                let read = system_fread(
+                    chunk.[0]..&,
+                    1,
+                    1024,
+                    stream,
+                );
                 if (read == 0) {
                     break;
                 }

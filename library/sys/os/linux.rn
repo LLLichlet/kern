@@ -182,17 +182,36 @@ fn match_environment_name(entry: &u8, name: &u8) ?&u8 {
     }
 }
 
-fn ioctl_raw(handle: Handle, request: usize, arg: usize) isize {
-    return syscall3_raw(SYS_IOCTL, handle, request, arg);
+fn ioctl_raw(
+    handle: Handle,
+    request: usize,
+    arg: usize,
+) isize {
+    return syscall3_raw(
+        SYS_IOCTL,
+        handle,
+        request,
+        arg,
+    );
 }
 
 /// Performs a raw 3-argument syscall.
 pub fn syscall3(sys_num: usize, arg1: usize, arg2: usize, arg3: usize) usize {
-    let ret = syscall3_raw(sys_num, arg1, arg2, arg3);
+    let ret = syscall3_raw(
+        sys_num,
+        arg1,
+        arg2,
+        arg3,
+    );
     return ret as usize;
 }
 
-fn syscall3_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize) isize {
+fn syscall3_raw(
+    sys_num: usize,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+) isize {
     let mut ret = isize.{undef};
 
     @asm(.{
@@ -211,7 +230,13 @@ fn syscall3_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize) isize {
     return ret;
 }
 
-fn syscall4_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
+fn syscall4_raw(
+    sys_num: usize,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+    arg4: usize,
+) isize {
     let mut ret = isize.{undef};
 
     @asm(.{
@@ -235,7 +260,12 @@ fn syscall4_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usi
 pub fn exit(code: i32) ! {
     // `sys_exit` takes an `int`, but the syscall wrapper uses `usize`.
     let sys_exit_num = usize.{60};
-    _ = syscall3(sys_exit_num, code as usize, usize.{0}, usize.{0});
+    _ = syscall3(
+        sys_exit_num,
+        code as usize,
+        usize.{0},
+        usize.{0},
+    );
 
     // `exit` never returns.
     @unreachable()
@@ -394,14 +424,24 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
     defer command_c.deinit(alloc);
 
     let mut fds = [2]i32.{undef};
-    let pipe_ret = syscall3_raw(SYS_PIPE2, fds.[0]..& as usize, 0, 0);
+    let pipe_ret = syscall3_raw(
+        SYS_PIPE2,
+        fds.[0]..& as usize,
+        0,
+        0,
+    );
     if (pipe_ret < 0) {
         return error_result[ProcessCapture](pipe_ret);
     }
 
     let read_end = fds.[0] as usize;
     let write_end = fds.[1] as usize;
-    let pid = syscall3_raw(SYS_FORK, 0, 0, 0);
+    let pid = syscall3_raw(
+        SYS_FORK,
+        0,
+        0,
+        0,
+    );
     if (pid < 0) {
         _ = close_file(read_end);
         _ = close_file(write_end);
@@ -409,15 +449,35 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
     }
 
     if (pid == 0) {
-        let mut argv = [4]usize.{ sh_arg.ptr() as usize, dash_lc.ptr() as usize, command_c.ptr() as usize, 0 };
+        let mut argv = [4]usize.{
+            sh_arg.ptr() as usize,
+            dash_lc.ptr() as usize,
+            command_c.ptr() as usize,
+            0,
+        };
         let envp = environment_entries().map_or(usize.{0}, [](envp: &&u8) usize {
             return envp as usize;
         });
         _ = close_file(read_end);
-        _ = syscall3_raw(SYS_DUP2, write_end, 1, 0);
-        _ = syscall3_raw(SYS_DUP2, write_end, 2, 0);
+        _ = syscall3_raw(
+            SYS_DUP2,
+            write_end,
+            1,
+            0,
+        );
+        _ = syscall3_raw(
+            SYS_DUP2,
+            write_end,
+            2,
+            0,
+        );
         _ = close_file(write_end);
-        _ = syscall3_raw(SYS_EXECVE, sh_path.ptr() as usize, argv.[0]..& as usize, envp);
+        _ = syscall3_raw(
+            SYS_EXECVE,
+            sh_path.ptr() as usize,
+            argv.[0]..& as usize,
+            envp,
+        );
         exit(127);
     }
 
@@ -430,7 +490,13 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
                 _ = close_file(read_end);
                 output.deinit(alloc);
                 let mut raw_status = i32.{0};
-                _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+                _ = syscall4_raw(
+                    SYS_WAIT4,
+                    pid as usize,
+                    raw_status..& as usize,
+                    0,
+                    0,
+                );
                 return .{ Err: err };
             },
         };
@@ -441,14 +507,26 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
             _ = close_file(read_end);
             output.deinit(alloc);
             let mut raw_status = i32.{0};
-            _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+            _ = syscall4_raw(
+                SYS_WAIT4,
+                pid as usize,
+                raw_status..& as usize,
+                0,
+                0,
+            );
             return .{ Err: .{ code: 12 } };
         }
     }
     _ = close_file(read_end);
 
     let mut raw_status = i32.{0};
-    let wait_ret = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+    let wait_ret = syscall4_raw(
+        SYS_WAIT4,
+        pid as usize,
+        raw_status..& as usize,
+        0,
+        0,
+    );
     if (wait_ret < 0) {
         output.deinit(alloc);
         return error_result[ProcessCapture](wait_ret);
@@ -457,7 +535,15 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
     return .{ Ok: .{ output: output.*, status: (raw_status >> 8) & 255 } };
 }
 
-pub fn syscall6(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize, arg6: usize) usize {
+pub fn syscall6(
+    sys_num: usize,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+    arg4: usize,
+    arg5: usize,
+    arg6: usize,
+) usize {
     let mut ret = usize.{undef};
 
     @asm(.{
@@ -492,13 +578,29 @@ pub const MAP_FAILED  = base.num.USIZE_MAX;
 
 /// Performs the Linux `mmap` syscall.
 pub fn mmap(addr: usize, len: usize, prot: usize, flags: usize, fd: usize, offset: usize) usize {
-    return syscall6(9, addr, len, prot, flags, fd, offset);
+    return syscall6(
+        9,
+        addr,
+        len,
+        prot,
+        flags,
+        fd,
+        offset,
+    );
 }
 
 /// Performs the Linux `munmap` syscall.
 pub fn munmap(addr: usize, len: usize) usize {
     // Pads the unused syscall arguments with zero.
-    return syscall6(11, addr, len, 0, 0, 0, 0);
+    return syscall6(
+        11,
+        addr,
+        len,
+        0,
+        0,
+        0,
+        0,
+    );
 }
 
 fn error_result[T](ret: isize) T!Error {
@@ -511,7 +613,12 @@ fn error_result[T](ret: isize) T!Error {
 
 /// Reads up to `len` bytes from `handle` into `ptr`.
 pub fn read_file(handle: Handle, ptr: &mut u8, len: usize) usize!Error {
-    let ret = syscall3_raw(0, handle, ptr as usize, len);
+    let ret = syscall3_raw(
+        0,
+        handle,
+        ptr as usize,
+        len,
+    );
     if (ret < 0) {
         return error_result[usize](ret);
     }
@@ -520,7 +627,12 @@ pub fn read_file(handle: Handle, ptr: &mut u8, len: usize) usize!Error {
 
 /// Writes up to `len` bytes from `ptr` into `handle`.
 pub fn write_file(handle: Handle, ptr: &u8, len: usize) usize!Error {
-    let ret = syscall3_raw(1, handle, ptr as usize, len);
+    let ret = syscall3_raw(
+        1,
+        handle,
+        ptr as usize,
+        len,
+    );
     if (ret < 0) {
         return error_result[usize](ret);
     }
@@ -529,7 +641,12 @@ pub fn write_file(handle: Handle, ptr: &u8, len: usize) usize!Error {
 
 /// Repositions an open file handle and returns the new byte offset.
 pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
-    let ret = syscall3_raw(8, handle, offset as usize, whence as usize);
+    let ret = syscall3_raw(
+        8,
+        handle,
+        offset as usize,
+        whence as usize,
+    );
     if (ret < 0) {
         return error_result[usize](ret);
     }
@@ -538,7 +655,12 @@ pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
 
 /// Changes an open file's length.
 pub fn truncate_file(handle: Handle, size: usize) bool!Error {
-    let ret = syscall3_raw(SYS_FTRUNCATE, handle, size, 0);
+    let ret = syscall3_raw(
+        SYS_FTRUNCATE,
+        handle,
+        size,
+        0,
+    );
     if (ret < 0) {
         return error_result[bool](ret);
     }
@@ -596,7 +718,13 @@ fn is_dot_entry(name: &[u8]) bool {
 
 pub fn metadata(path: &u8) Metadata!Error {
     let mut stat = Stat.{undef};
-    let ret = syscall4_raw(NEWFSTATAT, AT_FDCWD, path as usize, stat..& as usize, 0);
+    let ret = syscall4_raw(
+        NEWFSTATAT,
+        AT_FDCWD,
+        path as usize,
+        stat..& as usize,
+        0,
+    );
     if (ret < 0) {
         return error_result[Metadata](ret);
     }
@@ -625,7 +753,12 @@ pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool)
     let mut buf = [8192]u8.{undef};
 
         while (true) {
-        let read = syscall3_raw(GETDENTS64, handle, buf.[0]..& as usize, 8192);
+        let read = syscall3_raw(
+            GETDENTS64,
+            handle,
+            buf.[0]..& as usize,
+            8192,
+        );
         if (read < 0) {
             return error_result[usize](read);
         }
@@ -671,14 +804,21 @@ pub fn open_file(
     path: &u8,
     options: &OpenOptions,
 ) Handle!Error {
-    let mut flags = if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
+    let mut flags =
+        if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
 
     if (options.create) flags |= O_CREAT;
     if (options.create_new) flags |= O_CREAT | O_EXCL;
     if (options.truncate) flags |= O_TRUNC;
     if (options.append) flags |= O_APPEND;
 
-    let ret = syscall4_raw(257, AT_FDCWD, path as usize, flags, DEFAULT_MODE);
+    let ret = syscall4_raw(
+        257,
+        AT_FDCWD,
+        path as usize,
+        flags,
+        DEFAULT_MODE,
+    );
     if (ret < 0) {
         return error_result[Handle](ret);
     }
@@ -687,7 +827,12 @@ pub fn open_file(
 
 /// Creates one directory.
 pub fn create_dir(path: &u8) bool!Error {
-    let ret = syscall3_raw(MKDIRAT, AT_FDCWD, path as usize, MODE_DIR);
+    let ret = syscall3_raw(
+        MKDIRAT,
+        AT_FDCWD,
+        path as usize,
+        MODE_DIR,
+    );
     if (ret < 0) {
         return error_result[bool](ret);
     }
@@ -696,7 +841,12 @@ pub fn create_dir(path: &u8) bool!Error {
 
 /// Removes one empty directory.
 pub fn remove_dir(path: &u8) bool!Error {
-    let ret = syscall3_raw(UNLINKAT, AT_FDCWD, path as usize, AT_REMOVEDIR);
+    let ret = syscall3_raw(
+        UNLINKAT,
+        AT_FDCWD,
+        path as usize,
+        AT_REMOVEDIR,
+    );
     if (ret < 0) {
         return error_result[bool](ret);
     }
@@ -705,7 +855,12 @@ pub fn remove_dir(path: &u8) bool!Error {
 
 /// Removes one file.
 pub fn remove_file(path: &u8) bool!Error {
-    let ret = syscall3_raw(UNLINKAT, AT_FDCWD, path as usize, 0);
+    let ret = syscall3_raw(
+        UNLINKAT,
+        AT_FDCWD,
+        path as usize,
+        0,
+    );
     if (ret < 0) {
         return error_result[bool](ret);
     }
@@ -714,7 +869,13 @@ pub fn remove_file(path: &u8) bool!Error {
 
 /// Renames or moves a filesystem entry.
 pub fn rename(old_path: &u8, new_path: &u8) bool!Error {
-    let ret = syscall4_raw(RENAMEAT, AT_FDCWD, old_path as usize, AT_FDCWD, new_path as usize);
+    let ret = syscall4_raw(
+        RENAMEAT,
+        AT_FDCWD,
+        old_path as usize,
+        AT_FDCWD,
+        new_path as usize,
+    );
     if (ret < 0) {
         return error_result[bool](ret);
     }

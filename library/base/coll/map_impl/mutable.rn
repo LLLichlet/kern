@@ -1,7 +1,8 @@
 //! Hash-map allocation and mutation routines.
 //!
 //! Design:
-//! keep rebuilds explicit so growth, compaction, and tombstone reuse all follow the same probing rules.
+//! keep rebuilds explicit so growth, compaction, and tombstone reuse all follow
+//! the same probing rules.
 
 use base.hash.Hash;
 use base.mem.{Layout, array_layout_of};
@@ -94,7 +95,11 @@ impl[K, V] &mut Map[K, V]
     }
 
     /// Releases one raw table allocation.
-    fn free_table(alloc: &mut Allocator, storage: &mut u8, capacity: usize) void {
+    fn free_table(
+        alloc: &mut Allocator,
+        storage: &mut u8,
+        capacity: usize,
+    ) void {
         if (capacity == 0) return;
 
         let .{ Some: ctrl_layout } = array_layout_of[u8](capacity) else return;
@@ -148,7 +153,8 @@ impl[K, V] &mut Map[K, V]
 
     /// Rebuilds the table into a new allocation and drops tombstones.
     fn rebuild(alloc: &mut Allocator, requested_capacity: usize) bool {
-        let new_capacity = if (requested_capacity < MIN_CAPACITY) MIN_CAPACITY else requested_capacity;
+        let new_capacity =
+            if (requested_capacity < MIN_CAPACITY) MIN_CAPACITY else requested_capacity;
         let .{ Some: table } = self.alloc_table(alloc, new_capacity) else return false;
 
         let mut i = usize.{0};
@@ -159,7 +165,14 @@ impl[K, V] &mut Map[K, V]
             }
 
             let entry = entry_ptr[K, V](self.entries, i);
-            if (!self.insert_into_raw(table.ctrl, table.entries, table.capacity, entry.hash64, entry.key, entry.value)) {
+            if (!self.insert_into_raw(
+                table.ctrl,
+                table.entries,
+                table.capacity,
+                entry.hash64,
+                entry.key,
+                entry.value,
+            )) {
                 self.free_table(alloc, table.ctrl, table.capacity);
                 return false;
             }
@@ -234,7 +247,12 @@ impl[K, V] &mut Map[K, V]
     }
 
     /// Writes one entry and updates live-entry and tombstone counts consistently.
-    fn write_slot(slot: usize, hash: u64, key: K, value: V) &mut V {
+    fn write_slot(
+        slot: usize,
+        hash: u64,
+        key: K,
+        value: V,
+    ) &mut V {
         let entry = entry_ptr[K, V](self.entries, slot);
         let prev_state = ctrl_at(self.ctrl, slot);
         entry.hash64 = hash;
@@ -294,7 +312,12 @@ impl[K, V] &mut Map[K, V]
 
         // Reserve may rebuild, so the insertion slot must be chosen afterwards.
         let .{ Some: slot } = self.find_insert_slot(hash) else return false;
-        _ = self.write_slot(slot, hash, key, value);
+        _ = self.write_slot(
+            slot,
+            hash,
+            key,
+            value,
+        );
         return true;
     }
 
@@ -348,7 +371,13 @@ impl[K, V] &mut Map[K, V]
         if (self.capacity == 0) return .None;
 
         let hash = key_hash(key);
-        let .{ Some: slot } = find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)
+        let .{ Some: slot } = find_index_with_hash[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            key,
+            hash,
+        )
             else return .None;
         let entry = entry_ptr[K, V](self.entries, slot);
         return .{ Some: entry.value..& };
@@ -360,7 +389,12 @@ impl[K, V] &mut Map[K, V]
             visitor(entry.key, entry.value..&);
             return true;
         };
-        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            visit,
+        );
     }
 
     /// Retains only the entries accepted by `pred`.
@@ -389,7 +423,13 @@ impl[K, V] &mut Map[K, V]
         if (self.capacity == 0) return .None;
 
         let hash = key_hash(key);
-        let .{ Some: slot } = find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)
+        let .{ Some: slot } = find_index_with_hash[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            key,
+            hash,
+        )
             else return .None;
         let entry = entry_ptr[K, V](self.entries, slot);
         let removed = entry.value;

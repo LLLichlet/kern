@@ -1,7 +1,8 @@
 //! B-tree deletion and rebalancing.
 //!
 //! Design:
-//! descend only through children that already satisfy the minimum occupancy rule so the recursive remove path never has to backtrack.
+//! descend only through children that already satisfy the minimum occupancy rule
+//! so the recursive remove path never has to backtrack.
 
 use base.cmp.Ord;
 use base.mem.array_layout_of;
@@ -140,7 +141,11 @@ impl[K, V] &mut Tree[K, V]
     ///
     /// After the merge the separator key lives in the left subtree, so callers
     /// can continue descending into the returned node.
-    fn delete_merge_children(alloc: &mut Allocator, parent: &mut Node[K, V], index: usize) &mut Node[K, V] {
+    fn delete_merge_children(
+        alloc: &mut Allocator,
+        parent: &mut Node[K, V],
+        index: usize,
+    ) &mut Node[K, V] {
         let left = child_at[K, V](parent, index);
         let right = child_at[K, V](parent, index + 1);
 
@@ -215,7 +220,12 @@ impl[K, V] &mut Tree[K, V]
 
             let mut ignored_value = ?V.None;
             let ignored = ignored_value..&;
-            return self.delete_remove_from_node(alloc, left, pred_key, ignored);
+            return self.delete_remove_from_node(
+                alloc,
+                left,
+                pred_key,
+                ignored,
+            );
         }
 
         let right = child_at[K, V](node, index + 1);
@@ -232,13 +242,23 @@ impl[K, V] &mut Tree[K, V]
 
             let mut ignored_value = ?V.None;
             let ignored = ignored_value..&;
-            return self.delete_remove_from_node(alloc, right, succ_key, ignored);
+            return self.delete_remove_from_node(
+                alloc,
+                right,
+                succ_key,
+                ignored,
+            );
         }
 
         let merged = self.delete_merge_children(alloc, node, index);
         let mut ignored_value = ?V.None;
         let ignored = ignored_value..&;
-        return self.delete_remove_from_node(alloc, merged, key, ignored);
+        return self.delete_remove_from_node(
+            alloc,
+            merged,
+            key,
+            ignored,
+        );
     }
 
     /// Removes `key` from `node`, preserving the B-tree occupancy invariant.
@@ -255,7 +275,13 @@ impl[K, V] &mut Tree[K, V]
                 removed.* = .{ Some: self.delete_remove_from_leaf(node, index) };
                 return true;
             }
-            return self.delete_remove_from_internal(alloc, node, index, key, removed);
+            return self.delete_remove_from_internal(
+                alloc,
+                node,
+                index,
+                key,
+                removed,
+            );
         }
 
         if (node.is_leaf) {
@@ -286,7 +312,12 @@ impl[K, V] &mut Tree[K, V]
             }
         }
 
-        return self.delete_remove_from_node(alloc, child_at[K, V](node, child_index), key, removed);
+        return self.delete_remove_from_node(
+            alloc,
+            child_at[K, V](node, child_index),
+            key,
+            removed,
+        );
     }
 
     /// Removes the value stored for `key`.

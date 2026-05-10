@@ -55,7 +55,11 @@ impl &mut DirEntries {
         return self.raw..&.as_mut_slice();
     }
 
-    fn reserve(alloc: &mut Allocator, entry_count: usize, name_bytes: usize) bool {
+    fn reserve(
+        alloc: &mut Allocator,
+        entry_count: usize,
+        name_bytes: usize,
+    ) bool {
         if (!self.raw..&.reserve_exact(alloc, entry_count)) {
             return false;
         }
@@ -113,7 +117,11 @@ fn wrap_os_error(err: os.Error) Error {
     return .{ Os: err };
 }
 
-fn already_exists_is_false_if_dir(alloc: &mut Allocator, path: &[u8], err: Error) bool!Error {
+fn already_exists_is_false_if_dir(
+    alloc: &mut Allocator,
+    path: &[u8],
+    err: Error,
+) bool!Error {
     match (err) {
         .{ Os: os_err } => {
             if (!os.is_already_exists(os_err)) {
@@ -178,7 +186,11 @@ fn alloc_dir_search_path(alloc: &mut Allocator, path: &[u8]) (&mut u8)!Error {
     return .{ Ok: ptr };
 }
 
-fn free_dir_search_path(alloc: &mut Allocator, path: &[u8], ptr: &mut u8) void {
+fn free_dir_search_path(
+    alloc: &mut Allocator,
+    path: &[u8],
+    ptr: &mut u8,
+) void {
     let .{ Some: layout } = dir_search_path_layout(path) else return;
     alloc.free(ptr, layout);
 }
@@ -243,7 +255,11 @@ fn create_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
 ///
 /// Returns:
 /// the number of delivered child entries.
-fn read_dir(alloc: &mut Allocator, path: &[u8], visitor: &Fn(DirEntry) bool) usize!Error {
+fn read_dir(
+    alloc: &mut Allocator,
+    path: &[u8],
+    visitor: &Fn(DirEntry) bool,
+) usize!Error {
     let c_path = c_path(alloc, path).!..&;
     defer c_path.deinit(alloc);
     let search_c_path = match (alloc_dir_search_path(alloc, path)) {
@@ -420,7 +436,14 @@ fn walk_dir(
 
     let mut total = usize.{0};
     let mut walk_err = ?Error.None;
-    _ = walk_dir_inner(alloc, path, usize.{1}, visitor, total..&, walk_err..&);
+    _ = walk_dir_inner(
+        alloc,
+        path,
+        usize.{1},
+        visitor,
+        total..&,
+        walk_err..&,
+    );
 
     match (walk_err) {
         .{ Some: err } => return .{ Err: err },
@@ -575,7 +598,10 @@ impl Path {
     }
 
     /// Walks only file entries in this directory tree.
-    pub fn walk_files(alloc: &mut Allocator, visitor: &Fn(&[u8], DirEntry, usize) bool) usize!Error {
+    pub fn walk_files(
+        alloc: &mut Allocator,
+        visitor: &Fn(&[u8], DirEntry, usize) bool,
+    ) usize!Error {
         return walk_files(alloc, self.raw, visitor);
     }
 

@@ -8,6 +8,14 @@
 
 use base.mem.Layout;
 
+/// Allocation failure categories shared by collection helpers.
+pub enum AllocError {
+    /// Requested capacity or byte size cannot fit in `usize`.
+    CapacityOverflow,
+    /// The allocator could not satisfy the request.
+    OutOfMemory,
+}
+
 /// The interface implemented by allocation backends.
 pub/ trait Allocator {
     /// Allocates memory for the requested layout.

@@ -419,7 +419,7 @@ fn clone_decoded_string_single_pass_with_end_in_arena(
     let upper_bound = end - 1;
     let alloc = &mut Allocator.{ arena };
     let mut out = String.{};
-    let .{ Some: buf } = out..&.append_uninit_exact_in_arena(arena, upper_bound)
+    let .{ Some: buf } = out..&.append_uninit_exact(alloc, upper_bound)
         else return .{ Err: StringDecodeError.OutOfMemory };
 
     let .{ Some: escape_index } = first_raw_escape_index(raw, end)

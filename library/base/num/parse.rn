@@ -61,7 +61,11 @@ fn digit_value(byte: u8) ?u8 {
     return .None;
 }
 
-fn checked_add_digit(acc: u128, digit: u8, radix: u8) u128!ParseIntError {
+fn checked_add_digit(
+    acc: u128,
+    digit: u8,
+    radix: u8,
+) u128!ParseIntError {
     let base = radix as u128;
     let next_digit = digit as u128;
     if (acc > (U128_MAX - next_digit) / base) {
@@ -70,7 +74,11 @@ fn checked_add_digit(acc: u128, digit: u8, radix: u8) u128!ParseIntError {
     return .{ Ok: acc * base + next_digit };
 }
 
-fn parse_u128_body(text: &[u8], start: usize, radix: u8) u128!ParseIntError {
+fn parse_u128_body(
+    text: &[u8],
+    start: usize,
+    radix: u8,
+) u128!ParseIntError {
     if (radix < 2 or radix > 36) {
         return .{ Err: .InvalidRadix };
     }
@@ -109,7 +117,11 @@ fn parse_unsigned_magnitude(text: &[u8], radix: u8) u128!ParseIntError {
     return parse_u128_body(text, 0, radix);
 }
 
-fn parse_unsigned_limited(text: &[u8], radix: u8, max: u128) u128!ParseIntError {
+fn parse_unsigned_limited(
+    text: &[u8],
+    radix: u8,
+    max: u128,
+) u128!ParseIntError {
     let value = parse_unsigned_magnitude(text, radix).!;
     if (value > max) {
         return .{ Err: .Overflow };
@@ -117,7 +129,11 @@ fn parse_unsigned_limited(text: &[u8], radix: u8, max: u128) u128!ParseIntError 
     return .{ Ok: value };
 }
 
-fn parse_signed_magnitude_limited(text: &[u8], radix: u8, max_positive: u128) u128!ParseIntError {
+fn parse_signed_magnitude_limited(
+    text: &[u8],
+    radix: u8,
+    max_positive: u128,
+) u128!ParseIntError {
     let negative = #text != 0 and text.[0] == b'-';
     let magnitude = signed_magnitude(text, radix).!;
     let max_magnitude = if (negative) max_positive + 1 else max_positive;

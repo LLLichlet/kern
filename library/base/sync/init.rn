@@ -78,13 +78,25 @@ impl[T] &mut Atomic[T] {
 
     /// Compares against `expected` and stores `desired` on success.
     pub fn compare_exchange[SUCCESS: u8, FAILURE: u8](expected: T, desired: T) AtomicCas[T] {
-        let cas = @atomicCas[T](self.value..&, expected, desired, SUCCESS, FAILURE);
+        let cas = @atomicCas[T](
+            self.value..&,
+            expected,
+            desired,
+            SUCCESS,
+            FAILURE,
+        );
         return .{ success: cas.success, value: cas.value };
     }
 
     /// Weak compare-and-swap variant.
     pub fn compare_exchange_weak[SUCCESS: u8, FAILURE: u8](expected: T, desired: T) AtomicCas[T] {
-        let cas = @atomicCasWeak[T](self.value..&, expected, desired, SUCCESS, FAILURE);
+        let cas = @atomicCasWeak[T](
+            self.value..&,
+            expected,
+            desired,
+            SUCCESS,
+            FAILURE,
+        );
         return .{ success: cas.success, value: cas.value };
     }
 }

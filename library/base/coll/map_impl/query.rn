@@ -24,7 +24,12 @@ impl[K, V] &Map[K, V]
             visitor(entry.key, entry.value);
             return true;
         };
-        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            visit,
+        );
     }
 
     /// Returns `true` when any key-value pair satisfies `pred`.
@@ -37,7 +42,12 @@ impl[K, V] &Map[K, V]
             }
             return true;
         };
-        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            visit,
+        );
         return matched;
     }
 
@@ -51,7 +61,12 @@ impl[K, V] &Map[K, V]
             }
             return true;
         };
-        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            visit,
+        );
         return all_match;
     }
 
@@ -64,7 +79,12 @@ impl[K, V] &Map[K, V]
             }
             return true;
         };
-        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            visit,
+        );
         return total;
     }
 
@@ -75,7 +95,12 @@ impl[K, V] &Map[K, V]
             accum.* = step(accum.*, entry.key, entry.value);
             return true;
         };
-        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            visit,
+        );
         return accum;
     }
 
@@ -92,7 +117,12 @@ impl[K, V] &Map[K, V]
             }
             return true;
         };
-        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit_entry);
+        _ = visit_full[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            visit_entry,
+        );
         return found;
     }
 
@@ -110,7 +140,12 @@ impl[K, V] &Map[K, V]
             }
             return true;
         };
-        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            visit,
+        );
         return ok;
     }
 
@@ -128,7 +163,12 @@ impl[K, V] &Map[K, V]
             }
             return true;
         };
-        _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        _ = visit_full[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            visit,
+        );
         return ok;
     }
 
@@ -157,7 +197,13 @@ impl[K, V] &Map[K, V]
         if (self.capacity == 0) return .None;
 
         let hash = key_hash(key);
-        let slot = find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash).?;
+        let slot = find_index_with_hash[K, V](
+            self.ctrl,
+            self.entries,
+            self.capacity,
+            key,
+            hash,
+        ).?;
         let entry = entry_ptr[K, V](self.entries, slot);
         return .{ Some: entry.value };
     }

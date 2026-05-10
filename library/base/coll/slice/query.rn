@@ -3,7 +3,13 @@
 //! Design:
 //! keep borrowed sequence queries allocation-free and composable.
 
-use base.cmp.{Ord, Ordering, LESS, EQUAL, GREATER};
+use base.cmp.{
+    Ord,
+    Ordering,
+    LESS,
+    EQUAL,
+    GREATER,
+};
 use base.coll.SliceIter;
 
 impl[T] &[T] {

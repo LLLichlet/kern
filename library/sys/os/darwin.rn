@@ -11,19 +11,35 @@ use sys.os.OpenOptions;
 /// Imports the libc-backed OS entry points used by the Darwin runtime layer.
 extern {
     #[export_name("write")]
-    fn system_write(fd: i32, ptr: &u8, len: usize) isize;
+    fn system_write(
+        fd: i32,
+        ptr: &u8,
+        len: usize,
+    ) isize;
 
     #[export_name("read")]
-    fn system_read(fd: i32, ptr: &mut u8, len: usize) isize;
+    fn system_read(
+        fd: i32,
+        ptr: &mut u8,
+        len: usize,
+    ) isize;
 
     #[export_name("open")]
-    fn system_open(path: &u8, flags: i32, ...) i32;
+    fn system_open(
+        path: &u8,
+        flags: i32,
+        ...,
+    ) i32;
 
     #[export_name("close")]
     fn system_close(fd: i32) i32;
 
     #[export_name("lseek")]
-    fn system_lseek(fd: i32, offset: isize, whence: i32) isize;
+    fn system_lseek(
+        fd: i32,
+        offset: isize,
+        whence: i32,
+    ) isize;
 
     #[export_name("ftruncate")]
     fn system_ftruncate(fd: i32, length: isize) i32;
@@ -56,7 +72,14 @@ extern {
     fn system_getpid() i32;
 
     #[export_name("mmap")]
-    pub fn mmap(addr: &mut void, len: usize, prot: i32, flags: i32, fd: i32, offset: isize) &mut void;
+    pub fn mmap(
+        addr: &mut void,
+        len: usize,
+        prot: i32,
+        flags: i32,
+        fd: i32,
+        offset: isize,
+    )&mut void;
 
     #[export_name("munmap")]
     pub fn munmap(addr: &mut void, len: usize) i32;
@@ -65,13 +88,21 @@ extern {
     fn system_isatty(fd: i32) i32;
 
     #[export_name("ioctl")]
-    fn system_ioctl(fd: i32, request: u64, ...) i32;
+    fn system_ioctl(
+        fd: i32,
+        request: u64,
+        ...,
+    ) i32;
 
     #[export_name("tcgetattr")]
     fn system_tcgetattr(fd: i32, termios: &mut Termios) i32;
 
     #[export_name("tcsetattr")]
-    fn system_tcsetattr(fd: i32, actions: i32, termios: &TerminalState) i32;
+    fn system_tcsetattr(
+        fd: i32,
+        actions: i32,
+        termios: &TerminalState,
+    ) i32;
 
     #[export_name("cfmakeraw")]
     fn system_cfmakeraw(termios: &mut Termios) void;
@@ -486,7 +517,8 @@ pub fn open_file(
     path: &u8,
     options: &OpenOptions,
 ) Handle!Error {
-    let mut flags = if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
+    let mut flags =
+        if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
     if (options.create) flags |= O_CREAT;
     if (options.create_new) flags |= O_CREAT | O_EXCL;
     if (options.truncate) flags |= O_TRUNC;

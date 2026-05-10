@@ -6,7 +6,7 @@ use ..writers.discard;
 /// `Format` is a zero-allocation view over a template and its arguments. It can
 /// be written to any `Write` sink or passed anywhere a `Formatable` value is
 /// accepted.
-pub/ struct Format {
+pub struct Format {
     fmt: &[u8],
     args: &[&Formatable],
 };
@@ -38,7 +38,12 @@ fn align_for_byte(byte: u8) ?u8 {
     return .None;
 }
 
-fn parse_number(spec: &[u8], start: usize, end: usize, empty_ok: bool) ?usize {
+fn parse_number(
+    spec: &[u8],
+    start: usize,
+    end: usize,
+    empty_ok: bool,
+) ?usize {
     if (start >= end) {
         if (!empty_ok) {
             return .None;
@@ -121,7 +126,12 @@ fn parse_format_spec(spec: &[u8]) ?FormatSpec {
         .None => {},
     }
 
-    let .{ Some: width } = parse_number(spec, i, width_end, true) else return .None;
+    let .{ Some: width } = parse_number(
+        spec,
+        i,
+        width_end,
+        true,
+    )else return .None;
     out.width = width;
     return .{ Some: out };
 }
@@ -149,7 +159,11 @@ fn rendered_len(arg: &Formatable) usize {
     return counter..&.bytes_written();
 }
 
-fn write_fill(writer: &mut Write, fill: u8, count: usize) void {
+fn write_fill(
+    writer: &mut Write,
+    fill: u8,
+    count: usize,
+) void {
     let mut buf = [1]u8.{undef};
     buf.[0] = fill;
 
@@ -177,7 +191,11 @@ impl &mut LimitWriter : Write {
     }
 }
 
-fn write_limited_arg(writer: &mut Write, arg: &Formatable, spec: FormatSpec) void {
+fn write_limited_arg(
+    writer: &mut Write,
+    arg: &Formatable,
+    spec: FormatSpec,
+) void {
     match (spec.limit) {
         .{ Some: limit } => {
             let mut limited = LimitWriter.{ inner: writer, remaining: limit };
@@ -206,7 +224,11 @@ fn formatted_len(arg: &Formatable, spec: FormatSpec) usize {
     }
 }
 
-fn write_formatted_arg(writer: &mut Write, arg: &Formatable, spec: FormatSpec) void {
+fn write_formatted_arg(
+    writer: &mut Write,
+    arg: &Formatable,
+    spec: FormatSpec,
+) void {
     let len = formatted_len(arg, spec);
     if (spec.width <= len) {
         write_limited_arg(writer, arg, spec);
@@ -233,7 +255,11 @@ fn write_formatted_arg(writer: &mut Write, arg: &Formatable, spec: FormatSpec) v
     write_limited_arg(writer, arg, spec);
 }
 
-fn write_format(writer: &mut Write, fmt: &[u8], args: &[&Formatable]) void {
+fn write_format(
+    writer: &mut Write,
+    fmt: &[u8],
+    args: &[&Formatable],
+) void {
     let fmt_len = #fmt;
     let mut arg_idx = usize.{0};
     let mut last_pos = usize.{0};

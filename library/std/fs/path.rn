@@ -62,14 +62,22 @@ pub/ fn root_prefix_len(path: &[u8]) usize {
     {
         if (len >= 2 and is_path_separator(path.[0]) and is_path_separator(path.[1])) {
             let mut index = usize.{2};
-                        while (index < len and !is_path_separator(path.[index])) {                index += usize.{1};
+            while (
+                index < len and
+                !is_path_separator(path.[index])
+            ) {
+                index += usize.{1};
             }
             if (index >= len) {
                 return usize.{2};
             }
 
             index += usize.{1};
-                        while (index < len and !is_path_separator(path.[index])) {                index += usize.{1};
+            while (
+                index < len and
+                !is_path_separator(path.[index])
+            ) {
+                index += usize.{1};
             }
             if (index < len and is_path_separator(path.[index])) {
                 return index + usize.{1};
@@ -111,7 +119,11 @@ pub/ fn trim_trailing_separators(path: &[u8]) &[u8] {
 }
 
 /// Builds `base/name` using the preferred separator for `base`.
-pub/ fn build_child_path(alloc: &mut Allocator, base: &[u8], name: &[u8]) String!Error {
+pub/ fn build_child_path(
+    alloc: &mut Allocator,
+    base: &[u8],
+    name: &[u8],
+) String!Error {
     let mut out = String.{};
     let sep = preferred_separator_byte(base);
     if (!out..&.push_str(alloc, base)) {
@@ -237,7 +249,11 @@ pub/ fn file_stem(path: &[u8]) ?&[u8] {
 ///
 /// Note:
 /// absolute `child` paths replace `base`.
-pub/ fn join(alloc: &mut Allocator, base: &[u8], child: &[u8]) String!Error {
+pub/ fn join(
+    alloc: &mut Allocator,
+    base: &[u8],
+    child: &[u8],
+) String!Error {
     if (root_prefix_len(child) > 0) {
         let mut out = String.{};
         if (!out..&.push_str(alloc, child)) {
@@ -352,7 +368,11 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
 ///
 /// Errors:
 /// returns `InvalidPath` when `name` is empty.
-pub/ fn with_file_name(alloc: &mut Allocator, path: &[u8], name: &[u8]) String!Error {
+pub/ fn with_file_name(
+    alloc: &mut Allocator,
+    path: &[u8],
+    name: &[u8],
+) String!Error {
     if (#name == 0) {
         return .{ Err: .InvalidPath };
     }
@@ -372,7 +392,11 @@ pub/ fn with_file_name(alloc: &mut Allocator, path: &[u8], name: &[u8]) String!E
 /// Returns `path` with its extension replaced by `ext`.
 ///
 /// An empty `ext` removes the extension entirely.
-pub/ fn with_extension(alloc: &mut Allocator, path: &[u8], ext: &[u8]) String!Error {
+pub/ fn with_extension(
+    alloc: &mut Allocator,
+    path: &[u8],
+    ext: &[u8],
+) String!Error {
     let stem = file_stem(path).ok_or(.InvalidPath).!;
 
     let mut new_name = String.{};

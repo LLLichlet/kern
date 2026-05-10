@@ -298,8 +298,9 @@ fn clone_number_text(alloc: &mut Allocator, raw: &[u8]) String!MaterializeError 
 }
 
 fn clone_number_text_in_arena(arena: &mut Arena, raw: &[u8]) String!MaterializeError {
+    let alloc = &mut Allocator.{ arena };
     let mut out = String.{};
-    if (!out..&.clone_from_exact_in_arena(arena, raw)) {
+    if (!out..&.clone_from_exact(alloc, raw)) {
         return .{ Err: MaterializeError.OutOfMemory };
     }
     return .{ Ok: out };
@@ -507,7 +508,7 @@ fn parse_owned_array_from_start_in_arena(
             out..&.deinit(alloc);
             return .{ Err: MaterializeError.OutOfMemory };
         };
-        if (!out.items..&.push_in_arena(arena, item_ptr)) {
+        if (!out.items..&.push(alloc, item_ptr)) {
             deinit_owned_value_contents(alloc, item_ptr);
             out.nodes..&.free_node(item_ptr);
             out..&.deinit(alloc);
@@ -718,7 +719,7 @@ fn parse_owned_object_from_start_in_arena(
             return .{ Err: MaterializeError.OutOfMemory };
         };
         let mut entry = OwnedObjectEntry.{ key: key, value: value_ptr };
-        if (!out.entries..&.push_in_arena(arena, entry)) {
+        if (!out.entries..&.push(alloc, entry)) {
             deinit_owned_object_entry_contents(alloc, entry..&);
             out.nodes..&.free_node(entry.value);
             out..&.deinit(alloc);

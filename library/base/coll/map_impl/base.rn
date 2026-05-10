@@ -52,7 +52,12 @@ pub.. fn entry_ptr[K, V](entries: &mut Entry[K, V], index: usize) &mut Entry[K, 
 ///
 /// Returns:
 /// the number of occupied entries observed, including the last delivered one.
-pub.. fn visit_full[K, V](ctrl: &u8, entries: &mut Entry[K, V], capacity: usize, visitor: &Fn(&mut Entry[K, V]) bool) usize {
+pub.. fn visit_full[K, V](
+    ctrl: &u8,
+    entries: &mut Entry[K, V],
+    capacity: usize,
+    visitor: &Fn(&mut Entry[K, V]) bool,
+) usize {
     let mut total = usize.{0};
         let mut i = usize.{0};
     while (i < capacity) {
@@ -89,7 +94,13 @@ pub.. fn keys_equal[K](lhs: K, rhs: K) bool
 ///
 /// The search stops at the first `EMPTY` slot, so deleted tombstones do not
 /// terminate probing.
-pub.. fn find_index_with_hash[K, V](ctrl: &u8, entries: &mut Entry[K, V], capacity: usize, key: K, hash: u64) ?usize
+pub.. fn find_index_with_hash[K, V](
+    ctrl: &u8,
+    entries: &mut Entry[K, V],
+    capacity: usize,
+    key: K,
+    hash: u64,
+) ?usize
     where K: Eq[K] + Hash[K],
 {
     let mask = capacity - 1;

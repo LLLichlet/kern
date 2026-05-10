@@ -8,6 +8,6 @@ mod typed;
 mod gpa;
 mod arena;
 
-pub use .allocator.Allocator;
+pub use .allocator.{Allocator, AllocError};
 pub use .gpa.{GPA, GpaBuilder, gpa};
 pub use .arena.{Arena, ArenaBuilder, ArenaMark, arena};

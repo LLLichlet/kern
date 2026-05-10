@@ -37,7 +37,11 @@ impl[K, V] &Tree[K, V]
         }
     }
 
-    fn fold_node[U](node: ?&mut Node[K, V], init: U, step: &Fn(U, K, V) U) U {
+    fn fold_node[U](
+        node: ?&mut Node[K, V],
+        init: U,
+        step: &Fn(U, K, V) U,
+    ) U {
         let .{ Some: node } = node else return init;
 
         let mut accum = init;

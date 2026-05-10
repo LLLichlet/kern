@@ -2,7 +2,7 @@
 //!
 //! `String` is a growable UTF-8-oriented byte buffer built on top of `List[u8]`.
 
-use base.mem.alloc.{Allocator, Arena};
+use base.mem.alloc.{AllocError, Allocator};
 use base.coll.List;
 
 mod query;
@@ -60,18 +60,6 @@ impl &mut String {
         return self.raw..&.append_slice_exact(alloc, text);
     }
 
-    /// Replaces the contents of the string with `text` using arena-specialized exact growth.
-    #[inline]
-    pub fn clone_from_exact_in_arena(arena: &mut Arena, text: &[u8]) bool {
-        self.clear();
-        let .{ Some: out } = self.raw..&.append_uninit_exact_in_arena(arena, #text)
-            else return false;
-        if (#text != 0) {
-            @memcpy(out.[0].& as &mut u8, text.[0].& as &u8, #text);
-        }
-        return true;
-    }
-
     /// Replaces the contents of the string with another string.
     pub fn clone_from_string(alloc: &mut Allocator, other: &String) bool {
         return self.clone_from(alloc, other.as_str());
@@ -87,6 +75,21 @@ impl &mut String {
         return self.raw..&.reserve(alloc, additional);
     }
 
+    /// Reserves space and reports whether overflow or allocation failed.
+    pub fn try_reserve(alloc: &mut Allocator, additional: usize) void!AllocError {
+        return self.raw..&.try_reserve(alloc, additional);
+    }
+
+    /// Appends one byte or returns a structured allocation error.
+    pub fn try_push_char(alloc: &mut Allocator, c: u8) void!AllocError {
+        return self.raw..&.try_push(alloc, c);
+    }
+
+    /// Appends a byte slice or returns a structured allocation error.
+    pub fn try_push_str(alloc: &mut Allocator, text: &[u8]) void!AllocError {
+        return self.raw..&.try_append_slice(alloc, text);
+    }
+
     /// Grows the string by `count` bytes and returns the appended region.
     ///
     /// Design:
@@ -95,15 +98,22 @@ impl &mut String {
         return self.raw..&.append_uninit(alloc, count);
     }
 
+    /// Grows the string and returns the appended range or an allocation error.
+    pub fn try_append_uninit(alloc: &mut Allocator, count: usize) (&mut [u8])!AllocError {
+        return self.raw..&.try_append_uninit(alloc, count);
+    }
+
     /// Grows the string by `count` bytes using exact growth when needed.
     pub fn append_uninit_exact(alloc: &mut Allocator, count: usize) ?&mut [u8] {
         return self.raw..&.append_uninit_exact(alloc, count);
     }
 
-    /// Grows the string by `count` bytes using arena-specialized exact growth.
-    #[inline]
-    pub fn append_uninit_exact_in_arena(arena: &mut Arena, count: usize) ?&mut [u8] {
-        return self.raw..&.append_uninit_exact_in_arena(arena, count);
+    /// Grows the string exactly and returns the appended range or an allocation error.
+    pub fn try_append_uninit_exact(
+        alloc: &mut Allocator,
+        count: usize,
+    ) (&mut [u8])!AllocError {
+        return self.raw..&.try_append_uninit_exact(alloc, count);
     }
 
     /// Removes and returns the final byte.

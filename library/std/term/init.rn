@@ -40,7 +40,10 @@ fn size_for_handle(handle: os.Handle) Size!Error {
     if (!os.is_terminal(handle)) {
         return .{ Err: .NotTerminal };
     }
-    return os.terminal_size(handle).map(normalized_size).map_err(wrap_os_error);
+    return os
+        .terminal_size(handle)
+        .map(normalized_size)
+        .map_err(wrap_os_error);
 }
 
 /// Returns a borrowed wrapper around standard input.

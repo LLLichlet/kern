@@ -685,6 +685,99 @@ fn completion_does_not_offer_keywords_after_member_access() {
 }
 
 #[test]
+fn completion_after_bare_dot_returns_empty() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn helper() void {}\nfn main() void {\n    .\n}\n";
+    let uri = temp_file_uri("completion_bare_dot", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, ".", 0, 1))
+        .unwrap();
+
+    assert!(items.is_empty());
+    assert_eq!(analysis.last_analysis_tier(), Some(AnalysisTier::Lexical));
+}
+
+#[test]
+fn completion_does_not_offer_language_builtins() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "trait Helpful {}\n",
+        "fn helper() void {}\n",
+        "fn main() void {\n",
+        "    hel\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_no_builtins", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "hel", 0, 3))
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"helper".to_string()));
+    assert!(!labels.contains(&"Integer".to_string()));
+    assert!(!labels.contains(&"Eq".to_string()));
+    assert!(!labels.contains(&"@sizeOf".to_string()));
+}
+
+#[test]
+fn completion_is_silent_in_comments_and_literals() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper() void {}\n",
+        "fn main() void {\n",
+        "    // hel\n",
+        "    let text = \"hel\";\n",
+        "    /* hel */\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_comments_literals", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    for (needle, occurrence, char_offset) in
+        [("// hel", 0, 5), ("\"hel\"", 0, 3), ("/* hel */", 0, 5)]
+    {
+        let items = analysis
+            .completion(
+                &uri,
+                position_of_nth(source, needle, occurrence, char_offset),
+            )
+            .unwrap();
+        assert!(
+            items.is_empty(),
+            "completion should be empty inside {needle}"
+        );
+    }
+}
+
+#[test]
 fn completion_avoids_duplicate_call_parentheses_when_already_present() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn helper() i32 { return 1; }\nfn main() i32 {\n    return hel();\n}\n";

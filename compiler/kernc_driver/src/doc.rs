@@ -113,6 +113,10 @@ pub fn lint_docs(ctx: &mut SemaContext<'_>) {
     let mut warnings = Vec::new();
 
     for def in &ctx.defs {
+        if is_language_builtin_doc_def(ctx, def) {
+            continue;
+        }
+
         match def {
             Def::Module(module) if !module.is_imported => {
                 if let Some(docs) = &module.docs {
@@ -304,6 +308,10 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
     let mut items = Vec::new();
 
     for def in &ctx.defs {
+        if is_language_builtin_doc_def(ctx, def) {
+            continue;
+        }
+
         match def {
             Def::Module(module) if !module.is_imported => {
                 push_item(
@@ -484,6 +492,51 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
 
     items.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path).then(lhs.kind.cmp(&rhs.kind)));
     items
+}
+
+fn is_language_builtin_doc_def(ctx: &SemaContext<'_>, def: &Def) -> bool {
+    match def {
+        Def::Function(function) => {
+            function.is_intrinsic
+                || function
+                    .parent
+                    .is_some_and(|parent| is_language_builtin_impl(ctx, parent))
+        }
+        Def::Trait(def) => def.is_builtin,
+        Def::AssociatedType(def) => {
+            def.parent_trait
+                .is_some_and(|parent| is_builtin_trait(ctx, parent))
+                || def
+                    .parent_impl
+                    .is_some_and(|parent| is_language_builtin_impl(ctx, parent))
+        }
+        Def::Impl(def) => is_language_builtin_impl(ctx, def.id),
+        _ => false,
+    }
+}
+
+fn is_language_builtin_impl(ctx: &SemaContext<'_>, impl_id: DefId) -> bool {
+    let Def::Impl(def) = &ctx.defs[impl_id.0 as usize] else {
+        return false;
+    };
+    let Some(trait_type) = &def.trait_type else {
+        return false;
+    };
+    let Some(kernc_sema::ty::TypeKind::TraitObject(trait_id, _, _)) = ctx
+        .node_type(trait_type.id)
+        .map(|ty| ctx.type_registry.get(ctx.type_registry.normalize(ty)))
+    else {
+        return false;
+    };
+
+    is_builtin_trait(ctx, *trait_id)
+}
+
+fn is_builtin_trait(ctx: &SemaContext<'_>, trait_id: DefId) -> bool {
+    matches!(
+        &ctx.defs[trait_id.0 as usize],
+        Def::Trait(def) if def.is_builtin
+    )
 }
 
 pub fn render_kmeta_docs_toml(items: &[KmetaDocItem]) -> String {
@@ -1041,9 +1094,9 @@ mod tests {
         DocLint, KernDocSectionKind, collect_kmeta_doc_items, lint_doc_block, normalize_doc,
     };
     use kernc_ast as ast;
-    use kernc_sema::SemaContext;
     use kernc_sema::def::{Def, DefId, FunctionDef, ImplDef, ModuleDef, StructDef, Visibility};
     use kernc_sema::scope::ScopeId;
+    use kernc_sema::{BuiltinInjector, SemaContext};
     use kernc_utils::{NodeId, Session, Span};
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -1270,6 +1323,66 @@ mod tests {
         let parse = items.iter().find(|item| item.path == "toml.parse").unwrap();
         assert_eq!(parse.kind, "function");
         assert_eq!(parse.signature.as_deref(), Some("fn parse() Result"));
+    }
+
+    #[test]
+    fn collect_kmeta_doc_items_excludes_language_builtins() {
+        let mut session = Session::new();
+        let file_id = session
+            .source_manager
+            .add_file("doc_test.rn".to_string(), String::new());
+        let mut ctx = SemaContext::new(&mut session);
+        BuiltinInjector::new(&mut ctx).inject();
+
+        let root_name = ctx.intern("root");
+        let parse_name = ctx.intern("parse");
+        let module_id = ctx.add_def(Def::Module(ModuleDef {
+            id: ctx.defs.next_id(),
+            name: root_name,
+            parent: None,
+            is_imported: false,
+            scope_id: ScopeId(0),
+            dir_path: PathBuf::new(),
+            file_id,
+            submodules: HashMap::new(),
+            items: Vec::new(),
+            imports: Vec::new(),
+            is_init: true,
+            docs: None,
+        }));
+
+        ctx.add_def(Def::Function(FunctionDef {
+            id: ctx.defs.next_id(),
+            name: parse_name,
+            name_span: Span::default(),
+            vis: Visibility::Public,
+            parent: Some(module_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: void_type(),
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: Some(doc_block("Parse a document.")),
+            attributes: Vec::new(),
+        }));
+
+        let items = collect_kmeta_doc_items(&ctx);
+        let paths = items
+            .iter()
+            .map(|item| item.path.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(paths.contains(&"root.parse"));
+        assert!(!paths.contains(&"Integer"), "{paths:?}");
+        assert!(!paths.contains(&"Eq"), "{paths:?}");
+        assert!(!paths.contains(&"@sizeOf"), "{paths:?}");
     }
 
     #[test]

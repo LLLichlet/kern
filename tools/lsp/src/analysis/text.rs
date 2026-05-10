@@ -456,6 +456,98 @@ pub(super) fn completion_is_member_access(text: &str, offset: usize) -> bool {
     text.as_bytes().get(start - 1) == Some(&b'.')
 }
 
+pub(super) fn completion_member_access_has_receiver(text: &str, offset: usize) -> bool {
+    let start = completion_prefix_start(text, offset);
+    if start == 0 || text.as_bytes().get(start - 1) != Some(&b'.') {
+        return false;
+    }
+
+    text[..start - 1]
+        .chars()
+        .rev()
+        .take_while(|ch| *ch != '\n' && *ch != '\r')
+        .find(|ch| !ch.is_whitespace())
+        .is_some()
+}
+
+pub(super) fn completion_is_in_comment_or_literal(text: &str, offset: usize) -> bool {
+    let bytes = text.as_bytes();
+    let end = offset.min(bytes.len());
+    let mut index = 0;
+    let mut in_line_comment = false;
+    let mut block_comment_depth = 0usize;
+    let mut in_string = false;
+    let mut in_char = false;
+    let mut escaped = false;
+
+    while index < end {
+        let byte = bytes[index];
+
+        if in_line_comment {
+            if byte == b'\n' {
+                in_line_comment = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if block_comment_depth > 0 {
+            if byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
+                block_comment_depth += 1;
+                index += 2;
+            } else if byte == b'*' && bytes.get(index + 1) == Some(&b'/') {
+                block_comment_depth -= 1;
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if in_char {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'\'' {
+                in_char = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if byte == b'/' && bytes.get(index + 1) == Some(&b'/') {
+            in_line_comment = true;
+            index += 2;
+        } else if byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
+            block_comment_depth = 1;
+            index += 2;
+        } else if byte == b'"' {
+            in_string = true;
+            index += 1;
+        } else if byte == b'\'' {
+            in_char = true;
+            index += 1;
+        } else {
+            index += 1;
+        }
+    }
+
+    in_line_comment || block_comment_depth > 0 || in_string || in_char
+}
+
 pub(super) fn completion_is_binding_name_context(text: &str, offset: usize) -> bool {
     let prefix_start = completion_prefix_start(text, offset);
     let mut tokenizer = Tokenizer::new(&text[..prefix_start], FileId(0));

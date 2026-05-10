@@ -174,10 +174,18 @@ impl AnalysisEngine {
         let Some(offset) = position_to_byte_offset(&file, &position) else {
             return Ok(Vec::new());
         };
+        if completion_is_in_comment_or_literal(&target_doc.text, offset) {
+            self.record_analysis_tier(AnalysisTier::Lexical);
+            return Ok(Vec::new());
+        }
         let prefix = completion_prefix(&target_doc.text, offset);
         let has_call_paren = has_following_call_paren(&target_doc.text, offset);
         let context = completion_context(&target_doc.text, offset);
         let member_access = completion_is_member_access(&target_doc.text, offset);
+        if member_access && !completion_member_access_has_receiver(&target_doc.text, offset) {
+            self.record_analysis_tier(AnalysisTier::Lexical);
+            return Ok(Vec::new());
+        }
         if completion_is_binding_name_context(&target_doc.text, offset) {
             self.record_analysis_tier(AnalysisTier::Lexical);
             let mut labels = keyword_completion_labels(prefix, context, member_access);

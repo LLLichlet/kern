@@ -289,6 +289,10 @@ impl CompilerDriver {
         name: kernc_utils::SymbolId,
         info: &kernc_sema::scope::SymbolInfo,
     ) -> Option<AnalysisCompletionItem> {
+        if is_language_builtin_completion_symbol(ctx, info) {
+            return None;
+        }
+
         let label = ctx.resolve(name);
         if label == "_" {
             return None;
@@ -404,6 +408,10 @@ impl CompilerDriver {
         ctx: &SemaContext<'_>,
         candidate: MemberCandidate,
     ) -> Option<AnalysisCompletionItem> {
+        if is_language_builtin_member_candidate(ctx, &candidate) {
+            return None;
+        }
+
         let detail = match candidate.kind {
             kernc_sema::scope::SymbolKind::Function => Some(ctx.ty_to_string(candidate.type_id)),
             kernc_sema::scope::SymbolKind::Var => Some(ctx.ty_to_string(candidate.type_id)),
@@ -465,6 +473,47 @@ impl CompilerDriver {
             detail,
             insert_text: candidate_completion_insert_text(ctx, &candidate),
         })
+    }
+}
+
+fn is_language_builtin_member_candidate(
+    ctx: &SemaContext<'_>,
+    candidate: &MemberCandidate,
+) -> bool {
+    let Some(def_id) = candidate.def_id else {
+        return false;
+    };
+
+    match &ctx.defs[def_id.0 as usize] {
+        kernc_sema::def::Def::Function(function) => function.is_intrinsic,
+        kernc_sema::def::Def::AssociatedType(def) => def.parent_trait.is_some_and(|trait_id| {
+            matches!(
+                &ctx.defs[trait_id.0 as usize],
+                kernc_sema::def::Def::Trait(trait_def) if trait_def.is_builtin
+            )
+        }),
+        _ => false,
+    }
+}
+
+fn is_language_builtin_completion_symbol(
+    ctx: &SemaContext<'_>,
+    info: &kernc_sema::scope::SymbolInfo,
+) -> bool {
+    let Some(def_id) = info.def_id else {
+        return false;
+    };
+
+    match &ctx.defs[def_id.0 as usize] {
+        kernc_sema::def::Def::Function(function) => function.is_intrinsic,
+        kernc_sema::def::Def::Trait(def) => def.is_builtin,
+        kernc_sema::def::Def::AssociatedType(def) => def.parent_trait.is_some_and(|trait_id| {
+            matches!(
+                &ctx.defs[trait_id.0 as usize],
+                kernc_sema::def::Def::Trait(trait_def) if trait_def.is_builtin
+            )
+        }),
+        _ => false,
     }
 }
 

@@ -106,6 +106,22 @@ direct expression shape would be clearer.
 `while (...);` is not valid Kern syntax and should not appear in repository
 code or documentation.
 
+Prefer `for` when the code is simply visiting every item from an iterable
+source:
+
+```kern
+for (byte: text.iter()) {
+    ...
+}
+```
+
+Use `while` when the loop is really driven by mutable state, sentinel parsing,
+retry behavior, or an index that advances by more than one ordinary iteration.
+That is common in scanners, parsers, terminal editors, and low-level runtime
+code. If the condition is subtle, leave a short local `//` comment that explains
+the boundary being advanced toward, not a generic note that the loop is a
+`while`.
+
 ### 3. Let contextual typing do the routine work
 
 Kern has strong source- and context-driven type inference. When the local type
@@ -398,6 +414,183 @@ normalization. Use it before review, keep higher-level layout consistent with
 nearby code, and split long method chains across lines when a postfix chain
 stops being quickly scannable.
 
+## Project Authoring Guidance
+
+Packages should make their intended Kern shape visible in the source tree, not
+only in external prose. The repository README is the package entry point; module
+and item doc comments are the API manual that users see through generated docs,
+completion, and editor hovers.
+
+Use the README for:
+
+- package identity, scope, installation, and the first working workflow
+- a compact map of public modules and concepts
+- links or pointers to examples, benchmarks, and generation steps
+
+Use `//!` and `///` comments for:
+
+- ownership, lifetime, allocation, and cleanup rules
+- handle and capability boundaries
+- examples that belong next to the API they teach
+- domain-specific invariants that callers must remember
+
+Use ordinary `//` comments for local implementation reasoning. Do not leave the
+most important usage model only in the README when the code surface can teach it
+directly.
+
+### Entry Points And Error Boundaries
+
+Examples should look like real Kern projects. A process `main()` may translate
+application failure into an exit code, stderr message, or process-specific
+policy, but the main workflow should usually live in an `app()` or `cli()` style
+function whose return type carries the useful error:
+
+```kern
+enum AppError {
+    ReadConfig: xml.ExpectError,
+    LoadDocument: xml.IndexError,
+}
+
+fn app(gpa: &mut Allocator) void!AppError {
+    read_config()
+        .map_err([](err: xml.ExpectError) AppError { return .{ ReadConfig: err }; })
+        .!;
+    load_document(gpa)
+        .map_err([](err: xml.IndexError) AppError { return .{ LoadDocument: err }; })
+        .!;
+    return .{ Ok: {} };
+}
+
+fn main() i32 {
+    let page = page()..&;
+    let gpa = gpa().on(page)..&;
+    defer gpa.deinit();
+
+    let .{ Ok: _ } = app(gpa) else return 1;
+    return 0;
+}
+```
+
+Avoid teaching core library flow as a chain of `else return 1` patterns. That is
+only the outer process boundary, and it throws away the domain error that the
+package worked to model.
+
+When an example is not fallible, do not invent an error type only to satisfy a
+template. A graphical or handle-oriented example can use `main() i32` directly
+when the public API itself has no recoverable error to propagate:
+
+```kern
+fn main() i32 {
+    let win = raylib.window.open(800, 450, "demo\0")
+        .target_fps(60);
+    defer win.close();
+
+    while (win.is_open()) {
+        win.frame()
+            .clear(raylib.RAYWHITE)
+            .text("hello\0", 20, 20, 24, raylib.DARKGRAY)
+            .end();
+    }
+
+    return 0;
+}
+```
+
+### Examples As Compile Contracts
+
+Documentation examples should be close enough to real code that they can be
+copied into a package without changing the error or ownership shape. Prefer
+full functions when propagation, allocation, or cleanup is part of the lesson.
+Short snippets are fine for local receiver methods, but they should still obey
+normal Kern rules.
+
+Do not ignore non-void return values accidentally. If a method returns the
+receiver for fluent chaining, prefer using the chain:
+
+```kern
+let win = raylib.window.open(800, 450, title)
+    .target_fps(60);
+```
+
+Use `_ = ...;` when discarding the value is the point:
+
+```kern
+_ = shader.set_value(location, value, raylib.ShaderUniformDataType.VEC4);
+```
+
+For public packages, lock important README and docstring shapes with
+compile-only tests. If an example opens a window, touches audio, or otherwise
+cannot run in headless CI, keep the calls behind an unreachable branch so the
+test still checks names, receiver types, ownership calls, and non-void
+discarding:
+
+```kern
+if (false) {
+    let audio = raylib.audio.open();
+    defer audio.close();
+
+    let sound = raylib.audio.load_sound("click.wav\0")..&;
+    defer sound.unload();
+
+    sound.set_volume(0.8).play();
+}
+```
+
+### Public API Shape
+
+A package should expose one idiomatic public route for an operation. Before a
+package has made a stability promise, remove duplicate old wrapper names instead
+of preserving them as compatibility baggage. Generated docs and completion are
+part of the API surface; duplicate helper paths make the package harder to
+learn.
+
+For wrapped C libraries or generated ABIs, keep the raw layer package-internal
+and build a Kern-facing API by hand:
+
+- generated `raw.rn` or equivalent files should not be the user-facing module
+- resource values should have receiver methods such as `texture.draw_at(...)`,
+  `image.resize(...)`, `sound.play()`, or `index.first_child_named(...)`
+- ownership and cleanup should be visible on the value that owns the resource
+- module functions should create, load, or access global capabilities; once a
+  value exists, the value should usually be the action surface
+
+Use `[craft.fmt]` and `[craft.style]` excludes for generated source trees whose
+layout is owned by a generator:
+
+```toml
+[craft.fmt]
+exclude = [
+    "src/raw.rn",
+]
+
+[craft.style]
+exclude = [
+    "src/raw.rn",
+]
+```
+
+Do not use generated-source exclusion as an excuse to hide hand-written public
+API from formatting or style review. The boundary should be clear: generated
+ABI inside, hand-authored Kern API outside.
+
+### Documentation Tone
+
+README text should read like the package itself, not like a placeholder around
+an experiment. Avoid describing a package as a "third-party package" from its
+own README; state what it provides, what Craft package name users import, and
+what lifecycle or ownership rules matter.
+
+Keep tutorial material near the API when it teaches a specific call shape. A
+README can introduce the first workflow, but doc comments should carry the
+details that users need while editing:
+
+- `//!` for module-level workflows and lifecycle rules
+- `///` for item contracts, cleanup, allocation, failure, and small examples
+- `//` for implementation notes that should not appear in public docs
+
+Use Markdown normally inside doc comments. Prefer clear prose and code fences
+over invented labels or comment conventions that tools do not understand.
+
 ## Maturity Gates
 
 Package maturity is a release policy decision, not a language rule. The current
@@ -405,7 +598,7 @@ recommended gates are:
 
 - incubator: `craft check` passes; smoke tests exist for the primary path;
   public-doc coverage is measured but not enforced
-- usable third-party package: `craft fmt --check`, `craft style`, and
+- usable public package: `craft fmt --check`, `craft style`, and
   `craft test` pass locally; public-doc coverage is moving upward and missing
   docs are triaged
 - mature public package: public-doc coverage is high enough for API review,

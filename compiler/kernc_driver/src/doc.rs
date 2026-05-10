@@ -325,6 +325,11 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                 );
             }
             Def::Function(function) if !function.is_imported => {
+                if function_receiver_impl(ctx, function)
+                    .is_some_and(|impl_def| impl_trait_is_external(ctx, impl_def))
+                {
+                    continue;
+                }
                 let is_method = function_receiver_impl(ctx, function).is_some();
                 push_item(
                     &mut items,
@@ -915,6 +920,46 @@ fn function_receiver_impl<'a>(
     Some(impl_def)
 }
 
+fn impl_trait_is_external(ctx: &SemaContext<'_>, impl_def: &ImplDef) -> bool {
+    let Some(trait_type) = &impl_def.trait_type else {
+        return false;
+    };
+    let Some(trait_def_id) = trait_def_id_for_type_node(ctx, trait_type) else {
+        return false;
+    };
+    let impl_module = impl_def.parent_module;
+    let trait_module = ctx.def_parent_module(trait_def_id);
+    match (impl_module, trait_module) {
+        (Some(impl_module), Some(trait_module)) => {
+            root_module_id(ctx, impl_module) != root_module_id(ctx, trait_module)
+        }
+        _ => false,
+    }
+}
+
+fn trait_def_id_for_type_node(ctx: &SemaContext<'_>, trait_type: &ast::TypeNode) -> Option<DefId> {
+    let ty = ctx.node_type(trait_type.id)?;
+    let kernc_sema::ty::TypeKind::TraitObject(trait_def_id, _, _) =
+        ctx.type_registry.get(ctx.type_registry.normalize(ty))
+    else {
+        return None;
+    };
+    Some(*trait_def_id)
+}
+
+fn root_module_id(ctx: &SemaContext<'_>, module_id: DefId) -> DefId {
+    let mut root = module_id;
+    let mut current = Some(module_id);
+    while let Some(id) = current {
+        let Def::Module(module) = &ctx.defs[id.0 as usize] else {
+            break;
+        };
+        root = id;
+        current = module.parent;
+    }
+    root
+}
+
 fn generic_params_label(ctx: &SemaContext<'_>, generics: &[ast::GenericParam]) -> String {
     if generics.is_empty() {
         return String::new();
@@ -1050,7 +1095,9 @@ mod tests {
         DocLint, KernDocSectionKind, collect_kmeta_doc_items, lint_doc_block, normalize_doc,
     };
     use kernc_ast as ast;
-    use kernc_sema::def::{Def, DefId, FunctionDef, ImplDef, ModuleDef, StructDef, Visibility};
+    use kernc_sema::def::{
+        Def, DefId, FunctionDef, ImplDef, ModuleDef, StructDef, TraitDef, Visibility,
+    };
     use kernc_sema::scope::ScopeId;
     use kernc_sema::{BuiltinInjector, SemaContext};
     use kernc_utils::{NodeId, Session, Span};
@@ -1224,6 +1271,121 @@ mod tests {
 
         assert!(paths.contains(&"root.Device.read"));
         assert!(paths.contains(&"root.Device as Service.read"));
+    }
+
+    #[test]
+    fn collect_kmeta_doc_items_excludes_external_trait_impl_methods() {
+        let mut session = Session::new();
+        let source = "Device Service";
+        let file_id = session
+            .source_manager
+            .add_file("doc_test.rn".to_string(), source.to_string());
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_name = ctx.intern("root");
+        let base_name = ctx.intern("base");
+        let service_name = ctx.intern("Service");
+        let read_name = ctx.intern("read");
+
+        let root_module_id = ctx.add_def(Def::Module(ModuleDef {
+            id: DefId(0),
+            name: root_name,
+            parent: None,
+            is_imported: false,
+            scope_id: ScopeId(0),
+            dir_path: PathBuf::new(),
+            file_id,
+            submodules: HashMap::new(),
+            items: Vec::new(),
+            imports: Vec::new(),
+            is_init: true,
+            docs: None,
+        }));
+        let base_module_id = ctx.add_def(Def::Module(ModuleDef {
+            id: DefId(1),
+            name: base_name,
+            parent: None,
+            is_imported: true,
+            scope_id: ScopeId(0),
+            dir_path: PathBuf::new(),
+            file_id,
+            submodules: HashMap::new(),
+            items: Vec::new(),
+            imports: Vec::new(),
+            is_init: true,
+            docs: None,
+        }));
+        let service_trait_id = ctx.add_def(Def::Trait(TraitDef {
+            id: DefId(2),
+            name: service_name,
+            vis: Visibility::Public,
+            is_imported: true,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            supertraits: Vec::new(),
+            resolved_supertraits: Vec::new(),
+            assoc_types: Vec::new(),
+            methods: Vec::new(),
+            resolved_methods: Vec::new(),
+            span: Span::default(),
+            is_builtin: false,
+            docs: None,
+        }));
+        ctx.register_def_owner(service_trait_id, Some(base_module_id), None);
+
+        let target_type = path_type(file_id, 0, 6, ctx.intern("Device"));
+        let trait_type = path_type_with_id(file_id, 7, 14, service_name, NodeId(42));
+        let trait_ty = ctx
+            .type_registry
+            .intern(kernc_sema::ty::TypeKind::TraitObject(
+                service_trait_id,
+                Vec::new(),
+                Vec::new(),
+            ));
+        ctx.set_node_type(trait_type.id, trait_ty);
+
+        let trait_impl_id = ctx.add_def(Def::Impl(ImplDef {
+            id: DefId(3),
+            parent_module: Some(root_module_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            target_type,
+            trait_type: Some(trait_type),
+            assoc_types: Vec::new(),
+            methods: Vec::new(),
+            span: Span::default(),
+        }));
+
+        ctx.add_def(Def::Function(FunctionDef {
+            id: DefId(4),
+            name: read_name,
+            name_span: Span::default(),
+            vis: Visibility::Public,
+            parent: Some(trait_impl_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: void_type(),
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: Some(doc_block("Read through an external trait implementation.")),
+            attributes: Vec::new(),
+        }));
+
+        let items = collect_kmeta_doc_items(&ctx);
+        let paths = items
+            .iter()
+            .map(|item| item.path.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(!paths.contains(&"root.Device as Service.read"), "{paths:?}");
     }
 
     #[test]
@@ -1634,8 +1796,18 @@ mod tests {
         end: usize,
         segment: kernc_utils::SymbolId,
     ) -> ast::TypeNode {
+        path_type_with_id(file_id, start, end, segment, NodeId(0))
+    }
+
+    fn path_type_with_id(
+        file_id: kernc_utils::FileId,
+        start: usize,
+        end: usize,
+        segment: kernc_utils::SymbolId,
+        id: NodeId,
+    ) -> ast::TypeNode {
         ast::TypeNode {
-            id: NodeId(0),
+            id,
             span: Span {
                 file: file_id,
                 start,

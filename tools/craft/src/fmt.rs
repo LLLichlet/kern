@@ -61,7 +61,7 @@ impl Default for FormatConfig {
             postfix_chain_threshold: 3,
             boolean_chain_threshold: 3,
             function_parameter_threshold: 3,
-            call_argument_threshold: 3,
+            call_argument_threshold: 4,
         }
     }
 }
@@ -1093,9 +1093,23 @@ mod tests {
     fn splits_call_arguments_at_threshold() {
         assert_eq!(
             format_source_text(
-                "fn main() void {\n    print_stats(\"parse\", input_label, #text, iterations, start.elapsed(), sink);\n}\n"
+                "fn main() void {\n    print_stats(\"parse\", input_label, #text, iterations);\n}\n"
             ),
-            "fn main() void {\n    print_stats(\n        \"parse\",\n        input_label,\n        #text,\n        iterations,\n        start.elapsed(),\n        sink,\n    );\n}\n"
+            "fn main() void {\n    print_stats(\n        \"parse\",\n        input_label,\n        #text,\n        iterations,\n    );\n}\n"
+        );
+    }
+
+    #[test]
+    fn splits_call_arguments_when_over_line_width() {
+        assert_eq!(
+            format_source_text_with_config(
+                "fn main() void {\n    write_all(writer, very_long_text_slice_name_that_pushes_the_call_over_the_configured_width, offset);\n}\n",
+                FormatConfig {
+                    line_width: 80,
+                    ..FormatConfig::default()
+                },
+            ),
+            "fn main() void {\n    write_all(\n        writer,\n        very_long_text_slice_name_that_pushes_the_call_over_the_configured_width,\n        offset,\n    );\n}\n"
         );
     }
 

@@ -1069,25 +1069,31 @@ fn run_style(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
         }
         if suggestion_count > 0 {
             render.section("suggestions");
+            let mut explained_rules = Vec::new();
             for summary in &summaries {
                 for suggestion in &summary.suggestions {
-                    render.action(
-                        Tone::Muted,
-                        "style",
-                        format!(
-                            "{}:{}:{}",
-                            summary.label,
-                            suggestion.path.display(),
-                            suggestion.line
-                        ),
-                        format!(
-                            "{} {}: {}",
-                            suggestion.severity.label(),
-                            suggestion.rule.code(),
-                            suggestion.message
-                        ),
+                    let subject = format!(
+                        "{}:{}:{}",
+                        summary.label,
+                        suggestion.path.display(),
+                        suggestion.line
                     );
+                    let detail = format!(
+                        "{} {}: {}",
+                        suggestion.severity.label(),
+                        suggestion.rule.code(),
+                        suggestion.message
+                    );
+                    render.action(Tone::Muted, "style", &subject, detail);
+                    if !explained_rules.contains(&suggestion.rule) {
+                        explained_rules.push(suggestion.rule);
+                    }
                 }
+            }
+            render.section("rules");
+            for rule in explained_rules {
+                render.action(Tone::Muted, "rule", rule.code(), rule.intent());
+                render.action(Tone::Muted, "fix", rule.code(), rule.handling());
             }
         }
     }

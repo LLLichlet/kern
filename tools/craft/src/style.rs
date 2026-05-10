@@ -89,6 +89,44 @@ impl StyleRule {
         }
     }
 
+    pub fn intent(self) -> &'static str {
+        match self {
+            Self::IndexWhile => "keep ordinary collection traversal in `for` or iterator form",
+            Self::LongPostfixChain => {
+                "keep expression pipelines readable by naming important intermediate values"
+            }
+            Self::RepeatedBorrowReceiver => {
+                "make stateful stack-local handles explicit instead of repeating borrow receivers"
+            }
+            Self::MissingModuleDoc => {
+                "make each source file explain its role at the module boundary"
+            }
+            Self::UndocumentedPrivateHelper => {
+                "document private helpers that encode parsing, validation, ownership, or ABI rules"
+            }
+        }
+    }
+
+    pub fn handling(self) -> &'static str {
+        match self {
+            Self::IndexWhile => {
+                "use `for`/iterators for simple index walks; keep `while` for stateful scans, non-linear movement, or extra loop conditions, with a short preceding comment when the intent is not obvious"
+            }
+            Self::LongPostfixChain => {
+                "split the chain across lines or bind an intermediate result before the next semantic step"
+            }
+            Self::RepeatedBorrowReceiver => {
+                "bind `let handle = value..&;` when several calls operate on the same stack-local value"
+            }
+            Self::MissingModuleDoc => {
+                "start the file with `//!` prose that names the module's responsibility"
+            }
+            Self::UndocumentedPrivateHelper => {
+                "add a nearby `//` comment for implementation contracts, or `///` when the helper is part of an API boundary"
+            }
+        }
+    }
+
     pub fn is_known_code(code: &str) -> bool {
         matches!(
             code,
@@ -439,9 +477,7 @@ fn collect_source_suggestions(
                 line: line_number,
                 severity: config.suggestion_severity,
                 rule: StyleRule::IndexWhile,
-                message:
-                    "consider `for` or an iterator when a loop only walks collection positions"
-                        .to_string(),
+                message: "simple index walk reads like collection traversal".to_string(),
             });
         }
         let postfix_calls = postfix_call_count_outside_string(trimmed);
@@ -740,6 +776,8 @@ pub fn undocumented() void {}
         assert!(!is_index_while_line(
             "while (index < #items and keep_going) {"
         ));
+        assert!(StyleRule::IndexWhile.intent().contains("for"));
+        assert!(StyleRule::IndexWhile.handling().contains("stateful scans"));
         assert!(missing_module_doc("fn demo() void {}\n"));
         assert!(!missing_module_doc(
             "//! Module docs.\n\nfn demo() void {}\n"
@@ -848,6 +886,10 @@ fn demo() void {
         );
         assert_eq!(suggestions.len(), 1);
         assert_eq!(suggestions[0].rule, StyleRule::IndexWhile);
+        assert_eq!(
+            suggestions[0].message,
+            "simple index walk reads like collection traversal"
+        );
 
         manifest
             .craft

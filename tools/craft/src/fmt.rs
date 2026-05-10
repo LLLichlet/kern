@@ -48,11 +48,17 @@ pub struct FormatDiagnostic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormatConfig {
     pub line_width: usize,
+    pub postfix_chain_threshold: usize,
+    pub boolean_chain_threshold: usize,
 }
 
 impl Default for FormatConfig {
     fn default() -> Self {
-        Self { line_width: 100 }
+        Self {
+            line_width: 100,
+            postfix_chain_threshold: 3,
+            boolean_chain_threshold: 3,
+        }
     }
 }
 
@@ -66,6 +72,22 @@ impl FormatConfig {
             .and_then(|fmt| fmt.line_width)
         {
             config.line_width = line_width;
+        }
+        if let Some(threshold) = manifest
+            .craft
+            .as_ref()
+            .and_then(|craft| craft.fmt.as_ref())
+            .and_then(|fmt| fmt.postfix_chain_threshold)
+        {
+            config.postfix_chain_threshold = threshold;
+        }
+        if let Some(threshold) = manifest
+            .craft
+            .as_ref()
+            .and_then(|craft| craft.fmt.as_ref())
+            .and_then(|fmt| fmt.boolean_chain_threshold)
+        {
+            config.boolean_chain_threshold = threshold;
         }
         config
     }
@@ -260,36 +282,31 @@ fn format_grouped_use(line: &str, config: FormatConfig) -> String {
 }
 
 fn format_boolean_chain(line: &str, config: FormatConfig) -> String {
-    if line_width(line) <= config.line_width {
-        return line.to_string();
-    }
     let indent_len = line.len() - line.trim_start().len();
     let indent = &line[..indent_len];
     let trimmed = line.trim_start();
-    if trimmed.contains("//") || trimmed.contains("/*") {
-        return line.to_string();
-    }
-    let Some((head, operator)) = boolean_chain_head(trimmed) else {
+    if trimmed.contains("//") || trimmed.contains("/*") || !trimmed.ends_with(';') {
         return line.to_string();
     };
-    if !trimmed.ends_with(';') {
+    let statement = trimmed[..trimmed.len() - 1].trim_end();
+    let (prefix, expression) = split_statement_prefix(statement);
+    let Some(chain) = parse_boolean_chain(expression) else {
         return line.to_string();
-    }
-    let body = trimmed[head.len()..trimmed.len() - 1].trim();
-    let parts = split_boolean_parts(body, operator);
-    if parts.len() < 3 {
+    };
+    let segment_count = chain.parts.len();
+    if segment_count < config.boolean_chain_threshold && line_width(line) <= config.line_width {
         return line.to_string();
     }
 
     let mut out = String::new();
     out.push_str(indent);
-    out.push_str(head);
-    out.push_str(parts[0]);
-    for part in parts.iter().skip(1) {
+    out.push_str(prefix);
+    out.push_str(chain.parts[0]);
+    for part in chain.parts.iter().skip(1) {
         out.push('\n');
         out.push_str(indent);
         out.push_str("    ");
-        out.push_str(operator);
+        out.push_str(chain.operator);
         out.push(' ');
         out.push_str(part);
     }
@@ -298,11 +315,7 @@ fn format_boolean_chain(line: &str, config: FormatConfig) -> String {
 }
 
 fn format_postfix_chain(line: &str, config: FormatConfig) -> String {
-    if line_width(line) <= config.line_width
-        || line.contains('\n')
-        || line.contains("//")
-        || line.contains("/*")
-    {
+    if line.contains('\n') || line.contains("//") || line.contains("/*") {
         return line.to_string();
     }
 
@@ -318,7 +331,8 @@ fn format_postfix_chain(line: &str, config: FormatConfig) -> String {
     let Some(chain) = parse_postfix_chain(expression) else {
         return line.to_string();
     };
-    if chain.segments.len() < 2 {
+    let segment_count = chain.receiver_segments + chain.segments.len();
+    if segment_count < config.postfix_chain_threshold && line_width(line) <= config.line_width {
         return line.to_string();
     }
 
@@ -336,29 +350,91 @@ fn format_postfix_chain(line: &str, config: FormatConfig) -> String {
     out
 }
 
-fn boolean_chain_head(trimmed: &str) -> Option<(&str, &str)> {
-    if trimmed.starts_with("return ") {
-        if trimmed.contains(" or ") {
-            return Some(("return ", "or"));
+struct PostfixChain<'a> {
+    receiver: &'a str,
+    segments: Vec<&'a str>,
+    receiver_segments: usize,
+}
+
+struct BooleanChain<'a> {
+    operator: &'static str,
+    parts: Vec<&'a str>,
+}
+
+fn parse_boolean_chain(input: &str) -> Option<BooleanChain<'_>> {
+    let operators = top_level_boolean_operators(input);
+    if operators.is_empty() {
+        return None;
+    }
+    let first_operator = operators[0].1;
+    if !operators
+        .iter()
+        .all(|(_, operator, _)| *operator == first_operator)
+    {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    for (index, _, len) in operators {
+        let part = input[start..index].trim();
+        if part.is_empty() {
+            return None;
         }
-        if trimmed.contains(" and ") {
-            return Some(("return ", "and"));
+        parts.push(part);
+        start = index + len;
+    }
+    let tail = input[start..].trim();
+    if tail.is_empty() {
+        return None;
+    }
+    parts.push(tail);
+
+    Some(BooleanChain {
+        operator: first_operator,
+        parts,
+    })
+}
+
+fn top_level_boolean_operators(input: &str) -> Vec<(usize, &'static str, usize)> {
+    let mut operators = Vec::new();
+    let mut scanner = Scanner::default();
+    let mut index = 0usize;
+    while index < input.len() {
+        let ch = input[index..].chars().next().expect("valid char boundary");
+        if !scanner.scan(index, ch) {
+            index += ch.len_utf8();
+            continue;
+        }
+
+        if scanner.is_top_level()
+            && let Some((operator, len)) = boolean_operator_at(input, index)
+        {
+            operators.push((index, operator, len));
+            index += len;
+            continue;
+        }
+
+        index += ch.len_utf8();
+    }
+    operators
+}
+
+fn boolean_operator_at(input: &str, index: usize) -> Option<(&'static str, usize)> {
+    for operator in ["or", "and"] {
+        let end = index + operator.len();
+        if input.get(index..end) == Some(operator) && is_word_boundary(input, index, end) {
+            return Some((operator, operator.len()));
         }
     }
     None
 }
 
-fn split_boolean_parts<'a>(body: &'a str, operator: &str) -> Vec<&'a str> {
-    let delimiter = format!(" {operator} ");
-    body.split(&delimiter)
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .collect()
-}
-
-struct PostfixChain<'a> {
-    receiver: &'a str,
-    segments: Vec<&'a str>,
+fn is_word_boundary(input: &str, start: usize, end: usize) -> bool {
+    let before = input[..start].chars().next_back();
+    let after = input[end..].chars().next();
+    !matches!(before, Some(ch) if is_ident_continue(ch))
+        && !matches!(after, Some(ch) if is_ident_continue(ch))
 }
 
 fn split_statement_prefix(statement: &str) -> (&str, &str) {
@@ -403,6 +479,7 @@ fn find_top_level_assignment(input: &str) -> Option<usize> {
 
 fn parse_postfix_chain(input: &str) -> Option<PostfixChain<'_>> {
     let mut segments = Vec::new();
+    let mut receiver_segments = 0usize;
     let mut scanner = Scanner::default();
     let mut first_segment_start = None;
     let mut index = 0usize;
@@ -411,6 +488,16 @@ fn parse_postfix_chain(input: &str) -> Option<PostfixChain<'_>> {
         let ch = input[index..].chars().next()?;
         if !scanner.scan(index, ch) {
             index += ch.len_utf8();
+            continue;
+        }
+
+        if scanner.is_top_level()
+            && input[index..].starts_with(".&.")
+            && first_segment_start.is_none()
+            && let Some(segment_end) = parse_postfix_segment(input, index, 3)
+        {
+            receiver_segments += 1;
+            index = segment_end;
             continue;
         }
 
@@ -440,11 +527,15 @@ fn parse_postfix_chain(input: &str) -> Option<PostfixChain<'_>> {
         return None;
     }
 
-    Some(PostfixChain { receiver, segments })
+    Some(PostfixChain {
+        receiver,
+        segments,
+        receiver_segments,
+    })
 }
 
 fn postfix_operator_len(input: &str) -> Option<usize> {
-    for operator in ["..&.", ".&.", "."] {
+    for operator in ["..&.", "."] {
         if input.starts_with(operator) {
             return Some(operator.len());
         }
@@ -624,11 +715,36 @@ mod tests {
     }
 
     #[test]
-    fn splits_long_postfix_chain_assignments() {
+    fn splits_boolean_chains_in_assignments() {
+        assert_eq!(
+            format_source_text(
+                "fn main(byte: u8) void {\n    let valid = byte == b':' or byte == b'_' or byte >= 0x80;\n}\n"
+            ),
+            "fn main(byte: u8) void {\n    let valid = byte == b':'\n        or byte == b'_'\n        or byte >= 0x80;\n}\n"
+        );
+    }
+
+    #[test]
+    fn leaves_short_boolean_chain_when_under_threshold() {
+        let config = FormatConfig {
+            boolean_chain_threshold: 4,
+            ..FormatConfig::default()
+        };
+        assert_eq!(
+            format_source_text_with_config(
+                "fn main(byte: u8) void {\n    let valid = byte == b':' or byte == b'_' or byte >= 0x80;\n}\n",
+                config,
+            ),
+            "fn main(byte: u8) void {\n    let valid = byte == b':' or byte == b'_' or byte >= 0x80;\n}\n"
+        );
+    }
+
+    #[test]
+    fn splits_postfix_chain_assignments_at_threshold() {
         assert_eq!(
             format_source_text_with_config(
                 "fn test(t: &mut Test) void {\n    let duplicate_decl_attr_err = duplicate_decl_attr..&.next().should_err().sum(@loc(), t);\n}\n",
-                FormatConfig { line_width: 80 },
+                FormatConfig::default(),
             ),
             "fn test(t: &mut Test) void {\n    let duplicate_decl_attr_err = duplicate_decl_attr\n        ..&.next()\n        .should_err()\n        .sum(@loc(), t);\n}\n"
         );
@@ -639,7 +755,10 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn main() void {\n    \"hello, {}!\".fmt(.{\"kern\"}).println();\n}\n",
-                FormatConfig { line_width: 40 },
+                FormatConfig {
+                    line_width: 40,
+                    ..FormatConfig::default()
+                },
             ),
             "fn main() void {\n    \"hello, {}!\"\n        .fmt(.{\"kern\"})\n        .println();\n}\n"
         );
@@ -650,9 +769,34 @@ mod tests {
         assert_eq!(
             format_source_text_with_config(
                 "fn main() void {\n    value.foo().bar();\n}\n",
-                FormatConfig { line_width: 100 },
+                FormatConfig::default(),
             ),
             "fn main() void {\n    value.foo().bar();\n}\n"
+        );
+    }
+
+    #[test]
+    fn leaves_postfix_chain_when_under_configured_threshold() {
+        let config = FormatConfig {
+            postfix_chain_threshold: 4,
+            ..FormatConfig::default()
+        };
+        assert_eq!(
+            format_source_text_with_config(
+                "fn main() void {\n    value.foo().bar().baz();\n}\n",
+                config,
+            ),
+            "fn main() void {\n    value.foo().bar().baz();\n}\n"
+        );
+    }
+
+    #[test]
+    fn keeps_borrow_operator_with_receiver() {
+        assert_eq!(
+            format_source_text(
+                "fn main(t: &mut Test) void {\n    plain.&.qualified_name().should_none().sum(@loc(), t);\n}\n"
+            ),
+            "fn main(t: &mut Test) void {\n    plain.&.qualified_name()\n        .should_none()\n        .sum(@loc(), t);\n}\n"
         );
     }
 
@@ -660,7 +804,13 @@ mod tests {
     fn leaves_commented_postfix_chain_on_one_line() {
         let source = "fn main() void {\n    value_with_a_long_name.foo().bar().baz(); // keep\n}\n";
         assert_eq!(
-            format_source_text_with_config(source, FormatConfig { line_width: 40 }),
+            format_source_text_with_config(
+                source,
+                FormatConfig {
+                    line_width: 40,
+                    ..FormatConfig::default()
+                },
+            ),
             source
         );
     }
@@ -669,13 +819,19 @@ mod tests {
     fn reports_unresolved_long_lines_after_formatting() {
         let formatted = format_source_text_with_config(
             "fn main() void {\n    let very_long_name = this_expression_is_still_too_long_even_after_the_formatter_runs;\n}\n",
-            FormatConfig { line_width: 60 },
+            FormatConfig {
+                line_width: 60,
+                ..FormatConfig::default()
+            },
         );
         let diagnostics = collect_format_diagnostics(
             Path::new("."),
             Path::new("src/lib.rn"),
             &formatted,
-            FormatConfig { line_width: 60 },
+            FormatConfig {
+                line_width: 60,
+                ..FormatConfig::default()
+            },
         );
 
         assert_eq!(diagnostics.len(), 1);

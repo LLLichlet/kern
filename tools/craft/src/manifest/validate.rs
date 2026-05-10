@@ -101,6 +101,22 @@ fn validate_craft_fmt(path: &Path, fmt: &CraftFmtConfig) -> Result<()> {
             message: "[craft.fmt].line-width must be at least 40".to_string(),
         });
     }
+    if let Some(threshold) = fmt.postfix_chain_threshold {
+        validate_fmt_threshold(path, "[craft.fmt].postfix-chain-threshold", threshold)?;
+    }
+    if let Some(threshold) = fmt.boolean_chain_threshold {
+        validate_fmt_threshold(path, "[craft.fmt].boolean-chain-threshold", threshold)?;
+    }
+    Ok(())
+}
+
+fn validate_fmt_threshold(path: &Path, key: &str, threshold: usize) -> Result<()> {
+    if threshold < 2 {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!("{key} must be at least 2"),
+        });
+    }
     Ok(())
 }
 

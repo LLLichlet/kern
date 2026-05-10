@@ -178,6 +178,12 @@ fn assign_key_value(
                 .get_or_insert_with(CraftFmtConfig::default);
             match key {
                 "line-width" => fmt.line_width = Some(parse_usize(raw_value)?),
+                "postfix-chain-threshold" => {
+                    fmt.postfix_chain_threshold = Some(parse_usize(raw_value)?)
+                }
+                "boolean-chain-threshold" => {
+                    fmt.boolean_chain_threshold = Some(parse_usize(raw_value)?)
+                }
                 _ => return Err(format!("unsupported [craft.fmt] key `{key}`")),
             }
             Ok(())

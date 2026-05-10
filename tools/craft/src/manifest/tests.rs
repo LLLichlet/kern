@@ -236,6 +236,8 @@ kern = "0.7.5"
 
 [craft.fmt]
 line-width = 88
+postfix-chain-threshold = 4
+boolean-chain-threshold = 2
 "#,
         std::path::Path::new("Craft.toml"),
     )
@@ -243,6 +245,8 @@ line-width = 88
 
     let fmt = manifest.craft.as_ref().unwrap().fmt.as_ref().unwrap();
     assert_eq!(fmt.line_width, Some(88));
+    assert_eq!(fmt.postfix_chain_threshold, Some(4));
+    assert_eq!(fmt.boolean_chain_threshold, Some(2));
     manifest
         .validate(std::path::Path::new("Craft.toml"))
         .unwrap();
@@ -268,6 +272,31 @@ line-width = 20
         .validate(std::path::Path::new("Craft.toml"))
         .unwrap_err();
     assert!(err.to_string().contains("line-width must be at least 40"));
+}
+
+#[test]
+fn rejects_tiny_craft_fmt_threshold() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[craft.fmt]
+postfix-chain-threshold = 1
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let err = manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("postfix-chain-threshold must be at least 2")
+    );
 }
 
 #[test]

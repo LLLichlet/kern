@@ -79,6 +79,8 @@ pub struct CraftStyleConfig {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CraftFmtConfig {
     pub line_width: Option<usize>,
+    pub postfix_chain_threshold: Option<usize>,
+    pub boolean_chain_threshold: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

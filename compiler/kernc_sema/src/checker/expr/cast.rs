@@ -66,12 +66,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     TypeKind::TraitObject(..) | TypeKind::Slice { .. }
                 );
                 if t_is_fat {
+                    let constructor = self.fat_pointer_constructor_hint(t_norm);
                     self.ctx
                         .struct_error(
                             span,
                             "cannot cast a thin pointer to a fat pointer using `as`",
                         )
-                        .with_hint("use explicit constructor syntax: `TargetType.{ pointer }`")
+                        .with_hint(format!(
+                            "use explicit constructor syntax, for example `{}`",
+                            constructor
+                        ))
                         .emit();
                 }
             }
@@ -164,6 +168,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 )
             }
             _ => false,
+        }
+    }
+
+    fn fat_pointer_constructor_hint(&self, target_ty: TypeId) -> String {
+        let target_norm = self.ctx.type_registry.normalize(target_ty);
+        let target_str = self.ctx.ty_to_string(target_ty);
+        let (TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. }) =
+            self.ctx.type_registry.get(target_norm)
+        else {
+            return format!("{}{}", target_str, ".{ pointer }");
+        };
+
+        let elem_norm = self.ctx.type_registry.normalize(*elem);
+        match self.ctx.type_registry.get(elem_norm) {
+            TypeKind::Slice { .. } => format!("{}{}", target_str, ".{ pointer, len }"),
+            _ => format!("{}{}", target_str, ".{ pointer }"),
         }
     }
 

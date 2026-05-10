@@ -669,6 +669,55 @@ fn main() i32 {
 }
 
 #[test]
+fn thin_pointer_to_trait_object_cast_hint_uses_real_constructor_shape() {
+    let output = compile_source(
+        r#"
+trait Allocator {
+    fn alloc() usize;
+};
+
+struct Arena {};
+
+impl &mut Arena : Allocator {
+    fn alloc() usize {
+        return 0;
+    }
+}
+
+fn main() i32 {
+    let arena = Arena.{};
+    let _bad = arena..& as &mut Allocator;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot cast a thin pointer to a fat pointer using `as`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr
+            .contains("use explicit constructor syntax, for example `&mut Allocator.{ pointer }`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("TargetType.{ pointer }"),
+        "unexpected stale constructor hint:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_result_type_in_pointer_static_initializer_without_panicking() {
     let output = compile_source(
         r#"

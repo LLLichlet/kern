@@ -74,6 +74,10 @@ pub enum StyleRule {
     IndexWhile,
     LongPostfixChain,
     RepeatedBorrowReceiver,
+    LongLine,
+    LongUseList,
+    MissingModuleDoc,
+    UndocumentedPrivateHelper,
 }
 
 impl StyleRule {
@@ -82,13 +86,23 @@ impl StyleRule {
             Self::IndexWhile => "index-while",
             Self::LongPostfixChain => "long-postfix-chain",
             Self::RepeatedBorrowReceiver => "repeated-borrow-receiver",
+            Self::LongLine => "long-line",
+            Self::LongUseList => "long-use-list",
+            Self::MissingModuleDoc => "missing-module-doc",
+            Self::UndocumentedPrivateHelper => "undocumented-private-helper",
         }
     }
 
     pub fn is_known_code(code: &str) -> bool {
         matches!(
             code,
-            "index-while" | "long-postfix-chain" | "repeated-borrow-receiver"
+            "index-while"
+                | "long-postfix-chain"
+                | "repeated-borrow-receiver"
+                | "long-line"
+                | "long-use-list"
+                | "missing-module-doc"
+                | "undocumented-private-helper"
         )
     }
 }
@@ -372,11 +386,69 @@ fn collect_source_suggestions(
         return Vec::new();
     }
     let mut suggestions = Vec::new();
+    if config.rule_enabled(StyleRule::MissingModuleDoc) && missing_module_doc(source) {
+        suggestions.push(StyleSuggestion {
+            path: display_path.clone(),
+            line: first_significant_line(source).unwrap_or(1),
+            severity: config.suggestion_severity,
+            rule: StyleRule::MissingModuleDoc,
+            message: "add a module doc comment (`//!`) describing the file's role".to_string(),
+        });
+    }
+    let mut pending_doc = false;
+    let mut pending_comment = false;
     for (line_index, line) in source.lines().enumerate() {
         let line_number = line_index + 1;
         let trimmed = line.trim();
+        let is_doc_comment = trimmed.starts_with("///") || trimmed.starts_with("//!");
+        let is_plain_comment = trimmed.starts_with("//") && !is_doc_comment;
+        if is_doc_comment {
+            pending_doc = true;
+            pending_comment = true;
+            continue;
+        }
+        if is_plain_comment {
+            pending_doc = false;
+            pending_comment = true;
+            continue;
+        }
         if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("//!") {
             continue;
+        }
+        if config.rule_enabled(StyleRule::UndocumentedPrivateHelper)
+            && is_private_helper_declaration_line(trimmed)
+            && !pending_doc
+            && !pending_comment
+        {
+            suggestions.push(StyleSuggestion {
+                path: display_path.clone(),
+                line: line_number,
+                severity: config.suggestion_severity,
+                rule: StyleRule::UndocumentedPrivateHelper,
+                message: "add a short comment for non-public helper functions that encode parsing, validation, or ownership logic"
+                    .to_string(),
+            });
+        }
+        if config.rule_enabled(StyleRule::LongLine) && line.chars().count() > 100 {
+            suggestions.push(StyleSuggestion {
+                path: display_path.clone(),
+                line: line_number,
+                severity: config.suggestion_severity,
+                rule: StyleRule::LongLine,
+                message: "split long source lines so boolean clauses, imports, or call chains stay readable"
+                    .to_string(),
+            });
+        }
+        if config.rule_enabled(StyleRule::LongUseList) && is_long_use_list(trimmed) {
+            suggestions.push(StyleSuggestion {
+                path: display_path.clone(),
+                line: line_number,
+                severity: config.suggestion_severity,
+                rule: StyleRule::LongUseList,
+                message:
+                    "split large grouped imports across multiple lines or smaller use statements"
+                        .to_string(),
+            });
         }
         if config.rule_enabled(StyleRule::IndexWhile) && is_index_while_line(trimmed) {
             suggestions.push(StyleSuggestion {
@@ -412,6 +484,8 @@ fn collect_source_suggestions(
                     .to_string(),
             });
         }
+        pending_doc = false;
+        pending_comment = false;
     }
     suggestions
 }
@@ -421,6 +495,10 @@ fn known_rule_code(rule: &str) -> Option<&'static str> {
         "index-while" => Some("index-while"),
         "long-postfix-chain" => Some("long-postfix-chain"),
         "repeated-borrow-receiver" => Some("repeated-borrow-receiver"),
+        "long-line" => Some("long-line"),
+        "long-use-list" => Some("long-use-list"),
+        "missing-module-doc" => Some("missing-module-doc"),
+        "undocumented-private-helper" => Some("undocumented-private-helper"),
         _ => None,
     }
 }
@@ -458,6 +536,37 @@ fn is_simple_identifier(text: &str) -> bool {
     };
     (first == '_' || first.is_ascii_alphabetic())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn missing_module_doc(source: &str) -> bool {
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        return !trimmed.starts_with("//!");
+    }
+    false
+}
+
+fn first_significant_line(source: &str) -> Option<usize> {
+    for (index, line) in source.lines().enumerate() {
+        if !line.trim().is_empty() {
+            return Some(index + 1);
+        }
+    }
+    None
+}
+
+fn is_private_helper_declaration_line(trimmed: &str) -> bool {
+    trimmed.starts_with("fn ") && trimmed.contains('(')
+}
+
+fn is_long_use_list(trimmed: &str) -> bool {
+    trimmed.starts_with("use ")
+        && trimmed.contains('{')
+        && trimmed.contains('}')
+        && trimmed.matches(',').count() >= 5
 }
 
 fn postfix_call_count_outside_string(line: &str) -> usize {
@@ -560,7 +669,8 @@ mod tests {
     use super::{
         StyleConfig, StyleRule, StyleSummary, SuggestionSeverity, borrowed_receiver_count,
         collect_source_suggestions, count_source_metrics, find_token_outside_string,
-        is_index_while_line, is_public_declaration_line, path_matches,
+        is_index_while_line, is_long_use_list, is_private_helper_declaration_line,
+        is_public_declaration_line, missing_module_doc, path_matches,
         postfix_call_count_outside_string,
     };
     use crate::manifest::{CraftConfig, CraftStyleConfig, CraftStyleSuggestionLevel, Manifest};
@@ -632,6 +742,12 @@ pub fn undocumented() void {}
         assert!(!is_index_while_line(
             "while (index < #items and keep_going) {"
         ));
+        assert!(missing_module_doc("fn demo() void {}\n"));
+        assert!(!missing_module_doc(
+            "//! Module docs.\n\nfn demo() void {}\n"
+        ));
+        assert!(is_private_helper_declaration_line("fn parse() void {"));
+        assert!(is_long_use_list("use .xml.{A, B, C, D, E, F};"));
         assert_eq!(
             postfix_call_count_outside_string(
                 r#"value.should_ok().sum(@loc(), t).name.eq("root").should()"#
@@ -651,6 +767,9 @@ pub fn undocumented() void {}
             Path::new("/pkg"),
             Path::new("/pkg/src/main.rn"),
             r#"
+//! Test module.
+
+// Exercises source-level style suggestions.
 fn demo() void {
     while (index < #items) {
         index += 1;
@@ -662,17 +781,30 @@ fn demo() void {
             &StyleConfig::default(),
         );
 
-        assert_eq!(suggestions.len(), 3);
-        assert_eq!(suggestions[0].path, Path::new("src/main.rn"));
-        assert_eq!(suggestions[0].line, 3);
-        assert_eq!(suggestions[0].rule, StyleRule::IndexWhile);
-        assert_eq!(suggestions[1].rule, StyleRule::LongPostfixChain);
-        assert_eq!(suggestions[2].rule, StyleRule::RepeatedBorrowReceiver);
+        assert!(
+            suggestions
+                .iter()
+                .any(|suggestion| suggestion.path == Path::new("src/main.rn")
+                    && suggestion.rule == StyleRule::IndexWhile)
+        );
+        assert!(
+            suggestions
+                .iter()
+                .any(|suggestion| suggestion.rule == StyleRule::LongPostfixChain)
+        );
+        assert!(
+            suggestions
+                .iter()
+                .any(|suggestion| suggestion.rule == StyleRule::RepeatedBorrowReceiver)
+        );
     }
 
     #[test]
     fn style_config_controls_suggestions() {
         let source = r#"
+//! Test module.
+
+// Exercises source-level style suggestions.
 fn demo() void {
     while (index < #items) {
         index += 1;
@@ -746,6 +878,28 @@ fn demo() void {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn collects_documentation_and_layout_suggestions() {
+        let suggestions = collect_source_suggestions(
+            Path::new("/pkg"),
+            Path::new("/pkg/src/parser.rn"),
+            r#"
+use .xml.{Alpha, Beta, Gamma, Delta, Epsilon, Zeta};
+
+fn parse_name(text: &[u8], start: usize) usize!Error {
+    return if (start < #text and text.[start] == b'<' and text.[start + 1] == b'?' and text.[start + 2] == b'x') start + 3 else start;
+}
+"#,
+            &StyleConfig::default(),
+        );
+
+        assert_eq!(suggestions.len(), 4);
+        assert_eq!(suggestions[0].rule, StyleRule::MissingModuleDoc);
+        assert_eq!(suggestions[1].rule, StyleRule::LongUseList);
+        assert_eq!(suggestions[2].rule, StyleRule::UndocumentedPrivateHelper);
+        assert_eq!(suggestions[3].rule, StyleRule::LongLine);
     }
 
     #[test]

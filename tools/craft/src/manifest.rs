@@ -48,6 +48,7 @@ pub struct CraftConfig {
     pub release_source_policy: Option<ReleaseSourcePolicy>,
     pub allow_floating_git: Vec<String>,
     pub allow_insecure_source: Vec<String>,
+    pub fmt: Option<CraftFmtConfig>,
     pub style: Option<CraftStyleConfig>,
 }
 
@@ -73,6 +74,11 @@ pub struct CraftStyleConfig {
     pub suggestions: Option<CraftStyleSuggestionLevel>,
     pub disabled_rules: Vec<String>,
     pub exclude: Vec<String>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CraftFmtConfig {
+    pub line_width: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,6 +187,7 @@ pub(super) enum Section {
     Root,
     Package,
     Craft,
+    CraftFmt,
     CraftStyle,
     Runtime,
     Lib,

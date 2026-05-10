@@ -33,6 +33,32 @@ pub struct PackageFormatSummary {
     pub changed_paths: Vec<PathBuf>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormatConfig {
+    pub line_width: usize,
+}
+
+impl Default for FormatConfig {
+    fn default() -> Self {
+        Self { line_width: 100 }
+    }
+}
+
+impl FormatConfig {
+    fn from_manifest(manifest: &Manifest) -> Self {
+        let mut config = Self::default();
+        if let Some(line_width) = manifest
+            .craft
+            .as_ref()
+            .and_then(|craft| craft.fmt.as_ref())
+            .and_then(|fmt| fmt.line_width)
+        {
+            config.line_width = line_width;
+        }
+        config
+    }
+}
+
 pub fn format_workspace_sources(
     manifest_path: &Path,
     manifest: &Manifest,
@@ -62,11 +88,12 @@ fn format_package_sources(
         packages: 1,
         ..FormatSummary::default()
     };
+    let config = FormatConfig::from_manifest(manifest);
     let mut changed_paths = Vec::new();
 
     for path in kern_source_files(root)? {
         let source = fs::read_to_string(&path).map_err(|err| Error::from_io(&path, err))?;
-        let formatted = format_source_text(&source);
+        let formatted = format_source_text_with_config(&source, config);
         summary.files += 1;
         if formatted == source {
             continue;
@@ -121,10 +148,14 @@ fn is_skipped_dir(path: &Path) -> bool {
 }
 
 pub fn format_source_text(source: &str) -> String {
+    format_source_text_with_config(source, FormatConfig::default())
+}
+
+fn format_source_text_with_config(source: &str, config: FormatConfig) -> String {
     let mut out = String::new();
     for line in source.lines() {
         let trimmed_end = line.trim_end_matches([' ', '\t']);
-        let formatted_line = format_line(trimmed_end);
+        let formatted_line = format_line(trimmed_end, config);
         out.push_str(&formatted_line);
         out.push('\n');
     }
@@ -134,11 +165,14 @@ pub fn format_source_text(source: &str) -> String {
     out
 }
 
-fn format_line(line: &str) -> String {
-    format_boolean_chain(&format_grouped_use(line))
+fn format_line(line: &str, config: FormatConfig) -> String {
+    format_postfix_chain(
+        &format_boolean_chain(&format_grouped_use(line, config), config),
+        config,
+    )
 }
 
-fn format_grouped_use(line: &str) -> String {
+fn format_grouped_use(line: &str, config: FormatConfig) -> String {
     let indent_len = line.len() - line.trim_start().len();
     let indent = &line[..indent_len];
     let trimmed = line.trim_start();
@@ -159,7 +193,7 @@ fn format_grouped_use(line: &str) -> String {
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .collect::<Vec<_>>();
-    if items.len() < 5 {
+    if items.len() < 5 && line_width(line) <= config.line_width {
         return line.to_string();
     }
 
@@ -180,7 +214,10 @@ fn format_grouped_use(line: &str) -> String {
     out
 }
 
-fn format_boolean_chain(line: &str) -> String {
+fn format_boolean_chain(line: &str, config: FormatConfig) -> String {
+    if line_width(line) <= config.line_width {
+        return line.to_string();
+    }
     let indent_len = line.len() - line.trim_start().len();
     let indent = &line[..indent_len];
     let trimmed = line.trim_start();
@@ -215,6 +252,45 @@ fn format_boolean_chain(line: &str) -> String {
     out
 }
 
+fn format_postfix_chain(line: &str, config: FormatConfig) -> String {
+    if line_width(line) <= config.line_width
+        || line.contains('\n')
+        || line.contains("//")
+        || line.contains("/*")
+    {
+        return line.to_string();
+    }
+
+    let indent_len = line.len() - line.trim_start().len();
+    let indent = &line[..indent_len];
+    let trimmed = line.trim_start();
+    if !trimmed.ends_with(';') {
+        return line.to_string();
+    }
+
+    let statement = trimmed[..trimmed.len() - 1].trim_end();
+    let (prefix, expression) = split_statement_prefix(statement);
+    let Some(chain) = parse_postfix_chain(expression) else {
+        return line.to_string();
+    };
+    if chain.segments.len() < 2 {
+        return line.to_string();
+    }
+
+    let mut out = String::new();
+    out.push_str(indent);
+    out.push_str(prefix);
+    out.push_str(chain.receiver);
+    for segment in chain.segments {
+        out.push('\n');
+        out.push_str(indent);
+        out.push_str("    ");
+        out.push_str(segment);
+    }
+    out.push(';');
+    out
+}
+
 fn boolean_chain_head(trimmed: &str) -> Option<(&str, &str)> {
     if trimmed.starts_with("return ") {
         if trimmed.contains(" or ") {
@@ -235,6 +311,224 @@ fn split_boolean_parts<'a>(body: &'a str, operator: &str) -> Vec<&'a str> {
         .collect()
 }
 
+struct PostfixChain<'a> {
+    receiver: &'a str,
+    segments: Vec<&'a str>,
+}
+
+fn split_statement_prefix(statement: &str) -> (&str, &str) {
+    if let Some(expression) = statement.strip_prefix("return ") {
+        return ("return ", expression.trim_start());
+    }
+
+    if (statement.starts_with("let ") || statement.starts_with("const "))
+        && let Some(eq) = find_top_level_assignment(statement)
+    {
+        let mut expression_start = eq + 1;
+        while expression_start < statement.len()
+            && statement.as_bytes()[expression_start].is_ascii_whitespace()
+        {
+            expression_start += 1;
+        }
+        return (
+            &statement[..expression_start],
+            &statement[expression_start..],
+        );
+    }
+
+    ("", statement)
+}
+
+fn find_top_level_assignment(input: &str) -> Option<usize> {
+    let mut scanner = Scanner::default();
+    for (index, ch) in input.char_indices() {
+        if !scanner.scan(index, ch) || !scanner.is_top_level() || ch != '=' {
+            continue;
+        }
+
+        let prev = previous_byte(input, index);
+        let next = input[index + 1..].as_bytes().first().copied();
+        if matches!(prev, Some(b'=' | b'!' | b'<' | b'>' | b'-')) || next == Some(b'=') {
+            continue;
+        }
+        return Some(index);
+    }
+    None
+}
+
+fn parse_postfix_chain(input: &str) -> Option<PostfixChain<'_>> {
+    let mut segments = Vec::new();
+    let mut scanner = Scanner::default();
+    let mut first_segment_start = None;
+    let mut index = 0usize;
+
+    while index < input.len() {
+        let ch = input[index..].chars().next()?;
+        if !scanner.scan(index, ch) {
+            index += ch.len_utf8();
+            continue;
+        }
+
+        if scanner.is_top_level()
+            && let Some(operator_len) = postfix_operator_len(&input[index..])
+            && let Some(segment_end) = parse_postfix_segment(input, index, operator_len)
+        {
+            first_segment_start.get_or_insert(index);
+            segments.push(input[index..segment_end].trim());
+            index = segment_end;
+            continue;
+        }
+
+        index += ch.len_utf8();
+    }
+
+    let first_segment_start = first_segment_start?;
+    let receiver = input[..first_segment_start].trim_end();
+    if receiver.is_empty() || segments.is_empty() {
+        return None;
+    }
+
+    let tail_start = segments
+        .last()
+        .and_then(|segment| input.rfind(segment).map(|start| start + segment.len()))?;
+    if !input[tail_start..].trim().is_empty() {
+        return None;
+    }
+
+    Some(PostfixChain { receiver, segments })
+}
+
+fn postfix_operator_len(input: &str) -> Option<usize> {
+    for operator in ["..&.", ".&.", "."] {
+        if input.starts_with(operator) {
+            return Some(operator.len());
+        }
+    }
+    None
+}
+
+fn parse_postfix_segment(input: &str, operator_start: usize, operator_len: usize) -> Option<usize> {
+    let ident_start = operator_start + operator_len;
+    let ident_end = parse_ident(input, ident_start)?;
+    if input[ident_end..].as_bytes().first().copied() != Some(b'(') {
+        return None;
+    }
+    find_matching_call_end(input, ident_end)
+}
+
+fn parse_ident(input: &str, start: usize) -> Option<usize> {
+    let mut chars = input[start..].char_indices();
+    let (_, first) = chars.next()?;
+    if !is_ident_start(first) {
+        return None;
+    }
+
+    let mut end = start + first.len_utf8();
+    for (offset, ch) in chars {
+        if !is_ident_continue(ch) {
+            return Some(start + offset);
+        }
+        end = start + offset + ch.len_utf8();
+    }
+    Some(end)
+}
+
+fn find_matching_call_end(input: &str, open: usize) -> Option<usize> {
+    let mut scanner = Scanner::default();
+    for (index, ch) in input[open..].char_indices() {
+        let absolute = open + index;
+        scanner.scan(absolute, ch);
+        if absolute > open && scanner.paren_depth == 0 {
+            return Some(absolute + ch.len_utf8());
+        }
+    }
+    None
+}
+
+fn previous_byte(input: &str, index: usize) -> Option<u8> {
+    input[..index]
+        .as_bytes()
+        .iter()
+        .rev()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .copied()
+}
+
+fn is_ident_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic()
+}
+
+fn is_ident_continue(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+fn line_width(line: &str) -> usize {
+    line.chars().count()
+}
+
+#[derive(Debug, Default)]
+struct Scanner {
+    paren_depth: usize,
+    brace_depth: usize,
+    bracket_depth: usize,
+    in_string: bool,
+    in_char: bool,
+    escape: bool,
+}
+
+impl Scanner {
+    fn is_top_level(&self) -> bool {
+        self.paren_depth == 0
+            && self.brace_depth == 0
+            && self.bracket_depth == 0
+            && !self.in_string
+            && !self.in_char
+            && !self.escape
+    }
+
+    fn scan(&mut self, index: usize, ch: char) -> bool {
+        if self.escape {
+            self.escape = false;
+            return false;
+        }
+
+        if self.in_string {
+            match ch {
+                '\\' => self.escape = true,
+                '"' => self.in_string = false,
+                _ => {}
+            }
+            return false;
+        }
+
+        if self.in_char {
+            match ch {
+                '\\' => self.escape = true,
+                '\'' => self.in_char = false,
+                _ => {}
+            }
+            return false;
+        }
+
+        match ch {
+            '"' => self.in_string = true,
+            '\'' => self.in_char = true,
+            '(' => self.paren_depth += 1,
+            ')' => self.paren_depth = self.paren_depth.saturating_sub(1),
+            '{' => self.brace_depth += 1,
+            '}' => self.brace_depth = self.brace_depth.saturating_sub(1),
+            '[' => self.bracket_depth += 1,
+            ']' => self.bracket_depth = self.bracket_depth.saturating_sub(1),
+            _ => return self.is_top_level_at(index),
+        }
+        false
+    }
+
+    fn is_top_level_at(&self, _index: usize) -> bool {
+        self.is_top_level()
+    }
+}
+
 fn package_label(manifest: &Manifest) -> String {
     manifest
         .package
@@ -245,7 +539,7 @@ fn package_label(manifest: &Manifest) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_source_text;
+    use super::{FormatConfig, format_source_text, format_source_text_with_config};
 
     #[test]
     fn formats_trailing_whitespace_and_eof_newline() {
@@ -277,6 +571,48 @@ mod tests {
                 "pub/ fn is_name_start(byte: u8) bool {\n    return byte == b':' or byte == b'_' or (byte >= b'A' and byte <= b'Z') or (byte >= b'a' and byte <= b'z') or byte >= 0x80;\n}\n"
             ),
             "pub/ fn is_name_start(byte: u8) bool {\n    return byte == b':'\n        or byte == b'_'\n        or (byte >= b'A' and byte <= b'Z')\n        or (byte >= b'a' and byte <= b'z')\n        or byte >= 0x80;\n}\n"
+        );
+    }
+
+    #[test]
+    fn splits_long_postfix_chain_assignments() {
+        assert_eq!(
+            format_source_text_with_config(
+                "fn test(t: &mut Test) void {\n    let duplicate_decl_attr_err = duplicate_decl_attr..&.next().should_err().sum(@loc(), t);\n}\n",
+                FormatConfig { line_width: 80 },
+            ),
+            "fn test(t: &mut Test) void {\n    let duplicate_decl_attr_err = duplicate_decl_attr\n        ..&.next()\n        .should_err()\n        .sum(@loc(), t);\n}\n"
+        );
+    }
+
+    #[test]
+    fn splits_long_postfix_chain_expressions() {
+        assert_eq!(
+            format_source_text_with_config(
+                "fn main() void {\n    \"hello, {}!\".fmt(.{\"kern\"}).println();\n}\n",
+                FormatConfig { line_width: 40 },
+            ),
+            "fn main() void {\n    \"hello, {}!\"\n        .fmt(.{\"kern\"})\n        .println();\n}\n"
+        );
+    }
+
+    #[test]
+    fn leaves_short_postfix_chain_on_one_line() {
+        assert_eq!(
+            format_source_text_with_config(
+                "fn main() void {\n    value.foo().bar();\n}\n",
+                FormatConfig { line_width: 100 },
+            ),
+            "fn main() void {\n    value.foo().bar();\n}\n"
+        );
+    }
+
+    #[test]
+    fn leaves_commented_postfix_chain_on_one_line() {
+        let source = "fn main() void {\n    value_with_a_long_name.foo().bar().baz(); // keep\n}\n";
+        assert_eq!(
+            format_source_text_with_config(source, FormatConfig { line_width: 40 }),
+            source
         );
     }
 }

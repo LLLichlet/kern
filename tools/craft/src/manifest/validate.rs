@@ -1,6 +1,6 @@
 use super::{
-    CURRENT_KERN_VERSION, CraftStyleConfig, DependencySpec, Manifest, Package, Profile,
-    ResourceSpec, WorkspacePackage,
+    CURRENT_KERN_VERSION, CraftFmtConfig, CraftStyleConfig, DependencySpec, Manifest, Package,
+    Profile, ResourceSpec, WorkspacePackage,
 };
 use crate::error::{Error, Result};
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,6 +34,9 @@ impl Manifest {
             }
             for name in &craft.allow_insecure_source {
                 validate_source_name(path, "[craft].allow-insecure-source[]", name)?;
+            }
+            if let Some(fmt) = &craft.fmt {
+                validate_craft_fmt(path, fmt)?;
             }
             if let Some(style) = &craft.style {
                 validate_craft_style(path, style)?;
@@ -87,6 +90,18 @@ impl Manifest {
 
         Ok(())
     }
+}
+
+fn validate_craft_fmt(path: &Path, fmt: &CraftFmtConfig) -> Result<()> {
+    if let Some(line_width) = fmt.line_width
+        && line_width < 40
+    {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: "[craft.fmt].line-width must be at least 40".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_craft_style(path: &Path, style: &CraftStyleConfig) -> Result<()> {

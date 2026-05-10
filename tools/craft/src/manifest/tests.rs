@@ -226,6 +226,51 @@ exclude = ["src/generated/**"]
 }
 
 #[test]
+fn parses_craft_fmt_config() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[craft.fmt]
+line-width = 88
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let fmt = manifest.craft.as_ref().unwrap().fmt.as_ref().unwrap();
+    assert_eq!(fmt.line_width, Some(88));
+    manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap();
+}
+
+#[test]
+fn rejects_tiny_craft_fmt_line_width() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[craft.fmt]
+line-width = 20
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let err = manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap_err();
+    assert!(err.to_string().contains("line-width must be at least 40"));
+}
+
+#[test]
 fn rejects_unknown_craft_style_rule() {
     let manifest = Manifest::parse(
         r#"

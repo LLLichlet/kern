@@ -1,7 +1,7 @@
 use super::{
-    CraftConfig, CraftStyleConfig, CraftStyleSuggestionLevel, DependencySpec, DetailedDependency,
-    LibTarget, Manifest, NamedTarget, Package, Profile, Profiles, ReleaseSourcePolicy,
-    ResourceSpec, RuntimeConfig, Section, Workspace, WorkspacePackage,
+    CraftConfig, CraftFmtConfig, CraftStyleConfig, CraftStyleSuggestionLevel, DependencySpec,
+    DetailedDependency, LibTarget, Manifest, NamedTarget, Package, Profile, Profiles,
+    ReleaseSourcePolicy, ResourceSpec, RuntimeConfig, Section, Workspace, WorkspacePackage,
 };
 use crate::error::{Error, Result};
 use kernc_utils::config::{LibraryBundle, LtoMode, RuntimeEntry};
@@ -75,6 +75,11 @@ fn enter_table_section(
         "[craft]" => {
             manifest.craft.get_or_insert_with(CraftConfig::default);
             Ok(Section::Craft)
+        }
+        "[craft.fmt]" => {
+            let craft = manifest.craft.get_or_insert_with(CraftConfig::default);
+            craft.fmt.get_or_insert_with(CraftFmtConfig::default);
+            Ok(Section::CraftFmt)
         }
         "[craft.style]" => {
             let craft = manifest.craft.get_or_insert_with(CraftConfig::default);
@@ -162,6 +167,18 @@ fn assign_key_value(
                     craft.allow_insecure_source = parse_string_array(raw_value)?
                 }
                 _ => return Err(format!("unsupported [craft] key `{key}`")),
+            }
+            Ok(())
+        }
+        Section::CraftFmt => {
+            let fmt = manifest
+                .craft
+                .get_or_insert_with(CraftConfig::default)
+                .fmt
+                .get_or_insert_with(CraftFmtConfig::default);
+            match key {
+                "line-width" => fmt.line_width = Some(parse_usize(raw_value)?),
+                _ => return Err(format!("unsupported [craft.fmt] key `{key}`")),
             }
             Ok(())
         }

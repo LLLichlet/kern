@@ -23,6 +23,7 @@ impl FormatSummary {
         self.packages += other.packages;
         self.files += other.files;
         self.changed_files += other.changed_files;
+        self.diagnostics += other.diagnostics;
     }
 }
 

@@ -391,6 +391,7 @@ fn collect_source_suggestions(
     }
     let mut pending_doc = false;
     let mut pending_comment = false;
+    let mut scope_depth = 0usize;
     for (line_index, line) in source.lines().enumerate() {
         let line_number = line_index + 1;
         let trimmed = line.trim();
@@ -409,8 +410,10 @@ fn collect_source_suggestions(
         if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("//!") {
             continue;
         }
+        let in_trait_body = scope_depth > 0 && trimmed.ends_with(';');
         if config.rule_enabled(StyleRule::UndocumentedPrivateHelper)
             && is_private_helper_declaration_line(trimmed)
+            && !in_trait_body
             && !pending_doc
             && !pending_comment
         {
@@ -423,7 +426,10 @@ fn collect_source_suggestions(
                     .to_string(),
             });
         }
-        if config.rule_enabled(StyleRule::IndexWhile) && is_index_while_line(trimmed) {
+        if config.rule_enabled(StyleRule::IndexWhile)
+            && is_index_while_line(trimmed)
+            && !pending_comment
+        {
             suggestions.push(StyleSuggestion {
                 path: display_path.clone(),
                 line: line_number,
@@ -459,6 +465,7 @@ fn collect_source_suggestions(
         }
         pending_doc = false;
         pending_comment = false;
+        scope_depth = update_scope_depth(scope_depth, line);
     }
     suggestions
 }
@@ -531,6 +538,30 @@ fn first_significant_line(source: &str) -> Option<usize> {
 
 fn is_private_helper_declaration_line(trimmed: &str) -> bool {
     trimmed.starts_with("fn ") && trimmed.contains('(')
+}
+
+fn update_scope_depth(mut depth: usize, line: &str) -> usize {
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in line.as_bytes() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if *byte == b'\\' {
+                escaped = true;
+            } else if *byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match *byte {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    depth
 }
 
 fn postfix_call_count_outside_string(line: &str) -> usize {
@@ -710,6 +741,9 @@ pub fn undocumented() void {}
             "//! Module docs.\n\nfn demo() void {}\n"
         ));
         assert!(is_private_helper_declaration_line("fn parse() void {"));
+        assert!(is_private_helper_declaration_line(
+            "fn next_event() ?Event!Error;"
+        ));
         assert_eq!(
             postfix_call_count_outside_string(
                 r#"value.should_ok().sum(@loc(), t).name.eq("root").should()"#
@@ -731,10 +765,18 @@ pub fn undocumented() void {}
             r#"
 //! Test module.
 
+pub trait Stream {
+    fn next_event() ?Event!Error;
+};
+
 // Exercises source-level style suggestions.
 fn demo() void {
     while (index < #items) {
         index += 1;
+    }
+    // A stateful scan keeps byte offsets explicit.
+    while (offset < #text) {
+        offset += 1;
     }
     value.should_ok().sum(@loc(), t).name.eq("root").should();
     source..&.next(); other..&.next();
@@ -747,6 +789,14 @@ fn demo() void {
             suggestions
                 .iter()
                 .any(|suggestion| suggestion.path == Path::new("src/main.rn")
+                    && suggestion.rule == StyleRule::IndexWhile)
+        );
+        assert!(!suggestions.iter().any(|suggestion| suggestion.line == 5
+            && suggestion.rule == StyleRule::UndocumentedPrivateHelper));
+        assert!(
+            !suggestions
+                .iter()
+                .any(|suggestion| suggestion.line == 12
                     && suggestion.rule == StyleRule::IndexWhile)
         );
         assert!(

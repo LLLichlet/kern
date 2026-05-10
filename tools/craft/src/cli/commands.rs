@@ -147,11 +147,11 @@ fn run_fmt(path: Option<PathBuf>, ui: super::UiOptions, check: bool) -> Result<(
     render.summary(
         "sources",
         format!(
-            "{} package(s), {} file(s), {} changed",
-            total.packages, total.files, total.changed_files
+            "{} package(s), {} file(s), {} changed, {} diagnostic(s)",
+            total.packages, total.files, total.changed_files, total.diagnostics
         ),
     );
-    if render.is_verbose() && total.changed_files > 0 {
+    if render.is_verbose() && (total.changed_files > 0 || total.diagnostics > 0) {
         render.section("changes");
         for summary in &summaries {
             for path in &summary.changed_paths {
@@ -162,12 +162,28 @@ fn run_fmt(path: Option<PathBuf>, ui: super::UiOptions, check: bool) -> Result<(
                     path.display(),
                 );
             }
+            for diagnostic in &summary.diagnostics {
+                render.action(
+                    Tone::Muted,
+                    "diagnostic",
+                    &summary.label,
+                    format!(
+                        "{}:{} ({} > {}): {}",
+                        diagnostic.path.display(),
+                        diagnostic.line,
+                        diagnostic.width,
+                        diagnostic.limit,
+                        diagnostic.message
+                    ),
+                );
+            }
         }
     }
-    if check && total.changed_files > 0 {
+    if check && (total.changed_files > 0 || total.diagnostics > 0) {
         return Err(Error::Usage(format!(
-            "{} file(s) need formatting; run `craft fmt{}`",
+            "{} file(s) need formatting and {} diagnostic(s) remain; run `craft fmt{}` and split unresolved long lines",
             total.changed_files,
+            total.diagnostics,
             path.as_ref()
                 .map(|path| format!(" --project-path {}", path.display()))
                 .unwrap_or_default()
@@ -545,6 +561,15 @@ fn run_publish(
             ),
         });
     }
+    if format_total.diagnostics > 0 {
+        return Err(Error::Validation {
+            path: manifest_path.clone(),
+            message: format!(
+                "publish format check failed: {} unresolved format diagnostic(s); run `craft fmt --check --verbose` and split unresolved long lines",
+                format_total.diagnostics
+            ),
+        });
+    }
     let style_summaries =
         style::collect_workspace_style_metrics(&manifest_path, &manifest, &workspace_members)?;
     let mut style_total = style::StyleSummary::default();
@@ -636,8 +661,10 @@ fn run_publish(
                     "check",
                     &summary.label,
                     format!(
-                        "{} file(s), {} changed",
-                        summary.summary.files, summary.summary.changed_files
+                        "{} file(s), {} changed, {} diagnostic(s)",
+                        summary.summary.files,
+                        summary.summary.changed_files,
+                        summary.summary.diagnostics
                     ),
                 );
             }

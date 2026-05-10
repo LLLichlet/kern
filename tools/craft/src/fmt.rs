@@ -15,6 +15,7 @@ pub struct FormatSummary {
     pub packages: usize,
     pub files: usize,
     pub changed_files: usize,
+    pub diagnostics: usize,
 }
 
 impl FormatSummary {
@@ -31,6 +32,16 @@ pub struct PackageFormatSummary {
     pub root: PathBuf,
     pub summary: FormatSummary,
     pub changed_paths: Vec<PathBuf>,
+    pub diagnostics: Vec<FormatDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatDiagnostic {
+    pub path: PathBuf,
+    pub line: usize,
+    pub width: usize,
+    pub limit: usize,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,18 +101,23 @@ fn format_package_sources(
     };
     let config = FormatConfig::from_manifest(manifest);
     let mut changed_paths = Vec::new();
+    let mut diagnostics = Vec::new();
 
     for path in kern_source_files(root)? {
         let source = fs::read_to_string(&path).map_err(|err| Error::from_io(&path, err))?;
         let formatted = format_source_text_with_config(&source, config);
         summary.files += 1;
-        if formatted == source {
-            continue;
+        if formatted != source {
+            summary.changed_files += 1;
+            changed_paths.push(path.strip_prefix(root).unwrap_or(&path).to_path_buf());
+            if mode == FormatMode::Write {
+                fs::write(&path, &formatted).map_err(|err| Error::from_io(&path, err))?;
+            }
         }
-        summary.changed_files += 1;
-        changed_paths.push(path.strip_prefix(root).unwrap_or(&path).to_path_buf());
-        if mode == FormatMode::Write {
-            fs::write(&path, formatted).map_err(|err| Error::from_io(&path, err))?;
+
+        for diagnostic in collect_format_diagnostics(root, &path, &formatted, config) {
+            diagnostics.push(diagnostic);
+            summary.diagnostics += 1;
         }
     }
 
@@ -110,6 +126,7 @@ fn format_package_sources(
         root: root.to_path_buf(),
         summary,
         changed_paths,
+        diagnostics,
     })
 }
 
@@ -147,11 +164,38 @@ fn is_skipped_dir(path: &Path) -> bool {
     )
 }
 
+fn collect_format_diagnostics(
+    root: &Path,
+    path: &Path,
+    source: &str,
+    config: FormatConfig,
+) -> Vec<FormatDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for (line_index, line) in source.lines().enumerate() {
+        let width = line_width(line);
+        if width <= config.line_width {
+            continue;
+        }
+        diagnostics.push(FormatDiagnostic {
+            path: path.strip_prefix(root).unwrap_or(path).to_path_buf(),
+            line: line_index + 1,
+            width,
+            limit: config.line_width,
+            message: "line exceeds [craft.fmt].line-width and craft fmt could not split it automatically; split the expression or raise [craft.fmt].line-width".to_string(),
+        });
+    }
+    diagnostics
+}
+
 pub fn format_source_text(source: &str) -> String {
     format_source_text_with_config(source, FormatConfig::default())
 }
 
 fn format_source_text_with_config(source: &str, config: FormatConfig) -> String {
+    format_source_text_with_config_inner(source, config)
+}
+
+fn format_source_text_with_config_inner(source: &str, config: FormatConfig) -> String {
     let mut out = String::new();
     for line in source.lines() {
         let trimmed_end = line.trim_end_matches([' ', '\t']);
@@ -539,7 +583,11 @@ fn package_label(manifest: &Manifest) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{FormatConfig, format_source_text, format_source_text_with_config};
+    use super::{
+        FormatConfig, collect_format_diagnostics, format_source_text,
+        format_source_text_with_config,
+    };
+    use std::path::Path;
 
     #[test]
     fn formats_trailing_whitespace_and_eof_newline() {
@@ -614,5 +662,24 @@ mod tests {
             format_source_text_with_config(source, FormatConfig { line_width: 40 }),
             source
         );
+    }
+
+    #[test]
+    fn reports_unresolved_long_lines_after_formatting() {
+        let formatted = format_source_text_with_config(
+            "fn main() void {\n    let very_long_name = this_expression_is_still_too_long_even_after_the_formatter_runs;\n}\n",
+            FormatConfig { line_width: 60 },
+        );
+        let diagnostics = collect_format_diagnostics(
+            Path::new("."),
+            Path::new("src/lib.rn"),
+            &formatted,
+            FormatConfig { line_width: 60 },
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].path, Path::new("src/lib.rn"));
+        assert_eq!(diagnostics[0].line, 2);
+        assert_eq!(diagnostics[0].limit, 60);
     }
 }

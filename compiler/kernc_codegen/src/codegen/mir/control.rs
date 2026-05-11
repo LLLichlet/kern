@@ -9,6 +9,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         match &instruction.kind {
             MirInstruction::Let { place, init } => {
                 let expected_ty = self.mir_place_ty(body, place);
+                if Self::mir_rvalue_is_undef(init)
+                    && !self.mir_place_access_is_volatile(body, place)
+                {
+                    return;
+                }
                 let value = self.compile_mir_rvalue(body, init, expected_ty);
                 if self.current_block_is_terminated() {
                     return;
@@ -35,6 +40,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 };
 
                 if *op == AssignmentOperator::Assign {
+                    if Self::mir_rvalue_is_undef(value)
+                        && !self.mir_place_access_is_volatile(body, place)
+                    {
+                        return;
+                    }
                     let rhs = self.compile_mir_rvalue(body, value, Some(place_ty));
                     if self.current_block_is_terminated() {
                         return;
@@ -95,6 +105,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let _ = self.compile_mir_rvalue(body, rvalue, hint);
             }
         }
+    }
+
+    fn mir_rvalue_is_undef(rvalue: &MirRvalue) -> bool {
+        matches!(
+            rvalue,
+            MirRvalue::Use(MirOperand::Const(MirConst::Undef { .. }))
+        )
     }
 
     pub(super) fn compile_mir_memory_instruction(

@@ -318,6 +318,7 @@ The schema includes:
 - `[profile.release]`
 - `[workspace]`
 - `[workspace.package]`
+- `[workspace.exports]`
 - `[workspace.dependencies]`
 
 Example:

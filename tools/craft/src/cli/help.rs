@@ -266,7 +266,10 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
                 .entry("-- <ARGS>...", "Pass remaining arguments to the target"),
             &[
                 ("craft run", "Run the default binary target"),
-                ("craft run --example hello_world", "Run a named example target"),
+                (
+                    "craft run --example hello_world",
+                    "Run a named example target",
+                ),
                 (
                     "craft run -- --help",
                     "Pass option-like arguments to the program",

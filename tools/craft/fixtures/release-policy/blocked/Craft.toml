@@ -1,13 +1,6 @@
-[package]
-name = "blocked"
-version = "0.1.0"
-kern = "0.7.5"
-
 [workspace]
-members = []
-
-[lib]
-root = "src/lib.rn"
+name = "workspace"
+members = ["package"]
 
 [workspace.dependencies]
 default = { git = "http://example.com/registry.git", branch = "main" }

@@ -3,6 +3,7 @@ use crate::graph::SourceId;
 use crate::manifest::Manifest;
 use crate::resolver::ExternalPackageId;
 use crate::source::{FetchedSource, FetchedSourceBackend};
+use crate::workspace;
 use std::fs;
 use std::path::Path;
 
@@ -43,22 +44,31 @@ pub(crate) fn validate_git_dependency_publish_proof(
                 .to_string(),
         });
     }
-    let lockfile = crate::lockfile::Lockfile::load(&lockfile_path)?;
     let manifest_path = package_root.join("Craft.toml");
-    let manifest = Manifest::load(&manifest_path)?;
+    let root_manifest = Manifest::load(&manifest_path)?;
+    let (member_root, member_manifest_path, manifest) =
+        git_dependency_package_manifest(package_root, &manifest_path, &root_manifest, dependency)?;
     let package = manifest.package.as_ref().ok_or_else(|| Error::Validation {
-        path: manifest_path.clone(),
+        path: member_manifest_path.clone(),
         message: "git dependency manifest is missing `[package]`".to_string(),
     })?;
-    let repository =
-        package.repository.as_ref().ok_or_else(|| {
-            Error::Validation {
-        path: manifest_path.clone(),
-        message:
-            "git dependency manifest is missing `[package].repository` for publish proof validation"
-                .to_string(),
-    }
+    let repository = package
+        .repository
+        .as_ref()
+        .or_else(|| {
+            root_manifest
+                .workspace
+                .as_ref()
+                .and_then(|workspace| workspace.package.as_ref())
+                .and_then(|package| package.repository.as_ref())
+        })
+        .ok_or_else(|| Error::Validation {
+            path: member_manifest_path.clone(),
+            message:
+                "git dependency manifest is missing package repository metadata for publish proof validation"
+                    .to_string(),
         })?;
+    let lockfile = crate::lockfile::Lockfile::load(&lockfile_path)?;
     let Some(actual) = lockfile
         .publish_proofs
         .iter()
@@ -71,7 +81,7 @@ pub(crate) fn validate_git_dependency_publish_proof(
     };
     let expected = PublishProof::expected(
         actual.package_id.clone(),
-        package_root,
+        &member_root,
         &manifest,
         repository,
     )?;
@@ -84,20 +94,11 @@ pub(crate) fn validate_git_dependency_publish_proof(
         });
     }
 
-    if package.name != dependency.package_name {
-        return Err(Error::Validation {
-            path: manifest_path.clone(),
-            message: format!(
-                "git dependency requested package `{}` but publish proof describes `{}`",
-                dependency.package_name, package.name
-            ),
-        });
-    }
     if let Some(version) = dependency.version.as_deref()
         && package.version != version
     {
         return Err(Error::Validation {
-            path: manifest_path.clone(),
+            path: member_manifest_path.clone(),
             message: format!(
                 "git dependency `{}` requested version `{version}` but publish proof describes `{}`",
                 dependency.package_name, package.version
@@ -106,7 +107,7 @@ pub(crate) fn validate_git_dependency_publish_proof(
     }
     if !repository_urls_match(&actual.repository, &source.locator) {
         return Err(Error::Validation {
-            path: manifest_path,
+            path: member_manifest_path,
             message: format!(
                 "git dependency repository `{}` does not match fetched source `{}`",
                 actual.repository, source.locator
@@ -121,6 +122,30 @@ pub(crate) fn validate_git_dependency_publish_proof(
     }
 
     Ok(())
+}
+
+fn git_dependency_package_manifest(
+    package_root: &Path,
+    manifest_path: &Path,
+    root_manifest: &Manifest,
+    dependency: &ExternalPackageId,
+) -> Result<(std::path::PathBuf, std::path::PathBuf, Manifest)> {
+    if root_manifest.package.is_some() {
+        return Ok((
+            package_root.to_path_buf(),
+            manifest_path.to_path_buf(),
+            root_manifest.clone(),
+        ));
+    }
+
+    let exported =
+        workspace::exported_package(manifest_path, root_manifest, &dependency.package_name)?;
+    let member_root = exported
+        .manifest_path
+        .parent()
+        .unwrap_or(package_root)
+        .to_path_buf();
+    Ok((member_root, exported.manifest_path, exported.manifest))
 }
 
 impl PublishProof {

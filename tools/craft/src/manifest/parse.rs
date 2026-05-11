@@ -1,7 +1,8 @@
 use super::{
     CraftConfig, CraftFmtConfig, CraftStyleConfig, CraftStyleSuggestionLevel, DependencySpec,
     DetailedDependency, LibTarget, Manifest, NamedTarget, Package, Profile, Profiles,
-    ReleaseSourcePolicy, ResourceSpec, RuntimeConfig, Section, Workspace, WorkspacePackage,
+    ReleaseSourcePolicy, ResourceSpec, RuntimeConfig, Section, Workspace, WorkspaceExport,
+    WorkspacePackage,
 };
 use crate::error::{Error, Result};
 use kernc_utils::config::{LibraryBundle, LtoMode, RuntimeEntry};
@@ -114,6 +115,10 @@ fn enter_table_section(
         "[workspace]" => {
             manifest.workspace.get_or_insert_with(Workspace::default);
             Ok(Section::Workspace)
+        }
+        "[workspace.exports]" => {
+            manifest.workspace.get_or_insert_with(Workspace::default);
+            Ok(Section::WorkspaceExports)
         }
         "[workspace.package]" => {
             let workspace = manifest.workspace.get_or_insert_with(Workspace::default);
@@ -283,9 +288,18 @@ fn assign_key_value(
         Section::Workspace => {
             let workspace = manifest.workspace.get_or_insert_with(Workspace::default);
             match key {
+                "name" => workspace.name = parse_string(raw_value)?,
                 "members" => workspace.members = parse_string_array(raw_value)?,
                 _ => return Err(format!("unsupported [workspace] key `{key}`")),
             }
+            Ok(())
+        }
+        Section::WorkspaceExports => {
+            manifest
+                .workspace
+                .get_or_insert_with(Workspace::default)
+                .exports
+                .insert(key.to_string(), parse_workspace_export(raw_value)?);
             Ok(())
         }
         Section::WorkspacePackage => {
@@ -296,6 +310,7 @@ fn assign_key_value(
                 .get_or_insert_with(WorkspacePackage::default);
             match key {
                 "version" => workspace_package.version = Some(parse_string(raw_value)?),
+                "kern" => workspace_package.kern = Some(parse_string(raw_value)?),
                 "description" => workspace_package.description = Some(parse_string(raw_value)?),
                 "license" => workspace_package.license = Some(parse_string(raw_value)?),
                 "authors" => workspace_package.authors = parse_string_array(raw_value)?,
@@ -642,7 +657,7 @@ fn parse_dependency(raw: &str) -> std::result::Result<DependencySpec, String> {
             "branch" => dep.branch = Some(parse_string(value)?),
             "tag" => dep.tag = Some(parse_string(value)?),
             "workspace" => dep.workspace = Some(parse_bool(value)?),
-            "package" => dep.package = Some(parse_string(value)?),
+            "export" => dep.export = Some(parse_string(value)?),
             "optional" => dep.optional = Some(parse_bool(value)?),
             "default-features" => dep.default_features = Some(parse_bool(value)?),
             "features" => dep.features = parse_string_array(value)?,
@@ -651,6 +666,21 @@ fn parse_dependency(raw: &str) -> std::result::Result<DependencySpec, String> {
     }
 
     Ok(DependencySpec::Detailed(dep))
+}
+
+fn parse_workspace_export(raw: &str) -> std::result::Result<WorkspaceExport, String> {
+    let inner = strip_wrapping(raw.trim(), '{', '}')?;
+    let mut export = WorkspaceExport::default();
+
+    for item in split_top_level(inner, ',') {
+        let (key, value) = split_key_value(item)?;
+        match key {
+            "member" => export.member = parse_string(value)?,
+            _ => return Err(format!("unsupported workspace export key `{key}`")),
+        }
+    }
+
+    Ok(export)
 }
 
 fn parse_resource(raw: &str) -> std::result::Result<ResourceSpec, String> {

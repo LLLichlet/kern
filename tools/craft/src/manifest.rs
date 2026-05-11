@@ -136,7 +136,7 @@ pub struct DetailedDependency {
     pub branch: Option<String>,
     pub tag: Option<String>,
     pub workspace: Option<bool>,
-    pub package: Option<String>,
+    pub export: Option<String>,
     pub optional: Option<bool>,
     pub default_features: Option<bool>,
     pub features: Vec<String>,
@@ -168,14 +168,22 @@ pub struct Profile {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Workspace {
+    pub name: String,
     pub members: Vec<String>,
+    pub exports: BTreeMap<String, WorkspaceExport>,
     pub package: Option<WorkspacePackage>,
     pub dependencies: BTreeMap<String, DependencySpec>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct WorkspaceExport {
+    pub member: String,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WorkspacePackage {
     pub version: Option<String>,
+    pub kern: Option<String>,
     pub description: Option<String>,
     pub license: Option<String>,
     pub authors: Vec<String>,
@@ -207,6 +215,7 @@ pub(super) enum Section {
     ProfileDev,
     ProfileRelease,
     Workspace,
+    WorkspaceExports,
     WorkspacePackage,
     WorkspaceDependencies,
 }

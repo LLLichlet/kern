@@ -221,6 +221,7 @@ struct BuiltLibraryPackage {
 #[derive(Debug)]
 struct LoadedExternalPackage {
     workspace_root: PathBuf,
+    export_package_name: String,
     source_config: SourceConfigContext,
     action_plan: ActionPlan,
     compile_action_index: BTreeMap<ActionKey, CompileAction>,

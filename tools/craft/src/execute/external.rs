@@ -83,6 +83,19 @@ pub(super) fn load_external_package_actions(
     let manifest = Manifest::load(&manifest_path)?;
     manifest.validate(&manifest_path)?;
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
+    let export_package_name =
+        workspace::exported_package(&manifest_path, &manifest, &dep.package_name)?
+            .manifest
+            .package
+            .as_ref()
+            .map(|package| package.name.clone())
+            .ok_or_else(|| Error::Validation {
+                path: manifest_path.clone(),
+                message: format!(
+                    "workspace export `{}` does not resolve to a package",
+                    dep.package_name
+                ),
+            })?;
     let elaboration = elaborate::plan(
         &manifest_path,
         &manifest,
@@ -102,6 +115,7 @@ pub(super) fn load_external_package_actions(
 
     Ok(LoadedExternalPackage {
         workspace_root: fetched.cache_path,
+        export_package_name,
         source_config: source_config.with_child(),
         action_plan,
         compile_action_index,
@@ -133,7 +147,11 @@ pub(super) fn build_external_package(
         config.command,
         config.profile_selection,
     )?;
-    let root_library_action = root_external_library_action(dep, &loaded.local_library_actions)?;
+    let root_library_action = root_external_library_action(
+        dep,
+        &loaded.export_package_name,
+        &loaded.local_library_actions,
+    )?;
     let required_library_actions = compile_actions_for_root(
         root_library_action,
         &loaded.action_plan.compile_actions,
@@ -184,7 +202,11 @@ pub(super) fn build_external_package(
     )?;
     external_summary.absorb(compile_summary);
 
-    let root_library_action = root_external_library_action(dep, &loaded.local_library_actions)?;
+    let root_library_action = root_external_library_action(
+        dep,
+        &loaded.export_package_name,
+        &loaded.local_library_actions,
+    )?;
     let metadata_root_path = root_library_action.metadata_path.clone().ok_or_else(|| {
         Error::Execution(format!(
             "library `{}` is missing kmeta output path",
@@ -193,7 +215,7 @@ pub(super) fn build_external_package(
     })?;
     validate_package_metadata_root(
         &metadata_root_path,
-        &dep.package_name,
+        &loaded.export_package_name,
         dep.version.as_deref(),
     )?;
     let mut root_options = CompileOptions::default();
@@ -302,6 +324,7 @@ pub(super) fn ensure_external_tool_built(
     )?;
     let root_link_action = root_external_bin_action(
         dependency_id,
+        &loaded.export_package_name,
         &tool.target_name,
         &loaded.action_plan.link_actions,
     )?;
@@ -415,13 +438,14 @@ pub(super) fn ensure_external_tool_built(
 
 pub(super) fn root_external_library_action<'a>(
     dep: &ExternalPackageId,
+    package_name: &str,
     local_library_actions: &'a BTreeMap<PackageInstanceKey, CompileAction>,
 ) -> Result<&'a CompileAction> {
     local_library_actions
         .values()
         .find(|action| {
             action.domain == BuildDomain::Target
-                && action.package_id.name == dep.package_name
+                && action.package_id.name == package_name
                 && action.target_kind == crate::plan::TargetKind::Lib
                 && match &dep.version {
                     Some(version) => action.package_id.version == *version,
@@ -438,13 +462,14 @@ pub(super) fn root_external_library_action<'a>(
 
 pub(super) fn root_external_bin_action<'a>(
     dep: &ExternalPackageId,
+    package_name: &str,
     tool_name: &str,
     link_actions: &'a [LinkAction],
 ) -> Result<&'a LinkAction> {
     link_actions
         .iter()
         .find(|action| {
-            action.package_id.name == dep.package_name
+            action.package_id.name == package_name
                 && action.target_kind == crate::plan::TargetKind::Bin
                 && action.target_name.as_deref() == Some(tool_name)
                 && match &dep.version {

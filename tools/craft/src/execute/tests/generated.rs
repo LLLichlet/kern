@@ -1076,6 +1076,7 @@ fn builds_and_runs_hosted_package_with_generated_source_from_host_tool() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
     )
@@ -1093,7 +1094,7 @@ name = "app"
 root = "src/placeholder.rn"
 
 [build-dependencies]
-codegen = { path = "../tool", package = "tool" }
+codegen = { path = "../tool", export = "tool" }
 "#,
     )
     .unwrap();
@@ -1190,6 +1191,7 @@ fn host_tool_generated_source_rebuilds_when_tool_submodule_changes() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
     )
@@ -1207,7 +1209,7 @@ name = "app"
 root = "src/placeholder.rn"
 
 [build-dependencies]
-codegen = { path = "../tool", package = "tool" }
+codegen = { path = "../tool", export = "tool" }
 "#,
     )
     .unwrap();
@@ -1336,7 +1338,7 @@ fn check_builds_runnable_host_tool_for_generated_source() {
     fs::create_dir_all(tool_dir.join("src")).unwrap();
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"app\", \"tool\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"app\", \"tool\"]\n",
     )
     .unwrap();
     fs::write(
@@ -1352,7 +1354,7 @@ name = "app"
 root = "src/placeholder.rn"
 
 [build-dependencies]
-codegen = { path = "../tool", package = "tool" }
+codegen = { path = "../tool", export = "tool" }
 "#,
     )
     .unwrap();
@@ -1601,6 +1603,7 @@ fn builds_hosted_package_with_post_link_artifact_file_from_host_tool() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
     )
@@ -1618,7 +1621,7 @@ name = "app"
 root = "src/main.rn"
 
 [build-dependencies]
-tool = { path = "../tool", package = "tool" }
+tool = { path = "../tool", export = "tool" }
 "#,
     )
     .unwrap();
@@ -1724,6 +1727,7 @@ fn reruns_post_link_host_tool_when_dependent_staged_output_changes() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
     )
@@ -1741,7 +1745,7 @@ name = "app"
 root = "src/main.rn"
 
 [build-dependencies]
-tool = { path = "../tool", package = "tool" }
+tool = { path = "../tool", export = "tool" }
 "#,
     )
     .unwrap();
@@ -1857,6 +1861,7 @@ fn build_reports_staged_tool_stderr_on_failure() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
     )
@@ -1874,7 +1879,7 @@ name = "app"
 root = "src/main.rn"
 
 [build-dependencies]
-tool = { path = "../tool", package = "tool" }
+tool = { path = "../tool", export = "tool" }
 "#,
     )
     .unwrap();
@@ -1967,6 +1972,7 @@ fn build_script_relative_source_root_uses_member_package_root() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
     )

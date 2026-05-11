@@ -1,4 +1,5 @@
 [workspace]
+name = "workspace"
 members = [
     "base",
     "sys",

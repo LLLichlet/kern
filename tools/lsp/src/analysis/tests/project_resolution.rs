@@ -10,7 +10,7 @@ fn resolve_analysis_uses_workspace_package_root_and_local_aliases() {
 
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"app\", \"util\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"app\", \"util\"]\n",
     )
     .unwrap();
     fs::write(
@@ -96,7 +96,7 @@ fn resolve_analysis_uses_craft_sdk_for_package_script_roots() {
 
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"app\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"app\"]\n",
     )
     .unwrap();
     fs::write(

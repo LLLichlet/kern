@@ -171,6 +171,7 @@ mod tests {
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 
 [workspace.dependencies]
@@ -279,6 +280,7 @@ kern = "0.7.5"
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 
 [workspace.dependencies]
@@ -331,6 +333,7 @@ shared = { workspace = true }
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
         )
@@ -377,6 +380,7 @@ kern = "0.7.5"
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
         )
@@ -449,6 +453,7 @@ kern = "0.7.5"
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
         )
@@ -499,6 +504,7 @@ kern = "0.7.5"
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 
 [workspace.dependencies]
@@ -540,6 +546,7 @@ shared = { workspace = true }
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 
 [workspace.dependencies]

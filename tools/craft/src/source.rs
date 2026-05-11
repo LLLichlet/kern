@@ -104,7 +104,7 @@ pub fn fetch_external_packages(resolved: &ResolvedGraph) -> Result<Vec<FetchedPa
         let resolved_source = source_path_for_external(resolved, &package.id)?;
         let cache_path = cache_path_for_external(&cache_root, &package.id)?;
         let status = materialize_tree(&resolved_source.source_path, &cache_path)?;
-        validate_fetched_manifest(&cache_path)?;
+        validate_fetched_manifest(&cache_path, &package.id.package_name)?;
         publish_proof::validate_git_dependency_publish_proof(
             &cache_path,
             &package.id,
@@ -814,7 +814,7 @@ fn sync_dir_all(source: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-fn validate_fetched_manifest(root: &Path) -> Result<()> {
+fn validate_fetched_manifest(root: &Path, export_name: &str) -> Result<()> {
     let manifest_path = root.join("Craft.toml");
     if !manifest_path.is_file() {
         return Err(Error::Validation {
@@ -824,7 +824,11 @@ fn validate_fetched_manifest(root: &Path) -> Result<()> {
     }
 
     let manifest = Manifest::load(&manifest_path)?;
-    manifest.validate(&manifest_path)
+    manifest.validate(&manifest_path)?;
+    if manifest.workspace.is_some() {
+        let _ = crate::workspace::exported_package(&manifest_path, &manifest, export_name)?;
+    }
+    Ok(())
 }
 
 fn package_cache_segment(package_id: &PackageId) -> String {

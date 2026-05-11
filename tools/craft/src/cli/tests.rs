@@ -91,6 +91,40 @@ root = "src/main.rn"
     fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 }
 
+fn write_workspace_member_package(root: &Path, member_name: &str) -> PathBuf {
+    let member = root.join(member_name);
+    fs::create_dir_all(member.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[workspace]
+name = "workspace"
+members = ["{member_name}"]
+"#
+        ),
+    )
+    .unwrap();
+    fs::write(
+        member.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "{member_name}"
+version = "0.1.0"
+kern = "0.7.5"
+
+[[bin]]
+name = "{member_name}"
+root = "src/main.rn"
+"#
+        ),
+    )
+    .unwrap();
+    fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    member
+}
+
 fn init_publish_git_repo(root: &Path, remote: &str) {
     if !root.join(".gitignore").is_file() {
         fs::write(root.join(".gitignore"), ".craft/\n").unwrap();
@@ -313,7 +347,7 @@ fn write_workspace_with_member_test_package(root: &std::path::Path) -> PathBuf {
     fs::create_dir_all(member.join("tests")).unwrap();
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"member\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"member\"]\n",
     )
     .unwrap();
     fs::write(
@@ -1323,17 +1357,13 @@ fn summarizes_check_sources_by_backend() {
 fn summarize_source_security_respects_allowlists_and_warn_mode() {
     let manifest = Manifest::parse(
         r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.7.5"
-
 [craft]
 release-source-policy = "warn"
 allow-floating-git = ["default"]
 allow-insecure-source = ["insecure"]
 
 [workspace]
+name = "workspace"
 members = []
 
 [workspace.dependencies]
@@ -2080,7 +2110,7 @@ fn build_command_uses_workspace_root_outputs_for_member_paths() {
     fs::create_dir_all(member.join("src")).unwrap();
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"member\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"member\"]\n",
     )
     .unwrap();
     fs::write(
@@ -2120,44 +2150,9 @@ root = "src/main.rn"
 }
 
 #[test]
-fn build_command_member_path_does_not_build_workspace_root_package() {
-    let root = temp_dir("craft-cli-build-member-excludes-root-package");
-    let member = root.join("member");
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::create_dir_all(member.join("src")).unwrap();
-    fs::write(
-        root.join("Craft.toml"),
-        r#"
-[package]
-name = "rootpkg"
-version = "0.1.0"
-kern = "0.7.5"
-
-[[bin]]
-name = "rootpkg"
-root = "src/main.rn"
-
-[workspace]
-members = ["member"]
-"#,
-    )
-    .unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
-    fs::write(
-        member.join("Craft.toml"),
-        r#"
-[package]
-name = "member"
-version = "0.1.0"
-kern = "0.7.5"
-
-[[bin]]
-name = "member"
-root = "src/main.rn"
-"#,
-    )
-    .unwrap();
-    fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+fn build_command_member_path_uses_workspace_lock_and_output_root() {
+    let root = temp_dir("craft-cli-build-member-workspace-root");
+    let member = write_workspace_member_package(&root, "member");
 
     run_command(Command::Build {
         path: Some(member.clone()),
@@ -2172,12 +2167,8 @@ root = "src/main.rn"
             .join(format!("member{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
-    assert!(
-        !root
-            .join(".craft/build/dev/target/out/rootpkg-0.1.0/bin")
-            .join(format!("rootpkg{}", std::env::consts::EXE_SUFFIX))
-            .exists()
-    );
+    assert!(root.join("Craft.lock").is_file());
+    assert!(!member.join("Craft.lock").exists());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -2369,7 +2360,7 @@ fn member_build_recreates_deleted_workspace_lockfile() {
     fs::create_dir_all(member.join("src")).unwrap();
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"member\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"member\"]\n",
     )
     .unwrap();
     fs::write(
@@ -2724,6 +2715,7 @@ fn publish_accepts_workspace_package_metadata_for_members() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["member"]
 
 [workspace.package]

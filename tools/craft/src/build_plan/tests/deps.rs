@@ -14,6 +14,7 @@ fn carries_local_and_external_dependencies_into_build_units() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )
@@ -129,6 +130,7 @@ fn isolates_build_dependencies_from_target_units() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )
@@ -150,7 +152,7 @@ util = { path = "../util" }
 log = { path = "../vendor/log", version = "1" }
 
 [build-dependencies]
-util_build = { path = "../util", package = "util" }
+util_build = { path = "../util", export = "util" }
 cc = { path = "../vendor/cc", version = "1" }
 "#,
     )
@@ -265,6 +267,7 @@ fn build_dependencies_create_host_tool_instances() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
     )
@@ -282,7 +285,7 @@ name = "app"
 root = "src/main.rn"
 
 [build-dependencies]
-codegen = { path = "../tool", package = "tool" }
+codegen = { path = "../tool", export = "tool" }
 "#,
     )
     .unwrap();
@@ -381,6 +384,7 @@ fn build_tool_lookup_supports_explicit_named_tools() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
     )
@@ -398,7 +402,7 @@ name = "app"
 root = "src/main.rn"
 
 [build-dependencies]
-tools = { path = "../tool", package = "tool" }
+tools = { path = "../tool", export = "tool" }
 "#,
     )
     .unwrap();
@@ -593,6 +597,7 @@ fn preserves_dependency_aliases_in_build_units() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )
@@ -610,7 +615,7 @@ name = "app"
 root = "src/main.rn"
 
 [dependencies]
-foo = { path = "../util", package = "util" }
+foo = { path = "../util", export = "util" }
 "#,
     )
     .unwrap();

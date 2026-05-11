@@ -1009,6 +1009,7 @@ fn build_script_resolves_relative_link_search_paths_from_member_package_root() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
     )
@@ -1241,11 +1242,12 @@ fn commit_git_package(repo: &Path, message: &str) {
 fn write_publish_artifacts(repo: &Path) {
     let manifest_path = repo.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path).unwrap();
+    let workspace_members = workspace::load_members(&manifest_path, &manifest).unwrap();
     let elaboration = plan(
         &manifest_path,
         &manifest,
-        &[],
-        false,
+        &workspace_members,
+        manifest.workspace.is_some(),
         crate::script::ScriptCommand::Check,
         &FeatureSelection::default(),
     )

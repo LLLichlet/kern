@@ -1,0 +1,7 @@
+[package]
+name = "allowed-exception"
+version = "0.1.0"
+kern = "0.7.5"
+
+[lib]
+root = "src/lib.rn"

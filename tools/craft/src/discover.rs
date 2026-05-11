@@ -226,7 +226,7 @@ mod tests {
         fs::create_dir_all(member.join("src")).unwrap();
         fs::write(
             root.join("Craft.toml"),
-            "[workspace]\nmembers = [\"member\"]\n",
+            "[workspace]\nname = \"workspace\"\nmembers = [\"member\"]\n",
         )
         .unwrap();
         fs::write(

@@ -1,11 +1,19 @@
 use crate::error::{Error, Result};
-use crate::manifest::Manifest;
+use crate::manifest::{Manifest, WorkspacePackage};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct WorkspaceMember {
+    pub manifest_path: PathBuf,
+    pub manifest: Manifest,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceExportPackage {
+    pub export_name: String,
+    pub member: String,
     pub manifest_path: PathBuf,
     pub manifest: Manifest,
 }
@@ -37,22 +45,144 @@ pub fn load_members(manifest_path: &Path, manifest: &Manifest) -> Result<Vec<Wor
             });
         }
 
-        let member_manifest = Manifest::load(&member_manifest_path)?;
-        member_manifest.validate(&member_manifest_path)?;
+        let mut member_manifest = Manifest::load(&member_manifest_path)?;
+        inherit_workspace_package_defaults(&mut member_manifest, workspace.package.as_ref());
         if member_manifest.package.is_none() {
             return Err(Error::Validation {
                 path: member_manifest_path,
                 message: "workspace members must declare `[package]`".to_string(),
             });
         }
+        member_manifest.validate(&member_manifest_path)?;
 
         members.push(WorkspaceMember {
-            manifest_path: member_dir.join("Craft.toml"),
+            manifest_path: member_manifest_path,
             manifest: member_manifest,
         });
     }
 
+    validate_exports(manifest_path, manifest, &members)?;
+
     Ok(members)
+}
+
+pub fn exported_package(
+    manifest_path: &Path,
+    manifest: &Manifest,
+    export_name: &str,
+) -> Result<WorkspaceExportPackage> {
+    if manifest.package.is_some() {
+        return Ok(WorkspaceExportPackage {
+            export_name: export_name.to_string(),
+            member: ".".to_string(),
+            manifest_path: manifest_path.to_path_buf(),
+            manifest: manifest.clone(),
+        });
+    }
+
+    let Some(workspace) = &manifest.workspace else {
+        return Err(Error::Validation {
+            path: manifest_path.to_path_buf(),
+            message: "dependency root must declare `[package]` or `[workspace]`".to_string(),
+        });
+    };
+    let Some(export) = workspace.exports.get(export_name) else {
+        return Err(Error::Validation {
+            path: manifest_path.to_path_buf(),
+            message: format!(
+                "workspace `{}` does not export `{}`{}",
+                workspace.name,
+                export_name,
+                export_list_suffix(workspace.exports.keys())
+            ),
+        });
+    };
+    let export_name = export_name.to_string();
+    let export_member = export.member.clone();
+
+    let members = load_members(manifest_path, manifest)?;
+    members
+        .into_iter()
+        .find(|member| member_path(manifest_path, &member.manifest_path) == export_member)
+        .map(|member| WorkspaceExportPackage {
+            export_name: export_name.clone(),
+            member: export_member.clone(),
+            manifest_path: member.manifest_path,
+            manifest: member.manifest,
+        })
+        .ok_or_else(|| Error::Validation {
+            path: manifest_path.to_path_buf(),
+            message: format!(
+                "[workspace.exports].{export_name}.member `{}` is not listed in `[workspace].members`",
+                export.member
+            ),
+        })
+}
+
+fn inherit_workspace_package_defaults(
+    member_manifest: &mut Manifest,
+    workspace_package: Option<&WorkspacePackage>,
+) {
+    let (Some(package), Some(defaults)) = (&mut member_manifest.package, workspace_package) else {
+        return;
+    };
+
+    if package.version.is_empty()
+        && let Some(version) = &defaults.version
+    {
+        package.version = version.clone();
+    }
+    if package.kern.is_empty()
+        && let Some(kern) = &defaults.kern
+    {
+        package.kern = kern.clone();
+    }
+}
+
+fn validate_exports(
+    manifest_path: &Path,
+    manifest: &Manifest,
+    members: &[WorkspaceMember],
+) -> Result<()> {
+    let Some(workspace) = &manifest.workspace else {
+        return Ok(());
+    };
+
+    let member_paths = members
+        .iter()
+        .map(|member| member_path(manifest_path, &member.manifest_path))
+        .collect::<BTreeSet<_>>();
+    for (name, export) in &workspace.exports {
+        if !member_paths.contains(&export.member) {
+            return Err(Error::Validation {
+                path: manifest_path.to_path_buf(),
+                message: format!(
+                    "[workspace.exports].{name}.member `{}` is not listed in `[workspace].members`",
+                    export.member
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn member_path(workspace_manifest_path: &Path, member_manifest_path: &Path) -> String {
+    let workspace_root = workspace_manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    member_manifest_path
+        .parent()
+        .and_then(|dir| dir.strip_prefix(workspace_root).ok())
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|| member_manifest_path.display().to_string())
+}
+
+fn export_list_suffix<'a>(exports: impl Iterator<Item = &'a String>) -> String {
+    let names = exports.cloned().collect::<Vec<_>>();
+    if names.is_empty() {
+        return "; no exports are declared".to_string();
+    }
+    format!("; available exports: {}", names.join(", "))
 }
 
 fn expand_member_pattern(
@@ -128,6 +258,7 @@ mod tests {
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["compiler/*", "tools/demo"]
 "#,
         )
@@ -181,6 +312,7 @@ kern = "0.7.5"
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["compiler/*"]
 "#,
         )
@@ -193,6 +325,44 @@ members = ["compiler/*"]
             err.to_string()
                 .contains("workspace members must declare `[package]`")
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn members_inherit_workspace_package_defaults() {
+        let root = temp_dir("craft-workspace-defaults");
+        let member_dir = root.join("json");
+        fs::create_dir_all(&member_dir).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+name = "json-kern"
+members = ["json"]
+
+[workspace.package]
+version = "0.1.0"
+kern = "0.7.5"
+license = "MIT"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            member_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "json"
+"#,
+        )
+        .unwrap();
+
+        let root_manifest = Manifest::load(&root.join("Craft.toml")).unwrap();
+        let members = load_members(&root.join("Craft.toml"), &root_manifest).unwrap();
+        let package = members[0].manifest.package.as_ref().unwrap();
+        assert_eq!(package.version, "0.1.0");
+        assert_eq!(package.kern, "0.7.5");
 
         let _ = fs::remove_dir_all(root);
     }

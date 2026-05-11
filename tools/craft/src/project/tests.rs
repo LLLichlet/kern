@@ -56,7 +56,7 @@ fn resolves_workspace_local_library_aliases_for_analysis() {
 
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"app\", \"util\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"app\", \"util\"]\n",
     )
     .unwrap();
     fs::write(
@@ -368,7 +368,7 @@ fn prefers_exact_named_target_root_over_library_root() {
 
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"app\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"app\"]\n",
     )
     .unwrap();
     fs::write(
@@ -414,7 +414,7 @@ fn prefers_named_target_module_directory_over_library_root() {
 
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"app\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"app\"]\n",
     )
     .unwrap();
     fs::write(
@@ -471,7 +471,7 @@ fn resolves_package_craft_script_with_sdk_alias_even_when_library_exists() {
 
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"app\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"app\"]\n",
     )
     .unwrap();
     fs::write(
@@ -519,7 +519,7 @@ fn resolves_workspace_craft_script_with_sdk_alias() {
 
     fs::write(
         root.join("Craft.toml"),
-        "[workspace]\nmembers = [\"app\"]\n",
+        "[workspace]\nname = \"workspace\"\nmembers = [\"app\"]\n",
     )
     .unwrap();
     fs::write(

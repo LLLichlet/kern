@@ -79,6 +79,54 @@ shared = { workspace = true, features = ["simd"] }
 }
 
 #[test]
+fn parses_workspace_namespace_exports() {
+    let manifest = Manifest::parse(
+        r#"
+[workspace]
+name = "json-kern"
+members = ["json", "json-test"]
+
+[workspace.exports]
+json = { member = "json" }
+schema = { member = "json-schema" }
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let workspace = manifest.workspace.as_ref().unwrap();
+    assert_eq!(workspace.name, "json-kern");
+    assert_eq!(workspace.exports["json"].member, "json");
+    assert_eq!(workspace.exports["schema"].member, "json-schema");
+}
+
+#[test]
+fn rejects_package_and_workspace_in_same_manifest() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[workspace]
+name = "demo"
+members = []
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let err = manifest
+        .validate(std::path::Path::new("Craft.toml"))
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("cannot declare both `[package]` and `[workspace]`")
+    );
+}
+
+#[test]
 fn parses_package_resources() {
     let manifest = Manifest::parse(
         r#"
@@ -664,6 +712,7 @@ fn rejects_workspace_package_edition_field() {
     let err = Manifest::parse(
         r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 
 [workspace.package]

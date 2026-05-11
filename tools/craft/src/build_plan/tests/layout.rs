@@ -10,6 +10,7 @@ fn derives_workspace_build_units_from_package_targets() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
     )
@@ -83,22 +84,12 @@ fn package_closure_filter_keeps_selected_member_and_local_dependencies() {
     fs::write(
         root.join("Craft.toml"),
         r#"
-[package]
-name = "rootpkg"
-version = "0.1.0"
-kern = "0.7.5"
-
-[[bin]]
-name = "rootpkg"
-root = "src/main.rn"
-
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )
     .unwrap();
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
     fs::write(
         app_dir.join("Craft.toml"),
         r#"
@@ -170,12 +161,6 @@ root = "src/lib.rn"
             .packages
             .iter()
             .any(|package| package.package_id.name == "util")
-    );
-    assert!(
-        filtered
-            .packages
-            .iter()
-            .all(|package| package.package_id.name != "rootpkg")
     );
 
     let _ = fs::remove_dir_all(root);

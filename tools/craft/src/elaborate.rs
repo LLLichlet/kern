@@ -350,6 +350,7 @@ mod tests {
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
         )
@@ -428,6 +429,7 @@ kern = "0.7.5"
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
         )
@@ -558,6 +560,7 @@ kern = "0.7.5"
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["member"]
 "#,
         )

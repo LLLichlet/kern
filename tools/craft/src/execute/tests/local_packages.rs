@@ -106,6 +106,7 @@ fn builds_and_runs_hosted_package_with_local_library_dependency() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )
@@ -219,6 +220,7 @@ fn builds_local_dependency_public_aggregate_const_without_link_symbol() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )
@@ -436,6 +438,7 @@ fn builds_and_runs_hosted_package_with_renamed_local_library_dependency() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )
@@ -453,7 +456,7 @@ name = "app"
 root = "src/main.rn"
 
 [dependencies]
-foo = { path = "../util", package = "util" }
+foo = { path = "../util", export = "util" }
 "#,
     )
     .unwrap();
@@ -590,6 +593,7 @@ fn builds_hosted_package_when_dependency_emits_generic_std_instantiations() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )

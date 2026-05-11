@@ -294,8 +294,8 @@ fn normalize_dependency_spec(
     }
     merged.workspace = None;
 
-    if let Some(package) = &overlay.package {
-        merged.package = Some(package.clone());
+    if let Some(export) = &overlay.export {
+        merged.export = Some(export.clone());
     }
     if let Some(optional) = overlay.optional {
         merged.optional = Some(optional);
@@ -325,7 +325,7 @@ fn dependency_spec_to_detailed(spec: &DependencySpec) -> DetailedDependency {
 fn requested_package_name(name: &str, spec: &DependencySpec) -> String {
     match spec {
         DependencySpec::Version(_) => name.to_string(),
-        DependencySpec::Detailed(dep) => dep.package.clone().unwrap_or_else(|| name.to_string()),
+        DependencySpec::Detailed(dep) => dep.export.clone().unwrap_or_else(|| name.to_string()),
     }
 }
 
@@ -345,7 +345,7 @@ fn dependency_target(
         }),
         DependencySpec::Detailed(dep) => {
             let package_name = dep
-                .package
+                .export
                 .clone()
                 .unwrap_or_else(|| dependency_name.to_string());
             if let Some(path_value) = &dep.path {
@@ -478,6 +478,7 @@ mod tests {
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
         )
@@ -550,6 +551,7 @@ kern = "0.7.5"
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 
 [workspace.dependencies]
@@ -615,6 +617,7 @@ shared = { workspace = true, features = ["simd"] }
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app", "shared"]
 
 [workspace.dependencies]
@@ -741,6 +744,7 @@ kern = "0.7.5"
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
         )

@@ -128,6 +128,7 @@ mod tests {
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
         )
@@ -189,6 +190,7 @@ log = { git = "https://example.com/log.git", tag = "v1" }
             root.join("Craft.toml"),
             r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
         )

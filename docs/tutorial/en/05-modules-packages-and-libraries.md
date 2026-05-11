@@ -297,7 +297,7 @@ Package dependencies live in `[dependencies]`. A local path dependency:
 
 ```toml
 [dependencies]
-mkiso = { path = "../limine-mkiso", package = "limine-mkiso" }
+mkiso = { path = "../limine-mkiso", export = "limine-mkiso" }
 ```
 
 Workspaces can reuse dependency declarations:

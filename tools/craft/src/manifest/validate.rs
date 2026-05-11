@@ -1,6 +1,6 @@
 use super::{
     CURRENT_KERN_VERSION, CraftFmtConfig, CraftStyleConfig, DependencySpec, Manifest, Package,
-    Profile, ResourceSpec, WorkspacePackage,
+    Profile, ResourceSpec, WorkspaceExport, WorkspacePackage,
 };
 use crate::error::{Error, Result};
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,6 +13,14 @@ impl Manifest {
                 path: path.to_path_buf(),
                 message: "manifest must declare at least one of `[package]` or `[workspace]`"
                     .to_string(),
+            });
+        }
+        if self.package.is_some() && self.workspace.is_some() {
+            return Err(Error::Validation {
+                path: path.to_path_buf(),
+                message:
+                    "manifest cannot declare both `[package]` and `[workspace]`; workspace roots are namespace manifests and packages must live in members"
+                        .to_string(),
             });
         }
 
@@ -79,8 +87,13 @@ impl Manifest {
         }
 
         if let Some(workspace) = &self.workspace {
+            validate_non_empty(path, "[workspace].name", &workspace.name)?;
             for member in &workspace.members {
                 validate_non_empty(path, "[workspace].members[]", member)?;
+            }
+            for (name, export) in &workspace.exports {
+                validate_non_empty(path, "[workspace.exports] key", name)?;
+                validate_workspace_export(path, name, export)?;
             }
             validate_dependencies(path, "[workspace.dependencies]", &workspace.dependencies)?;
             if let Some(package) = &workspace.package {
@@ -212,12 +225,15 @@ fn validate_dependencies(
                 }
 
                 if dep.workspace == Some(true)
-                    && (dep.version.is_some() || dep.path.is_some() || dep.git.is_some())
+                    && (dep.version.is_some()
+                        || dep.path.is_some()
+                        || dep.git.is_some()
+                        || dep.export.is_some())
                 {
                     return Err(Error::Validation {
                         path: path.to_path_buf(),
                         message: format!(
-                            "{section}.{name} cannot combine `workspace = true` with `version`, `path`, or `git`"
+                            "{section}.{name} cannot combine `workspace = true` with `version`, `path`, `git`, or `export`"
                         ),
                     });
                 }
@@ -278,8 +294,8 @@ fn validate_dependencies(
                 if let Some(tag) = &dep.tag {
                     validate_non_empty(path, &format!("{section}.{name}.tag"), tag)?;
                 }
-                if let Some(package) = &dep.package {
-                    validate_non_empty(path, &format!("{section}.{name}.package"), package)?;
+                if let Some(export) = &dep.export {
+                    validate_non_empty(path, &format!("{section}.{name}.export"), export)?;
                 }
                 let _ = dep.optional;
                 let _ = dep.default_features;
@@ -289,6 +305,15 @@ fn validate_dependencies(
             }
         }
     }
+    Ok(())
+}
+
+fn validate_workspace_export(path: &Path, name: &str, export: &WorkspaceExport) -> Result<()> {
+    validate_non_empty(
+        path,
+        &format!("[workspace.exports].{name}.member"),
+        &export.member,
+    )?;
     Ok(())
 }
 
@@ -425,6 +450,10 @@ fn validate_optional_workspace_package_metadata(
 ) -> Result<()> {
     if let Some(version) = &package.version {
         validate_non_empty(path, &format!("{section}.version"), version)?;
+    }
+    if let Some(kern) = &package.kern {
+        validate_non_empty(path, &format!("{section}.kern"), kern)?;
+        validate_kern_version(path, kern)?;
     }
     if let Some(description) = &package.description {
         validate_non_empty(path, &format!("{section}.description"), description)?;

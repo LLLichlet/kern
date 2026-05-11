@@ -1434,6 +1434,7 @@ fn build_script_can_stage_post_link_artifact_files_from_host_tools() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "tool"]
 "#,
     )
@@ -1451,7 +1452,7 @@ name = "app"
 root = "src/main.rn"
 
 [build-dependencies]
-tool = { path = "../tool", package = "tool" }
+tool = { path = "../tool", export = "tool" }
 "#,
     )
     .unwrap();
@@ -1689,6 +1690,7 @@ fn build_script_roots_use_absolute_paths_for_workspace_members() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
     )

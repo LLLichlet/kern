@@ -333,6 +333,7 @@ fn workspace_member_tests_run_from_member_package_root() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
     )
@@ -416,6 +417,7 @@ fn workspace_member_tests_receive_package_and_workspace_root_env() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app"]
 "#,
     )

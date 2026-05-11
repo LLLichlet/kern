@@ -161,6 +161,123 @@ return 1;
 }
 
 #[test]
+fn builds_package_from_git_workspace_export() {
+    let root = temp_dir("craft-exec-external-git-workspace-export");
+    let repo = root.join("json-kern.git");
+    let json_dir = repo.join("json");
+    fs::create_dir_all(json_dir.join("src")).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        repo.join("Craft.toml"),
+        format!(
+            r#"
+[workspace]
+name = "json-kern"
+members = ["json"]
+
+[workspace.package]
+version = "1"
+kern = "0.7.5"
+repository = "{}"
+
+[workspace.exports]
+json = {{ member = "json" }}
+"#,
+            toml_string_literal(&repo)
+        ),
+    )
+    .unwrap();
+    fs::write(
+        json_dir.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "json"
+version = "1"
+kern = "0.7.5"
+repository = "{}"
+
+[lib]
+root = "src/lib.rn"
+"#,
+            toml_string_literal(&repo)
+        ),
+    )
+    .unwrap();
+    fs::write(
+        json_dir.join("src/lib.rn"),
+        r#"
+pub fn answer() i32 {
+return 42;
+}
+"#,
+    )
+    .unwrap();
+    write_publish_artifacts(&repo);
+    run_git(&repo, ["init", "--initial-branch=main"]);
+    run_git(&repo, ["config", "user.name", "Craft Tests"]);
+    run_git(
+        &repo,
+        ["config", "user.email", "craft-tests@example.invalid"],
+    );
+    run_git(&repo, ["add", "."]);
+    run_git(&repo, ["commit", "-m", "initial"]);
+
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7.5"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[dependencies]
+json = {{ git = "{}", branch = "main", version = "1" }}
+"#,
+            toml_string_literal(&repo)
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+fn main() i32 {
+if (json.answer() == 42) {
+    return 0;
+}
+return 1;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let summary = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(summary.compile_actions, 2);
+    assert_eq!(summary.link_actions, 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn release_build_preserves_thinlto_bitcode_for_external_git_library() {
     let root = temp_dir("craft-exec-external-git-thinlto");
     let repo = root.join("log.git");

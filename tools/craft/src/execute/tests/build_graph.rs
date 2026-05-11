@@ -478,6 +478,7 @@ fn incremental_build_rebuilds_only_changed_workspace_actions() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )
@@ -686,6 +687,7 @@ fn parallel_target_link_jobs_skip_post_link_outputs() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["plain", "staged"]
 "#,
     )
@@ -778,6 +780,7 @@ fn parallel_target_link_jobs_exclude_thinlto_final_links() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["native", "thin"]
 "#,
     )
@@ -869,6 +872,7 @@ fn parallel_target_compile_jobs_only_include_ready_local_libraries() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["util", "extra", "app"]
 "#,
     )
@@ -1028,6 +1032,7 @@ fn parallel_target_links_wait_for_local_library_dependencies() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["util", "app_a", "app_b"]
 "#,
     )
@@ -1120,6 +1125,7 @@ fn release_build_links_against_thinlto_local_library_inputs() {
         root.join("Craft.toml"),
         r#"
 [workspace]
+name = "workspace"
 members = ["app", "util"]
 "#,
     )

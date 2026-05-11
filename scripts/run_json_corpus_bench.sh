@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
 CRAFT_BIN="${CRAFT_BIN:-${ROOT}/target/debug/craft}"
-JSON_PROJECT="${JSON_PROJECT:-${ROOT}/incubator/json}"
+JSON_PROJECT="${JSON_PROJECT:-${ROOT}/../json-kern}"
 PROFILE="${PROFILE:-release}"
 JSON_BENCH_ITERS="${JSON_BENCH_ITERS:-2000}"
 JSON_CORPUS_DIR="${JSON_CORPUS_DIR:-${JSON_PROJECT}/bench/corpus}"
@@ -19,7 +19,7 @@ Usage:
 
 Environment:
   CRAFT_BIN=...         Craft binary to run
-  JSON_PROJECT=...      json package root (defaults to incubator/json)
+  JSON_PROJECT=...      json package root (defaults to ../json-kern)
   PROFILE=release       Build profile for the benchmark example
   JSON_BENCH_ITERS=...  Iteration count passed to bench_json
   JSON_CORPUS_DIR=...   Directory containing corpus files

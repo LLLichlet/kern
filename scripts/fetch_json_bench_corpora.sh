@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
-DEST_DIR="${DEST_DIR:-${ROOT}/incubator/json/bench/corpus}"
+DEST_DIR="${DEST_DIR:-${ROOT}/../json-kern/bench/corpus}"
 SRC_REPO="${SRC_REPO:-https://github.com/ibireme/yyjson_benchmark.git}"
 SRC_REF="${SRC_REF:-master}"
 
@@ -19,7 +19,7 @@ Environment:
   SRC_REF=...    Git branch or tag to checkout
 
 This script clones the benchmark-data repository into a temporary directory and
-copies the standard corpus files expected by incubator/json:
+copies the standard corpus files expected by json-kern:
 
   twitter.json
   github_events.json

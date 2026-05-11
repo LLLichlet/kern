@@ -173,7 +173,7 @@ pub fn build(b: &mut builder.Builder) void {
 
 `link_arg_path` 会把路径作为真实链接输入记录下来。这样项目的链接策略留在仓库里，而不是散落在命令行历史中。
 
-如果要构建更完整的 bootable 镜像，`build.rn` 还可以拷贝 kernel artifact、拷贝资源、调用 build dependency 暴露的工具。仓库里的 [`incubator/limine-smoke`](../../../incubator/limine-smoke) 就是一个小型 freestanding 示例：它用 `entry = "none"`、`bundle = "base"`，自己导出 `_start`，再通过 `build.rn` 组织 Limine ISO。
+如果要构建更完整的 bootable 镜像，`build.rn` 还可以拷贝 kernel artifact、拷贝资源、调用 build dependency 暴露的工具。仓库里的 [`examples/limine-smoke`](../../../examples/limine-smoke) 就是一个小型 freestanding 示例：它用 `entry = "none"`、`bundle = "base"`，自己导出 `_start`，再通过 `build.rn` 组织 Limine ISO。
 
 ## `build.rn` 和 `craft.rn` 的位置
 

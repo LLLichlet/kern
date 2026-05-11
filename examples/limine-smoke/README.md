@@ -17,8 +17,8 @@ Current scope:
 Fetch and build it from the repository root:
 
 ```sh
-cargo run -q -p craft -- fetch --project-path incubator/limine-smoke
-cargo run -q -p craft -- build --project-path incubator/limine-smoke
+cargo run -q -p craft -- fetch --project-path examples/limine-smoke
+cargo run -q -p craft -- build --project-path examples/limine-smoke
 ```
 
 Build outputs currently land in three places:
@@ -47,7 +47,7 @@ timeout 10s qemu-system-x86_64 \
   -nographic \
   -no-reboot \
   -no-shutdown \
-  -cdrom incubator/limine-smoke/.craft/build/dev/target/stage/limine-smoke-0.1.0/bin/kernel/limine-smoke.iso
+  -cdrom examples/limine-smoke/.craft/build/dev/target/stage/limine-smoke-0.1.0/bin/kernel/limine-smoke.iso
 ```
 
 This now shows Limine's verbose boot log and the kernel success line:
@@ -66,7 +66,7 @@ timeout 10s qemu-system-x86_64 \
   -global isa-debugcon.iobase=0xe9 \
   -no-reboot \
   -no-shutdown \
-  -cdrom incubator/limine-smoke/.craft/build/dev/target/stage/limine-smoke-0.1.0/bin/kernel/limine-smoke.iso
+  -cdrom examples/limine-smoke/.craft/build/dev/target/stage/limine-smoke-0.1.0/bin/kernel/limine-smoke.iso
 ```
 
 What this proves today:

@@ -33,3 +33,8 @@ The examples are intentionally small:
 
 These files are examples, not compiler test fixtures. Compiler and standard
 library regressions should live under the Rust test suites instead.
+
+The directory also contains standalone example packages:
+
+- `limine-smoke/`: freestanding kernel package that builds a bootable Limine ISO.
+- `limine-mkiso/`: hosted helper tool used by the Limine package.

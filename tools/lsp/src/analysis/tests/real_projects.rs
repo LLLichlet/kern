@@ -1,5 +1,208 @@
 use super::*;
 
+fn write_lsp_navigation_fixture() -> PathBuf {
+    let root = unique_temp_dir("analysis_lsp_navigation_fixture");
+    fs::create_dir_all(root.join("src/editor")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "lsp-fixture"
+version = "0.1.0"
+kern = "{CURRENT_KERN_VERSION}"
+
+[lib]
+root = "src/lib.rn"
+"#
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.rn"),
+        "\
+mod bitio_like;
+mod buffer;
+pub mod editor;
+mod document;
+mod owned;
+
+pub use .bitio_like.BitWriter;
+pub use .buffer.TextBuffer;
+pub use .document.Document;
+pub use .owned.Value;
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/bitio_like.rn"),
+        "\
+pub enum BitIoError {
+    BufferTooSmall,
+}
+
+pub struct BitReader {
+    ptr: ?&u8 = .None,
+}
+
+pub struct BitWriter {
+    ptr: ?&mut u8 = .None,
+    len: usize = 0,
+}
+
+impl &mut BitWriter {
+    pub fn write_bit(value: bool) usize!BitIoError {
+        if (!value and self.len == 0) {
+            return .{ Err: BitIoError.BufferTooSmall };
+        }
+        return .{ Ok: 1 };
+    }
+
+    pub fn write_pair(value: bool) usize!BitIoError {
+        _ = self.write_bit(value).!;
+        return self.write_bit(false);
+    }
+}
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/buffer.rn"),
+        "\
+pub struct TextBuffer {
+    lines: usize = 0,
+}
+
+impl &TextBuffer {
+    pub fn line_count() usize {
+        return self.lines;
+    }
+}
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/editor/init.rn"),
+        "\
+mod window_storage;
+mod window_view;
+mod render;
+
+pub/ use ..TextBuffer;
+
+pub struct BufferSlot {
+    pub text: TextBuffer = TextBuffer.{},
+    pub ref_count: usize = 0,
+}
+
+pub struct Editor {
+    first: BufferSlot = BufferSlot.{},
+    second: BufferSlot = BufferSlot.{},
+}
+
+pub use .render.rendered_rows;
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/editor/render.rn"),
+        "\
+use ..TextBuffer;
+
+pub fn rendered_rows(text_buffer: &TextBuffer) usize {
+    return text_buffer.line_count();
+}
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/editor/window_storage.rn"),
+        "\
+use ..{BufferSlot, Editor};
+
+impl &mut Editor {
+    fn buffer_slot_mut(index: usize) &mut BufferSlot {
+        if (index == 0) {
+            return self.first..&;
+        }
+        return self.second..&;
+    }
+
+    pub fn retain_buffer_slot(index: usize) void {
+        let slot = self.buffer_slot_mut(index);
+        slot.ref_count += 1;
+    }
+
+    pub fn release_buffer_slot(index: usize) void {
+        let slot = self.buffer_slot_mut(index);
+        if (slot.ref_count > 0) {
+            slot.ref_count -= 1;
+        }
+    }
+}
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/editor/window_view.rn"),
+        "\
+use ..Editor;
+
+impl &mut Editor {
+    pub fn replace_buffer(index: usize) void {
+        let slot = self.buffer_slot_mut(index);
+        slot.ref_count = 1;
+    }
+}
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/owned.rn"),
+        "\
+pub enum CloneError {
+    Empty,
+}
+
+pub struct Value {
+    raw: &[u8] = \"\",
+}
+
+pub fn clone_owned_value_in_arena(value: Value) Value!CloneError {
+    if (#value.raw == 0) {
+        return .{ Err: CloneError.Empty };
+    }
+    return .{ Ok: value };
+}
+",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/document.rn"),
+        "\
+use ..owned.{CloneError, Value, clone_owned_value_in_arena};
+
+pub struct Document {
+    value: Value = Value.{},
+}
+
+pub fn document_from_value(value: Value) Document!CloneError {
+    let .{ Ok: root } = clone_owned_value_in_arena(value) else {
+        return .{ Err: CloneError.Empty };
+    };
+    let .{ Ok: cloned } = clone_owned_value_in_arena(root) else {
+        return .{ Err: CloneError.Empty };
+    };
+    return .{ Ok: .{ value: cloned } };
+}
+",
+    )
+    .unwrap();
+
+    root
+}
+
 #[test]
 fn stdlib_document_symbols_render_real_impl_target_types() {
     let mut analysis = AnalysisEngine::default();
@@ -101,7 +304,7 @@ fn main() i32 {
 #[test]
 fn limine_smoke_resolves_real_freestanding_project_runtime() {
     let mut analysis = AnalysisEngine::default();
-    let path = workspace_root().join("incubator/limine-smoke/src/main.rn");
+    let path = workspace_root().join("examples/limine-smoke/src/main.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let resolved = analysis.resolve_analysis(&uri).unwrap();
@@ -137,7 +340,7 @@ fn limine_smoke_resolves_real_freestanding_project_runtime() {
 #[test]
 fn limine_mkiso_resolves_real_hosted_build_tool_runtime() {
     let mut analysis = AnalysisEngine::default();
-    let path = workspace_root().join("incubator/limine-mkiso/src/main.rn");
+    let path = workspace_root().join("examples/limine-mkiso/src/main.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let resolved = analysis.resolve_analysis(&uri).unwrap();
@@ -172,9 +375,9 @@ fn limine_mkiso_resolves_real_hosted_build_tool_runtime() {
 }
 
 #[test]
-fn bitio_hover_renders_real_optional_mut_pointer_field() {
+fn hover_renders_optional_mut_pointer_field() {
     let mut analysis = AnalysisEngine::default();
-    let path = workspace_root().join("incubator/bitio/src/lib.rn");
+    let path = write_lsp_navigation_fixture().join("src/bitio_like.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let hover = analysis
@@ -190,9 +393,9 @@ fn bitio_hover_renders_real_optional_mut_pointer_field() {
 }
 
 #[test]
-fn bitio_goto_definition_resolves_real_impl_method_call() {
+fn goto_definition_resolves_impl_method_call() {
     let mut analysis = AnalysisEngine::default();
-    let path = workspace_root().join("incubator/bitio/src/lib.rn");
+    let path = write_lsp_navigation_fixture().join("src/bitio_like.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let definition = analysis
@@ -208,9 +411,9 @@ fn bitio_goto_definition_resolves_real_impl_method_call() {
 }
 
 #[test]
-fn bitio_hover_on_real_impl_method_call_uses_method_signature() {
+fn hover_on_impl_method_call_uses_method_signature() {
     let mut analysis = AnalysisEngine::default();
-    let path = workspace_root().join("incubator/bitio/src/lib.rn");
+    let path = write_lsp_navigation_fixture().join("src/bitio_like.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let hover = analysis
@@ -226,10 +429,10 @@ fn bitio_hover_on_real_impl_method_call_uses_method_signature() {
 }
 
 #[test]
-fn bed_goto_definition_resolves_real_internal_method_call() {
+fn goto_definition_resolves_cross_module_method_call() {
     let mut analysis = AnalysisEngine::default();
-    let root = workspace_root();
-    let path = root.join("incubator/bed/src/editor/render.rn");
+    let root = write_lsp_navigation_fixture();
+    let path = root.join("src/editor/render.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let definition = analysis
@@ -239,15 +442,15 @@ fn bed_goto_definition_resolves_real_internal_method_call() {
 
     assert_eq!(
         normalize_path(&uri_to_file_path(&definition.uri).unwrap()),
-        normalize_path(&root.join("incubator/bed/src/buffer.rn"))
+        normalize_path(&root.join("src/buffer.rn"))
     );
 }
 
 #[test]
-fn bed_references_include_real_private_method_definition_and_uses() {
+fn references_include_private_method_definition_and_uses() {
     let mut analysis = AnalysisEngine::default();
-    let root = workspace_root();
-    let path = root.join("incubator/bed/src/editor/window_storage.rn");
+    let root = write_lsp_navigation_fixture();
+    let path = root.join("src/editor/window_storage.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let references = analysis
@@ -258,7 +461,7 @@ fn bed_references_include_real_private_method_definition_and_uses() {
         )
         .unwrap();
 
-    let window_view_path = root.join("incubator/bed/src/editor/window_view.rn");
+    let window_view_path = root.join("src/editor/window_view.rn");
 
     assert_eq!(references.len(), 4, "{references:#?}");
     assert!(references[..3].iter().all(|location| location.uri == uri));
@@ -281,9 +484,9 @@ fn bed_references_include_real_private_method_definition_and_uses() {
 }
 
 #[test]
-fn bed_document_highlights_include_real_private_method_definition_and_uses() {
+fn document_highlights_include_private_method_definition_and_uses() {
     let mut analysis = AnalysisEngine::default();
-    let path = workspace_root().join("incubator/bed/src/editor/window_storage.rn");
+    let path = write_lsp_navigation_fixture().join("src/editor/window_storage.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let highlights = analysis
@@ -306,9 +509,9 @@ fn bed_document_highlights_include_real_private_method_definition_and_uses() {
 }
 
 #[test]
-fn bed_hover_on_real_private_method_call_uses_method_signature() {
+fn hover_on_private_method_call_uses_method_signature() {
     let mut analysis = AnalysisEngine::default();
-    let path = workspace_root().join("incubator/bed/src/editor/window_storage.rn");
+    let path = write_lsp_navigation_fixture().join("src/editor/window_storage.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let hover = analysis
@@ -324,12 +527,12 @@ fn bed_hover_on_real_private_method_call_uses_method_signature() {
 }
 
 #[test]
-fn bed_rename_updates_real_private_method_definition_and_uses() {
+fn rename_updates_private_method_definition_and_uses() {
     let mut analysis = AnalysisEngine::default();
-    let root = workspace_root();
-    let path = root.join("incubator/bed/src/editor/window_storage.rn");
+    let root = write_lsp_navigation_fixture();
+    let path = root.join("src/editor/window_storage.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
-    let window_view_path = root.join("incubator/bed/src/editor/window_view.rn");
+    let window_view_path = root.join("src/editor/window_view.rn");
     let window_view_uri = file_path_to_uri(&window_view_path).unwrap();
     let window_view_source = fs::read_to_string(&window_view_path).unwrap();
 
@@ -376,9 +579,9 @@ fn bed_rename_updates_real_private_method_definition_and_uses() {
 }
 
 #[test]
-fn json_hover_resolves_real_imported_function_signature() {
+fn hover_resolves_imported_function_signature() {
     let mut analysis = AnalysisEngine::default();
-    let path = workspace_root().join("incubator/json/src/document.rn");
+    let path = write_lsp_navigation_fixture().join("src/document.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let hover = analysis
@@ -400,10 +603,10 @@ fn json_hover_resolves_real_imported_function_signature() {
 }
 
 #[test]
-fn json_goto_definition_resolves_real_imported_function_call() {
+fn goto_definition_resolves_imported_function_call() {
     let mut analysis = AnalysisEngine::default();
-    let root = workspace_root();
-    let path = root.join("incubator/json/src/document.rn");
+    let root = write_lsp_navigation_fixture();
+    let path = root.join("src/document.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
 
     let definition = analysis
@@ -416,17 +619,17 @@ fn json_goto_definition_resolves_real_imported_function_call() {
 
     assert_eq!(
         normalize_path(&uri_to_file_path(&definition.uri).unwrap()),
-        normalize_path(&root.join("incubator/json/src/owned.rn"))
+        normalize_path(&root.join("src/owned.rn"))
     );
 }
 
 #[test]
-fn json_rename_updates_real_imported_function_definition_import_and_calls() {
+fn rename_updates_imported_function_definition_import_and_calls() {
     let mut analysis = AnalysisEngine::default();
-    let root = workspace_root();
-    let path = root.join("incubator/json/src/document.rn");
+    let root = write_lsp_navigation_fixture();
+    let path = root.join("src/document.rn");
     let (uri, source) = open_workspace_document(&mut analysis, &path);
-    let owned_path = root.join("incubator/json/src/owned.rn");
+    let owned_path = root.join("src/owned.rn");
     let owned_uri = file_path_to_uri(&owned_path).unwrap();
     let owned_source = fs::read_to_string(&owned_path).unwrap();
 

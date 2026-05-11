@@ -63,11 +63,11 @@ fn overview_doc() -> HelpDoc {
         )
         .example("craft check", "Validate the current package graph")
         .example(
-            "craft build --project-path incubator/bed --profile release",
+            "craft build --project-path examples --profile release --examples",
             "Build a package in release mode",
         )
         .example(
-            "craft run --example hello_compact",
+            "craft run --example hello_world",
             "Run a named example target",
         )
         .note("Use `craft help <command>` for command-specific options and examples.")
@@ -113,7 +113,7 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
             &[
                 ("craft clean", "Clean the current package .craft state"),
                 (
-                    "craft clean --project-path incubator/json",
+                    "craft clean --project-path examples",
                     "Clean another package",
                 ),
             ],
@@ -220,7 +220,7 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
             &[
                 ("craft install", "Install all binary targets"),
                 (
-                    "craft install --project-path incubator/bed --bin bed",
+                    "craft install --project-path examples/limine-mkiso --bin limine-mkiso",
                     "Install one binary from another package",
                 ),
             ],
@@ -248,7 +248,7 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
                     "Remove all installed binaries for the package",
                 ),
                 (
-                    "craft uninstall --bin bed --root ~/.local",
+                    "craft uninstall --bin limine-mkiso --root ~/.local",
                     "Remove one installed binary from a custom root",
                 ),
             ],
@@ -266,13 +266,13 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
                 .entry("-- <ARGS>...", "Pass remaining arguments to the target"),
             &[
                 ("craft run", "Run the default binary target"),
-                ("craft run --bin bed", "Run a named binary target"),
+                ("craft run --example hello_world", "Run a named example target"),
                 (
                     "craft run -- --help",
                     "Pass option-like arguments to the program",
                 ),
                 (
-                    "craft run --example hello_compact --features tls",
+                    "craft run --example hello_world --features tracing",
                     "Run an example with explicit features enabled",
                 ),
             ],

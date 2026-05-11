@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
-PROJECT_INPUT="${1:-${ROOT}/incubator/json}"
+PROJECT_INPUT="${1:-${ROOT}/examples}"
 ROUNDS="${ROUNDS:-8}"
 JOBS="${JOBS:-2}"
 KEEP_SUCCESS="${KEEP_SUCCESS:-0}"

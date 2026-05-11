@@ -30,7 +30,7 @@ Focus on:
 Examples:
 
 - [`examples/io_and_files.rn`](../../../examples/io_and_files.rn)
-- [`incubator/json/examples`](../../../incubator/json/examples)
+- [`examples/collections.rn`](../../../examples/collections.rn)
 
 ## Write Containers, Parsers, Or Libraries
 
@@ -41,10 +41,10 @@ Focus on `base`:
 - [`base.io`](../../../library/base/io/init.rn): `Read`, `Write`, `Formatable`, and formatting.
 - [`base.num`](../../../library/base/num/init.rn): numeric constants and parsing.
 
-Larger references:
-
-- [`incubator/json`](../../../incubator/json): JSON parser, renderer, tests, and benchmarks.
-- [`incubator/bitio`](../../../incubator/bitio): bit-level reader/writer package.
+Larger packages in the Kern ecosystem, such as JSON or bit-level I/O libraries,
+should follow the same `base` boundaries: allocator policy stays explicit,
+borrowing and ownership are visible in the API, and tests cover the main
+workflow before publishing.
 
 ## Write Kernels Or Freestanding Programs
 
@@ -53,7 +53,7 @@ Focus on:
 - [`runtime-architecture.md`](../../runtime-architecture.md)
 - the freestanding package sections in [`craft.md`](../../craft.md)
 - the freestanding `_start` and linker-script sections in [`kernc.md`](../../kernc.md)
-- [`incubator/limine-smoke`](../../../incubator/limine-smoke)
+- [`examples/limine-smoke`](../../../examples/limine-smoke)
 
 If your project supplies custom `sys` or `rt` layers, treat them as ordinary
 module/package boundaries. Do not assume the compiler provides hidden

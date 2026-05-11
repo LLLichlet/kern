@@ -160,23 +160,22 @@ Kern syntax keeps ownership of effects visible:
 
 ## Examples
 
-The repository carries small programs and larger incubator packages:
+The repository carries runnable examples for both hosted and freestanding
+programs:
 
 - [examples](examples): Craft-managed first-learn examples. Build all of them
   with `craft build --project-path examples --examples`, or run one with
   `craft run --project-path examples --example hello_world`.
-- [incubator/json](incubator/json): parser, renderer, tests, examples, and
-  benchmarks.
-- [incubator/bitio](incubator/bitio): bit-level reader/writer package.
-- [incubator/bed](incubator/bed): terminal editor experiment.
-- [incubator/limine-smoke](incubator/limine-smoke): freestanding kernel package
+- [examples/limine-smoke](examples/limine-smoke): freestanding kernel example
   that builds a bootable Limine ISO through `craft`.
+- [examples/limine-mkiso](examples/limine-mkiso): hosted build tool used by the
+  Limine example.
 
-Run an incubator package from the repository root:
+Run an example package from the repository root:
 
 ```sh
-craft test -p incubator/json
-craft run -p incubator/json --example hello_compact
+craft build -p examples/limine-smoke
+craft run -p examples/limine-mkiso -- --help
 ```
 
 ## Toolchain

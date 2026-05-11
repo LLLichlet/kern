@@ -197,7 +197,7 @@ in the repository instead of command-line history.
 
 For a fuller bootable image, `build.rn` can copy the kernel artifact, copy
 resources, or call tools exposed by build dependencies. The repository's
-[`incubator/limine-smoke`](../../../incubator/limine-smoke) is a small
+[`examples/limine-smoke`](../../../examples/limine-smoke) is a small
 freestanding example: it uses `entry = "none"` and `bundle = "base"`, exports
 `_start`, and uses `build.rn` to assemble a Limine ISO.
 

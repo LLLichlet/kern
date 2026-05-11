@@ -39,7 +39,7 @@ no exceptions, no implicit heap allocation, and no implicit prelude namespace.
 8. [Impls, Traits, And Generic Bounds](./en/08-impl-traits-and-generics.md): methods, trait objects, associated types, builtin traits, and operator boundaries.
 9. [Closures And Function Values](./en/09-closures-and-function-values.md): `&fn`, `&Fn`, captures, escaping closures, and `#` state extraction.
 10. [Attributes, Intrinsics, And Low-Level Operations](./en/10-attributes-intrinsics-and-operators.md): `#[...]`, `@sizeOf`, atomics, SIMD, and `@asm`.
-11. [Next Steps](./en/11-next-steps.md): where to continue in the reference docs, standard library source, and incubator projects.
+11. [Next Steps](./en/11-next-steps.md): where to continue in the reference docs, standard library source, and example projects.
 
 ## Recommended Practice
 

@@ -126,7 +126,7 @@ the boundary being advanced toward, not a generic note that the loop is a
 
 Kern has strong source- and context-driven type inference. When the local type
 source already fixes the type, omit the type/provider. Repository code,
-standard-library code, incubator examples, and docs should exercise that
+standard-library code, example packages, and docs should exercise that
 inference instead of spelling types out defensively.
 
 Do not write redundant annotations or providers when the type is already fixed
@@ -402,7 +402,7 @@ For mature public packages, the expected direction is:
 - comment density is high enough to explain invariants and boundaries, but not
   so high that comments restate obvious local code
 
-Low-level runtime code, incubators, generated bindings, and experiments may
+Low-level runtime code, generated bindings, and experiments may
 use different thresholds. Style and policy tools expose severity and scope
 controls so packages can choose appropriate review strictness.
 Use `[craft.style]` in `Craft.toml` to turn advisory suggestions off, mark them
@@ -596,8 +596,8 @@ over invented labels or comment conventions that tools do not understand.
 Package maturity is a release policy decision, not a language rule. The current
 recommended gates are:
 
-- incubator: `craft check` passes; smoke tests exist for the primary path;
-  public-doc coverage is measured but not enforced
+- prototype package: `craft check` passes; smoke tests exist for the primary
+  path; public-doc coverage is measured but not enforced
 - usable public package: `craft fmt --check`, `craft style`, and
   `craft test` pass locally; public-doc coverage is moving upward and missing
   docs are triaged

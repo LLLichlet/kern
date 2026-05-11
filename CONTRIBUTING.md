@@ -51,10 +51,11 @@ For the curated compiler suite layers used by CI:
 python3 -m ops ci kernc-tests --mode smoke
 ```
 
-For a Kern package under `incubator/`:
+For a Kern package or example directory:
 
 ```bash
-cargo run -q -p craft -- test --project-path incubator/<package>
+cargo run -q -p craft -- test --project-path examples
+cargo run -q -p craft -- check --project-path examples/limine-smoke
 ```
 
 ### Adding a New Test

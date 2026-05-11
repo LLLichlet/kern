@@ -53,7 +53,7 @@
   freestanding support, tests, and plain aggregates. Keep the style guidance in
   docs/style.md, and revisit an automated rule only with semantic information
   about real constructor, allocator, builder, or capability-boundary APIs.
-- [x] Keep style rules configurable by severity and scope so incubators,
+- [x] Keep style rules configurable by severity and scope so prototypes,
   low-level runtime code, and mature packages can choose different strictness.
 - [x] Add tests for lint metrics and CLI output before enabling stricter rules.
 

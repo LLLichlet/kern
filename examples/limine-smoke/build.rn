@@ -1,0 +1,49 @@
+use craft.builder;
+
+pub fn build(b: &mut builder.Builder) void {
+    b.link_arg_path("-T", "link/kernel.ld");
+
+    let kernel = b.primary_artifact();
+    let kernel_image = b.stage_copy_output_to_artifact(kernel, "iso-root/kernel");
+    let bios_sys = b.stage_copy_resource_file_to_artifact(
+        "limine",
+        "limine-bios.sys",
+        "iso-root/boot/limine-bios.sys",
+    );
+    let bios_cd = b.stage_copy_resource_file_to_artifact(
+        "limine",
+        "limine-bios-cd.bin",
+        "iso-root/boot/limine-bios-cd.bin",
+    );
+    let uefi_cd = b.stage_copy_resource_file_to_artifact(
+        "limine",
+        "limine-uefi-cd.bin",
+        "iso-root/boot/limine-uefi-cd.bin",
+    );
+    let bootx64 = b.stage_copy_resource_file_to_artifact(
+        "limine",
+        "BOOTX64.EFI",
+        "iso-root/EFI/BOOT/BOOTX64.EFI",
+    );
+    let limine_conf = b.stage_copy_package_file_to_artifact(
+        "boot/limine.conf",
+        "iso-root/boot/limine.conf",
+    );
+
+    let iso = b.stage_artifact_file_from_tool(
+        "mkiso",
+        "limine-mkiso",
+        "limine-smoke.iso",
+        .{
+            b.output_path(kernel_image),
+            b.paths.build_root,
+            b.resource_root("limine"),
+        },
+    );
+    b.depend(iso, kernel_image);
+    b.depend(iso, bios_sys);
+    b.depend(iso, bios_cd);
+    b.depend(iso, uefi_cd);
+    b.depend(iso, bootx64);
+    b.depend(iso, limine_conf);
+}

@@ -148,19 +148,17 @@ Kern 倾向于把效果和边界留在明处：
 
 ## 示例
 
-仓库里既有小型示例，也有放在 `incubator/` 下的较完整项目：
+仓库里保留 hosted 和 freestanding 场景下可以直接运行的示例：
 
 - [examples](examples)：由 Craft 管理的入门示例。用 `craft build --project-path examples --examples` 构建全部示例，或用 `craft run --project-path examples --example hello_world` 运行单个示例。
-- [incubator/json](incubator/json)：JSON 解析、渲染、测试、示例和基准测试。
-- [incubator/bitio](incubator/bitio)：按位读写库。
-- [incubator/bed](incubator/bed)：终端文本编辑器实验项目。
-- [incubator/limine-smoke](incubator/limine-smoke)：一个 freestanding kernel 示例，通过 `craft` 构建可启动的 Limine ISO。
+- [examples/limine-smoke](examples/limine-smoke)：freestanding kernel 示例，通过 `craft` 构建可启动的 Limine ISO。
+- [examples/limine-mkiso](examples/limine-mkiso)：Limine 示例使用的 hosted 构建工具。
 
-从仓库根目录运行 `incubator/` 项目：
+从仓库根目录运行示例包：
 
 ```sh
-craft test -p incubator/json
-craft run -p incubator/json --example hello_compact
+craft build -p examples/limine-smoke
+craft run -p examples/limine-mkiso -- --help
 ```
 
 ## 工具链

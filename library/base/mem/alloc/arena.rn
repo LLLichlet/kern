@@ -3,7 +3,8 @@
 //! `Arena` trades individual frees for very fast bump allocation and bulk reset.
 //! It is suited to short-lived phases, parsing, and scratch storage.
 
-use base.mem.Layout;
+use base.mem.{Layout, align_up};
+use base.num.USIZE_MAX;
 use ..Allocator;
 
 struct Chunk {
@@ -71,15 +72,19 @@ impl &mut Arena : Allocator {
     fn chunk_can_fit(chunk: &mut Chunk, layout: Layout) bool {
         let payload = if (layout.size == 0) usize.{1} else layout.size;
         let start = chunk as usize;
+        if (chunk.used > USIZE_MAX - start) {
+            return false;
+        }
         let used_start = start + chunk.used;
-        let alloc_start = if (layout.align <= 1) {
-            used_start
-        } else {
-            let align = layout.align;
-            let mask = align - 1;
-            (used_start + mask) & ~mask
-        };
+        let .{ Some: alloc_start } = align_up(used_start, layout.align)
+            else return false;
+        if (payload > USIZE_MAX - alloc_start) {
+            return false;
+        }
         let alloc_end = alloc_start + payload;
+        if (chunk.size > USIZE_MAX - start) {
+            return false;
+        }
         return alloc_end <= start + chunk.size;
     }
 
@@ -87,16 +92,20 @@ impl &mut Arena : Allocator {
     fn alloc_from_chunk(chunk: &mut Chunk, layout: Layout) ?&mut u8 {
         let payload = if (layout.size == 0) usize.{1} else layout.size;
         let start = chunk as usize;
+        if (chunk.used > USIZE_MAX - start) {
+            return .None;
+        }
         let used_start = start + chunk.used;
-        let alloc_start = if (layout.align <= 1) {
-            used_start
-        } else {
-            let align = layout.align;
-            let mask = align - 1;
-            (used_start + mask) & ~mask
-        };
+        let .{ Some: alloc_start } = align_up(used_start, layout.align)
+            else return .None;
+        if (payload > USIZE_MAX - alloc_start) {
+            return .None;
+        }
         let alloc_end = alloc_start + payload;
 
+        if (chunk.size > USIZE_MAX - start) {
+            return .None;
+        }
         if (alloc_end > start + chunk.size) {
             return .None;
         }
@@ -121,7 +130,14 @@ impl &mut Arena : Allocator {
     fn grow(layout: Layout) bool {
         let payload = if (layout.size == 0) usize.{1} else layout.size;
         let align = if (layout.align == 0) usize.{1} else layout.align;
-        let min_size = ARENA_CHUNK_HEADER_SIZE + payload + align - usize.{1};
+        if (ARENA_CHUNK_HEADER_SIZE > USIZE_MAX - payload) {
+            return false;
+        }
+        let header_payload = ARENA_CHUNK_HEADER_SIZE + payload;
+        if (align - usize.{1} > USIZE_MAX - header_payload) {
+            return false;
+        }
+        let min_size = header_payload + align - usize.{1};
         let base_size = arena_default_chunk_size(self.next_chunk_size);
         let raw_size = arena_max_usize(base_size, min_size);
         let raw_layout = Layout.{ size: raw_size, align: ARENA_CHUNK_ALIGN };

@@ -8,7 +8,7 @@ mod bytes;
 mod ptr;
 pub mod alloc;
 
-pub use .layout.{Layout, layout_of, array_layout_of};
+pub use .layout.{Layout, align_up, layout_of, array_layout_of};
 pub use .bytes.memmove;
 pub use .ptr.{null_ptr, null_mut_ptr, null_addr_ptr, null_mut_addr_ptr};
 pub use .alloc.Allocator;

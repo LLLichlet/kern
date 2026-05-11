@@ -6,7 +6,8 @@
 //! Design:
 //! keep corruption checks cheap and fail loudly on invalid frees.
 
-use base.mem.Layout;
+use base.mem.{Layout, align_up};
+use base.num.USIZE_MAX;
 use ..Allocator;
 
 struct FreeBlock {
@@ -65,12 +66,6 @@ fn gpa_normalize_align(align: usize) usize {
     return if (align == 0) usize.{1} else align;
 }
 
-fn gpa_align_up(value: usize, align: usize) usize {
-    let align = gpa_normalize_align(align);
-    let mask = align - 1;
-    return (value + mask) & ~mask;
-}
-
 fn gpa_dangling_ptr(align: usize) &mut u8 {
     return gpa_normalize_align(align).as_mut_ptr[u8]();
 }
@@ -87,10 +82,17 @@ fn gpa_allocation_size(layout: Layout) usize {
     return if (layout.size == 0) usize.{1} else layout.size;
 }
 
-fn gpa_required_block_size(layout: Layout) usize {
+fn gpa_required_block_size(layout: Layout) ?usize {
     let payload = gpa_allocation_size(layout);
     let align = gpa_request_align(layout);
-    return gpa_align_up(payload + GPA_ALLOC_HEADER_SIZE + align - 1, GPA_FREE_ALIGN);
+    if (payload > USIZE_MAX - GPA_ALLOC_HEADER_SIZE) {
+        return .None;
+    }
+    let payload_with_header = payload + GPA_ALLOC_HEADER_SIZE;
+    if (align - 1 > USIZE_MAX - payload_with_header) {
+        return .None;
+    }
+    return align_up(payload_with_header + align - 1, GPA_FREE_ALIGN);
 }
 
 impl &mut GPA : Allocator {
@@ -99,7 +101,9 @@ impl &mut GPA : Allocator {
     }
 
     fn chunk_usable_start(chunk: &mut BackingChunk) usize {
-        return gpa_align_up((chunk as usize) + GPA_CHUNK_HEADER_SIZE, GPA_FREE_ALIGN);
+        let .{ Some: start } = align_up((chunk as usize) + GPA_CHUNK_HEADER_SIZE, GPA_FREE_ALIGN)
+            else @trap();
+        return start;
     }
 
     fn chunk_usable_size(chunk: &mut BackingChunk) usize {
@@ -242,10 +246,21 @@ impl &mut GPA : Allocator {
 
             let block_start = current as usize;
             let block_end = block_start + current.size;
-            let header_addr =
-                gpa_align_up(block_start + GPA_ALLOC_HEADER_SIZE, align) - GPA_ALLOC_HEADER_SIZE;
+            if (GPA_ALLOC_HEADER_SIZE > USIZE_MAX - block_start) {
+                return .None;
+            }
+            let .{ Some: header_end } = align_up(block_start + GPA_ALLOC_HEADER_SIZE, align)
+                else return .None;
+            let header_addr = header_end - GPA_ALLOC_HEADER_SIZE;
+            if (GPA_ALLOC_HEADER_SIZE > USIZE_MAX - header_addr) {
+                return .None;
+            }
             let user_addr = header_addr + GPA_ALLOC_HEADER_SIZE;
-            let used_end = gpa_align_up(user_addr + payload_size, GPA_FREE_ALIGN);
+            if (payload_size > USIZE_MAX - user_addr) {
+                return .None;
+            }
+            let .{ Some: used_end } = align_up(user_addr + payload_size, GPA_FREE_ALIGN)
+                else return .None;
 
             if (used_end <= block_end) {
                 let mut taken_size = used_end - block_start;
@@ -286,9 +301,16 @@ impl &mut GPA : Allocator {
     }
 
     fn grow(layout: Layout) bool {
-        let needed = gpa_required_block_size(layout);
+        let .{ Some: needed } = gpa_required_block_size(layout) else return false;
         let chunk_payload = gpa_max_usize(gpa_default_chunk_size(self.chunk_size), needed);
-        let raw_size = chunk_payload + GPA_CHUNK_HEADER_SIZE + GPA_FREE_ALIGN;
+        if (GPA_CHUNK_HEADER_SIZE > USIZE_MAX - chunk_payload) {
+            return false;
+        }
+        let with_header = chunk_payload + GPA_CHUNK_HEADER_SIZE;
+        if (GPA_FREE_ALIGN > USIZE_MAX - with_header) {
+            return false;
+        }
+        let raw_size = with_header + GPA_FREE_ALIGN;
         let raw_layout = Layout.{ size: raw_size, align: GPA_CHUNK_ALIGN };
 
         let .{ Some: raw } = self.backing.alloc(raw_layout) else return false;

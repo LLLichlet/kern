@@ -21,6 +21,23 @@ impl Layout {
     }
 }
 
+/// Rounds `value` up to `align`.
+///
+/// Returns:
+/// `None` when the rounded value cannot fit in `usize`.
+pub/ fn align_up(value: usize, align: usize) ?usize {
+    let align = if (align == 0) usize.{1} else align;
+    let remainder = value % align;
+    if (remainder == 0) {
+        return .{ Some: value };
+    }
+    let padding = align - remainder;
+    if (value > USIZE_MAX - padding) {
+        return .None;
+    }
+    return .{ Some: value + padding };
+}
+
 /// Returns the layout of a single `T`.
 ///
 /// This is a compile-time query and does not allocate.

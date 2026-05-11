@@ -8,7 +8,7 @@
 use base.abi;
 use base.coll.String;
 use base.mem.{null_ptr, null_mut_ptr};
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
@@ -307,6 +307,10 @@ fn out_of_memory_error() Error {
     return .{ code: ERROR_OUTOFMEMORY };
 }
 
+fn wrap_alloc_error(_: AllocError) Error {
+    return out_of_memory_error();
+}
+
 fn build_shell_command_line(alloc: &mut Allocator, command: &[u8]) String!Error {
     let wrapped = String.{}..&;
     if (wrapped.try_push_str(alloc, "cmd.exe /d /c ").is_err()
@@ -448,9 +452,8 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
     let command_line = build_shell_command_line(alloc, command).!..&;
     defer command_line.deinit(alloc);
 
-    let command_line_c = abi.cstr.owned(alloc, command_line.as_str()).ok_or(
-        out_of_memory_error(),
-    ).!..&;
+    let command_line_c = abi.cstr.owned(alloc, command_line.as_str())
+        .map_err(wrap_alloc_error).!..&;
     defer command_line_c.deinit(alloc);
 
     let wide_command_line = utf8_z_to_wide(command_line_c.ptr()).!;

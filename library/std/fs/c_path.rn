@@ -4,12 +4,17 @@
 //! needed by the OS shims.
 
 use base.abi;
+use base.mem.alloc.AllocError;
 use base.mem.alloc.Allocator;
 use ..types.Error;
 
 pub type CPath = abi.cstr.Owned;
 
+fn wrap_alloc_error(_: AllocError) Error {
+    return .OutOfMemory;
+}
+
 /// Allocates a zero-terminated path buffer for OS calls.
 pub/ fn c_path(alloc: &mut Allocator, path: &[u8]) CPath!Error {
-    return abi.cstr.owned(alloc, path).ok_or(.OutOfMemory);
+    return abi.cstr.owned(alloc, path).map_err(wrap_alloc_error);
 }

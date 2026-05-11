@@ -8,7 +8,7 @@
 use base.abi;
 use base.coll.String;
 use base.mem.{array_layout_of, null_mut_ptr};
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 use sys.os;
 
 /// A borrowed environment variable entry.
@@ -94,62 +94,47 @@ fn clone_c_value(
     alloc: &mut Allocator,
     ptr: &u8,
     len: usize,
-) ?String {
+) String!AllocError {
     let mut value = String.{};
     if (value..&.try_push_str(alloc, ptr.&[0 .. len]).is_err()) {
         value..&.deinit(alloc);
-        return .None;
+        return .{ Err: .OutOfMemory };
     }
-    return .{ Some: value };
+    return .{ Ok: value };
 }
 
 #[if(os == "linux" or os == "darwin")]
-fn get_posix(alloc: &mut Allocator, name: &[u8]) ?String {
-    let c_name = abi.cstr.owned(alloc, name).?..&;
+fn get_posix(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
+    let c_name = abi.cstr.owned(alloc, name).!..&;
     defer c_name.deinit(alloc);
 
-    let value_ptr = os.find_environment_value(c_name.ptr()).?;
-    return clone_c_value(alloc, value_ptr, value_ptr.cstr_len());
+    let .{ Some: value_ptr } = os.find_environment_value(c_name.ptr())
+        else return .{ Ok: .None };
+    let value = clone_c_value(alloc, value_ptr, value_ptr.cstr_len()).!;
+    return .{ Ok: .{ Some: value } };
 }
 
 #[if(os == "windows")]
-fn get_windows(alloc: &mut Allocator, name: &[u8]) ?String {
-    let c_name = abi.cstr.owned(alloc, name).?..&;
+fn get_windows(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
+    let c_name = abi.cstr.owned(alloc, name).!..&;
     defer c_name.deinit(alloc);
 
     let required = os.get_environment_variable(c_name.ptr(), null_mut_ptr[u8](), 0) as usize;
     if (required == 0) {
-        return .None;
+        return .{ Ok: .None };
     }
 
-    let layout = array_layout_of[u8](required).?;
-    let buffer = alloc.alloc(layout).?;
+    let layout = array_layout_of[u8](required).ok_or(.CapacityOverflow).!;
+    let buffer = alloc.alloc(layout).ok_or(.OutOfMemory).!;
     defer alloc.free(buffer, layout);
 
     let written = os.get_environment_variable(c_name.ptr(), buffer, required as u32) as usize;
     if (written == 0) {
-        return .None;
+        return .{ Ok: .None };
     }
 
-    return clone_c_value(alloc, buffer, written);
-}
-
-#[if(os == "linux" or os == "darwin")]
-fn has_posix(alloc: &mut Allocator, name: &[u8]) bool {
-    let .{ Some: mut owned_name } = abi.cstr.owned(alloc, name) else return false;
-    let c_name = owned_name..&;
-    defer c_name.deinit(alloc);
-
-    return os.find_environment_value(c_name.ptr()).is_some();
-}
-
-#[if(os == "windows")]
-fn has_windows(alloc: &mut Allocator, name: &[u8]) bool {
-    let .{ Some: mut owned_name } = abi.cstr.owned(alloc, name) else return false;
-    let c_name = owned_name..&;
-    defer c_name.deinit(alloc);
-
-    return (os.get_environment_variable(c_name.ptr(), null_mut_ptr[u8](), 0) as usize) != 0;
+    let value = clone_c_value(alloc, buffer, written).!;
+    return .{ Ok: .{ Some: value } };
 }
 
 #[if(os == "linux" or os == "darwin")]
@@ -254,9 +239,9 @@ impl Key {
     }
 
     /// Reads this environment variable into an owned `String`.
-    pub fn get(alloc: &mut Allocator) ?String {
+    pub fn get(alloc: &mut Allocator) (?String)!AllocError {
         if (#self.name == 0) {
-            return .None;
+            return .{ Ok: .None };
         }
 
         #[if(os == "linux" or os == "darwin")]
@@ -270,44 +255,40 @@ impl Key {
         }
 
         _ = alloc;
-        return .None;
+        return .{ Ok: .None };
     }
 
     /// Returns `true` when this environment variable exists.
-    pub fn has(alloc: &mut Allocator) bool {
+    pub fn has() bool {
         if (#self.name == 0) {
             return false;
         }
 
-        #[if(os == "linux" or os == "darwin")]
-        {
-            return has_posix(alloc, self.name);
-        }
-
-        #[if(os == "windows")]
-        {
-            return has_windows(alloc, self.name);
-        }
-
-        _ = alloc;
-        return false;
+        let mut found = false;
+        _ = self.visit([found = found..&](_: &[u8]) bool {
+            found.* = true;
+            return false;
+        });
+        return found;
     }
 
     /// Returns this environment variable or a cloned fallback string.
-    pub fn get_or(alloc: &mut Allocator, fallback: &[u8]) ?String {
-        return self.get(alloc).or_else([alloc, fallback]() ?String {
+    pub fn get_or(alloc: &mut Allocator, fallback: &[u8]) String!AllocError {
+        let .{ Ok: maybe } = self.get(alloc) else {
+            .{ Err: err } => return .{ Err: err },
+        };
+        match (maybe) {
+            .{ Some: value } => return .{ Ok: value },
+            .None => {
                 let mut value = String.{};
-                if (value..&.try_push_str(alloc, fallback).is_err()) {
-                    value..&.deinit(alloc);
-                    return .None;
-                }
-                return .{ Some: value };
+                value..&.try_push_str(alloc, fallback).!;
+                return .{ Ok: value };
             },
-        );
+        }
     }
 
     /// Returns this environment variable or an empty owned string.
-    pub fn get_or_empty(alloc: &mut Allocator) ?String {
+    pub fn get_or_empty(alloc: &mut Allocator) String!AllocError {
         return self.get_or(alloc, "");
     }
 

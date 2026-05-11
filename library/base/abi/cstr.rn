@@ -4,7 +4,7 @@
 //! function interfaces.
 
 use base.mem.array_layout_of;
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 
 /// An owned zero-terminated byte buffer.
 pub struct Owned {
@@ -48,17 +48,20 @@ fn z_string_layout(bytes: &[u8]) ?base.mem.Layout {
 /// Allocates a zero-terminated copy of `bytes`.
 ///
 /// Returns:
-/// `None` when layout computation or allocation fails.
-pub fn owned(alloc: &mut Allocator, bytes: &[u8]) ?Owned {
-    let .{ Some: layout } = z_string_layout(bytes) else return .None;
-    let .{ Some: ptr } = alloc.alloc(layout) else return .None;
+/// `CapacityOverflow` when the terminator cannot fit, or `OutOfMemory` when
+/// the allocator cannot provide the buffer.
+pub fn owned(alloc: &mut Allocator, bytes: &[u8]) Owned!AllocError {
+    let .{ Some: layout } = z_string_layout(bytes)
+        else return .{ Err: .CapacityOverflow };
+    let .{ Some: ptr } = alloc.alloc(layout)
+        else return .{ Err: .OutOfMemory };
 
     let bytes_len = #bytes;
     if (bytes_len > 0) {
         @memcpy(ptr, bytes.[0].&, bytes_len);
     }
     (ptr + bytes_len).* = 0;
-    return .{ Some: .{ raw: ptr, len: bytes_len } };
+    return .{ Ok: .{ raw: ptr, len: bytes_len } };
 }
 
 impl &Owned {

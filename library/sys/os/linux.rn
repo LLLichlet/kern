@@ -6,7 +6,7 @@
 //! keep the syscall boundary direct and typed.
 
 use base.coll.String;
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{AllocError, Allocator};
 use base.abi;
 use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
@@ -193,6 +193,10 @@ fn ioctl_raw(
         request,
         arg,
     );
+}
+
+fn wrap_alloc_error(_: AllocError) Error {
+    return .{ code: 12 };
 }
 
 /// Performs a raw 3-argument syscall.
@@ -402,13 +406,13 @@ pub fn restore_terminal_mode(handle: Handle, state: &TerminalState) bool!Error {
 
 /// Captures combined stdout/stderr from `/bin/sh -lc <command>`.
 pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error {
-    let sh_path = abi.cstr.owned(alloc, "/bin/sh").ok_or(.{ code: 12 }).!..&;
+    let sh_path = abi.cstr.owned(alloc, "/bin/sh").map_err(wrap_alloc_error).!..&;
     defer sh_path.deinit(alloc);
 
-    let sh_arg = abi.cstr.owned(alloc, "sh").ok_or(.{ code: 12 }).!..&;
+    let sh_arg = abi.cstr.owned(alloc, "sh").map_err(wrap_alloc_error).!..&;
     defer sh_arg.deinit(alloc);
 
-    let dash_lc = abi.cstr.owned(alloc, "-lc").ok_or(.{ code: 12 }).!..&;
+    let dash_lc = abi.cstr.owned(alloc, "-lc").map_err(wrap_alloc_error).!..&;
     defer dash_lc.deinit(alloc);
 
     let wrapped = String.{}..&;
@@ -420,7 +424,7 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
         return .{ Err: .{ code: 12 } };
     }
 
-    let command_c = abi.cstr.owned(alloc, wrapped.as_str()).ok_or(.{ code: 12 }).!..&;
+    let command_c = abi.cstr.owned(alloc, wrapped.as_str()).map_err(wrap_alloc_error).!..&;
     defer command_c.deinit(alloc);
 
     let mut fds = [2]i32.{undef};

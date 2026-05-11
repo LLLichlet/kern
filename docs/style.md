@@ -326,6 +326,14 @@ ordinary argument only because that shape existed first. If shared
 implementation is needed, put it behind a private or parent-private helper and
 expose one ordinary method-shaped path to users.
 
+Do not expose two public spellings for the same operation just to support both
+module style and receiver style. If ordinary usage would read as
+`"hello".println()`, do not also publish `println("hello")`; if a pattern is the
+real receiver, prefer a pattern handle such as `pattern.regex().compile(gpa)`
+and `pattern.regex().find(text, gpa)` over `regex.compile(pattern, gpa)` and
+`regex.find(pattern, text, gpa)`. Duplicate spelling makes generated docs,
+completion, tutorials, and user code diverge without adding a capability.
+
 Keep module-level functions for constructors, loaders, global state, and
 operations without one honest receiver. Once a value exists, let that value be
 the action surface:

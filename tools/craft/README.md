@@ -17,11 +17,14 @@ The current implementation covers:
 - manifest validation
 - `craft check`
 - workspace discovery and validation
+- workspace namespace exports through `[workspace.exports]`
+- workspace package metadata inheritance through `[workspace.package]`
 - local package graph construction
 - resolved external package graph construction
 - `craft.rn` discovery and pre-lock normalization scaffolding
 - normalized package-plan snapshots for declared targets
 - `workspace = true` dependency inheritance
+- dependency export selection with `export = "..."`
 - automatic deterministic canonical `Craft.lock` synchronization during `init` and package-graph commands
 - release-oriented publish readiness checks via `craft publish`
 - build-plan derivation from normalized package targets and resolved dependencies

@@ -286,10 +286,58 @@ The boundaries are:
 
 - module: source organization in the language, controlled by `mod` and `use`.
 - package: a build unit described by `Craft.toml`, containing one or more targets.
-- workspace: a shared root for packages, dependencies, lockfiles, and `.craft/` build state.
+- workspace: a namespace root for packages, dependencies, lockfiles, `.craft/` build state, and exported member packages.
 
 If you come from C/C++, `Craft.toml` is closer to build description, while
 `mod` is source-structure declaration. Kern has no header inclusion model.
+
+`craft init` creates a single-package project. A workspace is a different root
+shape: it has `[workspace]`, not `[package]`, and the buildable packages live in
+member directories.
+
+```toml
+[workspace]
+name = "json-kern"
+members = [
+    "json",
+    "json-test",
+    "json-bench",
+]
+
+[workspace.exports]
+json = { member = "json" }
+
+[workspace.package]
+version = "0.1.0"
+kern = "0.7.5"
+license = "MIT"
+authors = ["Example <dev@example.com>"]
+readme = "README.md"
+repository = "https://example.com/json-kern.git"
+
+[workspace.dependencies]
+json = { path = "json" }
+```
+
+The member package still owns its package name and targets:
+
+```toml
+[package]
+name = "json"
+publish = true
+
+[lib]
+root = "src/lib.rn"
+```
+
+`[workspace.package]` centralizes shared metadata. `version` and `kern` become
+member defaults when a member omits them. `description`, `license`, `authors`,
+`readme`, and `repository` are shared publish defaults. `homepage` and
+`documentation` are accepted shared metadata fields. `publish` is not
+inherited: each member says whether it is released.
+
+`[workspace.exports]` is the external namespace. A workspace can contain helper
+packages that are not exported. External users see only declared exports.
 
 ## Dependencies
 
@@ -298,6 +346,22 @@ Package dependencies live in `[dependencies]`. A local path dependency:
 ```toml
 [dependencies]
 mkiso = { path = "../limine-mkiso", export = "limine-mkiso" }
+```
+
+For an external workspace dependency, the dependency key selects an export with
+the same name:
+
+```toml
+[dependencies]
+json = { git = "https://example.com/json-kern.git", tag = "v0.1.0" }
+```
+
+Use `export` when the local dependency name should differ from the exported
+package name:
+
+```toml
+[dependencies]
+kern_json = { git = "https://example.com/json-kern.git", tag = "v0.1.0", export = "json" }
 ```
 
 Workspaces can reuse dependency declarations:

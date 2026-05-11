@@ -47,6 +47,29 @@ The practical split is:
 - use `craft clean` when derived `.craft/` build, fetch, staging, or analysis
   state should be removed without deleting project sources.
 
+`craft init` creates the smallest ordinary single-package project:
+
+```bash
+mkdir hello
+cd hello
+craft init
+```
+
+The generated shape is intentionally simple:
+
+```text
+hello/
+  Craft.toml
+  Craft.lock
+  src/
+    main.rn
+```
+
+Use this shape for ordinary applications, tools, and small libraries. Move to a
+workspace only when the repository needs more than one package, shared
+dependency declarations, or a package namespace that exports selected members
+to external users.
+
 ## Freestanding Kernel Package
 
 For a minimal freestanding package, keep startup ownership explicit in
@@ -274,12 +297,27 @@ The critical rule is:
 
 ## Package And Workspace Model
 
-`craft` treats workspaces as first-class.
+`craft` has two manifest shapes:
+
+- a package manifest: a `Craft.toml` with `[package]`
+- a workspace manifest: a root `Craft.toml` with `[workspace]`
+
+A manifest must not contain both `[package]` and `[workspace]`. A workspace root
+is a namespace and coordination manifest; buildable packages live in listed
+members. This keeps one obvious place for each concept:
+
+- package identity, targets, runtime, resources, and package-local dependencies
+  live in member `[package]` manifests
+- workspace membership, shared dependency declarations, shared package metadata,
+  and external exports live in the root `[workspace]` manifest
+
+`craft` treats workspaces as first-class:
 
 - one workspace root owns the shared `Craft.lock`
 - workspace members resolve together
 - local members participate as explicit packages in the resolved graph
 - package-level elaboration happens within explicit workspace context
+- external users see the workspace through its declared export namespace
 
 The repository layout keeps `craft` outside `compiler/`:
 
@@ -372,6 +410,8 @@ Manifest rules:
 
 - targets are explicit
 - `[package].kern` must match the current installed Kern toolchain version exactly
+- `[package].name` is always package-local; workspace inheritance never names a member package
+- a root `Craft.toml` cannot be both a package and a workspace
 - `Craft.toml` does not expose an `edition` field before Kern 1.0
 - `[runtime]` is the package-level place to declare startup/library policy
 - `[runtime].entry` controls startup ownership only
@@ -398,6 +438,134 @@ Manifest rules:
   `/**` accepted for subtree notation
 - declarative package-graph structure belongs in `Craft.toml` plus lock-stable `craft.rn`
 - invocation-sensitive adaptation belongs in `build.rn`
+
+## Workspace Namespaces
+
+A workspace root is a namespace manifest. It names the project, lists member
+packages, and declares which member packages are visible to external consumers.
+
+Example library workspace:
+
+```toml
+[workspace]
+name = "json-kern"
+members = [
+    "json",
+    "json-test",
+    "json-bench",
+]
+
+[workspace.exports]
+json = { member = "json" }
+
+[workspace.package]
+version = "0.1.0"
+kern = "0.7.5"
+description = "JSON parsing and document utilities for Kern"
+license = "MIT"
+authors = ["Example <dev@example.com>"]
+readme = "README.md"
+repository = "https://example.com/json-kern.git"
+
+[workspace.dependencies]
+json = { path = "json" }
+```
+
+The member package remains a normal package manifest:
+
+```toml
+[package]
+name = "json"
+publish = true
+
+[lib]
+root = "src/lib.rn"
+```
+
+The test and benchmark tools can stay private to the workspace:
+
+```toml
+[package]
+name = "json-test"
+publish = false
+description = "Extended conformance tests for json-kern"
+
+[[bin]]
+name = "json-test"
+root = "src/main.rn"
+
+[dependencies]
+json = { workspace = true }
+```
+
+The workspace root controls external exports. Internal members are not exported
+just because they are listed in `members`.
+
+Multiple exports are explicit:
+
+```toml
+[workspace.exports]
+json = { member = "json" }
+json-schema = { member = "json-schema" }
+```
+
+External users depend on the workspace source and select an export. If the local
+dependency name is the same as the export name, no extra selector is needed:
+
+```toml
+[dependencies]
+json = { git = "https://example.com/json-kern.git", tag = "v0.1.0" }
+```
+
+If the local dependency name should differ from the export name, use `export`:
+
+```toml
+[dependencies]
+kern_json = { git = "https://example.com/json-kern.git", tag = "v0.1.0", export = "json" }
+```
+
+`export` is the dependency selector for workspace namespaces. It answers "which
+exported package from that source should this dependency edge use?" It is not a
+source alias and it is not a module import. Source files still use Kern `use`
+statements to import names from the dependency's public module API.
+
+`[workspace.package]` is the shared package-metadata table for a workspace.
+Member packages may receive workspace defaults for:
+
+- `version`
+- `kern`
+- `description`
+- `license`
+- `authors`
+- `readme`
+- `repository`
+- `homepage`
+- `documentation`
+
+`version` and `kern` participate in member package identity and validation when
+the member omits them. `description`, `license`, `authors`, `readme`, and
+`repository` are used as defaults for publish-readiness checks and publish
+proofs. `homepage` and `documentation` are accepted shared metadata fields for
+the package surface. A member can override an inherited/defaulted field by
+declaring it directly under its own `[package]`.
+
+`publish` is deliberately not inherited. Each member declares its own release
+intent with `publish = true` or `publish = false`.
+
+`[workspace.dependencies]` is dependency declaration reuse for members:
+
+```toml
+[workspace.dependencies]
+json = { path = "json" }
+
+# member Craft.toml
+[dependencies]
+json = { workspace = true }
+```
+
+The member owns the dependency edge. The workspace only owns the shared source
+declaration. A member can still add local feature choices on the inherited
+edge.
 
 ## Publish Readiness
 

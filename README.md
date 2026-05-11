@@ -103,6 +103,12 @@ craft run --example smoke
 craft build --profile release
 ```
 
+`craft init` starts as a single-package project. Multi-package repositories use
+a `[workspace]` root that names members, centralizes shared metadata with
+`[workspace.package]`, and exports selected member packages through
+`[workspace.exports]`. See [docs/craft.md](docs/craft.md) for the full Craft
+model.
+
 ## Single File
 
 For direct compiler use, call `kernc` with explicit runtime and library choices:

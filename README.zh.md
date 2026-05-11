@@ -92,6 +92,10 @@ craft run --example smoke
 craft build --profile release
 ```
 
+`craft init` 从单包项目开始。多包仓库使用 `[workspace]` 根来列出成员，
+用 `[workspace.package]` 集中共享元数据，并通过 `[workspace.exports]`
+声明哪些成员包导出给外部用户。完整的 Craft 模型见 [docs/craft.md](docs/craft.md)。
+
 ## 单文件编译
 
 如果绕过 `craft` 直接调用编译器，需要显式选择运行时入口和库组合：

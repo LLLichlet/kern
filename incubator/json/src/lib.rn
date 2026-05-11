@@ -92,6 +92,7 @@ pub enum FloatDecodeError {
 pub enum MaterializeError {
     Parse: ParseError,
     String: StringDecodeError,
+    CapacityOverflow,
     OutOfMemory,
 };
 
@@ -110,6 +111,7 @@ pub enum PackedIndexedObjectDocumentError {
 };
 
 pub enum OwnedBuildError {
+    CapacityOverflow,
     OutOfMemory,
 };
 

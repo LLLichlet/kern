@@ -1,6 +1,6 @@
 use base.coll.{List, String};
 use base.mem.{Layout, layout_of};
-use base.mem.alloc.{Allocator, Arena};
+use base.mem.alloc.{AllocError, Allocator, Arena};
 use base.num.USIZE_MAX;
 use ..{
     FieldDecodeError,
@@ -204,16 +204,32 @@ fn deinit_owned_object_entry_contents(alloc: &mut Allocator, entry: &mut OwnedOb
     deinit_owned_value_contents(alloc, entry.*.value);
 }
 
+fn materialize_alloc_error(err: AllocError) MaterializeError {
+    match (err) {
+        .CapacityOverflow => return .CapacityOverflow,
+        .OutOfMemory => return .OutOfMemory,
+    }
+}
+
+fn owned_build_alloc_error(err: AllocError) OwnedBuildError {
+    match (err) {
+        .CapacityOverflow => return .CapacityOverflow,
+        .OutOfMemory => return .OutOfMemory,
+    }
+}
+
 impl &mut OwnedValuePool {
     #[inline]
-    fn grow(alloc: &mut Allocator) bool {
+    fn try_grow(alloc: &mut Allocator) void!AllocError {
         let capacity = if (self.*.next_block_capacity == 0) {
             usize.{8}
         } else {
             self.*.next_block_capacity
         };
-        let .{ Some: layout } = owned_value_block_layout(capacity) else return false;
-        let .{ Some: raw } = alloc.alloc(layout) else return false;
+        let .{ Some: layout } = owned_value_block_layout(capacity)
+            else return .{ Err: .CapacityOverflow };
+        let .{ Some: raw } = alloc.alloc(layout)
+            else return .{ Err: .OutOfMemory };
 
         let block = raw as &mut OwnedValueNodeBlock;
         block.next = self.*.blocks;
@@ -221,32 +237,36 @@ impl &mut OwnedValuePool {
         block.capacity = capacity;
         self.*.blocks = .{ Some: block };
         self.*.next_block_capacity = owned_value_pool_next_capacity(capacity);
-        return true;
+        return .{ Ok: {} };
     }
 
     #[inline]
-    fn alloc_node_fresh(alloc: &mut Allocator, value: OwnedValue) ?&mut OwnedValue {
+    fn try_alloc_node_fresh(
+        alloc: &mut Allocator,
+        value: OwnedValue,
+    ) (&mut OwnedValue)!AllocError {
         let needs_grow = match (self.*.blocks) {
             .None => true,
             .{ Some: block } => block.used == block.capacity,
         };
         if (needs_grow) {
-            if (!self.grow(alloc)) {
-                return .None;
-            }
+            self.try_grow(alloc).!;
         }
 
-        let .{ Some: block } = self.*.blocks else return .None;
+        let .{ Some: block } = self.*.blocks else @trap();
         let ptr = owned_value_block_entries(block) + block.used;
         block.used += 1;
         ptr.* = value;
-        return .{ Some: ptr };
+        return .{ Ok: ptr };
     }
 
     #[inline]
-    fn alloc_node(alloc: &mut Allocator, value: OwnedValue) ?&mut OwnedValue {
+    fn try_alloc_node(
+        alloc: &mut Allocator,
+        value: OwnedValue,
+    ) (&mut OwnedValue)!AllocError {
         let ptr = if (self.*.free.is_some()) {
-            let .{ Some: ptr } = self.*.free else return .None;
+            let .{ Some: ptr } = self.*.free else @trap();
             let slot = ptr as &mut FreedOwnedValueNode;
             self.*.free = slot.next;
             ptr
@@ -256,18 +276,16 @@ impl &mut OwnedValuePool {
                 .{ Some: block } => block.used == block.capacity,
             };
             if (needs_grow) {
-                if (!self.grow(alloc)) {
-                    return .None;
-                }
+                self.try_grow(alloc).!;
             }
 
-            let .{ Some: block } = self.*.blocks else return .None;
+            let .{ Some: block } = self.*.blocks else @trap();
             let ptr = owned_value_block_entries(block) + block.used;
             block.used += 1;
             ptr
         };
         ptr.* = value;
-        return .{ Some: ptr };
+        return .{ Ok: ptr };
     }
 
     fn free_node(node: &mut OwnedValue) void {
@@ -291,26 +309,20 @@ impl &mut OwnedValuePool {
 
 fn clone_number_text(alloc: &mut Allocator, raw: &[u8]) String!MaterializeError {
     let mut out = String.{};
-    if (out..&.try_clone_from_exact(alloc, raw).is_err()) {
-        return .{ Err: MaterializeError.OutOfMemory };
-    }
+    out..&.try_clone_from_exact(alloc, raw).map_err(materialize_alloc_error).!;
     return .{ Ok: out };
 }
 
 fn clone_number_text_in_arena(arena: &mut Arena, raw: &[u8]) String!MaterializeError {
     let alloc = &mut Allocator.{ arena };
     let mut out = String.{};
-    if (out..&.try_clone_from_exact(alloc, raw).is_err()) {
-        return .{ Err: MaterializeError.OutOfMemory };
-    }
+    out..&.try_clone_from_exact(alloc, raw).map_err(materialize_alloc_error).!;
     return .{ Ok: out };
 }
 
 fn clone_owned_text(alloc: &mut Allocator, text: &[u8]) String!OwnedBuildError {
     let mut out = String.{};
-    if (out..&.try_clone_from_exact(alloc, text).is_err()) {
-        return .{ Err: OwnedBuildError.OutOfMemory };
-    }
+    out..&.try_clone_from_exact(alloc, text).map_err(owned_build_alloc_error).!;
     return .{ Ok: out };
 }
 
@@ -438,17 +450,22 @@ fn parse_owned_array_from_start(
                 },
             };
         let mut item = parsed.value;
-        let .{ Some: item_ptr } = out.nodes..&.alloc_node_fresh(alloc, item) else {
-            item..&.deinit(alloc);
-            out..&.deinit(alloc);
-            return .{ Err: MaterializeError.OutOfMemory };
+        let .{ Ok: item_ptr } = out.nodes..&.try_alloc_node_fresh(alloc, item)
+            else {
+                .{ Err: err } => {
+                    item..&.deinit(alloc);
+                    out..&.deinit(alloc);
+                    return .{ Err: materialize_alloc_error(err) };
+                },
+            };
+        let .{ Ok: _ } = out.items..&.try_push(alloc, item_ptr) else {
+            .{ Err: err } => {
+                deinit_owned_value_contents(alloc, item_ptr);
+                out.nodes..&.free_node(item_ptr);
+                out..&.deinit(alloc);
+                return .{ Err: materialize_alloc_error(err) };
+            },
         };
-        if (out.items..&.try_push(alloc, item_ptr).is_err()) {
-            deinit_owned_value_contents(alloc, item_ptr);
-            out.nodes..&.free_node(item_ptr);
-            out..&.deinit(alloc);
-            return .{ Err: MaterializeError.OutOfMemory };
-        }
         saw_item = true;
 
         let end = skip_ws(text, parsed.next);
@@ -503,17 +520,22 @@ fn parse_owned_array_from_start_in_arena(
                 },
             };
         let mut item = parsed.value;
-        let .{ Some: item_ptr } = out.nodes..&.alloc_node_fresh(alloc, item) else {
-            item..&.deinit(alloc);
-            out..&.deinit(alloc);
-            return .{ Err: MaterializeError.OutOfMemory };
+        let .{ Ok: item_ptr } = out.nodes..&.try_alloc_node_fresh(alloc, item)
+            else {
+                .{ Err: err } => {
+                    item..&.deinit(alloc);
+                    out..&.deinit(alloc);
+                    return .{ Err: materialize_alloc_error(err) };
+                },
+            };
+        let .{ Ok: _ } = out.items..&.try_push(alloc, item_ptr) else {
+            .{ Err: err } => {
+                deinit_owned_value_contents(alloc, item_ptr);
+                out.nodes..&.free_node(item_ptr);
+                out..&.deinit(alloc);
+                return .{ Err: materialize_alloc_error(err) };
+            },
         };
-        if (out.items..&.try_push(alloc, item_ptr).is_err()) {
-            deinit_owned_value_contents(alloc, item_ptr);
-            out.nodes..&.free_node(item_ptr);
-            out..&.deinit(alloc);
-            return .{ Err: MaterializeError.OutOfMemory };
-        }
         saw_item = true;
 
         let end = skip_ws(text, parsed.next);
@@ -606,19 +628,24 @@ fn parse_owned_object_from_start(
             };
 
         let mut child = parsed.value;
-        let .{ Some: value_ptr } = out.nodes..&.alloc_node_fresh(alloc, child) else {
-            child..&.deinit(alloc);
-            key..&.deinit(alloc);
-            out..&.deinit(alloc);
-            return .{ Err: MaterializeError.OutOfMemory };
-        };
+        let .{ Ok: value_ptr } = out.nodes..&.try_alloc_node_fresh(alloc, child)
+            else {
+                .{ Err: err } => {
+                    child..&.deinit(alloc);
+                    key..&.deinit(alloc);
+                    out..&.deinit(alloc);
+                    return .{ Err: materialize_alloc_error(err) };
+                },
+            };
         let mut entry = OwnedObjectEntry.{ key: key, value: value_ptr };
-        if (out.entries..&.try_push(alloc, entry).is_err()) {
-            deinit_owned_object_entry_contents(alloc, entry..&);
-            out.nodes..&.free_node(entry.value);
-            out..&.deinit(alloc);
-            return .{ Err: MaterializeError.OutOfMemory };
-        }
+        let .{ Ok: _ } = out.entries..&.try_push(alloc, entry) else {
+            .{ Err: err } => {
+                deinit_owned_object_entry_contents(alloc, entry..&);
+                out.nodes..&.free_node(entry.value);
+                out..&.deinit(alloc);
+                return .{ Err: materialize_alloc_error(err) };
+            },
+        };
         saw_field = true;
 
         let end = skip_ws(text, parsed.next);
@@ -712,19 +739,24 @@ fn parse_owned_object_from_start_in_arena(
             };
 
         let mut child = parsed.value;
-        let .{ Some: value_ptr } = out.nodes..&.alloc_node_fresh(alloc, child) else {
-            child..&.deinit(alloc);
-            key..&.deinit(alloc);
-            out..&.deinit(alloc);
-            return .{ Err: MaterializeError.OutOfMemory };
-        };
+        let .{ Ok: value_ptr } = out.nodes..&.try_alloc_node_fresh(alloc, child)
+            else {
+                .{ Err: err } => {
+                    child..&.deinit(alloc);
+                    key..&.deinit(alloc);
+                    out..&.deinit(alloc);
+                    return .{ Err: materialize_alloc_error(err) };
+                },
+            };
         let mut entry = OwnedObjectEntry.{ key: key, value: value_ptr };
-        if (out.entries..&.try_push(alloc, entry).is_err()) {
-            deinit_owned_object_entry_contents(alloc, entry..&);
-            out.nodes..&.free_node(entry.value);
-            out..&.deinit(alloc);
-            return .{ Err: MaterializeError.OutOfMemory };
-        }
+        let .{ Ok: _ } = out.entries..&.try_push(alloc, entry) else {
+            .{ Err: err } => {
+                deinit_owned_object_entry_contents(alloc, entry..&);
+                out.nodes..&.free_node(entry.value);
+                out..&.deinit(alloc);
+                return .{ Err: materialize_alloc_error(err) };
+            },
+        };
         saw_field = true;
 
         let end = skip_ws(text, parsed.next);
@@ -1023,23 +1055,25 @@ impl &OwnedArray {
 
 impl &mut OwnedArray {
     pub fn try_reserve(alloc: &mut Allocator, additional: usize) void!OwnedBuildError {
-        match (self.*.items..&.try_reserve(alloc, additional)) {
-            .{ Ok: _ } => return .{ Ok: {} },
-            .{ Err: _ } => return .{ Err: .OutOfMemory },
-        }
+        return self.*.items..&.try_reserve(alloc, additional).map_err(owned_build_alloc_error);
     }
 
     pub fn push(alloc: &mut Allocator, value: OwnedValue) (&mut OwnedValue)!OwnedBuildError {
         let mut owned_value = value;
-        let .{ Some: value_ptr } = self.*.nodes..&.alloc_node(alloc, owned_value) else {
-            owned_value..&.deinit(alloc);
-            return .{ Err: OwnedBuildError.OutOfMemory };
+        let .{ Ok: value_ptr } = self.*.nodes..&.try_alloc_node(alloc, owned_value)
+            else {
+                .{ Err: err } => {
+                    owned_value..&.deinit(alloc);
+                    return .{ Err: owned_build_alloc_error(err) };
+                },
+            };
+        let .{ Ok: _ } = self.*.items..&.try_push(alloc, value_ptr) else {
+            .{ Err: err } => {
+                deinit_owned_value_contents(alloc, value_ptr);
+                self.*.nodes..&.free_node(value_ptr);
+                return .{ Err: owned_build_alloc_error(err) };
+            },
         };
-        if (self.*.items..&.try_push(alloc, value_ptr).is_err()) {
-            deinit_owned_value_contents(alloc, value_ptr);
-            self.*.nodes..&.free_node(value_ptr);
-            return .{ Err: OwnedBuildError.OutOfMemory };
-        }
         return .{ Ok: value_ptr };
     }
 
@@ -1429,10 +1463,7 @@ impl &OwnedObject {
 
 impl &mut OwnedObject {
     pub fn try_reserve(alloc: &mut Allocator, additional: usize) void!OwnedBuildError {
-        match (self.*.entries..&.try_reserve(alloc, additional)) {
-            .{ Ok: _ } => return .{ Ok: {} },
-            .{ Err: _ } => return .{ Err: .OutOfMemory },
-        }
+        return self.*.entries..&.try_reserve(alloc, additional).map_err(owned_build_alloc_error);
     }
 
     pub fn append(
@@ -1445,18 +1476,22 @@ impl &mut OwnedObject {
                 .{ Err: err } => return .{ Err: err },
             };
         let mut owned_value = value;
-        let .{ Some: value_ptr } = self.*.nodes..&.alloc_node(alloc, owned_value)
+        let .{ Ok: value_ptr } = self.*.nodes..&.try_alloc_node(alloc, owned_value)
             else {
-                owned_key..&.deinit(alloc);
-                owned_value..&.deinit(alloc);
-                return .{ Err: OwnedBuildError.OutOfMemory };
+                .{ Err: err } => {
+                    owned_key..&.deinit(alloc);
+                    owned_value..&.deinit(alloc);
+                    return .{ Err: owned_build_alloc_error(err) };
+                },
             };
         let mut entry = OwnedObjectEntry.{ key: owned_key, value: value_ptr };
-        if (self.*.entries..&.try_push(alloc, entry).is_err()) {
-            deinit_owned_object_entry_contents(alloc, entry..&);
-            self.*.nodes..&.free_node(value_ptr);
-            return .{ Err: OwnedBuildError.OutOfMemory };
-        }
+        let .{ Ok: _ } = self.*.entries..&.try_push(alloc, entry) else {
+            .{ Err: err } => {
+                deinit_owned_object_entry_contents(alloc, entry..&);
+                self.*.nodes..&.free_node(value_ptr);
+                return .{ Err: owned_build_alloc_error(err) };
+            },
+        };
         return .{ Ok: value_ptr };
     }
 

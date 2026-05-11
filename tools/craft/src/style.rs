@@ -226,16 +226,25 @@ pub fn collect_workspace_style_metrics(
     members: &[WorkspaceMember],
 ) -> Result<Vec<PackageStyleSummary>> {
     let mut summaries = Vec::new();
-    summaries.push(collect_package_style_metrics(
+    let member_roots = members
+        .iter()
+        .filter_map(|member| member.manifest_path.parent().map(Path::to_path_buf))
+        .collect::<Vec<_>>();
+    let root_summary = collect_package_style_metrics(
         manifest_path,
         manifest,
         &StyleConfig::from_manifest(manifest),
-    )?);
+        &member_roots,
+    )?;
+    if manifest.package.is_some() || root_summary.metrics.files > 0 {
+        summaries.push(root_summary);
+    }
     for member in members {
         summaries.push(collect_package_style_metrics(
             &member.manifest_path,
             &member.manifest,
             &StyleConfig::from_manifest(&member.manifest),
+            &[],
         )?);
     }
     summaries.sort_by(|lhs, rhs| lhs.label.cmp(&rhs.label).then(lhs.root.cmp(&rhs.root)));
@@ -246,6 +255,7 @@ fn collect_package_style_metrics(
     manifest_path: &Path,
     manifest: &Manifest,
     config: &StyleConfig,
+    excluded_roots: &[PathBuf],
 ) -> Result<PackageStyleSummary> {
     let root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let mut metrics = StyleSummary {
@@ -254,7 +264,7 @@ fn collect_package_style_metrics(
     };
     let mut suggestions = Vec::new();
 
-    for path in kern_source_files(root)? {
+    for path in kern_source_files(root, excluded_roots)? {
         let display_path = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
         if !config.path_in_scope(&display_path) {
             continue;
@@ -273,24 +283,28 @@ fn collect_package_style_metrics(
     })
 }
 
-fn kern_source_files(root: &Path) -> Result<Vec<PathBuf>> {
+fn kern_source_files(root: &Path, excluded_roots: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    collect_kern_source_files(root, &mut files)?;
+    collect_kern_source_files(root, excluded_roots, &mut files)?;
     files.sort();
     Ok(files)
 }
 
-fn collect_kern_source_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_kern_source_files(
+    dir: &Path,
+    excluded_roots: &[PathBuf],
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
     let entries = fs::read_dir(dir).map_err(|err| Error::from_io(dir, err))?;
     for entry in entries {
         let entry = entry.map_err(Error::from_io_plain)?;
         let path = entry.path();
         let file_type = entry.file_type().map_err(Error::from_io_plain)?;
         if file_type.is_dir() {
-            if is_skipped_dir(&path) {
+            if is_skipped_dir(&path) || is_excluded_root(&path, excluded_roots) {
                 continue;
             }
-            collect_kern_source_files(&path, files)?;
+            collect_kern_source_files(&path, excluded_roots, files)?;
             continue;
         }
         if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("rn") {
@@ -298,6 +312,10 @@ fn collect_kern_source_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()>
         }
     }
     Ok(())
+}
+
+fn is_excluded_root(path: &Path, excluded_roots: &[PathBuf]) -> bool {
+    excluded_roots.iter().any(|root| path == root)
 }
 
 fn is_skipped_dir(path: &Path) -> bool {
@@ -703,12 +721,28 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
 mod tests {
     use super::{
         StyleConfig, StyleRule, StyleSummary, SuggestionSeverity, borrowed_receiver_count,
-        collect_source_suggestions, count_source_metrics, find_token_outside_string,
-        is_index_while_line, is_private_helper_declaration_line, is_public_declaration_line,
-        missing_module_doc, path_matches, postfix_call_count_outside_string,
+        collect_source_suggestions, collect_workspace_style_metrics, count_source_metrics,
+        find_token_outside_string, is_index_while_line, is_private_helper_declaration_line,
+        is_public_declaration_line, missing_module_doc, path_matches,
+        postfix_call_count_outside_string,
     };
-    use crate::manifest::{CraftConfig, CraftStyleConfig, CraftStyleSuggestionLevel, Manifest};
+    use crate::manifest::{
+        CraftConfig, CraftStyleConfig, CraftStyleSuggestionLevel, Manifest, Package,
+    };
+    use crate::workspace::WorkspaceMember;
+    use std::fs;
     use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(prefix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn counts_comment_and_doc_comment_lines() {
@@ -935,6 +969,74 @@ fn demo() void {
                 &excluded_config,
             )
             .is_empty()
+        );
+    }
+
+    #[test]
+    fn workspace_style_metrics_do_not_rescan_member_sources() {
+        let root = temp_dir("craft-style-workspace-members");
+        fs::write(
+            root.join("Craft.toml"),
+            "[workspace]\nname = \"workspace\"\nmembers = [\"member\"]\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("tools")).unwrap();
+        fs::write(
+            root.join("tools").join("main.rn"),
+            "fn root_helper() void {}\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("member").join("src")).unwrap();
+        fs::write(
+            root.join("member").join("Craft.toml"),
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nkern = \"0.7.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("member").join("src").join("lib.rn"),
+            "fn member_helper() void {}\n",
+        )
+        .unwrap();
+
+        let manifest = Manifest::load(&root.join("Craft.toml")).unwrap();
+        let member_manifest = Manifest {
+            package: Some(Package {
+                name: "member".to_string(),
+                version: "0.1.0".to_string(),
+                kern: "0.7.0".to_string(),
+                ..Package::default()
+            }),
+            ..Manifest::default()
+        };
+        let members = vec![WorkspaceMember {
+            manifest_path: root.join("member").join("Craft.toml"),
+            manifest: member_manifest,
+        }];
+
+        let summaries =
+            collect_workspace_style_metrics(&root.join("Craft.toml"), &manifest, &members).unwrap();
+        let workspace_summary = summaries
+            .iter()
+            .find(|summary| summary.label == "<workspace>")
+            .unwrap();
+        let member_summary = summaries
+            .iter()
+            .find(|summary| summary.label == "member 0.1.0")
+            .unwrap();
+
+        assert_eq!(workspace_summary.metrics.files, 1);
+        assert_eq!(member_summary.metrics.files, 1);
+        assert!(
+            workspace_summary
+                .suggestions
+                .iter()
+                .all(|suggestion| suggestion.path == Path::new("tools/main.rn"))
+        );
+        assert!(
+            member_summary
+                .suggestions
+                .iter()
+                .all(|suggestion| suggestion.path == Path::new("src/lib.rn"))
         );
     }
 

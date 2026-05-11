@@ -79,7 +79,11 @@ impl Lockfile {
                     .manifest_path
                     .parent()
                     .unwrap_or_else(|| Path::new("."));
-                let manifest = crate::manifest::Manifest::load(&package.manifest_path)?;
+                let manifest = crate::workspace::load_member_manifest(
+                    manifest_path,
+                    &elaboration.manifest,
+                    &package.manifest_path,
+                )?;
                 publish_proofs.push(publish_proof::expected_publish_proof(
                     package_id.clone(),
                     package_root,
@@ -148,7 +152,11 @@ fn publish_repository(
     package_manifest_path: &Path,
     root_manifest_path: &Path,
 ) -> Result<Option<String>> {
-    let manifest = crate::manifest::Manifest::load(package_manifest_path)?;
+    let manifest = crate::workspace::load_member_manifest(
+        root_manifest_path,
+        root_manifest,
+        package_manifest_path,
+    )?;
     let package_repository = manifest
         .package
         .as_ref()

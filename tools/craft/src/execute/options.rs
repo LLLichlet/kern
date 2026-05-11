@@ -5,7 +5,6 @@ use super::{
 use crate::build_plan::{CompileAction, LinkAction};
 use crate::error::{Error, Result};
 use crate::graph::BuildDomain;
-use crate::manifest::Manifest;
 use crate::resolver::ExternalPackageId;
 use crate::target_defaults::apply_target_runtime_defaults;
 use kernc_utils::config::{
@@ -73,8 +72,7 @@ pub(super) fn apply_manifest_runtime_options(
         return Ok(());
     }
 
-    let manifest = Manifest::load(manifest_path)?;
-    manifest.validate(manifest_path)?;
+    let manifest = crate::workspace::load_manifest_with_project_defaults(manifest_path)?;
     let cached = ManifestRuntimeOptions {
         entry: manifest.runtime.as_ref().and_then(|runtime| runtime.entry),
         libc: manifest.runtime.as_ref().and_then(|runtime| runtime.libc),

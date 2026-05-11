@@ -66,6 +66,44 @@ pub fn load_members(manifest_path: &Path, manifest: &Manifest) -> Result<Vec<Wor
     Ok(members)
 }
 
+pub fn load_member_manifest(
+    workspace_manifest_path: &Path,
+    workspace_manifest: &Manifest,
+    member_manifest_path: &Path,
+) -> Result<Manifest> {
+    let mut manifest = Manifest::load(member_manifest_path)?;
+    if manifest.package.is_some()
+        && workspace_manifest.workspace.is_some()
+        && member_belongs_to_workspace(
+            workspace_manifest_path,
+            workspace_manifest,
+            member_manifest_path,
+        )
+    {
+        inherit_workspace_package_defaults(
+            &mut manifest,
+            workspace_manifest
+                .workspace
+                .as_ref()
+                .and_then(|workspace| workspace.package.as_ref()),
+        );
+    }
+    manifest.validate(member_manifest_path)?;
+    Ok(manifest)
+}
+
+pub fn load_manifest_with_project_defaults(manifest_path: &Path) -> Result<Manifest> {
+    let manifest = Manifest::load(manifest_path)?;
+    if manifest.package.is_some()
+        && let Some(member_manifest) = inherited_member_manifest_for_path(manifest_path)?
+    {
+        return Ok(member_manifest);
+    }
+
+    manifest.validate(manifest_path)?;
+    Ok(manifest)
+}
+
 pub fn exported_package(
     manifest_path: &Path,
     manifest: &Manifest,
@@ -164,6 +202,53 @@ fn validate_exports(
         }
     }
     Ok(())
+}
+
+fn member_belongs_to_workspace(
+    workspace_manifest_path: &Path,
+    workspace_manifest: &Manifest,
+    member_manifest_path: &Path,
+) -> bool {
+    let Some(workspace) = &workspace_manifest.workspace else {
+        return false;
+    };
+    let relative = member_path(workspace_manifest_path, member_manifest_path);
+    workspace.members.iter().any(|member| member == &relative)
+}
+
+fn inherited_member_manifest_for_path(member_manifest_path: &Path) -> Result<Option<Manifest>> {
+    let mut current = member_manifest_path
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf);
+
+    while let Some(dir) = current {
+        let candidate = dir.join("Craft.toml");
+        if candidate.is_file() {
+            let workspace_manifest = Manifest::load(&candidate)?;
+            workspace_manifest.validate(&candidate)?;
+            if workspace_manifest.workspace.is_some() {
+                for member in load_members(&candidate, &workspace_manifest)? {
+                    if same_manifest_path(&member.manifest_path, member_manifest_path) {
+                        return Ok(Some(member.manifest));
+                    }
+                }
+            }
+        }
+        current = dir.parent().map(Path::to_path_buf);
+    }
+
+    Ok(None)
+}
+
+fn same_manifest_path(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 fn member_path(workspace_manifest_path: &Path, member_manifest_path: &Path) -> String {

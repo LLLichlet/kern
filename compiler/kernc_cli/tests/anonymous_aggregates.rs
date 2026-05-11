@@ -336,6 +336,31 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_anonymous_aggregate_function_signatures_without_literal_access() {
+    let output = compile_source(
+        r#"
+#[export_name("accept_pair")]
+fn accept_pair(pair: struct { x: i32, y: i32 }) i32 {
+    let _ = pair;
+    return 0;
+}
+
+#[export_name("accept_word")]
+fn accept_word(word: union { int: i32, bytes: [4]u8 }) i32 {
+    let _ = word;
+    return 0;
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc anonymous aggregate signature regression");
+}
+
+#[test]
 fn rejects_const_generic_named_struct_pointer_decay_to_mismatched_anonymous_struct() {
     let output = compile_source(
         r#"

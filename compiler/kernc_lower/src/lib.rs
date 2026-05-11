@@ -768,10 +768,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
             TypeKind::Alias(_, inner) => self.track_pure_enum_repr_in_type(inner),
-            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => {
-                for field in fields {
-                    self.track_pure_enum_repr_in_type(field.ty);
-                }
+            TypeKind::AnonymousStruct(..) => {
+                self.instantiate_anon_struct(norm_ty);
+            }
+            TypeKind::AnonymousUnion(..) => {
+                self.instantiate_anon_union(norm_ty);
             }
             TypeKind::AnonymousEnum(_) => {
                 self.instantiate_anon_enum(norm_ty);

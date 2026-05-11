@@ -4,12 +4,22 @@
 //! contiguous buffer and grows geometrically.
 
 use base.mem.alloc.{AllocError, Allocator};
-use base.mem.{Layout, memmove};
+use base.mem.{Layout, memmove, null_mut_ptr};
 use base.num.USIZE_MAX;
 use base.coll.{SliceIter, SliceMutIter};
 use base.cmp.{Ord, Ordering};
 
 mod query;
+
+/// Errors reported by indexed insertion.
+pub enum InsertError {
+    /// `index` is past the end of the collection.
+    IndexOutOfBounds,
+    /// Requested capacity or byte size cannot fit in `usize`.
+    CapacityOverflow,
+    /// The allocator could not satisfy the request.
+    OutOfMemory,
+};
 
 /// A growable contiguous collection of `T`.
 pub/ struct List[T] {
@@ -199,13 +209,20 @@ impl[T] &mut List[T] {
     }
 
     /// Inserts one item at `index`.
-    pub fn insert(alloc: &mut Allocator, index: usize, item: T) bool {
-        if (index > self.len) return false;
-        if (self.try_reserve(alloc, 1).is_err()) return false;
+    pub fn try_insert(alloc: &mut Allocator, index: usize, item: T) void!InsertError {
+        if (index > self.len) return .{ Err: .IndexOutOfBounds };
+        let .{ Ok: _ } = self.try_reserve(alloc, 1) else {
+            .{ Err: err } => {
+                match (err) {
+                    .CapacityOverflow => return .{ Err: .CapacityOverflow },
+                    .OutOfMemory => return .{ Err: .OutOfMemory },
+                }
+            },
+        };
 
         if (self.is_zst()) {
             self.len += 1;
-            return true;
+            return .{ Ok: {} };
         }
 
         let moved = self.len - index;
@@ -220,33 +237,38 @@ impl[T] &mut List[T] {
 
         (self.ptr + index).* = item;
         self.len += 1;
-        return true;
+        return .{ Ok: {} };
     }
 
     /// Inserts every item from `slice` at `index`.
-    pub fn insert_slice(alloc: &mut Allocator, index: usize, slice: &[T]) bool {
+    pub fn try_insert_slice(alloc: &mut Allocator, index: usize, slice: &[T]) void!InsertError {
         if (index > self.len) {
-            return false;
+            return .{ Err: .IndexOutOfBounds };
         }
 
         let additional = #slice;
         if (additional == 0) {
-            return true;
+            return .{ Ok: {} };
         }
 
         let old_len = self.len;
-        if (self.try_reserve(alloc, additional).is_err()) {
-            return false;
-        }
+        let .{ Ok: _ } = self.try_reserve(alloc, additional) else {
+            .{ Err: err } => {
+                match (err) {
+                    .CapacityOverflow => return .{ Err: .CapacityOverflow },
+                    .OutOfMemory => return .{ Err: .OutOfMemory },
+                }
+            },
+        };
 
         if (self.is_zst()) {
             self.len = old_len + additional;
-            return true;
+            return .{ Ok: {} };
         }
 
         let elem_size = self.elem_size();
         let mut src_ptr = slice.[0].& as &T;
-        let mut temp_ptr = usize.{1}.as_mut_ptr[u8]();
+        let mut temp_ptr = null_mut_ptr[u8]();
         let mut temp_layout = Layout.{ size: 0, align: 1 };
 
         let base_addr = self.ptr as usize;
@@ -255,9 +277,10 @@ impl[T] &mut List[T] {
         if (src_addr >= base_addr and src_addr < end_addr) {
             // `slice` aliases the current list storage. Reserve may move the
             // buffer, so materialize the source range before shifting data.
-            let .{ Some: layout } = self.buffer_layout(additional) else return false;
+            let .{ Some: layout } = self.buffer_layout(additional)
+                else return .{ Err: .CapacityOverflow };
             temp_layout = layout;
-            let .{ Some: ptr } = alloc.alloc(temp_layout) else return false;
+            let .{ Some: ptr } = alloc.alloc(temp_layout) else return .{ Err: .OutOfMemory };
             temp_ptr = ptr;
             @memcpy(temp_ptr, src_ptr as &u8, additional * elem_size);
             src_ptr = temp_ptr as &T;
@@ -282,7 +305,7 @@ impl[T] &mut List[T] {
         let copy_bytes = additional * elem_size;
         _ = memmove((self.ptr + index) as &mut u8, src_ptr as &u8, copy_bytes);
         self.len = old_len + additional;
-        return true;
+        return .{ Ok: {} };
     }
 
     /// Removes and returns the item at `index`, shifting later items left.

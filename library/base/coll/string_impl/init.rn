@@ -3,7 +3,7 @@
 //! `String` is a growable UTF-8-oriented byte buffer built on top of `List[u8]`.
 
 use base.mem.alloc.{AllocError, Allocator};
-use base.coll.List;
+use base.coll.{InsertError, List};
 
 mod query;
 
@@ -14,18 +14,18 @@ pub/ struct String {
 
 impl &mut String {
     /// Inserts a single byte at `index`.
-    pub fn insert_char(alloc: &mut Allocator, index: usize, byte: u8) bool {
-        return self.raw..&.insert(alloc, index, byte);
+    pub fn try_insert_char(alloc: &mut Allocator, index: usize, byte: u8) void!InsertError {
+        return self.raw..&.try_insert(alloc, index, byte);
     }
 
     /// Inserts a byte slice at `index`.
-    pub fn insert_str(alloc: &mut Allocator, index: usize, text: &[u8]) bool {
-        return self.raw..&.insert_slice(alloc, index, text);
+    pub fn try_insert_str(alloc: &mut Allocator, index: usize, text: &[u8]) void!InsertError {
+        return self.raw..&.try_insert_slice(alloc, index, text);
     }
 
     /// Inserts another string at `index`.
-    pub fn insert_string(alloc: &mut Allocator, index: usize, other: &String) bool {
-        return self.insert_str(alloc, index, other.as_str());
+    pub fn try_insert_string(alloc: &mut Allocator, index: usize, other: &String) void!InsertError {
+        return self.try_insert_str(alloc, index, other.as_str());
     }
 
     /// Returns a mutable byte slice view.

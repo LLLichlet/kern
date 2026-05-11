@@ -19,7 +19,7 @@ pub use .iter.{
     SliceIter,
     SliceMutIter,
 };
-pub use .list_impl.List;
+pub use .list_impl.{InsertError, List};
 pub use .map_impl.Map;
 pub use .ranges.{
     Range,

@@ -169,7 +169,7 @@ impl &mut TextBuffer {
         if (col > line.len()) {
             return false;
         }
-        if (!line.insert_char(alloc, col, byte)) {
+        if (line.try_insert_char(alloc, col, byte).is_err()) {
             return false;
         }
         self.dirty = true;
@@ -187,7 +187,7 @@ impl &mut TextBuffer {
         if (tail..&.try_push_str(alloc, text.&[col .. #text]).is_err()) {
             return false;
         }
-        if (!self.lines..&.insert(alloc, row + 1, tail)) {
+        if (self.lines..&.try_insert(alloc, row + 1, tail).is_err()) {
             tail..&.deinit(alloc);
             return false;
         }
@@ -203,7 +203,7 @@ impl &mut TextBuffer {
         if (row >= self.lines.&.len()) {
             return false;
         }
-        if (!self.lines..&.insert(alloc, row + 1, String.{})) {
+        if (self.lines..&.try_insert(alloc, row + 1, String.{}).is_err()) {
             return false;
         }
         self.dirty = true;
@@ -215,7 +215,7 @@ impl &mut TextBuffer {
         if (row > self.lines.&.len()) {
             return false;
         }
-        if (!self.lines..&.insert(alloc, row, String.{})) {
+        if (self.lines..&.try_insert(alloc, row, String.{}).is_err()) {
             return false;
         }
         self.dirty = true;

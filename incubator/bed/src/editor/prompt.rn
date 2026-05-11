@@ -460,7 +460,7 @@ impl &mut Editor {
     }
 
     fn command_insert_byte(alloc: &mut Allocator, byte: u8) void {
-        if (self.command_line..&.insert_char(alloc, self.command_col, byte)) {
+        if (self.command_line..&.try_insert_char(alloc, self.command_col, byte).is_ok()) {
             self.command_col += 1;
         } else {
             self.set_message(alloc, "command edit failed");

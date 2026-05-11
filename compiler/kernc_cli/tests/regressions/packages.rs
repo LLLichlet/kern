@@ -859,7 +859,7 @@ use sys.mem.Page;
 
 fn make_text(alloc: &mut base.mem.alloc.Allocator, text: &[u8]) String!i32 {
     let mut out = String.{};
-    if (!out..&.push_str(alloc, text)) {
+    if (out..&.try_push_str(alloc, text).is_err()) {
         return .{ Err: 1 };
     }
     return .{ Ok: out };

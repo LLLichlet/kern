@@ -28,7 +28,7 @@ extern {
     fn system_open(
         path: &u8,
         flags: i32,
-        ...,
+        mode: i32,
     ) i32;
 
     #[export_name("close")]
@@ -91,7 +91,7 @@ extern {
     fn system_ioctl(
         fd: i32,
         request: u64,
-        ...,
+        size: &mut WinSize,
     ) i32;
 
     #[export_name("tcgetattr")]
@@ -524,11 +524,7 @@ pub fn open_file(
     if (options.truncate) flags |= O_TRUNC;
     if (options.append) flags |= O_APPEND;
 
-    let ret = if (options.create or options.create_new) {
-        system_open(path, flags, DEFAULT_MODE)
-    } else {
-        system_open(path, flags)
-    };
+    let ret = system_open(path, flags, DEFAULT_MODE);
     if (ret < 0) {
         return .{ Err: last_error() };
     }

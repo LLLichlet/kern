@@ -18,13 +18,13 @@ fn main() i32 {
     let mut i = 0;
     while (i < 32) {
         let key = i as i32;
-        if (!map.insert(gpa, key, key * 2)) {
+        if (map.try_insert(gpa, key, key * 2).is_err()) {
             return 1;
         }
         i += 1;
     }
 
-    if (!map.insert(gpa, 7, 99)) {
+    if (map.try_insert(gpa, 7, 99).is_err()) {
         return 2;
     }
 
@@ -44,12 +44,12 @@ fn main() i32 {
         return 6;
     }
 
-    let existing = match (map.get_or_insert_with(gpa, 7, [calls = lazy_calls..&]() i32 {
+    let existing = match (map.try_get_or_insert_with(gpa, 7, [calls = lazy_calls..&]() i32 {
         calls.* += 1;
         return 700;
     })) {
-        .{ Some: ptr } => ptr,
-        .None => return 7,
+        .{ Ok: ptr } => ptr,
+        .{ Err: _ } => return 7,
     };
     if (existing.* != 123) {
         return 8;
@@ -58,20 +58,20 @@ fn main() i32 {
         return 9;
     }
 
-    let inserted = match (map.get_or_insert(gpa, 100, 500)) {
-        .{ Some: ptr } => ptr,
-        .None => return 10,
+    let inserted = match (map.try_get_or_insert(gpa, 100, 500)) {
+        .{ Ok: ptr } => ptr,
+        .{ Err: _ } => return 10,
     };
     if (inserted.* != 500) {
         return 11;
     }
 
-    let lazy_inserted = match (map.get_or_insert_with(gpa, 200, [calls = lazy_calls..&]() i32 {
+    let lazy_inserted = match (map.try_get_or_insert_with(gpa, 200, [calls = lazy_calls..&]() i32 {
         calls.* += 1;
         return 900;
     })) {
-        .{ Some: ptr } => ptr,
-        .None => return 12,
+        .{ Ok: ptr } => ptr,
+        .{ Err: _ } => return 12,
     };
     if (lazy_inserted.* != 900) {
         return 13;
@@ -138,16 +138,16 @@ fn main() i32 {
     let map = tree[Key, i32]()..&;
     defer map.deinit(gpa);
 
-    if (!map.insert(gpa, Key.{ major: 1, minor: 0 }, 10)) {
+    if (map.try_insert(gpa, Key.{ major: 1, minor: 0 }, 10).is_err()) {
         return 1;
     }
-    if (!map.insert(gpa, Key.{ major: 0, minor: 8 }, 8)) {
+    if (map.try_insert(gpa, Key.{ major: 0, minor: 8 }, 8).is_err()) {
         return 2;
     }
-    if (!map.insert(gpa, Key.{ major: 1, minor: 2 }, 12)) {
+    if (map.try_insert(gpa, Key.{ major: 1, minor: 2 }, 12).is_err()) {
         return 3;
     }
-    if (!map.insert(gpa, Key.{ major: 1, minor: 0 }, 99)) {
+    if (map.try_insert(gpa, Key.{ major: 1, minor: 0 }, 99).is_err()) {
         return 4;
     }
 
@@ -224,15 +224,15 @@ fn main() i32 {
     let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
 
-    if (!map.insert(gpa, 3, 30)) return 1;
-    if (!map.insert(gpa, 1, 10)) return 2;
-    if (!map.insert(gpa, 4, 40)) return 3;
-    if (!map.insert(gpa, 2, 20)) return 4;
+    if (map.try_insert(gpa, 3, 30).is_err()) return 1;
+    if (map.try_insert(gpa, 1, 10).is_err()) return 2;
+    if (map.try_insert(gpa, 4, 40).is_err()) return 3;
+    if (map.try_insert(gpa, 2, 20).is_err()) return 4;
 
     let order = string()..&;
     defer order.deinit(gpa);
     map.for_each([order, gpa](key: i32, _: i32) void {
-        let _ = order.push_char(gpa, (key as u8) + b'0');
+        let _ = order.try_push_char(gpa, (key as u8) + b'0');
     });
     if (order != "1234") {
         return 5;
@@ -287,10 +287,10 @@ fn main() i32 {
     let map = tree[i32, i32]()..&;
     defer map.deinit(gpa);
 
-    if (!map.insert(gpa, 10, 100)) return 1;
-    if (!map.insert(gpa, 30, 300)) return 2;
-    if (!map.insert(gpa, 20, 200)) return 3;
-    if (!map.insert(gpa, 40, 400)) return 4;
+    if (map.try_insert(gpa, 10, 100).is_err()) return 1;
+    if (map.try_insert(gpa, 30, 300).is_err()) return 2;
+    if (map.try_insert(gpa, 20, 200).is_err()) return 3;
+    if (map.try_insert(gpa, 40, 400).is_err()) return 4;
 
     if (!map.first_key().is_some_and([](key: i32) bool { return key == 10; })) return 5;
     if (!map.first().is_some_and([](value: i32) bool { return value == 100; })) return 6;
@@ -370,7 +370,7 @@ fn main() i32 {
 
     let mut i = i32.{1};
     while (i <= 40) {
-        if (!map.insert(gpa, i, i * 10)) {
+        if (map.try_insert(gpa, i, i * 10).is_err()) {
             return 1;
         }
         i += 1;
@@ -418,7 +418,7 @@ fn main() i32 {
     map.for_each([count = count..&, ordered, gpa](key: i32, _: i32) void {
         count.* += 1;
         if (key >= 2 and key <= 9) {
-            let _ = ordered.push_char(gpa, (key as u8) + b'0');
+            let _ = ordered.try_push_char(gpa, (key as u8) + b'0');
         }
     });
     if (count != 37 or ordered != "23456789") {
@@ -427,9 +427,9 @@ fn main() i32 {
 
     let small = tree[i32, i32]()..&;
     defer small.deinit(gpa);
-    if (!small.insert(gpa, 2, 20)) return 15;
-    if (!small.insert(gpa, 1, 10)) return 16;
-    if (!small.insert(gpa, 3, 30)) return 17;
+    if (small.try_insert(gpa, 2, 20).is_err()) return 15;
+    if (small.try_insert(gpa, 1, 10).is_err()) return 16;
+    if (small.try_insert(gpa, 3, 30).is_err()) return 17;
     if (!small.remove(gpa, 2).is_some_and([](value: i32) bool { return value == 20; })) return 18;
     if (!small.remove(gpa, 1).is_some_and([](value: i32) bool { return value == 10; })) return 19;
     if (!small.remove(gpa, 3).is_some_and([](value: i32) bool { return value == 30; })) return 20;

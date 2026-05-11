@@ -17,13 +17,13 @@ fn main() i32 {
     let mut i = 0;
     while (i < 128) {
         let key = i as i32;
-        if (!map.insert(gpa, key, key * 3)) {
+        if (map.try_insert(gpa, key, key * 3).is_err()) {
             return 1;
         }
         i += 1;
     }
 
-    if (!map.insert(gpa, 7, 99)) {
+    if (map.try_insert(gpa, 7, 99).is_err()) {
         return 2;
     }
     if (map.len() != 128) {
@@ -52,7 +52,7 @@ fn main() i32 {
         return 8;
     }
 
-    if (!map.insert(gpa, 7, 777)) {
+    if (map.try_insert(gpa, 7, 777).is_err()) {
         return 9;
     }
     if (!map.get(7).is_some_and([](value: i32) bool { return value == 777; })) {
@@ -63,7 +63,7 @@ fn main() i32 {
     }
 
     let before_compact = map.capacity;
-    if (!map.compact(gpa)) {
+    if (map.try_compact(gpa).is_err()) {
         return 12;
     }
     if (map.capacity != before_compact) {
@@ -80,14 +80,14 @@ fn main() i32 {
         return 15;
     }
 
-    if (!map.insert(gpa, 42, 4242)) {
+    if (map.try_insert(gpa, 42, 4242).is_err()) {
         return 16;
     }
     if (!map.get(42).is_some_and([](value: i32) bool { return value == 4242; })) {
         return 17;
     }
 
-    if (!map.shrink_to_fit(gpa)) {
+    if (map.try_shrink_to_fit(gpa).is_err()) {
         return 18;
     }
     if (map.capacity != 8) {
@@ -139,16 +139,16 @@ fn main() i32 {
     let map = map[Key, i32]()..&;
     defer map.deinit(gpa);
 
-    if (!map.insert(gpa, Key.{ group: 1, id: 10 }, 10)) {
+    if (map.try_insert(gpa, Key.{ group: 1, id: 10 }, 10).is_err()) {
         return 1;
     }
-    if (!map.insert(gpa, Key.{ group: 1, id: 11 }, 11)) {
+    if (map.try_insert(gpa, Key.{ group: 1, id: 11 }, 11).is_err()) {
         return 2;
     }
-    if (!map.insert(gpa, Key.{ group: 1, id: 12 }, 12)) {
+    if (map.try_insert(gpa, Key.{ group: 1, id: 12 }, 12).is_err()) {
         return 3;
     }
-    if (!map.insert(gpa, Key.{ group: 2, id: 99 }, 99)) {
+    if (map.try_insert(gpa, Key.{ group: 2, id: 99 }, 99).is_err()) {
         return 4;
     }
     if (map.len() != 4) {
@@ -167,7 +167,7 @@ fn main() i32 {
         return 8;
     }
 
-    if (!map.insert(gpa, Key.{ group: 1, id: 13 }, 13)) {
+    if (map.try_insert(gpa, Key.{ group: 1, id: 13 }, 13).is_err()) {
         return 9;
     }
     if (!map.get(Key.{ group: 1, id: 12 }).is_some_and([](value: i32) bool { return value == 12; })) {
@@ -181,7 +181,7 @@ fn main() i32 {
     }
 
     let cap_before = map.capacity;
-    if (!map.reserve(gpa, 64)) {
+    if (map.try_reserve(gpa, 64).is_err()) {
         return 13;
     }
     if (map.capacity < cap_before) {
@@ -193,10 +193,10 @@ fn main() i32 {
 
     let _ = map.remove(Key.{ group: 1, id: 11 });
     let _ = map.remove(Key.{ group: 1, id: 12 });
-    if (!map.compact(gpa)) {
+    if (map.try_compact(gpa).is_err()) {
         return 16;
     }
-    if (!map.insert(gpa, Key.{ group: 1, id: 14 }, 14)) {
+    if (map.try_insert(gpa, Key.{ group: 1, id: 14 }, 14).is_err()) {
         return 17;
     }
     if (!map.get(Key.{ group: 1, id: 14 }).is_some_and([](value: i32) bool { return value == 14; })) {
@@ -234,10 +234,10 @@ fn main() i32 {
     let alpha_probe = [5]u8.{ b'a', b'l', b'p', b'h', b'a' };
     let beta = [4]u8.{ b'b', b'e', b't', b'a' };
 
-    if (!map.insert(gpa, alpha.&[0 .. 5], 7)) {
+    if (map.try_insert(gpa, alpha.&[0 .. 5], 7).is_err()) {
         return 1;
     }
-    if (!map.insert(gpa, beta.&[0 .. 4], 9)) {
+    if (map.try_insert(gpa, beta.&[0 .. 4], 9).is_err()) {
         return 2;
     }
 
@@ -296,19 +296,19 @@ fn main() i32 {
 
     let alpha = string()..&;
     defer alpha.deinit(gpa);
-    if (!alpha.clone_from(gpa, "alpha")) {
+    if (alpha.try_clone_from(gpa, "alpha").is_err()) {
         return 1;
     }
 
     let alpha_copy = string()..&;
     defer alpha_copy.deinit(gpa);
-    if (!alpha_copy.clone_from(gpa, "alpha")) {
+    if (alpha_copy.try_clone_from(gpa, "alpha").is_err()) {
         return 2;
     }
 
     let beta = string()..&;
     defer beta.deinit(gpa);
-    if (!beta.clone_from(gpa, "beta")) {
+    if (beta.try_clone_from(gpa, "beta").is_err()) {
         return 3;
     }
 
@@ -367,7 +367,7 @@ fn main() i32 {
     let mut i = 0;
     while (i < 6) {
         let key = i as i32;
-        if (!map.insert(gpa, key, key + 10)) {
+        if (map.try_insert(gpa, key, key + 10).is_err()) {
             return 1;
         }
         i += 1;
@@ -377,16 +377,16 @@ fn main() i32 {
         return 2;
     }
 
-    if (!map.insert(gpa, 3, 99)) {
+    if (map.try_insert(gpa, 3, 99).is_err()) {
         return 3;
     }
     if (map.capacity != 8 or map.len() != 6) {
         return 4;
     }
 
-    let existing = match (map.get_or_insert(gpa, 3, 111)) {
-        .{ Some: ptr } => ptr,
-        .None => return 5,
+    let existing = match (map.try_get_or_insert(gpa, 3, 111)) {
+        .{ Ok: ptr } => ptr,
+        .{ Err: _ } => return 5,
     };
     if (existing.* != 99) {
         return 6;
@@ -399,9 +399,9 @@ fn main() i32 {
         return 8;
     }
 
-    let inserted = match (map.get_or_insert(gpa, 100, 500)) {
-        .{ Some: ptr } => ptr,
-        .None => return 9,
+    let inserted = match (map.try_get_or_insert(gpa, 100, 500)) {
+        .{ Ok: ptr } => ptr,
+        .{ Err: _ } => return 9,
     };
     if (inserted.* != 500) {
         return 10;
@@ -410,12 +410,12 @@ fn main() i32 {
         return 11;
     }
 
-    let lazy_existing = match (map.get_or_insert_with(gpa, 100, [calls = lazy_calls..&]() i32 {
+    let lazy_existing = match (map.try_get_or_insert_with(gpa, 100, [calls = lazy_calls..&]() i32 {
         calls.* += 1;
         return 700;
     })) {
-        .{ Some: ptr } => ptr,
-        .None => return 12,
+        .{ Ok: ptr } => ptr,
+        .{ Err: _ } => return 12,
     };
     if (lazy_existing.* != 500) {
         return 13;
@@ -424,12 +424,12 @@ fn main() i32 {
         return 14;
     }
 
-    let lazy_inserted = match (map.get_or_insert_with(gpa, 200, [calls = lazy_calls..&]() i32 {
+    let lazy_inserted = match (map.try_get_or_insert_with(gpa, 200, [calls = lazy_calls..&]() i32 {
         calls.* += 1;
         return 900;
     })) {
-        .{ Some: ptr } => ptr,
-        .None => return 15,
+        .{ Ok: ptr } => ptr,
+        .{ Err: _ } => return 15,
     };
     if (lazy_inserted.* != 900) {
         return 16;
@@ -468,10 +468,10 @@ fn main() i32 {
     let map = map[i32, i32]()..&;
     defer map.deinit(gpa);
 
-    if (!map.insert(gpa, 3, 30)) return 1;
-    if (!map.insert(gpa, 1, 10)) return 2;
-    if (!map.insert(gpa, 4, 40)) return 3;
-    if (!map.insert(gpa, 2, 20)) return 4;
+    if (map.try_insert(gpa, 3, 30).is_err()) return 1;
+    if (map.try_insert(gpa, 1, 10).is_err()) return 2;
+    if (map.try_insert(gpa, 4, 40).is_err()) return 3;
+    if (map.try_insert(gpa, 2, 20).is_err()) return 4;
 
     let mut key_sum = i32.{0};
     let mut value_sum = i32.{0};
@@ -511,7 +511,7 @@ fn main() i32 {
         return 13;
     }
 
-    if (!map.compact(gpa)) {
+    if (map.try_compact(gpa).is_err()) {
         return 14;
     }
     let retained = map.fold(i32.{0}, [](accum: i32, key: i32, value: i32) i32 {
@@ -548,10 +548,10 @@ fn main() i32 {
     let map = map[i32, i32]()..&;
     defer map.deinit(gpa);
 
-    if (!map.insert(gpa, 1, 10)) return 1;
-    if (!map.insert(gpa, 2, 20)) return 2;
-    if (!map.insert(gpa, 3, 30)) return 3;
-    if (!map.insert(gpa, 4, 40)) return 4;
+    if (map.try_insert(gpa, 1, 10).is_err()) return 1;
+    if (map.try_insert(gpa, 2, 20).is_err()) return 2;
+    if (map.try_insert(gpa, 3, 30).is_err()) return 3;
+    if (map.try_insert(gpa, 4, 40).is_err()) return 4;
 
     if (!map.any([](key: i32, value: i32) bool {
         return key == 3 and value == 30;
@@ -662,13 +662,13 @@ fn main() i32 {
     let values = list[i32]()..&;
     defer values.deinit(gpa);
 
-    if (!keys.push(gpa, 1000)) return 1;
-    if (!values.push(gpa, 2000)) return 2;
+    if (keys.try_push(gpa, 1000).is_err()) return 1;
+    if (values.try_push(gpa, 2000).is_err()) return 2;
 
-    if (!map.insert(gpa, 1, 10)) return 3;
-    if (!map.insert(gpa, 2, 20)) return 4;
-    if (!map.insert(gpa, 3, 30)) return 5;
-    if (!map.insert(gpa, 4, 40)) return 6;
+    if (map.try_insert(gpa, 1, 10).is_err()) return 3;
+    if (map.try_insert(gpa, 2, 20).is_err()) return 4;
+    if (map.try_insert(gpa, 3, 30).is_err()) return 5;
+    if (map.try_insert(gpa, 4, 40).is_err()) return 6;
 
     let removed = match (map.remove(2)) {
         .{ Some: value } => value,
@@ -678,14 +678,14 @@ fn main() i32 {
         return 8;
     }
 
-    if (!map.insert(gpa, 4, 400)) {
+    if (map.try_insert(gpa, 4, 400).is_err()) {
         return 9;
     }
 
-    if (!map.append_keys(gpa, keys)) {
+    if (map.try_append_keys(gpa, keys).is_err()) {
         return 10;
     }
-    if (!map.append_values(gpa, values)) {
+    if (map.try_append_values(gpa, values).is_err()) {
         return 11;
     }
 
@@ -728,13 +728,13 @@ fn main() i32 {
     }
 
     let mut owned_keys = match (map.keys(gpa)) {
-        .{ Some: out } => out,
-        .None => return 19,
+        .{ Ok: out } => out,
+        .{ Err: _ } => return 19,
     };
     defer owned_keys..&.deinit(gpa);
     let mut owned_values = match (map.values(gpa)) {
-        .{ Some: out } => out,
-        .None => return 20,
+        .{ Ok: out } => out,
+        .{ Err: _ } => return 20,
     };
     defer owned_values..&.deinit(gpa);
 

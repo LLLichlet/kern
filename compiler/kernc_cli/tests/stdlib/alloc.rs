@@ -196,9 +196,9 @@ fn main() i32 {
     let alloc = (&mut Allocator).{ gpa };
     defer gpa.deinit();
 
-    let pair = match (alloc.alloc_one[Pair]()) {
-        .{ Some: ptr } => ptr,
-        .None => return 1,
+    let pair = match (alloc.try_alloc_one[Pair]()) {
+        .{ Ok: ptr } => ptr,
+        .{ Err: _ } => return 1,
     };
     pair.* = Pair.{ left: 11, right: 31 };
     if (pair.left + pair.right != 42) {
@@ -206,9 +206,9 @@ fn main() i32 {
     }
     alloc.free_one[Pair](pair);
 
-    let items = match (alloc.alloc_array[i32](5)) {
-        .{ Some: slice } => slice,
-        .None => return 3,
+    let items = match (alloc.try_alloc_array[i32](5)) {
+        .{ Ok: slice } => slice,
+        .{ Err: _ } => return 3,
     };
     items.[0] = 5;
     items.[1] = 1;
@@ -225,9 +225,9 @@ fn main() i32 {
     alloc.free_array[i32](items);
 
     let source = [4]i32.{ 7, 8, 9, 10 };
-    let clone = match (alloc.clone_array[i32](source.&[0 .. 4])) {
-        .{ Some: slice } => slice,
-        .None => return 6,
+    let clone = match (alloc.try_clone_array[i32](source.&[0 .. 4])) {
+        .{ Ok: slice } => slice,
+        .{ Err: _ } => return 6,
     };
     clone.[2] = 90;
     if (source.[2] != 9 or clone.[2] != 90) {
@@ -239,9 +239,9 @@ fn main() i32 {
     }
     alloc.free_array[i32](clone);
 
-    let empty = match (alloc.alloc_array[u64](0)) {
-        .{ Some: slice } => slice,
-        .None => return 9,
+    let empty = match (alloc.try_alloc_array[u64](0)) {
+        .{ Ok: slice } => slice,
+        .{ Err: _ } => return 9,
     };
     if (#empty != 0) {
         return 10;

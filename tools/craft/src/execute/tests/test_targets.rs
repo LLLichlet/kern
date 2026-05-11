@@ -447,14 +447,16 @@ defer gpa..&.deinit();
 let alloc = &mut Allocator.{ gpa..& };
 
 let mut workspace_root = match ("CRAFT_WORKSPACE_ROOT".env().get(alloc)) {
-    .{ Some: value } => value,
-    .None => return 1,
+    .{ Ok: .{ Some: value } } => value,
+    .{ Ok: .None } => return 1,
+    .{ Err: _ } => return 5,
 };
 defer workspace_root..&.deinit(alloc);
 
 let mut package_root = match ("CRAFT_PACKAGE_ROOT".env().get(alloc)) {
-    .{ Some: value } => value,
-    .None => return 2,
+    .{ Ok: .{ Some: value } } => value,
+    .{ Ok: .None } => return 2,
+    .{ Err: _ } => return 6,
 };
 defer package_root..&.deinit(alloc);
 

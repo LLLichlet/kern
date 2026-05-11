@@ -87,16 +87,16 @@ fn main() i32 {
     let items = list[i32]()..&;
     defer items.deinit(gpa);
 
-    if (!items.reserve(gpa, 6)) {
+    if (items.try_reserve(gpa, 6).is_err()) {
         return 1;
     }
     if (items.capacity() < 6) {
         return 2;
     }
-    if (!items.push(gpa, 1) or !items.push(gpa, 2) or !items.push(gpa, 3)) {
+    if (items.try_push(gpa, 1).is_err() or items.try_push(gpa, 2).is_err() or items.try_push(gpa, 3).is_err()) {
         return 3;
     }
-    if (!items.insert(gpa, 1, 9)) {
+    if (items.try_insert(gpa, 1, 9).is_err()) {
         return 4;
     }
 
@@ -109,7 +109,7 @@ fn main() i32 {
     }
 
     let prefix = items.as_slice();
-    if (!items.append_slice(gpa, prefix)) {
+    if (items.try_append_slice(gpa, prefix).is_err()) {
         return 7;
     }
 
@@ -211,7 +211,7 @@ fn main() i32 {
     if (items.as_slice() != [2]i32.{3, 8}) {
         return 33;
     }
-    if (!items.shrink_to_fit(gpa)) {
+    if (items.try_shrink_to_fit(gpa).is_err()) {
         return 34;
     }
     if (items.capacity() != items.len()) {
@@ -254,13 +254,13 @@ fn main() i32 {
 
     let text = string()..&;
     defer text.deinit(gpa);
-    if (!text.reserve(gpa, 16)) {
+    if (text.try_reserve(gpa, 16).is_err()) {
         return 43;
     }
     if (text.capacity() < 16) {
         return 44;
     }
-    if (!text.push_str(gpa, "kern") or !text.push_char(gpa, b'-') or !text.push_str(gpa, "lang")) {
+    if (text.try_push_str(gpa, "kern").is_err() or text.try_push_char(gpa, b'-').is_err() or text.try_push_str(gpa, "lang").is_err()) {
         return 45;
     }
     if (!text.starts_with("kern") or !text.ends_with("lang")) {
@@ -312,13 +312,13 @@ fn main() i32 {
 
     let shaped = string()..&;
     defer shaped.deinit(gpa);
-    if (!shaped.clone_from_string(gpa, text)) {
+    if (shaped.try_clone_from_string(gpa, text).is_err()) {
         return 60;
     }
-    if (!shaped.insert_char(gpa, 4, b'_')) {
+    if (shaped.try_insert_char(gpa, 4, b'_').is_err()) {
         return 61;
     }
-    if (!shaped.insert_str(gpa, 5, "std")) {
+    if (shaped.try_insert_str(gpa, 5, "std").is_err()) {
         return 62;
     }
     if (shaped != "kern_std-lang") {
@@ -337,7 +337,7 @@ fn main() i32 {
 
     let scratch = string()..&;
     defer scratch.deinit(gpa);
-    if (!scratch.push_str(gpa, "abcde")) {
+    if (scratch.try_push_str(gpa, "abcde").is_err()) {
         return 66;
     }
     let scratch_bytes = scratch.as_mut_bytes();
@@ -350,7 +350,7 @@ fn main() i32 {
     }
 
     let snapshot = text.as_str();
-    if (!text.push_str(gpa, snapshot)) {
+    if (text.try_push_str(gpa, snapshot).is_err()) {
         return 69;
     }
     if (text != "kern-langkern-lang") {
@@ -380,10 +380,10 @@ fn main() i32 {
 
     let extra = string()..&;
     defer extra.deinit(gpa);
-    if (!extra.push_str(gpa, "!")) {
+    if (extra.try_push_str(gpa, "!").is_err()) {
         return 77;
     }
-    if (!text.push_string(gpa, extra)) {
+    if (text.try_push_string(gpa, extra).is_err()) {
         return 78;
     }
     if (text != "kern-langkern-lang!") {
@@ -442,7 +442,7 @@ fn main() i32 {
 
     let spaced = string()..&;
     defer spaced.deinit(gpa);
-    if (!spaced.push_str(gpa, "  hi\t")) {
+    if (spaced.try_push_str(gpa, "  hi\t").is_err()) {
         return 94;
     }
     if (spaced.trim_ascii() != "hi") {
@@ -687,7 +687,7 @@ fn main() i32 {
 
     let items = list[i32]()..&;
     defer items.deinit(gpa);
-    if (!items.extend(gpa, base_view)) {
+    if (items.try_append_slice(gpa, base_view).is_err()) {
         return 11;
     }
 
@@ -720,34 +720,34 @@ fn main() i32 {
 
     let extra = list[i32]()..&;
     defer extra.deinit(gpa);
-    if (!extra.extend(gpa, [2]i32.{9, 10})) {
+    if (extra.try_append_slice(gpa, [2]i32.{9, 10}).is_err()) {
         return 16;
     }
-    if (!items.extend_from_list(gpa, extra)) {
+    if (items.try_append_slice(gpa, extra.as_slice()).is_err()) {
         return 17;
     }
     if (items.as_slice() != [6]i32.{7, 7, 7, 7, 9, 10}) {
         return 18;
     }
-    if (!items.resize(gpa, 8, 5)) {
+    if (items.try_resize(gpa, 8, 5).is_err()) {
         return 19;
     }
     if (items.as_slice() != [8]i32.{7, 7, 7, 7, 9, 10, 5, 5}) {
         return 20;
     }
-    if (!items.resize(gpa, 3, 0)) {
+    if (items.try_resize(gpa, 3, 0).is_err()) {
         return 21;
     }
     if (items.as_slice() != [3]i32.{7, 7, 7}) {
         return 22;
     }
-    if (!items.clone_from(gpa, [4]i32.{4, 3, 2, 1})) {
+    if (items.try_clone_from(gpa, [4]i32.{4, 3, 2, 1}).is_err()) {
         return 23;
     }
     if (items.as_slice() != [4]i32.{4, 3, 2, 1}) {
         return 24;
     }
-    if (!items.append_repeat(gpa, 6, 2)) {
+    if (items.try_append_repeat(gpa, 6, 2).is_err()) {
         return 25;
     }
     if (items.as_slice() != [6]i32.{4, 3, 2, 1, 6, 6}) {
@@ -755,7 +755,7 @@ fn main() i32 {
     }
 
     let middle = items.as_slice().&[1 .. 3];
-    if (!items.insert_slice(gpa, 2, middle)) {
+    if (items.try_insert_slice(gpa, 2, middle).is_err()) {
         return 27;
     }
     if (items.as_slice() != [8]i32.{4, 3, 3, 2, 2, 1, 6, 6}) {
@@ -798,7 +798,7 @@ fn main() i32 {
     if (items.copy_within(0, 5, 0)) {
         return 104;
     }
-    if (!items.clone_from(gpa, [4]i32.{40, 60, 30, 60})) {
+    if (items.try_clone_from(gpa, [4]i32.{40, 60, 30, 60}).is_err()) {
         return 105;
     }
 
@@ -818,7 +818,7 @@ fn main() i32 {
         return 36;
     }
 
-    if (!items.clone_from(gpa, [7]i32.{1, 1, 2, 2, 2, 3, 1})) {
+    if (items.try_clone_from(gpa, [7]i32.{1, 1, 2, 2, 2, 3, 1}).is_err()) {
         return 106;
     }
     items.dedup();
@@ -831,7 +831,7 @@ fn main() i32 {
     if (items.as_slice() != [3]i32.{1, 2, 3}) {
         return 108;
     }
-    if (!items.clone_from(gpa, [4]i32.{30, 40, 60, 60})) {
+    if (items.try_clone_from(gpa, [4]i32.{30, 40, 60, 60}).is_err()) {
         return 109;
     }
 
@@ -847,10 +847,10 @@ fn main() i32 {
 
     let text = string()..&;
     defer text.deinit(gpa);
-    if (!text.clone_from(gpa, "kern")) {
+    if (text.try_clone_from(gpa, "kern").is_err()) {
         return 38;
     }
-    if (!text.push_repeat(gpa, b'!', 3)) {
+    if (text.try_push_repeat(gpa, b'!', 3).is_err()) {
         return 39;
     }
     if (text != "kern!!!") {

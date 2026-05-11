@@ -1106,16 +1106,17 @@ fn main() i32 {
     let page = Page.{}..&;
     let gpa = gpa().on(page)..&;
 
-    if (!"KERN_STD_ENV_TEST".env().has(gpa)) {
+    if (!"KERN_STD_ENV_TEST".env().has()) {
         return 10;
     }
-    if ("KERN_STD_ENV_MISSING".env().has(gpa)) {
+    if ("KERN_STD_ENV_MISSING".env().has()) {
         return 11;
     }
 
     let mut found = match ("KERN_STD_ENV_TEST".env().get(gpa)) {
-        .{ Some: value } => value,
-        .None => return 1,
+        .{ Ok: .{ Some: value } } => value,
+        .{ Ok: .None } => return 1,
+        .{ Err: _ } => return 25,
     };
     defer found..&.deinit(gpa);
 
@@ -1149,13 +1150,15 @@ fn main() i32 {
         return 24;
     }
 
-    if ("KERN_STD_ENV_MISSING".env().get(gpa).is_some()) {
-        return 3;
+    match ("KERN_STD_ENV_MISSING".env().get(gpa)) {
+        .{ Ok: .{ Some: _ } } => return 3,
+        .{ Ok: .None } => {},
+        .{ Err: _ } => return 26,
     }
 
     let mut fallback = match ("KERN_STD_ENV_MISSING".env().get_or(gpa, "fallback")) {
-        .{ Some: value } => value,
-        .None => return 4,
+        .{ Ok: value } => value,
+        .{ Err: _ } => return 4,
     };
     defer fallback..&.deinit(gpa);
     if (fallback.& != "fallback") {
@@ -1163,8 +1166,8 @@ fn main() i32 {
     }
 
     let mut empty = match ("KERN_STD_ENV_MISSING".env().get_or_empty(gpa)) {
-        .{ Some: value } => value,
-        .None => return 6,
+        .{ Ok: value } => value,
+        .{ Err: _ } => return 6,
     };
     defer empty..&.deinit(gpa);
     if (!empty.&.is_empty()) {

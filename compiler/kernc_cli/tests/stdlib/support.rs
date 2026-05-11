@@ -53,7 +53,7 @@ fn main() i32 {
     let page = Page.{}..&;
     let gpa = gpa().on(page)..&;
 
-    let .{ Some: owned } = abi.cstr.owned(gpa, "kern") else {
+    let .{ Ok: owned } = abi.cstr.owned(gpa, "kern") else {
         return 9;
     };
     let mut text = owned;
@@ -453,16 +453,16 @@ fn main() i32 {
 
     let mut text = string();
     defer text..&.deinit(gpa);
-    if (!text..&.push_str(gpa, "kern")) {
+    if (text..&.try_push_str(gpa, "kern").is_err()) {
         return 1;
     }
 
     let mut items = list[usize]();
     defer items..&.deinit(gpa);
-    if (!items..&.push(gpa, usize.{1})) {
+    if (items..&.try_push(gpa, usize.{1}).is_err()) {
         return 2;
     }
-    if (!items..&.push(gpa, usize.{2})) {
+    if (items..&.try_push(gpa, usize.{2}).is_err()) {
         return 3;
     }
 
@@ -800,8 +800,8 @@ fn main() i32 {
     let mut reader2 = "kern-io".reader();
     let reader2_obj = &mut Read.{ reader2..& };
     let mut bytes = match (reader2_obj.read_to_end(gpa)) {
-        .{ Some: list } => list,
-        .None => return 8,
+        .{ Ok: list } => list,
+        .{ Err: _ } => return 8,
     };
     defer bytes..&.deinit(gpa);
     if (bytes..&.as_slice() != "kern-io") {

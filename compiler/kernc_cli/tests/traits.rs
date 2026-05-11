@@ -829,19 +829,21 @@ fn main() i32 {
     let gpa = gpa().on(page)..&;
     let text = String.{}..&;
     defer text.deinit(gpa);
-    let _ = text.push_str(gpa, "kern");
-
-    if (!(text == "kern")) {
+    if (text.try_push_str(gpa, "kern").is_err()) {
         return 1;
     }
-    if (!("kern" == text)) {
+
+    if (!(text == "kern")) {
         return 2;
     }
-    if (text != "kern") {
+    if (!("kern" == text)) {
         return 3;
     }
-    if ("lang" == text) {
+    if (text != "kern") {
         return 4;
+    }
+    if ("lang" == text) {
+        return 5;
     }
     return 0;
 }
@@ -923,14 +925,16 @@ fn main() i32 {
     let gpa = gpa().on(page)..&;
     let text = String.{}..&;
     defer text.deinit(gpa);
-    let _ = text.push_str(gpa, "kern");
-    if (classify_text(text) != 1) {
+    if (text.try_push_str(gpa, "kern").is_err()) {
         return 1;
+    }
+    if (classify_text(text) != 1) {
+        return 2;
     }
 
     let array = [4]i32.{1, 2, 3, 4};
     if (classify_slice(array.&[0 .. 4]) != 4) {
-        return 2;
+        return 3;
     }
 
     return 0;
@@ -1083,16 +1087,16 @@ fn main() i32 {
 
     let list = list[i32]()..&;
     defer list.deinit(gpa);
-    list.push(gpa, 1).should().sum(@loc(), t);
-    list.push(gpa, 2).should().sum(@loc(), t);
-    list.push(gpa, 3).should().sum(@loc(), t);
+    list.try_push(gpa, 1).is_ok().should().sum(@loc(), t);
+    list.try_push(gpa, 2).is_ok().should().sum(@loc(), t);
+    list.try_push(gpa, 3).is_ok().should().sum(@loc(), t);
     list.as_slice().eq([3]i32.{ 1, 2, 3 }).should().sum(@loc(), t);
 
     let text = string()..&;
     defer text.deinit(gpa);
-    text.push_str(gpa, "Hello").should().sum(@loc(), t);
-    text.push_str(gpa, ", ").should().sum(@loc(), t);
-    text.push_str(gpa, "Kern").should().sum(@loc(), t);
+    text.try_push_str(gpa, "Hello").is_ok().should().sum(@loc(), t);
+    text.try_push_str(gpa, ", ").is_ok().should().sum(@loc(), t);
+    text.try_push_str(gpa, "Kern").is_ok().should().sum(@loc(), t);
     text.as_str().eq("Hello, Kern").should().sum(@loc(), t);
 
     return 0;

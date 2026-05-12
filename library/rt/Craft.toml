@@ -11,7 +11,7 @@ authors = ["softfault <givenyoung46@gmail.com>"]
 [runtime]
 entry = "none"
 libc = false
-bundle = "base"
+bundle = "none"
 
 [lib]
 root = "init.rn"

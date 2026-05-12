@@ -257,6 +257,8 @@ fn main() i32 {
 fn string_literals_are_array_syntax_sugar() {
     let output = build_and_run_source(
         r#"
+use base;
+
 fn take_array(value: [5]u8) u8 {
     return value.[4];
 }
@@ -411,14 +413,14 @@ fn runs_nested_use_trees_with_grouped_self_imports() {
     let output = build_and_run_source_with_std(
         r#"
 use std.{. as stdlib, io.{.}};
-use base.{io.{Formatable, Write as W}};
+use base.{io.{FormatSpec, Formatable, Write as W}};
 
 struct Pair {
     value: usize,
 };
 
 impl Pair : Formatable {
-    pub fn write_to(writer: &mut W) void {
+    pub fn write_fmt(_spec: FormatSpec, writer: &mut W) void {
         let _ = writer.write("[");
         self.value.&.write_to(writer);
         let _ = writer.write("]");
@@ -772,6 +774,8 @@ fn main() i32 {
 fn runs_check_intrinsic_value_and_source_capture() {
     let output = build_and_run_source(
         r#"
+use base;
+
 const GLOBAL = @check(1 + 2);
 
 fn source_len[N: usize](source: [N]u8) usize {
@@ -1322,6 +1326,8 @@ fn main() i32 {
 fn explicit_closure_capture_inside_generic_callback_can_use_captured_offset() {
     let output = build_and_run_source(
         r#"
+use base;
+
 enum SourceError {
     Bad,
 };
@@ -1411,6 +1417,8 @@ fn main() i32 {
 #[test]
 fn uncaptured_outer_variable_in_empty_closure_does_not_leak_typevars() {
     let source = r#"
+use base;
+
 enum SourceError {
     Bad,
 };

@@ -409,7 +409,6 @@ pub(super) fn build_std_package(
                 .join("base")
                 .join("lib")
                 .join("base.o"),
-            prov_object_path: built_prov.object_path.clone(),
             rt_object_path: built_rt
                 .as_ref()
                 .map(|built_rt| built_rt.object_path.clone()),

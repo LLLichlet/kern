@@ -1639,7 +1639,7 @@ mod tests {
                     }
                 }
                 for method in methods {
-                    collect_type_identifier_symbols(&method.type_node, visit);
+                    collect_type_identifier_symbols(&method.signature.type_node, visit);
                 }
             }
             ast::TypeKind::Enum {

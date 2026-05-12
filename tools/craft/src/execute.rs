@@ -203,7 +203,6 @@ struct BuiltExternalPackage {
 struct BuiltStdPackage {
     metadata_root_path: PathBuf,
     base_object_path: PathBuf,
-    prov_object_path: PathBuf,
     rt_object_path: Option<PathBuf>,
     common_link_objects: Vec<PathBuf>,
     hosted_entry_object_path: PathBuf,

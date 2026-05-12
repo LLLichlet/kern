@@ -278,7 +278,7 @@ fn main() i32 {
         };
         assert!(assoc_types.is_empty());
         assert_eq!(methods.len(), 1);
-        let ast::TypeKind::Function { params, .. } = &methods[0].type_node.kind else {
+        let ast::TypeKind::Function { params, .. } = &methods[0].signature.type_node.kind else {
             panic!("expected trait method signature");
         };
         assert_eq!(params.len(), 3);

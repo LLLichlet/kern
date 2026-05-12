@@ -401,7 +401,6 @@ mod tests {
             BuiltStdPackage {
                 metadata_root_path: root.join("prebuilt-std"),
                 base_object_path: root.join("base.o"),
-                prov_object_path: root.join("prov.o"),
                 rt_object_path: Some(root.join("rt.o")),
                 common_link_objects: Vec::new(),
                 hosted_entry_object_path: root.join("hosted-entry.o"),
@@ -610,6 +609,50 @@ root = "src/lib.rn"
     }
 
     #[test]
+    fn rt_lib_targets_keep_official_library_aliases_absent() {
+        let root = temp_dir("craft-rt-no-library-aliases");
+        let manifest_path = root.join("Craft.toml");
+        fs::write(
+            &manifest_path,
+            r#"
+[package]
+name = "rt"
+version = "0.1.0"
+kern = "0.7.5"
+
+[runtime]
+bundle = "none"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        let action = lib_action(&root, "rt", manifest_path);
+        let built_std_packages = built_std_package(&root, &action.profile);
+        let mut manifest_runtime_options = BTreeMap::new();
+
+        let options = compile_action_options(
+            crate::script::ScriptCommand::Build,
+            &action,
+            &BTreeMap::new(),
+            &built_std_packages,
+            &BTreeMap::new(),
+            &mut manifest_runtime_options,
+        )
+        .unwrap();
+
+        assert_eq!(options.library_bundle, LibraryBundle::None);
+        assert!(options.module_interface_aliases.is_empty());
+        assert_eq!(
+            options.module_aliases.get("rt").map(String::as_str),
+            Some(action.source_path().to_string_lossy().as_ref())
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn std_named_lib_targets_keep_the_std_alias_for_their_own_source() {
         let root = temp_dir("craft-std-self-alias");
         let manifest_path = root.join("Craft.toml");
@@ -646,6 +689,7 @@ root = "src/lib.rn"
         assert_eq!(options.library_bundle, LibraryBundle::Std);
         assert!(!options.module_interface_aliases.contains_key("std"));
         assert!(options.module_interface_aliases.contains_key("base"));
+        assert!(options.module_interface_aliases.contains_key("prov"));
         assert_eq!(
             options.module_aliases.get("std").map(String::as_str),
             Some(action.source_path().to_string_lossy().as_ref())

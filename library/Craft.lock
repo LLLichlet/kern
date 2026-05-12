@@ -37,7 +37,7 @@ version = "0.7.5"
 source = "workspace-member"
 source-value = "rt"
 manifest = "rt/Craft.toml"
-manifest-digest = "fnv1a64:31ca89cd8108914b"
+manifest-digest = "fnv1a64:d31dc9690845a890"
 
 [[package]]
 id = "std 0.7.5 workspace-member:std"

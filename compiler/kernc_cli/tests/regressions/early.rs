@@ -707,6 +707,8 @@ fn main() i32 {
 fn function_items_work_as_closure_callbacks() {
     let output = build_and_run_source(
         r#"
+use base;
+
 fn wrap(err: i32) i64 {
     return err as i64 + 1;
 }

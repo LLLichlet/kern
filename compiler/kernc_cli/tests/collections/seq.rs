@@ -1091,6 +1091,7 @@ fn main() i32 {
 fn runs_hosted_program_using_option_and_result_closure_methods() {
     let output = build_and_run_hosted(
         r#"
+use base;
 
 fn main() i32 {
     let mut seen = i32.{0};
@@ -1189,6 +1190,8 @@ fn main() i32 {
 fn runs_hosted_program_using_option_result_bridge_helpers() {
     let output = build_and_run_hosted(
         r#"
+use base;
+
 enum DecodeError {
     Missing,
     UnexpectedKind: i32,

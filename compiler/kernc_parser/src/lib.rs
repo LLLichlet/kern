@@ -355,6 +355,52 @@ fn main() i32 {
     }
 
     #[test]
+    fn parses_inline_and_nested_module_declarations() {
+        let source = r#"
+pub mod api {
+    pub fn answer() i32 {
+        return 42;
+    }
+
+    mod detail {
+        fn hidden() i32 {
+            return 7;
+        }
+    }
+
+    mod file_backed;
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+        assert_eq!(module.decls.len(), 1);
+
+        let ast::DeclKind::Mod { decls: Some(api) } = &module.decls[0].kind else {
+            panic!("expected inline module");
+        };
+        assert_eq!(api.len(), 3);
+
+        let ast::DeclKind::Function { .. } = &api[0].kind else {
+            panic!("expected function inside inline module");
+        };
+        let ast::DeclKind::Mod {
+            decls: Some(detail),
+        } = &api[1].kind
+        else {
+            panic!("expected nested inline module");
+        };
+        assert_eq!(detail.len(), 1);
+        let ast::DeclKind::Mod { decls: None } = &api[2].kind else {
+            panic!("expected file-backed nested module declaration");
+        };
+    }
+
+    #[test]
     fn parses_generic_enum_variant_match_arm_patterns() {
         let source = r#"
 enum Mode {

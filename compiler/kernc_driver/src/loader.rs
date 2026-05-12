@@ -330,7 +330,13 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     Self::collect_trait_method_alias_references(method, alias_names, referenced);
                 }
             }
-            ast::DeclKind::ModDecl => {}
+            ast::DeclKind::Mod { decls } => {
+                if let Some(decls) = decls {
+                    for decl in decls {
+                        Self::collect_decl_alias_references(decl, alias_names, referenced);
+                    }
+                }
+            }
             ast::DeclKind::Use {
                 kind, path, target, ..
             } => {
@@ -1028,7 +1034,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 return None;
             }
         };
-        let Some(dir_path) = abs_path.parent().map(|p| p.to_path_buf()) else {
+        let Some(source_dir_path) = abs_path.parent().map(|p| p.to_path_buf()) else {
             self.ctx.sess.error_count += 1;
             eprintln!(
                 "Error: Cannot determine parent directory for module file '{}'.",
@@ -1045,6 +1051,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         self.ctx.scopes.exit_scope();
 
         let is_init = abs_path.file_name().and_then(|n| n.to_str()) == Some("init.rn");
+        let dir_path = self.module_child_anchor_dir(&source_dir_path, name, parent, is_init);
 
         let dummy_def = ModuleDef {
             id: mod_id,
@@ -1064,18 +1071,32 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         self.ctx.register_module_scope(mod_id, scope_id);
         self.ctx.register_def_owner(mod_id, parent, Some(scope_id));
         let ast = parsed.ast;
+        let module_path = ast.path.clone();
 
         let mut submodules = HashMap::new();
         for decl in &ast.decls {
-            if let ast::DeclKind::ModDecl = &decl.kind {
-                let resolve_started = Instant::now();
-                let resolved = self.resolve_submodule_path(&dir_path, decl);
-                self.timings.resolve_submodule_paths += resolve_started.elapsed();
+            if let ast::DeclKind::Mod { decls } = &decl.kind {
+                let sub_id = match decls {
+                    Some(decls) => self.load_inline_module(
+                        decl,
+                        decls,
+                        Some(mod_id),
+                        dir_path.clone(),
+                        file_id,
+                        &module_path,
+                        is_imported,
+                    ),
+                    None => {
+                        let resolve_started = Instant::now();
+                        let resolved = self.resolve_submodule_path(&dir_path, decl);
+                        self.timings.resolve_submodule_paths += resolve_started.elapsed();
 
-                if let Some(path) = resolved
-                    && let Some(sub_id) =
-                        self.load_module_normalized(path, Some(mod_id), decl.name, is_imported)
-                {
+                        resolved.and_then(|path| {
+                            self.load_module_normalized(path, Some(mod_id), decl.name, is_imported)
+                        })
+                    }
+                };
+                if let Some(sub_id) = sub_id {
                     submodules.insert(decl.name, sub_id);
                 }
             }
@@ -1094,6 +1115,107 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         self.module_alias_references.push(module_alias_references);
         self.asts.push((mod_id, ast));
         Some(mod_id)
+    }
+
+    fn load_inline_module(
+        &mut self,
+        decl: &ast::Decl,
+        decls: &[ast::Decl],
+        parent: Option<DefId>,
+        dir_path: PathBuf,
+        file_id: kernc_utils::FileId,
+        parent_path: &str,
+        is_imported: bool,
+    ) -> Option<DefId> {
+        let mod_id = self.ctx.defs.next_id();
+        let scope_id = self.ctx.scopes.enter_scope();
+        self.ctx.scopes.exit_scope();
+        let module_path = self.inline_module_path(parent_path, decl.name);
+        let module_dir_path = dir_path.join(self.ctx.resolve(decl.name));
+        let inline_def = ModuleDef {
+            id: mod_id,
+            name: decl.name,
+            parent,
+            is_imported,
+            scope_id,
+            dir_path: module_dir_path.clone(),
+            file_id,
+            is_init: false,
+            submodules: HashMap::new(),
+            items: Vec::new(),
+            imports: Vec::new(),
+            docs: None,
+        };
+        self.ctx.add_def(Def::Module(inline_def));
+        self.ctx.register_module_scope(mod_id, scope_id);
+        self.ctx.register_def_owner(mod_id, parent, Some(scope_id));
+
+        let mut submodules = HashMap::new();
+        for child in decls {
+            if let ast::DeclKind::Mod { decls } = &child.kind {
+                let sub_id = match decls {
+                    Some(decls) => self.load_inline_module(
+                        child,
+                        decls,
+                        Some(mod_id),
+                        module_dir_path.clone(),
+                        file_id,
+                        &module_path,
+                        is_imported,
+                    ),
+                    None => {
+                        let resolve_started = Instant::now();
+                        let resolved = self.resolve_submodule_path(&module_dir_path, child);
+                        self.timings.resolve_submodule_paths += resolve_started.elapsed();
+
+                        resolved.and_then(|path| {
+                            self.load_module_normalized(path, Some(mod_id), child.name, is_imported)
+                        })
+                    }
+                };
+                if let Some(sub_id) = sub_id {
+                    submodules.insert(child.name, sub_id);
+                }
+            }
+        }
+
+        if let Def::Module(module) = &mut self.ctx.defs[mod_id.0 as usize] {
+            module.submodules = submodules;
+        }
+
+        let module = ast::Module {
+            path: module_path,
+            docs: decl.docs.clone(),
+            attributes: decl.attributes.clone(),
+            decls: decls.to_vec(),
+        };
+        let mut module_alias_references = FastHashSet::default();
+        Self::collect_module_alias_references(
+            &module,
+            &self.known_alias_names,
+            &mut module_alias_references,
+        );
+        self.module_alias_references.push(module_alias_references);
+        self.asts.push((mod_id, module));
+        Some(mod_id)
+    }
+
+    fn module_child_anchor_dir(
+        &self,
+        source_dir_path: &Path,
+        name: SymbolId,
+        parent: Option<DefId>,
+        is_init: bool,
+    ) -> PathBuf {
+        if parent.is_some() && !is_init {
+            source_dir_path.join(self.ctx.resolve(name))
+        } else {
+            source_dir_path.to_path_buf()
+        }
+    }
+
+    fn inline_module_path(&self, parent_path: &str, name: SymbolId) -> String {
+        format!("{}::{}", parent_path, self.ctx.resolve(name))
     }
 
     fn normalize_path(path: &Path) -> PathBuf {

@@ -7,7 +7,7 @@ impl CompletionModel {
         target_path: &Path,
         offset: usize,
     ) -> bool {
-        let Some(module) = self.module_for_path(target_path) else {
+        let Some(module) = self.module_for_path(target_path, offset) else {
             return true;
         };
 
@@ -23,7 +23,7 @@ impl CompletionModel {
         target_path: &Path,
         offset: usize,
     ) -> Vec<AnalysisCompletionItem> {
-        let Some(module) = self.module_for_path(target_path) else {
+        let Some(module) = self.module_for_path(target_path, offset) else {
             return Vec::new();
         };
 
@@ -49,7 +49,7 @@ impl CompletionModel {
         target_path: &Path,
         offset: usize,
     ) -> Vec<AnalysisCompletionItem> {
-        let Some(module) = self.module_for_path(target_path) else {
+        let Some(module) = self.module_for_path(target_path, offset) else {
             return Vec::new();
         };
 
@@ -70,10 +70,16 @@ impl CompletionModel {
         visible
     }
 
-    fn module_for_path(&self, target_path: &Path) -> Option<&CompletionModule> {
+    fn module_for_path(&self, target_path: &Path, offset: usize) -> Option<&CompletionModule> {
         self.modules
             .iter()
-            .find(|module| module.path == target_path)
+            .filter(|module| module.source_path == target_path || module.path == target_path)
+            .filter(|module| module_contains_offset(&module.ast, offset))
+            .min_by_key(|module| {
+                module_span(&module.ast)
+                    .end
+                    .saturating_sub(module_span(&module.ast).start)
+            })
     }
 
     fn collect_in_decl(
@@ -499,15 +505,37 @@ pub(in crate::compiler) fn parsed_requires_body_completion(
     target_path: &Path,
     offset: usize,
 ) -> bool {
-    let Some(module) = modules.iter().find(|module| module.path == target_path) else {
-        return true;
-    };
-
-    module
-        .body_regions
+    let matching = modules
         .iter()
-        .copied()
-        .any(|span| span_contains_offset(span, offset))
+        .filter(|module| module.source_path == target_path)
+        .collect::<Vec<_>>();
+    if matching.is_empty() {
+        return true;
+    }
+
+    matching.iter().any(|module| {
+        module
+            .body_regions
+            .iter()
+            .copied()
+            .any(|span| span_contains_offset(span, offset))
+    })
+}
+
+fn module_contains_offset(module: &ast::Module, offset: usize) -> bool {
+    if module.decls.is_empty() {
+        return false;
+    }
+    span_contains_offset(module_span(module), offset)
+}
+
+fn module_span(module: &ast::Module) -> kernc_utils::Span {
+    module
+        .decls
+        .iter()
+        .map(|decl| decl.span)
+        .reduce(|acc, span| acc.to(span))
+        .unwrap_or_default()
 }
 
 pub(super) fn extend_completion_items(

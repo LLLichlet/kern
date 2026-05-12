@@ -84,6 +84,7 @@ The compiler finds module files by fixed rules:
 
 - `name.rn` is a file module.
 - `name/init.rn` is the entry file for a directory module.
+- `mod name { ... }` is an inline module and does not need an entry file.
 
 So `init.rn` is not an arbitrary name; it is the entry point for a directory
 module. It usually declares further child modules and exposes that directory's
@@ -133,6 +134,28 @@ pub.. fn count_digits(text: &[u8]) i32 {
 
 `pub..` means visible to the parent module tree. `parse/init.rn` can call
 `token.count_digits`, but it does not become public package API.
+
+Inline modules are useful when the child namespace is small enough to keep near
+its parent:
+
+```kern
+mod api {
+    pub fn answer() i32 {
+        return detail.value();
+    }
+
+    mod detail {
+        pub fn value() i32 {
+            return 42;
+        }
+    }
+}
+```
+
+Inline modules are still real module nodes. If an inline module declares a
+file-backed child, that child is resolved below the inline module's logical
+directory. For example, `mod api { mod detail; }` looks for `api/detail.rn` or
+`api/detail/init.rn`.
 
 `mod` is not textual inclusion, and Kern does not need headers or forward
 declarations. The compiler collects the module tree and resolves declarations

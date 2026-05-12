@@ -10,6 +10,32 @@ pub(super) fn module_file_id(
     }
 }
 
+pub(super) fn module_analysis_path(
+    session: &Session,
+    defs: &[kernc_sema::def::Def],
+    module_id: DefId,
+    module_ast: &ast::Module,
+) -> PathBuf {
+    let file_id = module_file_id(defs, module_id);
+    session
+        .source_manager
+        .get_file_path(file_id)
+        .map(|path| module_analysis_path_from_source(path, module_ast))
+        .unwrap_or_default()
+}
+
+pub(in crate::compiler) fn module_analysis_path_from_source(
+    source_path: &Path,
+    module_ast: &ast::Module,
+) -> PathBuf {
+    let source_path = normalize_driver_path(source_path);
+    if module_ast.path == source_path.to_string_lossy() {
+        source_path
+    } else {
+        PathBuf::from(module_ast.path.as_str())
+    }
+}
+
 pub(super) fn normalize_driver_path(path: &Path) -> PathBuf {
     normalize_platform_path(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
 }
@@ -343,7 +369,13 @@ fn normalize_decl_for_reuse_comparison(decl: &mut ast::Decl) {
                 normalize_decl_for_reuse_comparison(child);
             }
         }
-        ast::DeclKind::ModDecl => {}
+        ast::DeclKind::Mod { decls } => {
+            if let Some(decls) = decls {
+                for decl in decls {
+                    normalize_decl_for_reuse_comparison(decl);
+                }
+            }
+        }
     }
 }
 
@@ -480,7 +512,7 @@ fn rebind_decl_sequence<'a>(
                     return false;
                 }
             }
-            ast::DeclKind::Use { .. } | ast::DeclKind::ModDecl => {}
+            ast::DeclKind::Use { .. } | ast::DeclKind::Mod { .. } => {}
         }
     }
 
@@ -630,7 +662,13 @@ fn normalize_decl_for_body_only_comparison(decl: &mut ast::Decl) {
                 normalize_decl_for_body_only_comparison(child);
             }
         }
-        ast::DeclKind::ModDecl => {}
+        ast::DeclKind::Mod { decls } => {
+            if let Some(decls) = decls {
+                for decl in decls {
+                    normalize_decl_for_body_only_comparison(decl);
+                }
+            }
+        }
     }
 }
 

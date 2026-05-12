@@ -320,7 +320,28 @@ impl<'a> Parser<'a> {
         let name_token = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name_token);
 
-        self.expect(TokenType::Semicolon)?;
+        let decls = if self.match_token(&[TokenType::Semicolon]) {
+            None
+        } else {
+            self.expect(TokenType::LBrace)?;
+            let mut decls = Vec::new();
+            while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                let before = self.peek().span;
+                match self.parse_decl() {
+                    Ok(Some(decl)) => decls.push(decl),
+                    Ok(None) => {}
+                    Err(_) => self.synchronize(),
+                }
+                if self.peek().span == before
+                    && !self.check(TokenType::RBrace)
+                    && !self.check(TokenType::Eof)
+                {
+                    self.advance();
+                }
+            }
+            self.expect(TokenType::RBrace)?;
+            Some(decls)
+        };
         let end = self.stream.prev_span();
 
         Ok(Decl {
@@ -331,7 +352,7 @@ impl<'a> Parser<'a> {
             vis,
             docs: None,
             attributes: vec![],
-            kind: DeclKind::ModDecl,
+            kind: DeclKind::Mod { decls },
         })
     }
 

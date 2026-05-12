@@ -111,8 +111,8 @@ pub enum DeclKind {
         methods: Vec<TraitMethodDef>,
     },
 
-    /// Module declaration: `mod name;`
-    ModDecl,
+    /// Module declaration: `mod name;` or inline module `mod name { ... }`.
+    Mod { decls: Option<Vec<Decl>> },
 
     /// Import declaration.
     Use {

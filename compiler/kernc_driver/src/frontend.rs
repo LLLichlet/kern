@@ -619,7 +619,13 @@ impl CachedAstRebinder<'_> {
                     self.rebind_trait_method_def(method);
                 }
             }
-            ast::DeclKind::ModDecl => {}
+            ast::DeclKind::Mod { decls } => {
+                if let Some(decls) = decls {
+                    for decl in decls {
+                        self.rebind_decl(decl);
+                    }
+                }
+            }
             ast::DeclKind::Use { path, target, .. } => {
                 self.rebind_symbols(path);
                 self.rebind_use_target(target);

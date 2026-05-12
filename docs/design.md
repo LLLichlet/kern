@@ -709,6 +709,7 @@ Files and directories do not implicitly become part of the compilation unit just
 
   * **File Modules**: `mod utils;` instructs the compiler to look for `utils.rn`.
   * **Directory Modules**: If `utils` is a directory, the compiler looks for `utils/init.rn`.
+  * **Inline Modules**: `mod utils { ... }` declares the same child module without a separate entry file.
   * **Visibility**: By default, modules are private. Use `pub mod utils;` to expose a module publicly, `pub.. mod utils;` to expose it to the parent module subtree, or `pub/ mod utils;` to expose it throughout the current package.
 
 <!-- end list -->
@@ -719,6 +720,10 @@ mod memory;
 pub mod process;
 pub.. mod detail;
 
+mod inline_detail {
+    pub.. fn helper() void {}
+}
+
 // Conditional module compilation (e.g., in std/os/init.rn)
 #[if(os == "linux")]
 mod linux;
@@ -726,6 +731,8 @@ mod linux;
 #[if(os == "windows")]
 mod windows;
 ```
+
+Inline modules are module nodes, not textual includes. A file-backed child declared inside an inline module is resolved under that module's child directory, so `mod api { mod detail; }` looks for `api/detail.rn` or `api/detail/init.rn`.
 
 ### 8.2 Imports and Path Resolution (`use`)
 

@@ -1410,7 +1410,7 @@ pub.. use .leaf.shared as shared;
 "#,
             ),
             (
-                "leaf.rn",
+                "middle/leaf.rn",
                 r#"
 pub fn shared() i32 {
     return 0;
@@ -1449,7 +1449,7 @@ pub use .leaf.shared as shared;
 "#,
             ),
             (
-                "leaf.rn",
+                "middle/leaf.rn",
                 r#"
 pub.. fn shared() i32 {
     return 0;
@@ -1532,7 +1532,7 @@ pub.. fn helper() i32 {
 "#,
             ),
             (
-                "deep.rn",
+                "left/deep.rn",
                 r#"
 use ..helper;
 
@@ -1571,7 +1571,7 @@ pub mod mid;
 "#,
             ),
             (
-                "mid.rn",
+                "outer/mid.rn",
                 r#"
 pub.. fn helper() i32 {
     return 0;
@@ -1621,7 +1621,7 @@ pub mod mid;
 "#,
             ),
             (
-                "mid.rn",
+                "outer/mid.rn",
                 r#"
 pub.. fn helper() i32 {
     return 0;

@@ -67,7 +67,7 @@ impl CompilerDriver {
                     kind: AnalysisSymbolKind::Module,
                     span: module_span,
                     selection_span: module_span,
-                    detail: Some(module.ast.path.clone()),
+                    detail: Some(module.path.to_string_lossy().to_string()),
                     children,
                 }
             })
@@ -794,13 +794,18 @@ impl CompilerDriver {
                 detail: None,
                 children: Vec::new(),
             }),
-            ast::DeclKind::ModDecl => Some(AnalysisSymbol {
+            ast::DeclKind::Mod { decls } => Some(AnalysisSymbol {
                 name,
                 kind: AnalysisSymbolKind::Namespace,
                 span: decl.span,
                 selection_span: decl.name_span,
                 detail: None,
-                children: Vec::new(),
+                children: decls
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|child| self.analysis_symbol_from_decl(ctx, child))
+                    .collect(),
             }),
             ast::DeclKind::ExternBlock { decls, .. } => Some(AnalysisSymbol {
                 name: "extern".to_string(),
@@ -900,13 +905,18 @@ impl CompilerDriver {
                 detail: None,
                 children: Vec::new(),
             }),
-            ast::DeclKind::ModDecl => Some(AnalysisSymbol {
+            ast::DeclKind::Mod { decls } => Some(AnalysisSymbol {
                 name,
                 kind: AnalysisSymbolKind::Namespace,
                 span: decl.span,
                 selection_span: decl.name_span,
                 detail: None,
-                children: Vec::new(),
+                children: decls
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|child| self.analysis_symbol_from_decl_name_only(session, child))
+                    .collect(),
             }),
             ast::DeclKind::ExternBlock { decls, .. } => Some(AnalysisSymbol {
                 name: "extern".to_string(),

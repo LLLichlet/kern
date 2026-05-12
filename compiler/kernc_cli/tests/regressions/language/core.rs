@@ -445,6 +445,84 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_inline_and_nested_modules() {
+    let output = build_and_run_source(
+        r#"
+mod api {
+    pub fn answer() i32 {
+        return detail.value() + 1;
+    }
+
+    mod detail {
+        pub fn value() i32 {
+            return inner.more();
+        }
+
+        mod inner {
+            pub fn more() i32 {
+                return 41;
+            }
+        }
+    }
+}
+
+fn main() i32 {
+    return api.answer() - 42;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_inline_module_with_file_backed_nested_module() {
+    let output = compile_source_tree_with_args(
+        "kernc_inline_nested_file_module",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod api {
+    mod detail;
+
+    pub fn answer() i32 {
+        return detail.value();
+    }
+}
+
+fn main() i32 {
+    return api.answer() - 7;
+}
+"#,
+            ),
+            (
+                "api/detail.rn",
+                r#"
+pub fn value() i32 {
+    return 7;
+}
+"#,
+            ),
+        ],
+        &["--runtime-libc", "yes"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_direct_array_printing_through_slice_trait_coercion() {
     let output = build_and_run_source_with_std(
         r#"

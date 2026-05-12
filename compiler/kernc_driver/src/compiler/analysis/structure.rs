@@ -129,15 +129,17 @@ impl CompilerDriver {
                     kernc_sema::def::Def::Module(module_def) => module_def.file_id,
                     _ => kernc_utils::FileId(0),
                 };
-                let path = ctx
+                let source_path = ctx
                     .sess
                     .source_manager
                     .get_file_path(file_id)
                     .map(|path| normalize_driver_path(path))
                     .unwrap_or_default();
+                let path = module_analysis_path_from_source(&source_path, ast);
                 ParsedModule {
                     name,
                     file_id,
+                    source_path,
                     path,
                     body_regions: completion::module_body_completion_regions(ast),
                     ast: ast.clone(),
@@ -908,10 +910,11 @@ impl CompilerDriver {
     ) -> Option<std::collections::BTreeMap<PathBuf, (DefId, &'a ast::Module)>> {
         let mut modules = std::collections::BTreeMap::new();
         for (module_id, module_ast) in clean_asts {
-            let path = clean_session
-                .source_manager
-                .get_file_path(module_file_id(defs, *module_id))?;
-            modules.insert(normalize_driver_path(path), (*module_id, module_ast));
+            let path = module_analysis_path(clean_session, defs, *module_id, module_ast);
+            if path.as_os_str().is_empty() {
+                return None;
+            }
+            modules.insert(path, (*module_id, module_ast));
         }
         Some(modules)
     }
@@ -952,15 +955,17 @@ impl CompilerDriver {
                     kernc_sema::def::Def::Module(module_def) => module_def.file_id,
                     _ => kernc_utils::FileId(0),
                 };
-                let path = ctx
+                let source_path = ctx
                     .sess
                     .source_manager
                     .get_file_path(file_id)
                     .map(|path| normalize_driver_path(path))
                     .unwrap_or_default();
+                let path = module_analysis_path_from_source(&source_path, &ast);
                 ParsedModule {
                     name,
                     file_id,
+                    source_path,
                     path,
                     body_regions: completion::module_body_completion_regions(&ast),
                     ast,

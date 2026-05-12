@@ -12,6 +12,7 @@ use self::facts::{
 };
 use self::model::push_completion_item;
 use super::{AnalysisCompletionItem, AnalysisCompletionKind, CompilerDriver};
+use crate::compiler::analysis::module_analysis_path_from_source;
 use crate::language::is_language_builtin_def_id;
 use kernc_ast as ast;
 use kernc_sema::def::DefId;
@@ -22,6 +23,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub(super) struct CompletionModule {
     pub(super) path: PathBuf,
+    pub(super) source_path: PathBuf,
     pub(super) ast: ast::Module,
     pub(super) body_regions: Vec<kernc_utils::Span>,
     pub(super) surface_decls: Vec<CompletionSurfaceDecl>,
@@ -199,11 +201,12 @@ impl CompilerDriver {
                 };
                 let module_file_id = module_def.file_id;
                 let module_scope_id = module_def.scope_id;
-                let module_path = ctx
+                let source_path = ctx
                     .sess
                     .source_manager
                     .get_file_path(module_file_id)
                     .map(|path| normalize_analysis_path(path))?;
+                let module_path = module_analysis_path_from_source(&source_path, ast);
 
                 let top_level_items = ctx
                     .scopes
@@ -213,6 +216,7 @@ impl CompilerDriver {
 
                 Some(CompletionModule {
                     path: module_path,
+                    source_path,
                     ast: ast.clone(),
                     body_regions: module_body_completion_regions(ast),
                     surface_decls: module_surface_decls(ast, &function_items_by_span),

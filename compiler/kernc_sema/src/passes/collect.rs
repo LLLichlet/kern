@@ -144,7 +144,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         binding_span: decl.name_span,
                     });
                 }
-                DeclKind::ModDecl => {
+                DeclKind::Mod { .. } => {
                     if let Some(&sub_id) = submodules.get(&decl.name) {
                         self.define_symbol(SymbolDefSpec {
                             name: decl.name,
@@ -236,7 +236,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     });
                 }
                 Decl {
-                    kind: DeclKind::ModDecl,
+                    kind: DeclKind::Mod { .. },
                     id,
                     name,
                     name_span,
@@ -428,7 +428,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             }
             // Already handled by `collect_ast`.
             DeclKind::Use { .. } => None,
-            DeclKind::ModDecl => None,
+            DeclKind::Mod { .. } => None,
         }
     }
 
@@ -582,7 +582,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 None
             }
             DeclKind::Use { .. } => None,
-            DeclKind::ModDecl => None,
+            DeclKind::Mod { .. } => None,
         }
     }
 

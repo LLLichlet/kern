@@ -989,7 +989,7 @@ pub mod mid;
 "#,
             ),
             (
-                "mid.rn",
+                "outer/mid.rn",
                 r#"
 pub struct Bag {
     pub.. shared: i32,
@@ -1043,7 +1043,7 @@ pub mod mid;
 "#,
             ),
             (
-                "mid.rn",
+                "outer/mid.rn",
                 r#"
 pub struct Bag {
     pub.. shared: i32,

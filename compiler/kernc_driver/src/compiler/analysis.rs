@@ -5,9 +5,11 @@ mod reuse;
 mod structure;
 mod surface;
 
+pub(in crate::compiler) use self::reuse::module_analysis_path_from_source;
 use self::reuse::{
-    classify_function_body_decl_changes, module_file_id, module_source_changed,
-    modules_match_ignoring_body_only, normalize_driver_path, rebind_module_defs,
+    classify_function_body_decl_changes, module_analysis_path, module_file_id,
+    module_source_changed, modules_match_ignoring_body_only, normalize_driver_path,
+    rebind_module_defs,
 };
 use super::completion::CompletionModel;
 use super::flow::FlowModel;

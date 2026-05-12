@@ -1,0 +1,21 @@
+// class: modules-inline-trait-defaults
+// source: trait default methods in inline modules must instantiate const fns from file-backed children
+// exit: 0
+
+mod api {
+    mod detail;
+
+    pub trait SizedValue[N: usize] {
+        fn value() usize {
+            return detail.bump[N]();
+        }
+    };
+
+    pub struct Item {};
+
+    impl Item: SizedValue[4] {}
+}
+
+fn main() i32 {
+    return api.Item.{}.value() as i32 - 7;
+}

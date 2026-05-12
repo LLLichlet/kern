@@ -321,8 +321,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return None;
         };
 
-        let lhs_ty = self.node_type(lhs.id);
-        if matches!(self.type_kind(lhs_ty), TypeKind::Module(..)) {
+        if self.module_scope_from_expr(lhs).is_some() {
             None
         } else {
             Some(lhs.as_ref())

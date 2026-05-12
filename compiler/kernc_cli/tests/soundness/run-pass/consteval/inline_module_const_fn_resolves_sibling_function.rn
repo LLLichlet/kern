@@ -1,0 +1,19 @@
+// class: modules-inline-consteval
+// source: const fn evaluation must resolve sibling functions through the inline module owner scope
+// exit: 0
+
+mod api {
+    const fn base() i32 {
+        return 40;
+    }
+
+    pub const fn answer() i32 {
+        return base() + 2;
+    }
+}
+
+const ANSWER = api.answer();
+
+fn main() i32 {
+    return ANSWER - 42;
+}

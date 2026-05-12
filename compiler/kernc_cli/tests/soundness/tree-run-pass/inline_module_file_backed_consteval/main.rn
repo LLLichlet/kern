@@ -1,0 +1,17 @@
+// class: modules-inline-consteval
+// source: file-backed children of inline modules must resolve consts and const fns in their logical module directory
+// exit: 0
+
+mod api {
+    mod detail;
+
+    pub const fn answer() usize {
+        return detail.answer();
+    }
+}
+
+static ANSWER = api.answer();
+
+fn main() i32 {
+    return ANSWER as i32 - 42;
+}

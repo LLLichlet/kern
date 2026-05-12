@@ -1,0 +1,25 @@
+// class: modules-inline-const-static
+// source: inline modules must have independent item scopes for same-named consts and statics
+// exit: 0
+
+mod left {
+    const SHARED = i32.{11};
+    static VALUE = i32.{31};
+
+    pub fn read() i32 {
+        return SHARED + VALUE;
+    }
+}
+
+mod right {
+    const SHARED = i32.{7};
+    static VALUE = i32.{13};
+
+    pub fn read() i32 {
+        return SHARED + VALUE;
+    }
+}
+
+fn main() i32 {
+    return left.read() + right.read() - 62;
+}

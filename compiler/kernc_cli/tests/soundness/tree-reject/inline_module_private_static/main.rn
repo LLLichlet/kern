@@ -1,0 +1,11 @@
+// class: modules-inline-visibility
+// source: private statics inside inline modules must not leak through public module paths
+// stderr: module has no visible member `SECRET`
+
+mod api {
+    static SECRET = i32.{1};
+}
+
+fn main() i32 {
+    return api.SECRET;
+}

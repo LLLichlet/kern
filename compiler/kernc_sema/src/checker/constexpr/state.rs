@@ -180,6 +180,26 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
     }
 
+    fn resolve_module_symbol_info(&self, name: SymbolId) -> Option<crate::scope::SymbolInfo> {
+        if let Some(&scope_id) = self.const_scopes.last() {
+            self.ctx.scopes.resolve_module_from(scope_id, name).cloned()
+        } else {
+            self.ctx.scopes.resolve_module_symbol(name).cloned()
+        }
+    }
+
+    fn resolve_function_symbol_info(&self, name: SymbolId) -> Option<crate::scope::SymbolInfo> {
+        if let Some(&scope_id) = self.const_scopes.last() {
+            self.ctx
+                .scopes
+                .resolve_from_namespace(scope_id, name, crate::scope::SymbolNamespace::Value)
+                .cloned()
+        } else {
+            self.ctx.scopes.resolve_value_symbol(name).cloned()
+        }
+        .filter(|info| info.kind == SymbolKind::Function)
+    }
+
     pub(super) fn module_scope_from_expr(&mut self, expr: &Expr) -> Option<ScopeId> {
         let expr_ty = self.node_type(expr.id);
         if let TypeKind::Module(def_id) = self.type_kind(expr_ty).clone()
@@ -190,7 +210,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         match &expr.kind {
             ExprKind::Identifier(name) => {
-                let info = self.ctx.scopes.resolve_module_symbol(*name)?.clone();
+                let info = self.resolve_module_symbol_info(*name)?;
                 if info.kind != SymbolKind::Module {
                     return None;
                 }
@@ -255,7 +275,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         match &callee.kind {
             ExprKind::Identifier(name) => {
-                let info = self.ctx.scopes.resolve_value_symbol(*name)?.clone();
+                let info = self.resolve_function_symbol_info(*name)?;
                 if info.kind == SymbolKind::Function {
                     Some((info.def_id?, Vec::new()))
                 } else {

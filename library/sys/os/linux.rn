@@ -69,8 +69,10 @@ const S_IFREG = u32.{32768};
 const DT_DIR = u8.{4};
 const DT_REG = u8.{8};
 
-static mut PROCESS_ENV = usize.{0};
-static mut PROCESS_ENV_READY = false;
+extern {
+    #[export_name("__kern_process_env")]
+    fn process_env() usize;
+}
 
 extern struct Stat {
     st_dev: u64,
@@ -290,19 +292,8 @@ pub fn is_already_exists(err: Error) bool {
     return err.code == EEXIST;
 }
 
-/// Records the process environment block from the hosted entry ABI.
-pub fn init_process_env(argc: i32, argv: &&u8) void {
-    let env_offset = if (argc <= 0) usize.{1} else argc as usize + usize.{1};
-    PROCESS_ENV = (argv + env_offset) as usize;
-    PROCESS_ENV_READY = true;
-}
-
 /// Returns the zero-terminated value for one environment variable.
 pub fn find_environment_value(name: &u8) ?&u8 {
-    if (!PROCESS_ENV_READY) {
-        return .None;
-    }
-
     let .{ Some: envp } = environment_entries() else return .None;
     let mut envp = envp;
 
@@ -323,10 +314,11 @@ pub fn find_environment_value(name: &u8) ?&u8 {
 
 /// Returns the process environment block initialized by the runtime entry layer.
 pub fn environment_entries() ?&&u8 {
-    if (!PROCESS_ENV_READY or PROCESS_ENV == 0) {
+    let envp = process_env();
+    if (envp == 0) {
         return .None;
     }
-    return .{ Some: PROCESS_ENV as &&u8 };
+    return .{ Some: envp as &&u8 };
 }
 
 /// Returns the current process identifier.

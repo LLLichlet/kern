@@ -257,7 +257,9 @@ The model is:
 - `sys` and `rt` implementation choice is handled through ordinary module paths or packages, not a dedicated runtime-provider flag
 - low-level APIs stay in their owning layer instead of being mirrored through `std`
 
-If you select `--runtime-entry` without selecting an official library bundle, `kernc` only wires `rt` itself. If that `rt` implementation depends on `base` or `sys`, map them explicitly with `--module-path` or choose a bundle.
+If you select `--runtime-entry` without selecting an official library bundle,
+`kernc` only wires `rt` itself. The official `rt` is kept independent from
+`base` and `sys` so this remains valid with `--library-bundle none`.
 
 When `--runtime-entry rt` or `--runtime-entry crt` is active, the root `main` must match the program-entry contract: `fn main() i32` or `fn main(argc: i32, argv: &&u8) i32`.
 

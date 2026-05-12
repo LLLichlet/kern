@@ -143,6 +143,8 @@ The public library/runtime split is:
 - `library/std`: high-level user-facing facilities
 
 These are ordinary public layers, not compiler-privileged crates.
+The official `rt` package is intentionally below the public library stack: it
+must not depend on `base`, `sys`, or `std`.
 
 This keeps the roles clear:
 
@@ -158,6 +160,7 @@ The practical rule is:
 - `std` must not require libc as a semantic foundation
 - hosted `std` facilities depend on OS/provider services exposed by `sys`, not on libc as a semantic prerequisite
 - libc remains outside that semantic stack as an explicitly selected foreign interface when a project wants it
+- official `rt` must stay usable when `library_bundle = none`
 - `rt` stays a separate runtime-owned layer and is not mirrored through `std`
 - low-level modules such as allocators, collection primitives, ABI helpers, and page-backed memory stay in their owning layer instead of being duplicated under `std`
 

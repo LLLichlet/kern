@@ -242,6 +242,48 @@ fn main() i32 {
 }
 
 #[test]
+fn official_rt_links_without_base_or_sys_bundle() {
+    let source_path = unique_temp_path("kernc_rt_standalone_bundle_none", "rn");
+    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
+    let executable_path = unique_temp_path("kernc_rt_standalone_bundle_none", exe_ext);
+
+    fs::write(
+        &source_path,
+        r#"
+fn main() i32 {
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let exe_arg = executable_path.to_string_lossy().into_owned();
+    let output = run_kernc([
+        "--runtime-entry",
+        "rt",
+        "--library-bundle",
+        "none",
+        source_arg.as_str(),
+        "-o",
+        exe_arg.as_str(),
+    ]);
+
+    assert_success(&output, "kernc");
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "official rt bundle-none binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn std_bundle_does_not_expose_page_allocator_through_base_alloc() {
     let output = compile_source_with_args(
         "kernc_base_alloc_page_unavailable",

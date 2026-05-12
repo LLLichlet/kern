@@ -19,6 +19,7 @@ implementation is linked.
 - `rt` is injected only when runtime startup is selected
 - `rt` is not a public prelude
 - `rt` does not replace `base`, `sys`, or `std`
+- the official `rt` package does not depend on `base`, `sys`, or `std`
 - user-facing hosted facilities still belong in `std`
 - OS/provider services still belong in `sys`
 

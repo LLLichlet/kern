@@ -15,6 +15,3 @@ bundle = "base"
 
 [lib]
 root = "init.rn"
-
-[dependencies]
-sys = { workspace = true }

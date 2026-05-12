@@ -190,6 +190,21 @@ fn main() i32 {
     fs::write(
         &bridge_source,
         r#"
+fn bytes_eq(lhs: &[u8], rhs: &[u8]) bool {
+    if (#lhs != #rhs) {
+        return false;
+    }
+
+    let mut i = usize.{0};
+    while (i < #lhs) {
+        if (lhs.[i] != rhs.[i]) {
+            return false;
+        }
+        i += usize.{1};
+    }
+    return true;
+}
+
 #[export_name("bridge")]
 extern fn bridge_impl(args: &[&[u8]]) i32 {
     if (#args != 2) {
@@ -198,10 +213,10 @@ extern fn bridge_impl(args: &[&[u8]]) i32 {
 
     let first = args.[0];
     let second = args.[1];
-    if (first != "alpha") {
+    if (!bytes_eq(first, "alpha")) {
         return 2;
     }
-    if (second != "beta gamma") {
+    if (!bytes_eq(second, "beta gamma")) {
         return 3;
     }
     return 0;
@@ -1226,6 +1241,78 @@ fn main() i32 {
     assert!(
         run_output.status.success(),
         "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn runs_rt_startup_program_using_std_env_get() {
+    let source_path = unique_temp_path("kernc_rt_std_env", "rn");
+    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
+    let executable_path = unique_temp_path("kernc_rt_std_env", exe_ext);
+
+    fs::write(
+        &source_path,
+        r#"
+use std.env;
+
+fn main() i32 {
+    if (!"KERN_RT_STD_ENV_TEST".env().has()) {
+        return 1;
+    }
+    if (!"KERN_RT_STD_ENV_TEST".env().equals("rt-alpha")) {
+        return 2;
+    }
+
+    let mut saw_target = false;
+    let visited = env.vars().visit([saw_target = saw_target..&](entry: env.Var) bool {
+        if (entry.name_eq("KERN_RT_STD_ENV_TEST")) {
+            if (!entry.value_eq("rt-alpha")) {
+                return false;
+            }
+            saw_target.* = true;
+        }
+        return true;
+    });
+    if (visited == 0 or !saw_target) {
+        return 3;
+    }
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let exe_arg = executable_path.to_string_lossy().into_owned();
+    let output = run_kernc([
+        "--library-bundle",
+        "std",
+        "--runtime-entry",
+        "rt",
+        source_arg.as_str(),
+        "-o",
+        exe_arg.as_str(),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run_output = Command::new(&executable_path)
+        .env("KERN_RT_STD_ENV_TEST", "rt-alpha")
+        .output()
+        .unwrap();
+    assert!(
+        run_output.status.success(),
+        "rt startup std env binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );

@@ -28,7 +28,7 @@ version = "0.7.5"
 source = "workspace-member"
 source-value = "rt"
 manifest = "rt/Craft.toml"
-manifest-digest = "fnv1a64:20b172af67f7a058"
+manifest-digest = "fnv1a64:31ca89cd8108914b"
 
 [[package]]
 id = "std 0.7.5 workspace-member:std"
@@ -73,14 +73,6 @@ root = "init.rn"
 package = "sys 0.7.5 workspace-member:sys"
 kind = "lib"
 root = "init.rn"
-
-[[dependency]]
-from = "rt 0.7.5 workspace-member:rt"
-kind = "normal"
-name = "sys"
-package = "sys"
-target = "local"
-target-id = "sys 0.7.5 workspace-member:sys"
 
 [[dependency]]
 from = "std 0.7.5 workspace-member:std"

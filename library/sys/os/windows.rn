@@ -339,12 +339,6 @@ pub fn is_already_exists(err: Error) bool {
     return err.code == ERROR_FILE_EXISTS or err.code == ERROR_ALREADY_EXISTS;
 }
 
-/// Hosted Windows environment access does not require startup-side initialization.
-pub fn init_process_env(argc: i32, argv: &&u8) void {
-    _ = argc;
-    _ = argv;
-}
-
 /// Reads one environment variable as an ANSI byte string.
 pub fn get_environment_variable(name: &u8, buffer: &mut u8, size: u32) u32 {
     return GetEnvironmentVariableA(name, buffer, size);

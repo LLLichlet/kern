@@ -14,20 +14,52 @@
 //! The platform glue remains here rather than in `std` because startup
 //! ownership is a runtime concern, not a user-library concern.
 
-use sys.os;
-#[if(os == "windows")]
-use sys.os.{
-    CommandLineToArgvW,
-    GetCommandLineW,
-    LocalFree,
-    suppress_error_dialogs,
-    utf16_z_len,
-    wide_to_utf8_into
-};
+#[if(os == "linux" or os == "darwin")]
+#[export_name("__kern_process_env")]
+extern fn process_env() usize {
+    return PROCESS_ENV;
+}
+
+#[if(os == "linux" or os == "darwin")]
+static mut PROCESS_ENV = usize.{0};
 
 extern {
     fn __kern_main_adapter(argc: i32, argv: &&u8) i32;
 }
+
+#[if(os == "darwin")]
+extern {
+    #[export_name("exit")]
+    fn system_exit(code: i32) void;
+}
+
+#[if(os == "windows")]
+extern {
+    fn ExitProcess(code: u32) void;
+    fn SetErrorMode(mode: u32) u32;
+    fn GetCommandLineW() &mut u16;
+    fn CommandLineToArgvW(cmd_line: &u16, argc: &mut i32) &mut &mut u16;
+    fn LocalFree(mem: &mut void) &mut void;
+    fn WideCharToMultiByte(
+        code_page: u32,
+        flags: u32,
+        wide: &u16,
+        wide_len: i32,
+        utf8: &mut u8,
+        utf8_len: i32,
+        default_char: &u8,
+        used_default_char: &mut u8,
+    ) i32;
+}
+
+#[if(os == "windows")]
+const CP_UTF8 = u32.{65001};
+#[if(os == "windows")]
+const SEM_FAILCRITICALERRORS = u32.{1};
+#[if(os == "windows")]
+const SEM_NOGPFAULTERRORBOX = u32.{2};
+#[if(os == "windows")]
+const SEM_NOOPENFILEERRORBOX = u32.{32768};
 
 #[if(os == "windows")]
 static mut WINDOWS_ARG_BUF = [32768]u8.{undef};
@@ -57,12 +89,12 @@ extern fn _start_linux() void {
 #[if(runtime_entry == "rt" and os == "darwin")]
 #[export_name("start")]
 extern fn _start_darwin(argc: usize, argv: &&u8) void {
-    os.exit(kern_entry_posix(argc as i32, argv))
+    exit(kern_entry_posix(argc as i32, argv));
 }
 
 #[if(runtime_entry == "rt" and os == "linux")]
 extern fn kern_entry_linux(argc: i32, argv: &&u8) void {
-    os.exit(kern_entry_posix(argc, argv));
+    exit(kern_entry_posix(argc, argv));
 }
 
 #[if((runtime_entry == "crt" or rt_role == "entry") and (os == "linux" or os == "darwin"))]
@@ -72,8 +104,31 @@ extern fn main(argc: i32, argv: &&u8) i32 {
 
 #[if(os == "linux" or os == "darwin")]
 fn kern_entry_posix(argc: i32, argv: &&u8) i32 {
-    os.init_process_env(argc, argv);
+    let env_offset = if (argc <= 0) usize.{1} else argc as usize + usize.{1};
+    PROCESS_ENV = (argv + env_offset) as usize;
     return __kern_main_adapter(argc, argv);
+}
+
+#[if(runtime_entry == "rt" and os == "linux")]
+fn exit(code: i32) ! {
+    @asm(.{
+        asm:
+            \\syscall
+        ,
+        inputs: .{
+            rax: usize.{60},
+            rdi: code as usize,
+        },
+        clobbers: .{ "rcx", "r11", "memory" },
+        volatile: true
+    });
+    @unreachable()
+}
+
+#[if(runtime_entry == "rt" and os == "darwin")]
+fn exit(code: i32) ! {
+    system_exit(code);
+    @unreachable()
 }
 
 #[if((runtime_entry == "rt" or rt_role == "entry") and os == "windows" and arch == "x86_64")]
@@ -112,7 +167,7 @@ static WINDOWS_FLTUSED = i32.{1};
 #[if(runtime_entry == "rt" and os == "windows")]
 #[export_name("mainCRTStartup")]
 extern fn _start_windows() void {
-    os.exit(kern_entry_windows())
+    exit(kern_entry_windows());
 }
 
 #[if((runtime_entry == "crt" or rt_role == "entry") and os == "windows")]
@@ -133,13 +188,13 @@ fn build_windows_utf8_argv(argc: usize, argv_wide: &mut &mut u16) i32 {
         let arg_start = out_len;
         let arg_wide = (argv_wide + utf8_argc).*;
         let arg_len = utf16_z_len(arg_wide);
-        let written = match (wide_to_utf8_into(
+        let written = wide_to_utf8_into(
             arg_wide.&[0 .. arg_len],
             WINDOWS_ARG_BUF..&[out_len .. 32767]
-        )) {
-            .{ Ok: len } => len,
-            .{ Err: _ } => break,
-        };
+        );
+        if (written == 0 and arg_len > 0) {
+            break;
+        }
 
         out_len += written;
         WINDOWS_ARG_BUF.[out_len] = 0;
@@ -151,6 +206,67 @@ fn build_windows_utf8_argv(argc: usize, argv_wide: &mut &mut u16) i32 {
 
     WINDOWS_ARGV_PTRS.[utf8_argc] = 0;
     return utf8_argc as i32;
+}
+
+#[if(runtime_entry == "rt" and os == "windows")]
+fn exit(code: i32) ! {
+    ExitProcess(code as u32);
+    @unreachable()
+}
+
+#[if(os == "windows")]
+fn suppress_error_dialogs() void {
+    _ = SetErrorMode(
+        SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX
+    );
+}
+
+#[if(os == "windows")]
+fn utf16_z_len(str: &u16) usize {
+    let mut len = usize.{0};
+    while (true) {
+        let current = str + len;
+        if (current.* == 0) {
+            return len;
+        }
+        len += usize.{1};
+    }
+}
+
+#[if(os == "windows")]
+fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize {
+    if (#wide == 0) {
+        return 0;
+    }
+
+    let required = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wide.[0].&,
+        #wide as i32,
+        0 as &mut u8,
+        0,
+        0 as &u8,
+        0 as &mut u8
+    );
+    if (required <= 0 or required as usize > #out) {
+        return 0;
+    }
+
+    let written = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wide.[0].&,
+        #wide as i32,
+        out.[0]..&,
+        required,
+        0 as &u8,
+        0 as &mut u8
+    );
+    if (written <= 0) {
+        return 0;
+    }
+    return written as usize;
 }
 
 #[if(os == "windows")]

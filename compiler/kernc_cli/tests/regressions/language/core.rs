@@ -1319,6 +1319,98 @@ fn main() i32 {
 }
 
 #[test]
+fn explicit_closure_capture_inside_generic_callback_can_use_captured_offset() {
+    let output = build_and_run_source(
+        r#"
+enum SourceError {
+    Bad,
+};
+
+enum TargetError {
+    At: usize,
+};
+
+fn fail() usize!SourceError {
+    return .{ Err: .Bad };
+}
+
+fn main() i32 {
+    let index = usize.{41};
+    let result = fail().map_err([index](_: SourceError) TargetError {
+        return .{ At: index + 1 };
+    });
+    let .{ Err: err } = result else return 1;
+    return match (err) {
+        .{ At: value } => if (value == 42) 0 else 2,
+    };
+}
+"#,
+    );
+
+    assert_success(&output, "kernc explicit closure capture callback");
+}
+
+#[test]
+fn uncaptured_outer_variable_in_empty_closure_does_not_leak_typevars() {
+    let source = r#"
+enum SourceError {
+    Bad,
+};
+
+enum TargetError {
+    At: usize,
+};
+
+fn fail() usize!SourceError {
+    return .{ Err: .Bad };
+}
+
+fn main() i32 {
+    let mut index = 41;
+    let _result = fail().map_err([](_: SourceError) TargetError {
+        return .{ At: index + 1 };
+    });
+    return 0;
+}
+"#;
+    let source_path = unique_temp_path("kernc_empty_capture_map_err", "rn");
+    let output_path = unique_temp_path("kernc_empty_capture_map_err", "out");
+    std::fs::write(&source_path, source).unwrap();
+    let output = run_kernc([
+        "--runtime-libc",
+        "yes",
+        source_path.to_str().unwrap(),
+        "-o",
+        output_path.to_str().unwrap(),
+    ]);
+    let _ = std::fs::remove_file(&source_path);
+    let _ = std::fs::remove_file(&output_path);
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted uncaptured outer variable in empty closure:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not in its capture list"),
+        "expected capture or lookup diagnostic:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("add `index` to the closure capture list"),
+        "expected explicit-capture diagnostic hint:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("?T"),
+        "unexpected unresolved typevar leaked into diagnostic:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn bitwise_literal_constraints_still_allow_later_integer_specialization() {
     let output = build_and_run_source(
         r#"

@@ -94,9 +94,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 && !lowered_ident.is_local_binding
                             {
                                 let var_str = this.ctx.resolve(v).to_string();
-                                this.ctx.struct_error(expr.span, "closures cannot capture environmental variables in Kern")
+                                this.ctx.struct_error(expr.span, "closure body uses an outer variable that is not in its capture list")
                                     .with_hint(format!("variable `{}` belongs to an outer scope", var_str))
-                                    .with_hint("Kern anonymous functions compile directly to static C function pointers")
+                                    .with_hint(format!("add `{}` to the closure capture list, or pass the value as a parameter", var_str))
                                     .emit();
                             }
                             kind

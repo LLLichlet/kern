@@ -539,7 +539,7 @@ fn hosted_std_io_prints_custom_value_printable() {
         "kernc_std_printable_value_impl",
         r#"
 use std.io;
-use base.io.{Formatable, Write};
+use base.io.{FormatSpec, Formatable, Write};
 
 struct Pair {
     left: usize,
@@ -547,7 +547,8 @@ struct Pair {
 };
 
 impl Pair : Formatable {
-    pub fn write_to(writer: &mut Write) void {
+    pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
+        _ = spec;
         let _ = writer.write("(");
         self.left.&.write_to(writer);
         let _ = writer.write(", ");
@@ -727,13 +728,31 @@ fn main() i32 {
         return 7;
     }
 
-    let mut fmt_storage = [160]u8.{undef};
-    let mut fmt = (fmt_storage..&[0 .. 160]).writer();
+    let mut fmt_storage = [256]u8.{undef};
+    let mut fmt = (fmt_storage..&[0 .. 256]).writer();
     let fmt_writer = &mut Write.{ fmt..& };
-    "p={02} r={>4} l={<4} c={^5} z={0>3} f={_>4} cut={.3} mix={>6.2} left={<6.2} zero={0>5.2} bad={x} old={:02}"
-        .fmt(.{ 7, "go", "go", "go", 7, 7, "abcdef", "abcdef", "abcdef", 12345, })
+    "p={02} r={>4} l={<4} c={^5} z={0>3} f={_>4} cut={.3} mix={>6.2} left={<6.2} zero={0>5.2} hex={x} HEX={X} bin={b} oct={o} alt={#x} wide={#08x} neg={x} bad={q} old={:02}"
+        .fmt(.{
+            7,
+            "go",
+            "go",
+            "go",
+            7,
+            7,
+            "abcdef",
+            "abcdef",
+            "abcdef",
+            12345,
+            u32.{48879},
+            u32.{48879},
+            u8.{10},
+            u8.{10},
+            u16.{48879},
+            u16.{255},
+            i8.{-1},
+        })
         .write_to(fmt_writer);
-    if (fmt..&.as_slice() != "p=07 r=  go l=go   c= go   z=007 f=___7 cut=abc mix=    ab left=ab     zero=00012 bad={x} old={:02}") {
+    if (fmt..&.as_slice() != "p=07 r=  go l=go   c= go   z=007 f=___7 cut=abc mix=    ab left=ab     zero=00012 hex=beef HEX=BEEF bin=1010 oct=12 alt=0xbeef wide=00000xff neg=ff bad={q} old={:02}") {
         return 8;
     }
 

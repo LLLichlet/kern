@@ -1,5 +1,41 @@
 //! Formatting and byte-stream traits.
 
+/// Placeholder alignment mode used by `FormatSpec`.
+pub type FormatAlign = u8;
+
+/// Left-align formatted content inside the requested width.
+pub const FORMAT_ALIGN_LEFT = FormatAlign.{0};
+/// Right-align formatted content inside the requested width.
+pub const FORMAT_ALIGN_RIGHT = FormatAlign.{1};
+/// Center formatted content inside the requested width.
+pub const FORMAT_ALIGN_CENTER = FormatAlign.{2};
+
+/// Type-specific presentation requested by a placeholder.
+pub type FormatPresentation = u8;
+
+/// Use the value's default presentation.
+pub const FORMAT_DEFAULT = FormatPresentation.{0};
+/// Decimal integer presentation.
+pub const FORMAT_DECIMAL = FormatPresentation.{1};
+/// Binary integer presentation.
+pub const FORMAT_BINARY = FormatPresentation.{2};
+/// Octal integer presentation.
+pub const FORMAT_OCTAL = FormatPresentation.{3};
+/// Lowercase hexadecimal integer presentation.
+pub const FORMAT_HEX_LOWER = FormatPresentation.{4};
+/// Uppercase hexadecimal integer presentation.
+pub const FORMAT_HEX_UPPER = FormatPresentation.{5};
+
+/// Formatting options parsed from one placeholder.
+pub struct FormatSpec {
+    pub fill: u8 = b' ',
+    pub align: FormatAlign = FormatAlign.{1},
+    pub width: usize = 0,
+    pub limit: ?usize = .None,
+    pub alternate: bool = false,
+    pub presentation: FormatPresentation = FormatPresentation.{0},
+};
+
 /// A byte sink used by the formatting subsystem.
 pub/ trait Write {
     fn write(bytes: &[u8]) usize;
@@ -12,5 +48,15 @@ pub/ trait Read {
 
 /// A value that knows how to render itself into a `Write`.
 pub/ trait Formatable {
-    fn write_to(writer: &mut Write) void;
+    /// Writes this value using a parsed placeholder specification.
+    ///
+    /// The formatting engine applies width, fill, alignment, and byte limits
+    /// around this call. Implementations should use `presentation` and
+    /// `alternate` when those concepts are meaningful for the value.
+    fn write_fmt(spec: FormatSpec, writer: &mut Write) void;
+
+    /// Writes this value using its default presentation.
+    fn write_to(writer: &mut Write) void {
+        self.write_fmt(FormatSpec.{}, writer);
+    }
 };

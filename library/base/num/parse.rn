@@ -1,6 +1,6 @@
 //! Allocation-free integer parsing.
 
-use base.io.{Formatable, Write};
+use base.io.{FormatSpec, Formatable, Write};
 
 use ..USIZE_MAX;
 
@@ -25,7 +25,8 @@ pub enum ParseIntError {
 };
 
 impl &ParseIntError : Formatable {
-    pub fn write_to(writer: &mut Write) void {
+    pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
+        _ = spec;
         match (self.*) {
             .Empty => {
                 _ = writer.write("ParseIntError.Empty");

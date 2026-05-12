@@ -1,6 +1,6 @@
 //! Common filesystem types.
 
-use base.io.{Formatable, Write};
+use base.io.{FormatSpec, Formatable, Write};
 use sys.os;
 
 /// Stable filesystem error categories.
@@ -78,7 +78,8 @@ impl Error {
 }
 
 impl ErrorKind : Formatable {
-    pub fn write_to(writer: &mut Write) void {
+    pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
+        _ = spec;
         match (self) {
             .OutOfMemory => {
                 _ = writer.write("out of memory");
@@ -115,7 +116,8 @@ impl ErrorKind : Formatable {
 }
 
 impl &Error : Formatable {
-    pub fn write_to(writer: &mut Write) void {
+    pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
+        _ = spec;
         let err = self.*;
         err.kind().write_to(writer);
         match (err.os_code()) {

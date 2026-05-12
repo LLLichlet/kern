@@ -5,7 +5,7 @@
 //! hosted libraries without introducing allocation policy.
 
 use ..unicode;
-use base.io.{Formatable, Write};
+use base.io.{FormatSpec, Formatable, Write};
 
 /// UTF-8 conversion failures.
 pub enum Utf8Error {
@@ -20,8 +20,9 @@ pub enum Utf8Error {
 };
 
 impl &Utf8Error : Formatable {
-    /// Writes a stable diagnostic name for the UTF-8 error.
-    pub fn write_to(writer: &mut Write) void {
+    /// Writes the UTF-8 error; format presentations do not affect diagnostics.
+    pub fn write_fmt(spec: FormatSpec, writer: &mut Write) void {
+        _ = spec;
         match (self.*) {
             .UnexpectedEof => _ = writer.write("Utf8Error.UnexpectedEof"),
             .{ InvalidEncoding: offset } => {

@@ -587,13 +587,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
             } else {
                 // Field defaults are type-checked in the data type's own generic
-                // scope, so they must be lowered with that substitution map
-                // rather than the caller's surrounding context.
-                ast_ordered_exprs.push(self.lower_expr(
+                // and module scope, so they must be lowered with that
+                // definition context rather than the caller's surrounding
+                // context.
+                let prev_scope = self.ctx.scopes.current_scope_id();
+                if let Some(owner_scope) = self.ctx.def_owner_scope(def_id) {
+                    self.ctx.scopes.set_current_scope(owner_scope);
+                }
+                let lowered_default = self.lower_expr(
                     f_def.default_value.as_ref().unwrap(),
                     &struct_subst_map,
                     Some(conc_f_ty),
-                ));
+                );
+                if let Some(prev_scope) = prev_scope {
+                    self.ctx.scopes.set_current_scope(prev_scope);
+                }
+                ast_ordered_exprs.push(lowered_default);
             }
         }
 

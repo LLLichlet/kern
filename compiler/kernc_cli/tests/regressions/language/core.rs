@@ -1351,6 +1351,64 @@ fn main() i32 {
 }
 
 #[test]
+fn struct_field_default_can_reference_same_module_const() {
+    let output = build_and_run_source(
+        r#"
+type Mode = u8;
+
+const DEFAULT_MODE = Mode.{1};
+
+struct Settings {
+    mode: Mode = DEFAULT_MODE,
+}
+
+fn main() i32 {
+    let settings = Settings.{};
+    return settings.mode as i32 - 1;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc struct field default const");
+}
+
+#[test]
+fn imported_struct_field_default_uses_definition_scope() {
+    let output = compile_source_tree(
+        "main.rn",
+        &[
+            (
+                "settings.rn",
+                r#"
+pub type Mode = u8;
+
+pub const DEFAULT_MODE = Mode.{1};
+
+pub struct Settings {
+    pub mode: Mode = DEFAULT_MODE,
+}
+"#,
+            ),
+            (
+                "main.rn",
+                r#"
+mod settings;
+
+use .settings.Settings;
+
+fn main() i32 {
+    let _settings = Settings.{};
+    return 0;
+}
+"#,
+            ),
+        ],
+    );
+
+    assert_success(&output, "kernc imported struct field default const");
+}
+
+#[test]
 fn uncaptured_outer_variable_in_empty_closure_does_not_leak_typevars() {
     let source = r#"
 enum SourceError {

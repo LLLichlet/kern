@@ -40,6 +40,52 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_i128_compound_division_without_external_runtime_helpers() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let mut wide = (u128.{1} << u128.{100}) + u128.{12345};
+    let divisor = u128.{97};
+    let expected_remainder = wide % divisor;
+    wide /= divisor;
+    if (wide * divisor + expected_remainder != (u128.{1} << u128.{100}) + u128.{12345}) {
+        return 1;
+    }
+
+    let mut rem = (u128.{1} << u128.{100}) + u128.{12345};
+    rem %= divisor;
+    if (rem != expected_remainder) {
+        return 2;
+    }
+
+    let mut signed = (i128.{0} - (i128.{1} << i128.{100})) + i128.{12345};
+    let signed_divisor = i128.{97};
+    let expected_signed_remainder = signed % signed_divisor;
+    signed /= signed_divisor;
+    if (signed * signed_divisor + expected_signed_remainder != (i128.{0} - (i128.{1} << i128.{100})) + i128.{12345}) {
+        return 3;
+    }
+
+    let mut signed_rem = (i128.{0} - (i128.{1} << i128.{100})) + i128.{12345};
+    signed_rem %= signed_divisor;
+    if (signed_rem != expected_signed_remainder) {
+        return 4;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn successful_compile_prints_unused_private_function_warning_and_prunes_ir() {
     let source = r#"
 fn helper() i32 {

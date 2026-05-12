@@ -2,8 +2,25 @@ use super::*;
 use crate::module::Linkage;
 use crate::types::IntType;
 use crate::values::IntValue;
+use kernc_ast::BinaryOperator;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn assignment_binary_operator(op: AssignmentOperator) -> Option<BinaryOperator> {
+        match op {
+            AssignmentOperator::AddAssign => Some(BinaryOperator::Add),
+            AssignmentOperator::SubtractAssign => Some(BinaryOperator::Subtract),
+            AssignmentOperator::MultiplyAssign => Some(BinaryOperator::Multiply),
+            AssignmentOperator::DivideAssign => Some(BinaryOperator::Divide),
+            AssignmentOperator::ModuloAssign => Some(BinaryOperator::Modulo),
+            AssignmentOperator::BitwiseAndAssign => Some(BinaryOperator::BitwiseAnd),
+            AssignmentOperator::BitwiseOrAssign => Some(BinaryOperator::BitwiseOr),
+            AssignmentOperator::BitwiseXorAssign => Some(BinaryOperator::BitwiseXor),
+            AssignmentOperator::ShiftLeftAssign => Some(BinaryOperator::ShiftLeft),
+            AssignmentOperator::ShiftRightAssign => Some(BinaryOperator::ShiftRight),
+            AssignmentOperator::Assign => None,
+        }
+    }
+
     pub(super) fn lookup_mir_local_ptr(
         &mut self,
         id: MirLocalId,
@@ -725,74 +742,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let lhs = lhs_val.into_int_value();
             let rhs = rhs_val.into_int_value();
             let is_signed = self.is_signed_int(lhs_ty);
-            return match op {
-                AddAssign => self
-                    .builder
-                    .build_int_add(lhs, rhs, "mir_add_assign")
-                    .unwrap()
-                    .into(),
-                SubtractAssign => self
-                    .builder
-                    .build_int_sub(lhs, rhs, "mir_sub_assign")
-                    .unwrap()
-                    .into(),
-                MultiplyAssign => self
-                    .builder
-                    .build_int_mul(lhs, rhs, "mir_mul_assign")
-                    .unwrap()
-                    .into(),
-                DivideAssign => {
-                    if is_signed {
-                        self.builder
-                            .build_int_signed_div(lhs, rhs, "mir_sdiv_assign")
-                            .unwrap()
-                            .into()
-                    } else {
-                        self.builder
-                            .build_int_unsigned_div(lhs, rhs, "mir_udiv_assign")
-                            .unwrap()
-                            .into()
-                    }
-                }
-                ModuloAssign => {
-                    if is_signed {
-                        self.builder
-                            .build_int_signed_rem(lhs, rhs, "mir_srem_assign")
-                            .unwrap()
-                            .into()
-                    } else {
-                        self.builder
-                            .build_int_unsigned_rem(lhs, rhs, "mir_urem_assign")
-                            .unwrap()
-                            .into()
-                    }
-                }
-                BitwiseAndAssign => self
-                    .builder
-                    .build_and(lhs, rhs, "mir_and_assign")
-                    .unwrap()
-                    .into(),
-                BitwiseOrAssign => self
-                    .builder
-                    .build_or(lhs, rhs, "mir_or_assign")
-                    .unwrap()
-                    .into(),
-                BitwiseXorAssign => self
-                    .builder
-                    .build_xor(lhs, rhs, "mir_xor_assign")
-                    .unwrap()
-                    .into(),
-                ShiftLeftAssign => self
-                    .builder
-                    .build_left_shift(lhs, rhs, "mir_shl_assign")
-                    .unwrap()
-                    .into(),
-                ShiftRightAssign => self
-                    .builder
-                    .build_right_shift(lhs, rhs, is_signed, "mir_shr_assign")
-                    .unwrap()
-                    .into(),
-                Assign => rhs_val,
+            return if let Some(binary_op) = Self::assignment_binary_operator(op) {
+                self.compile_int_math(binary_op, lhs, rhs, is_signed, span)
+            } else {
+                rhs_val
             };
         }
 

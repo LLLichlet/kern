@@ -787,6 +787,7 @@ mod tests {
                 name_span: Span::default(),
                 vis: Visibility::Private,
                 parent,
+                default_trait_method: None,
                 is_imported: false,
                 generics: Vec::new(),
                 where_clauses: Vec::new(),

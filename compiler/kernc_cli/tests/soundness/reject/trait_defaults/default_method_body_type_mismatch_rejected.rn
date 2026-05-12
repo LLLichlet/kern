@@ -1,0 +1,17 @@
+// class: trait-default-methods
+// source: trait default bodies are type checked
+// stderr: mismatched types
+
+trait Bad {
+    fn value() i32 {
+        return true;
+    }
+};
+
+struct X {};
+
+impl X: Bad {}
+
+fn main() i32 {
+    return X.{}.value();
+}

@@ -232,7 +232,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let direct_idx = trait_def
             .methods
             .iter()
-            .position(|method| method.name == method_name)?;
+            .position(|method| method.signature.name == method_name)?;
         Some(self.collect_transitive_supertraits(trait_norm).len() + direct_idx)
     }
 
@@ -673,6 +673,27 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         id
     }
 
+    fn trait_default_function_args(
+        &mut self,
+        function_id: kernc_sema::def::DefId,
+        actual_trait_ty: TypeId,
+        receiver_ty: TypeId,
+    ) -> Option<Vec<GenericArg>> {
+        let TypeKind::TraitObject(_, trait_args, _) =
+            self.ctx.type_registry.get(actual_trait_ty).clone()
+        else {
+            return None;
+        };
+        let Def::Function(function) = self.ctx.defs.get(function_id.0 as usize)? else {
+            return None;
+        };
+        let expected_trait_args = function.generics.len().saturating_sub(1);
+        let mut args = trait_args;
+        args.truncate(expected_trait_args);
+        args.push(GenericArg::Type(receiver_ty));
+        Some(args)
+    }
+
     pub(crate) fn build_and_inject_vtable_global(&mut self, input: VtableGlobalInput<'_>) {
         let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
@@ -698,7 +719,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             for &m_id in &input.impl_def.methods {
                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
-                    && f.name == method.name
+                    && f.name == method.signature.name
                 {
                     let method_mono_id =
                         self.instantiate_function_at(m_id, input.impl_args, f.name_span);
@@ -716,10 +737,35 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
 
+            if method_entry.is_none()
+                && let Some(default_id) = method.default_impl
+                && let Some(default_args) = self.trait_default_function_args(
+                    default_id,
+                    input.actual_trait_ty,
+                    input.receiver_ty,
+                )
+            {
+                let method_mono_id = self.instantiate_function_at(
+                    default_id,
+                    &default_args,
+                    method.signature.name_span,
+                );
+                let method_fn_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(default_id, default_args));
+                method_entry = self.get_or_create_vtable_method_adapter(
+                    method_mono_id,
+                    input.data_ptr_ty,
+                    method_fn_ty,
+                    Span::default(),
+                );
+            }
+
             let m_id = match method_entry {
                 Some(id) => id,
                 None => {
-                    let method_name = self.ctx.resolve(method.name);
+                    let method_name = self.ctx.resolve(method.signature.name);
                     self.ctx
                         .struct_error(
                             Span::default(),

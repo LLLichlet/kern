@@ -143,9 +143,70 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 });
         }
 
+        if resolved.is_none()
+            && let Some(default_target) =
+                self.resolve_trait_default_method_target(receiver_norm, owner_trait_norm, field)
+        {
+            resolved = Some(default_target);
+        }
+
         self.bound_impl_method_cache
             .insert(cache_key, resolved.clone());
         resolved
+    }
+
+    fn resolve_trait_default_method_target(
+        &mut self,
+        receiver_norm: TypeId,
+        owner_trait_norm: TypeId,
+        field: SymbolId,
+    ) -> Option<(DefId, Option<TypeId>, Vec<kernc_sema::ty::GenericArg>)> {
+        let TypeKind::TraitObject(trait_def_id, trait_args, _) =
+            self.ctx.type_registry.get(owner_trait_norm).clone()
+        else {
+            return None;
+        };
+        let trait_def = match self.ctx.defs.get(trait_def_id.0 as usize) {
+            Some(Def::Trait(trait_def)) => trait_def.clone(),
+            _ => return None,
+        };
+        let direct_method = trait_def
+            .methods
+            .iter()
+            .find(|method| method.signature.name == field && method.default_impl.is_some());
+        let (default_id, method_trait_args) = if let Some(method) = direct_method {
+            (method.default_impl?, trait_args)
+        } else {
+            let resolution = MemberQuery::new(self.ctx).resolve_trait_method_in_hierarchy(
+                trait_def_id,
+                kernc_sema::query::TraitMethodLookup {
+                    trait_args: &trait_args,
+                    assoc_bindings: &[],
+                    member_name: field,
+                    receiver_ty: receiver_norm,
+                    diagnostic_span: None,
+                },
+                &mut kernc_utils::FastHashSet::default(),
+            )?;
+            let owner_trait_ty = resolution.owner_trait_ty?;
+            let TypeKind::TraitObject(owner_trait_id, owner_args, _) =
+                self.ctx.type_registry.get(owner_trait_ty).clone()
+            else {
+                return None;
+            };
+            let Some(Def::Trait(owner_trait_def)) = self.ctx.defs.get(owner_trait_id.0 as usize)
+            else {
+                return None;
+            };
+            let method = owner_trait_def
+                .methods
+                .iter()
+                .find(|method| method.signature.name == field && method.default_impl.is_some())?;
+            (method.default_impl?, owner_args)
+        };
+        let mut fn_args = method_trait_args;
+        fn_args.push(kernc_sema::ty::GenericArg::Type(receiver_norm));
+        Some((default_id, Some(receiver_norm), fn_args))
     }
 
     pub(crate) fn lower_call(

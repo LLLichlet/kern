@@ -1,6 +1,6 @@
 use super::{
     AssociatedTypeDecl, Attribute, BindingPattern, DocBlock, EnumVariant, Expr, StructFieldDef,
-    TypeNode,
+    TraitMethodDef, TypeNode,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -108,7 +108,7 @@ pub enum DeclKind {
         where_clauses: Vec<WhereClause>,
         supertraits: Vec<TypeNode>,
         assoc_types: Vec<AssociatedTypeDecl>,
-        methods: Vec<StructFieldDef>,
+        methods: Vec<TraitMethodDef>,
     },
 
     /// Module declaration: `mod name;`

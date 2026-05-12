@@ -1,0 +1,27 @@
+// class: trait-default-methods
+// source: lowering resolves a generic bound call to an inherited default implementation
+// compile-args: --library-bundle none
+// exit: 0
+
+trait Base {
+    fn value() i32 {
+        return 7;
+    }
+};
+
+trait Derived: Base {};
+
+struct X {};
+
+impl X: Base {}
+impl X: Derived {}
+
+fn call[T](value: T) i32
+    where T: Derived,
+{
+    return value.value();
+}
+
+fn main() i32 {
+    return call[X](X.{}) - 7;
+}

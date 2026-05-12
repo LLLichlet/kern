@@ -160,6 +160,7 @@ pub struct FunctionDef {
     pub name_span: Span,
     pub vis: Visibility,
     pub parent: Option<DefId>, // Enclosing module or impl block.
+    pub default_trait_method: Option<TraitDefaultMethodInfo>,
     pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
@@ -174,6 +175,12 @@ pub struct FunctionDef {
     pub resolved_sig: Option<TypeId>,
     pub docs: Option<ast::DocBlock>,
     pub attributes: Vec<ast::Attribute>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TraitDefaultMethodInfo {
+    pub trait_id: DefId,
+    pub self_param: SymbolId,
 }
 
 #[derive(Debug, Clone)]
@@ -222,6 +229,12 @@ pub struct EnumDef {
 }
 
 #[derive(Debug, Clone)]
+pub struct TraitMethodDef {
+    pub signature: ast::StructFieldDef,
+    pub default_impl: Option<DefId>,
+}
+
+#[derive(Debug, Clone)]
 pub struct TraitDef {
     pub id: DefId,
     pub name: SymbolId,
@@ -233,7 +246,7 @@ pub struct TraitDef {
     pub resolved_supertraits: Vec<TypeId>,
     pub assoc_types: Vec<DefId>,
     // Method contracts declared by the trait.
-    pub methods: Vec<ast::StructFieldDef>,
+    pub methods: Vec<TraitMethodDef>,
     pub resolved_methods: Vec<(SymbolId, TypeId)>,
     pub span: Span,
     pub is_builtin: bool,
@@ -279,6 +292,7 @@ pub struct ImplDef {
     pub where_clauses: Vec<ast::WhereClause>,
     pub target_type: ast::TypeNode,
     pub trait_type: Option<ast::TypeNode>,
+    pub resolved_trait_ty: Option<TypeId>,
     pub assoc_types: Vec<DefId>,
     // Methods collected under this impl block.
     pub methods: Vec<DefId>,

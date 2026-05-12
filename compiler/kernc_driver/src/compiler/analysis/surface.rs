@@ -234,8 +234,8 @@ impl CompilerDriver {
                 let Some(trait_method_span) = trait_def
                     .methods
                     .iter()
-                    .find(|method| method.name == function.name)
-                    .map(|method| method.name_span)
+                    .find(|method| method.signature.name == function.name)
+                    .map(|method| method.signature.name_span)
                 else {
                     continue;
                 };
@@ -418,16 +418,16 @@ impl CompilerDriver {
                 }
                 kernc_sema::def::Def::Trait(trait_def) => {
                     for method in &trait_def.methods {
-                        definitions
-                            .entry(method.name_span)
-                            .or_insert(AnalysisSemanticEntry {
-                                span: method.name_span,
-                                definition_span: method.name_span,
+                        definitions.entry(method.signature.name_span).or_insert(
+                            AnalysisSemanticEntry {
+                                span: method.signature.name_span,
+                                definition_span: method.signature.name_span,
                                 kind: AnalysisSemanticKind::Method,
                                 role: AnalysisSemanticRole::Definition,
                                 is_mut: false,
                                 is_pub: true,
-                            });
+                            },
+                        );
                     }
                 }
                 kernc_sema::def::Def::Enum(enum_def) => {
@@ -579,17 +579,19 @@ impl CompilerDriver {
                 }
                 kernc_sema::def::Def::Trait(trait_def) => {
                     for method in &trait_def.methods {
-                        if !self.is_hoverable_span(ctx, method.name_span) {
+                        if !self.is_hoverable_span(ctx, method.signature.name_span) {
                             continue;
                         }
                         let Some(contents) = self.hover_contents_for_trait_method(
                             ctx,
-                            method.name,
-                            method.type_node.id,
+                            method.signature.name,
+                            method.signature.type_node.id,
                         ) else {
                             continue;
                         };
-                        by_span.entry(method.name_span).or_insert(contents);
+                        by_span
+                            .entry(method.signature.name_span)
+                            .or_insert(contents);
                     }
                 }
                 kernc_sema::def::Def::Enum(enum_def) => {
@@ -713,8 +715,8 @@ impl CompilerDriver {
                 continue;
             };
             for method in &trait_def.methods {
-                if method.name == name && method.type_node.id == type_node_id {
-                    return method.docs.as_ref();
+                if method.signature.name == name && method.signature.type_node.id == type_node_id {
+                    return method.signature.docs.as_ref();
                 }
             }
         }

@@ -138,11 +138,33 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         self.bind_generics(&f.generics, func_scope);
         self.resolve_where_clauses(&f.where_clauses, func_scope);
-        if let Some(parent_id) = f.parent
-            && let Def::Impl(i) = &self.ctx.defs[parent_id.0 as usize]
-        {
-            let target_ty = self.ctx.node_type_or_error(i.target_type.id);
-            self.bind_self_type(target_ty, func_scope, f.span);
+        if let Some(info) = &f.default_trait_method {
+            let self_ty = self
+                .ctx
+                .type_registry
+                .intern(TypeKind::Param(info.self_param));
+            self.bind_self_type(self_ty, func_scope, f.span);
+        } else if let Some(parent_id) = f.parent {
+            match self.ctx.defs[parent_id.0 as usize].clone() {
+                Def::Impl(i) => {
+                    let target_ty = self.ctx.node_type_or_error(i.target_type.id);
+                    self.bind_self_type(target_ty, func_scope, f.span);
+                }
+                Def::Trait(t) => {
+                    let self_args = t
+                        .generics
+                        .iter()
+                        .map(|param| self.generic_param_placeholder_arg(param, func_scope))
+                        .collect::<Vec<_>>();
+                    let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+                        parent_id,
+                        self_args,
+                        Vec::new(),
+                    ));
+                    self.bind_self_type(self_ty, func_scope, f.span);
+                }
+                _ => {}
+            }
         }
 
         let mut param_tys = Vec::new();
@@ -267,9 +289,16 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         let mut resolved_methods = Vec::new();
+        let mut default_impls = Vec::new();
         for method in &t.methods {
-            let sig_ty = self.resolve_type(&method.type_node, trait_scope);
-            resolved_methods.push((method.name, sig_ty));
+            let sig_ty = self.resolve_type(&method.signature.type_node, trait_scope);
+            resolved_methods.push((method.signature.name, sig_ty));
+            if let Some(default_impl) = method.default_impl {
+                default_impls.push(default_impl);
+            }
+        }
+        for default_impl in default_impls {
+            self.resolve_item(default_impl, trait_scope);
         }
         self.ctx.scopes.exit_scope();
 
@@ -323,6 +352,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 target_ty_id,
                 resolved_trait_ty,
             );
+        }
+
+        if let Def::Impl(updated_i) = &mut self.ctx.defs[i.id.0 as usize] {
+            updated_i.resolved_trait_ty = canonical_trait_ty;
         }
 
         for &method_id in &i.methods {

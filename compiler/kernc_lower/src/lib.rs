@@ -479,6 +479,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     _ => None,
                 }
             }
+            Def::Trait(_) => {
+                let module_id = self.ctx.def_parent_module(parent_id)?;
+                match &self.ctx.defs[module_id.0 as usize] {
+                    Def::Module(module) => Some(module.scope_id),
+                    _ => None,
+                }
+            }
             _ => None,
         }
     }

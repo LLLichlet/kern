@@ -1,0 +1,22 @@
+// class: trait-default-methods
+// source: inherited supertrait methods may come from a default body
+// exit: 0
+
+trait Base {
+    fn value() i32 {
+        return 7;
+    }
+};
+
+trait Derived: Base {};
+
+struct X {};
+
+impl &X: Base {}
+impl &X: Derived {}
+
+fn main() i32 {
+    let x = X.{};
+    let derived = &Derived.{ x.& };
+    return derived.value() - 7;
+}

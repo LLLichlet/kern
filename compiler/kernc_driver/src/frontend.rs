@@ -616,7 +616,7 @@ impl CachedAstRebinder<'_> {
                     self.rebind_span(&mut assoc.span);
                 }
                 for method in methods {
-                    self.rebind_struct_field_def(method);
+                    self.rebind_trait_method_def(method);
                 }
             }
             ast::DeclKind::ModDecl => {}
@@ -1037,7 +1037,7 @@ impl CachedAstRebinder<'_> {
                     self.rebind_span(&mut assoc.span);
                 }
                 for method in methods {
-                    self.rebind_struct_field_def(method);
+                    self.rebind_trait_method_def(method);
                 }
             }
             ast::TypeKind::Enum {
@@ -1069,6 +1069,17 @@ impl CachedAstRebinder<'_> {
             self.rebind_expr(default_value);
         }
         self.rebind_span(&mut field.span);
+    }
+
+    fn rebind_trait_method_def(&mut self, method: &mut ast::TraitMethodDef) {
+        self.rebind_struct_field_def(&mut method.signature);
+        for param in &mut method.params {
+            self.rebind_func_param(param);
+        }
+        if let Some(body) = &mut method.body {
+            self.rebind_expr(body);
+        }
+        self.rebind_span(&mut method.span);
     }
 
     fn rebind_enum_variant(&mut self, variant: &mut ast::EnumVariant) {

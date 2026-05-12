@@ -8,6 +8,7 @@ use kernc_utils::{NodeId, Span, SymbolId};
 struct FunctionCollectSpec<'a> {
     vis: Visibility,
     parent_impl: Option<DefId>,
+    parent_trait: Option<DefId>,
     is_const: bool,
     is_extern: bool,
     generics: &'a [ast::GenericParam],
@@ -38,6 +39,7 @@ struct OwnedDeclHeader {
 struct FunctionCollectOwnedSpec {
     header: OwnedDeclHeader,
     parent_impl: Option<DefId>,
+    parent_trait: Option<DefId>,
     is_const: bool,
     is_extern: bool,
     generics: Vec<ast::GenericParam>,
@@ -316,6 +318,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     FunctionCollectSpec {
                         vis,
                         parent_impl,
+                        parent_trait: None,
                         is_const: *is_const,
                         is_extern: force_extern || *is_extern,
                         generics: &combined_generics,
@@ -474,6 +477,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 self.collect_function_owned(FunctionCollectOwnedSpec {
                     header,
                     parent_impl,
+                    parent_trait: None,
                     is_const,
                     is_extern: force_extern || is_extern,
                     generics: combined_generics,
@@ -585,7 +589,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     fn collect_function(&mut self, decl: &Decl, spec: FunctionCollectSpec<'_>) -> Option<DefId> {
         let mut actual_params = spec.params.to_vec();
 
-        if spec.parent_impl.is_some() {
+        if spec.parent_impl.is_some() || spec.parent_trait.is_some() {
             let self_sym = self.ctx.intern("self");
             let node_id = self.ctx.next_node_id();
 
@@ -608,16 +612,34 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             );
         }
 
+        let default_trait_method = spec.parent_trait.map(|trait_id| TraitDefaultMethodInfo {
+            trait_id,
+            self_param: self.ctx.intern("__Self"),
+        });
+        let generics = self.function_generics_with_trait_default_self(
+            spec.generics,
+            spec.parent_trait,
+            decl.span,
+        );
+        let where_clauses = self.function_where_clauses_with_trait_default_self(
+            spec.where_clauses,
+            spec.parent_trait,
+            decl.span,
+        );
         let def_id = self.ctx.add_def_with(|def_id| {
             Def::Function(FunctionDef {
                 id: def_id,
                 name: decl.name,
                 name_span: decl.name_span,
                 vis: spec.vis,
-                parent: spec.parent_impl.or(self.current_module),
+                parent: spec
+                    .parent_impl
+                    .or(spec.parent_trait)
+                    .or(self.current_module),
+                default_trait_method,
                 is_imported: self.current_module_imported,
-                generics: spec.generics.to_vec(),
-                where_clauses: spec.where_clauses.to_vec(),
+                generics,
+                where_clauses,
                 params: actual_params,
                 ret_type: spec.ret_type.clone(),
                 body: spec.body.clone(),
@@ -635,7 +657,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
 
         // Only free functions are inserted into the surrounding lexical scope.
-        if spec.parent_impl.is_none() {
+        if spec.parent_impl.is_none() && spec.parent_trait.is_none() {
             self.define_symbol(SymbolDefSpec {
                 name: decl.name,
                 kind: SymbolKind::Function,
@@ -663,6 +685,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     vis,
                 },
             parent_impl,
+            parent_trait,
             is_const,
             is_extern,
             generics,
@@ -674,7 +697,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         } = spec;
         let mut actual_params = params;
 
-        if parent_impl.is_some() {
+        if parent_impl.is_some() || parent_trait.is_some() {
             let self_sym = self.ctx.intern("self");
             let self_node_id = self.ctx.next_node_id();
 
@@ -697,13 +720,22 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             );
         }
 
+        let default_trait_method = parent_trait.map(|trait_id| TraitDefaultMethodInfo {
+            trait_id,
+            self_param: self.ctx.intern("__Self"),
+        });
+        let generics =
+            self.function_generics_with_trait_default_self(&generics, parent_trait, span);
+        let where_clauses =
+            self.function_where_clauses_with_trait_default_self(&where_clauses, parent_trait, span);
         let def_id = self.ctx.add_def_with(|def_id| {
             Def::Function(FunctionDef {
                 id: def_id,
                 name,
                 name_span,
                 vis,
-                parent: parent_impl.or(self.current_module),
+                parent: parent_impl.or(parent_trait).or(self.current_module),
+                default_trait_method,
                 is_imported: self.current_module_imported,
                 generics,
                 where_clauses,
@@ -723,7 +755,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
 
-        if parent_impl.is_none() {
+        if parent_impl.is_none() && parent_trait.is_none() {
             self.define_symbol(SymbolDefSpec {
                 name,
                 kind: SymbolKind::Function,
@@ -974,7 +1006,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         where_clauses: &[ast::WhereClause],
         supertraits: &[ast::TypeNode],
         assoc_types: &[ast::AssociatedTypeDecl],
-        methods: &[ast::StructFieldDef],
+        methods: &[ast::TraitMethodDef],
     ) -> Option<DefId> {
         let def_id = self.ctx.add_def_with(|def_id| {
             Def::Trait(TraitDef {
@@ -986,7 +1018,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 where_clauses: where_clauses.to_vec(),
                 supertraits: supertraits.to_vec(),
                 assoc_types: Vec::new(),
-                methods: methods.to_vec(),
+                methods: Vec::new(),
                 resolved_methods: Vec::new(),
                 resolved_supertraits: Vec::new(),
                 is_builtin: false,
@@ -997,8 +1029,10 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
         let assoc_type_ids = self.collect_trait_assoc_types(def_id, assoc_types);
+        let method_defs = self.collect_trait_methods(def_id, generics, methods);
         if let Def::Trait(trait_def) = &mut self.ctx.defs[def_id.0 as usize] {
             trait_def.assoc_types = assoc_type_ids;
+            trait_def.methods = method_defs;
         }
         self.define_symbol(SymbolDefSpec {
             name: decl.name,
@@ -1127,7 +1161,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         where_clauses: Vec<ast::WhereClause>,
         supertraits: Vec<ast::TypeNode>,
         assoc_types: Vec<ast::AssociatedTypeDecl>,
-        methods: Vec<ast::StructFieldDef>,
+        methods: Vec<ast::TraitMethodDef>,
     ) -> Option<DefId> {
         let OwnedDeclHeader {
             node_id,
@@ -1138,6 +1172,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             vis,
             ..
         } = header;
+        let method_generics = generics.clone();
         let def_id = self.ctx.add_def_with(|def_id| {
             Def::Trait(TraitDef {
                 id: def_id,
@@ -1148,7 +1183,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 where_clauses,
                 supertraits,
                 assoc_types: Vec::new(),
-                methods,
+                methods: Vec::new(),
                 resolved_methods: Vec::new(),
                 resolved_supertraits: Vec::new(),
                 is_builtin: false,
@@ -1159,8 +1194,10 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
         let assoc_type_ids = self.collect_trait_assoc_types_owned(def_id, assoc_types);
+        let method_defs = self.collect_trait_methods_owned(def_id, &method_generics, methods);
         if let Def::Trait(trait_def) = &mut self.ctx.defs[def_id.0 as usize] {
             trait_def.assoc_types = assoc_type_ids;
+            trait_def.methods = method_defs;
         }
         self.define_symbol(SymbolDefSpec {
             name,
@@ -1235,6 +1272,86 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             ids.push(def_id);
         }
         ids
+    }
+
+    fn collect_trait_methods(
+        &mut self,
+        trait_id: DefId,
+        trait_generics: &[ast::GenericParam],
+        methods: &[ast::TraitMethodDef],
+    ) -> Vec<TraitMethodDef> {
+        let mut method_defs = Vec::with_capacity(methods.len());
+        for method in methods {
+            let mut default_impl = None;
+            if method.body.is_some() {
+                let name = method.signature.name;
+                let decl = Decl {
+                    id: self.ctx.next_node_id(),
+                    span: method.span,
+                    name_span: method.signature.name_span,
+                    name,
+                    vis: Visibility::Private,
+                    docs: method.signature.docs.clone(),
+                    attributes: vec![],
+                    kind: DeclKind::Function {
+                        generics: Vec::new(),
+                        where_clauses: Vec::new(),
+                        params: method.params.clone(),
+                        ret_type: match method.signature.type_node.kind.clone() {
+                            ast::TypeKind::Function { ret: Some(ret), .. } => *ret,
+                            _ => ast::TypeNode {
+                                id: self.ctx.next_node_id(),
+                                span: method.signature.span,
+                                kind: ast::TypeKind::Void,
+                            },
+                        },
+                        body: method.body.clone(),
+                        is_const: false,
+                        is_extern: false,
+                        is_variadic: false,
+                    },
+                };
+                default_impl = self.collect_function(
+                    &decl,
+                    FunctionCollectSpec {
+                        vis: Visibility::Private,
+                        parent_impl: None,
+                        parent_trait: Some(trait_id),
+                        is_const: false,
+                        is_extern: false,
+                        generics: trait_generics,
+                        where_clauses: &[],
+                        params: match &decl.kind {
+                            DeclKind::Function { params, .. } => params,
+                            _ => unreachable!(),
+                        },
+                        ret_type: match &decl.kind {
+                            DeclKind::Function { ret_type, .. } => ret_type,
+                            _ => unreachable!(),
+                        },
+                        body: match &decl.kind {
+                            DeclKind::Function { body, .. } => body,
+                            _ => unreachable!(),
+                        },
+                        is_variadic: false,
+                    },
+                );
+            }
+            method_defs.push(TraitMethodDef {
+                signature: method.signature.clone(),
+                default_impl,
+            });
+        }
+        method_defs
+    }
+
+    fn collect_trait_methods_owned(
+        &mut self,
+        trait_id: DefId,
+        trait_generics: &[ast::GenericParam],
+        methods: Vec<ast::TraitMethodDef>,
+    ) -> Vec<TraitMethodDef> {
+        self.collect_trait_methods(trait_id, trait_generics, &methods)
     }
 
     fn collect_type_alias_or_struct(
@@ -1321,6 +1438,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 where_clauses: where_clauses.to_vec(),
                 target_type: target_type.clone(),
                 trait_type: trait_type.clone(),
+                resolved_trait_ty: None,
                 assoc_types: Vec::new(),
                 methods: Vec::new(),
                 span: decl.span,
@@ -1422,6 +1540,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 where_clauses,
                 target_type,
                 trait_type: trait_type.clone(),
+                resolved_trait_ty: None,
                 assoc_types: Vec::new(),
                 methods: Vec::new(),
                 span,
@@ -1589,6 +1708,98 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             Some(block) if !block.lines.is_empty() => Some(block),
             _ => None,
         }
+    }
+
+    fn function_generics_with_trait_default_self(
+        &mut self,
+        generics: &[ast::GenericParam],
+        parent_trait: Option<DefId>,
+        span: Span,
+    ) -> Vec<ast::GenericParam> {
+        let mut out = generics.to_vec();
+        if parent_trait.is_some() {
+            out.push(ast::GenericParam {
+                name: self.ctx.intern("__Self"),
+                span,
+                kind: ast::GenericParamKind::Type,
+            });
+        }
+        out
+    }
+
+    fn simple_type_path(&mut self, name: SymbolId, span: Span) -> ast::TypeNode {
+        ast::TypeNode {
+            id: self.ctx.next_node_id(),
+            span,
+            kind: ast::TypeKind::Path {
+                anchor: None,
+                segments: vec![ast::TypePathSegment {
+                    name,
+                    name_span: span,
+                    args: Vec::new(),
+                }],
+            },
+        }
+    }
+
+    fn simple_identifier_expr(&mut self, name: SymbolId, span: Span) -> ast::Expr {
+        ast::Expr {
+            id: self.ctx.next_node_id(),
+            span,
+            kind: ast::ExprKind::Identifier(name),
+        }
+    }
+
+    fn generic_param_as_generic_arg(&mut self, param: &ast::GenericParam) -> ast::GenericArg {
+        match param.kind {
+            ast::GenericParamKind::Type => {
+                ast::GenericArg::Type(self.simple_type_path(param.name, param.span))
+            }
+            ast::GenericParamKind::Const { .. } => {
+                ast::GenericArg::ConstExpr(self.simple_identifier_expr(param.name, param.span))
+            }
+        }
+    }
+
+    fn function_where_clauses_with_trait_default_self(
+        &mut self,
+        where_clauses: &[ast::WhereClause],
+        parent_trait: Option<DefId>,
+        span: Span,
+    ) -> Vec<ast::WhereClause> {
+        let mut out = where_clauses.to_vec();
+        let Some(trait_id) = parent_trait else {
+            return out;
+        };
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_id.0 as usize) else {
+            return out;
+        };
+        let trait_name = trait_def.name;
+        let trait_generics = trait_def.generics.clone();
+        let self_param = self.ctx.intern("__Self");
+        let target_ty = self.simple_type_path(self_param, span);
+        let args = trait_generics
+            .iter()
+            .map(|param| self.generic_param_as_generic_arg(param))
+            .collect::<Vec<_>>();
+        let trait_bound = ast::TypeNode {
+            id: self.ctx.next_node_id(),
+            span,
+            kind: ast::TypeKind::Path {
+                anchor: None,
+                segments: vec![ast::TypePathSegment {
+                    name: trait_name,
+                    name_span: span,
+                    args,
+                }],
+            },
+        };
+        out.push(ast::WhereClause {
+            span,
+            target_ty,
+            bounds: vec![trait_bound],
+        });
+        out
     }
 
     fn current_owner_scope(&self) -> Option<crate::scope::ScopeId> {

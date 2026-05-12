@@ -1,4 +1,4 @@
-use super::{DocBlock, Expr, PathAnchor};
+use super::{DocBlock, Expr, FuncParam, PathAnchor};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +78,7 @@ pub enum TypeKind {
     /// Trait definition.
     Trait {
         assoc_types: Vec<AssociatedTypeDecl>,
-        methods: Vec<StructFieldDef>,
+        methods: Vec<TraitMethodDef>,
     },
 
     /// Inference placeholder `_`.
@@ -129,6 +129,14 @@ pub struct StructFieldDef {
     pub docs: Option<DocBlock>,
     pub type_node: TypeNode,
     pub default_value: Option<Box<Expr>>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethodDef {
+    pub signature: StructFieldDef,
+    pub params: Vec<FuncParam>,
+    pub body: Option<Box<Expr>>,
     pub span: Span,
 }
 

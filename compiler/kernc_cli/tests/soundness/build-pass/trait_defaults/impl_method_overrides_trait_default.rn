@@ -1,0 +1,21 @@
+// class: trait-default-methods
+// source: an impl method overrides a trait default body
+// exit: 0
+
+trait Score {
+    fn value() i32 {
+        return 1;
+    }
+};
+
+struct X {};
+
+impl X: Score {
+    fn value() i32 {
+        return 9;
+    }
+}
+
+fn main() i32 {
+    return X.{}.value() - 9;
+}

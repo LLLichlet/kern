@@ -1,0 +1,18 @@
+// class: trait-default-methods
+// source: equally specific default-only trait impls do not silently pick an arbitrary default body
+// stderr: ambiguous trait default method `value`
+
+trait Score[A] {
+    fn value() i32 {
+        return 1;
+    }
+};
+
+struct X {};
+
+impl X: Score[i32] {}
+impl X: Score[bool] {}
+
+fn main() i32 {
+    return X.{}.value();
+}

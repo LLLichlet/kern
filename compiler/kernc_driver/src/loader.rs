@@ -327,7 +327,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     }
                 }
                 for method in methods {
-                    Self::collect_struct_field_alias_references(method, alias_names, referenced);
+                    Self::collect_trait_method_alias_references(method, alias_names, referenced);
                 }
             }
             ast::DeclKind::ModDecl => {}
@@ -539,7 +539,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     }
                 }
                 for method in methods {
-                    Self::collect_struct_field_alias_references(method, alias_names, referenced);
+                    Self::collect_trait_method_alias_references(method, alias_names, referenced);
                 }
             }
             ast::TypeKind::Enum {
@@ -577,6 +577,20 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         Self::collect_type_alias_references(&field.type_node, alias_names, referenced);
         if let Some(default_value) = &field.default_value {
             Self::collect_expr_alias_references(default_value, alias_names, referenced);
+        }
+    }
+
+    fn collect_trait_method_alias_references(
+        method: &ast::TraitMethodDef,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
+    ) {
+        Self::collect_struct_field_alias_references(&method.signature, alias_names, referenced);
+        for param in &method.params {
+            Self::collect_func_param_alias_references(param, alias_names, referenced);
+        }
+        if let Some(body) = &method.body {
+            Self::collect_expr_alias_references(body, alias_names, referenced);
         }
     }
 

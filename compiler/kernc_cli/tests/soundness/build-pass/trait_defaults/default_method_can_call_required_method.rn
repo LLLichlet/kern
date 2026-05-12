@@ -1,0 +1,24 @@
+// class: trait-default-methods
+// source: a default method body may call another method through its Self trait bound
+// compile-args: --library-bundle none
+// exit: 0
+
+trait Score {
+    fn base() i32;
+
+    fn value() i32 {
+        return self.base() + 1;
+    }
+};
+
+struct X {};
+
+impl X: Score {
+    fn base() i32 {
+        return 6;
+    }
+}
+
+fn main() i32 {
+    return X.{}.value() - 7;
+}

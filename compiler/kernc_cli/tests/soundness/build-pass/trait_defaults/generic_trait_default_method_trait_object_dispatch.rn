@@ -1,0 +1,26 @@
+// class: trait-default-methods
+// source: trait-object dispatch preserves trait generic arguments when using a default method
+// compile-args: --library-bundle none
+// exit: 0
+
+trait Boxed[T] {
+    fn base() T;
+
+    fn value() T {
+        return self.base();
+    }
+};
+
+struct X {};
+
+impl &X: Boxed[i32] {
+    fn base() i32 {
+        return 7;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let boxed = &Boxed[i32].{ x.& };
+    return boxed.value() - 7;
+}

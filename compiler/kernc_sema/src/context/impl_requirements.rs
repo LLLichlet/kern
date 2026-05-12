@@ -1350,6 +1350,7 @@ mod tests {
                 kind: kernc_ast::TypeKind::Infer,
                 span: Span::default(),
             }),
+            resolved_trait_ty: Some(trait_ty),
             assoc_types: Vec::new(),
             methods: Vec::new(),
             span: Span::default(),

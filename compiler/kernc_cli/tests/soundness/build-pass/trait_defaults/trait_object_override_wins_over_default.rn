@@ -1,0 +1,24 @@
+// class: trait-default-methods
+// source: trait object vtables use an explicit impl method instead of the default body
+// compile-args: --library-bundle none
+// exit: 0
+
+trait Score {
+    fn value() i32 {
+        return 1;
+    }
+};
+
+struct X {};
+
+impl &X: Score {
+    fn value() i32 {
+        return 9;
+    }
+}
+
+fn main() i32 {
+    let x = X.{};
+    let score = &Score.{ x.& };
+    return score.value() - 9;
+}

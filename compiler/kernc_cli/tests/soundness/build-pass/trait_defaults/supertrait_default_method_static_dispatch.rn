@@ -1,0 +1,21 @@
+// class: trait-default-methods
+// source: concrete dispatch may use an inherited supertrait default body
+// compile-args: --library-bundle none
+// exit: 0
+
+trait Base {
+    fn value() i32 {
+        return 7;
+    }
+};
+
+trait Derived: Base {};
+
+struct X {};
+
+impl X: Base {}
+impl X: Derived {}
+
+fn main() i32 {
+    return X.{}.value() - 7;
+}

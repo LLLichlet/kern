@@ -781,7 +781,7 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
                 }
             }
             for method in methods {
-                normalize_struct_field_for_body_only_comparison(method);
+                normalize_trait_method_for_body_only_comparison(method);
             }
         }
         ast::TypeKind::Enum {
@@ -831,7 +831,7 @@ fn normalize_enum_variant_for_body_only_comparison(variant: &mut ast::EnumVarian
 
 fn normalize_trait_items_for_body_only_comparison(
     assoc_types: &mut [ast::AssociatedTypeDecl],
-    methods: &mut [ast::StructFieldDef],
+    methods: &mut [ast::TraitMethodDef],
 ) {
     for assoc in assoc_types {
         assoc.name_span = Span::default();
@@ -843,7 +843,18 @@ fn normalize_trait_items_for_body_only_comparison(
         normalize_where_clauses_for_body_only_comparison(&mut assoc.where_clauses);
     }
     for method in methods {
-        normalize_struct_field_for_body_only_comparison(method);
+        normalize_trait_method_for_body_only_comparison(method);
+    }
+}
+
+fn normalize_trait_method_for_body_only_comparison(method: &mut ast::TraitMethodDef) {
+    method.span = Span::default();
+    normalize_struct_field_for_body_only_comparison(&mut method.signature);
+    for param in &mut method.params {
+        normalize_func_param_for_body_only_comparison(param);
+    }
+    if let Some(body) = &mut method.body {
+        normalize_expr_for_body_only_comparison(body);
     }
 }
 

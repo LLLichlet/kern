@@ -358,6 +358,12 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return resolution;
         }
 
+        if let Some(resolution) =
+            self.resolve_named_trait_default_method(search_norm, member_name, diagnostic_span)
+        {
+            return Some(resolution);
+        }
+
         self.resolve_named_invalid_impl_method(search_norm, member_name)
             .map(|candidate| MemberResolution {
                 candidate,

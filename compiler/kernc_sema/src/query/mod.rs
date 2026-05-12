@@ -192,12 +192,12 @@ pub struct MemberQuery<'a, 'ctx> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct TraitMethodLookup<'a> {
-    trait_args: &'a [crate::ty::GenericArg],
-    assoc_bindings: &'a [(DefId, TypeId)],
-    member_name: SymbolId,
-    receiver_ty: TypeId,
-    diagnostic_span: Option<Span>,
+pub struct TraitMethodLookup<'a> {
+    pub trait_args: &'a [crate::ty::GenericArg],
+    pub assoc_bindings: &'a [(DefId, TypeId)],
+    pub member_name: SymbolId,
+    pub receiver_ty: TypeId,
+    pub diagnostic_span: Option<Span>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -472,8 +472,8 @@ fn trait_method_span(trait_def: &crate::def::TraitDef, method_name: SymbolId) ->
     trait_def
         .methods
         .iter()
-        .find(|method| method.name == method_name)
-        .map(|method| method.name_span)
+        .find(|method| method.signature.name == method_name)
+        .map(|method| method.signature.name_span)
         .unwrap_or_default()
 }
 
@@ -1936,18 +1936,21 @@ mod tests {
         let Def::Trait(trait_def) = &mut ctx.defs[trait_id.0 as usize] else {
             panic!("expected trait");
         };
-        trait_def.methods.push(kernc_ast::StructFieldDef {
-            name: method_name,
-            name_span: Span::default(),
-            vis: kernc_ast::Visibility::Private,
-            docs: None,
-            type_node: kernc_ast::TypeNode {
-                id: type_node_id,
-                kind: kernc_ast::TypeKind::Infer,
+        trait_def.methods.push(crate::def::TraitMethodDef {
+            signature: kernc_ast::StructFieldDef {
+                name: method_name,
+                name_span: Span::default(),
+                vis: kernc_ast::Visibility::Private,
+                docs: None,
+                type_node: kernc_ast::TypeNode {
+                    id: type_node_id,
+                    kind: kernc_ast::TypeKind::Infer,
+                    span: Span::default(),
+                },
+                default_value: None,
                 span: Span::default(),
             },
-            default_value: None,
-            span: Span::default(),
+            default_impl: None,
         });
         trait_def.resolved_methods.push((method_name, method_ty));
         trait_id
@@ -2010,6 +2013,7 @@ mod tests {
                 kind: kernc_ast::TypeKind::Infer,
                 span: Span::default(),
             }),
+            resolved_trait_ty: None,
             assoc_types: Vec::new(),
             methods: Vec::new(),
             span: Span::default(),
@@ -2051,6 +2055,7 @@ mod tests {
                 kind: kernc_ast::TypeKind::Infer,
                 span: Span::default(),
             }),
+            resolved_trait_ty: None,
             assoc_types: Vec::new(),
             methods: Vec::new(),
             span: Span::default(),
@@ -2071,6 +2076,7 @@ mod tests {
             name_span: Span::default(),
             vis: Visibility::Private,
             parent: Some(impl_id),
+            default_trait_method: None,
             is_imported: false,
             generics: Vec::new(),
             where_clauses: Vec::new(),
@@ -2119,6 +2125,7 @@ mod tests {
                 span: Span::default(),
             },
             trait_type: None,
+            resolved_trait_ty: None,
             assoc_types: Vec::new(),
             methods: Vec::new(),
             span: Span::default(),
@@ -2134,6 +2141,7 @@ mod tests {
             name_span: Span::default(),
             vis: Visibility::Private,
             parent: Some(impl_id),
+            default_trait_method: None,
             is_imported: false,
             generics: Vec::new(),
             where_clauses: Vec::new(),

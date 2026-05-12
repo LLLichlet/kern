@@ -1,0 +1,24 @@
+// class: trait-default-methods
+// source: lowering resolves a generic bound method call to the concrete default implementation
+// compile-args: --library-bundle none
+// exit: 0
+
+trait Score {
+    fn value() i32 {
+        return 7;
+    }
+};
+
+struct X {};
+
+impl X: Score {}
+
+fn call[T](value: T) i32
+    where T: Score,
+{
+    return value.value();
+}
+
+fn main() i32 {
+    return call[X](X.{}) - 7;
+}

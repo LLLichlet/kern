@@ -715,11 +715,13 @@ impl<'a> Parser<'a> {
                 let name_token = self.expect(TokenType::Identifier)?;
                 let name_id = self.intern_token(name_token);
                 self.expect(TokenType::LParen)?;
-                let mut params = vec![TypeNode {
+                let self_type = TypeNode {
                     id: self.new_id(),
                     span: name_token.span,
                     kind: TypeKind::SelfType,
-                }];
+                };
+                let mut params = vec![self_type];
+                let mut func_params = Vec::new();
                 let mut is_variadic = false;
                 if !self.check(TokenType::RParen) {
                     loop {
@@ -727,9 +729,16 @@ impl<'a> Parser<'a> {
                             is_variadic = true;
                             break;
                         }
-                        let _pattern = self.parse_binding_pattern()?;
+                        let pattern = self.parse_binding_pattern()?;
                         self.expect(TokenType::Colon)?;
-                        params.push(self.parse_type()?);
+                        let type_node = self.parse_type()?;
+                        let span = pattern.span.to(type_node.span);
+                        params.push(type_node.clone());
+                        func_params.push(FuncParam {
+                            pattern,
+                            type_node,
+                            span,
+                        });
                         if !self.continue_after_comma(&[TokenType::RParen]) {
                             break;
                         }
@@ -747,15 +756,7 @@ impl<'a> Parser<'a> {
                     },
                 };
 
-                if self.check(TokenType::Assign) {
-                    self.error_at_current(
-                        "Trait methods cannot have default implementations here.".to_string(),
-                    );
-                    self.advance();
-                    let _ = self.parse_expression(Precedence::Lowest)?; // Consume the rejected body.
-                }
-
-                methods.push(StructFieldDef {
+                let signature = StructFieldDef {
                     name: name_id,
                     name_span: name_token.span,
                     vis: Visibility::Private,
@@ -763,9 +764,26 @@ impl<'a> Parser<'a> {
                     default_value: None,
                     span: name_token.span.to(method_type.span),
                     type_node: method_type,
-                });
+                };
 
-                self.expect(TokenType::Semicolon)?;
+                let body = if self.check(TokenType::LBrace) {
+                    let brace = self.expect(TokenType::LBrace)?;
+                    Some(Box::new(self.parse_block_expr(brace.span)?))
+                } else {
+                    self.expect(TokenType::Semicolon)?;
+                    None
+                };
+                let span = body
+                    .as_ref()
+                    .map(|body| name_token.span.to(body.span))
+                    .unwrap_or_else(|| name_token.span.to(signature.span));
+
+                methods.push(TraitMethodDef {
+                    signature,
+                    params: func_params,
+                    body,
+                    span,
+                });
             } else {
                 self.error_at_current("Expected trait item".to_string());
                 self.synchronize();

@@ -9,6 +9,15 @@ struct ApplicableImplMethodCandidate {
     impl_args: Vec<GenericArg>,
 }
 
+#[derive(Debug, Clone)]
+struct ApplicableTraitDefaultMethodCandidate {
+    impl_id: DefId,
+    default_id: DefId,
+    method_span: Span,
+    default_args: Vec<GenericArg>,
+    owner_trait_ty: TypeId,
+}
+
 #[derive(Clone, Copy)]
 enum BuiltinOperatorMethodShape {
     Binary(&'static str),
@@ -388,6 +397,207 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .map(|(_, candidate)| candidate.clone())
                 .collect(),
         )
+    }
+
+    pub(super) fn resolve_named_trait_default_method(
+        &mut self,
+        receiver_norm: TypeId,
+        member_name: SymbolId,
+        diagnostic_span: Option<Span>,
+    ) -> Option<MemberResolution> {
+        let candidates = self.collect_specificity_maximal_trait_default_method_candidates(
+            receiver_norm,
+            member_name,
+        )?;
+        if candidates.len() > 1 {
+            if let Some(span) = diagnostic_span {
+                self.emit_ambiguous_trait_default_method_diagnostic(
+                    span,
+                    receiver_norm,
+                    member_name,
+                    &candidates,
+                );
+            }
+
+            let first = &candidates[0];
+            return Some(MemberResolution {
+                candidate: MemberCandidate {
+                    name: member_name,
+                    kind: SymbolKind::Function,
+                    type_id: TypeId::ERROR,
+                    def_id: Some(first.default_id),
+                    definition_span: first.method_span,
+                    is_mut: false,
+                },
+                owner_trait_ty: Some(first.owner_trait_ty),
+            });
+        }
+
+        candidates.into_iter().next().map(|candidate| {
+            let type_id = self.ctx.type_registry.intern(TypeKind::FnDef(
+                candidate.default_id,
+                candidate.default_args,
+            ));
+            MemberResolution {
+                candidate: MemberCandidate {
+                    name: member_name,
+                    kind: SymbolKind::Function,
+                    type_id,
+                    def_id: Some(candidate.default_id),
+                    definition_span: candidate.method_span,
+                    is_mut: false,
+                },
+                owner_trait_ty: Some(candidate.owner_trait_ty),
+            }
+        })
+    }
+
+    fn collect_specificity_maximal_trait_default_method_candidates(
+        &mut self,
+        receiver_norm: TypeId,
+        member_name: SymbolId,
+    ) -> Option<Vec<ApplicableTraitDefaultMethodCandidate>> {
+        let mut applicable = Vec::new();
+        for entry in self.ctx.trait_impl_entries() {
+            let impl_id = entry.id;
+            let impl_def = entry.def;
+            if impl_def.methods.iter().any(|&method_id| {
+                matches!(
+                    self.ctx.defs.get(method_id.0 as usize),
+                    Some(Def::Function(function)) if function.name == member_name
+                )
+            }) {
+                continue;
+            }
+
+            let resolved_trait_ty = impl_def.resolved_trait_ty.or_else(|| {
+                impl_def
+                    .trait_type
+                    .as_ref()
+                    .and_then(|trait_ty| self.ctx.node_type(trait_ty.id))
+            });
+            let Some(resolved_trait_ty) = resolved_trait_ty else {
+                continue;
+            };
+            let Some(impl_args) = crate::query::resolve_trait_impl_obligation(
+                self.ctx,
+                receiver_norm,
+                resolved_trait_ty,
+                impl_id,
+            ) else {
+                continue;
+            };
+            let Some(instantiated_trait_ty) =
+                crate::query::instantiate_impl_trait_ty(self.ctx, impl_id, &impl_args)
+            else {
+                continue;
+            };
+            let TypeKind::TraitObject(trait_id, trait_args, assoc_bindings) =
+                self.ctx.type_registry.get(instantiated_trait_ty).clone()
+            else {
+                continue;
+            };
+            let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_id.0 as usize).cloned()
+            else {
+                continue;
+            };
+            let Some(method) = trait_def.methods.iter().find(|method| {
+                method.signature.name == member_name && method.default_impl.is_some()
+            }) else {
+                continue;
+            };
+            let Some(default_id) = method.default_impl else {
+                continue;
+            };
+            let mut default_args = trait_args.clone();
+            default_args.push(GenericArg::Type(receiver_norm));
+            let owner_trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+                trait_id,
+                trait_args,
+                assoc_bindings,
+            ));
+            let owner_trait_ty =
+                crate::query::retain_declared_trait_object_assoc_bindings(self.ctx, owner_trait_ty);
+            applicable.push(ApplicableTraitDefaultMethodCandidate {
+                impl_id,
+                default_id,
+                method_span: method.signature.name_span,
+                default_args,
+                owner_trait_ty,
+            });
+        }
+
+        if applicable.is_empty() {
+            return None;
+        }
+
+        Some(
+            applicable
+                .iter()
+                .enumerate()
+                .filter(|(index, candidate)| {
+                    !applicable.iter().enumerate().any(|(other_index, other)| {
+                        other_index != *index
+                            && matches!(
+                                crate::query::compare_impl_specificity(
+                                    self.ctx,
+                                    other.impl_id,
+                                    candidate.impl_id,
+                                ),
+                                crate::query::ImplSpecificity::LeftMoreSpecific
+                            )
+                    })
+                })
+                .map(|(_, candidate)| candidate.clone())
+                .collect(),
+        )
+    }
+
+    fn emit_ambiguous_trait_default_method_diagnostic(
+        &mut self,
+        span: Span,
+        receiver_ty: TypeId,
+        member_name: SymbolId,
+        candidates: &[ApplicableTraitDefaultMethodCandidate],
+    ) {
+        let member_name_str = self.ctx.resolve(member_name).to_string();
+        let receiver_ty_str = self.ctx.ty_to_string(receiver_ty);
+        let impl_heads = candidates
+            .iter()
+            .filter_map(|candidate| self.describe_impl_head(candidate.impl_id))
+            .collect::<Vec<_>>();
+        let candidate_spans = candidates
+            .iter()
+            .take(2)
+            .filter_map(
+                |candidate| match self.ctx.defs.get(candidate.impl_id.0 as usize) {
+                    Some(Def::Impl(impl_def)) => Some(impl_def.span),
+                    _ => None,
+                },
+            )
+            .collect::<Vec<_>>();
+        let mut diagnostic = self.ctx.struct_error(
+            span,
+            format!("ambiguous trait default method `{}`", member_name_str),
+        );
+        diagnostic = diagnostic.with_hint(format!(
+            "multiple equally specific default methods named `{}` apply to receiver type `{}`",
+            member_name_str, receiver_ty_str
+        ));
+        diagnostic = diagnostic.with_hint(
+            "add an explicit impl method or make one trait impl head strictly more specific so method lookup has a unique result",
+        );
+        if !impl_heads.is_empty() {
+            diagnostic =
+                diagnostic.with_hint(format!("conflicting impl heads: {}", impl_heads.join(", ")));
+        }
+        for candidate_span in candidate_spans {
+            diagnostic = diagnostic.with_span_label(
+                candidate_span,
+                "equally specific trait default applies here",
+            );
+        }
+        diagnostic.emit();
     }
 
     fn emit_ambiguous_impl_method_diagnostic(
@@ -915,7 +1125,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
     }
 
-    pub(super) fn resolve_trait_method_in_hierarchy(
+    pub fn resolve_trait_method_in_hierarchy(
         &mut self,
         trait_def_id: DefId,
         lookup: TraitMethodLookup<'_>,

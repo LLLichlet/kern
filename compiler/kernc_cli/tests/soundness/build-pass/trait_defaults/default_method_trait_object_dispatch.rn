@@ -1,0 +1,19 @@
+// class: trait-default-methods
+// source: trait object vtables use default method bodies for omitted impl methods
+// exit: 0
+
+trait Score {
+    fn value() i32 {
+        return 7;
+    }
+};
+
+struct X {};
+
+impl &X: Score {}
+
+fn main() i32 {
+    let x = X.{};
+    let score = &Score.{ x.& };
+    return score.value() - 7;
+}

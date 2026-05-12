@@ -1,0 +1,18 @@
+// class: trait-default-methods
+// source: default method synthetic Self bounds preserve const generic trait arguments
+// compile-args: --library-bundle none
+// exit: 0
+
+trait Slot[N: usize] {
+    fn size() i32 {
+        return N as i32;
+    }
+};
+
+struct X {};
+
+impl X: Slot[4] {}
+
+fn main() i32 {
+    return X.{}.size() - 4;
+}

@@ -121,6 +121,7 @@ impl CompilerDriver {
                 name_span: span,
                 vis: Visibility::Private,
                 parent: Some(root_module_id),
+                default_trait_method: None,
                 is_imported: false,
                 generics: Vec::new(),
                 where_clauses: Vec::new(),

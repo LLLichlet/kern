@@ -69,6 +69,7 @@ impl TypeckBodyTimings {
 enum FunctionBodyKind {
     TopLevel,
     ImplMethod,
+    TraitDefaultMethod,
 }
 
 impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
@@ -507,9 +508,42 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     |timings, elapsed| timings.unions += elapsed,
                     |this| this.check_union(u, parent_scope),
                 ),
+                Def::Trait(t) => self.check_trait_default_methods(t, parent_scope),
                 _ => {}
             }
         }
+    }
+
+    fn check_trait_default_methods(&mut self, t: &crate::def::TraitDef, parent_scope: ScopeId) {
+        self.ctx.scopes.set_current_scope(parent_scope);
+        let trait_scope = self.ctx.scopes.enter_scope();
+        self.bind_generics_into_scope(&t.generics, trait_scope);
+
+        let prev_bounds_len = self.ctx.analysis.active_bounds.len();
+        self.push_valid_where_clause_bounds(&t.where_clauses);
+        if self.ctx.analysis.active_bounds.len() != prev_bounds_len {
+            self.ctx.clear_active_bound_caches();
+        }
+
+        for method in &t.methods {
+            let Some(method_id) = method.default_impl else {
+                continue;
+            };
+            let Some(method_def) =
+                self.def_ptr(method_id, "type-check a trait default method body")
+            else {
+                continue;
+            };
+            unsafe {
+                if let Def::Function(f) = &*method_def {
+                    self.check_function(f, trait_scope, FunctionBodyKind::TraitDefaultMethod);
+                }
+            }
+        }
+
+        self.ctx.analysis.active_bounds.truncate(prev_bounds_len);
+        self.ctx.clear_active_bound_caches();
+        self.ctx.scopes.exit_scope();
     }
 
     fn emit_pending_temporary_address_escape_checks(&mut self) {
@@ -803,6 +837,43 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     .then_some((param_ast.pattern.name, i))
             })
             .collect::<Vec<_>>();
+        if let Some(info) = &f.default_trait_method {
+            let trait_generics = self
+                .ctx
+                .defs
+                .get(info.trait_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Trait(trait_def) => Some(trait_def.generics.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let trait_args = trait_generics
+                .iter()
+                .map(|param| match &param.kind {
+                    ast::GenericParamKind::Type => {
+                        GenericArg::Type(self.ctx.type_registry.intern(TypeKind::Param(param.name)))
+                    }
+                    ast::GenericParamKind::Const { ty } => GenericArg::Const(ConstGeneric::Param(
+                        param.name,
+                        self.ctx.node_type_or_error(ty.id),
+                    )),
+                })
+                .collect::<Vec<_>>();
+            let trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+                info.trait_id,
+                trait_args,
+                Vec::new(),
+            ));
+            let self_ty = self
+                .ctx
+                .type_registry
+                .intern(TypeKind::Param(info.self_param));
+            self.ctx
+                .analysis
+                .active_bounds
+                .push((self_ty, vec![trait_ty]));
+            self.ctx.clear_active_bound_caches();
+        }
         let mut checker = ExprChecker::new(self.ctx, Some(ret_ty));
         for (name, index) in parameter_bindings {
             checker.record_parameter_binding(name, index);
@@ -852,7 +923,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             let elapsed = function_started.elapsed();
             match kind {
                 FunctionBodyKind::TopLevel => self.body_timings.top_level_functions += elapsed,
-                FunctionBodyKind::ImplMethod => self.body_timings.impl_methods += elapsed,
+                FunctionBodyKind::ImplMethod | FunctionBodyKind::TraitDefaultMethod => {
+                    self.body_timings.impl_methods += elapsed
+                }
             }
         }
     }

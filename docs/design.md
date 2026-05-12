@@ -734,20 +734,20 @@ Kern splits import roots explicitly instead of overloading one "absolute" syntax
 1.  **External package root**: bare imports such as `use std.io;` resolve only through CLI alias mappings like `--module-path std=./libs/std`.
 2.  **Current module**: `use .utils;`
 3.  **Parent module**: `use ..common.types;`
-4.  **Current package root**: `use /sys.os;`
+4.  **Current package root**: `use /host.os;`
 
-Grouped imports keep the same anchor as their base path, for example `use /sys.os.{Handle, write, exit};`.
+Grouped imports keep the same anchor as their base path, for example `use /host.os.{Handle, write, exit};`.
 
 ### 8.3 Facade Pattern and Re-exports (`pub use`)
 
 Kern supports the Facade pattern via `pub use`. This allows you to construct a clean, unified public API while keeping the internal module layout complex and conditionally compiled. Kern also supports `pub..` when an API should be visible throughout the parent module subtree, and `pub/` when it should stay package-internal without becoming fully public.
 
 ```kern
-// sys/os/init.rn
+// host/os/init.rn
 #[if(os == "linux")]
 mod linux;
 
-// Re-export symbols from the private `linux` module to the public `sys.os` API
+// Re-export symbols from the private `linux` module to the public `host.os` API
 #[if(os == "linux")]
 pub use .linux.{Handle, get_stdout_handle, write, exit};
 
@@ -796,9 +796,9 @@ Startup ownership still belongs to the surrounding runtime/link environment:
   * a hosted C runtime may own initial process startup and call `main`
   * a freestanding object build may choose `runtime_entry = none`, in which case no special program entry is required
 
-When `runtime_entry != none`, the toolchain also loads `rt` as the startup companion root even if the program never imports `rt` explicitly. This is startup assembly only. It does **not** make ordinary `rt.*` APIs visible without `use`, and it does **not** implicitly inject `base` or `sys`.
+When `runtime_entry != none`, the toolchain also loads `rt` as the startup companion root even if the program never imports `rt` explicitly. This is startup assembly only. It does **not** make ordinary `rt.*` APIs visible without `use`, and it does **not** implicitly inject `base` or `prov`.
 
-Hosted does not imply libc. In Kern, "hosted" means an OS process environment exists. Libraries such as `std` reach hosted services through the ordinary `sys` OS/provider boundary, while libc remains an optional external package choice rather than a semantic prerequisite for the language or standard library.
+Hosted does not imply libc. In Kern, "hosted" means an OS process environment exists. Libraries such as `std` reach hosted services through the ordinary provider contracts in `prov` and hosted services in `std.host`, while libc remains an optional external package choice rather than a semantic prerequisite for the language or standard library.
 
 When a runtime entry contract is enabled, the root `main` definition looks like:
 

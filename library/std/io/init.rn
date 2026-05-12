@@ -5,7 +5,7 @@
 
 use base.io.{Format, Formatable, Read, Write};
 use std.fs;
-use sys.os;
+use std.host.os;
 
 /// A writable handle backed by `std.fs.File`.
 pub struct File {

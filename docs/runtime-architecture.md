@@ -25,21 +25,21 @@ The dependency graph is:
 
 - the language and compiler stand on their own
 - `base` stands on its own
-- `sys` is the operating-system and provider boundary
+- `prov` contains provider contracts
 - `rt` is startup and minimal runtime glue
-- `std` is ordinary Kern library code built on `base` plus `sys`
+- `std` is ordinary Kern library code built on `base` plus `prov`, with hosted implementations under `std.host`
 - `libc` is an optional external C ABI / ecosystem interface choice
 
 The important rule is that `std` does not become "real" by depending on libc.
 `std` is already complete as a Kern library layer because its hosted capabilities
-flow through `sys`, not through an implicit C foundation.
+flow through `std.host` and provider contracts in `prov`, not through an implicit C foundation.
 
 Stated another way:
 
 - hosted is an OS/process-environment concern, not a C-language concern
 - an OS can exist without libc
 - libc cannot exist without an OS or equivalent host environment
-- therefore libc is downstream of the hosted boundary, while `sys` owns that boundary directly
+- therefore libc is downstream of the hosted boundary, while `std.host` owns the hosted implementation while `prov` owns shared contracts
 
 This is why Kern treats libc as optional even for hosted programs. A project may:
 
@@ -69,7 +69,7 @@ This axis decides whether the root module must provide a program `main`.
 
 This exists because "uses libc" and "uses CRT startup" are related but not identical concerns. The toolchain should be able to express both explicitly instead of hiding them behind one overloaded mode.
 
-`runtime_libc` does not define whether hosted facilities exist. Hosted process access is modeled through the OS/provider boundary in `sys`; libc linkage is a separate opt-in compatibility choice, not the thing that makes hosted facilities exist.
+`runtime_libc` does not define whether hosted facilities exist. Hosted process access is modeled through the provider contracts in `prov` and hosted implementation in `std.host`; libc linkage is a separate opt-in compatibility choice, not the thing that makes hosted facilities exist.
 
 `runtime_libc` also does not define whether `std` exists. `std` is a normal Kern
 library layer and remains valid without libc.
@@ -89,15 +89,15 @@ scope without `use`.
 This bundle axis stays coarse-grained on purpose: startup semantics stay
 separate from library selection.
 
-### `sys` / `rt` Implementation Choice
+### `prov` / `rt` Implementation Choice
 
-The implementation behind `sys` or `rt` is not selected by a dedicated compiler runtime flag.
+The implementation behind `prov` or `rt` is not selected by a dedicated compiler runtime flag.
 
 That choice belongs to ordinary module/package resolution:
 
 - official toolchain roots may be selected explicitly through `--module-path`
-- package tooling such as `craft` may wire `sys` or `rt` to project-provided packages
-- custom kernels and embedded targets may provide their own `sys`, their own `rt`, or neither
+- package tooling such as `craft` may wire `prov` or `rt` to project-provided packages
+- custom kernels and embedded targets may provide their own `prov`, their own `rt`, or neither
 
 This keeps `kernc` low-level and explicit while avoiding a privileged compiler-side "provider" model.
 
@@ -130,41 +130,41 @@ That behavior is intentionally narrow:
 
 - it exists only so the selected startup shim can contribute `_start`, `main`, and related entry glue
 - it is not a general visibility shortcut for runtime APIs
-- it does not imply automatic `base` or `sys` injection
-- explicit module imports remain mandatory for ordinary `rt.*`, `base.*`, `sys.*`, or `std.*` symbols
+- it does not imply automatic `base` or `prov` injection
+- explicit module imports remain mandatory for ordinary `rt.*`, `base.*`, `prov.*`, or `std.*` symbols
 
 ## Library Organization
 
 The public library/runtime split is:
 
 - `library/base`: runtime-independent foundation types, memory primitives, and containers
-- `library/sys`: provider and operating-system boundaries
+- `library/prov`: provider contracts
 - `library/rt`: startup entry glue and minimal runtime support
 - `library/std`: high-level user-facing facilities
 
 These are ordinary public layers, not compiler-privileged crates.
 The official `rt` package is intentionally below the public library stack: it
-must not depend on `base`, `sys`, or `std`.
+must not depend on `base`, `prov`, or `std`.
 
 This keeps the roles clear:
 
 - language semantics stay in the compiler
 - foundation facilities stay in `base`
-- provider and OS boundaries stay in `sys`
+- provider contracts stay in `prov`; hosted OS implementation stays inside `std.host`
 - startup/runtime glue stays in `rt`
 - reusable high-level facilities stay in `std`
 
 The practical rule is:
 
-- `std` may depend on `base` and `sys`
+- `std` may depend on `base` and `prov`
 - `std` must not require libc as a semantic foundation
-- hosted `std` facilities depend on OS/provider services exposed by `sys`, not on libc as a semantic prerequisite
+- hosted `std` facilities depend on provider contracts in `prov` and hosted services in `std.host`, not on libc as a semantic prerequisite
 - libc remains outside that semantic stack as an explicitly selected foreign interface when a project wants it
 - official `rt` must stay usable when `library_bundle = none`
 - `rt` stays a separate runtime-owned layer and is not mirrored through `std`
 - low-level modules such as allocators, collection primitives, ABI helpers, and page-backed memory stay in their owning layer instead of being duplicated under `std`
 
-`std` does not mirror modules such as `std.coll`, `std.mem`, `std.cmp`, `std.hash`, `std.num`, `std.cffi`, `std.os`, or `std.rt`. Code should import `base.*`, `sys.*`, or `rt.*` directly when it needs those boundaries.
+`std` does not mirror modules such as `std.coll`, `std.cmp`, `std.hash`, `std.num`, `std.cffi`, `std.os`, or `std.rt`. Code should import `base.*`, `prov.*`, `std.mem`, or `rt.*` directly when it needs those boundaries.
 
 Before 1.0, Kern intentionally avoids carrying compatibility surface just to preserve superseded structure or spelling. The repository is kept on the current model only.
 
@@ -246,11 +246,11 @@ The model is simple:
 
 - Kern the language is freestanding.
 - `main` is a special root symbol only when a runtime entry contract is selected.
-- `base`, `sys`, `rt`, and `std` are the only public library/runtime layers.
+- `base`, `prov`, `rt`, and `std` are the only public library/runtime layers.
 - `hosted` means "running with an OS process environment", not "depends on C".
-- `std` stays libc-free and reaches hosted services through `sys`.
+- `std` stays libc-free and reaches hosted services through `std.host` and `prov`.
 - `rt` owns low-level startup/runtime glue.
-- `sys` and `rt` implementation choice is resolved through normal module/package wiring, not a dedicated compiler runtime flag.
+- `prov` and `rt` implementation choice is resolved through normal module/package wiring, not a dedicated compiler runtime flag.
 - `std` owns public reusable facilities.
 - `craft` owns package policy.
 - `kernc` executes explicit compile and link actions.

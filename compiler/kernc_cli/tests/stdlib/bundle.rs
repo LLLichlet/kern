@@ -133,6 +133,49 @@ fn main() i32 {
 }
 
 #[test]
+fn std_bundle_exposes_prov_contracts_but_not_sys() {
+    let prov_output = compile_source_with_args(
+        "kernc_std_prov_contracts",
+        r#"
+use prov.os.OpenOptions;
+
+fn main() i32 {
+    let options = OpenOptions.{ read: true };
+    return if (options.read) { 0 } else { 1 };
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+    assert_success(&prov_output, "kernc");
+
+    let sys_output = compile_source_with_args(
+        "kernc_std_hidden_sys",
+        r#"
+use sys.mem.Page;
+
+fn main() i32 {
+    let _ = Page.{};
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+    assert!(
+        !sys_output.status.success(),
+        "expected public sys import to fail:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&sys_output.stdout),
+        String::from_utf8_lossy(&sys_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&sys_output.stderr);
+    assert!(
+        stderr.contains("sys") || stderr.contains("module"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn std_bundle_alone_does_not_auto_inject_rt_module() {
     let output = compile_source_with_args(
         "kernc_std_hidden_rt_module",
@@ -191,7 +234,7 @@ fn main() i32 {
 }
 
 #[test]
-fn runtime_entry_does_not_auto_inject_base_or_sys_modules() {
+fn runtime_entry_does_not_auto_inject_base_or_prov_modules() {
     let temp_dir = unique_temp_path("kernc_rt_without_bundle", "dir");
     let rt_dir = temp_dir.join("rt");
     let source_path = temp_dir.join("main.rn");
@@ -228,7 +271,7 @@ fn main() i32 {
 
     assert!(
         !output.status.success(),
-        "expected base/sys to remain unresolved without an explicit bundle or module path:\nstdout:\n{}\nstderr:\n{}",
+        "expected base/prov to remain unresolved without an explicit bundle or module path:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -242,7 +285,7 @@ fn main() i32 {
 }
 
 #[test]
-fn official_rt_links_without_base_or_sys_bundle() {
+fn official_rt_links_without_base_or_prov_bundle() {
     let source_path = unique_temp_path("kernc_rt_standalone_bundle_none", "rn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_rt_standalone_bundle_none", exe_ext);

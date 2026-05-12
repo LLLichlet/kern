@@ -10,7 +10,7 @@ language semantics.
 The model for this chapter: hosted and freestanding are not two dialects. They
 are the same language used with different runtime strategies.
 
-- hosted: the program runs in an OS process environment, usually using `std`, `sys`, and toolchain startup.
+- hosted: the program runs in an OS process environment, usually using `std`, `prov`, and toolchain startup.
 - freestanding: the project owns startup, linking, memory layout, and external environment boundaries.
 - libc: an optional external ABI/ecosystem interface, not the foundation of Kern's standard library.
 
@@ -31,10 +31,10 @@ use the standard library:
 
 - `rt` provides startup glue and expects a valid root-module `main`.
 - libc is not linked implicitly.
-- the `std` bundle wires official root aliases such as `base`, `sys`, and `std`.
+- the `std` bundle wires official root aliases such as `base`, `prov`, and `std`.
 
 Hosted does not mean "depends on libc." Kern's hosted capabilities go through
-the `sys` OS/provider boundary, and `std` is built on `base` and `sys`. Libc is
+`prov` contracts and `std.host`, and `std` is built on `base` and `prov`. Libc is
 selected explicitly only when you need C ABI compatibility, external C
 libraries, or platform C runtime ownership.
 
@@ -63,7 +63,7 @@ Common `bundle` values:
 
 - `none`: wire no official library root aliases.
 - `base`: wire the freestanding base library.
-- `std`: wire the common hosted `base`, `sys`, and `std` aliases.
+- `std`: wire the common hosted `base`, `prov`, and `std` aliases.
 
 `bundle` is root-alias wiring, not a prelude. Even with `bundle = "std"`, source
 files still write `use std.io;` or `use base.mem.alloc.gpa;`.

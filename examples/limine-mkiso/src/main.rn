@@ -2,7 +2,7 @@ use base.coll.String;
 use base.mem.alloc.gpa;
 use std.fs;
 use std.proc;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn write_stderr(text: &[u8]) void {
     let mut stderr = fs.stderr();

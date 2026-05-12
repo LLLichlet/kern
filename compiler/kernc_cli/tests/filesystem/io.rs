@@ -8,11 +8,10 @@ fn runs_hosted_program_with_fs_create_followed_by_another_result_match() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use sys.os;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
-fn ok_bool() bool!os.Error {{
+fn ok_bool() bool!fs.Error {{
     return .{{ Ok: true }};
 }}
 
@@ -61,7 +60,7 @@ fn runs_hosted_program_using_std_fs_convenience_functions() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -163,7 +162,7 @@ fn runs_hosted_program_using_std_fs_path_view_methods() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -229,7 +228,7 @@ fn runs_hosted_program_using_owned_string_path_view_methods() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -296,7 +295,7 @@ fn runs_hosted_program_using_std_fs_roundtrip() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -366,7 +365,7 @@ fn runs_hosted_program_using_std_fs_exact_and_byte_reads() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -453,7 +452,7 @@ fn runs_hosted_program_using_std_fs_seek_truncate_and_flush() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -589,7 +588,7 @@ fn runs_hosted_program_using_std_fs_open_variants() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -691,7 +690,7 @@ fn runs_hosted_program_using_std_fs_rename() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -810,7 +809,7 @@ use std.proc;
 use base.io.Write;
 use base.coll.String;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -983,7 +982,7 @@ fn runs_hosted_program_using_std_fs_copy_and_append() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;

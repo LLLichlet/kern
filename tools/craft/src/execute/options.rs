@@ -9,8 +9,8 @@ use crate::resolver::ExternalPackageId;
 use crate::target_defaults::apply_target_runtime_defaults;
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, LinkerInputFlavor, LtoMode, OptLevel,
-    inject_driver_condition_defines, maybe_add_base_alias, maybe_add_std_alias,
-    maybe_add_sys_alias,
+    inject_driver_condition_defines, maybe_add_base_alias, maybe_add_prov_alias,
+    maybe_add_std_alias,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -27,8 +27,8 @@ fn inject_target_library_aliases(options: &mut CompileOptions) {
     if !options.module_interface_aliases.contains_key("base") {
         maybe_add_base_alias(options);
     }
-    if !options.module_interface_aliases.contains_key("sys") {
-        maybe_add_sys_alias(options);
+    if !options.module_interface_aliases.contains_key("prov") {
+        maybe_add_prov_alias(options);
     }
     if !options.module_interface_aliases.contains_key("std") {
         maybe_add_std_alias(options);
@@ -401,14 +401,14 @@ mod tests {
             BuiltStdPackage {
                 metadata_root_path: root.join("prebuilt-std"),
                 base_object_path: root.join("base.o"),
-                sys_object_path: root.join("sys.o"),
+                prov_object_path: root.join("prov.o"),
                 rt_object_path: Some(root.join("rt.o")),
                 common_link_objects: Vec::new(),
                 hosted_entry_object_path: root.join("hosted-entry.o"),
                 freestanding_entry_object_path: root.join("freestanding-entry.o"),
                 interface_aliases: BTreeMap::from([
                     ("base".to_string(), root.join("prebuilt-base")),
-                    ("sys".to_string(), root.join("prebuilt-sys")),
+                    ("prov".to_string(), root.join("prebuilt-prov")),
                 ]),
             },
         )])

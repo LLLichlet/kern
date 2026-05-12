@@ -47,7 +47,7 @@ fn base_abi_cstr_owned_tracks_pointer_and_length() {
         r#"
 use base.abi;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -445,7 +445,7 @@ fn hosted_std_io_prints_base_string_and_list_values() {
 use std.io;
 use base.coll.{List, list, String, string};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -685,7 +685,7 @@ fn hosted_std_io_formats_to_memory_writers() {
 use base.io.Write;
 use base.coll.{String, string};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let mut fixed_storage = [64]u8.{undef};
@@ -781,7 +781,7 @@ fn hosted_std_io_reads_from_memory_readers() {
         r#"
 use base.io.Read;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let mut reader = "abcdef".reader();
@@ -860,7 +860,7 @@ use base.io.{
 };
 use base.coll.{String, string};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let mut source = "abcdef".reader();

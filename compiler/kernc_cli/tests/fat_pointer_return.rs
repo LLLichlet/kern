@@ -13,7 +13,7 @@ fn returns_struct_containing_allocator_fat_pointer_inside_result() {
     let output = build_and_run_source_with_std(
         r#"
 use base.mem.alloc.{Allocator, arena};
-use sys.mem.Page;
+use std.mem.Page;
 
 struct Ref {
     alloc: &mut Allocator,
@@ -54,7 +54,7 @@ fn returns_struct_containing_allocator_fat_pointer_inside_option() {
     let output = build_and_run_source_with_std(
         r#"
 use base.mem.alloc.{Allocator, arena};
-use sys.mem.Page;
+use std.mem.Page;
 
 struct Ref {
     alloc: &mut Allocator,
@@ -95,7 +95,7 @@ fn returns_struct_containing_allocator_fat_pointer_from_mut_method_result() {
     let output = build_and_run_source_with_std(
         r#"
 use base.mem.alloc.{Allocator, arena};
-use sys.mem.Page;
+use std.mem.Page;
 
 struct Ref {
     alloc: &mut Allocator,

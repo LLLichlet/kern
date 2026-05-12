@@ -409,6 +409,6 @@ optimize them.
 
 Continue with the attributes, inline assembly, and compiler intrinsics sections
 of [`design.md`](../../design.md). The standard library files
-[`library/sys/os/linux.rn`](../../../library/sys/os/linux.rn) and
+[`library/std/host/os/linux.rn`](../../../library/std/host/os/linux.rn) and
 [`library/base/sync/init.rn`](../../../library/base/sync/init.rn) are also useful
 references.

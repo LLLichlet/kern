@@ -86,7 +86,7 @@ fn runs_hosted_program_using_std_fs_path_join_and_normalize() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -183,7 +183,7 @@ fn runs_hosted_program_using_std_fs_path_replacements() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -258,7 +258,7 @@ fn runs_hosted_program_using_std_fs_path_combinators() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -348,7 +348,7 @@ fn runs_hosted_program_using_std_fs_windows_path_semantics() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -469,7 +469,7 @@ fn runs_hosted_program_using_std_fs_unicode_paths_on_windows() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;

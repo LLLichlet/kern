@@ -6,7 +6,7 @@ fn runs_hosted_program_using_std_coll_tree() {
         r#"
 use base.coll.{Tree, tree};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -107,7 +107,7 @@ fn runs_hosted_program_using_custom_ord_tree_key() {
 use base.coll.{Tree, tree};
 use base.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 struct Key {
     major: i32,
@@ -216,7 +216,7 @@ fn runs_hosted_program_using_tree_ordered_traversal_helpers() {
         r#"
 use base.coll.{Tree, tree, String, string};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -279,7 +279,7 @@ fn runs_hosted_program_using_tree_boundary_queries() {
         r#"
 use base.coll.{Tree, tree};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -360,7 +360,7 @@ fn runs_hosted_program_using_tree_remove() {
         r#"
 use base.coll.{Tree, tree, String, string};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;

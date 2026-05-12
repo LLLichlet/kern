@@ -1,17 +1,18 @@
 //! Kern standard library.
 //!
-//! `std` is the high-level batteries-included layer built on top of `base`,
-//! and `sys`. Foundation facilities remain in `base`, provider-facing APIs
-//! remain in `sys`, and startup glue remains in `rt`.
+//! `std` is the high-level hosted library layer built on top of `base` and
+//! `prov`. Foundation facilities remain in `base`, provider-facing contracts
+//! remain in `prov`, and startup glue remains in `rt`.
 //!
-//! `std` is still a normal freestanding Kern library. Hosted facilities are
-//! modeled through OS and provider boundaries in `sys`, not through an
-//! implicit dependency on libc.
+//! Hosted implementation details are owned internally by `std.host`, not by a
+//! public system package or an implicit libc dependency.
 
 pub mod io;
 pub mod fs;
 pub mod env;
 pub mod proc;
 pub mod msg;
+pub mod mem;
 pub mod time;
 pub mod term;
+mod host;

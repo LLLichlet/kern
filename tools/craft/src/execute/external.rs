@@ -784,13 +784,6 @@ pub(super) fn link_objects_for_compile_action(
                 {
                     push_linker_inputs_for_primary_output(&mut objects, &mut seen, rt_object_path)?;
                 }
-                if !matches!(link_options.runtime_entry, RuntimeEntry::None) {
-                    push_linker_inputs_for_primary_output(
-                        &mut objects,
-                        &mut seen,
-                        &std_package.sys_object_path,
-                    )?;
-                }
                 match link_options.runtime_entry {
                     RuntimeEntry::None => {}
                     RuntimeEntry::Crt => push_linker_inputs_for_primary_output(

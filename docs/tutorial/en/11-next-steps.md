@@ -55,7 +55,7 @@ Focus on:
 - the freestanding `_start` and linker-script sections in [`kernc.md`](../../kernc.md)
 - [`examples/limine-smoke`](../../../examples/limine-smoke)
 
-If your project supplies custom `sys` or `rt` layers, treat them as ordinary
+If your project supplies custom `prov` or `rt` layers, treat them as ordinary
 module/package boundaries. Do not assume the compiler provides hidden
 providers for those layers.
 

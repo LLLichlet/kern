@@ -822,7 +822,7 @@ fn runs_string_slice_eq_operator_impls() {
         r#"
 use base.coll.String;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -902,7 +902,7 @@ fn runs_match_value_patterns_through_eq_trait() {
         r#"
 use base.coll.String;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn classify_text(text: &mut String) i32 {
     return match (text) {
@@ -1078,7 +1078,7 @@ use base.coll.{list, string};
 use base.mem.alloc.gpa;
 use base.test;
 use std.io;
-use sys.mem.page;
+use std.mem.page;
 
 fn main() i32 {
     let t = test.report(io.stderr())..&;

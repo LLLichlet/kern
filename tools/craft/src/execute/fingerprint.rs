@@ -209,8 +209,8 @@ pub(super) fn base_compile_action_label(profile: &str, options: &CompileOptions)
     format!("base ({profile}; {})", compile_pipeline_label(options))
 }
 
-pub(super) fn sys_compile_action_label(profile: &str, options: &CompileOptions) -> String {
-    format!("sys ({profile}; {})", compile_pipeline_label(options))
+pub(super) fn prov_compile_action_label(profile: &str, options: &CompileOptions) -> String {
+    format!("prov ({profile}; {})", compile_pipeline_label(options))
 }
 
 pub(super) fn rt_entry_compile_action_label(profile: &str, options: &CompileOptions) -> String {

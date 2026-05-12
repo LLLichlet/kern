@@ -319,7 +319,7 @@ fn runs_hosted_program_using_std_proc_shell_capture() {
         r#"
 use base.mem.alloc.gpa;
 use std.proc;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -1115,7 +1115,7 @@ fn runs_hosted_program_using_std_env_get() {
         r#"
 use std.env;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;

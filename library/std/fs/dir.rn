@@ -3,7 +3,7 @@
 //! Design:
 //! keep traversal explicit, return visited counts, and leave path ownership with the caller.
 
-use sys.os;
+use std.host.os;
 use base.coll.{List, String};
 use base.mem.array_layout_of;
 use base.mem.alloc.{AllocError, Allocator};

@@ -4,7 +4,7 @@
 //! It is simple and predictable, but it does not attempt to recycle or compact
 //! allocations.
 
-use sys.os;
+use std.host.os;
 use base.mem.{Layout, null_mut_ptr};
 use base.mem.alloc.Allocator;
 

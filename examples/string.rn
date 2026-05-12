@@ -2,7 +2,7 @@ use base.coll.{String, string};
 use base.mem.alloc.gpa;
 use std.io;
 use base.test;
-use sys.mem.page;
+use std.mem.page;
 
 fn main() i32 {
     let t = test.report(io.stderr())..&;

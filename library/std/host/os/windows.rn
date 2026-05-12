@@ -9,8 +9,8 @@ use base.abi;
 use base.coll.String;
 use base.mem.{null_ptr, null_mut_ptr};
 use base.mem.alloc.{AllocError, Allocator};
-use sys.os.{FileType, Metadata, TerminalSize};
-use sys.os.OpenOptions;
+use prov.os.{FileType, Metadata, TerminalSize};
+use prov.os.OpenOptions;
 
 /// A raw Win32 handle.
 pub type Handle = &mut void;

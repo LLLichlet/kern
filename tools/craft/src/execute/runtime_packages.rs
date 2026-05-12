@@ -4,8 +4,8 @@ use super::options::{
 use super::{
     ActionTimingKind, BuiltLibraryPackage, BuiltStdPackage, ExecutionSummary, Result,
     base_compile_action_label, build_fingerprint, compile_with_shared_driver, ensure_parent_dir,
-    rt_compile_action_label, rt_entry_compile_action_label, runtime_compile_detail_tags,
-    runtime_profile_key, std_compile_action_label, sys_compile_action_label,
+    prov_compile_action_label, rt_compile_action_label, rt_entry_compile_action_label,
+    runtime_compile_detail_tags, runtime_profile_key, std_compile_action_label,
 };
 use crate::build_plan::CompileAction;
 use crate::build_state;
@@ -14,7 +14,7 @@ use crate::operation_lock::WorkspaceOperationLock;
 use kernc_driver::{CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE};
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, LtoMode, OptLevel, inject_driver_condition_defines,
-    resolve_base_path, resolve_rt_path, resolve_std_path, resolve_sys_path,
+    resolve_base_path, resolve_prov_path, resolve_rt_path, resolve_std_path,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -253,7 +253,7 @@ pub(super) fn build_std_package(
             source_path.display()
         )));
     }
-    let built_sys = build_sys_package(
+    let built_prov = build_prov_package(
         workspace_root,
         profile,
         command,
@@ -266,7 +266,6 @@ pub(super) fn build_std_package(
         command,
         driver_families,
         execution_summary,
-        &built_sys,
     )?);
     let hosted_rt_entry_object_path = build_rt_entry_package(
         workspace_root,
@@ -274,7 +273,6 @@ pub(super) fn build_std_package(
         command,
         driver_families,
         execution_summary,
-        &built_sys,
         RtEntryFlavor::Hosted,
     )?;
     let freestanding_rt_entry_object_path = build_rt_entry_package(
@@ -283,7 +281,6 @@ pub(super) fn build_std_package(
         command,
         driver_families,
         execution_summary,
-        &built_sys,
         RtEntryFlavor::Freestanding,
     )?;
 
@@ -324,10 +321,10 @@ pub(super) fn build_std_package(
     options
         .module_aliases
         .insert("std".to_string(), std_root.to_string_lossy().to_string());
-    extend_interface_aliases(&mut options, &built_sys.interface_aliases);
+    extend_interface_aliases(&mut options, &built_prov.interface_aliases);
     options.module_interface_aliases.insert(
-        "sys".to_string(),
-        built_sys.metadata_root_path.to_string_lossy().to_string(),
+        "prov".to_string(),
+        built_prov.metadata_root_path.to_string_lossy().to_string(),
     );
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
@@ -355,8 +352,8 @@ pub(super) fn build_std_package(
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
-        format!("sys_meta={}", built_sys.metadata_root_path.display()),
-        format!("sys_obj={}", built_sys.object_path.display()),
+        format!("prov_meta={}", built_prov.metadata_root_path.display()),
+        format!("prov_obj={}", built_prov.object_path.display()),
         "split_sections_for_gc=true".to_string(),
     ];
     if let Some(built_rt) = &built_rt {
@@ -412,7 +409,7 @@ pub(super) fn build_std_package(
                 .join("base")
                 .join("lib")
                 .join("base.o"),
-            sys_object_path: built_sys.object_path.clone(),
+            prov_object_path: built_prov.object_path.clone(),
             rt_object_path: built_rt
                 .as_ref()
                 .map(|built_rt| built_rt.object_path.clone()),
@@ -420,7 +417,7 @@ pub(super) fn build_std_package(
                 vec![
                     object_path,
                     built_rt.object_path.clone(),
-                    built_sys.object_path.clone(),
+                    built_prov.object_path.clone(),
                     profile_root
                         .join("obj")
                         .join("base")
@@ -433,8 +430,8 @@ pub(super) fn build_std_package(
             hosted_entry_object_path: hosted_rt_entry_object_path,
             freestanding_entry_object_path: freestanding_rt_entry_object_path,
             interface_aliases: {
-                let mut aliases = built_sys.interface_aliases.clone();
-                aliases.insert("sys".to_string(), built_sys.metadata_root_path);
+                let mut aliases = built_prov.interface_aliases.clone();
+                aliases.insert("prov".to_string(), built_prov.metadata_root_path);
                 aliases
             },
         },
@@ -448,7 +445,6 @@ pub(super) fn build_rt_package(
     command: crate::script::ScriptCommand,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
-    built_sys: &BuiltLibraryPackage,
 ) -> Result<BuiltLibraryPackage> {
     let rt_root = resolve_rt_path();
     let source_path = rt_root.join("init.rn");
@@ -492,11 +488,6 @@ pub(super) fn build_rt_package(
     options
         .module_aliases
         .insert("rt".to_string(), rt_root.to_string_lossy().to_string());
-    extend_interface_aliases(&mut options, &built_sys.interface_aliases);
-    options.module_interface_aliases.insert(
-        "sys".to_string(),
-        built_sys.metadata_root_path.to_string_lossy().to_string(),
-    );
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
     normalize_windows_linker_input_options(&mut options);
@@ -523,8 +514,6 @@ pub(super) fn build_rt_package(
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
-        format!("sys_meta={}", built_sys.metadata_root_path.display()),
-        format!("sys_obj={}", built_sys.object_path.display()),
         "split_sections_for_gc=true".to_string(),
     ]);
     let rt_label = rt_compile_action_label(&runtime_profile_label(profile), &options);
@@ -685,18 +674,18 @@ pub(super) fn build_base_package(
     })
 }
 
-pub(super) fn build_sys_package(
+pub(super) fn build_prov_package(
     workspace_root: &Path,
     profile: &crate::script::ScriptProfile,
     command: crate::script::ScriptCommand,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
-    let sys_root = resolve_sys_path();
-    let source_path = sys_root.join("init.rn");
+    let prov_root = resolve_prov_path();
+    let source_path = prov_root.join("init.rn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
-            "sys library root `{}` is missing",
+            "prov library root `{}` is missing",
             source_path.display()
         )));
     }
@@ -711,10 +700,10 @@ pub(super) fn build_sys_package(
     let profile_root = runtime_profile_root(workspace_root, profile)?;
     let object_path = profile_root
         .join("obj")
-        .join("sys")
+        .join("prov")
         .join("lib")
-        .join("sys.o");
-    let metadata_root_path = profile_root.join("meta").join("sys");
+        .join("prov.o");
+    let metadata_root_path = profile_root.join("meta").join("prov");
 
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
@@ -726,9 +715,9 @@ pub(super) fn build_sys_package(
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
         metadata_output: Some(metadata_root_path.to_string_lossy().to_string()),
-        metadata_package_name: Some("sys".to_string()),
+        metadata_package_name: Some("prov".to_string()),
         metadata_package_version: None,
-        root_module_name: Some("sys".to_string()),
+        root_module_name: Some("prov".to_string()),
         driver_mode: runtime_driver_mode(command),
         report_progress: false,
         opt_level: runtime_opt_level(profile),
@@ -745,7 +734,7 @@ pub(super) fn build_sys_package(
     apply_host_linker_env(&mut options);
     options
         .module_aliases
-        .insert("sys".to_string(), sys_root.to_string_lossy().to_string());
+        .insert("prov".to_string(), prov_root.to_string_lossy().to_string());
     extend_interface_aliases(&mut options, &built_base.interface_aliases);
     options.module_interface_aliases.insert(
         "base".to_string(),
@@ -755,9 +744,9 @@ pub(super) fn build_sys_package(
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
     normalize_windows_linker_input_options(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
-    let sys_fingerprint = build_fingerprint(&[
-        "sys_runtime_layout=v1".to_string(),
-        "kind=compile-sys".to_string(),
+    let prov_fingerprint = build_fingerprint(&[
+        "prov_runtime_layout=v1".to_string(),
+        "kind=compile-prov".to_string(),
         format!("toolchain={toolchain_digest}"),
         format!("driver_mode={}", options.driver_mode.as_str()),
         format!("profile={}", profile.name),
@@ -781,14 +770,14 @@ pub(super) fn build_sys_package(
         format!("base_obj={}", built_base.object_path.display()),
         "split_sections_for_gc=true".to_string(),
     ]);
-    let sys_label = sys_compile_action_label(&runtime_profile_label(profile), &options);
-    let sys_tags = runtime_compile_detail_tags(&options);
+    let prov_label = prov_compile_action_label(&runtime_profile_label(profile), &options);
+    let prov_tags = runtime_compile_detail_tags(&options);
     let emits_linker_input = options.driver_mode.emits_linker_input();
 
-    if !build_state::action_state_is_current(&object_path, &sys_fingerprint)? {
+    if !build_state::action_state_is_current(&object_path, &prov_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
             return Err(Error::Execution(format!(
-                "compile failed for sys library `{}`",
+                "compile failed for prov library `{}`",
                 source_path.display()
             )));
         };
@@ -798,12 +787,12 @@ pub(super) fn build_sys_package(
         inputs.dedup();
         let outputs =
             runtime_compile_outputs(&object_path, Some(&metadata_root_path), emits_linker_input);
-        build_state::record_action_state(&object_path, sys_fingerprint, &inputs, &outputs)?;
+        build_state::record_action_state(&object_path, prov_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            sys_label,
-            sys_tags,
+            prov_label,
+            prov_tags,
             report.phase_timings,
             report.cache_stats,
             report.codegen_plan,
@@ -827,7 +816,6 @@ pub(super) fn build_rt_entry_package(
     command: crate::script::ScriptCommand,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
-    built_sys: &BuiltLibraryPackage,
     flavor: RtEntryFlavor,
 ) -> Result<PathBuf> {
     let source_path = resolve_rt_path().join("entry.rn");
@@ -865,11 +853,6 @@ pub(super) fn build_rt_entry_package(
         split_sections_for_gc: true,
         ..CompileOptions::default()
     };
-    extend_interface_aliases(&mut options, &built_sys.interface_aliases);
-    options.module_interface_aliases.insert(
-        "sys".to_string(),
-        built_sys.metadata_root_path.to_string_lossy().to_string(),
-    );
     inject_driver_condition_defines(&mut options);
     match flavor {
         RtEntryFlavor::Hosted => {
@@ -914,7 +897,6 @@ pub(super) fn build_rt_entry_package(
         ),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
-        format!("sys_meta={}", built_sys.metadata_root_path.display()),
         "split_sections_for_gc=true".to_string(),
     ]);
     let entry_label = format!(

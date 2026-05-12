@@ -348,8 +348,8 @@ fn limine_mkiso_resolves_real_hosted_build_tool_runtime() {
     assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::Rt);
     assert_eq!(resolved.compile_options.library_bundle, LibraryBundle::Std);
     assert!(resolved.compile_options.module_aliases.contains_key("base"));
+    assert!(resolved.compile_options.module_aliases.contains_key("prov"));
     assert!(resolved.compile_options.module_aliases.contains_key("std"));
-    assert!(resolved.compile_options.module_aliases.contains_key("sys"));
 
     let diagnostics = analysis.analyze_document_uri(&uri);
     let target_bundle = diagnostics

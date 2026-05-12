@@ -220,7 +220,7 @@ impl LibraryBundle {
 enum OfficialLibrary {
     Base,
     Rt,
-    Sys,
+    Prov,
     Std,
 }
 
@@ -229,7 +229,7 @@ impl OfficialLibrary {
         match self {
             Self::Base => "base",
             Self::Rt => "rt",
-            Self::Sys => "sys",
+            Self::Prov => "prov",
             Self::Std => "std",
         }
     }
@@ -238,7 +238,7 @@ impl OfficialLibrary {
         match self {
             Self::Base => "KERN_BASE_PATH",
             Self::Rt => "KERN_RT_PATH",
-            Self::Sys => "KERN_SYS_PATH",
+            Self::Prov => "KERN_PROV_PATH",
             Self::Std => "KERN_STD_PATH",
         }
     }
@@ -446,8 +446,8 @@ pub fn resolve_rt_path() -> PathBuf {
     resolve_official_library_path(OfficialLibrary::Rt)
 }
 
-pub fn resolve_sys_path() -> PathBuf {
-    resolve_official_library_path(OfficialLibrary::Sys)
+pub fn resolve_prov_path() -> PathBuf {
+    resolve_official_library_path(OfficialLibrary::Prov)
 }
 
 fn ensure_official_library_alias(options: &mut CompileOptions, library: OfficialLibrary) {
@@ -458,7 +458,7 @@ fn ensure_official_library_alias(options: &mut CompileOptions, library: Official
     let path = match library {
         OfficialLibrary::Base => resolve_base_path(),
         OfficialLibrary::Rt => resolve_rt_path(),
-        OfficialLibrary::Sys => resolve_sys_path(),
+        OfficialLibrary::Prov => resolve_prov_path(),
         OfficialLibrary::Std => resolve_std_path(),
     };
     options.module_aliases.insert(
@@ -489,13 +489,13 @@ pub fn maybe_add_rt_alias(options: &mut CompileOptions) {
     ensure_official_library_alias(options, OfficialLibrary::Rt);
 }
 
-pub fn maybe_add_sys_alias(options: &mut CompileOptions) {
-    let wants_sys = matches!(options.library_bundle, LibraryBundle::Std);
-    if !wants_sys || options.module_aliases.contains_key("sys") {
+pub fn maybe_add_prov_alias(options: &mut CompileOptions) {
+    let wants_prov = matches!(options.library_bundle, LibraryBundle::Std);
+    if !wants_prov || options.module_aliases.contains_key("prov") {
         return;
     }
 
-    ensure_official_library_alias(options, OfficialLibrary::Sys);
+    ensure_official_library_alias(options, OfficialLibrary::Prov);
 }
 
 pub fn maybe_add_std_alias(options: &mut CompileOptions) {
@@ -511,7 +511,7 @@ pub fn maybe_add_std_alias(options: &mut CompileOptions) {
 pub fn apply_configured_library_aliases(options: &mut CompileOptions) {
     maybe_add_base_alias(options);
     maybe_add_rt_alias(options);
-    maybe_add_sys_alias(options);
+    maybe_add_prov_alias(options);
     maybe_add_std_alias(options);
 }
 

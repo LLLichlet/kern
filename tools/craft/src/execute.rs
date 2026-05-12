@@ -31,9 +31,9 @@ use self::external::{
 use self::fingerprint::{
     base_compile_action_label, build_fingerprint, compile_action_detail_tags,
     compile_action_fingerprint, compile_action_label, link_action_detail_tags,
-    link_action_fingerprint, link_action_label, rt_compile_action_label,
+    link_action_fingerprint, link_action_label, prov_compile_action_label, rt_compile_action_label,
     rt_entry_compile_action_label, runtime_compile_detail_tags, std_compile_action_label,
-    sys_compile_action_label, write_compile_action_state,
+    write_compile_action_state,
 };
 use self::options::{compile_action_options, link_action_options};
 use self::orchestrate::build_with_command;
@@ -203,7 +203,7 @@ struct BuiltExternalPackage {
 struct BuiltStdPackage {
     metadata_root_path: PathBuf,
     base_object_path: PathBuf,
-    sys_object_path: PathBuf,
+    prov_object_path: PathBuf,
     rt_object_path: Option<PathBuf>,
     common_link_objects: Vec<PathBuf>,
     hosted_entry_object_path: PathBuf,

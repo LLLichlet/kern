@@ -7,7 +7,7 @@ fn runs_hosted_program_using_gpa_alignment_and_arena() {
         r#"
 use base.mem.Layout;
 use base.mem.alloc.{arena, gpa};
-use sys.mem.page;
+use std.mem.page;
 
 fn main() i32 {
     let page = page()..&;
@@ -138,7 +138,7 @@ fn rejects_gpa_invalid_free_usage() {
         r#"
 use base.mem.Layout;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -177,7 +177,7 @@ fn runs_hosted_program_using_typed_allocation_helpers() {
         r#"
 use base.mem.alloc.Allocator;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 struct Pair {
     left: i32,

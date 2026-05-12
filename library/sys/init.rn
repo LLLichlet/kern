@@ -1,6 +1,0 @@
-//! System/provider layer.
-//!
-//! `sys` owns raw operating-system and provider-facing boundaries.
-
-pub mod mem;
-pub mod os;

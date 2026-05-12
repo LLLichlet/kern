@@ -1,6 +1,6 @@
 //! Current process queries.
 
-use sys.os;
+use std.host.os;
 
 /// Returns the current process identifier.
 pub fn process_id() usize {

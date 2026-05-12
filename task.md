@@ -1,5 +1,26 @@
 # Kern Ecosystem Tooling Tasks
 
+## P0 Provider Boundary Migration
+
+- [x] Introduce `library/prov` as the official provider contract package.
+- [x] Keep `base` platform-independent: no imports from `prov`, `std`, `rt`, or
+  hosted implementation modules.
+- [x] Move hosted OS implementations out of public `sys` and into `std.host`.
+- [x] Expose user-facing hosted allocation through `std.mem` instead of
+  `sys.mem`.
+- [x] Remove `sys` from the official library workspace and compiler-injected
+  public aliases.
+- [x] Update `std` to depend on `base` and `prov`, with hosted implementation
+  owned internally by `std`.
+- [x] Update Craft runtime package building and linking so `std` builds with
+  `prov`, while `rt` and `rt_entry` remain independent of library/provider
+  aliases.
+- [x] Replace ecosystem tests, examples, and docs that import public `sys`.
+- [x] Add boundary coverage for `prov` alias injection, absence of public
+  `sys`, `rt` independence, and workspace package resolution.
+- [x] Run formatting, compiler, stdlib, soundness, Craft check/style coverage,
+  then commit the complete migration.
+
 ## P0 Docstrings As Markdown-First Documentation
 
 - [x] Treat doc comments as Markdown-first text and avoid warning on ordinary

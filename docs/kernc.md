@@ -221,14 +221,14 @@ provided.
 The official library roots are:
 
 - `base`: runtime-independent foundation facilities
-- `sys`: provider and OS boundaries
+- `prov`: provider contracts
 - `rt`: startup and minimal runtime glue
 - `std`: high-level user-facing facilities
 
 Configured alias wiring intentionally exposes only the public library surface:
 
 - `base` is injected only for explicit `--library-bundle base` or `--library-bundle std`
-- `sys` is injected only for explicit `--library-bundle std`
+- `prov` is injected only for explicit `--library-bundle std`
 - `std` is injected only for `--library-bundle std`
 - `rt` is not injected by library bundle selection alone; `kernc` injects it only as the companion runtime root when `runtime_entry != none`
 
@@ -236,14 +236,14 @@ The `rt` companion-root rule is startup wiring, not ordinary name injection:
 
 - it makes the `library/rt` root available so hosted startup symbols such as `_start` or `main` can be linked
 - it does not auto-import `rt.*` APIs into user scope
-- it does not auto-inject `base` or `sys`
+- it does not auto-inject `base` or `prov`
 - ordinary runtime/library APIs still require explicit `use` like any other module
 
 `kernc` resolves the official library paths through these environment variables first:
 
 1. `KERN_STD_PATH`
 2. `KERN_BASE_PATH`
-3. `KERN_SYS_PATH`
+3. `KERN_PROV_PATH`
 4. `KERN_RT_PATH`
 
 Each root then falls back to a path relative to the current executable and finally to `library/<name>` in the repository layout.
@@ -252,14 +252,14 @@ The model is:
 
 - library choice is independent from startup ownership
 - libc linkage is independent from whether `std` is available
-- hosted process access is provided through `sys`, not implied by libc linkage
+- hosted process access is provided through provider contracts in `prov` and hosted services in `std.host`, not implied by libc linkage
 - startup shims live under `rt`, not under `std`
-- `sys` and `rt` implementation choice is handled through ordinary module paths or packages, not a dedicated runtime-provider flag
+- `prov` and `rt` implementation choice is handled through ordinary module paths or packages, not a dedicated runtime-provider flag
 - low-level APIs stay in their owning layer instead of being mirrored through `std`
 
 If you select `--runtime-entry` without selecting an official library bundle,
 `kernc` only wires `rt` itself. The official `rt` is kept independent from
-`base` and `sys` so this remains valid with `--library-bundle none`.
+`base` and `prov` so this remains valid with `--library-bundle none`.
 
 When `--runtime-entry rt` or `--runtime-entry crt` is active, the root `main` must match the program-entry contract: `fn main() i32` or `fn main(argc: i32, argv: &&u8) i32`.
 

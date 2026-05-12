@@ -357,7 +357,7 @@ roots = ["tests/cwd.rn"]
         r#"
 use std.fs;
 use base.mem.alloc.{Allocator, gpa};
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
 let mut page = Page.{};
@@ -440,7 +440,7 @@ roots = ["tests/env.rn"]
         r#"
 use std.env;
 use base.mem.alloc.{Allocator, gpa};
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
 let mut page = Page.{};

@@ -1,9 +1,9 @@
 [package]
-name = "sys"
+name = "prov"
 version = "0.7.5"
 kern = "0.7.5"
 publish = false
-description = "System and provider boundary APIs for Kern"
+description = "Kern provider contracts"
 readme = "README.md"
 license = "MIT"
 authors = ["softfault <givenyoung46@gmail.com>"]

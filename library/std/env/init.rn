@@ -2,14 +2,14 @@
 //!
 //! Public APIs in this module keep names and values as UTF-8 byte slices or
 //! owned `String` values while platform-specific enumeration stays internal.
-//! Hosted environment access is provided through `sys.os`, not through a
+//! Hosted environment access is provided through `std.host.os`, not through a
 //! mandatory libc dependency.
 
 use base.abi;
 use base.coll.String;
 use base.mem.{array_layout_of, null_mut_ptr};
 use base.mem.alloc.{AllocError, Allocator};
-use sys.os;
+use std.host.os;
 
 /// A borrowed environment variable entry.
 pub struct Var {

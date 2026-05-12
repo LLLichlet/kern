@@ -14,7 +14,7 @@ fn runs_hosted_program_using_std_fs_metadata_and_directories() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -160,7 +160,7 @@ fn runs_hosted_program_using_std_fs_create_dir_all() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -248,7 +248,7 @@ fn runs_hosted_program_using_std_fs_read_dir() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -364,7 +364,7 @@ fn runs_hosted_program_using_std_fs_owned_dir_entries_and_errors() {
 use base.cmp.Ordering;
 use std.{{fs, io}};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn entry_cmp(left: fs.OwnedDirEntry, right: fs.OwnedDirEntry) Ordering {{
     return left.name.lex_cmp(right.name);
@@ -469,7 +469,7 @@ fn runs_hosted_program_using_std_fs_remove_dir_all() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -549,7 +549,7 @@ fn runs_hosted_program_using_std_fs_walk_dir() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -703,7 +703,7 @@ fn runs_hosted_program_using_std_fs_if_exists_helpers() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;
@@ -806,7 +806,7 @@ fn runs_hosted_program_using_std_fs_path_directory_combinators() {
         r#"
 use std.fs;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {{
     let page = Page.{{}}..&;

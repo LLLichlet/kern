@@ -18,10 +18,10 @@ implementation is linked.
 
 - `rt` is injected only when runtime startup is selected
 - `rt` is not a public prelude
-- `rt` does not replace `base`, `sys`, or `std`
-- the official `rt` package does not depend on `base`, `sys`, or `std`
+- `rt` does not replace `base`, `prov`, or `std`
+- the official `rt` package does not depend on `base`, `prov`, or `std`
 - user-facing hosted facilities still belong in `std`
-- OS/provider services still belong in `sys`
+- Provider contracts belong in `prov`; hosted services belong in `std`
 
 In other words, `rt` owns startup and minimal runtime glue, not general-purpose
 library APIs.

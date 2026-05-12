@@ -254,7 +254,7 @@ scope, and immediately registers cleanup:
 ```kern
 use base.coll.{list, string};
 use base.mem.alloc.gpa;
-use sys.mem.page;
+use std.mem.page;
 
 let page = page()..&;
 let gpa = gpa().on(page)..&;
@@ -297,7 +297,7 @@ error handling, and `defer` cleanup explicit:
 use base.mem.alloc.gpa;
 use std.fs;
 use std.io;
-use sys.mem.page;
+use std.mem.page;
 
 const SUCCESS = i32.{0};
 const FAILURE = i32.{1};

@@ -1,7 +1,7 @@
 //! Foundation allocators.
 //!
 //! `base.mem.alloc` owns allocator traits and reusable heap strategies. Raw
-//! page acquisition belongs to `sys.mem`.
+//! page acquisition belongs to hosted consumers such as `std.mem`.
 
 mod allocator;
 mod typed;

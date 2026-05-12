@@ -6,7 +6,7 @@ fn runs_hosted_program_using_std_coll_map() {
         r#"
 use base.coll.{Map, map};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -114,7 +114,7 @@ fn runs_hosted_program_using_custom_hash_map_key_with_collisions() {
 use base.coll.{Map, map};
 use base.hash.Hash;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 struct Key {
     group: i32,
@@ -222,7 +222,7 @@ fn runs_hosted_program_using_byte_slice_keys() {
         r#"
 use base.coll.{Map, map};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -288,7 +288,7 @@ use base.coll.{String, string};
 use base.cmp.{LESS, EQUAL, GREATER};
 use base.hash.hash_of;
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -355,7 +355,7 @@ fn runs_hosted_program_using_map_get_or_insert_apis() {
         r#"
 use base.coll.{Map, map};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -460,7 +460,7 @@ fn runs_hosted_program_using_map_traversal_and_filter_helpers() {
         r#"
 use base.coll.{Map, map};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -540,7 +540,7 @@ fn runs_hosted_program_using_map_predicate_algorithms() {
         r#"
 use base.coll.{Map, map};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;
@@ -650,7 +650,7 @@ fn runs_hosted_program_using_map_list_bridge_helpers() {
         r#"
 use base.coll.{Map, map, List, list};
 use base.mem.alloc.gpa;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main() i32 {
     let page = Page.{}..&;

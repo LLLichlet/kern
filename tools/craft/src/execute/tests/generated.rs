@@ -1789,7 +1789,7 @@ root = "src/main.rn"
 use base.mem.alloc.gpa;
 use std.fs;
 use std.proc;
-use sys.mem.Page;
+use std.mem.Page;
 
 fn main(argc: i32, argv: &&u8) i32 {
 let page = Page.{}..&;

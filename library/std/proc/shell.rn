@@ -3,7 +3,7 @@
 use base.abi;
 use base.coll.String;
 use base.mem.alloc.Allocator;
-use sys.os;
+use std.host.os;
 
 extern struct PipeStream {};
 

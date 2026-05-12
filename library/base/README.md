@@ -9,8 +9,8 @@ trees, synchronization primitives, generic IO helpers, and test assertions.
 
 ## Boundaries
 
-- `base` must not depend on `std`, `sys`, or `rt`.
-- OS and provider APIs belong in `sys`.
+- `base` must not depend on `std`, `prov`, or `rt`.
+- Provider contracts belong in `prov`; hosted conveniences belong in `std`.
 - User-facing hosted conveniences belong in `std`.
 - Startup glue belongs in `rt`.
 

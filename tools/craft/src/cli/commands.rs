@@ -94,8 +94,9 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             path,
             feature_selection,
             ui,
+            test_name,
             runtime_args,
-        } => run_tests(path, feature_selection, ui, runtime_args),
+        } => run_tests(path, feature_selection, ui, test_name, runtime_args),
     }
 }
 
@@ -1258,6 +1259,7 @@ fn run_tests(
     path: Option<PathBuf>,
     feature_selection: elaborate::FeatureSelection,
     ui: super::UiOptions,
+    test_name: Option<String>,
     runtime_args: Vec<String>,
 ) -> Result<()> {
     let render = Renderer::new(ui);
@@ -1269,6 +1271,7 @@ fn run_tests(
     )?;
     let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Test)?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
+    let build_plan = filter_selected_tests(build_plan, test_name.as_deref())?;
     let _ = analysis_context::sync_analysis_context(
         &loaded.manifest_path,
         &loaded.elaboration,
@@ -1348,6 +1351,48 @@ fn run_tests(
     ));
 
     Ok(())
+}
+
+fn filter_selected_tests(
+    build_plan: build_plan::BuildPlan,
+    name: Option<&str>,
+) -> Result<build_plan::BuildPlan> {
+    let Some(name) = name else {
+        return Ok(build_plan);
+    };
+
+    let matches = build_plan
+        .packages
+        .iter()
+        .flat_map(|package| &package.units)
+        .filter(|unit| unit.target_kind == TargetKind::Test)
+        .filter(|unit| unit.target_name.as_deref() == Some(name))
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [] => Err(Error::Usage(format!(
+            "`craft test` could not find test target `{name}`"
+        ))),
+        [_] => {
+            let mut build_plan = build_plan;
+            for package in &mut build_plan.packages {
+                package.units.retain(|unit| {
+                    unit.target_kind != TargetKind::Test
+                        || unit.target_name.as_deref() == Some(name)
+                });
+            }
+            Ok(build_plan)
+        }
+        units => {
+            let candidates = units
+                .iter()
+                .map(|unit| format_unit_label(unit))
+                .collect::<Vec<_>>()
+                .join(", ");
+            Err(Error::Usage(format!(
+                "`craft test` found multiple test targets named `{name}`: {candidates}"
+            )))
+        }
+    }
 }
 
 fn staged_execution_progress_plan(

@@ -303,6 +303,25 @@ roots = ["tests/smoke.rn"]
     fs::write(root.join("tests/smoke.rn"), arg_check_source(first, second)).unwrap();
 }
 
+fn write_multi_test_package(root: &std::path::Path) {
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7.5"
+
+[test]
+roots = ["tests/alpha.rn", "tests/beta.rn"]
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("tests/alpha.rn"), "fn main() i32 { return 1; }\n").unwrap();
+    fs::write(root.join("tests/beta.rn"), "fn main() i32 { return 0; }\n").unwrap();
+}
+
 fn write_bin_and_test_package(root: &std::path::Path) {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::create_dir_all(root.join("tests")).unwrap();
@@ -535,6 +554,7 @@ fn command_for_mode(root: &std::path::Path, mode: KillRecoveryMode) -> Command {
             path: Some(root.to_path_buf()),
             feature_selection: FeatureSelection::default(),
             ui: UiOptions::default(),
+            test_name: None,
             runtime_args: Vec::new(),
         },
     }
@@ -1113,6 +1133,7 @@ fn parses_test_with_inline_feature_option() {
             path,
             feature_selection,
             ui,
+            test_name,
             runtime_args,
         } => {
             assert!(path.is_none());
@@ -1120,7 +1141,42 @@ fn parses_test_with_inline_feature_option() {
             assert_eq!(feature_selection.explicit.len(), 1);
             assert!(feature_selection.explicit.contains("simd"));
             assert_eq!(ui, UiOptions::default());
+            assert!(test_name.is_none());
             assert!(runtime_args.is_empty());
+        }
+        other => panic!("expected test command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_named_test_selection() {
+    let cmd = parse_args([
+        "test".to_string(),
+        "--test".to_string(),
+        "fs_io".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Test {
+            test_name,
+            runtime_args,
+            ..
+        } => {
+            assert_eq!(test_name, Some("fs_io".to_string()));
+            assert!(runtime_args.is_empty());
+        }
+        other => panic!("expected test command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_named_test_selection_with_equals() {
+    let cmd = parse_args(["test".to_string(), "--test=fs_io".to_string()]).unwrap();
+
+    match cmd {
+        Command::Test { test_name, .. } => {
+            assert_eq!(test_name, Some("fs_io".to_string()));
         }
         other => panic!("expected test command, got {other:?}"),
     }
@@ -1131,6 +1187,8 @@ fn parses_test_passthrough_args_after_separator() {
     let cmd = parse_args([
         "test".to_string(),
         "--features=simd".to_string(),
+        "--test".to_string(),
+        "std_host".to_string(),
         "--".to_string(),
         "--filter".to_string(),
         "smoke".to_string(),
@@ -1140,10 +1198,12 @@ fn parses_test_passthrough_args_after_separator() {
     match cmd {
         Command::Test {
             feature_selection,
+            test_name,
             runtime_args,
             ..
         } => {
             assert!(feature_selection.explicit.contains("simd"));
+            assert_eq!(test_name, Some("std_host".to_string()));
             assert_eq!(
                 runtime_args,
                 vec!["--filter".to_string(), "smoke".to_string()]
@@ -1924,6 +1984,7 @@ fn test_command_waits_for_workspace_root_lock_for_member_paths() {
             path: Some(member),
             feature_selection: FeatureSelection::default(),
             ui: UiOptions::default(),
+            test_name: None,
             runtime_args: Vec::new(),
         })
         .unwrap();
@@ -2140,9 +2201,60 @@ fn test_command_passes_runtime_args_to_test_targets() {
         path: Some(root.clone()),
         feature_selection: FeatureSelection::default(),
         ui: UiOptions::default(),
+        test_name: None,
         runtime_args: vec!["--filter".to_string(), "smoke".to_string()],
     })
     .unwrap();
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn test_command_can_execute_selected_test_target() {
+    let root = temp_dir("craft-cli-test-selected");
+    write_multi_test_package(&root);
+
+    run_command(Command::Test {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        test_name: Some("beta".to_string()),
+        runtime_args: Vec::new(),
+    })
+    .unwrap();
+
+    assert!(
+        root.join(".craft/build/dev/target/out/demo-0.1.0/test")
+            .join(format!("beta{}", std::env::consts::EXE_SUFFIX))
+            .is_file()
+    );
+    assert!(
+        !root
+            .join(".craft/build/dev/target/out/demo-0.1.0/test")
+            .join(format!("alpha{}", std::env::consts::EXE_SUFFIX))
+            .exists()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn test_command_reports_unknown_selected_test_target() {
+    let root = temp_dir("craft-cli-test-selected-missing");
+    write_multi_test_package(&root);
+
+    let err = run_command(Command::Test {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        test_name: Some("missing".to_string()),
+        runtime_args: Vec::new(),
+    })
+    .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("could not find test target `missing`")
+    );
 
     let _ = fs::remove_dir_all(root);
 }
@@ -2366,6 +2478,7 @@ fn package_graph_commands_resync_missing_and_damaged_lockfiles() {
             path: Some(root.to_path_buf()),
             feature_selection: FeatureSelection::default(),
             ui: UiOptions::default(),
+            test_name: None,
             runtime_args: Vec::new(),
         },
     );

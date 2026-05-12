@@ -1,10 +1,12 @@
 use super::build_with_command;
 use crate::build_plan::{ActionPlan, BuildPlan, BuildUnit, LinkAction};
 use crate::error::{Error, Result};
+use std::fs;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::process::Stdio;
 use std::process::{Command, ExitStatus};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunSummary {
@@ -93,9 +95,19 @@ pub fn test_built(
     for unit in units {
         let action = find_link_action(action_plan, unit)?;
         let executable_path = resolve_invocation_path(&action.artifact_path)?;
-        let status = runtime_command(&executable_path, action, &build_plan.workspace_root, args)
-            .status()
-            .map_err(Error::from_io_plain)?;
+        let test_name = unit.target_name.as_deref().unwrap_or(&unit.artifact_name);
+        let tmp_dir = create_test_tmp_dir(unit, test_name)?;
+        let status = test_runtime_command(
+            &executable_path,
+            action,
+            &build_plan.workspace_root,
+            test_name,
+            &tmp_dir,
+            args,
+        )
+        .status()
+        .map_err(Error::from_io_plain)?;
+        let _ = fs::remove_dir_all(&tmp_dir);
         if !status.success() {
             failures.push(TestFailure {
                 label: test_unit_label(unit, action),
@@ -136,6 +148,65 @@ fn runtime_command(
     command.env("CRAFT_PACKAGE_ROOT", &action.package_root_path);
     configure_runtime_stdio_for_tests(&mut command);
     command
+}
+
+fn test_runtime_command(
+    executable_path: &Path,
+    action: &LinkAction,
+    workspace_root: &Path,
+    test_name: &str,
+    tmp_dir: &Path,
+    args: &[String],
+) -> Command {
+    let mut command = runtime_command(executable_path, action, workspace_root, args);
+    command.env("CRAFT_TEST_NAME", test_name);
+    command.env("CRAFT_TEST_TMPDIR", tmp_dir);
+    command
+}
+
+fn create_test_tmp_dir(unit: &BuildUnit, test_name: &str) -> Result<PathBuf> {
+    let root = std::env::temp_dir().join("craft-test");
+    fs::create_dir_all(&root).map_err(Error::from_io_plain)?;
+    for attempt in 0..100 {
+        let path = root.join(format!(
+            "{}-{}-{}-{}",
+            sanitize_tmp_component(&unit.package_id.name),
+            sanitize_tmp_component(test_name),
+            std::process::id(),
+            unique_nanos().saturating_add(attempt)
+        ));
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(Error::from_io_plain(err)),
+        }
+    }
+    Err(Error::Execution(format!(
+        "failed to create temporary directory for test target `{test_name}`"
+    )))
+}
+
+fn sanitize_tmp_component(raw: &str) -> String {
+    let mut out = String::new();
+    for byte in raw.bytes() {
+        if byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' {
+            out.push(byte as char);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        "test".to_string()
+    } else {
+        out
+    }
+}
+
+fn unique_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

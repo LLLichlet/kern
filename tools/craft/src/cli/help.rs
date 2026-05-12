@@ -283,13 +283,19 @@ fn command_doc(command: &str) -> Result<HelpDoc> {
         "test" => command_template(
             "test",
             "Build and execute discovered test targets",
-            &["craft test [OPTIONS] [-- <ARGS>...]"],
-            feature_options_section().entry(
-                "-- <ARGS>...",
-                "Pass remaining arguments to each test target",
-            ),
+            &[
+                "craft test [OPTIONS] [-- <ARGS>...]",
+                "craft test --test <NAME> [OPTIONS] [-- <ARGS>...]",
+            ],
+            feature_options_section()
+                .entry("--test <NAME>", "Run only the named test target")
+                .entry(
+                    "-- <ARGS>...",
+                    "Pass remaining arguments to each selected test target",
+                ),
             &[
                 ("craft test", "Run the current package tests"),
+                ("craft test --test fs_io", "Run one named test target"),
                 ("craft test -- smoke", "Pass arguments to each test binary"),
                 (
                     "craft test --project-path workspace/member --features simd",

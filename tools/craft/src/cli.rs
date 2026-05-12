@@ -90,6 +90,7 @@ pub enum Command {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
+        test_name: Option<String>,
         runtime_args: Vec<String>,
     },
 }
@@ -407,6 +408,7 @@ where
                 path: options.path,
                 feature_selection: options.feature_selection,
                 ui: options.ui,
+                test_name: options.test_name,
                 runtime_args: options.runtime_args,
             })
         }
@@ -424,6 +426,7 @@ struct CommandOptionMode {
     allow_examples: bool,
     allow_bin_selection: bool,
     allow_example_selection: bool,
+    allow_test_selection: bool,
     allow_install_root: bool,
     allow_runtime_args: bool,
 }
@@ -436,6 +439,7 @@ struct ParsedCommandOptions {
     check: bool,
     bin_name: Option<String>,
     example_name: Option<String>,
+    test_name: Option<String>,
     install_root: Option<PathBuf>,
     runtime_args: Vec<String>,
 }
@@ -447,6 +451,7 @@ fn init_option_mode() -> CommandOptionMode {
         allow_examples: false,
         allow_bin_selection: false,
         allow_example_selection: false,
+        allow_test_selection: false,
         allow_install_root: false,
         allow_runtime_args: false,
     }
@@ -459,6 +464,7 @@ fn clean_option_mode() -> CommandOptionMode {
         allow_examples: false,
         allow_bin_selection: false,
         allow_example_selection: false,
+        allow_test_selection: false,
         allow_install_root: false,
         allow_runtime_args: false,
     }
@@ -471,6 +477,7 @@ fn style_option_mode() -> CommandOptionMode {
         allow_examples: false,
         allow_bin_selection: false,
         allow_example_selection: false,
+        allow_test_selection: false,
         allow_install_root: false,
         allow_runtime_args: false,
     }
@@ -483,6 +490,7 @@ fn fmt_option_mode() -> CommandOptionMode {
         allow_examples: false,
         allow_bin_selection: false,
         allow_example_selection: false,
+        allow_test_selection: false,
         allow_install_root: false,
         allow_runtime_args: false,
     }
@@ -495,6 +503,7 @@ fn default_option_mode(command_name: &'static str) -> CommandOptionMode {
         allow_examples: false,
         allow_bin_selection: false,
         allow_example_selection: false,
+        allow_test_selection: false,
         allow_install_root: false,
         allow_runtime_args: false,
     }
@@ -507,6 +516,7 @@ fn build_option_mode() -> CommandOptionMode {
         allow_examples: true,
         allow_bin_selection: false,
         allow_example_selection: false,
+        allow_test_selection: false,
         allow_install_root: false,
         allow_runtime_args: false,
     }
@@ -519,6 +529,7 @@ fn install_option_mode() -> CommandOptionMode {
         allow_examples: false,
         allow_bin_selection: true,
         allow_example_selection: false,
+        allow_test_selection: false,
         allow_install_root: true,
         allow_runtime_args: false,
     }
@@ -531,6 +542,7 @@ fn uninstall_option_mode() -> CommandOptionMode {
         allow_examples: false,
         allow_bin_selection: true,
         allow_example_selection: false,
+        allow_test_selection: false,
         allow_install_root: true,
         allow_runtime_args: false,
     }
@@ -543,6 +555,7 @@ fn run_option_mode() -> CommandOptionMode {
         allow_examples: false,
         allow_bin_selection: true,
         allow_example_selection: true,
+        allow_test_selection: false,
         allow_install_root: false,
         allow_runtime_args: true,
     }
@@ -555,6 +568,7 @@ fn test_option_mode() -> CommandOptionMode {
         allow_examples: false,
         allow_bin_selection: false,
         allow_example_selection: false,
+        allow_test_selection: true,
         allow_install_root: false,
         allow_runtime_args: true,
     }
@@ -573,6 +587,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
     let mut check = false;
     let mut bin_name: Option<String> = None;
     let mut example_name: Option<String> = None;
+    let mut test_name: Option<String> = None;
     let mut install_root: Option<PathBuf> = None;
     let mut runtime_args = Vec::new();
     let mut idx = 0;
@@ -688,6 +703,33 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
                 )));
             }
             set_named_target(&mut example_name, value, "--example")?;
+            idx += 1;
+            continue;
+        }
+        if arg == "--test" {
+            if !mode.allow_test_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `{arg}`\n\n{}",
+                    mode_usage_text(mode)
+                )));
+            }
+            let Some(value) = args.get(idx + 1) else {
+                return Err(Error::Usage(
+                    "`--test` requires a test target name".to_string(),
+                ));
+            };
+            set_named_target(&mut test_name, value, "--test")?;
+            idx += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--test=") {
+            if !mode.allow_test_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `--test`\n\n{}",
+                    mode_usage_text(mode)
+                )));
+            }
+            set_named_target(&mut test_name, value, "--test")?;
             idx += 1;
             continue;
         }
@@ -838,6 +880,7 @@ fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<Par
         check,
         bin_name,
         example_name,
+        test_name,
         install_root,
         runtime_args,
     })

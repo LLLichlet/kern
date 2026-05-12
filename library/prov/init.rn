@@ -1,6 +1,0 @@
-//! Provider contracts.
-//!
-//! `prov` defines platform-facing data contracts that can be implemented by
-//! hosted `std`, kernels, firmware, or other environment packages.
-
-pub mod os;

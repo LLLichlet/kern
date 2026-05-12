@@ -55,8 +55,8 @@ compiler configuration definitions:
 mod posix_no_libc;
 ```
 
-The standard library's OS providers use this pattern heavily. Pruned code does
-not participate in later semantic checking.
+The standard library's hosted OS shims use this pattern heavily. Pruned code
+does not participate in later semantic checking.
 
 ## Common Metadata
 

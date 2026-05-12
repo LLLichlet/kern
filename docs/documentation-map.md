@@ -23,7 +23,7 @@ These are the current public reference documents.
 - [`docs/design.md`](./design.md): current language semantics and syntax
 - [`docs/kernc.md`](./kernc.md): `kernc` CLI/driver behavior
 - [`docs/craft.md`](./craft.md): package manager, lockfile, resolution, and build orchestration model
-- [`docs/runtime-architecture.md`](./runtime-architecture.md): `base` / `prov` / `rt` / `std` split and runtime/library policy
+- [`docs/runtime-architecture.md`](./runtime-architecture.md): `base` / `rt` / `std` split and runtime/library policy
 - [`docs/unix-distribution.md`](./unix-distribution.md): Unix host-tool distribution policy
 - [`docs/windows-distribution.md`](./windows-distribution.md): Windows host-tool distribution policy
 - [`docs/style.md`](./style.md): repository source-style guidance

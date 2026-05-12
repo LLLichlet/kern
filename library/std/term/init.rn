@@ -1,10 +1,9 @@
 //! Terminal capability helpers.
 //!
 //! This module keeps TTY checks, raw mode, and viewport sizing explicit while
-//! building on top of the hosted provider implementation in `std.host.os`.
+//! building on top of the hosted OS implementation in `std.host.os`.
 
 use std.host.os;
-use prov.os as provider_os;
 
 /// Terminal errors surfaced through `std.term`.
 pub enum Error {
@@ -13,7 +12,7 @@ pub enum Error {
 };
 
 /// The visible terminal dimensions.
-pub type Size = provider_os.TerminalSize;
+pub type Size = os.TerminalSize;
 
 /// A borrowed standard terminal stream.
 pub struct Terminal {

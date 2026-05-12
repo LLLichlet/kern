@@ -55,9 +55,9 @@ Focus on:
 - the freestanding `_start` and linker-script sections in [`kernc.md`](../../kernc.md)
 - [`examples/limine-smoke`](../../../examples/limine-smoke)
 
-If your project supplies custom `prov` or `rt` layers, treat them as ordinary
-module/package boundaries. Do not assume the compiler provides hidden
-providers for those layers.
+If your project supplies custom platform or runtime layers, treat them as
+ordinary module/package boundaries. Do not assume the compiler provides hidden
+platform roots for those layers.
 
 ## Work On Kern Itself
 

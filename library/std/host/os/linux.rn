@@ -8,8 +8,7 @@
 use base.coll.String;
 use base.mem.alloc.{AllocError, Allocator};
 use base.abi;
-use prov.os.{FileType, Metadata, TerminalSize};
-use prov.os.OpenOptions;
+use std.host.os.types.{FileType, Metadata, OpenOptions, TerminalSize};
 
 /// A Linux OS error code.
 pub struct Error {

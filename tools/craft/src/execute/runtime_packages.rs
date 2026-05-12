@@ -4,8 +4,8 @@ use super::options::{
 use super::{
     ActionTimingKind, BuiltLibraryPackage, BuiltStdPackage, ExecutionSummary, Result,
     base_compile_action_label, build_fingerprint, compile_with_shared_driver, ensure_parent_dir,
-    prov_compile_action_label, rt_compile_action_label, rt_entry_compile_action_label,
-    runtime_compile_detail_tags, runtime_profile_key, std_compile_action_label,
+    rt_compile_action_label, rt_entry_compile_action_label, runtime_compile_detail_tags,
+    runtime_profile_key, std_compile_action_label,
 };
 use crate::build_plan::CompileAction;
 use crate::build_state;
@@ -14,9 +14,9 @@ use crate::operation_lock::WorkspaceOperationLock;
 use kernc_driver::{CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE};
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, LtoMode, OptLevel, inject_driver_condition_defines,
-    resolve_base_path, resolve_prov_path, resolve_rt_path, resolve_std_path,
+    resolve_base_path, resolve_rt_path, resolve_std_path,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -184,24 +184,6 @@ fn rt_entry_linker_input_flavor(
     }
 }
 
-pub(super) fn interface_alias_strings(
-    aliases: &BTreeMap<String, PathBuf>,
-) -> HashMap<String, String> {
-    aliases
-        .iter()
-        .map(|(name, path)| (name.clone(), path.to_string_lossy().to_string()))
-        .collect()
-}
-
-pub(super) fn extend_interface_aliases(
-    options: &mut CompileOptions,
-    aliases: &BTreeMap<String, PathBuf>,
-) {
-    options
-        .module_interface_aliases
-        .extend(interface_alias_strings(aliases));
-}
-
 pub(super) fn ensure_std_packages_for_actions(
     workspace_root: &Path,
     actions: &[CompileAction],
@@ -253,7 +235,7 @@ pub(super) fn build_std_package(
             source_path.display()
         )));
     }
-    let built_prov = build_prov_package(
+    let built_base = build_base_package(
         workspace_root,
         profile,
         command,
@@ -321,10 +303,9 @@ pub(super) fn build_std_package(
     options
         .module_aliases
         .insert("std".to_string(), std_root.to_string_lossy().to_string());
-    extend_interface_aliases(&mut options, &built_prov.interface_aliases);
     options.module_interface_aliases.insert(
-        "prov".to_string(),
-        built_prov.metadata_root_path.to_string_lossy().to_string(),
+        "base".to_string(),
+        built_base.metadata_root_path.to_string_lossy().to_string(),
     );
     inject_driver_condition_defines(&mut options);
     normalize_runtime_codegen_options_for_driver_mode(&mut options);
@@ -352,8 +333,8 @@ pub(super) fn build_std_package(
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
-        format!("prov_meta={}", built_prov.metadata_root_path.display()),
-        format!("prov_obj={}", built_prov.object_path.display()),
+        format!("base_meta={}", built_base.metadata_root_path.display()),
+        format!("base_obj={}", built_base.object_path.display()),
         "split_sections_for_gc=true".to_string(),
     ];
     if let Some(built_rt) = &built_rt {
@@ -404,11 +385,7 @@ pub(super) fn build_std_package(
         profile_key,
         BuiltStdPackage {
             metadata_root_path,
-            base_object_path: profile_root
-                .join("obj")
-                .join("base")
-                .join("lib")
-                .join("base.o"),
+            base_object_path: built_base.object_path.clone(),
             rt_object_path: built_rt
                 .as_ref()
                 .map(|built_rt| built_rt.object_path.clone()),
@@ -416,23 +393,17 @@ pub(super) fn build_std_package(
                 vec![
                     object_path,
                     built_rt.object_path.clone(),
-                    built_prov.object_path.clone(),
-                    profile_root
-                        .join("obj")
-                        .join("base")
-                        .join("lib")
-                        .join("base.o"),
+                    built_base.object_path.clone(),
                 ]
             } else {
                 Vec::new()
             },
             hosted_entry_object_path: hosted_rt_entry_object_path,
             freestanding_entry_object_path: freestanding_rt_entry_object_path,
-            interface_aliases: {
-                let mut aliases = built_prov.interface_aliases.clone();
-                aliases.insert("prov".to_string(), built_prov.metadata_root_path);
-                aliases
-            },
+            interface_aliases: BTreeMap::from([(
+                "base".to_string(),
+                built_base.metadata_root_path,
+            )]),
         },
     );
     Ok(())
@@ -670,142 +641,6 @@ pub(super) fn build_base_package(
         metadata_root_path,
         object_path,
         interface_aliases: BTreeMap::new(),
-    })
-}
-
-pub(super) fn build_prov_package(
-    workspace_root: &Path,
-    profile: &crate::script::ScriptProfile,
-    command: crate::script::ScriptCommand,
-    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
-    execution_summary: &mut ExecutionSummary,
-) -> Result<BuiltLibraryPackage> {
-    let prov_root = resolve_prov_path();
-    let source_path = prov_root.join("init.rn");
-    if !source_path.is_file() {
-        return Err(Error::Execution(format!(
-            "prov library root `{}` is missing",
-            source_path.display()
-        )));
-    }
-    let built_base = build_base_package(
-        workspace_root,
-        profile,
-        command,
-        driver_families,
-        execution_summary,
-    )?;
-
-    let profile_root = runtime_profile_root(workspace_root, profile)?;
-    let object_path = profile_root
-        .join("obj")
-        .join("prov")
-        .join("lib")
-        .join("prov.o");
-    let metadata_root_path = profile_root.join("meta").join("prov");
-
-    ensure_parent_dir(&object_path)?;
-    ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
-
-    let emit_multi_linker_input_dir = runtime_emit_multi_linker_input_dir(profile);
-    let linker_input_flavor =
-        profile_linker_input_flavor(profile, crate::graph::BuildDomain::Target);
-    let mut options = CompileOptions {
-        input_file: Some(source_path.to_string_lossy().to_string()),
-        output_file: object_path.to_string_lossy().to_string(),
-        metadata_output: Some(metadata_root_path.to_string_lossy().to_string()),
-        metadata_package_name: Some("prov".to_string()),
-        metadata_package_version: None,
-        root_module_name: Some("prov".to_string()),
-        driver_mode: runtime_driver_mode(command),
-        report_progress: false,
-        opt_level: runtime_opt_level(profile),
-        debug_info: profile.debug,
-        codegen_units: profile.codegen_units,
-        lto_mode: profile.lto_mode,
-        code_model: profile.code_model,
-        linker_input_flavor,
-        emit_multi_linker_input_dir,
-        library_bundle: LibraryBundle::Base,
-        split_sections_for_gc: true,
-        ..CompileOptions::default()
-    };
-    apply_host_linker_env(&mut options);
-    options
-        .module_aliases
-        .insert("prov".to_string(), prov_root.to_string_lossy().to_string());
-    extend_interface_aliases(&mut options, &built_base.interface_aliases);
-    options.module_interface_aliases.insert(
-        "base".to_string(),
-        built_base.metadata_root_path.to_string_lossy().to_string(),
-    );
-    inject_driver_condition_defines(&mut options);
-    normalize_runtime_codegen_options_for_driver_mode(&mut options);
-    normalize_windows_linker_input_options(&mut options);
-    let toolchain_digest = build_state::current_process_digest()?;
-    let prov_fingerprint = build_fingerprint(&[
-        "prov_runtime_layout=v1".to_string(),
-        "kind=compile-prov".to_string(),
-        format!("toolchain={toolchain_digest}"),
-        format!("driver_mode={}", options.driver_mode.as_str()),
-        format!("profile={}", profile.name),
-        format!("opt={}", profile.opt),
-        format!("debug={}", profile.debug),
-        format!("codegen_units={}", options.codegen_units),
-        format!("lto={}", options.lto_mode.as_str()),
-        format!("code_model={}", options.code_model.as_str()),
-        format!(
-            "linker_input_flavor={}",
-            options.linker_input_flavor.as_str()
-        ),
-        format!(
-            "emit_multi_linker_input_dir={}",
-            options.emit_multi_linker_input_dir
-        ),
-        format!("source={}", source_path.display()),
-        format!("object={}", object_path.display()),
-        format!("metadata={}", metadata_root_path.display()),
-        format!("base_meta={}", built_base.metadata_root_path.display()),
-        format!("base_obj={}", built_base.object_path.display()),
-        "split_sections_for_gc=true".to_string(),
-    ]);
-    let prov_label = prov_compile_action_label(&runtime_profile_label(profile), &options);
-    let prov_tags = runtime_compile_detail_tags(&options);
-    let emits_linker_input = options.driver_mode.emits_linker_input();
-
-    if !build_state::action_state_is_current(&object_path, &prov_fingerprint)? {
-        let Some(report) = compile_with_shared_driver(driver_families, options) else {
-            return Err(Error::Execution(format!(
-                "compile failed for prov library `{}`",
-                source_path.display()
-            )));
-        };
-
-        let mut inputs = report.loaded_sources;
-        inputs.sort();
-        inputs.dedup();
-        let outputs =
-            runtime_compile_outputs(&object_path, Some(&metadata_root_path), emits_linker_input);
-        build_state::record_action_state(&object_path, prov_fingerprint, &inputs, &outputs)?;
-        execution_summary.record_compile_cache_miss();
-        execution_summary.record_action(
-            ActionTimingKind::Compile,
-            prov_label,
-            prov_tags,
-            report.phase_timings,
-            report.cache_stats,
-            report.codegen_plan,
-        );
-    } else {
-        execution_summary.record_compile_cache_hit();
-    }
-
-    let mut interface_aliases = built_base.interface_aliases.clone();
-    interface_aliases.insert("base".to_string(), built_base.metadata_root_path);
-    Ok(BuiltLibraryPackage {
-        metadata_root_path,
-        object_path,
-        interface_aliases,
     })
 }
 

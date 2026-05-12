@@ -65,7 +65,6 @@ fn main() i32 {
     let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
     let exe_arg = executable.to_string_lossy().into_owned();
     let base_mapping = format!("base={}", repo_root().join("library/base").display());
-    let prov_mapping = format!("prov={}", repo_root().join("library/prov").display());
     let app_output = run_kernc([
         "--runtime-entry",
         "crt",
@@ -73,8 +72,6 @@ fn main() i32 {
         "yes",
         "--module-path",
         base_mapping.as_str(),
-        "--module-path",
-        prov_mapping.as_str(),
         "--module-interface-path",
         dep_mapping.as_str(),
         "--link-input",
@@ -146,7 +143,6 @@ fn main() i32 {
     let main_source_arg = main_source.to_string_lossy().into_owned();
     let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
     let base_mapping = format!("base={}", repo_root().join("library/base").display());
-    let prov_mapping = format!("prov={}", repo_root().join("library/prov").display());
     let app_output = run_kernc([
         "--runtime-entry",
         "crt",
@@ -154,8 +150,6 @@ fn main() i32 {
         "yes",
         "--module-path",
         base_mapping.as_str(),
-        "--module-path",
-        prov_mapping.as_str(),
         "--module-interface-path",
         dep_mapping.as_str(),
         "--link-input",
@@ -238,7 +232,6 @@ fn main() i32 {
     let main_source_arg = main_source.to_string_lossy().into_owned();
     let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
     let base_mapping = format!("base={}", repo_root().join("library/base").display());
-    let prov_mapping = format!("prov={}", repo_root().join("library/prov").display());
     let app_output = run_kernc([
         "--runtime-entry",
         "crt",
@@ -246,8 +239,6 @@ fn main() i32 {
         "yes",
         "--module-path",
         base_mapping.as_str(),
-        "--module-path",
-        prov_mapping.as_str(),
         "--module-interface-path",
         dep_mapping.as_str(),
         "--link-input",
@@ -325,7 +316,6 @@ fn main() i32 {
     let main_source_arg = main_source.to_string_lossy().into_owned();
     let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
     let base_mapping = format!("base={}", repo_root().join("library/base").display());
-    let prov_mapping = format!("prov={}", repo_root().join("library/prov").display());
     let app_output = run_kernc([
         "--runtime-entry",
         "crt",
@@ -333,8 +323,6 @@ fn main() i32 {
         "yes",
         "--module-path",
         base_mapping.as_str(),
-        "--module-path",
-        prov_mapping.as_str(),
         "--module-interface-path",
         dep_mapping.as_str(),
         "--link-input",
@@ -413,7 +401,6 @@ fn main() i32 {
 
     let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
     let base_mapping = format!("base={}", repo_root().join("library/base").display());
-    let prov_mapping = format!("prov={}", repo_root().join("library/prov").display());
     let app_output = run_kernc([
         "--runtime-entry",
         "crt",
@@ -421,8 +408,6 @@ fn main() i32 {
         "yes",
         "--module-path",
         base_mapping.as_str(),
-        "--module-path",
-        prov_mapping.as_str(),
         "--module-interface-path",
         dep_mapping.as_str(),
         main_source.to_string_lossy().as_ref(),
@@ -506,7 +491,6 @@ fn main() i32 {
 
     let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
     let base_mapping = format!("base={}", repo_root().join("library/base").display());
-    let prov_mapping = format!("prov={}", repo_root().join("library/prov").display());
     let app_output = run_kernc([
         "--runtime-entry",
         "crt",
@@ -514,8 +498,6 @@ fn main() i32 {
         "yes",
         "--module-path",
         base_mapping.as_str(),
-        "--module-path",
-        prov_mapping.as_str(),
         "--module-interface-path",
         dep_mapping.as_str(),
         main_source.to_string_lossy().as_ref(),
@@ -572,7 +554,6 @@ fn main() i32 {
 
     let dep_mapping = format!("dep={}", dep_dir.to_string_lossy());
     let base_mapping = format!("base={}", repo_root().join("library/base").display());
-    let prov_mapping = format!("prov={}", repo_root().join("library/prov").display());
     let app_output = run_kernc([
         "--runtime-entry",
         "crt",
@@ -580,8 +561,6 @@ fn main() i32 {
         "yes",
         "--module-path",
         base_mapping.as_str(),
-        "--module-path",
-        prov_mapping.as_str(),
         "--module-path",
         dep_mapping.as_str(),
         main_source.to_string_lossy().as_ref(),

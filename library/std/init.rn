@@ -1,8 +1,7 @@
 //! Kern standard library.
 //!
-//! `std` is the high-level hosted library layer built on top of `base` and
-//! `prov`. Foundation facilities remain in `base`, provider-facing contracts
-//! remain in `prov`, and startup glue remains in `rt`.
+//! `std` is the high-level hosted library layer built on top of `base`.
+//! Foundation facilities remain in `base`, and startup glue remains in `rt`.
 //!
 //! Hosted implementation details are owned internally by `std.host`, not by a
 //! public system package or an implicit libc dependency.

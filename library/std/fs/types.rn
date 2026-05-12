@@ -2,7 +2,6 @@
 
 use base.io.{FormatSpec, Formatable, Write};
 use std.host.os;
-use prov.os as provider_os;
 
 /// Stable filesystem error categories.
 pub/ enum ErrorKind {
@@ -143,9 +142,9 @@ pub/ enum SeekFrom {
 };
 
 /// The coarse type of a filesystem entry.
-pub/ type FileType = provider_os.FileType;
+pub/ type FileType = os.FileType;
 /// Metadata returned for a filesystem entry.
-pub/ type Metadata = provider_os.Metadata;
+pub/ type Metadata = os.Metadata;
 
 /// A single directory entry yielded by directory traversal.
 pub/ struct DirEntry {

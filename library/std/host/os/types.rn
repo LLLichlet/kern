@@ -1,8 +1,9 @@
-//! Operating-system provider contracts.
+//! Shared hosted operating-system data shapes.
 //!
-//! These are shared shapes, not a hosted implementation.
+//! These types are internal to `std.host.os`; they describe hosted OS results
+//! without exposing a separate public platform package.
 
-/// Low-level flags used when opening a file through an OS provider.
+/// Low-level flags used when opening a file through the hosted OS layer.
 pub struct OpenOptions {
     //// Allows reads from the opened handle.
     pub read: bool = false,
@@ -18,7 +19,7 @@ pub struct OpenOptions {
     pub append: bool = false,
 };
 
-/// The coarse file kind reported by an OS provider.
+/// The coarse file kind reported by the hosted OS layer.
 pub enum FileType {
     File,
     Directory,
@@ -28,7 +29,7 @@ pub enum FileType {
 /// Low-level filesystem metadata.
 pub struct Metadata {
     pub file_type: FileType,
-    //// File length in bytes when the provider exposes it.
+    //// File length in bytes when the hosted OS exposes it.
     pub size: usize,
 };
 
@@ -44,7 +45,7 @@ impl Metadata {
     }
 }
 
-/// The visible terminal dimensions reported by a terminal provider.
+/// The visible terminal dimensions reported by the hosted OS layer.
 pub struct TerminalSize {
     //// The visible row count.
     pub rows: usize,

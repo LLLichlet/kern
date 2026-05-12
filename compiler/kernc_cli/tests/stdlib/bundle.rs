@@ -133,9 +133,9 @@ fn main() i32 {
 }
 
 #[test]
-fn std_bundle_exposes_prov_contracts_but_not_sys() {
+fn std_bundle_does_not_expose_prov_or_sys() {
     let prov_output = compile_source_with_args(
-        "kernc_std_prov_contracts",
+        "kernc_std_hidden_prov",
         r#"
 use prov.os.OpenOptions;
 
@@ -146,7 +146,18 @@ fn main() i32 {
 "#,
         &["--library-bundle", "std"],
     );
-    assert_success(&prov_output, "kernc");
+    assert!(
+        !prov_output.status.success(),
+        "expected public prov import to fail:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&prov_output.stdout),
+        String::from_utf8_lossy(&prov_output.stderr)
+    );
+    let prov_stderr = String::from_utf8_lossy(&prov_output.stderr);
+    assert!(
+        prov_stderr.contains("prov") || prov_stderr.contains("module"),
+        "unexpected stderr:\n{}",
+        prov_stderr
+    );
 
     let sys_output = compile_source_with_args(
         "kernc_std_hidden_sys",
@@ -234,7 +245,7 @@ fn main() i32 {
 }
 
 #[test]
-fn runtime_entry_does_not_auto_inject_base_or_prov_modules() {
+fn runtime_entry_does_not_auto_inject_base_module() {
     let temp_dir = unique_temp_path("kernc_rt_without_bundle", "dir");
     let rt_dir = temp_dir.join("rt");
     let source_path = temp_dir.join("main.rn");
@@ -271,7 +282,7 @@ fn main() i32 {
 
     assert!(
         !output.status.success(),
-        "expected base/prov to remain unresolved without an explicit bundle or module path:\nstdout:\n{}\nstderr:\n{}",
+        "expected base to remain unresolved without an explicit bundle or module path:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -285,7 +296,7 @@ fn main() i32 {
 }
 
 #[test]
-fn official_rt_links_without_base_or_prov_bundle() {
+fn official_rt_links_without_base_or_std_bundle() {
     let source_path = unique_temp_path("kernc_rt_standalone_bundle_none", "rn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_rt_standalone_bundle_none", exe_ext);

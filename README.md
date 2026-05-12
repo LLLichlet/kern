@@ -30,7 +30,7 @@ targets.
 
 There is no garbage collector, no exceptions, no implicit allocation, and no
 hidden runtime policy. The standard library is optional layering over `base`,
-`prov`, and `rt`, not a compiler requirement.
+`rt`, and hosted internals, not a compiler requirement.
 
 ## Install
 
@@ -191,7 +191,7 @@ Kern ships these tools:
 - `kernc`: compiler, analysis, object emission, and linking driver.
 - `craft`: package manager, automatic lockfile synchronizer, and build orchestrator.
 - `kern-lsp`: language server for editor integration.
-- `base`, `prov`, `rt`, `std`: official library layers.
+- `base`, `rt`, `std`: official library layers.
 
 Use `craft` when you want package discovery, dependency resolution, build
 scripts, generated files, or test/example selection. Use `kernc` when you want
@@ -243,7 +243,7 @@ python -m ops release package --version v0.7.5 --target <host-target>
 - [`craft` Package And Build Guide](docs/craft.md): packages, lockfiles, build
   scripts, generated files, resources, and command behavior.
 - [Runtime And Library Architecture](docs/runtime-architecture.md): the
-  `base`/`prov`/`rt`/`std` split and freestanding model.
+  `base`/`rt`/`std` split and freestanding model.
 - [Unix Distribution](docs/unix-distribution.md) and
   [Windows Distribution](docs/windows-distribution.md): release packaging and
   installer policy.

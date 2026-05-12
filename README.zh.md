@@ -24,7 +24,7 @@
 
 Kern 面向底层系统开发。它允许你直接面对内存、链接入口和运行时边界，同时仍然使用模块、泛型、代数数据类型、trait 和穷尽模式匹配。Kern 也自带包管理与构建工具，并把 freestanding 目标作为一等场景处理。
 
-Kern 不提供垃圾回收，不使用异常，也不会在你没有要求时分配内存。运行时策略需要写在项目配置和源码里；`std` 只是建立在 `base`、`prov`、`rt` 之上的库层，而不是编译器强制附带的一部分。
+Kern 不提供垃圾回收，不使用异常，也不会在你没有要求时分配内存。运行时策略需要写在项目配置和源码里；`std` 只是建立在 `base`、`rt` 和 hosted 内部实现之上的库层，而不是编译器强制附带的一部分。
 
 ## 安装
 
@@ -172,7 +172,7 @@ Kern 包含这些工具：
 - `kernc`：编译、分析、目标文件生成和链接驱动。
 - `craft`：包管理、锁文件同步和构建编排。
 - `kern-lsp`：用于编辑器集成的语言服务器。
-- `base`、`prov`、`rt`、`std`：官方库分层。
+- `base`、`rt`、`std`：官方库分层。
 
 需要发现包、解析依赖、运行构建脚本、生成文件，或选择测试/示例目标时，用 `craft`。需要精确控制某一次编译或链接动作时，再直接使用 `kernc`。
 
@@ -209,7 +209,7 @@ python -m ops release package --version v0.7.5 --target <host-target>
 - [Source Style Guide](docs/style.md)：仓库内 Kern 代码的风格约定。
 - [`kernc` Compiler Guide](docs/kernc.md)：命令行、链接、LLVM 输出和集成细节。
 - [`craft` Package And Build Guide](docs/craft.md)：包、锁文件、构建脚本、生成文件、资源和命令行为。
-- [Runtime And Library Architecture](docs/runtime-architecture.md)：`base` / `prov` / `rt` / `std` 分层和 freestanding 模型。
+- [Runtime And Library Architecture](docs/runtime-architecture.md)：`base` / `rt` / `std` 分层和 freestanding 模型。
 - [Unix Distribution](docs/unix-distribution.md) 与 [Windows Distribution](docs/windows-distribution.md)：发布包和安装器策略。
 
 ## 贡献

@@ -31,7 +31,7 @@ use self::external::{
 use self::fingerprint::{
     base_compile_action_label, build_fingerprint, compile_action_detail_tags,
     compile_action_fingerprint, compile_action_label, link_action_detail_tags,
-    link_action_fingerprint, link_action_label, prov_compile_action_label, rt_compile_action_label,
+    link_action_fingerprint, link_action_label, rt_compile_action_label,
     rt_entry_compile_action_label, runtime_compile_detail_tags, std_compile_action_label,
     write_compile_action_state,
 };

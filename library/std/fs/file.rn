@@ -1,7 +1,6 @@
 //! File operations and owned file handles.
 
 use std.host.os;
-use prov.os as provider_os;
 use base.mem.alloc.{AllocError, Allocator};
 use base.coll.{List, String};
 use ..types.{
@@ -16,8 +15,8 @@ use ..c_path.c_path;
 
 const MAX_ATOMIC_TMP_ATTEMPTS = usize.{32};
 
-fn to_os_open_options(options: &OpenOptions) provider_os.OpenOptions {
-    return provider_os.OpenOptions.{
+fn to_os_open_options(options: &OpenOptions) os.OpenOptions {
+    return os.OpenOptions.{
         read: options.read,
         write: options.write,
         create: options.create,

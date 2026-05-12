@@ -10,7 +10,7 @@ language semantics.
 The model for this chapter: hosted and freestanding are not two dialects. They
 are the same language used with different runtime strategies.
 
-- hosted: the program runs in an OS process environment, usually using `std`, `prov`, and toolchain startup.
+- hosted: the program runs in an OS process environment, usually using `std` and toolchain startup.
 - freestanding: the project owns startup, linking, memory layout, and external environment boundaries.
 - libc: an optional external ABI/ecosystem interface, not the foundation of Kern's standard library.
 
@@ -31,10 +31,10 @@ use the standard library:
 
 - `rt` provides startup glue and expects a valid root-module `main`.
 - libc is not linked implicitly.
-- the `std` bundle wires official root aliases such as `base`, `prov`, and `std`.
+- the `std` bundle wires official root aliases such as `base` and `std`.
 
 Hosted does not mean "depends on libc." Kern's hosted capabilities go through
-`prov` contracts and `std.host`, and `std` is built on `base` and `prov`. Libc is
+internal `std.host` implementations, and `std` is built on `base`. Libc is
 selected explicitly only when you need C ABI compatibility, external C
 libraries, or platform C runtime ownership.
 
@@ -63,7 +63,7 @@ Common `bundle` values:
 
 - `none`: wire no official library root aliases.
 - `base`: wire the freestanding base library.
-- `std`: wire the common hosted `base`, `prov`, and `std` aliases.
+- `std`: wire the common hosted `base` and `std` aliases.
 
 `bundle` is root-alias wiring, not a prelude. Even with `bundle = "std"`, source
 files still write `use std.io;` or `use base.mem.alloc.gpa;`.
@@ -140,7 +140,7 @@ final exported symbol. The linker, bootloader, or platform ABI cares about
 `entry = "none"` does not mean "no libraries." It only means the toolchain does
 not own startup. You can still use freestanding `base` facilities such as
 integers, slices, comparison, layout queries, allocator traits, and collections.
-Anything that needs an OS/provider boundary must be supplied by the project.
+Anything that needs an OS boundary must be supplied by the project.
 
 ## The Same Shape With `kernc`
 
@@ -253,5 +253,5 @@ When starting a Kern project:
 - Fully custom library roots: use `bundle = "none"` and wire required module roots via package dependencies or `kernc --module-path`.
 
 The goal of this chapter is not to build a complete kernel immediately. It is
-to set the boundary: startup, linking, memory, OS/provider access, and libc are
+to set the boundary: startup, linking, memory, OS access, and libc are
 project policy. Kern does not hide those policies in language defaults.

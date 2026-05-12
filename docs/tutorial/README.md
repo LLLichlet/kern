@@ -46,7 +46,7 @@ no exceptions, no implicit heap allocation, and no implicit prelude namespace.
 Keep these two directories open while reading:
 
 - [`examples/`](../../examples): small runnable examples.
-- [`library/`](../../library): official library source, especially the boundaries between `base`, `prov`, and `std`.
+- [`library/`](../../library): official library source, especially the boundaries between `base`, `rt`, and `std`.
 
 Tutorial code prefers `craft`. Direct `kernc` usage is called out explicitly,
 because `kernc` is a lower-level compile/link driver rather than a package

@@ -3,7 +3,6 @@ name = "workspace"
 members = [
     "base",
     "base-test",
-    "prov",
     "std",
     "rt",
 ]
@@ -16,6 +15,5 @@ readme = "README.md"
 
 [workspace.dependencies]
 base = { path = "base" }
-prov = { path = "prov" }
 std = { path = "std" }
 rt = { path = "rt" }

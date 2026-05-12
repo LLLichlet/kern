@@ -419,7 +419,7 @@ Manifest rules:
 - `[runtime].bundle` controls which official library root aliases are added
 - `[runtime].bundle` is alias wiring, not a scope prelude; ordinary `use` still applies
 - without an explicit `[runtime]` override, `craft` keeps runnable targets on the pure-first default (`entry = "rt"`, `libc = false`, `bundle = "std"`)
-- `prov`/`rt` implementation choice belongs to normal package/module wiring, not a manifest runtime-provider selector
+- `rt` implementation choice belongs to normal package/module wiring, not a manifest runtime-selection field
 - test targets are listed under `[test].roots`, and each test name is derived from its file stem
 - example targets are listed under `[example].roots`, and each example name is derived from its file stem
 - external dependencies must be explicit `path` or `git` entries; plain version strings are not a source model

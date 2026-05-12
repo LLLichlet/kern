@@ -5,8 +5,7 @@
 //! Design:
 //! keep libc-backed OS calls explicit and close to the platform ABI.
 
-use prov.os.{FileType, Metadata, TerminalSize};
-use prov.os.OpenOptions;
+use std.host.os.types.{FileType, Metadata, OpenOptions, TerminalSize};
 
 /// Imports the libc-backed OS entry points used by the Darwin runtime layer.
 extern {

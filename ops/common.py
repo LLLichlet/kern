@@ -14,7 +14,7 @@ from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_CARGO_TOML = REPO_ROOT / "Cargo.toml"
-OFFICIAL_LIBRARY_LAYERS = ("base", "prov", "rt", "std")
+OFFICIAL_LIBRARY_LAYERS = ("base", "rt", "std")
 HOST_TOOL_BINARIES = ("kernc", "craft", "kern-lsp")
 
 

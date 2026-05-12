@@ -1,5 +1,8 @@
 //! Hosted operating-system shims used by `std`.
 
+pub/ mod types;
+pub/ use .types.{FileType, Metadata, OpenOptions, TerminalSize};
+
 #[if(os == "linux")]
 pub/ mod linux;
 #[if(os == "linux")]

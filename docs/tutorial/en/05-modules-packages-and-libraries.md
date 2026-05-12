@@ -369,11 +369,11 @@ Workspaces can reuse dependency declarations:
 ```toml
 [workspace.dependencies]
 base = { path = "base" }
-prov = { path = "prov" }
+json = { path = "json" }
 
 [dependencies]
 base = { workspace = true }
-prov = { workspace = true }
+json = { workspace = true }
 ```
 
 Adding a dependency to the package graph does not import names into source
@@ -390,20 +390,19 @@ directly while kernels and custom runtimes can keep only the layers they need.
 Current layers:
 
 - `base`: freestanding foundation. Comparisons, numbers, pointer/layout helpers, allocator traits, collections, strings, synchronization primitives, generic IO traits, and test assertions.
-- `prov`: provider contracts. Shared OS-facing data contracts for hosted and freestanding providers.
 - `rt`: startup entry and minimal runtime glue.
-- `std`: user-facing higher-level library built on `base` and `prov`, with hosted implementation under `std.host`.
+- `std`: user-facing higher-level library built on `base`, with hosted implementation under `std.host`.
 
-`bundle = "std"` makes official root aliases such as `base`, `prov`, and `std`
+`bundle = "std"` makes official root aliases such as `base` and `std`
 available in normal hosted projects. `bundle = "base"` is better for
 freestanding or lower-level packages. `bundle = "none"` wires none of these
 official aliases.
 
 Kern does not treat libc as the foundation of the language or standard
 library. Normal targets default to `libc = false`; hosted `std` capabilities
-come through `prov` contracts and `std.host`. Libc is an optional external ABI
-choice. See [`runtime-architecture.md`](../../runtime-architecture.md) for the
-full background.
+come through internal `std.host` implementations. Libc is an optional external
+ABI choice. See [`runtime-architecture.md`](../../runtime-architecture.md) for
+the full background.
 
 ## Runtime Choice
 
@@ -440,4 +439,4 @@ good tutorial material:
 - [`library/base/coll/list_impl/init.rn`](../../../library/base/coll/list_impl/init.rn): explicitly allocated growable list.
 - [`library/base/coll/string_impl/init.rn`](../../../library/base/coll/string_impl/init.rn): how `String` is built on `List[u8]`.
 - [`library/std/io/init.rn`](../../../library/std/io/init.rn): `println`, `Printable`, and standard streams.
-- [`library/std/fs/`](../../../library/std/fs/): filesystem APIs through `prov` contracts and `std.host`.
+- [`library/std/fs/`](../../../library/std/fs/): filesystem APIs through `std.host`.

@@ -18,4 +18,3 @@ root = "init.rn"
 
 [dependencies]
 base = { workspace = true }
-prov = { workspace = true }

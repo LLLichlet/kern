@@ -1,23 +1,24 @@
 # Kern Ecosystem Tooling Tasks
 
-## P0 Provider Boundary Migration
+## P0 Hosted Boundary Cleanup
 
-- [x] Introduce `library/prov` as the official provider contract package.
-- [x] Keep `base` platform-independent: no imports from `prov`, `std`, `rt`, or
-  hosted implementation modules.
+- [x] Keep `base` platform-independent: no imports from `std`, `rt`, or hosted
+  implementation modules.
+- [x] Keep `rt` narrow: startup glue and minimal compiler-required fallbacks,
+  with no dependency on `base` or `std`.
 - [x] Move hosted OS implementations out of public `sys` and into `std.host`.
+- [x] Keep hosted OS data shapes inside `std.host.os` instead of exposing a
+  separate official platform package.
 - [x] Expose user-facing hosted allocation through `std.mem` instead of
   `sys.mem`.
-- [x] Remove `sys` from the official library workspace and compiler-injected
-  public aliases.
-- [x] Update `std` to depend on `base` and `prov`, with hosted implementation
-  owned internally by `std`.
-- [x] Update Craft runtime package building and linking so `std` builds with
-  `prov`, while `rt` and `rt_entry` remain independent of library/provider
-  aliases.
-- [x] Replace ecosystem tests, examples, and docs that import public `sys`.
-- [x] Add boundary coverage for `prov` alias injection, absence of public
-  `sys`, `rt` independence, and workspace package resolution.
+- [x] Remove public hosted/platform aliases from the official library workspace,
+  compiler configuration, Craft runtime package building, and test harnesses.
+- [x] Update Craft runtime package building and linking so `std` builds directly
+  with `base`, while `rt` and `rt_entry` remain independent of library aliases.
+- [x] Replace ecosystem tests, examples, and docs that import public `sys` or
+  platform-layer APIs.
+- [x] Add boundary coverage for `std` bundle alias exposure, absence of public
+  hosted/platform roots, `rt` independence, and workspace package resolution.
 - [x] Run formatting, compiler, stdlib, soundness, Craft check/style coverage,
   then commit the complete migration.
 

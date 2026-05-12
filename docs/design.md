@@ -796,9 +796,9 @@ Startup ownership still belongs to the surrounding runtime/link environment:
   * a hosted C runtime may own initial process startup and call `main`
   * a freestanding object build may choose `runtime_entry = none`, in which case no special program entry is required
 
-When `runtime_entry != none`, the toolchain also loads `rt` as the startup companion root even if the program never imports `rt` explicitly. This is startup assembly only. It does **not** make ordinary `rt.*` APIs visible without `use`, and it does **not** implicitly inject `base` or `prov`.
+When `runtime_entry != none`, the toolchain also loads `rt` as the startup companion root even if the program never imports `rt` explicitly. This is startup assembly only. It does **not** make ordinary `rt.*` APIs visible without `use`, and it does **not** implicitly inject `base`.
 
-Hosted does not imply libc. In Kern, "hosted" means an OS process environment exists. Libraries such as `std` reach hosted services through the ordinary provider contracts in `prov` and hosted services in `std.host`, while libc remains an optional external package choice rather than a semantic prerequisite for the language or standard library.
+Hosted does not imply libc. In Kern, "hosted" means an OS process environment exists. Libraries such as `std` reach hosted services through internal `std.host` modules, while libc remains an optional external package choice rather than a semantic prerequisite for the language or standard library.
 
 When a runtime entry contract is enabled, the root `main` definition looks like:
 

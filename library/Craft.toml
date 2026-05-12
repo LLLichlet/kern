@@ -2,6 +2,7 @@
 name = "workspace"
 members = [
     "base",
+    "base-test",
     "sys",
     "std",
     "rt",

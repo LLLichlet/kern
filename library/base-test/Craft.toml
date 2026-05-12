@@ -1,0 +1,9 @@
+[package]
+name = "base-test"
+version = "0.7.5"
+kern = "0.7.5"
+publish = false
+description = "Tests for the freestanding base library"
+
+[test]
+roots = ["src/text.rn"]

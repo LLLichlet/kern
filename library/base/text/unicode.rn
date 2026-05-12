@@ -1,0 +1,76 @@
+//! Unicode scalar-value helpers.
+//!
+//! Kern represents scalar values as `u32` at low-level boundaries. These
+//! helpers validate the Unicode scalar range without allocating or depending on
+//! hosted libraries.
+
+/// Highest valid Unicode scalar value.
+pub const MAX_SCALAR = u32.{0x10FFFF};
+
+/// First UTF-16 surrogate codepoint.
+pub const SURROGATE_MIN = u32.{0xD800};
+
+/// Last UTF-16 surrogate codepoint.
+pub const SURROGATE_MAX = u32.{0xDFFF};
+
+/// First high-surrogate codepoint.
+pub const HIGH_SURROGATE_MIN = u32.{0xD800};
+
+/// Last high-surrogate codepoint.
+pub const HIGH_SURROGATE_MAX = u32.{0xDBFF};
+
+/// First low-surrogate codepoint.
+pub const LOW_SURROGATE_MIN = u32.{0xDC00};
+
+/// Last low-surrogate codepoint.
+pub const LOW_SURROGATE_MAX = u32.{0xDFFF};
+
+/// Returns `true` when `codepoint` is a UTF-16 high surrogate.
+pub fn is_high_surrogate(codepoint: u32) bool {
+    return codepoint >= HIGH_SURROGATE_MIN and codepoint <= HIGH_SURROGATE_MAX;
+}
+
+/// Returns `true` when `codepoint` is a UTF-16 low surrogate.
+pub fn is_low_surrogate(codepoint: u32) bool {
+    return codepoint >= LOW_SURROGATE_MIN and codepoint <= LOW_SURROGATE_MAX;
+}
+
+/// Returns `true` when `codepoint` is any UTF-16 surrogate.
+pub fn is_surrogate(codepoint: u32) bool {
+    return codepoint >= SURROGATE_MIN and codepoint <= SURROGATE_MAX;
+}
+
+/// Returns `true` when `codepoint` is a valid Unicode scalar value.
+pub fn is_scalar(codepoint: u32) bool {
+    return codepoint <= MAX_SCALAR and !is_surrogate(codepoint);
+}
+
+/// Combines a validated UTF-16 surrogate pair into a scalar value.
+pub fn scalar_from_surrogates(high: u32, low: u32) ?u32 {
+    if (!is_high_surrogate(high) or !is_low_surrogate(low)) return .None;
+    return .{ Some: u32.{0x10000}
+        + ((high - HIGH_SURROGATE_MIN) << 10)
+        + (low - LOW_SURROGATE_MIN) };
+}
+
+impl u32 {
+    /// Returns `true` when this codepoint is a UTF-16 high surrogate.
+    pub fn is_high_surrogate() bool {
+        return is_high_surrogate(self);
+    }
+
+    /// Returns `true` when this codepoint is a UTF-16 low surrogate.
+    pub fn is_low_surrogate() bool {
+        return is_low_surrogate(self);
+    }
+
+    /// Returns `true` when this codepoint is any UTF-16 surrogate.
+    pub fn is_surrogate() bool {
+        return is_surrogate(self);
+    }
+
+    /// Returns `true` when this codepoint is a valid Unicode scalar value.
+    pub fn is_unicode_scalar() bool {
+        return is_scalar(self);
+    }
+}

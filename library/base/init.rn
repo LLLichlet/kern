@@ -12,5 +12,6 @@ pub mod mem;
 pub mod num;
 pub mod sync;
 pub mod test;
+pub mod text;
 mod option;
 mod result;

@@ -1,6 +1,7 @@
 //! Byte-slice search and trimming helpers.
 
 use base.cmp.{Comparable, Ord, Ordering};
+use base.text.ascii;
 
 const USIZE_BYTES = @sizeOf[usize]();
 
@@ -194,37 +195,32 @@ impl &[u8] {
 
 /// Returns `true` for ASCII whitespace bytes.
 pub/ fn is_ascii_whitespace(byte: u8) bool {
-    return byte == b' '
-        or byte == b'\t'
-        or byte == b'\n'
-        or byte == b'\r'
-        or byte == u8.{11}
-        or byte == u8.{12};
+    return ascii.is_whitespace(byte);
 }
 
 /// Returns `true` for ASCII decimal digits.
 pub/ fn is_ascii_digit(byte: u8) bool {
-    return byte >= b'0' and byte <= b'9';
+    return ascii.is_digit(byte);
 }
 
 /// Returns `true` for ASCII uppercase letters.
 pub/ fn is_ascii_upper(byte: u8) bool {
-    return byte >= b'A' and byte <= b'Z';
+    return ascii.is_upper(byte);
 }
 
 /// Returns `true` for ASCII lowercase letters.
 pub/ fn is_ascii_lower(byte: u8) bool {
-    return byte >= b'a' and byte <= b'z';
+    return ascii.is_lower(byte);
 }
 
 /// Returns `true` for ASCII alphabetic letters.
 pub/ fn is_ascii_alpha(byte: u8) bool {
-    return is_ascii_upper(byte) or is_ascii_lower(byte);
+    return ascii.is_alpha(byte);
 }
 
 /// Returns `true` for ASCII letters or decimal digits.
 pub/ fn is_ascii_alnum(byte: u8) bool {
-    return is_ascii_alpha(byte) or is_ascii_digit(byte);
+    return ascii.is_alnum(byte);
 }
 
 /// Returns the first index of `byte` in `text`.

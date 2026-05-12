@@ -46,17 +46,16 @@ fn maybe_add_default_runtime_contract(args: &mut Vec<String>) {
         window[0] == "--runtime-libc" && matches!(window[1].as_str(), "yes" | "true" | "on")
     });
     let entry = if links_libc { "crt" } else { "rt" };
-    let has_bundle = args.iter().any(|arg| arg == "--library-bundle");
     let has_base_alias = has_module_alias(args, "base");
     let has_sys_alias = has_module_alias(args, "sys");
     args.push("--runtime-entry".to_string());
     args.push(entry.to_string());
 
-    if !has_bundle && !has_base_alias {
+    if !has_base_alias {
         args.push("--module-path".to_string());
         args.push(format!("base={}", resolve_base_path().display()));
     }
-    if !has_bundle && !has_sys_alias {
+    if !has_sys_alias {
         args.push("--module-path".to_string());
         args.push(format!("sys={}", resolve_sys_path().display()));
     }
@@ -109,6 +108,11 @@ fn build_pass_cases() {
 #[test]
 fn run_pass_cases() {
     run_run_pass_cases(&cases_in("run-pass"));
+}
+
+#[test]
+fn tree_run_pass_cases() {
+    run_tree_run_pass_cases(&case_dirs_in("tree-run-pass"));
 }
 
 #[test]
@@ -310,6 +314,23 @@ fn run_run_pass_cases(paths: &[PathBuf]) {
     }
 }
 
+fn run_tree_run_pass_cases(paths: &[PathBuf]) {
+    for path in paths {
+        let case = parse_case(&path.join("main.rn"));
+        let output = build_and_run_case_tree_output(path, &case);
+        let expected_exit = case.exit_code.unwrap_or(0);
+
+        assert_eq!(
+            output.status.code(),
+            Some(expected_exit),
+            "{} returned the wrong exit status:\nstdout:\n{}\nstderr:\n{}",
+            path.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 fn cases_in(kind: &str) -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -424,6 +445,62 @@ fn compile_case_tree_output(case_root: &Path, case: &SoundnessCase) -> Output {
     let _ = fs::remove_file(output_path);
     let _ = fs::remove_dir_all(temp_dir);
     output
+}
+
+fn build_and_run_case_tree_output(case_root: &Path, case: &SoundnessCase) -> Output {
+    let temp_dir = unique_temp_path("kernc_soundness_tree_run", "dir");
+    copy_case_tree(case_root, &temp_dir);
+
+    let main = temp_dir.join("main.rn");
+    let output_path = unique_temp_path("kernc_soundness_tree_run", executable_extension());
+
+    let mut args: Vec<String> = case.compile_args.clone();
+    maybe_add_default_runtime_contract(&mut args);
+    for (alias, rel_path) in &case.module_interface_paths {
+        let source_root = temp_dir.join(rel_path);
+        let metadata_root = temp_dir.join(format!(".soundness-kmeta-{}", alias));
+        compile_interface_package(&source_root, &metadata_root, case.timeout_ms, case_root);
+        args.push("--module-interface-path".to_string());
+        args.push(format!("{}={}", alias, metadata_root.display()));
+    }
+    for (alias, rel_path) in &case.module_paths {
+        args.push("--module-path".to_string());
+        args.push(format!("{}={}", alias, temp_dir.join(rel_path).display()));
+    }
+    args.push(main.display().to_string());
+    args.push("-o".to_string());
+    args.push(output_path.display().to_string());
+
+    let compile_output = match case.timeout_ms {
+        Some(timeout_ms) => {
+            match run_kernc_with_timeout(&args, Duration::from_millis(timeout_ms)) {
+                TimedCompileResult::Output(output) => output,
+                TimedCompileResult::TimedOut => {
+                    let _ = fs::remove_file(&output_path);
+                    let _ = fs::remove_dir_all(&temp_dir);
+                    panic!(
+                        "{} timed out after {} ms while compiling",
+                        case_root.display(),
+                        timeout_ms
+                    );
+                }
+            }
+        }
+        None => run_kernc(args.iter().map(OsStr::new)),
+    };
+
+    assert!(
+        compile_output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&compile_output.stdout),
+        String::from_utf8_lossy(&compile_output.stderr)
+    );
+
+    let run_output = Command::new(&output_path).output().unwrap();
+
+    let _ = fs::remove_file(output_path);
+    let _ = fs::remove_dir_all(temp_dir);
+    run_output
 }
 
 fn build_and_run_case_output(path: &Path, case: &SoundnessCase, prefix: &str) -> Output {

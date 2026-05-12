@@ -228,17 +228,16 @@ fn maybe_add_default_runtime_contract(args: &mut Vec<String>) {
         window[0] == "--runtime-libc" && matches!(window[1].as_str(), "yes" | "true" | "on")
     });
     let entry = if links_libc { "crt" } else { "rt" };
-    let has_bundle = args.iter().any(|arg| arg == "--library-bundle");
     let has_base_alias = has_module_alias(args, "base");
     let has_sys_alias = has_module_alias(args, "sys");
     args.push("--runtime-entry".to_string());
     args.push(entry.to_string());
 
-    if !has_bundle && !has_base_alias {
+    if !has_base_alias {
         args.push("--module-path".to_string());
         args.push(format!("base={}", resolve_base_path().display()));
     }
-    if !has_bundle && !has_sys_alias {
+    if !has_sys_alias {
         args.push("--module-path".to_string());
         args.push(format!("sys={}", resolve_sys_path().display()));
     }

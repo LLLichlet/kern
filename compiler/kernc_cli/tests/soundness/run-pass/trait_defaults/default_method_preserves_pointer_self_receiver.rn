@@ -1,0 +1,23 @@
+// class: trait-default-methods
+// source: default method lowering must keep pointer-shaped Self when dispatching through its synthetic bound
+// compile-args: --library-bundle none
+// exit: 0
+
+trait Render {
+    fn write() i32;
+
+    fn write_default() i32 {
+        return self.write();
+    }
+};
+
+impl &usize: Render {
+    fn write() i32 {
+        return self.* as i32;
+    }
+}
+
+fn main() i32 {
+    let value = usize.{7};
+    return value.&.write_default() - 7;
+}

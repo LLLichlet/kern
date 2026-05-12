@@ -1,0 +1,15 @@
+pub const BASE = usize.{3};
+
+pub const fn bump[N: usize]() usize {
+    return N + BASE;
+}
+
+pub trait SizedValue[N: usize] {
+    fn value() usize {
+        return bump[N]();
+    }
+};
+
+pub struct Item {};
+
+impl Item: SizedValue[4] {}

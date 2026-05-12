@@ -60,6 +60,41 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         Some(self.substitute_type_with_map(raw_ty, &subst_map))
     }
 
+    fn function_self_generic_ty(
+        &mut self,
+        method_id: DefId,
+        generics: &[kernc_sema::ty::GenericArg],
+    ) -> Option<TypeId> {
+        let Def::Function(function) = self.ctx.defs.get(method_id.0 as usize)? else {
+            return None;
+        };
+        let info = function.default_trait_method.as_ref()?;
+        function
+            .generics
+            .iter()
+            .position(|param| param.name == info.self_param)
+            .and_then(|index| generics.get(index))
+            .and_then(|arg| arg.as_type())
+    }
+
+    fn method_self_param_ty(
+        &mut self,
+        method_id: DefId,
+        generics: &[kernc_sema::ty::GenericArg],
+    ) -> Option<TypeId> {
+        let Def::Function(function) = self.ctx.defs.get(method_id.0 as usize)?.clone() else {
+            return None;
+        };
+        let raw_ty = self.ctx.node_type(function.params.first()?.type_node.id)?;
+        let mut subst_map = HashMap::new();
+        for (idx, param) in function.generics.iter().enumerate() {
+            if idx < generics.len() {
+                subst_map.insert(param.name, generics[idx]);
+            }
+        }
+        Some(self.substitute_type_with_map(raw_ty, &subst_map))
+    }
+
     fn resolve_bound_impl_method_target(
         &mut self,
         receiver_ty: TypeId,
@@ -293,23 +328,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_method_call(
         &mut self,
         callee_id: NodeId,
-        mut recv: MastExpr,
+        recv: MastExpr,
         arg_masts: Vec<MastExpr>,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         call: MethodCallSite,
     ) -> MastExpr {
-        let stored_owner_ty = self.ctx.method_owner_ty(callee_id);
-        let expected_self_ty = call.expected_self_ty.or(stored_owner_ty).or_else(|| {
-            self.get_callee_expected_params(call.norm_callee)
-                .first()
-                .copied()
-        });
-        if let Some(expected_self_ty) = expected_self_ty
-            && recv.ty != expected_self_ty
-        {
-            recv = self.apply_implicit_cast(recv.kind, recv.ty, expected_self_ty, call.span);
-        }
-
         // Resolve methods against the type that actually owns the implementation.
         let norm_base = self.ctx.type_registry.normalize(recv.ty);
 
@@ -406,17 +429,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let Some((func_id, resolved_self_ty, resolved_impl_args)) = resolved_impl_target {
                 let mut final_recv = recv;
 
-                // Normalize pointer-type differences for LLVM by inserting a bitcast after safe downgrades.
+                // Match the selected impl receiver. Default trait methods dispatch through a
+                // synthetic `Self: Trait` bound, and `Self` may itself be pointer-shaped.
                 let expected_self_ty = resolved_self_ty.or(call.expected_self_ty);
                 if let Some(exp_self) = expected_self_ty
                     && final_recv.ty != exp_self
                 {
-                    final_recv = MastExpr::new(
+                    final_recv = self.apply_implicit_cast(
+                        final_recv.kind,
+                        final_recv.ty,
                         exp_self,
-                        MastExprKind::Cast {
-                            kind: MastCastKind::Bitcast,
-                            operand: Box::new(final_recv),
-                        },
                         call.span,
                     );
                 }
@@ -475,8 +497,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         generics: &[kernc_sema::ty::GenericArg],
         call: MethodCallSite,
     ) -> MastExprKind {
-        let expected_self_ty = call
-            .expected_self_ty
+        let expected_self_ty = self
+            .method_self_param_ty(method_id, generics)
+            .or_else(|| self.function_self_generic_ty(method_id, generics))
+            .or(call.expected_self_ty)
             .or_else(|| self.function_first_param_ty(method_id, generics));
         recv = self.measure_phase("                lower_call_static_recv", |this| {
             if let Some(exp_self) = expected_self_ty

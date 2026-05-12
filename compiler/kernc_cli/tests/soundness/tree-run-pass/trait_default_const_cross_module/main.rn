@@ -1,0 +1,10 @@
+// class: trait-default-methods
+// source: trait default methods instantiate cross-module consts and const fns with const generics
+// module-path: support=support
+// exit: 0
+
+use support.{Item, SizedValue};
+
+fn main() i32 {
+    return Item.{}.value() as i32 - 7;
+}

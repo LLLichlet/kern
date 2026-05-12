@@ -10,6 +10,7 @@ pub(crate) struct VtableGlobalInput<'a> {
     vtable_id: MonoId,
     data_ptr_ty: TypeId,
     receiver_ty: TypeId,
+    impl_receiver_ty: TypeId,
     actual_trait_ty: TypeId,
     trait_def: &'a TraitDef,
     impl_def: &'a ImplDef,
@@ -279,7 +280,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 );
             };
 
-            let (impl_def, impl_args) =
+            let (impl_def, impl_args, impl_receiver_ty) =
                 match this.find_matching_impl_block(norm_receiver, norm_data_ptr, norm_trait) {
                     Some(found) => found,
                     None => {
@@ -305,6 +306,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 vtable_id,
                 data_ptr_ty,
                 receiver_ty,
+                impl_receiver_ty,
                 actual_trait_ty: norm_trait,
                 trait_def: &trait_def,
                 impl_def: &impl_def,
@@ -320,7 +322,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         receiver_ty: TypeId,
         data_ptr_ty: TypeId,
         target_trait_ty: TypeId,
-    ) -> Option<(ImplDef, Vec<kernc_sema::ty::GenericArg>)> {
+    ) -> Option<(ImplDef, Vec<kernc_sema::ty::GenericArg>, TypeId)> {
         let norm_receiver = self.ctx.type_registry.normalize(receiver_ty);
         let norm_data_ptr = self.ctx.type_registry.normalize(data_ptr_ty);
         let target_trait_norm = self.ctx.normalize_concrete_type(target_trait_ty);
@@ -335,6 +337,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ImplDef,
             Vec<kernc_sema::ty::GenericArg>,
             kernc_sema::def::DefId,
+            TypeId,
         )> = None;
         for entry in self.ctx.global_impl_entries() {
             let impl_id = entry.id;
@@ -372,7 +375,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                 let replace = match selected.as_ref() {
                     None => true,
-                    Some((_, _, selected_impl_id)) => matches!(
+                    Some((_, _, selected_impl_id, _)) => matches!(
                         kernc_sema::query::compare_impl_specificity(
                             self.ctx,
                             impl_id,
@@ -382,11 +385,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     ),
                 };
                 if replace {
-                    selected = Some((impl_def.clone(), resolved_impl_args, impl_id));
+                    selected = Some((impl_def.clone(), resolved_impl_args, impl_id, *search_ty));
                 }
             }
         }
-        selected.map(|(impl_def, resolved_impl_args, _)| (impl_def, resolved_impl_args))
+        selected.map(|(impl_def, resolved_impl_args, _, matched_receiver_ty)| {
+            (impl_def, resolved_impl_args, matched_receiver_ty)
+        })
     }
 
     fn vtable_impl_search_types(
@@ -702,8 +707,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut vtable_entries = Vec::new();
 
         for super_trait_ty in self.collect_transitive_supertraits(input.actual_trait_ty) {
-            let super_vtable_id =
-                self.get_or_create_vtable(input.data_ptr_ty, input.receiver_ty, super_trait_ty);
+            let super_vtable_id = self.get_or_create_vtable(
+                input.data_ptr_ty,
+                input.impl_receiver_ty,
+                super_trait_ty,
+            );
             match self.vtable_global_void_ptr_expr(super_vtable_id, Span::default()) {
                 Some(expr) => vtable_entries.push(expr),
                 None => vtable_entries.push(MastExpr::new(
@@ -742,7 +750,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 && let Some(default_args) = self.trait_default_function_args(
                     default_id,
                     input.actual_trait_ty,
-                    input.receiver_ty,
+                    input.impl_receiver_ty,
                 )
             {
                 let method_mono_id = self.instantiate_function_at(

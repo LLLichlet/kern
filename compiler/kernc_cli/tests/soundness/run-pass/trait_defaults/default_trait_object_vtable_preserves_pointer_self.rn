@@ -1,0 +1,24 @@
+// class: trait-default-methods
+// source: default-method vtables instantiate Self with the matched impl receiver type
+// compile-args: --library-bundle none
+// exit: 0
+
+trait Render {
+    fn value() i32;
+
+    fn fallback() i32 {
+        return self.value();
+    }
+};
+
+impl &usize: Render {
+    fn value() i32 {
+        return self.* as i32;
+    }
+}
+
+fn main() i32 {
+    let value = usize.{7};
+    let render = &Render.{ value.& };
+    return render.fallback() - 7;
+}

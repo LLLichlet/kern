@@ -24,6 +24,7 @@ from .common import (
     load_workspace_version,
     repo_root,
     require_tool,
+    resolve_kernlib_root,
     resolve_bundled_toolchain,
     run,
     run_capture,
@@ -283,8 +284,7 @@ def _prepare_dist_dir(
         ensure(source.is_file(), f"expected release binary `{source}`")
         shutil.copy2(source, dist_dir / "bin" / source.name)
 
-    library_root = root / "library"
-    ensure((library_root / "Craft.toml").is_file(), f"expected library workspace `{library_root}`")
+    library_root = resolve_kernlib_root()
     for workspace_file in ("Craft.toml", "Craft.lock", "README.md"):
         source = library_root / workspace_file
         if source.is_file():

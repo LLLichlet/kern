@@ -1,8 +1,0 @@
-//! Current process queries.
-
-use std.host.os;
-
-/// Returns the current process identifier.
-pub fn process_id() usize {
-    return os.process_id();
-}

@@ -37,13 +37,13 @@ hidden runtime policy. The standard library is optional layering over `base`,
 Linux and macOS:
 
 ```sh
-curl -sSf https://raw.githubusercontent.com/softfault/kern/main/install.sh | bash
+curl -sSf https://raw.githubusercontent.com/kern-project/kern/main/install.sh | bash
 ```
 
 Windows PowerShell:
 
 ```powershell
-powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"
+powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/kern-project/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
 The installer places the SDK under `~/.kern` on Unix and
@@ -191,7 +191,7 @@ Kern ships these tools:
 - `kernc`: compiler, analysis, object emission, and linking driver.
 - `craft`: package manager, automatic lockfile synchronizer, and build orchestrator.
 - `kern-lsp`: language server for editor integration.
-- `base`, `rt`, `std`: official library layers.
+- `kernlib`: the official library workspace, containing `base`, `rt`, and `std`.
 
 Use `craft` when you want package discovery, dependency resolution, build
 scripts, generated files, or test/example selection. Use `kernc` when you want
@@ -208,13 +208,16 @@ files.
 For local compiler development:
 
 ```sh
-git clone https://github.com/softfault/kern.git
+git clone --recurse-submodules https://github.com/kern-project/kern.git
 cd kern
 cargo build --release
 cargo test
 ```
 
 This builds `kernc`, `craft`, and `kern-lsp` under `target/release/`.
+If you cloned without submodules, run `git submodule update --init library`
+before using commands that need the official libraries. You can also set
+`KERNLIB_PATH` to an external `kernlib` checkout.
 
 Windows source builds require a full LLVM 21 development prefix, not only the
 installed end-user SDK. If `cargo build` reports missing LLVM libraries such as
@@ -256,8 +259,8 @@ proposal can be checked against Kern's freestanding, explicit semantics.
 
 ## Star History
 
-<a href="https://www.star-history.com/#softfault/kern&Date">
-  <img src="https://api.star-history.com/svg?repos=softfault/kern&type=Date" alt="Star History Chart">
+<a href="https://www.star-history.com/#kern-project/kern&Date">
+  <img src="https://api.star-history.com/svg?repos=kern-project/kern&type=Date" alt="Star History Chart">
 </a>
 
 ## License

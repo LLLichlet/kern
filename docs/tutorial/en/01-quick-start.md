@@ -7,13 +7,13 @@ English | [简体中文](../zh/01-快速开始.md)
 Linux and macOS:
 
 ```sh
-curl -sSf https://raw.githubusercontent.com/softfault/kern/main/install.sh | bash
+curl -sSf https://raw.githubusercontent.com/kern-project/kern/main/install.sh | bash
 ```
 
 Windows PowerShell:
 
 ```powershell
-powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"
+powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/kern-project/kern/main/install.ps1 -UseBasicParsing).Content"
 ```
 
 The installer places the SDK under `~/.kern` on Unix or `%USERPROFILE%\.kern`

@@ -457,13 +457,13 @@ fn parse_args() -> CliAction {
         }
     }
 
-    validate_mode_inputs(&program_name, &options, &positional_source);
-    options.input_file = positional_source;
     apply_cli_runtime_defaults(
         &mut options,
         user_selected_runtime_entry,
         user_selected_library_bundle,
     );
+    validate_mode_inputs(&program_name, &options, &positional_source);
+    options.input_file = positional_source;
     set_default_output_file(&mut options);
     inject_driver_condition_defines(&mut options);
     apply_configured_library_aliases(&mut options);

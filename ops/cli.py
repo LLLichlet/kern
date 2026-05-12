@@ -119,7 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--target", help="host target label; defaults to the current host target")
     install.add_argument("--archive", help="install from a local SDK archive instead of GitHub")
     install.add_argument("--dest", help="installation directory; defaults to ~/.kern or %%USERPROFILE%%\\.kern")
-    install.add_argument("--github-repo", default="softfault/kern", help="GitHub repository for release downloads")
+    install.add_argument("--github-repo", default="kern-project/kern", help="GitHub repository for release downloads")
     install.add_argument("--no-path", action="store_true", help="do not mutate user PATH configuration")
 
     release = subparsers.add_parser("release", help="Release engineering commands")

@@ -1,5 +1,24 @@
 # Kern Ecosystem Tooling Tasks
 
+## P0 Kernlib Repository Split
+
+- [x] Extract the official library workspace into an independent `kernlib`
+  Git repository.
+- [x] Replace the main repository's `library` source tree with a Git submodule
+  pointing at the independent `kernlib` repository.
+- [x] Keep `KERNLIB_PATH` as the canonical override for external `kernlib`
+  checkouts and SDK packaging.
+- [x] Teach release packaging to resolve `kernlib` as an initialized submodule
+  or explicit `KERNLIB_PATH`, then vendor that workspace under SDK `lib/kern`.
+- [x] Keep main-repository Rust tests focused on toolchain integration with an
+  external official library workspace.
+- [ ] Move remaining library-behavior regression cases from
+  `compiler/kernc_cli/tests/stdlib` into Kern test packages inside `kernlib`
+  such as `base-test`; new library behavior coverage should be added in
+  `kernlib`, not in the compiler harness.
+- [ ] After `kern-project/kernlib` is created remotely, push the independent
+  repository and ensure `.gitmodules` resolves from the organization URL.
+
 ## P0 Hosted Boundary Cleanup
 
 - [x] Keep `base` platform-independent: no imports from `std`, `rt`, or hosted

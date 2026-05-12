@@ -14,7 +14,7 @@ use crate::test_support::{
 };
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command as ProcessCommand};
+use std::process::{Child, Command as ProcessCommand, Output};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -27,6 +27,43 @@ fn temp_dir(prefix: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
     fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
+}
+
+fn copy_dir_recursive(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination).unwrap();
+    for entry in fs::read_dir(source).unwrap() {
+        let entry = entry.unwrap();
+        let entry_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir_recursive(&entry_path, &destination_path);
+        } else {
+            fs::copy(&entry_path, &destination_path).unwrap();
+        }
+    }
+}
+
+fn copy_kernlib_workspace(destination: &Path) {
+    let source_root = repo_root().join("library");
+    for item in ["Craft.toml", "Craft.lock", "README.md", "base", "std", "rt"] {
+        let source = source_root.join(item);
+        let destination = destination.join(item);
+        if source.is_dir() {
+            copy_dir_recursive(&source, &destination);
+        } else {
+            fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            fs::copy(source, destination).unwrap();
+        }
+    }
 }
 
 fn write_minimal_bin_package(root: &std::path::Path) {
@@ -438,6 +475,18 @@ enum KillRecoveryMode {
     Check,
     Run,
     Test,
+}
+
+fn spawn_external_kernlib_build_subprocess(root: &Path, kernlib_root: &Path) -> Output {
+    let current_exe = std::env::current_exe().unwrap();
+    ProcessCommand::new(current_exe)
+        .arg("--exact")
+        .arg("cli::tests::subprocess_builds_with_external_kernlib")
+        .arg("--nocapture")
+        .env("CRAFT_TEST_EXTERNAL_KERNLIB_PROJECT_PATH", root)
+        .env("KERNLIB_PATH", kernlib_root)
+        .output()
+        .unwrap()
 }
 
 fn spawn_command_subprocess_with_failpoint(
@@ -1764,6 +1813,51 @@ fn test_command_recovers_after_killed_process_leaves_partial_link_state() {
 }
 
 #[test]
+fn build_resolves_runtime_packages_from_external_kernlib_workspace() {
+    let root = temp_dir("craft-cli-external-kernlib");
+    let app_root = root.join("app");
+    let kernlib_root = root.join("kernlib");
+    copy_kernlib_workspace(&kernlib_root);
+    fs::create_dir_all(app_root.join("src")).unwrap();
+    fs::write(
+        app_root.join("Craft.toml"),
+        r#"
+[package]
+name = "hello"
+version = "0.1.0"
+kern = "0.7.5"
+
+[[bin]]
+name = "hello"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_root.join("src/main.rn"),
+        r#"
+use std.io;
+
+fn main() i32 {
+    "external kernlib".println();
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let output = spawn_external_kernlib_build_subprocess(&app_root, &kernlib_root);
+    assert!(
+        output.status.success(),
+        "external kernlib build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn subprocess_runs_command_until_killed() {
     let Ok(mode) = std::env::var("CRAFT_TEST_SUBPROCESS_MODE") else {
         return;
@@ -1793,6 +1887,20 @@ fn subprocess_runs_command_until_killed() {
         .unwrap(),
         other => panic!("unexpected subprocess mode `{other}`"),
     }
+}
+
+#[test]
+fn subprocess_builds_with_external_kernlib() {
+    let Ok(root) = std::env::var("CRAFT_TEST_EXTERNAL_KERNLIB_PROJECT_PATH") else {
+        return;
+    };
+    run_command(Command::Build {
+        path: Some(PathBuf::from(root)),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        include_examples: false,
+    })
+    .unwrap();
 }
 
 #[test]

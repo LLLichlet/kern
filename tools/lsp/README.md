@@ -121,6 +121,10 @@ Useful analysis overrides:
 kern-lsp --library-bundle none --module-path std=./library/std
 ```
 
+In a source checkout this path is inside the checked-out `kernlib` submodule.
+For an external checkout, prefer setting `KERNLIB_PATH` or passing the matching
+explicit module paths.
+
 The repository also carries a first-party VS Code extension under
 `editors/vscode/` that launches `kern-lsp` from the active Kern toolchain,
 `PATH`, or a local repository build.

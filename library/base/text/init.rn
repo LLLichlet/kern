@@ -1,9 +1,0 @@
-//! Text primitives for ASCII, Unicode scalar values, and UTF-8.
-//!
-//! `base.text` is freestanding and allocation-free. It provides the reusable
-//! byte/scalar mechanisms needed by parsers, protocol packages, OS shims, and
-//! higher-level text abstractions without imposing a language-specific policy.
-
-pub mod ascii;
-pub mod unicode;
-pub mod utf8;

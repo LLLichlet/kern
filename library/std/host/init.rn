@@ -1,3 +1,0 @@
-//! Hosted implementation details used by `std`.
-
-pub/ mod os;

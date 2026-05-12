@@ -3,7 +3,7 @@ param(
     [string]$Target,
     [string]$Archive,
     [string]$Dest,
-    [string]$GitHubRepo = "softfault/kern",
+    [string]$GitHubRepo = "kern-project/kern",
     [switch]$NoPath
 )
 

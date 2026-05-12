@@ -165,7 +165,10 @@ impl<'a> DiagnosticBuilder<'a> {
             };
             eprintln!("\n{}Kern Compiler Internal Error (ICE) {}", bold, reset);
             eprintln!("This is a bug in the compiler. Please report this issue at:");
-            eprintln!("{}https://github.com/softfault/kern/issues{}", bold, reset);
+            eprintln!(
+                "{}https://github.com/kern-project/kern/issues{}",
+                bold, reset
+            );
             eprintln!("Please include the code snippet above in your report.");
 
             if cfg!(test) {

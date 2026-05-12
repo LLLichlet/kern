@@ -70,6 +70,23 @@ def require_tool(name: str) -> None:
         raise OpsError(f"required tool `{name}` was not found in PATH")
 
 
+def resolve_kernlib_root() -> Path:
+    custom = os.environ.get("KERNLIB_PATH")
+    root = Path(custom) if custom else repo_root() / "library"
+    if not root.is_absolute():
+        root = repo_root() / root
+    if (
+        (root / "Craft.toml").is_file()
+        and all((root / layer / "init.rn").is_file() for layer in OFFICIAL_LIBRARY_LAYERS)
+    ):
+        return root
+    raise OpsError(
+        "official Kern library workspace is missing or incomplete at "
+        f"`{root}`; set KERNLIB_PATH to a kernlib checkout or run "
+        "`git submodule update --init library`"
+    )
+
+
 def run(cmd: Iterable[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
     command = list(cmd)
     info(f"=> Running: {' '.join(command)}")

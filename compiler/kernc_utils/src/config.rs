@@ -405,6 +405,13 @@ fn official_library_workspace_is_present(path: &Path) -> bool {
         && path.join("rt").join("init.rn").is_file()
 }
 
+fn official_library_workspace_error(path: &Path) -> String {
+    format!(
+        "official Kern library workspace `{}` is missing or incomplete; set KERNLIB_PATH to a kernlib checkout, run `git submodule update --init library` from the Kern repository, or provide explicit --module-path mappings",
+        path.display()
+    )
+}
+
 pub fn resolve_library_workspace_path() -> PathBuf {
     if let Ok(custom_path) = env::var("KERNLIB_PATH") {
         return PathBuf::from(custom_path);
@@ -428,6 +435,22 @@ pub fn resolve_library_workspace_path() -> PathBuf {
     }
 
     PathBuf::from("library")
+}
+
+pub fn validate_official_library_workspace() -> Result<(), String> {
+    let root = resolve_library_workspace_path();
+    if official_library_workspace_is_present(&root) {
+        Ok(())
+    } else {
+        Err(official_library_workspace_error(&root))
+    }
+}
+
+fn alias_uses_official_path(options: &CompileOptions, library: OfficialLibrary) -> bool {
+    let Some(path) = options.module_aliases.get(library.alias()) else {
+        return true;
+    };
+    Path::new(path) == resolve_official_library_path(library)
 }
 
 fn resolve_official_library_path(library: OfficialLibrary) -> PathBuf {
@@ -521,6 +544,17 @@ pub fn validate_runtime_options(options: &CompileOptions) -> Result<(), String> 
 
 pub fn validate_compile_options(options: &CompileOptions) -> Result<(), String> {
     validate_runtime_options(options)?;
+    let needs_base_alias = matches!(
+        options.library_bundle,
+        LibraryBundle::Base | LibraryBundle::Std
+    ) && alias_uses_official_path(options, OfficialLibrary::Base);
+    let needs_std_alias = matches!(options.library_bundle, LibraryBundle::Std)
+        && alias_uses_official_path(options, OfficialLibrary::Std);
+    let needs_rt_alias = !matches!(options.runtime_entry, RuntimeEntry::None)
+        && alias_uses_official_path(options, OfficialLibrary::Rt);
+    if needs_base_alias || needs_std_alias || needs_rt_alias {
+        validate_official_library_workspace()?;
+    }
 
     if matches!(options.driver_mode, DriverMode::LinkOnly)
         && !matches!(options.lto_mode, LtoMode::None)
@@ -650,5 +684,33 @@ mod tests {
         }
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_official_library_workspace_reports_actionable_error() {
+        let _guard = env_lock().lock().unwrap();
+        let root = unique_temp_dir("kernlib_missing_root");
+
+        unsafe {
+            std::env::set_var("KERNLIB_PATH", &root);
+        }
+        let mut options = CompileOptions {
+            library_bundle: LibraryBundle::Std,
+            ..Default::default()
+        };
+        let err = validate_compile_options(&options).unwrap_err();
+        assert!(err.contains("KERNLIB_PATH"));
+        assert!(err.contains("git submodule update --init library"));
+
+        options
+            .module_aliases
+            .insert("base".to_string(), "/tmp/base".to_string());
+        options
+            .module_aliases
+            .insert("std".to_string(), "/tmp/std".to_string());
+        validate_compile_options(&options).unwrap();
+        unsafe {
+            std::env::remove_var("KERNLIB_PATH");
+        }
     }
 }

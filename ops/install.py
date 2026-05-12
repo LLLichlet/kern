@@ -44,7 +44,7 @@ else:
     )
 
 
-DEFAULT_GITHUB_REPO = "softfault/kern"
+DEFAULT_GITHUB_REPO = "kern-project/kern"
 DEFAULT_VERSION = "v0.7.5"
 
 

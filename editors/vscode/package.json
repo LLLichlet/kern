@@ -8,11 +8,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/softfault/kern.git"
+    "url": "https://github.com/kern-project/kern.git"
   },
-  "homepage": "https://github.com/softfault/kern",
+  "homepage": "https://github.com/kern-project/kern",
   "bugs": {
-    "url": "https://github.com/softfault/kern/issues"
+    "url": "https://github.com/kern-project/kern/issues"
   },
   "engines": {
     "vscode": "^1.86.0"

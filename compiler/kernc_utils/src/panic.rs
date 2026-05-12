@@ -9,7 +9,7 @@ pub fn install_compiler_panic_hook(program_name: &'static str) {
         panic::set_hook(Box::new(move |info| {
             eprintln!("ICE: Kern Compiler Internal Error");
             eprintln!("This is a bug in the compiler. Please report this issue at:");
-            eprintln!("https://github.com/softfault/kern/issues");
+            eprintln!("https://github.com/kern-project/kern/issues");
 
             let message = panic_message(info);
             if !message.is_empty() {

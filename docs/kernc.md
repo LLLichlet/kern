@@ -218,7 +218,7 @@ Prefer the structured runtime/library flags:
 official `std` root alias if no manual `--module-path std=...` mapping is
 provided.
 
-The official library roots are:
+The official roots derived from that workspace are:
 
 - `base`: runtime-independent foundation facilities
 - `rt`: startup and minimal runtime glue
@@ -237,13 +237,12 @@ The `rt` companion-root rule is startup wiring, not ordinary name injection:
 - it does not auto-inject `base`
 - ordinary runtime/library APIs still require explicit `use` like any other module
 
-`kernc` resolves the official library paths through these environment variables first:
-
-1. `KERN_STD_PATH`
-2. `KERN_BASE_PATH`
-3. `KERN_RT_PATH`
-
-Each root then falls back to a path relative to the current executable and finally to `library/<name>` in the repository layout.
+`kernc` resolves official library roots from one official Kern library
+workspace. `KERNLIB_PATH` may point at that workspace root, which must contain
+`Craft.toml` plus the `base`, `rt`, and `std` member directories. Without
+`KERNLIB_PATH`, `kernc` searches for `library` relative to the current
+executable, then for the SDK layout at `lib/kern`, and finally falls back to
+`library` in the repository layout.
 
 The model is:
 

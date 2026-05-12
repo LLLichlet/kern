@@ -14,7 +14,7 @@ use crate::operation_lock::WorkspaceOperationLock;
 use kernc_driver::{CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE};
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, LtoMode, OptLevel, inject_driver_condition_defines,
-    resolve_base_path, resolve_rt_path, resolve_std_path,
+    resolve_library_workspace_path,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -184,6 +184,18 @@ fn rt_entry_linker_input_flavor(
     }
 }
 
+fn official_library_workspace_root() -> PathBuf {
+    resolve_library_workspace_path()
+}
+
+fn official_library_package_root(workspace_root: &Path, package: &str) -> PathBuf {
+    workspace_root.join(package)
+}
+
+fn official_library_package_manifest(workspace_root: &Path, package: &str) -> PathBuf {
+    official_library_package_root(workspace_root, package).join("Craft.toml")
+}
+
 pub(super) fn ensure_std_packages_for_actions(
     workspace_root: &Path,
     actions: &[CompileAction],
@@ -227,7 +239,10 @@ pub(super) fn build_std_package(
     let profile_root = runtime_profile_root(workspace_root, profile)?;
     let _runtime_lock = WorkspaceOperationLock::acquire(&profile_root, "build-runtime")?;
 
-    let std_root = resolve_std_path();
+    let library_workspace_root = official_library_workspace_root();
+    let library_workspace_manifest = library_workspace_root.join("Craft.toml");
+    let std_root = official_library_package_root(&library_workspace_root, "std");
+    let std_manifest = official_library_package_manifest(&library_workspace_root, "std");
     let source_path = std_root.join("init.rn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
@@ -330,6 +345,12 @@ pub(super) fn build_std_package(
             "emit_multi_linker_input_dir={}",
             options.emit_multi_linker_input_dir
         ),
+        format!("library_workspace={}", library_workspace_root.display()),
+        format!(
+            "library_workspace_manifest={}",
+            library_workspace_manifest.display()
+        ),
+        format!("package_manifest={}", std_manifest.display()),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -416,7 +437,10 @@ pub(super) fn build_rt_package(
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
-    let rt_root = resolve_rt_path();
+    let library_workspace_root = official_library_workspace_root();
+    let library_workspace_manifest = library_workspace_root.join("Craft.toml");
+    let rt_root = official_library_package_root(&library_workspace_root, "rt");
+    let rt_manifest = official_library_package_manifest(&library_workspace_root, "rt");
     let source_path = rt_root.join("init.rn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
@@ -481,6 +505,12 @@ pub(super) fn build_rt_package(
             "emit_multi_linker_input_dir={}",
             options.emit_multi_linker_input_dir
         ),
+        format!("library_workspace={}", library_workspace_root.display()),
+        format!(
+            "library_workspace_manifest={}",
+            library_workspace_manifest.display()
+        ),
+        format!("package_manifest={}", rt_manifest.display()),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -531,7 +561,10 @@ pub(super) fn build_base_package(
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
-    let base_root = resolve_base_path();
+    let library_workspace_root = official_library_workspace_root();
+    let library_workspace_manifest = library_workspace_root.join("Craft.toml");
+    let base_root = official_library_package_root(&library_workspace_root, "base");
+    let base_manifest = official_library_package_manifest(&library_workspace_root, "base");
     let source_path = base_root.join("init.rn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
@@ -601,6 +634,12 @@ pub(super) fn build_base_package(
             "emit_multi_linker_input_dir={}",
             options.emit_multi_linker_input_dir
         ),
+        format!("library_workspace={}", library_workspace_root.display()),
+        format!(
+            "library_workspace_manifest={}",
+            library_workspace_manifest.display()
+        ),
+        format!("package_manifest={}", base_manifest.display()),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -652,7 +691,10 @@ pub(super) fn build_rt_entry_package(
     execution_summary: &mut ExecutionSummary,
     flavor: RtEntryFlavor,
 ) -> Result<PathBuf> {
-    let source_path = resolve_rt_path().join("entry.rn");
+    let library_workspace_root = official_library_workspace_root();
+    let library_workspace_manifest = library_workspace_root.join("Craft.toml");
+    let rt_manifest = official_library_package_manifest(&library_workspace_root, "rt");
+    let source_path = official_library_package_root(&library_workspace_root, "rt").join("entry.rn");
     if !source_path.is_file() {
         return Err(Error::Execution(format!(
             "rt entry source `{}` is missing",
@@ -729,6 +771,12 @@ pub(super) fn build_rt_entry_package(
             "emit_multi_linker_input_dir={}",
             options.emit_multi_linker_input_dir
         ),
+        format!("library_workspace={}", library_workspace_root.display()),
+        format!(
+            "library_workspace_manifest={}",
+            library_workspace_manifest.display()
+        ),
+        format!("package_manifest={}", rt_manifest.display()),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         "split_sections_for_gc=true".to_string(),

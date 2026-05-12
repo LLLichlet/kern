@@ -283,8 +283,14 @@ def _prepare_dist_dir(
         ensure(source.is_file(), f"expected release binary `{source}`")
         shutil.copy2(source, dist_dir / "bin" / source.name)
 
+    library_root = root / "library"
+    ensure((library_root / "Craft.toml").is_file(), f"expected library workspace `{library_root}`")
+    for workspace_file in ("Craft.toml", "Craft.lock", "README.md"):
+        source = library_root / workspace_file
+        if source.is_file():
+            shutil.copy2(source, dist_dir / "lib" / "kern" / workspace_file)
     for layer in OFFICIAL_LIBRARY_LAYERS:
-        source = root / "library" / layer
+        source = library_root / layer
         ensure(source.is_dir(), f"expected library layer `{source}`")
         shutil.copytree(source, dist_dir / "lib" / "kern" / layer)
 

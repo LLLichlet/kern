@@ -209,6 +209,23 @@ where
     )
 }
 
+pub fn run_kernc_with_env<I, S>(args: I, envs: &[(&str, &Path)]) -> Output
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = Command::new(kernc_binary());
+    command.current_dir(repo_root()).args(args);
+    for (name, value) in envs {
+        command.env(name, value);
+    }
+    run_command_with_timeout(
+        command,
+        read_duration_env("KERNC_TEST_TIMEOUT_MS", DEFAULT_KERNC_TIMEOUT),
+        "kernc",
+    )
+}
+
 fn maybe_add_default_runtime_contract(args: &mut Vec<String>) {
     if args.iter().any(|arg| arg == "--runtime-entry") {
         return;

@@ -1,5 +1,74 @@
 use super::*;
 
+fn copy_dir_recursive(source: &std::path::Path, destination: &std::path::Path) {
+    fs::create_dir_all(destination).unwrap();
+    for entry in fs::read_dir(source).unwrap() {
+        let entry = entry.unwrap();
+        let entry_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir_recursive(&entry_path, &destination_path);
+        } else {
+            fs::copy(&entry_path, &destination_path).unwrap();
+        }
+    }
+}
+
+#[test]
+fn official_library_bundle_resolves_from_external_kernlib_workspace_root() {
+    let temp_dir = unique_temp_path("kernc_external_kernlib", "dir");
+    let kernlib_root = temp_dir.join("kernlib");
+    let source_path = temp_dir.join("main.rn");
+    let object_path = temp_dir.join("main.o");
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    for item in ["Craft.toml", "Craft.lock", "README.md", "base", "std", "rt"] {
+        let source = repo_root().join("library").join(item);
+        let destination = kernlib_root.join(item);
+        if source.is_dir() {
+            copy_dir_recursive(&source, &destination);
+        } else {
+            fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            fs::copy(source, destination).unwrap();
+        }
+    }
+
+    fs::write(
+        &source_path,
+        r#"
+use std.io;
+use base.coll.range;
+
+fn main() i32 {
+    for (value: range(0, 3)) {
+        if (value == 2) {
+            "external kernlib".println();
+        }
+    }
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+    let output = run_kernc_with_env(
+        [
+            "-c",
+            "--library-bundle",
+            "std",
+            source_arg.as_str(),
+            "-o",
+            object_arg.as_str(),
+        ],
+        &[("KERNLIB_PATH", &kernlib_root)],
+    );
+    assert_success(&output, "kernc with external kernlib root");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
 #[test]
 fn compile_only_std_program_emits_no_std_warnings() {
     let output = compile_source_with_args(

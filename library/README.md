@@ -18,7 +18,8 @@ craft doc --project-path library
 - `rt`: startup glue and minimal runtime fallbacks used by selected runtime
   entry modes.
 
-The compiler and Craft still resolve these libraries through the official
-library paths (`KERN_BASE_PATH`, `KERN_STD_PATH`, and `KERN_RT_PATH`, or the
-SDK layout). The Craft manifests document the same sources rather than
-replacing that toolchain resolution contract.
+The compiler and Craft resolve official libraries from this workspace root.
+Set `KERNLIB_PATH` to point at an external copy of this workspace; SDK installs
+place the same workspace at `lib/kern`. The `base`, `rt`, and `std` package
+paths are derived from that single root instead of being configured as
+independent library roots.

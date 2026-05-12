@@ -75,7 +75,7 @@ library layer and remains valid without libc.
 ### Library Bundle
 
 `library_bundle` selects which official library root aliases are added from the
-shipped toolchain libraries.
+official Kern library workspace.
 
 - `none`
 - `base`
@@ -135,11 +135,14 @@ That behavior is intentionally narrow:
 
 The public library/runtime split is:
 
-- `library/base`: runtime-independent foundation types, memory primitives, and containers
-- `library/rt`: startup entry glue and minimal runtime support
-- `library/std`: high-level user-facing facilities
+- `base`: runtime-independent foundation types, memory primitives, and containers
+- `rt`: startup entry glue and minimal runtime support
+- `std`: high-level user-facing facilities
 
-These are ordinary public layers, not compiler-privileged crates.
+These are ordinary public packages in the official library workspace, not
+compiler-privileged crates. The workspace root is the stable boundary:
+`KERNLIB_PATH` can point at an external checkout, and SDK installs place the
+same workspace under `lib/kern`.
 The official `rt` package is intentionally below the public library stack: it
 must not depend on `base` or `std`.
 

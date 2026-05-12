@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use target_lexicon::{Architecture, PointerWidth, Triple};
 
@@ -231,14 +231,6 @@ impl OfficialLibrary {
             Self::Std => "std",
         }
     }
-
-    const fn env_var(self) -> &'static str {
-        match self {
-            Self::Base => "KERN_BASE_PATH",
-            Self::Rt => "KERN_RT_PATH",
-            Self::Std => "KERN_STD_PATH",
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -406,8 +398,15 @@ impl Default for CompileOptions {
     }
 }
 
-fn resolve_official_library_path(library: OfficialLibrary) -> PathBuf {
-    if let Ok(custom_path) = env::var(library.env_var()) {
+fn official_library_workspace_is_present(path: &Path) -> bool {
+    path.join("Craft.toml").is_file()
+        && path.join("base").join("init.rn").is_file()
+        && path.join("std").join("init.rn").is_file()
+        && path.join("rt").join("init.rn").is_file()
+}
+
+pub fn resolve_library_workspace_path() -> PathBuf {
+    if let Ok(custom_path) = env::var("KERNLIB_PATH") {
         return PathBuf::from(custom_path);
     }
 
@@ -415,20 +414,24 @@ fn resolve_official_library_path(library: OfficialLibrary) -> PathBuf {
         && let Some(exe_dir) = exe_path.parent()
     {
         for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("library").join(library.alias());
-            if candidate.join("init.rn").is_file() {
+            let candidate = ancestor.join("library");
+            if official_library_workspace_is_present(&candidate) {
                 return candidate;
             }
         }
         for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("lib/kern").join(library.alias());
-            if candidate.join("init.rn").is_file() {
+            let candidate = ancestor.join("lib/kern");
+            if official_library_workspace_is_present(&candidate) {
                 return candidate;
             }
         }
     }
 
-    PathBuf::from("library").join(library.alias())
+    PathBuf::from("library")
+}
+
+fn resolve_official_library_path(library: OfficialLibrary) -> PathBuf {
+    resolve_library_workspace_path().join(library.alias())
 }
 
 pub fn resolve_std_path() -> PathBuf {
@@ -594,4 +597,58 @@ pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
         .custom_defines
         .entry("rt_role".to_string())
         .or_insert_with(|| "default".to_string());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn env_lock() -> &'static Mutex<()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}_{}_{}", std::process::id(), nanos))
+    }
+
+    fn write_file(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "").unwrap();
+    }
+
+    fn write_minimal_library_workspace(root: &Path) {
+        write_file(&root.join("Craft.toml"));
+        write_file(&root.join("base").join("init.rn"));
+        write_file(&root.join("std").join("init.rn"));
+        write_file(&root.join("rt").join("init.rn"));
+    }
+
+    #[test]
+    fn official_library_paths_resolve_from_workspace_root_env() {
+        let _guard = env_lock().lock().unwrap();
+        let root = unique_temp_dir("kernlib_env_root");
+        write_minimal_library_workspace(&root);
+
+        unsafe {
+            std::env::set_var("KERNLIB_PATH", &root);
+        }
+        assert_eq!(resolve_library_workspace_path(), root);
+        assert_eq!(resolve_base_path(), root.join("base"));
+        assert_eq!(resolve_std_path(), root.join("std"));
+        assert_eq!(resolve_rt_path(), root.join("rt"));
+        unsafe {
+            std::env::remove_var("KERNLIB_PATH");
+        }
+
+        let _ = fs::remove_dir_all(root);
+    }
 }

@@ -8,7 +8,7 @@ use kernc_cli::test_support::{
 
 // These are toolchain integration tests for consuming the official external
 // kernlib workspace. Library-behavior coverage belongs in kernlib test
-// packages such as `base-test`.
+// packages such as `kernlib-test`.
 
 const HOSTED_HELLO_WORLD_SOURCE: &str = r#"
 use std.io;
@@ -19,12 +19,8 @@ fn main() i32 {
 }
 "#;
 
-#[path = "stdlib/alloc.rs"]
-mod alloc;
 #[path = "stdlib/bundle.rs"]
 mod bundle;
-#[path = "stdlib/num.rs"]
-mod num;
 #[path = "stdlib/runtime.rs"]
 mod runtime;
 #[path = "stdlib/support.rs"]

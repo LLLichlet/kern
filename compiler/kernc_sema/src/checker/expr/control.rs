@@ -65,7 +65,6 @@ enum ScalarCoverageState {
 }
 
 struct MatchArmCheckState<'a> {
-    target: &'a Expr,
     norm_target: TypeId,
     has_constructor_coverage: bool,
     common_ret_ty: Option<TypeId>,
@@ -75,11 +74,18 @@ struct MatchArmCheckState<'a> {
     has_catch_all: &'a mut bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 struct PatternBindField {
     name: SymbolId,
+    name_span: Span,
     ty: TypeId,
     is_mut: bool,
+}
+
+impl PartialEq for PatternBindField {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.ty == other.ty && self.is_mut == other.is_mut
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -441,6 +447,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.match_enum_def(def_id, Span::default(), "inspect enum coverage")?;
                 // Safety: semantic defs are immutable while type checking expressions.
                 let adt_def = unsafe { &*adt_def }.clone();
+                if adt_def.is_extern {
+                    return None;
+                }
                 let generic_map =
                     self.positional_generic_subst_map(&adt_def.generics, &generic_args);
                 Some(
@@ -649,7 +658,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.coverage_lower_pattern(pattern, target_ty)
             }
             ast::MatchPatternKind::Value(expr) => self.coverage_lower_expr_pattern(expr, target_ty),
-            ast::MatchPatternKind::Range { .. } => None,
         }
     }
 
@@ -824,6 +832,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> Option<ScalarIntervals> {
         match &pattern.kind {
             ast::MatchPatternKind::Value(expr) => {
+                if self.ctx.match_value_pattern_bind_ty(expr.id).is_some() {
+                    return None;
+                }
+                if let ExprKind::Range {
+                    start: Some(start),
+                    end: Some(end),
+                    is_inclusive,
+                } = &expr.kind
+                {
+                    return self.scalar_range_intervals(
+                        start,
+                        end,
+                        *is_inclusive,
+                        target_ty,
+                        coverage,
+                    );
+                }
+
                 let value = self.scalar_const_value(expr)?;
                 let point = self.scalar_value_point(value, target_ty)?;
                 match (coverage, point) {
@@ -851,67 +877,71 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     _ => None,
                 }
             }
-            ast::MatchPatternKind::Range {
-                start,
-                end,
-                inclusive,
-            } => {
-                let start_value = self.scalar_const_value(start)?;
-                let end_value = self.scalar_const_value(end)?;
-                let start = self.scalar_value_point(start_value, target_ty)?;
-                let end = self.scalar_value_point(end_value, target_ty)?;
-                match (coverage, start, end) {
-                    (
-                        ScalarCoverageState::Signed { min, max, .. },
-                        ScalarPoint::Signed(start),
-                        ScalarPoint::Signed(end),
-                    ) => {
-                        let end = if *inclusive {
-                            end
-                        } else if let Some(end) = end.checked_sub(1) {
-                            end
-                        } else {
-                            return Some(ScalarIntervals::Signed(Vec::new()));
-                        };
-                        if end < start {
-                            return Some(ScalarIntervals::Signed(Vec::new()));
-                        }
-                        let start = start.max(*min);
-                        let end = end.min(*max);
-                        if end < start {
-                            return Some(ScalarIntervals::Signed(Vec::new()));
-                        }
-                        Some(ScalarIntervals::Signed(vec![SignedInterval { start, end }]))
-                    }
-                    (
-                        ScalarCoverageState::Unsigned { min, max, .. },
-                        ScalarPoint::Unsigned(start),
-                        ScalarPoint::Unsigned(end),
-                    ) => {
-                        let end = if *inclusive {
-                            end
-                        } else if let Some(end) = end.checked_sub(1) {
-                            end
-                        } else {
-                            return Some(ScalarIntervals::Unsigned(Vec::new()));
-                        };
-                        if end < start {
-                            return Some(ScalarIntervals::Unsigned(Vec::new()));
-                        }
-                        let start = start.max(*min);
-                        let end = end.min(*max);
-                        if end < start {
-                            return Some(ScalarIntervals::Unsigned(Vec::new()));
-                        }
-                        Some(ScalarIntervals::Unsigned(vec![UnsignedInterval {
-                            start,
-                            end,
-                        }]))
-                    }
-                    _ => None,
-                }
-            }
             ast::MatchPatternKind::Pattern(_) => None,
+        }
+    }
+
+    fn scalar_range_intervals(
+        &mut self,
+        start: &Expr,
+        end: &Expr,
+        inclusive: bool,
+        target_ty: TypeId,
+        coverage: &ScalarCoverageState,
+    ) -> Option<ScalarIntervals> {
+        let start_value = self.scalar_const_value(start)?;
+        let end_value = self.scalar_const_value(end)?;
+        let start = self.scalar_value_point(start_value, target_ty)?;
+        let end = self.scalar_value_point(end_value, target_ty)?;
+        match (coverage, start, end) {
+            (
+                ScalarCoverageState::Signed { min, max, .. },
+                ScalarPoint::Signed(start),
+                ScalarPoint::Signed(end),
+            ) => {
+                let end = if inclusive {
+                    end
+                } else if let Some(end) = end.checked_sub(1) {
+                    end
+                } else {
+                    return Some(ScalarIntervals::Signed(Vec::new()));
+                };
+                if end < start {
+                    return Some(ScalarIntervals::Signed(Vec::new()));
+                }
+                let start = start.max(*min);
+                let end = end.min(*max);
+                if end < start {
+                    return Some(ScalarIntervals::Signed(Vec::new()));
+                }
+                Some(ScalarIntervals::Signed(vec![SignedInterval { start, end }]))
+            }
+            (
+                ScalarCoverageState::Unsigned { min, max, .. },
+                ScalarPoint::Unsigned(start),
+                ScalarPoint::Unsigned(end),
+            ) => {
+                let end = if inclusive {
+                    end
+                } else if let Some(end) = end.checked_sub(1) {
+                    end
+                } else {
+                    return Some(ScalarIntervals::Unsigned(Vec::new()));
+                };
+                if end < start {
+                    return Some(ScalarIntervals::Unsigned(Vec::new()));
+                }
+                let start = start.max(*min);
+                let end = end.min(*max);
+                if end < start {
+                    return Some(ScalarIntervals::Unsigned(Vec::new()));
+                }
+                Some(ScalarIntervals::Unsigned(vec![UnsignedInterval {
+                    start,
+                    end,
+                }]))
+            }
+            _ => None,
         }
     }
 
@@ -1111,6 +1141,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 } else {
                     self.pattern_bind_shape_from_fields(vec![PatternBindField {
                         name: binding.name,
+                        name_span: binding.name_span,
                         ty: actual_ty,
                         is_mut: binding.is_mut,
                     }])
@@ -1165,10 +1196,196 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> PatternBindShape {
         match &pattern.kind {
             ast::MatchPatternKind::Pattern(pattern) => self.pattern_bind_shape(pattern, target_ty),
-            ast::MatchPatternKind::Value(_) | ast::MatchPatternKind::Range { .. } => {
+            ast::MatchPatternKind::Value(value) => self
+                .ctx
+                .match_value_pattern_bind_ty(value.id)
+                .map(|bind_ty| self.bind_shape_from_pattern_bind_ty(bind_ty, value.span))
+                .unwrap_or_else(|| self.void_pattern_bind_shape()),
+        }
+    }
+
+    fn bind_shape_from_pattern_bind_ty(&mut self, bind_ty: TypeId, span: Span) -> PatternBindShape {
+        let bind_ty = self.ctx.normalize_concrete_type(bind_ty);
+        let bind_ty = self.resolve_tv(bind_ty);
+        if bind_ty == TypeId::VOID {
+            return self.void_pattern_bind_shape();
+        }
+
+        match self.ctx.type_registry.get(bind_ty).clone() {
+            TypeKind::AnonymousStruct(_, fields) => {
+                let fields = fields
+                    .into_iter()
+                    .map(|field| PatternBindField {
+                        name: field.name,
+                        name_span: span,
+                        ty: field.ty,
+                        is_mut: false,
+                    })
+                    .collect();
+                self.pattern_bind_shape_from_fields(fields)
+            }
+            _ => {
+                let bind_str = self.ctx.ty_to_string(bind_ty);
+                self.ctx
+                    .struct_error(span, "pattern binding type must be `void` or `struct { ... }`")
+                    .with_hint(format!("found `Bind = {}`", bind_str))
+                    .with_hint(
+                        "use `void` for a no-binding pattern, or an anonymous struct whose fields become arm bindings",
+                    )
+                    .emit();
                 self.void_pattern_bind_shape()
             }
         }
+    }
+
+    fn pattern_trait_bind_ty(&mut self, pattern_ty: TypeId, target_ty: TypeId) -> Option<TypeId> {
+        let trait_def_id = self.ctx.builtin_def("Pattern")?;
+        let bind_assoc_id = match self.ctx.defs.get(trait_def_id.0 as usize) {
+            Some(Def::Trait(trait_def)) => {
+                trait_def.assoc_types.iter().copied().find(|assoc_id| {
+                    matches!(
+                        self.ctx.defs.get(assoc_id.0 as usize),
+                        Some(Def::AssociatedType(assoc_def))
+                            if self.ctx.resolve(assoc_def.name) == "Bind"
+                    )
+                })?
+            }
+            _ => return None,
+        };
+        let trait_args = vec![crate::ty::GenericArg::Type(target_ty)];
+        let trait_ty = self.ctx.builtin_trait_ty("Pattern", vec![target_ty])?;
+        if !self.check_trait_impl(pattern_ty, trait_ty) {
+            return None;
+        }
+
+        if let Some((concrete_target, bind_ty)) = self.pattern_impl_head_bind_ty(
+            pattern_ty,
+            target_ty,
+            trait_def_id,
+            &trait_args,
+            bind_assoc_id,
+        ) {
+            let resolved_target = self.resolve_tv(target_ty);
+            if let TypeKind::TypeVar(target_vid) =
+                self.ctx.type_registry.get(resolved_target).clone()
+            {
+                self.bind_type_var(target_vid, concrete_target);
+            }
+            return Some(self.ctx.normalize_concrete_type(bind_ty));
+        }
+
+        let target_ty = self.resolve_tv(target_ty);
+        let projection = self.ctx.type_registry.intern(TypeKind::Projection {
+            target: pattern_ty,
+            trait_def_id,
+            trait_args: vec![crate::ty::GenericArg::Type(target_ty)],
+            assoc_def_id: bind_assoc_id,
+            assoc_args: vec![],
+        });
+        Some(self.ctx.normalize_concrete_type(projection))
+    }
+
+    fn pattern_impl_head_bind_ty(
+        &mut self,
+        pattern_ty: TypeId,
+        _target_ty: TypeId,
+        trait_def_id: crate::def::DefId,
+        trait_args: &[crate::ty::GenericArg],
+        bind_assoc_id: crate::def::DefId,
+    ) -> Option<(TypeId, TypeId)> {
+        let candidates = crate::query::collect_specificity_maximal_trait_impl_head_candidates(
+            self.ctx,
+            pattern_ty,
+            trait_def_id,
+            trait_args,
+        );
+        let [candidate] = candidates.as_slice() else {
+            return None;
+        };
+        let Some(impl_trait_ty) = crate::query::instantiate_impl_trait_ty(
+            self.ctx,
+            candidate.impl_id,
+            &candidate.impl_args,
+        ) else {
+            return None;
+        };
+        let TypeKind::TraitObject(_, impl_args, assoc_bindings) = self
+            .ctx
+            .type_registry
+            .get(self.ctx.type_registry.normalize(impl_trait_ty))
+            .clone()
+        else {
+            return None;
+        };
+        let Some(crate::ty::GenericArg::Type(concrete_target)) = impl_args.first().copied() else {
+            return None;
+        };
+        let bind_ty = assoc_bindings
+            .into_iter()
+            .find(|(assoc_id, _)| *assoc_id == bind_assoc_id)
+            .map(|(_, ty)| ty)?;
+        Some((concrete_target, bind_ty))
+    }
+
+    fn value_pattern_is_compiler_known(&mut self, value: &Expr, target_ty: TypeId) -> bool {
+        let norm_target = self.resolve_tv(target_ty);
+        match &value.kind {
+            ExprKind::Grouped { expr, .. } => self.value_pattern_is_compiler_known(expr, target_ty),
+            ExprKind::Range { .. } => true,
+            ExprKind::Bool(_) => true,
+            ExprKind::Integer { .. } | ExprKind::Char(_) | ExprKind::ByteChar(_)
+                if self.ctx.type_registry.is_integer(norm_target) =>
+            {
+                true
+            }
+            ExprKind::Float { .. } if self.ctx.type_registry.is_float(norm_target) => true,
+            ExprKind::Unary {
+                op: ast::UnaryOperator::Negate,
+                operand,
+            } => self.value_pattern_is_compiler_known(operand, target_ty),
+            ExprKind::EnumLiteral { .. } => true,
+            ExprKind::FieldAccess { .. }
+                if matches!(
+                    self.ctx.type_registry.get(norm_target),
+                    TypeKind::Enum(..) | TypeKind::AnonymousEnum(_)
+                ) =>
+            {
+                true
+            }
+            ExprKind::DataInit {
+                literal: ast::DataLiteralKind::Struct(_),
+                type_node,
+            } => match type_node {
+                Some(type_node) => {
+                    let pattern_ty = self.evaluate_dynamic_typeof(type_node);
+                    let pattern_ty = self.resolve_tv(pattern_ty);
+                    let pattern_ty = self.ctx.normalize_concrete_type(pattern_ty);
+                    let target_ty = self.ctx.normalize_concrete_type(norm_target);
+                    pattern_ty == target_ty
+                }
+                None => true,
+            },
+            _ => false,
+        }
+    }
+
+    fn check_compiler_known_value_pattern(&mut self, value: &Expr, target_ty: TypeId) {
+        let v_ty = self.check_expr(value, Some(target_ty));
+        self.check_coercion(value, target_ty, v_ty);
+    }
+
+    fn try_user_value_pattern(&mut self, value: &Expr, target_ty: TypeId) -> Option<TypeId> {
+        let pattern_ty = self.check_expr(value, None);
+        if pattern_ty == TypeId::ERROR {
+            return Some(TypeId::ERROR);
+        }
+
+        let Some(bind_ty) = self.pattern_trait_bind_ty(pattern_ty, target_ty) else {
+            return None;
+        };
+
+        self.ctx.set_match_value_pattern_bind_ty(value.id, bind_ty);
+        Some(bind_ty)
     }
 
     fn emit_match_arm_bind_shape_error(
@@ -1214,7 +1431,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         for arm in arms {
             let mut arm_state = MatchArmCheckState {
-                target,
                 norm_target,
                 has_constructor_coverage,
                 common_ret_ty,
@@ -1293,21 +1509,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         for pat in &arm.patterns {
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
-                    if self.match_value_pattern_should_use_equality(v, state.norm_target) {
-                        let binary_id = self.ctx.next_node_id();
-                        let equality_ty = self.check_binary(
-                            binary_id,
-                            state.target,
-                            ast::BinaryOperator::Equal,
-                            v,
-                            Some(TypeId::BOOL),
-                        );
-                        self.ctx.set_node_type(binary_id, equality_ty);
-                        self.ctx
-                            .set_match_value_pattern_binary_expr(v.id, binary_id);
+                    if self.check_match_range_value_pattern(v, state.norm_target) {
+                    } else if self.value_pattern_is_compiler_known(v, state.norm_target) {
+                        self.check_compiler_known_value_pattern(v, state.norm_target);
+                    } else if self.try_user_value_pattern(v, state.norm_target).is_some() {
                     } else {
-                        let v_ty = self.check_expr(v, Some(state.norm_target));
-                        self.check_coercion(v, state.norm_target, v_ty);
+                        let pattern_ty = self.ctx.node_type_or_error(v.id);
+                        let pattern_str = self.ctx.ty_to_string(pattern_ty);
+                        let target_str = self.ctx.ty_to_string(state.norm_target);
+                        self.ctx
+                            .struct_error(v.span, "match value is not a valid pattern")
+                            .with_hint(format!(
+                                "`{}` can be a pattern for `{}` only if it is a compiler-known scalar, enum, struct, or range pattern, or implements `Pattern[{}]`",
+                                pattern_str, target_str, target_str
+                            ))
+                            .emit();
                     }
                     if *state.match_closed {
                         self.warn_unreachable_match_pattern(pat.span);
@@ -1331,28 +1547,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         } else {
                             self.warn_unreachable_match_pattern(pat.span);
                         }
-                    } else if let Some(scalar_coverage) = state.scalar_coverage.as_deref_mut()
-                        && let Some(intervals) =
-                            self.scalar_pattern_intervals(pat, state.norm_target, scalar_coverage)
-                    {
-                        if intervals.is_empty() || scalar_coverage.covers_all(&intervals) {
-                            self.warn_unreachable_match_pattern(pat.span);
-                        } else {
-                            scalar_coverage.add_intervals(&intervals);
-                            if scalar_coverage.is_full() {
-                                *state.has_catch_all = true;
-                                *state.match_closed = true;
-                            }
-                        }
-                    }
-                }
-                ast::MatchPatternKind::Range { start, end, .. } => {
-                    let s_ty = self.check_expr(start, Some(state.norm_target));
-                    let e_ty = self.check_expr(end, Some(state.norm_target));
-                    self.check_coercion(start, state.norm_target, s_ty);
-                    self.check_coercion(end, state.norm_target, e_ty);
-                    if *state.match_closed {
-                        self.warn_unreachable_match_pattern(pat.span);
                     } else if let Some(scalar_coverage) = state.scalar_coverage.as_deref_mut()
                         && let Some(intervals) =
                             self.scalar_pattern_intervals(pat, state.norm_target, scalar_coverage)
@@ -1425,9 +1619,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             for field in &bind_shape.fields {
                 let binding = ast::BindingPattern {
                     name: field.name,
-                    name_span: arm.span,
+                    name_span: field.name_span,
                     is_mut: field.is_mut,
-                    span: arm.span,
+                    span: field.name_span,
                 };
                 self.define_pattern_binding(arm.body.id, &binding, field.ty);
             }
@@ -1445,27 +1639,31 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         body_ty
     }
 
-    fn match_value_pattern_should_use_equality(&mut self, value: &Expr, target_ty: TypeId) -> bool {
-        let norm_target = self.resolve_tv(target_ty);
+    fn check_match_range_value_pattern(&mut self, value: &Expr, target_ty: TypeId) -> bool {
         match &value.kind {
-            ExprKind::Grouped { expr, .. } => {
-                self.match_value_pattern_should_use_equality(expr, target_ty)
-            }
-            ExprKind::Bool(_) => false,
-            ExprKind::EnumLiteral { .. } => false,
-            ExprKind::FieldAccess { .. }
-                if matches!(
-                    self.ctx.type_registry.get(norm_target),
-                    TypeKind::Enum(..) | TypeKind::AnonymousEnum(_)
-                ) =>
-            {
-                false
-            }
-            ExprKind::DataInit {
-                literal: ast::DataLiteralKind::Struct(_),
+            ExprKind::Grouped { expr, .. } => self.check_match_range_value_pattern(expr, target_ty),
+            ExprKind::Range {
+                start: Some(start),
+                end: Some(end),
                 ..
-            } => false,
-            _ => true,
+            } => {
+                let start_ty = self.check_expr(start, Some(target_ty));
+                self.check_coercion(start, target_ty, start_ty);
+                let end_ty = self.check_expr(end, Some(target_ty));
+                self.check_coercion(end, target_ty, end_ty);
+                true
+            }
+            ExprKind::Range { .. } => {
+                self.ctx
+                    .struct_error(
+                        value.span,
+                        "open-ended range patterns are not supported here",
+                    )
+                    .with_hint("use a closed scalar range such as `start...end` or `start..=end`")
+                    .emit();
+                true
+            }
+            _ => false,
         }
     }
 

@@ -1,4 +1,4 @@
-// stderr: does not implement the target trait
+// stderr: the source pointer type must implement the target trait
 
 trait Base[N: usize] {
     type Out;

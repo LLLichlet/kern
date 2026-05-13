@@ -203,6 +203,14 @@ pub enum TypeKind {
         elem: TypeId,
     },
 
+    /// Builtin range type families such as `T...T`, `T..=T`, `...T`,
+    /// `..=T`, `T...`, and `...`.
+    Range {
+        start: Option<TypeId>,
+        end: Option<TypeId>,
+        is_inclusive: bool,
+    },
+
     /// Reference to a named struct or union definition.
     /// Only the `DefId` is stored here so recursive types remain representable.
     Def(DefId, Vec<GenericArg>),
@@ -750,6 +758,16 @@ impl TypeRegistry {
             | TypeKind::Array { elem, .. }
             | TypeKind::ArrayInfer { elem, .. }
             | TypeKind::Simd { elem, .. } => Some(*elem),
+            TypeKind::Range {
+                start: Some(elem),
+                end: _,
+                ..
+            }
+            | TypeKind::Range {
+                start: None,
+                end: Some(elem),
+                ..
+            } => Some(*elem),
             _ => None,
         }
     }

@@ -17,6 +17,21 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let err_ty = self.resolve_type(err, env_scope);
                 self.make_builtin_result_type(ok_ty, err_ty)
             }
+            ast::TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => {
+                let start_ty = start
+                    .as_deref()
+                    .map(|start| self.resolve_type(start, env_scope));
+                let end_ty = end.as_deref().map(|end| self.resolve_type(end, env_scope));
+                self.ctx.type_registry.intern(TypeKind::Range {
+                    start: start_ty,
+                    end: end_ty,
+                    is_inclusive: *is_inclusive,
+                })
+            }
             ast::TypeKind::Struct { is_extern, fields } => {
                 let mut anon_fields =
                     self.resolve_anonymous_fields(fields, env_scope, ty_node.span, "struct", true);

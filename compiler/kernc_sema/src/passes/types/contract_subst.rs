@@ -142,6 +142,33 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     .type_registry
                     .intern(TypeKind::ArrayInfer { elem: new_elem })
             }
+            TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => {
+                let start = start.map(|start| {
+                    self.substitute_trait_assoc_contract_self(
+                        start,
+                        trait_def_id,
+                        trait_args,
+                        self_ty,
+                    )
+                });
+                let end = end.map(|end| {
+                    self.substitute_trait_assoc_contract_self(
+                        end,
+                        trait_def_id,
+                        trait_args,
+                        self_ty,
+                    )
+                });
+                self.ctx.type_registry.intern(TypeKind::Range {
+                    start,
+                    end,
+                    is_inclusive,
+                })
+            }
             TypeKind::Function {
                 params,
                 ret,

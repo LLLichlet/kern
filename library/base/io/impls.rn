@@ -108,7 +108,7 @@ fn write_u128_to_writer(
     }
 
     // Writes only the populated suffix.
-    let valid_slice = buf.&[i .. 128];
+    let valid_slice = buf.&[i...128];
     _ = writer.write(valid_slice);
 }
 

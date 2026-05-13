@@ -291,6 +291,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         },
                     );
                 }
+            } else if let TypeKind::Range { start, end, .. } =
+                self.ctx.type_registry.get(search_norm).clone()
+            {
+                self.collect_range_field_candidates(start, end, &mut candidates);
             } else if let Some((trait_def_id, trait_args, assoc_bindings)) =
                 match self.ctx.type_registry.get(search_norm) {
                     TypeKind::TraitObject(trait_def_id, trait_args, assoc_bindings) => {
@@ -313,6 +317,40 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         candidates
+    }
+
+    fn collect_range_field_candidates(
+        &mut self,
+        start: Option<TypeId>,
+        end: Option<TypeId>,
+        candidates: &mut Vec<MemberCandidate>,
+    ) {
+        if let Some(start) = start {
+            push_member_candidate(
+                candidates,
+                MemberCandidate {
+                    name: self.ctx.intern("start"),
+                    kind: SymbolKind::Var,
+                    type_id: start,
+                    def_id: None,
+                    definition_span: Span::default(),
+                    is_mut: false,
+                },
+            );
+        }
+        if let Some(end) = end {
+            push_member_candidate(
+                candidates,
+                MemberCandidate {
+                    name: self.ctx.intern("end"),
+                    kind: SymbolKind::Var,
+                    type_id: end,
+                    def_id: None,
+                    definition_span: Span::default(),
+                    is_mut: false,
+                },
+            );
+        }
     }
 
     pub fn resolve_named_member(
@@ -1663,6 +1701,59 @@ mod tests {
     }
 
     #[test]
+    fn select_most_specific_trait_impl_head_prefers_concrete_const_arg() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+        let (trait_id, assoc_id) = add_trait_with_assoc(&mut ctx, "Base", "Out");
+        let param_n = ctx.intern("N");
+        let n_param = crate::ty::ConstGeneric::Param(param_n, TypeId::USIZE);
+        let four = crate::ty::ConstGeneric::Value(crate::ty::ConstGenericValue {
+            ty: TypeId::USIZE,
+            kind: crate::ty::ConstGenericValueKind::Int(4),
+        });
+        let n_ty_node_id = ctx.next_node_id();
+        ctx.set_node_type(n_ty_node_id, TypeId::USIZE);
+        let generics = [kernc_ast::GenericParam {
+            name: param_n,
+            span: Span::default(),
+            kind: kernc_ast::GenericParamKind::Const {
+                ty: kernc_ast::TypeNode {
+                    id: n_ty_node_id,
+                    kind: kernc_ast::TypeKind::Infer,
+                    span: Span::default(),
+                },
+            },
+        }];
+
+        let concrete_impl = add_trait_impl_with_args(
+            &mut ctx,
+            &[],
+            TypeId::I32,
+            trait_id,
+            vec![crate::ty::GenericArg::Const(four)],
+            vec![(assoc_id, TypeId::I64)],
+        );
+        add_trait_impl_with_args(
+            &mut ctx,
+            &generics,
+            TypeId::I32,
+            trait_id,
+            vec![crate::ty::GenericArg::Const(n_param)],
+            vec![(assoc_id, TypeId::BOOL)],
+        );
+
+        assert_eq!(
+            select_most_specific_trait_impl_head(
+                &mut ctx,
+                TypeId::I32,
+                trait_id,
+                &[crate::ty::GenericArg::Const(four)]
+            ),
+            Some((concrete_impl, Vec::new()))
+        );
+    }
+
+    #[test]
     fn enrich_trait_object_assoc_bindings_skips_ambiguous_impl_heads() {
         let mut session = Session::new();
         let mut ctx = SemaContext::new(&mut session);
@@ -1994,6 +2085,24 @@ mod tests {
         trait_id: DefId,
         assoc_bindings: Vec<(DefId, TypeId)>,
     ) -> DefId {
+        add_trait_impl_with_args(
+            ctx,
+            generics,
+            target_ty,
+            trait_id,
+            Vec::new(),
+            assoc_bindings,
+        )
+    }
+
+    fn add_trait_impl_with_args(
+        ctx: &mut SemaContext<'_>,
+        generics: &[kernc_ast::GenericParam],
+        target_ty: TypeId,
+        trait_id: DefId,
+        trait_args: Vec<crate::ty::GenericArg>,
+        assoc_bindings: Vec<(DefId, TypeId)>,
+    ) -> DefId {
         let target_node_id = ctx.next_node_id();
         let trait_node_id = ctx.next_node_id();
         let impl_id_value = ctx.defs.next_id();
@@ -2021,7 +2130,7 @@ mod tests {
 
         let trait_ty =
             ctx.type_registry
-                .intern(TypeKind::TraitObject(trait_id, Vec::new(), assoc_bindings));
+                .intern(TypeKind::TraitObject(trait_id, trait_args, assoc_bindings));
         ctx.set_node_type(target_node_id, target_ty);
         ctx.set_node_type(trait_node_id, trait_ty);
         ctx.register_trait_impl(impl_id);

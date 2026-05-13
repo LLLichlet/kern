@@ -139,12 +139,65 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_extern_enum_declarations() {
+fn compiles_extern_enum_declarations_as_backing_integer_abi_values() {
+    let output = compile_source(
+        r#"
+extern enum Mode: u32 {
+    Read = 1,
+    Write,
+};
+
+fn take_raw(value: u32) u32 {
+    return value;
+}
+
+fn main() i32 {
+    let raw: u32 = Mode.Write;
+    return (take_raw(Mode.Read) + raw) as i32 - 3;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn rejects_extern_enum_arithmetic_without_backing_integer_boundary() {
+    let output = compile_source(
+        r#"
+extern enum Mode: u32 {
+    Read = 1,
+    Write,
+};
+
+fn main() i32 {
+    let raw = Mode.Read + 1u32;
+    return raw as i32;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted extern enum arithmetic:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("operator `+` is not available"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_extern_enum_without_backing_type() {
     let output = compile_source(
         r#"
 extern enum Bad {
     A,
-    B,
 };
 "#,
     );
@@ -158,7 +211,32 @@ extern enum Bad {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("enum declarations cannot be extern"),
+        stderr.contains("extern enum declarations must specify an integer backing type"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_extern_enum_payload_variants() {
+    let output = compile_source(
+        r#"
+extern enum Bad: u32 {
+    A: i32,
+};
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("extern enum variants cannot carry payloads"),
         "unexpected stderr:\n{}",
         stderr
     );

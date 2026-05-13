@@ -13,6 +13,37 @@ mod literal;
 mod ops;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn range_bound_tys(&self, ty: TypeId) -> (Option<TypeId>, Option<TypeId>) {
+        match self
+            .ctx
+            .type_registry
+            .get(self.ctx.type_registry.normalize(ty))
+        {
+            TypeKind::Range { start, end, .. } => (*start, *end),
+            _ => (None, None),
+        }
+    }
+
+    fn lower_range_expr(
+        &mut self,
+        start: Option<&Expr>,
+        end: Option<&Expr>,
+        subst_map: &HashMap<SymbolId, GenericArg>,
+        concrete_ty: TypeId,
+    ) -> MastExprKind {
+        let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
+        let struct_id = self.instantiate_range_struct(norm_ty);
+        let (start_ty, end_ty) = self.range_bound_tys(norm_ty);
+        let mut fields = Vec::new();
+        if let Some(start) = start {
+            fields.push(self.lower_expr(start, subst_map, start_ty));
+        }
+        if let Some(end) = end {
+            fields.push(self.lower_expr(end, subst_map, end_ty));
+        }
+        MastExprKind::StructInit { struct_id, fields }
+    }
+
     pub(crate) fn lower_error_kind(
         &mut self,
         span: Span,
@@ -152,6 +183,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .measure_phase("        lower_expr_ops", |this| {
                     this.lower_binary(expr.id, lhs, *op, rhs, subst_map, concrete_ty, expr.span)
                 }),
+            ExprKind::Range {
+                start,
+                end,
+                is_inclusive: _,
+            } => self.measure_phase("        lower_expr_data", |this| {
+                this.lower_range_expr(start.as_deref(), end.as_deref(), subst_map, concrete_ty)
+            }),
             ExprKind::Unary { op, operand } => self
                 .measure_phase("        lower_expr_ops", |this| {
                     this.lower_unary(*op, operand, subst_map, concrete_ty, expr.span)
@@ -541,14 +579,20 @@ mod tests {
             },
         };
 
-        let ordering = Lowerer::new(&mut ctx).atomic_ordering_arg(&arg, &HashMap::new());
+        let ordering = Lowerer::new(&mut ctx).atomic_ordering_arg(
+            &arg,
+            &HashMap::new(),
+            "load order",
+            AtomicOrdering::valid_for_load,
+            "load order must be Relaxed, Acquire, or SeqCst",
+        );
 
         assert_eq!(ordering, AtomicOrdering::SeqCst);
         assert_eq!(ctx.sess.diagnostics.len(), 1);
         assert_eq!(ctx.sess.diagnostics[0].level, DiagnosticLevel::Error);
         assert_eq!(
             ctx.sess.diagnostics[0].message,
-            "invalid atomic ordering constant `99`"
+            "invalid atomic ordering constant `99` for `load order`"
         );
     }
 

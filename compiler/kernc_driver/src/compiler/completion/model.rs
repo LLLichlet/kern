@@ -496,10 +496,6 @@ impl CompletionModel {
 
         match &pattern.kind {
             ast::MatchPatternKind::Value(value) => self.collect_in_expr(value, visible, offset),
-            ast::MatchPatternKind::Range { start, end, .. } => {
-                self.collect_in_expr(start, visible, offset)
-                    || self.collect_in_expr(end, visible, offset)
-            }
             _ => true,
         }
     }

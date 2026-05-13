@@ -104,7 +104,7 @@ fn diagnostics_warn_for_unreachable_private_function_chain() {
 #[test]
 fn diagnostics_warn_for_unreachable_private_constant() {
     let mut analysis = AnalysisEngine::default();
-    let source = concat!("const helper = 1;\n", "fn main() i32 { return 0; }\n",);
+    let source = concat!("const helper: i32 = 1;\n", "fn main() i32 { return 0; }\n",);
     let uri = temp_file_uri("unused_private_const", source);
 
     let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
@@ -124,7 +124,7 @@ fn diagnostics_warn_for_unreachable_private_constant() {
 #[test]
 fn diagnostics_warn_for_unreachable_private_static() {
     let mut analysis = AnalysisEngine::default();
-    let source = concat!("static helper = 1;\n", "fn main() i32 { return 0; }\n",);
+    let source = concat!("static helper: i32 = 1;\n", "fn main() i32 { return 0; }\n",);
     let uri = temp_file_uri("unused_private_static", source);
 
     let outcome = open_document_for_full_diagnostics(&mut analysis, &uri, source);
@@ -446,8 +446,11 @@ fn body_only_change_recomputes_unused_private_function_warning() {
 #[test]
 fn body_only_change_recomputes_unused_private_constant_warning() {
     let mut analysis = AnalysisEngine::default();
-    let initial = concat!("const helper = 1;\n", "fn main() i32 { return 0; }\n",);
-    let updated = concat!("const helper = 1;\n", "fn main() i32 { return helper; }\n",);
+    let initial = concat!("const helper: i32 = 1;\n", "fn main() i32 { return 0; }\n",);
+    let updated = concat!(
+        "const helper: i32 = 1;\n",
+        "fn main() i32 { return helper; }\n",
+    );
     let uri = temp_file_uri("unused_private_const_incremental", initial);
 
     let open_outcome = open_document_for_full_diagnostics(&mut analysis, &uri, initial);
@@ -480,8 +483,11 @@ fn body_only_change_recomputes_unused_private_constant_warning() {
 #[test]
 fn body_only_change_recomputes_unused_private_static_warning() {
     let mut analysis = AnalysisEngine::default();
-    let initial = concat!("static helper = 1;\n", "fn main() i32 { return 0; }\n",);
-    let updated = concat!("static helper = 1;\n", "fn main() i32 { return helper; }\n",);
+    let initial = concat!("static helper: i32 = 1;\n", "fn main() i32 { return 0; }\n",);
+    let updated = concat!(
+        "static helper: i32 = 1;\n",
+        "fn main() i32 { return helper; }\n",
+    );
     let uri = temp_file_uri("unused_private_static_incremental", initial);
 
     let open_outcome = open_document_for_full_diagnostics(&mut analysis, &uri, initial);

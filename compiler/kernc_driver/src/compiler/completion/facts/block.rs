@@ -347,18 +347,6 @@ fn collect_match_pattern_block_completion_facts(
                 block_facts_by_span,
             );
         }
-        ast::MatchPatternKind::Range { start, end, .. } => {
-            collect_expr_block_completion_facts(
-                start,
-                expr_binding_items_by_span,
-                block_facts_by_span,
-            );
-            collect_expr_block_completion_facts(
-                end,
-                expr_binding_items_by_span,
-                block_facts_by_span,
-            );
-        }
         _ => {}
     }
 }

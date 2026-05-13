@@ -91,10 +91,6 @@ impl<'a> Pruner<'a> {
                     for pat in &mut arm.patterns {
                         match &mut pat.kind {
                             MatchPatternKind::Value(e) => self.prune_expr(e),
-                            MatchPatternKind::Range { start, end, .. } => {
-                                self.prune_expr(start);
-                                self.prune_expr(end);
-                            }
                             _ => {} // `Variant` and `CatchAll` contain no standalone expression nodes.
                         }
                     }

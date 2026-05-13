@@ -254,6 +254,17 @@ impl<'a> FlowCfgBuilder<'a> {
                 let node = self.lower_eval(expr, rhs_out);
                 self.fallthrough(node)
             }
+            ast::ExprKind::Range { start, end, .. } => {
+                let mut current = incoming;
+                if let Some(start) = start {
+                    current = self.lower_expr(start, current, loop_ctx);
+                }
+                if let Some(end) = end {
+                    current = self.lower_expr(end, current, loop_ctx);
+                }
+                let node = self.lower_eval(expr, current);
+                self.fallthrough(node)
+            }
             ast::ExprKind::Unary { operand, .. } => {
                 let operand_out = self.lower_expr(operand, incoming, loop_ctx);
                 let node = self.lower_eval(expr, operand_out);
@@ -674,6 +685,14 @@ fn collect_local_binding_uses_in_expr(
             collect_local_binding_uses_in_expr(lhs, reference_to_binding, uses);
             collect_local_binding_uses_in_expr(rhs, reference_to_binding, uses);
         }
+        ast::ExprKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                collect_local_binding_uses_in_expr(start, reference_to_binding, uses);
+            }
+            if let Some(end) = end {
+                collect_local_binding_uses_in_expr(end, reference_to_binding, uses);
+            }
+        }
         ast::ExprKind::Unary { operand, .. } => {
             collect_local_binding_uses_in_expr(operand, reference_to_binding, uses);
         }
@@ -843,6 +862,14 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             accumulate_expr_effects(lhs, effects);
             accumulate_expr_effects(rhs, effects);
+        }
+        ast::ExprKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                accumulate_expr_effects(start, effects);
+            }
+            if let Some(end) = end {
+                accumulate_expr_effects(end, effects);
+            }
         }
         ast::ExprKind::FieldAccess { lhs, .. } => {
             effects.has_memory_read = true;

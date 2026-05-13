@@ -160,6 +160,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .struct_type(&[ptr_ty.into(), len_ty.into()], false)
                     .into()
             }
+            TypeKind::Range { .. } => {
+                if let Some(&mono_id) = self.range_map.get(&norm)
+                    && let Some(struct_ty) =
+                        self.lookup_instantiated_struct(mono_id, Span::default(), "range")
+                {
+                    return struct_ty;
+                }
+
+                self.invalid_llvm_type(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Codegen): Range TypeId({:?}) not instantiated by Lowerer",
+                        norm
+                    ),
+                )
+            }
             TypeKind::Def(def_id, args) => {
                 let key = (def_id, args.clone());
                 if let Some(&mono_id) = self.def_mono_map.get(&key)

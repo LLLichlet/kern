@@ -82,7 +82,7 @@ impl &mut DirEntries {
         let start = self.names.&.len();
         self.names..&.try_push_str(alloc, entry.name).?;
         let end = self.names.&.len();
-        let name = self.names.&.as_str().&[start .. end];
+        let name = self.names.&.as_str().&[start...end];
         self.raw..&.try_push(alloc, OwnedDirEntry.{ name: name, file_type: entry.file_type() }).?;
         return .{ Ok: {} };
     }
@@ -234,7 +234,7 @@ fn create_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
             continue;
         }
 
-        let partial = trimmed.&[0 .. index];
+        let partial = trimmed.&[0...index];
         let created = create_dir_if_missing(alloc, partial).?;
         any_created = any_created or created;
 

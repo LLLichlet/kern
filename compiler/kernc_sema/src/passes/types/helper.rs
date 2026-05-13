@@ -111,26 +111,44 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         scope: ScopeId,
         span: Span,
     ) -> TypeId {
+        self.resolve_const_generic_param_type_in_param_scope(ty_node, scope, scope, span)
+    }
+
+    pub(crate) fn resolve_const_generic_param_type_in_param_scope(
+        &mut self,
+        ty_node: &ast::TypeNode,
+        current_scope: ScopeId,
+        param_scope: ScopeId,
+        span: Span,
+    ) -> TypeId {
         let ty = match &ty_node.kind {
             ast::TypeKind::Path {
                 anchor: None,
                 segments,
             } if segments.len() == 1 && segments[0].args.is_empty() => {
-                let name = self
+                if let Some(info) = self
                     .ctx
-                    .sess
-                    .source_manager
-                    .slice_source(segments[0].name_span)
-                    .trim()
-                    .to_string();
-                self.resolve_builtin_primitive(&name).unwrap_or_else(|| {
-                    self.ctx.remove_node_type(ty_node.id);
-                    self.resolve_type(ty_node, scope)
-                })
+                    .scopes
+                    .resolve_type_from(param_scope, segments[0].name)
+                {
+                    info.type_id
+                } else {
+                    let name = self
+                        .ctx
+                        .sess
+                        .source_manager
+                        .slice_source(segments[0].name_span)
+                        .trim()
+                        .to_string();
+                    self.resolve_builtin_primitive(&name).unwrap_or_else(|| {
+                        self.ctx.remove_node_type(ty_node.id);
+                        self.resolve_type(ty_node, current_scope)
+                    })
+                }
             }
             _ => {
                 self.ctx.remove_node_type(ty_node.id);
-                self.resolve_type(ty_node, scope)
+                self.resolve_type(ty_node, param_scope)
             }
         };
         self.ctx.set_node_type(ty_node.id, ty);

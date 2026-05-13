@@ -156,6 +156,33 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     .type_registry
                     .intern(TypeKind::ArrayInfer { elem: new_elem })
             }
+            TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => {
+                let start = start.map(|start| {
+                    self.project_unbound_trait_assoc_types(
+                        start,
+                        receiver_ty,
+                        trait_def_id,
+                        trait_args,
+                    )
+                });
+                let end = end.map(|end| {
+                    self.project_unbound_trait_assoc_types(
+                        end,
+                        receiver_ty,
+                        trait_def_id,
+                        trait_args,
+                    )
+                });
+                self.ctx.type_registry.intern(TypeKind::Range {
+                    start,
+                    end,
+                    is_inclusive,
+                })
+            }
             TypeKind::Function {
                 params,
                 ret,

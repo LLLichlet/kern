@@ -54,11 +54,6 @@ pub struct LetPattern {
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchPatternKind {
     Value(Box<Expr>),
-    Range {
-        start: Box<Expr>,
-        end: Box<Expr>,
-        inclusive: bool,
-    },
     Pattern(Pattern),
 }
 

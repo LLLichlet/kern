@@ -371,7 +371,7 @@ fn main() i32 {
         return 1;
     }
 
-    let view = arr..&[1 .. 4];
+    let view = arr..&[1...4];
     view.[0] = b'd';
     view.[1] = b'y';
     view.[2] = b'x';
@@ -837,7 +837,7 @@ fn compiles_void_fence_in_let_initializer_without_ice() {
     let output = compile_source_with_args(
         "kernc_breakpoint_fence_runtime_regression",
         r#"
-use sync.SEQ_CST;
+use sync.{SEQ_CST};
 
 fn main() i32 {
     let x = @fence(SEQ_CST);
@@ -914,7 +914,7 @@ fn compiles_returning_atomic_store_from_void_function_without_ice() {
     let output = compile_source_with_args(
         "kernc_breakpoint_atomic_runtime_regression",
         r#"
-use sync.SEQ_CST;
+use sync.{SEQ_CST};
 
 fn store(ptr: &mut usize) void {
     return @atomicStore[usize](ptr, 1, SEQ_CST);
@@ -1000,7 +1000,7 @@ fn main() i32 {
     let values = [4]i32.{ 2, 4, 6, 8 };
     let mut sum = 0i32;
 
-    for (item: values.&[0 .. 4].iter()) {
+    for (item: values.&[0...4].iter()) {
         sum += item;
     }
 
@@ -1023,7 +1023,7 @@ fn rejects_malformed_iterator_loop_header() {
         r#"
 fn main() i32 {
     let values = [3]i32.{ 1, 2, 3 };
-    for (item values.&[0 .. 3].iter()) {
+    for (item values.&[0...3].iter()) {
     }
     return 0;
 }

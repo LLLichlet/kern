@@ -1,6 +1,6 @@
 // Trait object construction must use the same most-specific proof choice as
 // direct trait checks and projection normalization.
-// stderr: does not implement the target trait
+// stderr: the source pointer type must implement the target trait
 
 trait Factory[N: usize] {
     type Out;

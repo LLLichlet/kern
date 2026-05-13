@@ -296,7 +296,7 @@ fn allows_mutable_slice_from_mut_array_binding() {
         r#"
 fn main() i32 {
     let mut arr = [3]u8.{ b'a', b'b', b'c' };
-    let view = arr..&[0 .. 3];
+    let view = arr..&[0...3];
     view.[0] = b'Z';
     return 0;
 }
@@ -345,7 +345,7 @@ struct Holder {
 
 fn main() i32 {
     let mut holder = Holder.{ items: [3]u8.{ b'a', b'b', b'c' } };
-    let view = holder.items..&[0 .. 3];
+    let view = holder.items..&[0...3];
     view.[0] = b'Z';
     return 0;
 }

@@ -1,0 +1,20 @@
+// class: pattern-protocol
+// stderr: match expression must be exhaustive
+
+struct Always {};
+
+impl Always : Pattern[i32] {
+    type Bind = void;
+
+    fn apply(value: i32) ?Bind {
+        _ = value;
+        return .{ Some: {} };
+    }
+}
+
+fn main() i32 {
+    let always = Always.{};
+    return match (1) {
+        always => 0,
+    };
+}

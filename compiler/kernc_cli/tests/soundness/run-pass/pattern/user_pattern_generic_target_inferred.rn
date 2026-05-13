@@ -1,0 +1,24 @@
+// class: pattern-protocol
+// exit: 0
+
+struct Any {};
+
+impl[T] Any : Pattern[T] {
+    type Bind = struct { value: T };
+
+    fn apply(value: T) ?Bind {
+        return .{ Some: .{ value: value } };
+    }
+}
+
+fn take[T](value: T, pattern: Any) T {
+    return match (value) {
+        pattern => value,
+        _ => value,
+    };
+}
+
+fn main() i32 {
+    let any = Any.{};
+    return take(7i32, any) - 7i32;
+}

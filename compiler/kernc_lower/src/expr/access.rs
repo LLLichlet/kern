@@ -330,6 +330,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             TypeKind::Def(def_id, gen_args) => self.instantiate_struct(def_id, &gen_args),
             TypeKind::AnonymousStruct(..) => self.instantiate_anon_struct(norm_base),
             TypeKind::AnonymousUnion(..) => self.instantiate_anon_union(norm_base),
+            TypeKind::Range { .. } => self.instantiate_range_struct(norm_base),
             _ => {
                 return self.lower_access_error(
                     span,
@@ -477,6 +478,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             };
             self.field_index_cache.insert(cache_key, field_idx);
             return Some(field_idx);
+        }
+
+        if let TypeKind::Range { start, end, .. } = self.ctx.type_registry.get(norm).clone() {
+            let start_name = self.ctx.intern("start");
+            let end_name = self.ctx.intern("end");
+            let field_idx = if field_name == start_name {
+                start.map(|_| 0)
+            } else if field_name == end_name {
+                end.map(|_| if start.is_some() { 1 } else { 0 })
+            } else {
+                None
+            };
+            if let Some(field_idx) = field_idx {
+                self.field_index_cache.insert(cache_key, field_idx);
+                return Some(field_idx);
+            }
         }
 
         self.ctx

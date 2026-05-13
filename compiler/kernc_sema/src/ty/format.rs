@@ -229,6 +229,21 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 let m = if *is_mut { "mut " } else { "" };
                 format!("&{}[{}]", m, self.format(*elem))
             }
+            TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => {
+                let op = if *is_inclusive { "..=" } else { "..." };
+                match (start, end) {
+                    (Some(start), Some(end)) => {
+                        format!("{}{}{}", self.format(*start), op, self.format(*end))
+                    }
+                    (Some(start), None) => format!("{}{}", self.format(*start), op),
+                    (None, Some(end)) => format!("{}{}", op, self.format(*end)),
+                    (None, None) => op.to_string(),
+                }
+            }
             TypeKind::Array { elem, len } => {
                 format!(
                     "[{}]{}",

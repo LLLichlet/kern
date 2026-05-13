@@ -22,12 +22,8 @@ pub use .iter.{
 pub use .list_impl.{InsertError, List};
 pub use .map_impl.Map;
 pub use .ranges.{
-    Range,
-    RangeInclusive,
     RangeDown,
     RangeDownInclusive,
-    range,
-    range_inclusive,
     range_down,
     range_down_inclusive,
 };

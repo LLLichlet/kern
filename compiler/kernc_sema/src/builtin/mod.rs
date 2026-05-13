@@ -173,6 +173,13 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             supertraits: vec![],
             methods: vec![],
         });
+        let _slice_bounds_trait_id = self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "SliceBounds",
+            generics: vec![],
+            supertraits: vec![],
+            methods: vec![],
+        });
+        self.inject_pattern_trait();
         self.inject_operator_traits();
 
         // 2. Inject builtin impls for primitive types.

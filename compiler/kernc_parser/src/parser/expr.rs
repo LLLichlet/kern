@@ -10,6 +10,7 @@ use kernc_lexer::{Token, TokenType};
 pub enum Precedence {
     Lowest,
     Assignment,
+    Range,
     LogicalOr,
     LogicalAnd,
     Equality,
@@ -35,6 +36,7 @@ impl Precedence {
             | TokenType::Bang
             | TokenType::DotQuestion => Self::Call,
             TokenType::As => Self::Cast,
+            TokenType::Ellipsis | TokenType::DotDotEqual => Self::Range,
             TokenType::Star | TokenType::Slash | TokenType::Percent => Self::Factor,
             TokenType::Plus
             | TokenType::Minus
@@ -234,6 +236,8 @@ impl<'a> Parser<'a> {
                 })
             }
             TokenType::DotDot => self.parse_anchored_path_expr(PathAnchor::Parent, token.span),
+            TokenType::Ellipsis => self.parse_prefix_range_expr(token),
+            TokenType::DotDotEqual => self.parse_prefix_range_expr(token),
             TokenType::Slash => self.parse_anchored_path_expr(PathAnchor::Package, token.span),
             TokenType::DotLBrace => self.parse_data_init(None, span),
             TokenType::Dot => self.parse_enum_literal_expr(span),
@@ -333,6 +337,9 @@ impl<'a> Parser<'a> {
             | TokenType::Caret
             | TokenType::LShift
             | TokenType::RShift => self.parse_binary_expr(left, token),
+            TokenType::Ellipsis | TokenType::DotDotEqual => {
+                self.parse_infix_range_expr(left, token)
+            }
             TokenType::Dot => self.parse_field_access_expr(left),
             TokenType::DotQuestion => Ok(Expr {
                 id: self.new_id(),
@@ -436,6 +443,75 @@ impl<'a> Parser<'a> {
                 lhs: Box::new(left),
                 op,
                 rhs: Box::new(right),
+            },
+        })
+    }
+
+    fn token_can_end_range_expr(tag: TokenType) -> bool {
+        matches!(
+            tag,
+            TokenType::Semicolon
+                | TokenType::Comma
+                | TokenType::RParen
+                | TokenType::RBrace
+                | TokenType::RBracket
+                | TokenType::Arrow
+                | TokenType::Eof
+        )
+    }
+
+    fn parse_prefix_range_expr(&mut self, token: Token) -> ParseResult<Expr> {
+        let is_inclusive = token.tag == TokenType::DotDotEqual;
+        let end = if Self::token_can_end_range_expr(self.peek().tag) {
+            if is_inclusive {
+                self.add_error(
+                    token.span,
+                    "inclusive range expressions require an end bound".to_string(),
+                );
+                return Err(ParseError);
+            }
+            None
+        } else {
+            Some(Box::new(self.parse_expression(Precedence::Range)?))
+        };
+        let span = end
+            .as_deref()
+            .map_or(token.span, |end| token.span.to(end.span));
+        Ok(Expr {
+            id: self.new_id(),
+            span,
+            kind: ExprKind::Range {
+                start: None,
+                end,
+                is_inclusive,
+            },
+        })
+    }
+
+    fn parse_infix_range_expr(&mut self, left: Expr, token: Token) -> ParseResult<Expr> {
+        let is_inclusive = token.tag == TokenType::DotDotEqual;
+        let end = if Self::token_can_end_range_expr(self.peek().tag) {
+            if is_inclusive {
+                self.add_error(
+                    token.span,
+                    "inclusive range expressions require an end bound".to_string(),
+                );
+                return Err(ParseError);
+            }
+            None
+        } else {
+            Some(Box::new(self.parse_expression(Precedence::Range)?))
+        };
+        let span = end
+            .as_deref()
+            .map_or(left.span.to(token.span), |end| left.span.to(end.span));
+        Ok(Expr {
+            id: self.new_id(),
+            span,
+            kind: ExprKind::Range {
+                start: Some(Box::new(left)),
+                end,
+                is_inclusive,
             },
         })
     }

@@ -102,6 +102,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) named_struct_layout_cache: HashMap<NamedStructLayoutKey, StructLayoutMapping>,
     pub(crate) anon_struct_layout_cache: HashMap<TypeId, (Vec<usize>, Vec<usize>)>,
     pub(crate) adt_union_map: HashMap<MonoId, MonoId>,
+    pub(crate) range_cache: HashMap<TypeId, MonoId>,
     pub(crate) closure_fn_map: HashMap<NodeId, MonoId>,
     pub(crate) fn_closure_adapter_cache: HashMap<TypeId, MonoId>,
     pub(crate) anon_struct_cache: HashMap<TypeId, MonoId>,
@@ -168,6 +169,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             named_struct_layout_cache: HashMap::new(),
             anon_struct_layout_cache: HashMap::new(),
             adt_union_map: HashMap::new(),
+            range_cache: HashMap::new(),
             closure_fn_map: HashMap::new(),
             fn_closure_adapter_cache: HashMap::new(),
             anon_struct_cache: HashMap::new(),
@@ -602,6 +604,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             def_mono_map: self.mono_cache.clone(),
             pure_enum_tag_map: self.pure_enum_tag_map.clone(),
             adt_union_map: self.adt_union_map.clone(),
+            range_map: self.range_cache.clone(),
             anon_struct_map: self.anon_struct_cache.clone(),
             anon_union_map: self.anon_union_cache.clone(),
             anon_enum_map: self.anon_enum_cache.clone(),
@@ -756,6 +759,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | TypeKind::Slice { elem, .. }
             | TypeKind::Array { elem, .. }
             | TypeKind::ArrayInfer { elem, .. } => self.track_pure_enum_repr_in_type(elem),
+            TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.track_pure_enum_repr_in_type(start);
+                }
+                if let Some(end) = end {
+                    self.track_pure_enum_repr_in_type(end);
+                }
+                self.instantiate_range_struct(norm_ty);
+            }
             TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
                 for param in params {
                     self.track_pure_enum_repr_in_type(param);

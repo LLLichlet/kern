@@ -232,13 +232,16 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
         match &decl.kind {
             ast::DeclKind::Function {
-                generics: _,
+                generics,
                 where_clauses,
                 params,
                 ret_type,
                 body,
                 ..
             } => {
+                for generic in generics {
+                    Self::collect_generic_param_alias_references(generic, alias_names, referenced);
+                }
                 for clause in where_clauses {
                     Self::collect_where_clause_alias_references(clause, alias_names, referenced);
                 }
@@ -257,25 +260,34 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             }
             ast::DeclKind::Var { value: None, .. } => {}
             ast::DeclKind::TypeAlias {
+                generics,
                 where_clauses,
                 target,
                 ..
             } => {
+                for generic in generics {
+                    Self::collect_generic_param_alias_references(generic, alias_names, referenced);
+                }
                 for clause in where_clauses {
                     Self::collect_where_clause_alias_references(clause, alias_names, referenced);
                 }
                 Self::collect_type_alias_references(target, alias_names, referenced);
             }
             ast::DeclKind::Struct {
+                generics,
                 where_clauses,
                 fields,
                 ..
             }
             | ast::DeclKind::Union {
+                generics,
                 where_clauses,
                 fields,
                 ..
             } => {
+                for generic in generics {
+                    Self::collect_generic_param_alias_references(generic, alias_names, referenced);
+                }
                 for clause in where_clauses {
                     Self::collect_where_clause_alias_references(clause, alias_names, referenced);
                 }
@@ -284,11 +296,15 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 }
             }
             ast::DeclKind::Enum {
+                generics,
                 where_clauses,
                 backing_type,
                 variants,
                 ..
             } => {
+                for generic in generics {
+                    Self::collect_generic_param_alias_references(generic, alias_names, referenced);
+                }
                 for clause in where_clauses {
                     Self::collect_where_clause_alias_references(clause, alias_names, referenced);
                 }
@@ -305,12 +321,16 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 }
             }
             ast::DeclKind::Trait {
+                generics,
                 where_clauses,
                 supertraits,
                 assoc_types,
                 methods,
                 ..
             } => {
+                for generic in generics {
+                    Self::collect_generic_param_alias_references(generic, alias_names, referenced);
+                }
                 for clause in where_clauses {
                     Self::collect_where_clause_alias_references(clause, alias_names, referenced);
                 }
@@ -361,12 +381,16 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 }
             }
             ast::DeclKind::Impl {
+                generics,
                 where_clauses,
                 target_type,
                 trait_type,
                 decls,
                 ..
             } => {
+                for generic in generics {
+                    Self::collect_generic_param_alias_references(generic, alias_names, referenced);
+                }
                 for clause in where_clauses {
                     Self::collect_where_clause_alias_references(clause, alias_names, referenced);
                 }
@@ -396,6 +420,19 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                         Self::collect_expr_alias_references(expr, alias_names, referenced);
                     }
                 }
+            }
+        }
+    }
+
+    fn collect_generic_param_alias_references(
+        generic: &ast::GenericParam,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
+    ) {
+        match &generic.kind {
+            ast::GenericParamKind::Type => {}
+            ast::GenericParamKind::Const { ty } => {
+                Self::collect_type_alias_references(ty, alias_names, referenced);
             }
         }
     }
@@ -503,6 +540,14 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             ast::TypeKind::Result { ok, err } => {
                 Self::collect_type_alias_references(ok, alias_names, referenced);
                 Self::collect_type_alias_references(err, alias_names, referenced);
+            }
+            ast::TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    Self::collect_type_alias_references(start, alias_names, referenced);
+                }
+                if let Some(end) = end {
+                    Self::collect_type_alias_references(end, alias_names, referenced);
+                }
             }
             ast::TypeKind::Pointer { elem, .. }
             | ast::TypeKind::VolatilePtr { elem, .. }
@@ -657,6 +702,14 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
                 Self::collect_expr_alias_references(lhs, alias_names, referenced);
                 Self::collect_expr_alias_references(rhs, alias_names, referenced);
+            }
+            ast::ExprKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    Self::collect_expr_alias_references(start, alias_names, referenced);
+                }
+                if let Some(end) = end {
+                    Self::collect_expr_alias_references(end, alias_names, referenced);
+                }
             }
             ast::ExprKind::Unary { operand, .. } => {
                 Self::collect_expr_alias_references(operand, alias_names, referenced);
@@ -869,10 +922,6 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         match &pattern.kind {
             ast::MatchPatternKind::Value(value) => {
                 Self::collect_expr_alias_references(value, alias_names, referenced);
-            }
-            ast::MatchPatternKind::Range { start, end, .. } => {
-                Self::collect_expr_alias_references(start, alias_names, referenced);
-                Self::collect_expr_alias_references(end, alias_names, referenced);
             }
             ast::MatchPatternKind::Pattern(pattern) => {
                 Self::collect_pattern_alias_references(pattern, alias_names, referenced);

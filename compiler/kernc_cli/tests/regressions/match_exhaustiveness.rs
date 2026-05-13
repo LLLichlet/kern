@@ -336,7 +336,7 @@ fn classify(value: Box[Mode]) i32 {
 
 fn bucket(value: u8) i32 {
     return match (value) {
-        (0u8) .. (2u8) => 10,
+        (0u8) ... (2u8) => 10,
         (2u8) ..= (3u8) => 20,
         _ => 30,
     };
@@ -602,6 +602,91 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_signed_scalar_range_match_patterns() {
+    let output = build_and_run_source(
+        r#"
+fn classify(value: i32) i32 {
+    return match (value) {
+        -2...0 => 1,
+        0..=2 => 2,
+        _ => 3,
+    };
+}
+
+fn main() i32 {
+    return classify(-1) + classify(0) + classify(3) - 6;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn accepts_grouped_range_and_value_patterns_in_one_arm() {
+    let output = build_and_run_source(
+        r#"
+fn classify(value: u8) i32 {
+    return match (value) {
+        0u8...3u8, 7u8 => 10,
+        3u8..=4u8 => 20,
+        _ => 30,
+    };
+}
+
+fn main() i32 {
+    return classify(0u8)
+        + classify(2u8)
+        + classify(7u8)
+        + classify(4u8)
+        + classify(9u8)
+        - 80;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_open_ended_range_match_patterns() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    return match (7i32) {
+        0... => 1,
+        _ => 0,
+    };
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("open-ended range patterns are not supported here"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn warns_when_integer_subrange_is_fully_shadowed() {
     let output = compile_source(
         r#"
@@ -701,7 +786,7 @@ const MAX = 340282366920938463463374607431768211455u128;
 
 fn main() i32 {
     return match (MAX) {
-        0..MAX => 1,
+        0...MAX => 1,
     };
 }
 "#,
@@ -1098,6 +1183,40 @@ fn main() i32 {
         "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn extern_enum_variants_do_not_make_match_exhaustive() {
+    let output = compile_source(
+        r#"
+extern enum Mode: u8 {
+    Read = 1,
+    Write,
+};
+
+fn classify(mode: Mode) i32 {
+    return match (mode) {
+        Mode.Read => 1,
+        Mode.Write => 2,
+    };
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("match expression must be exhaustive")
+            || stderr.contains("match expression is not exhaustive"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 }
 

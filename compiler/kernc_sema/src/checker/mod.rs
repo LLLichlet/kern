@@ -708,6 +708,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             | TypeKind::ArrayInfer { elem }
             | TypeKind::AnonymousEnumPayload(elem)
             | TypeKind::Simd { elem, .. } => self.type_contains_params_or_vars(elem),
+            TypeKind::Range { start, end, .. } => {
+                start.is_some_and(|ty| self.type_contains_params_or_vars(ty))
+                    || end.is_some_and(|ty| self.type_contains_params_or_vars(ty))
+            }
             TypeKind::Array { elem, len } => {
                 self.type_contains_params_or_vars(elem)
                     || self.const_generic_contains_params_or_vars(len)

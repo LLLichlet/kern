@@ -33,6 +33,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
+        // Extern enums are ABI-shaped integer subsets. They can flow out to
+        // their backing integer, but integers do not flow back into the enum
+        // without an explicit validation boundary.
+        if self.is_extern_enum_backing_coercion(exp, act, &exp_kind, &act_kind) {
+            return true;
+        }
+
         // 2. Allow named-to-anonymous aggregate decay under value semantics.
         if self.is_anonymous_aggregate_equivalent(exp, act) {
             return true;
@@ -64,6 +71,35 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // If no rule matched, emit the final mismatch diagnostic.
         self.emit_mismatch_error(expr.span, expected, actual);
         false
+    }
+
+    fn is_extern_enum_backing_coercion(
+        &mut self,
+        expected: TypeId,
+        _actual: TypeId,
+        expected_kind: &TypeKind,
+        actual_kind: &TypeKind,
+    ) -> bool {
+        if !self.ctx.type_registry.is_integer(expected) {
+            return false;
+        }
+
+        let TypeKind::Enum(def_id, _) = actual_kind else {
+            return false;
+        };
+        let Some(Def::Enum(enum_def)) = self.ctx.defs.get(def_id.0 as usize) else {
+            return false;
+        };
+        if !enum_def.is_extern {
+            return false;
+        }
+
+        let Some(backing_ty) = &enum_def.backing_type else {
+            return false;
+        };
+        let backing = self.ctx.node_type_or_error(backing_ty.id);
+        self.resolve_tv(backing) == self.resolve_tv(expected)
+            && matches!(expected_kind, TypeKind::Primitive(_))
     }
 
     fn check_type_var(

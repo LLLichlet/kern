@@ -97,6 +97,42 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     )
             }
             (
+                TypeKind::Range {
+                    start: available_start,
+                    end: available_end,
+                    is_inclusive: available_inclusive,
+                },
+                TypeKind::Range {
+                    start: required_start,
+                    end: required_end,
+                    is_inclusive: required_inclusive,
+                },
+            ) => {
+                available_inclusive == required_inclusive
+                    && match (available_start, required_start) {
+                        (Some(available_start), Some(required_start)) => self
+                            .match_available_type_against_requirement(
+                                available_start,
+                                required_start,
+                                type_map,
+                                const_map,
+                            ),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && match (available_end, required_end) {
+                        (Some(available_end), Some(required_end)) => self
+                            .match_available_type_against_requirement(
+                                available_end,
+                                required_end,
+                                type_map,
+                                const_map,
+                            ),
+                        (None, None) => true,
+                        _ => false,
+                    }
+            }
+            (
                 TypeKind::Array {
                     elem: available_elem,
                     len: available_len,
@@ -770,7 +806,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             );
         }
 
+        let Some(slice_bounds_def_id) = self.ctx.builtin_def("SliceBounds") else {
+            return false;
+        };
+        if trait_def_id == slice_bounds_def_id && trait_args.is_empty() {
+            return self.type_is_slice_bounds(source_norm);
+        }
+
         false
+    }
+
+    fn type_is_slice_bounds(&mut self, ty: TypeId) -> bool {
+        let norm = self.resolve_tv(ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Range { start, end, .. } => {
+                start.is_none_or(|ty| self.resolve_tv(ty) == TypeId::USIZE)
+                    && end.is_none_or(|ty| self.resolve_tv(ty) == TypeId::USIZE)
+            }
+            _ => false,
+        }
     }
 
     fn check_trait_impl_inner(

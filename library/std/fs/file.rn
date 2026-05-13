@@ -93,7 +93,7 @@ fn append_usize_decimal(
         curr /= 10usize;
     }
 
-    return out.try_push_str(alloc, buf.&[i .. 40]).is_ok();
+    return out.try_push_str(alloc, buf.&[i...40]).is_ok();
 }
 
 fn atomic_tmp_path(
@@ -543,7 +543,7 @@ impl &mut File {
     pub fn read_exact(buf: &mut [u8]) bool!Error {
         let mut total = 0usize;
         while (total < #buf) {
-            let chunk = (buf.[0]..& + total)..&[0 .. #buf - total];
+            let chunk = (buf.[0]..& + total)..&[0...#buf - total];
             let read = self.read(chunk).?;
             if (read == 0) {
                 return .{ Err: .UnexpectedEof };
@@ -568,7 +568,7 @@ impl &mut File {
     pub fn write_all(buf: &[u8]) usize!Error {
         let mut total = 0usize;
                 while (total < #buf) {
-            let written = self.write(buf.&[total .. #buf]).?;
+            let written = self.write(buf.&[total...#buf]).?;
             if (written == 0) {
                 return .{ Err: .WriteZero };
             }
@@ -583,13 +583,13 @@ impl &mut File {
         let mut total = 0usize;
 
                 while (true) {
-            let read = self.read(chunk..&[0 .. 1024]).?;
+            let read = self.read(chunk..&[0...1024]).?;
 
             if (read == 0) {
                 return .{ Ok: total };
             }
 
-            let written = other.write_all(chunk.&[0 .. read]).?;
+            let written = other.write_all(chunk.&[0...read]).?;
             total += written;
         }
     }
@@ -617,7 +617,7 @@ impl &mut File {
         let mut chunk: [1024]u8 = undef;
 
                 while (true) {
-            let .{ Ok: read } = self.read(chunk..&[0 .. 1024]) else {
+            let .{ Ok: read } = self.read(chunk..&[0...1024]) else {
                 .{ Err: err } => {
                     out..&.deinit(alloc);
                     return .{ Err: err };
@@ -628,7 +628,7 @@ impl &mut File {
                 return .{ Ok: out };
             }
 
-            match (out..&.try_push_str(alloc, chunk.&[0 .. read])) {
+            match (out..&.try_push_str(alloc, chunk.&[0...read])) {
                 .{ Ok: _ } => {},
                 .{ Err: err } => {
                     out..&.deinit(alloc);
@@ -644,7 +644,7 @@ impl &mut File {
         let mut chunk: [1024]u8 = undef;
 
                 while (true) {
-            let .{ Ok: read } = self.read(chunk..&[0 .. 1024]) else {
+            let .{ Ok: read } = self.read(chunk..&[0...1024]) else {
                 .{ Err: err } => {
                     out..&.deinit(alloc);
                     return .{ Err: err };
@@ -655,7 +655,7 @@ impl &mut File {
                 return .{ Ok: out };
             }
 
-            match (out..&.try_append_slice(alloc, chunk.&[0 .. read])) {
+            match (out..&.try_append_slice(alloc, chunk.&[0...read])) {
                 .{ Ok: _ } => {},
                 .{ Err: err } => {
                     out..&.deinit(alloc);

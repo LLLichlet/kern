@@ -157,6 +157,30 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
+    fn constrain_signed_numeric_type(&mut self, ty: TypeId) -> TypeId {
+        let resolved = self.resolve_tv(ty);
+        let TypeKind::TypeVar(vid) = self.ctx.type_registry.get(resolved).clone() else {
+            return resolved;
+        };
+
+        if self.numeric_inference_kind(vid).is_none() {
+            return resolved;
+        }
+
+        let signed_candidates = Self::NUMERIC_CAND_I8
+            | Self::NUMERIC_CAND_I16
+            | Self::NUMERIC_CAND_I32
+            | Self::NUMERIC_CAND_I64
+            | Self::NUMERIC_CAND_I128
+            | Self::NUMERIC_CAND_ISIZE
+            | Self::NUMERIC_CAND_ALL_FLOATS;
+        if self.constrain_numeric_type_var(vid, signed_candidates) {
+            self.resolve_tv(ty)
+        } else {
+            resolved
+        }
+    }
+
     fn has_builtin_binary_fast_path(
         &mut self,
         op: BinaryOperator,
@@ -858,18 +882,77 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             UnaryOperator::Negate => {
-                let op_ty_id = norm_op;
+                let op_ty_id = self.constrain_signed_numeric_type(op_ty);
                 if let Some((elem, _)) = self.ctx.type_registry.simd_info(op_ty_id)
-                    && (self.ctx.type_registry.is_integer(elem)
-                        || self.ctx.type_registry.is_float(elem))
+                    && (matches!(
+                        elem,
+                        TypeId::I8
+                            | TypeId::I16
+                            | TypeId::I32
+                            | TypeId::I64
+                            | TypeId::I128
+                            | TypeId::ISIZE
+                    ) || self.ctx.type_registry.is_float(elem))
+                {
+                    return op_ty;
+                }
+                if matches!(
+                    op_ty_id,
+                    TypeId::I8
+                        | TypeId::I16
+                        | TypeId::I32
+                        | TypeId::I64
+                        | TypeId::I128
+                        | TypeId::ISIZE
+                ) || self.ctx.type_registry.is_float(op_ty_id)
+                    || self
+                        .type_numeric_candidates(op_ty_id)
+                        .is_some_and(|candidates| {
+                            candidates
+                                & (Self::NUMERIC_CAND_I8
+                                    | Self::NUMERIC_CAND_I16
+                                    | Self::NUMERIC_CAND_I32
+                                    | Self::NUMERIC_CAND_I64
+                                    | Self::NUMERIC_CAND_I128
+                                    | Self::NUMERIC_CAND_ISIZE
+                                    | Self::NUMERIC_CAND_ALL_FLOATS)
+                                != 0
+                        })
                 {
                     return op_ty;
                 }
                 if self.ctx.type_registry.is_integer(op_ty_id)
-                    || self.ctx.type_registry.is_float(op_ty_id)
-                    || self.type_numeric_candidates(op_ty_id).is_some()
+                    && !matches!(
+                        op_ty_id,
+                        TypeId::I8
+                            | TypeId::I16
+                            | TypeId::I32
+                            | TypeId::I64
+                            | TypeId::I128
+                            | TypeId::ISIZE
+                    )
                 {
-                    return op_ty;
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "unary `-` cannot be applied to an unsigned integer type",
+                        )
+                        .with_hint("cast to a signed type first if a negative value is intended")
+                        .emit();
+                    return TypeId::ERROR;
+                }
+                if let Some((elem, _)) = self.ctx.type_registry.simd_info(op_ty_id)
+                    && (self.ctx.type_registry.is_integer(elem)
+                        || self.ctx.type_registry.is_float(elem))
+                {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "unary `-` cannot be applied to a SIMD value with unsigned integer lanes",
+                        )
+                        .with_hint("cast the lanes to a signed type first if negative values are intended")
+                        .emit();
+                    return TypeId::ERROR;
                 }
                 self.require_builtin_unary_trait(operand, op_ty, op, expected_ty)
             }

@@ -180,6 +180,19 @@ where
                 self.registry
                     .intern(TypeKind::ArrayInfer { elem: new_elem })
             }
+            TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => {
+                let start = start.map(|start| self.substitute(start));
+                let end = end.map(|end| self.substitute(end));
+                self.registry.intern(TypeKind::Range {
+                    start,
+                    end,
+                    is_inclusive,
+                })
+            }
             TypeKind::Function {
                 params,
                 ret,
@@ -441,6 +454,19 @@ where
         TypeKind::ArrayInfer { elem } => {
             let new_elem = substitute_associated_types(registry, defs, elem, map);
             registry.intern(TypeKind::ArrayInfer { elem: new_elem })
+        }
+        TypeKind::Range {
+            start,
+            end,
+            is_inclusive,
+        } => {
+            let start = start.map(|start| substitute_associated_types(registry, defs, start, map));
+            let end = end.map(|end| substitute_associated_types(registry, defs, end, map));
+            registry.intern(TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            })
         }
         TypeKind::Function {
             params,

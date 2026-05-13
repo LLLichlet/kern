@@ -337,7 +337,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let mut resolved_trait_ty = None;
         if let Some(trait_ty) = &i.trait_type {
             let resolved = self.resolve_type(trait_ty, impl_scope);
-            self.reject_explicit_builtin_numeric_marker_impl(i, resolved, trait_ty.span);
+            self.reject_explicit_compiler_owned_marker_impl(i, resolved, trait_ty.span);
             resolved_trait_ty = Some(resolved);
         }
 
@@ -366,7 +366,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.exit_scope();
     }
 
-    fn reject_explicit_builtin_numeric_marker_impl(
+    fn reject_explicit_compiler_owned_marker_impl(
         &mut self,
         impl_def: &ImplDef,
         trait_ty: TypeId,
@@ -387,28 +387,44 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         let trait_name = self.ctx.resolve(trait_def.name).to_string();
-        if !matches!(
+        let is_numeric_marker = matches!(
             trait_name.as_str(),
-            "Integer" | "SignedInteger" | "UnsignedInteger" | "Float"
-        ) {
+            "Integer" | "SignedInteger" | "UnsignedInteger" | "Float",
+        );
+        let is_slice_bounds_marker = trait_name == "SliceBounds";
+        if !is_numeric_marker && !is_slice_bounds_marker {
             return;
         }
 
+        let marker_kind = if is_numeric_marker {
+            "numeric marker"
+        } else {
+            "slice-bounds marker"
+        };
+        let assignment_hint = if is_numeric_marker {
+            format!(
+                "`{}` is assigned by the compiler for builtin numeric types only",
+                trait_name
+            )
+        } else {
+            "`SliceBounds` is assigned by the compiler for builtin slice-bound range types only"
+                .to_string()
+        };
+        let abstraction_hint = if is_numeric_marker {
+            "define a normal trait if you need a user-extensible numeric-like abstraction"
+        } else {
+            "define a normal trait if you need a user-extensible slicing abstraction"
+        };
         self.ctx
             .struct_error(
                 span,
                 format!(
-                    "builtin numeric marker trait `{}` cannot be implemented explicitly",
-                    trait_name
+                    "builtin {} trait `{}` cannot be implemented explicitly",
+                    marker_kind, trait_name
                 ),
             )
-            .with_hint(format!(
-                "`{}` is assigned by the compiler for builtin numeric types only",
-                trait_name
-            ))
-            .with_hint(
-                "define a normal trait if you need a user-extensible numeric-like abstraction",
-            )
+            .with_hint(assignment_hint)
+            .with_hint(abstraction_hint)
             .with_span_label(impl_def.span, "while checking this impl")
             .emit();
     }
@@ -420,6 +436,16 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.bind_generics(&a.generics, adt_scope);
         self.resolve_where_clauses(&a.where_clauses, adt_scope);
 
+        if a.is_extern && a.backing_type.is_none() {
+            self.ctx
+                .struct_error(
+                    a.span,
+                    "extern enum declarations must specify an integer backing type",
+                )
+                .with_hint("write `extern enum Name: u32 { ... }`")
+                .emit();
+        }
+
         if let Some(backing_ty) = &a.backing_type {
             let resolved_ty = self.resolve_type(backing_ty, adt_scope);
             if !self.ctx.type_registry.is_integer(resolved_ty) && resolved_ty != TypeId::ERROR {
@@ -430,6 +456,17 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         for variant in &a.variants {
             if let Some(payload_ty) = &variant.payload_type {
+                if a.is_extern {
+                    self.ctx
+                        .struct_error(
+                            payload_ty.span,
+                            "extern enum variants cannot carry payloads",
+                        )
+                        .with_hint(
+                            "use a normal `enum` for tagged unions, or an extern struct/union for C ABI payloads",
+                        )
+                        .emit();
+                }
                 let resolved_payload = self.resolve_type(payload_ty, adt_scope);
                 self.ensure_sized(resolved_payload, payload_ty.span);
             }

@@ -60,14 +60,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> MastExpr {
         let raw_target_ty = self.ctx.node_type(target.id).unwrap_or(concrete_ty);
-        let target_ty = self.substitute_type_with_map(raw_target_ty, subst_map);
+        let syntax_target_ty = self.substitute_type_with_map(raw_target_ty, subst_map);
+        let target_ty = self.substitute_type_with_map(concrete_ty, subst_map);
         let l = self.lower_expr(lhs, subst_map, None);
 
         if let Some(packed) = self.lower_explicit_fat_pointer_cast(l.clone(), target_ty, span) {
             return packed;
         }
 
-        let cast_kind = self.determine_cast_kind(l.ty, target_ty);
+        let cast_kind = self.determine_cast_kind(l.ty, syntax_target_ty);
 
         MastExpr::new(
             target_ty,
@@ -121,6 +122,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let conc_kind = self.ctx.type_registry.get(conc_base).clone();
         let exp_kind = self.ctx.type_registry.get(exp_base).clone();
+
+        if self.is_extern_enum_backing_cast(exp_base, &conc_kind) {
+            return MastExpr::new(exp_ty, mast_kind, span);
+        }
 
         if let Some(rewritten) = self.try_rewrite_named_aggregate_to_anonymous(
             mast_kind.clone(),
@@ -464,6 +469,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // Otherwise leave the expression unchanged.
         MastExpr::new(exp_ty, mast_kind, span)
+    }
+
+    fn is_extern_enum_backing_cast(&self, exp_base: TypeId, conc_kind: &TypeKind) -> bool {
+        if !self.ctx.type_registry.is_integer(exp_base) {
+            return false;
+        }
+        let TypeKind::Enum(def_id, _) = conc_kind else {
+            return false;
+        };
+        let Some(Def::Enum(enum_def)) = self.ctx.defs.get(def_id.0 as usize) else {
+            return false;
+        };
+        if !enum_def.is_extern {
+            return false;
+        }
+        let Some(backing_ty) = &enum_def.backing_type else {
+            return false;
+        };
+        self.ctx
+            .type_registry
+            .normalize(self.ctx.node_type(backing_ty.id).unwrap_or(TypeId::ERROR))
+            == exp_base
     }
 
     fn rewrite_array_init_for_expected_container(

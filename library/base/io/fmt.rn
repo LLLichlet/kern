@@ -198,7 +198,7 @@ fn write_fill(
 
     let mut i = 0usize;
     while (i < count) {
-        _ = writer.write(buf.&[0 .. 1]);
+        _ = writer.write(buf.&[0...1]);
         i += 1;
     }
 }
@@ -214,7 +214,7 @@ impl &mut LimitWriter : Write {
             count = self.remaining;
         }
 
-        let written = self.inner.write(buf.&[0 .. count]);
+        let written = self.inner.write(buf.&[0...count]);
         self.remaining -= written;
         return written;
     }
@@ -310,7 +310,7 @@ fn write_format(
                 // Handles the escaped left brace `{{`.
                 if (fmt.[i + 1] == b'{') {
                     if (i > last_pos) {
-                        let text_slice = fmt.&[last_pos .. i];
+                        let text_slice = fmt.&[last_pos...i];
                         _ = writer.write(text_slice);
                     }
                     _ = writer.write("{");
@@ -329,7 +329,7 @@ fn write_format(
                                 i += 1usize;
                                 continue;
                             };
-                        let .{ Some: parsed } = parse_format_spec(fmt.&[i + 1 .. found_end])
+                        let .{ Some: parsed } = parse_format_spec(fmt.&[i + 1...found_end])
                             else {
                                 i += 1usize;
                                 continue;
@@ -339,7 +339,7 @@ fn write_format(
                     }
 
                     if (i > last_pos) {
-                        let text_slice = fmt.&[last_pos .. i];
+                        let text_slice = fmt.&[last_pos...i];
                         _ = writer.write(text_slice);
                     }
                     if (arg_idx < #args) {
@@ -359,7 +359,7 @@ fn write_format(
             if (i + 1usize < fmt_len) {
                 if (fmt.[i + 1] == b'}') {
                     if (i > last_pos) {
-                        let text_slice = fmt.&[last_pos .. i];
+                        let text_slice = fmt.&[last_pos...i];
                         _ = writer.write(text_slice);
                     }
                     _ = writer.write("}");
@@ -375,7 +375,7 @@ fn write_format(
 
     // Writes the remaining tail of the format string.
     if (last_pos < fmt_len) {
-        let tail_slice = fmt.&[last_pos .. fmt_len];
+        let tail_slice = fmt.&[last_pos...fmt_len];
         _ = writer.write(tail_slice);
     }
 }

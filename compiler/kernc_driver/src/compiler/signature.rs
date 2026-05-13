@@ -273,10 +273,6 @@ fn collect_call_sites_in_pattern_exprs(
         ast::MatchPatternKind::Value(value) => {
             collect_call_sites_in_expr(ctx, file_id, value, call_sites);
         }
-        ast::MatchPatternKind::Range { start, end, .. } => {
-            collect_call_sites_in_expr(ctx, file_id, start, call_sites);
-            collect_call_sites_in_expr(ctx, file_id, end, call_sites);
-        }
         _ => {}
     }
 }

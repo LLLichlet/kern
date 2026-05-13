@@ -119,7 +119,7 @@ pub/ fn trim_trailing_separators(path: &[u8]) &[u8] {
         }
         end -= 1;
     }
-    return path.&[0 .. end];
+    return path.&[0...end];
 }
 
 /// Builds `base/name` using the preferred separator for `base`.
@@ -189,7 +189,7 @@ pub/ fn file_name(path: &[u8]) ?&[u8] {
     }
 
     let .{ Some: index } = last_separator(trimmed) else return .{ Some: trimmed };
-    return .{ Some: trimmed.&[index + 1 .. #trimmed] };
+    return .{ Some: trimmed.&[index + 1...#trimmed] };
 }
 
 /// Returns the parent directory of a path.
@@ -202,11 +202,11 @@ pub/ fn parent(path: &[u8]) ?&[u8] {
 
     let .{ Some: index } = last_separator(trimmed) else {
         if (prefix_len > 0) {
-            return .{ Some: trimmed.&[0 .. prefix_len] };
+            return .{ Some: trimmed.&[0...prefix_len] };
         }
         return .None;
     };
-    return .{ Some: trimmed.&[0 .. index] };
+    return .{ Some: trimmed.&[0...index] };
 }
 
 /// Returns the extension of the final path component without the dot.
@@ -222,7 +222,7 @@ pub/ fn extension(path: &[u8]) ?&[u8] {
         if (index == 0 or index + 1 == #name) {
             return .None;
         }
-        return .{ Some: name.&[index + 1 .. #name] };
+        return .{ Some: name.&[index + 1...#name] };
     }
 
     return .None;
@@ -241,7 +241,7 @@ pub/ fn file_stem(path: &[u8]) ?&[u8] {
         if (index == 0) {
             return .{ Some: name };
         }
-        return .{ Some: name.&[0 .. index] };
+        return .{ Some: name.&[0...index] };
     }
 
     return .{ Some: name };
@@ -301,7 +301,7 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
         let start = index;
                 while (index < #path and !is_path_separator(path.[index])) {            index += 1;
         }
-        let segment = path.&[start .. index];
+        let segment = path.&[start...index];
 
         if (segment == ".") {
             continue;
@@ -324,7 +324,7 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
 
     let mut out = String.{};
     if (prefix_len > 0) {
-        out..&.try_push_str(alloc, path.&[0 .. prefix_len]).map_err(wrap_alloc_error).?;
+        out..&.try_push_str(alloc, path.&[0...prefix_len]).map_err(wrap_alloc_error).?;
     }
 
     if (segments.is_empty()) {

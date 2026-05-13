@@ -1,4 +1,5 @@
 use super::*;
+use crate::def::Def;
 use crate::scope::SymbolKind;
 use kernc_ast::ExprKind;
 
@@ -15,13 +16,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         }
 
-        if self.atomic_order_arg_is_unbound_const_param(arg) {
+        if self.atomic_order_arg_depends_on_unbound_const_param(arg) {
             return None;
         }
 
         let mut evaluator = ConstEvaluator::new(self.ctx);
         let order = match evaluator.eval_inner(arg, 0) {
             Ok(crate::checker::ConstValue::Int(value)) => value,
+            Ok(crate::checker::ConstValue::Enum { tag, payload: None })
+                if self.expr_is_extern_enum(arg) =>
+            {
+                tag
+            }
             Ok(_) => {
                 self.ctx
                     .struct_error(
@@ -71,14 +77,166 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         Some(ordering)
     }
 
-    fn atomic_order_arg_is_unbound_const_param(&mut self, arg: &Expr) -> bool {
-        let ExprKind::Identifier(name) = arg.kind else {
+    fn expr_is_extern_enum(&mut self, expr: &Expr) -> bool {
+        let ty = self.ctx.node_type_or_error(expr.id);
+        let norm = self.resolve_tv(ty);
+        let TypeKind::Enum(def_id, _) = self.ctx.type_registry.get(norm).clone() else {
             return false;
         };
-        let Some(info) = self.ctx.scopes.resolve_value_symbol(name) else {
-            return false;
-        };
-        info.kind == SymbolKind::ConstParam
+        matches!(
+            self.ctx.defs.get(def_id.0 as usize),
+            Some(Def::Enum(enum_def)) if enum_def.is_extern
+        )
+    }
+
+    fn atomic_order_arg_depends_on_unbound_const_param(&mut self, arg: &Expr) -> bool {
+        match &arg.kind {
+            ExprKind::Identifier(name) => self
+                .ctx
+                .scopes
+                .resolve_value_symbol(*name)
+                .is_some_and(|info| info.kind == SymbolKind::ConstParam),
+            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(lhs)
+                    || self.atomic_order_arg_depends_on_unbound_const_param(rhs)
+            }
+            ExprKind::Range { start, end, .. } => {
+                start
+                    .as_deref()
+                    .is_some_and(|expr| self.atomic_order_arg_depends_on_unbound_const_param(expr))
+                    || end.as_deref().is_some_and(|expr| {
+                        self.atomic_order_arg_depends_on_unbound_const_param(expr)
+                    })
+            }
+            ExprKind::Unary { operand, .. }
+            | ExprKind::Grouped { expr: operand }
+            | ExprKind::FieldAccess { lhs: operand, .. }
+            | ExprKind::As { lhs: operand, .. }
+            | ExprKind::Propagate { operand } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(operand)
+            }
+            ExprKind::GenericInstantiation { target, args } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(target)
+                    || args.iter().any(|arg| match arg {
+                        kernc_ast::GenericArg::ConstExpr(expr) => {
+                            self.atomic_order_arg_depends_on_unbound_const_param(expr)
+                        }
+                        kernc_ast::GenericArg::Type(_)
+                        | kernc_ast::GenericArg::AssocBinding { .. } => false,
+                    })
+            }
+            ExprKind::IndexAccess { lhs, index, .. } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(lhs)
+                    || self.atomic_order_arg_depends_on_unbound_const_param(index)
+            }
+            ExprKind::Call { callee, args } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(callee)
+                    || args
+                        .iter()
+                        .any(|arg| self.atomic_order_arg_depends_on_unbound_const_param(arg))
+            }
+            ExprKind::DataInit { literal, .. } => {
+                self.atomic_order_data_literal_depends_on_unbound_const_param(literal)
+            }
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(cond)
+                    || self.atomic_order_arg_depends_on_unbound_const_param(then_branch)
+                    || else_branch.as_deref().is_some_and(|expr| {
+                        self.atomic_order_arg_depends_on_unbound_const_param(expr)
+                    })
+            }
+            ExprKind::Match { target, arms } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(target)
+                    || arms.iter().any(|arm| {
+                        self.atomic_order_arg_depends_on_unbound_const_param(&arm.body)
+                            || arm.patterns.iter().any(|pattern| match &pattern.kind {
+                                kernc_ast::MatchPatternKind::Value(expr) => {
+                                    self.atomic_order_arg_depends_on_unbound_const_param(expr)
+                                }
+                                kernc_ast::MatchPatternKind::Pattern(_) => false,
+                            })
+                    })
+            }
+            ExprKind::Block { stmts, result } => {
+                stmts.iter().any(|stmt| match &stmt.kind {
+                    kernc_ast::StmtKind::ExprStmt(expr) | kernc_ast::StmtKind::ExprValue(expr) => {
+                        self.atomic_order_arg_depends_on_unbound_const_param(expr)
+                    }
+                    kernc_ast::StmtKind::Use(_) => false,
+                }) || result
+                    .as_deref()
+                    .is_some_and(|expr| self.atomic_order_arg_depends_on_unbound_const_param(expr))
+            }
+            ExprKind::While { cond, body } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(cond)
+                    || self.atomic_order_arg_depends_on_unbound_const_param(body)
+            }
+            ExprKind::SliceOp {
+                lhs, start, end, ..
+            } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(lhs)
+                    || start.as_deref().is_some_and(|expr| {
+                        self.atomic_order_arg_depends_on_unbound_const_param(expr)
+                    })
+                    || end.as_deref().is_some_and(|expr| {
+                        self.atomic_order_arg_depends_on_unbound_const_param(expr)
+                    })
+            }
+            ExprKind::Defer { expr }
+            | ExprKind::Return(Some(expr))
+            | ExprKind::Let { init: expr, .. } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(expr)
+            }
+            ExprKind::Static { init, .. } => init
+                .as_deref()
+                .is_some_and(|expr| self.atomic_order_arg_depends_on_unbound_const_param(expr)),
+            ExprKind::Closure { captures, body, .. } => {
+                captures.iter().any(|capture| {
+                    self.atomic_order_arg_depends_on_unbound_const_param(&capture.value)
+                }) || self.atomic_order_arg_depends_on_unbound_const_param(body)
+            }
+            ExprKind::Error
+            | ExprKind::Integer { .. }
+            | ExprKind::Float { .. }
+            | ExprKind::Bool(_)
+            | ExprKind::Char(_)
+            | ExprKind::ByteChar(_)
+            | ExprKind::String(_)
+            | ExprKind::AnchoredPath { .. }
+            | ExprKind::TypeNode(_)
+            | ExprKind::EnumLiteral { .. }
+            | ExprKind::Break
+            | ExprKind::Continue
+            | ExprKind::Return(None)
+            | ExprKind::Undef
+            | ExprKind::Infer
+            | ExprKind::SelfValue => false,
+        }
+    }
+
+    fn atomic_order_data_literal_depends_on_unbound_const_param(
+        &mut self,
+        literal: &kernc_ast::DataLiteralKind,
+    ) -> bool {
+        match literal {
+            kernc_ast::DataLiteralKind::Struct(fields) => fields
+                .iter()
+                .any(|field| self.atomic_order_arg_depends_on_unbound_const_param(&field.value)),
+            kernc_ast::DataLiteralKind::Array(values) => values
+                .iter()
+                .any(|value| self.atomic_order_arg_depends_on_unbound_const_param(value)),
+            kernc_ast::DataLiteralKind::Repeat { value, count } => {
+                self.atomic_order_arg_depends_on_unbound_const_param(value)
+                    || self.atomic_order_arg_depends_on_unbound_const_param(count)
+            }
+            kernc_ast::DataLiteralKind::Scalar(value) => {
+                self.atomic_order_arg_depends_on_unbound_const_param(value)
+            }
+        }
     }
 
     pub(super) fn check_atomic_target_type(

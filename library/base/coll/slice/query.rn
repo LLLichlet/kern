@@ -249,7 +249,7 @@ impl[T] &[T]
         if (!self.starts_with(prefix)) {
             return .None;
         }
-        return .{ Some: self.&[#prefix .. #self] };
+        return .{ Some: self.&[#prefix...#self] };
     }
 
     /// Removes `suffix` from the end when present.
@@ -257,7 +257,7 @@ impl[T] &[T]
         if (!self.ends_with(suffix)) {
             return .None;
         }
-        return .{ Some: self.&[0 .. #self - #suffix] };
+        return .{ Some: self.&[0...#self - #suffix] };
     }
 }
 

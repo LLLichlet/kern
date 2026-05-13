@@ -764,9 +764,6 @@ impl<'a> Parser<'a> {
         is_extern: bool,
     ) -> ParseResult<Decl> {
         let enum_token = self.advance();
-        if is_extern {
-            self.add_error(start, "enum declarations cannot be extern".to_string());
-        }
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
         let generics = self.parse_generic_params()?;
@@ -796,6 +793,7 @@ impl<'a> Parser<'a> {
                 where_clauses,
                 backing_type,
                 variants,
+                is_extern,
             },
         })
     }

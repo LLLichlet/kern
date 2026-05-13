@@ -286,6 +286,32 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             });
         }
 
+        if let TypeKind::Range { start, end, .. } = self.ctx.type_registry.get(search_norm).clone()
+        {
+            let start_name = self.ctx.intern("start");
+            let end_name = self.ctx.intern("end");
+            let field_ty = if member_name == start_name {
+                start
+            } else if member_name == end_name {
+                end
+            } else {
+                None
+            };
+            if let Some(type_id) = field_ty {
+                return Some(MemberResolution {
+                    candidate: MemberCandidate {
+                        name: member_name,
+                        kind: SymbolKind::Var,
+                        type_id,
+                        def_id: None,
+                        definition_span: Span::default(),
+                        is_mut: false,
+                    },
+                    owner_trait_ty: None,
+                });
+            }
+        }
+
         None
     }
 

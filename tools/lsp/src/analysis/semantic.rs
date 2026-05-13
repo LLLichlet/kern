@@ -413,7 +413,6 @@ fn collect_semantic_token_entries(
             | TokenType::DotDotEqual
             | TokenType::DotAmpersand
             | TokenType::DotQuestion
-            | TokenType::DotBang
             | TokenType::DotStar
             | TokenType::DotLBracket
             | TokenType::DotLBrace

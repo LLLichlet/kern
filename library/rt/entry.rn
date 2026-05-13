@@ -189,8 +189,8 @@ fn build_windows_utf8_argv(argc: usize, argv_wide: &mut &mut u16) i32 {
         let arg_wide = (argv_wide + utf8_argc).*;
         let arg_len = utf16_z_len(arg_wide);
         let written = wide_to_utf8_into(
-            arg_wide.&[0 .. arg_len],
-            WINDOWS_ARG_BUF..&[out_len .. 32767]
+            arg_wide.&[0...arg_len],
+            WINDOWS_ARG_BUF..&[out_len...32767]
         );
         if (written == 0 and arg_len > 0) {
             break;

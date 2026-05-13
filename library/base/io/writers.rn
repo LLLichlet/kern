@@ -40,8 +40,8 @@ impl &mut FixedBufferWriter : Write {
 
         let available = #self.buffer - self.written;
         let count = available.min(#buf);
-        let out = (self.buffer.[0]..& + self.written)..&[0 .. count];
-        _ = out.copy_from(buf.&[0 .. count]);
+        let out = (self.buffer.[0]..& + self.written)..&[0...count];
+        _ = out.copy_from(buf.&[0...count]);
         self.written += count;
         if (count < #buf) {
             self.overflowed = true;
@@ -83,7 +83,7 @@ impl &mut NullWriter : Write {
 impl &FixedBufferWriter {
     /// Returns all bytes successfully written so far.
     pub fn as_slice() &[u8] {
-        return self.buffer.&[0 .. self.written];
+        return self.buffer.&[0...self.written];
     }
 
     /// Returns the remaining capacity in bytes.
@@ -140,7 +140,7 @@ impl &mut Write {
     pub fn write_all(buf: &[u8]) bool {
         let mut written = 0usize;
         while (written < #buf) {
-            let n = self.write(buf.&[written .. #buf]);
+            let n = self.write(buf.&[written...#buf]);
             if (n == 0) {
                 return false;
             }

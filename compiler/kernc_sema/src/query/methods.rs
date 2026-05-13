@@ -1071,40 +1071,18 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             );
         }
 
-        let assoc_binding_map = assoc_bindings
-            .iter()
-            .copied()
-            .collect::<FastHashMap<_, _>>();
-
         for &super_ty in &trait_def.resolved_supertraits {
             let inst_super_ty = if let Some(trait_arg_map) = trait_arg_map.as_ref() {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
-                let substituted = subst.substitute(super_ty);
-                crate::ty::substitute_associated_types(
-                    &mut self.ctx.type_registry,
-                    &self.ctx.defs,
-                    substituted,
-                    &assoc_binding_map,
-                )
-            } else if assoc_binding_map.is_empty() {
-                super_ty
+                subst.substitute(super_ty)
             } else {
-                crate::ty::substitute_associated_types(
-                    &mut self.ctx.type_registry,
-                    &self.ctx.defs,
-                    super_ty,
-                    &assoc_binding_map,
-                )
+                super_ty
             };
-            let inst_super_norm = crate::query::augment_trait_object_assoc_bindings_from_map(
-                self.ctx,
-                inst_super_ty,
-                &assoc_binding_map,
-            );
-            let inst_super_norm = self.ctx.normalize_concrete_type(inst_super_norm);
-            let inst_super_norm = self.ctx.type_registry.normalize(inst_super_norm);
-
-            let super_trait = match self.ctx.type_registry.get(inst_super_norm) {
+            let super_trait = match self
+                .ctx
+                .type_registry
+                .get(self.ctx.type_registry.normalize(inst_super_ty))
+            {
                 TypeKind::TraitObject(super_def_id, super_args, super_assoc_bindings) => Some((
                     *super_def_id,
                     super_args.to_vec(),
@@ -1113,6 +1091,27 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 _ => None,
             };
             if let Some((super_def_id, super_args, super_assoc_bindings)) = super_trait {
+                let trait_view = self.ctx.type_registry.intern(TypeKind::TraitObject(
+                    trait_def_id,
+                    trait_args.to_vec(),
+                    assoc_bindings.to_vec(),
+                ));
+                let super_view = crate::query::trait_object_view_from_hierarchy(
+                    self.ctx,
+                    trait_view,
+                    super_def_id,
+                    &super_args,
+                );
+                let (super_args, super_assoc_bindings) =
+                    match super_view.and_then(|view| {
+                        match self.ctx.type_registry.get(view).clone() {
+                            TypeKind::TraitObject(_, args, assoc) => Some((args, assoc)),
+                            _ => None,
+                        }
+                    }) {
+                        Some(view) => view,
+                        None => (super_args, super_assoc_bindings),
+                    };
                 self.collect_trait_methods_in_hierarchy(
                     super_def_id,
                     &super_args,

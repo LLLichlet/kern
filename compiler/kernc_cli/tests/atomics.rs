@@ -18,15 +18,16 @@ fn compile_source(source: &str) -> std::process::Output {
 fn compiles_atomic_intrinsics_and_fence_with_base_sync_constants() {
     let output = compile_source_with_args(
         r#"
-use sync.{MemOrder, RELAXED, ACQUIRE, RELEASE, ACQ_REL, SEQ_CST};
+use sync.{MemOrder, atomic, fence, RELAXED, ACQUIRE, RELEASE, ACQ_REL, SEQ_CST};
 
-const LOAD_ORDER = MemOrder.{1};
+const LOAD_ORDER: MemOrder = ACQUIRE;
+const LOAD_CODE: u8 = LOAD_ORDER;
 
 fn main() i32 {
     let mut value = 0usize;
     let _ = @atomicLoad[usize](value.&, ACQUIRE);
     @atomicStore[usize](value..&, 1, RELEASE);
-    let _ = @atomicLoad[usize](value.&, LOAD_ORDER);
+    let _ = @atomicLoad[usize](value.&, LOAD_CODE);
 
     let cas = @atomicCas[usize](value..&, 1, 2, ACQ_REL, ACQUIRE);
     let _ = cas.success;
@@ -40,7 +41,13 @@ fn main() i32 {
     let mut ptr = value..&;
     let _ = @atomicXchg[&mut usize](ptr..&, value..&, SEQ_CST);
 
+    let mut cell = atomic[usize](0);
+    cell..&.store[RELEASE](1);
+    let _ = cell.&.load[LOAD_ORDER]();
+    let _ = cell..&.compare_exchange[ACQ_REL, ACQUIRE](1, 2);
+
     @fence(RELEASE);
+    fence[SEQ_CST]();
     return 0;
 }
 "#,
@@ -96,7 +103,7 @@ fn main() i32 {
 fn rejects_non_constant_atomic_ordering() {
     let output = compile_source(
         r#"
-const RELEASE = 2;
+const RELEASE: u8 = 2;
 
 fn main() i32 {
     let order = RELEASE;
@@ -125,7 +132,7 @@ fn main() i32 {
 fn rejects_invalid_atomic_ordering_for_load() {
     let output = compile_source(
         r#"
-const RELEASE = 2;
+const RELEASE: u8 = 2;
 
 fn main() i32 {
     let mut value = 0usize;
@@ -151,10 +158,40 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_invalid_base_sync_ordering_after_const_generic_substitution() {
+    let output = compile_source_with_args(
+        r#"
+use sync.{atomic, RELEASE};
+
+fn main() i32 {
+    let mut value = atomic[usize](0);
+    let _ = value.&.load[RELEASE]();
+    return 0;
+}
+"#,
+        &["--module-path", "sync=library/base/sync"],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not valid for `load order`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_atomic_widths_that_need_runtime_helpers() {
     let output = compile_source_with_args(
         r#"
-const ACQUIRE = 1;
+const ACQUIRE: u8 = 1;
 
 fn main() i32 {
     let mut value = 0u128;

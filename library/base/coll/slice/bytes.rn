@@ -109,25 +109,25 @@ impl &[u8] {
     /// Returns `true` when this slice starts with `prefix`.
     pub fn starts_with(prefix: &[u8]) bool {
         if (#prefix > #self) return false;
-        return self.&[0 .. #prefix] == prefix;
+        return self.&[0...#prefix] == prefix;
     }
 
     /// Returns `true` when this slice ends with `suffix`.
     pub fn ends_with(suffix: &[u8]) bool {
         if (#suffix > #self) return false;
-        return self.&[#self - #suffix .. #self] == suffix;
+        return self.&[#self - #suffix...#self] == suffix;
     }
 
     /// Removes `prefix` from the start of the slice when present.
     pub fn strip_prefix(prefix: &[u8]) ?&[u8] {
         if (!self.starts_with(prefix)) return .None;
-        return .{ Some: self.&[#prefix .. #self] };
+        return .{ Some: self.&[#prefix...#self] };
     }
 
     /// Removes `suffix` from the end of the slice when present.
     pub fn strip_suffix(suffix: &[u8]) ?&[u8] {
         if (!self.ends_with(suffix)) return .None;
-        return .{ Some: self.&[0 .. #self - #suffix] };
+        return .{ Some: self.&[0...#self - #suffix] };
     }
 
     /// Returns the first index of `byte`.
@@ -166,12 +166,12 @@ impl &[u8] {
         while (start < #self) {
             let b = self.[start];
             if (!is_ascii_whitespace(b)) {
-                return self.&[start .. #self];
+                return self.&[start...#self];
             }
 
             start += 1;
         }
-        return self.&[#self .. #self];
+        return self.&[#self...#self];
     }
 
     /// Trims ASCII whitespace from the end of the slice.
@@ -180,11 +180,11 @@ impl &[u8] {
         while (end > 0) {
             let b = self.[end - 1];
             if (!is_ascii_whitespace(b)) {
-                return self.&[0 .. end];
+                return self.&[0...end];
             }
             end -= 1;
         }
-        return self.&[0 .. 0];
+        return self.&[0...0];
     }
 
     /// Trims ASCII whitespace from both ends of the slice.

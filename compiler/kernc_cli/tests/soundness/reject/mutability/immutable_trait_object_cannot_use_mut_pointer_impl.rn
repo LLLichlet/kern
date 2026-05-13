@@ -1,7 +1,7 @@
 // Constructing an immutable trait object from a mutable concrete pointer must
 // not use a trait impl whose receiver is `&mut Concrete`; the proof receiver
 // for `&Trait` is the shared pointer view.
-// stderr: the provided pointer type does not implement the target trait
+// stderr: the source pointer type must implement the target trait
 
 trait Base {
     fn set(value: i32) void;

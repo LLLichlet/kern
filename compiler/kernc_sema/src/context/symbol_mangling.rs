@@ -184,6 +184,20 @@ impl<'a> SemaContext<'a> {
                     format!("S{}", inner)
                 }
             }
+            crate::ty::TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => {
+                let tag = if is_inclusive { "RangeInc" } else { "Range" };
+                let start = start
+                    .map(|ty| self.mangle_type(ty))
+                    .unwrap_or_else(|| "Full".to_string());
+                let end = end
+                    .map(|ty| self.mangle_type(ty))
+                    .unwrap_or_else(|| "Full".to_string());
+                format!("{tag}{}To{}", start, end)
+            }
             crate::ty::TypeKind::Array { elem, len } => {
                 let inner = self.mangle_type(elem);
                 format!("A{}{}", len, inner)

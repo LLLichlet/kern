@@ -144,6 +144,7 @@ pub struct CodeGenerator<'ctx, 'a> {
     def_mono_map: HashMap<(DefId, Vec<kernc_sema::ty::GenericArg>), MonoId>,
     pure_enum_tag_map: HashMap<(DefId, Vec<kernc_sema::ty::GenericArg>), TypeId>,
     adt_union_map: HashMap<MonoId, MonoId>,
+    range_map: HashMap<TypeId, MonoId>,
     anon_struct_map: HashMap<TypeId, MonoId>,
     anon_union_map: HashMap<TypeId, MonoId>,
     anon_enum_map: HashMap<TypeId, MonoId>,
@@ -165,6 +166,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.def_mono_map = module.mono.def_mono_map.clone();
         self.pure_enum_tag_map = module.mono.pure_enum_tag_map.clone();
         self.adt_union_map = module.mono.adt_union_map.clone();
+        self.range_map = module.mono.range_map.clone();
         self.anon_struct_map = module.mono.anon_struct_map.clone();
         self.anon_union_map = module.mono.anon_union_map.clone();
         self.anon_enum_map = module.mono.anon_enum_map.clone();
@@ -343,6 +345,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             def_mono_map: HashMap::new(),
             pure_enum_tag_map: HashMap::new(),
             adt_union_map: HashMap::new(),
+            range_map: HashMap::new(),
             anon_struct_map: HashMap::new(),
             anon_union_map: HashMap::new(),
             anon_enum_map: HashMap::new(),

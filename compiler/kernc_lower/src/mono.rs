@@ -760,6 +760,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             | TypeKind::ArrayInfer { elem, .. }
             | TypeKind::Alias(_, elem)
             | TypeKind::AnonymousEnumPayload(elem) => contains_child(elem, self),
+            TypeKind::Range { start, end, .. } => [start, end]
+                .into_iter()
+                .flatten()
+                .map(|ty| contains_child(ty, self))
+                .find(|containment| *containment != TypeContainment::None)
+                .unwrap_or(TypeContainment::None),
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::EnumPayload(_, args)
@@ -1187,6 +1193,61 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             name: mangled_name,
             fields: mast_fields,
             is_extern,
+            is_union: false,
+            largest_field_idx: 0,
+            union_size: 0,
+            union_align: 1,
+            attributes: vec![],
+        });
+
+        id
+    }
+
+    pub(crate) fn instantiate_range_struct(&mut self, norm_ty: TypeId) -> MonoId {
+        if let Some(&id) = self.range_cache.get(&norm_ty) {
+            return id;
+        }
+
+        let id = self.new_mono_id();
+        self.range_cache.insert(norm_ty, id);
+
+        let (start, end) = if let TypeKind::Range { start, end, .. } =
+            self.ctx.type_registry.get(norm_ty).clone()
+        {
+            (start, end)
+        } else {
+            self.ctx.emit_ice(
+                Span::default(),
+                format!(
+                    "Kern ICE (Lowering): Expected Range, found {:?}",
+                    self.ctx.type_registry.get(norm_ty)
+                ),
+            );
+            self.placeholder_struct(id, format!("__ice_range_{}", id.0), false);
+            return id;
+        };
+
+        let mut fields = Vec::new();
+        if let Some(start) = start {
+            self.track_pure_enum_repr_in_type(start);
+            fields.push(MastField {
+                name: self.ctx.intern("start"),
+                ty: start,
+            });
+        }
+        if let Some(end) = end {
+            self.track_pure_enum_repr_in_type(end);
+            fields.push(MastField {
+                name: self.ctx.intern("end"),
+                ty: end,
+            });
+        }
+
+        self.module.structs.push(MastStruct {
+            id,
+            name: self.ctx.mangle_type(norm_ty),
+            fields,
+            is_extern: true,
             is_union: false,
             largest_field_idx: 0,
             union_size: 0,

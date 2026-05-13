@@ -1,0 +1,29 @@
+// class: pattern-protocol
+// exit: 0
+
+trait Binding {
+    type Bind;
+};
+
+struct Source {};
+struct Capture {};
+
+impl Source : Binding {
+    type Bind = struct { value: i32 };
+}
+
+impl Capture : Pattern[i32] {
+    type Bind = Source.Binding.Bind;
+
+    fn apply(value: i32) ?Bind {
+        return .{ Some: .{ value: value } };
+    }
+}
+
+fn main() i32 {
+    let capture = Capture.{};
+    return match (4) {
+        capture => value - 4,
+        _ => 1,
+    };
+}

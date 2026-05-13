@@ -147,10 +147,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     for pat in &arm.patterns {
                         match &pat.kind {
                             ast::MatchPatternKind::Value(e) => self.resolve_expr(e, scope),
-                            ast::MatchPatternKind::Range { start, end, .. } => {
-                                self.resolve_expr(start, scope);
-                                self.resolve_expr(end, scope);
-                            }
                             ast::MatchPatternKind::Pattern(pattern) => {
                                 self.resolve_pattern(pattern, scope);
                             }
@@ -181,6 +177,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
                 self.resolve_expr(lhs, scope);
                 self.resolve_expr(rhs, scope);
+            }
+            ast::ExprKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.resolve_expr(start, scope);
+                }
+                if let Some(end) = end {
+                    self.resolve_expr(end, scope);
+                }
             }
             ast::ExprKind::Unary { operand, .. } => {
                 self.resolve_expr(operand, scope);

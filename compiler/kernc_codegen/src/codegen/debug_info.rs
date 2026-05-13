@@ -165,6 +165,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .get(&(def_id, args))
                 .and_then(|wrapper_id| self.adt_union_map.get(wrapper_id))
                 .copied(),
+            TypeKind::Range { .. } => self.range_map.get(&norm).copied(),
             TypeKind::AnonymousStruct(..) => self.anon_struct_map.get(&norm).copied(),
             TypeKind::AnonymousUnion(..) => self.anon_union_map.get(&norm).copied(),
             TypeKind::AnonymousEnum(..) => self.anon_enum_map.get(&norm).copied(),
@@ -310,6 +311,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
                 self.debug_type_align_bytes(elem).max(1)
             }
+            TypeKind::Range { start, end, .. } => {
+                let mut align: u64 = 1;
+                if let Some(start) = start {
+                    align = align.max(self.debug_type_align_bytes(start));
+                }
+                if let Some(end) = end {
+                    align = align.max(self.debug_type_align_bytes(end));
+                }
+                align.max(1)
+            }
             TypeKind::ClosureInterface { .. } => 1,
             TypeKind::AnonymousState { captures, .. } => {
                 let mut offset_bytes = 0;
@@ -375,6 +386,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .map(|len| self.debug_type_size_bytes(elem).saturating_mul(len))
                 .unwrap_or(0),
             TypeKind::ArrayInfer { .. } | TypeKind::ClosureInterface { .. } => 0,
+            TypeKind::Range { start, end, .. } => {
+                let mut offset_bytes = 0;
+                let mut struct_align_bytes: u64 = 1;
+                for ty in [start, end].into_iter().flatten() {
+                    let align = self.debug_type_align_bytes(ty).max(1);
+                    struct_align_bytes = struct_align_bytes.max(align);
+                    offset_bytes = Self::debug_align_to(offset_bytes, align);
+                    offset_bytes += self.debug_type_size_bytes(ty);
+                }
+                Self::debug_align_to(offset_bytes, struct_align_bytes.max(1))
+            }
             TypeKind::AnonymousState { captures, .. } => {
                 let mut offset_bytes = 0;
                 let mut struct_align_bytes = 1;
@@ -452,6 +474,26 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     if is_mut { "mut " } else { "" },
                     self.debug_type_name(elem)
                 )
+            }
+            TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => {
+                let op = if is_inclusive { "..=" } else { "..." };
+                match (start, end) {
+                    (Some(start), Some(end)) => {
+                        format!(
+                            "{}{}{}",
+                            self.debug_type_name(start),
+                            op,
+                            self.debug_type_name(end)
+                        )
+                    }
+                    (Some(start), None) => format!("{}{}", self.debug_type_name(start), op),
+                    (None, Some(end)) => format!("{}{}", op, self.debug_type_name(end)),
+                    (None, None) => op.to_string(),
+                }
             }
             TypeKind::Function { .. } => "&fn".to_string(),
             TypeKind::ClosureInterface { .. } => "Fn".to_string(),

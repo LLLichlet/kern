@@ -247,6 +247,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 self.type_contains_params(elem) || self.const_generic_contains_params(len)
             }
             TypeKind::ArrayInfer { elem, .. } => self.type_contains_params(elem),
+            TypeKind::Range { start, end, .. } => {
+                start.is_some_and(|ty| self.type_contains_params(ty))
+                    || end.is_some_and(|ty| self.type_contains_params(ty))
+            }
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::Associated(_, args)

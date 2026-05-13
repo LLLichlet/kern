@@ -220,6 +220,7 @@ pub struct EnumDef {
     pub name: SymbolId,
     pub vis: Visibility,
     pub is_imported: bool,
+    pub is_extern: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub backing_type: Option<Box<ast::TypeNode>>,

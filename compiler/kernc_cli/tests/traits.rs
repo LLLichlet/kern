@@ -866,7 +866,7 @@ fn runs_slice_array_eq_operator_impls() {
         r#"
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
 
     if (!(slice == [4]i32.{1, 2, 3, 4})) {
         return 1;
@@ -896,65 +896,9 @@ fn main() i32 {
 }
 
 #[test]
-fn runs_match_value_patterns_through_eq_trait() {
+fn runs_match_value_patterns_through_pattern_trait() {
     let output = build_and_run(
-        "kernc_match_value_patterns_eq_trait",
-        r#"
-use base.coll.String;
-use base.mem.alloc.gpa;
-use std.mem.Page;
-
-fn classify_text(text: &mut String) i32 {
-    return match (text) {
-        "kern" => 1,
-        "lang" => 2,
-        _ => 3,
-    };
-}
-
-fn classify_slice(slice: &[i32]) i32 {
-    return match (slice) {
-        [4]i32.{1, 2, 3, 4} => 4,
-        [3]i32.{1, 2, 3} => 5,
-        _ => 6,
-    };
-}
-
-fn main() i32 {
-    let page = Page.{}..&;
-    let gpa = gpa().on(page)..&;
-    let text = String.{}..&;
-    defer text.deinit(gpa);
-    if (text.try_push_str(gpa, "kern").is_err()) {
-        return 1;
-    }
-    if (classify_text(text) != 1) {
-        return 2;
-    }
-
-    let array = [4]i32.{1, 2, 3, 4};
-    if (classify_slice(array.&[0 .. 4]) != 4) {
-        return 3;
-    }
-
-    return 0;
-}
-"#,
-        &["--library-bundle", "std"],
-    );
-
-    assert!(
-        output.status.success(),
-        "program failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
-fn runs_match_value_patterns_with_custom_eq_impl() {
-    let output = build_and_run(
-        "kernc_match_value_patterns_custom_eq",
+        "kernc_match_value_patterns_pattern_trait",
         r#"
 struct Key {
     raw: i32,
@@ -967,10 +911,25 @@ impl Key : Eq[Key] {
     }
 }
 
+struct KeySum {
+    value: i32,
+};
+
+impl KeySum : Pattern[Key] {
+    type Bind = void;
+
+    pub fn apply(value: Key) ?Bind {
+        if ((value.raw + value.bias) == self.value) {
+            return .{ Some: {} };
+        }
+        return .None;
+    }
+}
+
 fn classify(key: Key) i32 {
     return match (key) {
-        make_key(1, 2) => 3,
-        make_key(4, 5) => 9,
+        KeySum.{ value: 3 } => 3,
+        KeySum.{ value: 9 } => 9,
         _ => 0,
     };
 }
@@ -1001,7 +960,53 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_match_value_pattern_without_eq_impl() {
+fn rejects_match_value_pattern_even_when_eq_impl_exists() {
+    let output = compile_source(
+        r#"
+struct Key {
+    raw: i32,
+    bias: i32,
+};
+
+impl Key : Eq[Key] {
+    pub fn eq(other: Key) bool {
+        return (self.raw + self.bias) == (other.raw + other.bias);
+    }
+}
+
+fn classify(key: Key) i32 {
+    return match (key) {
+        make_key(1, 2) => 1,
+        _ => 0,
+    };
+}
+
+fn make_key(raw: i32, bias: i32) Key {
+    return Key.{ raw: raw, bias: bias };
+}
+
+fn main() i32 {
+    return classify(make_key(1, 2));
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("match value is not a valid pattern"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("Pattern[Key]"), "{stderr}");
+}
+
+#[test]
+fn rejects_match_value_pattern_without_pattern_impl() {
     let output = compile_source(
         r#"
 struct Token {
@@ -1033,10 +1038,10 @@ fn main() i32 {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("operator `==` is not available"),
+        stderr.contains("match value is not a valid pattern"),
         "{stderr}"
     );
-    assert!(stderr.contains("Eq[Token]"), "{stderr}");
+    assert!(stderr.contains("Pattern[Token]"), "{stderr}");
 }
 
 #[test]
@@ -1046,7 +1051,7 @@ fn runs_slice_array_eq_method_impls() {
         r#"
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
 
     if (!slice.eq([4]i32.{1, 2, 3, 4})) {
         return 1;
@@ -1130,7 +1135,7 @@ impl[T, N: usize] &[T] : Fits[[N]T] {
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
 
     if (!slice.fits([4]i32.{1, 2, 3, 4})) {
         return 1;
@@ -1187,7 +1192,7 @@ impl[T, N: usize] &[T] : Make[[N]T] {
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
     return slice.make([4]i32.{1, 2, 3, 4}).score() - 8;
 }
 "#,
@@ -1229,7 +1234,7 @@ fn use_child[S, T, N: usize](value: S, arg: [N]T) i32
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
     return use_child[&[i32], i32, 4](slice, [4]i32.{1, 2, 3, 4}) - 8;
 }
 "#,
@@ -1277,7 +1282,7 @@ impl[T, N: usize] &[T] : Checked[[N]T]
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
     return slice.checked([4]i32.{1, 2, 3, 4}) - 4;
 }
 "#,
@@ -1324,7 +1329,7 @@ impl[T, N: usize] &[T] : Checked[[N]T]
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
     return slice.checked([3]i32.{1, 2, 3});
 }
 "#,
@@ -1428,7 +1433,7 @@ impl[T, N: usize] &[T] : Checked[[N]T]
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
     return slice.checked([4]i32.{1, 2, 3, 4}) - 4;
 }
 "#,
@@ -1476,7 +1481,7 @@ impl[T, N: usize] &[T] : Checked[[N]T]
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
     return slice.checked([3]i32.{1, 2, 3});
 }
 "#,
@@ -1531,7 +1536,7 @@ impl[T, N: usize] &[T] : AlsoUse[[N]T] {
 
 fn main() i32 {
     let array = [4]i32.{1, 2, 3, 4};
-    let slice = array.&[0 .. 4];
+    let slice = array.&[0...4];
     return slice.pick([4]i32.{1, 2, 3, 4});
 }
 "#,
@@ -1671,6 +1676,95 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("builtin numeric marker trait `Integer` cannot be implemented explicitly"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn compiles_builtin_slice_bounds_marker_for_range_types() {
+    let output = compile_source(
+        r#"
+fn accept[T](bounds: T) void
+    where T: SliceBounds,
+{
+    let _ = bounds;
+}
+
+fn main() i32 {
+    accept(0usize...4usize);
+    accept(0usize...);
+    accept(...4usize);
+    accept(...);
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_signed_range_for_slice_bounds_marker() {
+    let output = compile_source(
+        r#"
+fn accept[T](bounds: T) void
+    where T: SliceBounds,
+{
+    let _ = bounds;
+}
+
+fn main() i32 {
+    accept(-1...5);
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("SliceBounds"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_explicit_impl_of_builtin_slice_bounds_marker_trait() {
+    let output = compile_source(
+        r#"
+impl i32 : SliceBounds {}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "builtin slice-bounds marker trait `SliceBounds` cannot be implemented explicitly"
+        ),
         "unexpected stderr:\n{}",
         stderr
     );

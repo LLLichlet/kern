@@ -1,0 +1,30 @@
+// class: pattern-protocol
+// stderr: match arm patterns must bind the same names
+
+struct BindA {};
+struct BindB {};
+
+impl BindA : Pattern[i32] {
+    type Bind = struct { a: i32 };
+
+    fn apply(value: i32) ?Bind {
+        return .{ Some: .{ a: value } };
+    }
+}
+
+impl BindB : Pattern[i32] {
+    type Bind = struct { b: i32 };
+
+    fn apply(value: i32) ?Bind {
+        return .{ Some: .{ b: value } };
+    }
+}
+
+fn main() i32 {
+    let a = BindA.{};
+    let b = BindB.{};
+    return match (1) {
+        a, b => 0,
+        _ => 1,
+    };
+}

@@ -430,6 +430,61 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_raw_integer_values_for_extern_enum_variables() {
+    let source = r#"
+extern enum Mode: u8 {
+    Fast = 1,
+    Safe,
+};
+
+const BAD: Mode = 1;
+"#;
+
+    let output = compile_source(source);
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted a raw integer for an extern enum:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expected `Mode`") && stderr.contains("found `i32`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_strong_enum_to_integer_bnc() {
+    let source = r#"
+enum Mode: u8 {
+    Fast = 1,
+    Safe,
+};
+
+const MODE = Mode.Fast;
+const BAD: u8 = MODE;
+"#;
+
+    let output = compile_source(source);
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly coerced a strong enum to an integer:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expected `u8`") && stderr.contains("found `Mode`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn enum_const_generic_diagnostics_render_variant_names() {
     let source = r#"
 enum Mode {
@@ -963,7 +1018,7 @@ fn main() i32 {
     let arr = [4]i32.{ 1, 2, 3, 4 };
     let pair = Pair.{ left: 7, right: arr };
     let bits = Bits.{ raw: pair.left };
-    let view = arr.&[..];
+    let view = arr.&[...];
     return bits.raw + view.[0] - 8;
 }
 "#;

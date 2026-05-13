@@ -920,6 +920,14 @@ impl<'a> SemaContext<'a> {
                 self.measure_paterson_type(*elem, measure);
                 self.measure_paterson_const_generic(*len, measure);
             }
+            TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.measure_paterson_type(*start, measure);
+                }
+                if let Some(end) = end {
+                    self.measure_paterson_type(*end, measure);
+                }
+            }
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::EnumPayload(_, args)

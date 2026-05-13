@@ -247,6 +247,36 @@ impl<'a> SemaContext<'a> {
                     );
                     self.ctx_intern_if_changed(ty, TypeKind::ArrayInfer { elem: new_elem })
                 }
+                TypeKind::Range {
+                    start,
+                    end,
+                    is_inclusive,
+                } => {
+                    let new_start = start.map(|start| {
+                        self.normalize_concrete_type_inner(
+                            start,
+                            projection_stack,
+                            projection_chain,
+                            projection_assoc_chain,
+                        )
+                    });
+                    let new_end = end.map(|end| {
+                        self.normalize_concrete_type_inner(
+                            end,
+                            projection_stack,
+                            projection_chain,
+                            projection_assoc_chain,
+                        )
+                    });
+                    self.ctx_intern_if_changed(
+                        ty,
+                        TypeKind::Range {
+                            start: new_start,
+                            end: new_end,
+                            is_inclusive,
+                        },
+                    )
+                }
                 TypeKind::Def(def_id, args) => {
                     let new_args = self.normalize_generic_args(
                         &args,

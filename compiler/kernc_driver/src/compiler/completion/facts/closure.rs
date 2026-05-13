@@ -341,18 +341,6 @@ fn collect_match_pattern_closure_completion_facts(
                 closure_facts_by_span,
             );
         }
-        ast::MatchPatternKind::Range { start, end, .. } => {
-            collect_expr_closure_completion_facts(
-                start,
-                closure_binding_items_by_body_span,
-                closure_facts_by_span,
-            );
-            collect_expr_closure_completion_facts(
-                end,
-                closure_binding_items_by_body_span,
-                closure_facts_by_span,
-            );
-        }
         _ => {}
     }
 }

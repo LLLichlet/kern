@@ -390,7 +390,16 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 where_clauses,
                 backing_type,
                 variants,
-            } => self.collect_enum_decl(decl, vis, generics, where_clauses, backing_type, variants),
+                is_extern,
+            } => self.collect_enum_decl(
+                decl,
+                vis,
+                generics,
+                where_clauses,
+                backing_type,
+                variants,
+                force_extern || *is_extern,
+            ),
             DeclKind::Trait {
                 generics,
                 where_clauses,
@@ -544,12 +553,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 where_clauses,
                 backing_type,
                 variants,
+                is_extern,
             } => self.collect_enum_decl_owned(
                 header,
                 generics,
                 where_clauses,
                 backing_type,
                 variants,
+                force_extern || is_extern,
             ),
             DeclKind::Trait {
                 generics,
@@ -658,8 +669,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 attributes: decl.attributes.clone(),
             })
         });
+        let owner_scope = if spec.parent_impl.is_some() || spec.parent_trait.is_some() {
+            self.ctx.scopes.current_scope_id()
+        } else {
+            self.current_owner_scope()
+        };
         self.ctx
-            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+            .register_def_owner(def_id, self.current_module, owner_scope);
 
         // Only free functions are inserted into the surrounding lexical scope.
         if spec.parent_impl.is_none() && spec.parent_trait.is_none() {
@@ -757,8 +773,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 attributes,
             })
         });
+        let owner_scope = if parent_impl.is_some() || parent_trait.is_some() {
+            self.ctx.scopes.current_scope_id()
+        } else {
+            self.current_owner_scope()
+        };
         self.ctx
-            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+            .register_def_owner(def_id, self.current_module, owner_scope);
 
         if parent_impl.is_none() && parent_trait.is_none() {
             self.define_symbol(SymbolDefSpec {
@@ -981,6 +1002,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         where_clauses: &[ast::WhereClause],
         backing_type: &Option<Box<ast::TypeNode>>,
         variants: &[ast::EnumVariant],
+        is_extern: bool,
     ) -> Option<DefId> {
         let def_id = self.ctx.add_def_with(|def_id| {
             Def::Enum(EnumDef {
@@ -988,6 +1010,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 name: decl.name,
                 vis,
                 is_imported: self.current_module_imported,
+                is_extern,
                 generics: generics.to_vec(),
                 where_clauses: where_clauses.to_vec(),
                 backing_type: backing_type.clone(),
@@ -1135,6 +1158,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         where_clauses: Vec<ast::WhereClause>,
         backing_type: Option<Box<ast::TypeNode>>,
         variants: Vec<ast::EnumVariant>,
+        is_extern: bool,
     ) -> Option<DefId> {
         let OwnedDeclHeader {
             node_id,
@@ -1151,6 +1175,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 name,
                 vis,
                 is_imported: self.current_module_imported,
+                is_extern,
                 generics,
                 where_clauses,
                 backing_type,
@@ -1460,7 +1485,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx
             .register_def_owner(impl_id, self.current_module, self.current_owner_scope());
 
-        self.ctx.scopes.enter_scope();
+        let impl_scope = self.ctx.scopes.enter_scope();
         self.inject_generic_params(generics);
 
         for method_decl in decls {
@@ -1498,11 +1523,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         docs: Self::clone_docs_if_present(&method_decl.docs),
                     })
                 });
-                self.ctx.register_def_owner(
-                    def_id,
-                    self.current_module,
-                    self.current_owner_scope(),
-                );
+                self.ctx
+                    .register_def_owner(def_id, self.current_module, Some(impl_scope));
                 assoc_type_ids.push(def_id);
             } else {
                 self.ctx.emit_error(
@@ -1562,7 +1584,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx
             .register_def_owner(impl_id, self.current_module, self.current_owner_scope());
 
-        self.ctx.scopes.enter_scope();
+        let impl_scope = self.ctx.scopes.enter_scope();
         self.inject_generic_params(&generics);
 
         for method_decl in decls {
@@ -1613,11 +1635,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                             docs: Self::take_docs_if_present(docs),
                         })
                     });
-                    self.ctx.register_def_owner(
-                        def_id,
-                        self.current_module,
-                        self.current_owner_scope(),
-                    );
+                    self.ctx
+                        .register_def_owner(def_id, self.current_module, Some(impl_scope));
                     assoc_type_ids.push(def_id);
                 }
                 Decl { span, .. } => {

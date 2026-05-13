@@ -81,13 +81,13 @@ fn check_direct_file_ops[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: 
     file.seek(.{ Start: 2 }).should_ok().eq(2usize).sum(@loc(), t);
 
     let mut mid: [2]u8 = undef;
-    file.read_exact(mid..&[0 .. 2]).should_ok().eq(true).sum(@loc(), t);
-    mid.&[0 .. 2].should().eq("cd").sum(@loc(), t);
+    file.read_exact(mid..&[0...2]).should_ok().eq(true).sum(@loc(), t);
+    mid.&[0...2].should().eq("cd").sum(@loc(), t);
 
     file.seek(.{ End: -2 }).should_ok().eq(4usize).sum(@loc(), t);
     let mut tail: [4]u8 = undef;
-    file.read(tail..&[0 .. 4]).should_ok().eq(2usize).sum(@loc(), t);
-    tail.&[0 .. 2].should().eq("ef").sum(@loc(), t);
+    file.read(tail..&[0...4]).should_ok().eq(2usize).sum(@loc(), t);
+    tail.&[0...2].should().eq("ef").sum(@loc(), t);
 
     file.truncate(3).should_ok().eq(true).sum(@loc(), t);
     file.flush().should_ok().eq(true).sum(@loc(), t);
@@ -97,7 +97,7 @@ fn check_direct_file_ops[W](gpa: &mut base.mem.alloc.Allocator, root: &[u8], t: 
     all.as_slice().should().eq("abc").sum(@loc(), t);
 
     let mut too_much: [1]u8 = undef;
-    match (file.read_exact(too_much..&[0 .. 1]).should_err().sum(@loc(), t)) {
+    match (file.read_exact(too_much..&[0...1]).should_err().sum(@loc(), t)) {
         .UnexpectedEof => {},
         _ => false.should().sum(@loc(), t),
     }

@@ -208,6 +208,98 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let _ = self.ctx.scopes.define(name_id, info);
     }
 
+    pub(super) fn inject_pattern_trait(&mut self) {
+        let name_id = self.ctx.intern("Pattern");
+        let method_name_id = self.ctx.intern("apply");
+        let bind_name_id = self.ctx.intern("Bind");
+        let def_id = self.ctx.defs.next_id();
+        let value = self.new_builtin_param("Value");
+        let value_ty = self.ctx.type_registry.intern(TypeKind::Param(value.name));
+        let bind_assoc_id = DefId(def_id.0 + 1);
+        let bind_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Associated(bind_assoc_id, vec![]));
+        let self_ty = self.builtin_trait_ty_by_id(def_id, vec![]);
+        let optional_bind_ty = self.builtin_optional_ty(bind_ty);
+        let sig = self.ctx.type_registry.intern(TypeKind::Function {
+            params: vec![self_ty, value_ty],
+            ret: optional_bind_ty,
+            is_variadic: false,
+        });
+
+        self.ctx.add_def(Def::Trait(TraitDef {
+            id: def_id,
+            name: name_id,
+            vis: Visibility::Public,
+            is_imported: false,
+            generics: vec![value],
+            where_clauses: vec![],
+            supertraits: vec![],
+            resolved_supertraits: vec![],
+            assoc_types: vec![bind_assoc_id],
+            methods: vec![],
+            resolved_methods: vec![(method_name_id, sig)],
+            span: Span::default(),
+            is_builtin: true,
+            docs: None,
+        }));
+        self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
+            id: bind_assoc_id,
+            name: bind_name_id,
+            parent_trait: Some(def_id),
+            parent_impl: None,
+            implemented_trait_assoc: None,
+            is_imported: false,
+            generics: vec![],
+            bounds: vec![],
+            where_clauses: vec![],
+            target: None,
+            resolved_bounds: vec![],
+            span: Span::default(),
+            docs: None,
+        }));
+        self.ctx.register_builtin_def(name_id, def_id);
+
+        let info = SymbolInfo {
+            kind: SymbolKind::Trait,
+            node_id: self.ctx.next_node_id(),
+            type_id: self.builtin_trait_ty_by_id(def_id, vec![]),
+            def_id: Some(def_id),
+            span: Default::default(),
+            vis: Visibility::Public,
+            is_mut: false,
+        };
+        let root_scope = ScopeId(0);
+        self.ctx.scopes.set_current_scope(root_scope);
+        let _ = self.ctx.scopes.define(name_id, info);
+    }
+
+    fn builtin_optional_ty(&mut self, inner_ty: TypeId) -> TypeId {
+        let some = self.ctx.intern("Some");
+        let none = self.ctx.intern("None");
+        self.ctx
+            .type_registry
+            .intern(TypeKind::AnonymousEnum(crate::ty::AnonymousEnum {
+                backing_ty: None,
+                builtin: Some(crate::ty::BuiltinAnonymousEnumKind::Optional),
+                variants: vec![
+                    crate::ty::AnonymousVariant {
+                        name: some,
+                        name_span: Span::default(),
+                        payload_ty: Some(inner_ty),
+                        explicit_value: None,
+                    },
+                    crate::ty::AnonymousVariant {
+                        name: none,
+                        name_span: Span::default(),
+                        payload_ty: None,
+                        explicit_value: None,
+                    },
+                ],
+            }))
+    }
+
     pub(super) fn inject_operator_traits(&mut self) {
         let rhs = self.new_builtin_param("Rhs");
         let rhs_ty = self.ctx.type_registry.intern(TypeKind::Param(rhs.name));

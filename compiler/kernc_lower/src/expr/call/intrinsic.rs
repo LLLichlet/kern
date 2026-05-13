@@ -504,12 +504,24 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             "@trap" => Some(MastExprKind::Trap),
             "@atomicLoad" => Some(MastExprKind::AtomicLoad {
                 ptr: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[1], subst_map),
+                ordering: self.atomic_ordering_arg(
+                    &args[1],
+                    subst_map,
+                    "load order",
+                    AtomicOrdering::valid_for_load,
+                    "load order must be Relaxed, Acquire, or SeqCst",
+                ),
             }),
             "@atomicStore" => Some(MastExprKind::AtomicStore {
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_ordering_arg(
+                    &args[2],
+                    subst_map,
+                    "store order",
+                    AtomicOrdering::valid_for_store,
+                    "store order must be Relaxed, Release, or SeqCst",
+                ),
             }),
             "@atomicCas" | "@atomicCasWeak" => {
                 let is_weak = name_str == "@atomicCasWeak";
@@ -526,78 +538,102 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     ptr: Box::new(arg_masts.remove(0)),
                     expected: Box::new(arg_masts.remove(0)),
                     desired: Box::new(arg_masts.remove(0)),
-                    success: self.atomic_ordering_arg(&args[3], subst_map),
-                    failure: self.atomic_ordering_arg(&args[4], subst_map),
+                    success: self.atomic_ordering_arg(
+                        &args[3],
+                        subst_map,
+                        "success order",
+                        AtomicOrdering::valid_for_rmw,
+                        "success order must be Relaxed, Acquire, Release, AcqRel, or SeqCst",
+                    ),
+                    failure: self.atomic_ordering_arg(
+                        &args[4],
+                        subst_map,
+                        "failure order",
+                        AtomicOrdering::valid_for_cmpxchg_failure,
+                        "failure order must be Relaxed, Acquire, or SeqCst",
+                    ),
                 })
             }
             "@atomicXchg" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Xchg,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_ordering_arg(
+                    &args[2],
+                    subst_map,
+                    "read-modify-write order",
+                    AtomicOrdering::valid_for_rmw,
+                    "read-modify-write order must be Relaxed, Acquire, Release, AcqRel, or SeqCst",
+                ),
             }),
             "@atomicRmwAdd" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Add,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwSub" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Sub,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwAnd" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::And,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwNand" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Nand,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwOr" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Or,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwXor" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Xor,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwMax" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Max,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwMin" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::Min,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwUMax" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::UMax,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@atomicRmwUMin" => Some(MastExprKind::AtomicRmw {
                 op: AtomicRmwOp::UMin,
                 ptr: Box::new(arg_masts.remove(0)),
                 value: Box::new(arg_masts.remove(0)),
-                ordering: self.atomic_ordering_arg(&args[2], subst_map),
+                ordering: self.atomic_rmw_ordering_arg(&args[2], subst_map),
             }),
             "@fence" => Some(MastExprKind::Fence {
-                ordering: self.atomic_ordering_arg(&args[0], subst_map),
+                ordering: self.atomic_ordering_arg(
+                    &args[0],
+                    subst_map,
+                    "fence order",
+                    AtomicOrdering::valid_for_fence,
+                    "fence order must be Acquire, Release, AcqRel, or SeqCst",
+                ),
             }),
             "@breakpoint" => Some(MastExprKind::Breakpoint),
             "@memcpy" => Some(MastExprKind::Memcpy {
@@ -666,6 +702,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         arg: &Expr,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+        arg_label: &str,
+        validator: impl Fn(AtomicOrdering) -> bool,
+        hint: &str,
     ) -> AtomicOrdering {
         if let Some(ordering) = self.ctx.atomic_ordering(arg.id) {
             return ordering;
@@ -673,17 +712,41 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut evaluator = ConstEvaluator::new(self.ctx).with_type_substs(subst_map);
         match evaluator.eval_inner(arg, 0) {
-            Ok(ConstValue::Int(value)) => {
-                AtomicOrdering::from_abi_const(value).unwrap_or_else(|| {
+            Ok(ConstValue::Int(value))
+            | Ok(ConstValue::Enum {
+                tag: value,
+                payload: None,
+            }) => {
+                let Some(ordering) = AtomicOrdering::from_abi_const(value) else {
                     self.ctx
                         .struct_error(
                             arg.span,
-                            format!("invalid atomic ordering constant `{}`", value),
+                            format!(
+                                "invalid atomic ordering constant `{}` for `{}`",
+                                value, arg_label
+                            ),
                         )
-                        .with_hint("valid atomic orderings use ABI constants 0 through 4")
+                        .with_hint(
+                            "valid values are 0=Relaxed, 1=Acquire, 2=Release, 3=AcqRel, 4=SeqCst",
+                        )
                         .emit();
-                    AtomicOrdering::SeqCst
-                })
+                    return AtomicOrdering::SeqCst;
+                };
+                if !validator(ordering) {
+                    self.ctx
+                        .struct_error(
+                            arg.span,
+                            format!(
+                                "atomic ordering `{}` is not valid for `{}`",
+                                ordering.as_str(),
+                                arg_label
+                            ),
+                        )
+                        .with_hint(hint)
+                        .emit();
+                    return AtomicOrdering::SeqCst;
+                }
+                ordering
             }
             _ => {
                 self.ctx
@@ -695,6 +758,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 AtomicOrdering::SeqCst
             }
         }
+    }
+
+    fn atomic_rmw_ordering_arg(
+        &mut self,
+        arg: &Expr,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    ) -> AtomicOrdering {
+        self.atomic_ordering_arg(
+            arg,
+            subst_map,
+            "read-modify-write order",
+            AtomicOrdering::valid_for_rmw,
+            "read-modify-write order must be Relaxed, Acquire, Release, AcqRel, or SeqCst",
+        )
     }
 
     pub(super) fn simd_align_arg(&mut self, arg: &Expr) -> u32 {

@@ -8,7 +8,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let lhs_expected_ty = self.cast_operand_expected_type(target_ty);
         let lhs_ty = self.check_expr(lhs, lhs_expected_ty);
         self.check_cast(lhs.span, lhs_ty, target_ty);
-        target_ty
+        self.enrich_trait_object_pointer_cast_target(lhs_ty, target_ty)
     }
 
     fn cast_operand_expected_type(&mut self, target_ty: TypeId) -> Option<TypeId> {
@@ -17,6 +17,69 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             Some(norm)
         } else {
             None
+        }
+    }
+
+    fn enrich_trait_object_pointer_cast_target(&mut self, from: TypeId, to: TypeId) -> TypeId {
+        let to_norm = self.resolve_tv(to);
+        let (is_mut, elem, is_volatile) = match self.ctx.type_registry.get(to_norm).clone() {
+            TypeKind::Pointer { is_mut, elem } => (is_mut, elem, false),
+            TypeKind::VolatilePtr { is_mut, elem } => (is_mut, elem, true),
+            _ => return to,
+        };
+        let elem_norm = self.resolve_tv(elem);
+        if !matches!(
+            self.ctx.type_registry.get(elem_norm),
+            TypeKind::TraitObject(..)
+        ) {
+            return to;
+        }
+
+        let from_norm = self.resolve_tv(from);
+        let proof_ty = match self.ctx.type_registry.get(from_norm).clone() {
+            TypeKind::Pointer {
+                is_mut: from_mut,
+                elem: from_elem,
+            } => {
+                if !is_mut && from_mut {
+                    self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: false,
+                        elem: from_elem,
+                    })
+                } else {
+                    from
+                }
+            }
+            TypeKind::VolatilePtr {
+                is_mut: from_mut,
+                elem: from_elem,
+            } => {
+                if !is_mut && from_mut {
+                    self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                        is_mut: false,
+                        elem: from_elem,
+                    })
+                } else {
+                    from
+                }
+            }
+            _ => return to,
+        };
+        let enriched_elem =
+            crate::query::enrich_trait_object_assoc_bindings(self.ctx, proof_ty, elem_norm);
+        if enriched_elem == elem_norm {
+            return to;
+        }
+        if is_volatile {
+            self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                is_mut,
+                elem: enriched_elem,
+            })
+        } else {
+            self.ctx.type_registry.intern(TypeKind::Pointer {
+                is_mut,
+                elem: enriched_elem,
+            })
         }
     }
 
@@ -64,7 +127,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if self.is_slice_pointer_value_type(t_norm) {
                 self.ctx
                     .struct_error(span, "cannot cast a pointer to a slice using `as`")
-                    .with_hint("slice length metadata must come from slice syntax such as `array.&[start .. end]`")
+                    .with_hint("slice length metadata must come from slice syntax such as `array.&[start...end]`")
                     .emit();
             } else if self.is_closure_fat_pointer_value_type(t_norm) {
                 if self.fat_pointer_cast_mutability_mismatch(from, to) {

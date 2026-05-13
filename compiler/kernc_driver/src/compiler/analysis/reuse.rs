@@ -331,6 +331,7 @@ fn normalize_decl_for_reuse_comparison(decl: &mut ast::Decl) {
             where_clauses,
             backing_type,
             variants,
+            ..
         } => {
             normalize_generics_for_body_only_comparison(generics);
             normalize_where_clauses_for_body_only_comparison(where_clauses);
@@ -629,6 +630,7 @@ fn normalize_decl_for_body_only_comparison(decl: &mut ast::Decl) {
             where_clauses,
             backing_type,
             variants,
+            ..
         } => {
             normalize_generics_for_body_only_comparison(generics);
             normalize_where_clauses_for_body_only_comparison(where_clauses);
@@ -791,6 +793,14 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
         ast::TypeKind::Result { ok, err } => {
             normalize_type_for_body_only_comparison(ok);
             normalize_type_for_body_only_comparison(err);
+        }
+        ast::TypeKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                normalize_type_for_body_only_comparison(start);
+            }
+            if let Some(end) = end {
+                normalize_type_for_body_only_comparison(end);
+            }
         }
         ast::TypeKind::Pointer { elem, .. }
         | ast::TypeKind::VolatilePtr { elem, .. }
@@ -979,6 +989,14 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
             normalize_expr_for_body_only_comparison(lhs);
             normalize_expr_for_body_only_comparison(rhs);
         }
+        ast::ExprKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                normalize_expr_for_body_only_comparison(start);
+            }
+            if let Some(end) = end {
+                normalize_expr_for_body_only_comparison(end);
+            }
+        }
         ast::ExprKind::Unary { operand, .. } => normalize_expr_for_body_only_comparison(operand),
         ast::ExprKind::Grouped { expr: inner } => normalize_expr_for_body_only_comparison(inner),
         ast::ExprKind::FieldAccess { lhs, .. } => normalize_expr_for_body_only_comparison(lhs),
@@ -1160,10 +1178,6 @@ fn normalize_match_pattern_for_body_only_comparison(pattern: &mut ast::MatchPatt
     pattern.span = Span::default();
     match &mut pattern.kind {
         ast::MatchPatternKind::Value(value) => normalize_expr_for_body_only_comparison(value),
-        ast::MatchPatternKind::Range { start, end, .. } => {
-            normalize_expr_for_body_only_comparison(start);
-            normalize_expr_for_body_only_comparison(end);
-        }
         ast::MatchPatternKind::Pattern(inner) => {
             normalize_pattern_for_body_only_comparison(inner);
         }

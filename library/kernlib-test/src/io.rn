@@ -26,14 +26,14 @@ fn check_writers[T](t: &mut Report[T]) void
     where &mut T: Write,
 {
     let mut fixed_storage: [64]u8 = undef;
-    let mut fixed = (fixed_storage..&[0 .. 64]).writer();
+    let mut fixed = (fixed_storage..&[0...64]).writer();
     let fixed_writer = (fixed..& as &mut Write);
     "{}{} {{}} {}".fmt(.{ 12, "ab", false, }).write_to(fixed_writer);
     fixed..&.as_slice().should().eq("12ab {} false").sum(@loc(), t);
     fixed..&.did_overflow().not().should().sum(@loc(), t);
 
     let mut small_storage: [5]u8 = undef;
-    let mut small = (small_storage..&[0 .. 5]).writer();
+    let mut small = (small_storage..&[0...5]).writer();
     let small_writer = (small..& as &mut Write);
     small_writer.write_all("abcdef").not().should().sum(@loc(), t);
     small..&.as_slice().should().eq("abcde").sum(@loc(), t);
@@ -52,7 +52,7 @@ fn check_writers[T](t: &mut Report[T]) void
     out.as_str().should().eq("[id-7] {x}").sum(@loc(), t);
 
     let mut fmt_storage: [256]u8 = undef;
-    let mut fmt = (fmt_storage..&[0 .. 256]).writer();
+    let mut fmt = (fmt_storage..&[0...256]).writer();
     let fmt_writer = (fmt..& as &mut Write);
     "p={02} r={>4} l={<4} c={^5} z={0>3} f={_>4} cut={.3} mix={>6.2} left={<6.2} zero={0>5.2} hex={x} HEX={X} bin={b} oct={o} alt={#x} wide={#08x} neg={x} bad={q} old={:02}"
         .fmt(.{
@@ -82,7 +82,7 @@ fn check_writers[T](t: &mut Report[T]) void
 
     let pair = Pair.{ left: 2, right: 5 };
     let mut pair_storage: [16]u8 = undef;
-    let mut pair_out = (pair_storage..&[0 .. 16]).writer();
+    let mut pair_out = (pair_storage..&[0...16]).writer();
     let pair_writer = (pair_out..& as &mut Write);
     "{}".fmt(.{ pair, }).write_to(pair_writer);
     pair_out..&.as_slice().should().eq("(2, 5)").sum(@loc(), t);
@@ -95,14 +95,14 @@ fn check_readers[T](t: &mut Report[T]) void
     let reader_obj = (reader..& as &mut Read);
 
     let mut head: [2]u8 = undef;
-    reader_obj.read_exact(head..&[0 .. 2]).should().sum(@loc(), t);
-    head.&[0 .. 2].should().eq("ab").sum(@loc(), t);
+    reader_obj.read_exact(head..&[0...2]).should().sum(@loc(), t);
+    head.&[0...2].should().eq("ab").sum(@loc(), t);
     reader.&.remaining().should().eq(4usize).sum(@loc(), t);
     reader.&.remaining_slice().should().eq("cdef").sum(@loc(), t);
     reader_obj.skip(2).should().eq(2usize).sum(@loc(), t);
 
     let mut tail: [3]u8 = undef;
-    reader_obj.read_exact(tail..&[0 .. 3]).not().should().sum(@loc(), t);
+    reader_obj.read_exact(tail..&[0...3]).not().should().sum(@loc(), t);
     tail.[0].should().eq(b'e').sum(@loc(), t);
     tail.[1].should().eq(b'f').sum(@loc(), t);
     reader.&.is_empty().should().sum(@loc(), t);
@@ -126,7 +126,7 @@ fn check_copy_adapters[T](t: &mut Report[T]) void
     let source_reader = (source..& as &mut Read);
 
     let mut storage: [8]u8 = undef;
-    let mut fixed = (storage..&[0 .. 8]).writer();
+    let mut fixed = (storage..&[0...8]).writer();
     let fixed_writer = (fixed..& as &mut Write);
     let mut counted = fixed_writer.counting();
     let counted_writer = (counted..& as &mut Write);

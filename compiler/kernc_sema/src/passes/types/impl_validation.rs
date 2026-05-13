@@ -399,6 +399,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             | TypeKind::Slice { elem, .. }
             | TypeKind::Array { elem, .. }
             | TypeKind::ArrayInfer { elem, .. } => self.type_has_local_impl_anchor(elem, impl_home),
+            TypeKind::Range { start, end, .. } => {
+                start.is_some_and(|ty| self.type_has_local_impl_anchor(ty, impl_home))
+                    || end.is_some_and(|ty| self.type_has_local_impl_anchor(ty, impl_home))
+            }
             TypeKind::Alias(_, target) => self.type_has_local_impl_anchor(target, impl_home),
             TypeKind::Def(def_id, _)
             | TypeKind::Enum(def_id, _)

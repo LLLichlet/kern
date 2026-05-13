@@ -6,10 +6,8 @@ use base.coll.{
     List,
     String,
     list,
-    range,
     range_down,
     range_down_inclusive,
-    range_inclusive,
     string,
 };
 use base.cmp.{GREATER, LESS, EQUAL, Ordering};
@@ -105,7 +103,7 @@ fn check_list_string_and_slice[W](t: &mut Report[W]) void
     }).should_some().eq(80).sum(@loc(), t);
 
     let sorted = [6]i32.{1, 3, 3, 5, 8, 9};
-    let sorted_view = sorted.&[0 .. 6];
+    let sorted_view = sorted.&[0...6];
     sorted_view.partition_point([](value: i32) bool {
         return value < 5;
     }).should().eq(3usize).sum(@loc(), t);
@@ -153,9 +151,9 @@ fn check_numeric_and_sorting[W](t: &mut Report[W]) void
     SAT_MUL.should().eq(num.USIZE_MAX).sum(@loc(), t);
 
     let mut values = [8]i32.{ 5, 1, 3, 3, 9, 0, 8, 3 };
-    let view = values..&[0 .. 8];
+    let view = values..&[0...8];
     view.sort();
-    let sorted = values.&[0 .. 8];
+    let sorted = values.&[0...8];
     sorted.is_sorted().should().sum(@loc(), t);
     (sorted == [8]i32.{ 0, 1, 3, 3, 3, 5, 8, 9 }).should().sum(@loc(), t);
     sorted.lower_bound(3).should().eq(2usize).sum(@loc(), t);
@@ -165,40 +163,44 @@ fn check_numeric_and_sorting[W](t: &mut Report[W]) void
     view.sort_by([](lhs: i32, rhs: i32) Ordering {
         return rhs.cmp(lhs);
     });
-    (values.&[0 .. 8] == [8]i32.{ 9, 8, 5, 3, 3, 3, 1, 0 }).should().sum(@loc(), t);
+    (values.&[0...8] == [8]i32.{ 9, 8, 5, 3, 3, 3, 1, 0 }).should().sum(@loc(), t);
 
     let mut words = [5]&[u8].{ "gamma", "alpha", "beta", "beta", "delta" };
-    let word_view = words..&[0 .. 5];
+    let word_view = words..&[0...5];
     word_view.sort();
-    let sorted_words = words.&[0 .. 5];
+    let sorted_words = words.&[0...5];
     sorted_words.is_sorted().should().sum(@loc(), t);
     sorted_words.lower_bound("beta").should().eq(1usize).sum(@loc(), t);
     sorted_words.upper_bound("beta").should().eq(3usize).sum(@loc(), t);
 
     let mut ring = [6]i32.{ 0, 1, 2, 3, 4, 5 };
-    let ring_view = ring..&[0 .. 6];
+    let ring_view = ring..&[0...6];
     ring_view.rotate_left(2);
-    (ring.&[0 .. 6] == [6]i32.{ 2, 3, 4, 5, 0, 1 }).should().sum(@loc(), t);
+    (ring.&[0...6] == [6]i32.{ 2, 3, 4, 5, 0, 1 }).should().sum(@loc(), t);
     ring_view.rotate_right(8);
-    (ring.&[0 .. 6] == [6]i32.{ 0, 1, 2, 3, 4, 5 }).should().sum(@loc(), t);
+    (ring.&[0...6] == [6]i32.{ 0, 1, 2, 3, 4, 5 }).should().sum(@loc(), t);
     ring_view.copy_within(0, 3, 2).should().sum(@loc(), t);
-    (ring.&[0 .. 6] == [6]i32.{ 0, 1, 0, 1, 2, 5 }).should().sum(@loc(), t);
+    (ring.&[0...6] == [6]i32.{ 0, 1, 0, 1, 2, 5 }).should().sum(@loc(), t);
 }
 
 fn check_ranges[W](t: &mut Report[W]) void
     where &mut W: io.Write,
 {
     let mut sum = 0i32;
-    for (i: range(0i32, 5i32)) {
+    for (i: 0i32...5i32) {
         sum += i;
     }
     sum.should().eq(10i32).sum(@loc(), t);
 
     let mut inclusive_sum = 0i32;
-    for (i: range_inclusive(-2i32, 2i32)) {
+    for (i: -2i32..=2i32) {
         inclusive_sum += i;
     }
     inclusive_sum.should().eq(0i32).sum(@loc(), t);
+
+    let mut inclusive_single = 255u8..=255u8;
+    inclusive_single..&.next().should_some().eq(255u8).sum(@loc(), t);
+    inclusive_single..&.next().should_none().sum(@loc(), t);
 
     let mut descending_sum = 0i32;
     for (value: range_down(5i32, 2i32)) {
@@ -212,19 +214,26 @@ fn check_ranges[W](t: &mut Report[W]) void
     }
     inclusive_descending_sum.should().eq(6i32).sum(@loc(), t);
 
-    let mut count_range = range(2i32, 7i32);
+    let mut count_range = 2i32...7i32;
     count_range..&.count().should().eq(5usize).sum(@loc(), t);
 
-    let mut nth_range = range(10i32, 20i32);
+    let mut nth_range = 10i32...20i32;
     nth_range..&.nth(3usize).should_some().eq(13i32).sum(@loc(), t);
     nth_range..&.next().should_some().eq(14i32).sum(@loc(), t);
+
+    let mut inclusive_count = 252u8..=255u8;
+    inclusive_count..&.count().should().eq(4usize).sum(@loc(), t);
+
+    let mut inclusive_nth = 252u8..=255u8;
+    inclusive_nth..&.nth(3usize).should_some().eq(255u8).sum(@loc(), t);
+    inclusive_nth..&.next().should_none().sum(@loc(), t);
 
     let mut fold_range = range_down_inclusive(4i32, 1i32);
     fold_range..&.fold[i32](0i32, [](accum: i32, value: i32) i32 {
         return accum + value;
     }).should().eq(10i32).sum(@loc(), t);
 
-    let mut find_range = range(3i32, 9i32);
+    let mut find_range = 3i32...9i32;
     find_range..&.find([](value: i32) bool {
         return value % 2i32 == 0i32;
     }).should_some().eq(4i32).sum(@loc(), t);

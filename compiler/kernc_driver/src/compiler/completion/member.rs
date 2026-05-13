@@ -359,22 +359,6 @@ impl CompilerDriver {
                                     member_items_by_span,
                                 );
                             }
-                            ast::MatchPatternKind::Range { start, end, .. } => {
-                                self.collect_member_completion_items_in_expr(
-                                    member_query,
-                                    module_id,
-                                    start,
-                                    member_env,
-                                    member_items_by_span,
-                                );
-                                self.collect_member_completion_items_in_expr(
-                                    member_query,
-                                    module_id,
-                                    end,
-                                    member_env,
-                                    member_items_by_span,
-                                );
-                            }
                             _ => {}
                         }
                     }

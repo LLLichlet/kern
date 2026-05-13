@@ -74,6 +74,11 @@ pub enum ExprKind {
         op: BinaryOperator,
         rhs: Box<Expr>,
     },
+    Range {
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        is_inclusive: bool,
+    },
     Unary {
         op: UnaryOperator,
         operand: Box<Expr>,

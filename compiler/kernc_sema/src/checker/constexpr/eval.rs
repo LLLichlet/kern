@@ -1363,6 +1363,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             };
 
             return match value.kind {
+                kernc_ty::ConstGenericValueKind::Int(tag) if self.type_is_enum_like(value.ty) => {
+                    Some(ConstValue::Enum { tag, payload: None })
+                }
                 kernc_ty::ConstGenericValueKind::Int(value) => Some(ConstValue::Int(value)),
                 kernc_ty::ConstGenericValueKind::Bool(value) => Some(ConstValue::Bool(value)),
             };

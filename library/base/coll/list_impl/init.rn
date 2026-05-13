@@ -32,7 +32,7 @@ pub/ struct List[T] {
 impl[T] List[T] {
     #[inline]
     pub fn as_slice() &[T] {
-        return self.ptr.&[0 .. self.len];
+        return self.ptr.&[0...self.len];
     }
 
     #[inline]
@@ -438,7 +438,7 @@ impl[T] &mut List[T] {
     /// through safe higher-level APIs.
     pub fn try_append_uninit(alloc: &mut Allocator, count: usize) (&mut [T])!AllocError {
         if (count == 0) {
-            return .{ Ok: self.zst_ptr()..&[0 .. 0] };
+            return .{ Ok: self.zst_ptr()..&[0...0] };
         }
 
         let old_len = self.len;
@@ -446,15 +446,15 @@ impl[T] &mut List[T] {
 
         self.len = old_len + count;
         if (self.is_zst()) {
-            return .{ Ok: self.zst_ptr()..&[0 .. count] };
+            return .{ Ok: self.zst_ptr()..&[0...count] };
         }
-        return .{ Ok: (self.ptr + old_len)..&[0 .. count] };
+        return .{ Ok: (self.ptr + old_len)..&[0...count] };
     }
 
     /// Grows the list by `count` items using exact growth when reallocation is needed.
     pub fn try_append_uninit_exact(alloc: &mut Allocator, count: usize) (&mut [T])!AllocError {
         if (count == 0) {
-            return .{ Ok: self.zst_ptr()..&[0 .. 0] };
+            return .{ Ok: self.zst_ptr()..&[0...0] };
         }
 
         let old_len = self.len;
@@ -462,9 +462,9 @@ impl[T] &mut List[T] {
 
         self.len = old_len + count;
         if (self.is_zst()) {
-            return .{ Ok: self.zst_ptr()..&[0 .. count] };
+            return .{ Ok: self.zst_ptr()..&[0...count] };
         }
-        return .{ Ok: (self.ptr + old_len)..&[0 .. count] };
+        return .{ Ok: (self.ptr + old_len)..&[0...count] };
     }
 
     /// Appends `count` copies of `item`.
@@ -679,7 +679,7 @@ impl[T] &mut List[T] {
 
     #[inline]
     pub fn as_mut_slice() &mut [T] {
-        return self.ptr..&[0 .. self.len];
+        return self.ptr..&[0...self.len];
     }
 
     #[inline]
@@ -711,7 +711,7 @@ impl[T] &mut List[T]
 impl[T] &List[T] {
     #[inline]
     pub fn as_slice() &[T] {
-        return self.ptr.&[0 .. self.len];
+        return self.ptr.&[0...self.len];
     }
 
     #[inline]

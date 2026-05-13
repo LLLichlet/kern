@@ -511,7 +511,7 @@ fn collect_match_pattern_binding_completion_facts(
     bindings: &mut Vec<AnalysisCompletionItem>,
 ) {
     match &pattern.kind {
-        ast::MatchPatternKind::Value(_) | ast::MatchPatternKind::Range { .. } => {}
+        ast::MatchPatternKind::Value(_) => {}
         ast::MatchPatternKind::Pattern(inner) => {
             collect_pattern_binding_items(inner, items_by_span, bindings);
         }

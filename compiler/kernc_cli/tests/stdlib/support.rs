@@ -320,12 +320,12 @@ fn main() i32 {
     let bytes = [5]u8.{ b'h', b'e', b'l', b'l', b'o' };
     bytes.print();
     " ".print();
-    bytes.&[1 .. 4].println();
+    bytes.&[1...4].println();
     bytes.eprint();
     " ".eprint();
-    bytes.&[0 .. 2].eprintln();
-    write_line(bytes.&[2 .. 5]);
-    write_err_line(bytes.&[3 .. 5]);
+    bytes.&[0...2].eprintln();
+    write_line(bytes.&[2...5]);
+    write_err_line(bytes.&[3...5]);
     return 0;
 }
 "#,

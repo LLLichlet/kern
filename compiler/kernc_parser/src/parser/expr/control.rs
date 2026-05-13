@@ -491,28 +491,6 @@ impl<'a> Parser<'a> {
         }
 
         let expr = self.parse_match_value_pattern_expr()?;
-        if self.match_token(&[TokenType::DotDot]) {
-            let end_expr = self.parse_expression(Precedence::Lowest)?;
-            return Ok(MatchPattern {
-                kind: MatchPatternKind::Range {
-                    start: Box::new(expr),
-                    end: Box::new(end_expr),
-                    inclusive: false,
-                },
-                span: pat_start.to(self.stream.prev_span()),
-            });
-        }
-        if self.match_token(&[TokenType::DotDotEqual]) {
-            let end_expr = self.parse_expression(Precedence::Lowest)?;
-            return Ok(MatchPattern {
-                kind: MatchPatternKind::Range {
-                    start: Box::new(expr),
-                    end: Box::new(end_expr),
-                    inclusive: true,
-                },
-                span: pat_start.to(self.stream.prev_span()),
-            });
-        }
         if self.match_token(&[TokenType::Colon]) {
             let _ = self.parse_pattern()?;
             self.session

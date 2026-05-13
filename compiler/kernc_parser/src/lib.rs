@@ -665,6 +665,129 @@ fn main(value: ?i32, status: i32!&[u8]) ?i32!&[u8] {
     }
 
     #[test]
+    fn parses_builtin_range_expr_and_type_forms() {
+        let source = r#"
+fn main(
+    closed: i32...i32,
+    inclusive: i32..=i32,
+    to: ...i32,
+    to_inclusive: ..=i32,
+    from: i32...,
+    full: ...,
+) void {
+    let a = 0...10;
+    let b = 0..=10;
+    let c = ...10;
+    let d = ..=10;
+    let e = 10...;
+    let f = ...;
+}
+
+fn range_return_type() i32... {
+    return 0...;
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        assert_eq!(module.decls.len(), 2);
+
+        let ast::DeclKind::Function {
+            params,
+            body: Some(body),
+            ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function");
+        };
+
+        let expected_types = [
+            (true, true, false),
+            (true, true, true),
+            (false, true, false),
+            (false, true, true),
+            (true, false, false),
+            (false, false, false),
+        ];
+        for (param, (has_start, has_end, is_inclusive)) in params.iter().zip(expected_types) {
+            let ast::TypeKind::Range {
+                start,
+                end,
+                is_inclusive: actual_inclusive,
+            } = &param.type_node.kind
+            else {
+                panic!("expected range type");
+            };
+            assert_eq!(start.is_some(), has_start);
+            assert_eq!(end.is_some(), has_end);
+            assert_eq!(*actual_inclusive, is_inclusive);
+        }
+
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+        let expected_exprs = [
+            (true, true, false),
+            (true, true, true),
+            (false, true, false),
+            (false, true, true),
+            (true, false, false),
+            (false, false, false),
+        ];
+        for (stmt, (has_start, has_end, is_inclusive)) in stmts.iter().zip(expected_exprs) {
+            let ast::StmtKind::ExprStmt(expr) = &stmt.kind else {
+                panic!("expected let statement");
+            };
+            let ast::ExprKind::Let { init, .. } = &expr.kind else {
+                panic!("expected let expression");
+            };
+            let ast::ExprKind::Range {
+                start,
+                end,
+                is_inclusive: actual_inclusive,
+            } = &init.kind
+            else {
+                panic!("expected range expression");
+            };
+            assert_eq!(start.is_some(), has_start);
+            assert_eq!(end.is_some(), has_end);
+            assert_eq!(*actual_inclusive, is_inclusive);
+        }
+    }
+
+    #[test]
+    fn parses_range_precedence_and_boundaries() {
+        let source = r#"
+fn take(value: i32...i32, more: ...i32, full: ...) void {}
+
+fn return_range() i32...i32 {
+    return (1 + 2)...(3 + 4);
+}
+
+fn main() void {
+    take(0...10, ...20, ...);
+    let a = (1 + 2)...(3 * 4);
+    let b = ...(#"abc");
+    let c = 0...;
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        assert_eq!(module.decls.len(), 3);
+    }
+
+    #[test]
     fn parses_builtin_propagation_expressions() {
         let source = r#"
 fn main(value: ?i32, status: i32!&[u8]) i32 {
@@ -847,7 +970,7 @@ type PtrInferArray = &[_]u8;
     fn parses_bare_lbracket_closures_and_type_namespace_exprs() {
         let source = r#"
 fn main() void {
-    let base = i32.{40};
+    let base = 40i32;
     let add = [base](value: i32) i32 {
         return base + value;
     };

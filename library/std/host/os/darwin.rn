@@ -491,7 +491,7 @@ pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool)
             return .{ Ok: total };
         }
 
-        let name = entry.d_name.&[0 .. entry.d_namlen as usize];
+        let name = entry.d_name.&[0...entry.d_namlen as usize];
         if (is_dot_entry(name)) {
             continue;
         }

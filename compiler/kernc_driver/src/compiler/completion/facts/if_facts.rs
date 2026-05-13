@@ -187,10 +187,6 @@ fn collect_match_pattern_if_completion_facts(
         ast::MatchPatternKind::Value(value) => {
             collect_expr_if_completion_facts(value, if_facts_by_span);
         }
-        ast::MatchPatternKind::Range { start, end, .. } => {
-            collect_expr_if_completion_facts(start, if_facts_by_span);
-            collect_expr_if_completion_facts(end, if_facts_by_span);
-        }
         _ => {}
     }
 }

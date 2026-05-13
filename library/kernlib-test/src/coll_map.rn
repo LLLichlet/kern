@@ -113,13 +113,13 @@ fn check_byte_slice_keys[W](t: &mut Report[W]) void
     let alpha_probe = [5]u8.{ b'a', b'l', b'p', b'h', b'a' };
     let beta = [4]u8.{ b'b', b'e', b't', b'a' };
 
-    map.try_insert(gpa, alpha.&[0 .. 5], 7).should_ok().sum(@loc(), t);
-    map.try_insert(gpa, beta.&[0 .. 4], 9).should_ok().sum(@loc(), t);
-    map.contains(alpha_probe.&[0 .. 5]).should().sum(@loc(), t);
-    map.get(alpha_probe.&[0 .. 5]).should_some().eq(7).sum(@loc(), t);
-    map.remove(alpha_probe.&[0 .. 5]).should_some().eq(7).sum(@loc(), t);
-    map.contains(alpha.&[0 .. 5]).not().should().sum(@loc(), t);
-    map.get(beta.&[0 .. 4]).should_some().eq(9).sum(@loc(), t);
+    map.try_insert(gpa, alpha.&[0...5], 7).should_ok().sum(@loc(), t);
+    map.try_insert(gpa, beta.&[0...4], 9).should_ok().sum(@loc(), t);
+    map.contains(alpha_probe.&[0...5]).should().sum(@loc(), t);
+    map.get(alpha_probe.&[0...5]).should_some().eq(7).sum(@loc(), t);
+    map.remove(alpha_probe.&[0...5]).should_some().eq(7).sum(@loc(), t);
+    map.contains(alpha.&[0...5]).not().should().sum(@loc(), t);
+    map.get(beta.&[0...4]).should_some().eq(9).sum(@loc(), t);
 }
 
 fn check_string_traits[W](t: &mut Report[W]) void
@@ -164,7 +164,7 @@ fn check_get_or_insert[W](t: &mut Report[W]) void
     defer map.deinit(gpa);
     let mut lazy_calls = 0i32;
 
-    for (i: base.coll.range(0i32, 6i32)) {
+    for (i: 0i32...6i32) {
         map.try_insert(gpa, i, i + 10i32).should_ok().sum(@loc(), t);
     }
     map.capacity.should().eq(8usize).sum(@loc(), t);

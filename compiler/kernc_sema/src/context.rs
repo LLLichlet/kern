@@ -305,15 +305,15 @@ impl<'a> SemaContext<'a> {
             .copied()
     }
 
-    pub fn set_match_value_pattern_binary_expr(&mut self, pattern_id: NodeId, binary_id: NodeId) {
+    pub fn set_match_value_pattern_bind_ty(&mut self, pattern_id: NodeId, bind_ty: TypeId) {
         self.facts
-            .match_value_pattern_binary_exprs
-            .insert(pattern_id, binary_id);
+            .match_value_pattern_bind_tys
+            .insert(pattern_id, bind_ty);
     }
 
-    pub fn match_value_pattern_binary_expr(&self, pattern_id: NodeId) -> Option<NodeId> {
+    pub fn match_value_pattern_bind_ty(&self, pattern_id: NodeId) -> Option<TypeId> {
         self.facts
-            .match_value_pattern_binary_exprs
+            .match_value_pattern_bind_tys
             .get(&pattern_id)
             .copied()
     }

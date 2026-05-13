@@ -705,6 +705,17 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         env_scope: ScopeId,
         span: Span,
     ) -> (Vec<GenericArg>, Vec<(SymbolId, TypeId)>) {
+        self.resolve_generic_args_for_params_in_scopes(params, args, env_scope, env_scope, span)
+    }
+
+    pub(crate) fn resolve_generic_args_for_params_in_scopes(
+        &mut self,
+        params: &[ast::GenericParam],
+        args: &[ast::GenericArg],
+        env_scope: ScopeId,
+        param_scope: ScopeId,
+        span: Span,
+    ) -> (Vec<GenericArg>, Vec<(SymbolId, TypeId)>) {
         // Positional arguments are matched against the declared parameter order while
         // associated type bindings are collected separately and validated later against the
         // trait's associated-type namespace.
@@ -730,8 +741,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         }
                         Some(ast::GenericParamKind::Const { ty }) => {
                             if let Some(expr) = self.reinterpret_type_arg_as_const_expr(ty_node) {
-                                let expected_ty =
-                                    self.resolve_const_generic_param_type(ty, env_scope, expr.span);
+                                let expected_ty = self
+                                    .resolve_const_generic_param_type_in_param_scope(
+                                        ty,
+                                        env_scope,
+                                        param_scope,
+                                        expr.span,
+                                    );
                                 positional.push(GenericArg::Const(
                                     self.resolve_const_generic_expr(
                                         &expr,
@@ -761,8 +777,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     let expected = params.get(positional_index).map(|param| &param.kind);
                     match expected {
                         Some(ast::GenericParamKind::Const { ty }) => {
-                            let expected_ty =
-                                self.resolve_const_generic_param_type(ty, env_scope, expr.span);
+                            let expected_ty = self.resolve_const_generic_param_type_in_param_scope(
+                                ty,
+                                env_scope,
+                                param_scope,
+                                expr.span,
+                            );
                             positional.push(GenericArg::Const(self.resolve_const_generic_expr(
                                 expr,
                                 expected_ty,

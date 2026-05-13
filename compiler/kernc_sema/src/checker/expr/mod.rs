@@ -68,6 +68,54 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         })
     }
 
+    fn check_range_expr(
+        &mut self,
+        start: Option<&Expr>,
+        end: Option<&Expr>,
+        is_inclusive: bool,
+        span: Span,
+        expected_ty: Option<TypeId>,
+    ) -> TypeId {
+        let (expected_start, expected_end) = expected_ty
+            .map(|ty| self.resolve_tv(ty))
+            .and_then(|ty| match self.ctx.type_registry.get(ty).clone() {
+                TypeKind::Range {
+                    start,
+                    end,
+                    is_inclusive: expected_inclusive,
+                } if expected_inclusive == is_inclusive => Some((start, end)),
+                _ => None,
+            })
+            .unwrap_or((None, None));
+
+        let start_ty = start.map(|expr| self.check_expr(expr, expected_start));
+        let end_ty = end.map(|expr| self.check_expr(expr, expected_end.or(start_ty)));
+
+        if let (Some(start_ty), Some(end_ty)) = (start_ty, end_ty) {
+            let start_norm = self.resolve_tv(start_ty);
+            let end_norm = self.resolve_tv(end_ty);
+            if start_norm != end_norm && start_norm != TypeId::ERROR && end_norm != TypeId::ERROR {
+                let start_ty = self.ctx.ty_to_string(start_norm);
+                let end_ty = self.ctx.ty_to_string(end_norm);
+                self.ctx
+                    .struct_error(span, "range bounds must have the same type")
+                    .with_hint(format!(
+                        "left bound has type `{}`, right bound has type `{}`",
+                        start_ty, end_ty
+                    ))
+                    .emit();
+            }
+        }
+
+        let start_ty = start_ty.map(|ty| self.resolve_tv(ty));
+        let end_ty = end_ty.map(|ty| self.resolve_tv(ty));
+        self.ctx.type_registry.intern(TypeKind::Range {
+            start: start_ty,
+            end: end_ty,
+            is_inclusive,
+        })
+    }
+
     const NUMERIC_CAND_I8: u16 = 1 << 0;
     const NUMERIC_CAND_I16: u16 = 1 << 1;
     const NUMERIC_CAND_I32: u16 = 1 << 2;
@@ -158,6 +206,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.collect_pointer_origins(target, out)
             }
             ExprKind::Binary { .. }
+            | ExprKind::Range { .. }
             | ExprKind::Assign { .. }
             | ExprKind::FieldAccess { .. }
             | ExprKind::IndexAccess { .. } => {}
@@ -644,6 +693,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .type_registry
                     .intern(TypeKind::Slice { is_mut, elem })
             }
+            TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => {
+                let start = start.map(|ty| self.materialize_numeric_defaults_in_type(ty));
+                let end = end.map(|ty| self.materialize_numeric_defaults_in_type(ty));
+                self.ctx.type_registry.intern(TypeKind::Range {
+                    start,
+                    end,
+                    is_inclusive,
+                })
+            }
             TypeKind::Array { elem, len } => {
                 let elem = self.materialize_numeric_defaults_in_type(elem);
                 self.ctx.type_registry.intern(TypeKind::Array { elem, len })
@@ -1102,6 +1164,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         map,
                         param_stack,
                     )
+            }
+            TypeKind::Range { start, end, .. } => {
+                start.is_some_and(|ty| {
+                    self.generic_param_occurs_in_type_with_map_inner(needle, ty, map, param_stack)
+                }) || end.is_some_and(|ty| {
+                    self.generic_param_occurs_in_type_with_map_inner(needle, ty, map, param_stack)
+                })
             }
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
@@ -1587,6 +1656,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
+            ExprKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => self.check_range_expr(
+                start.as_deref(),
+                end.as_deref(),
+                *is_inclusive,
+                expr.span,
+                expected_ty,
+            ),
             ExprKind::Unary { op, operand } => {
                 let started = self.timing_start();
                 let ty = self.check_unary(*op, operand, expr.span, expected_ty);
@@ -1896,6 +1976,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             },
                         ],
                     }))
+            }
+            ast::TypeKind::Range {
+                start,
+                end,
+                is_inclusive,
+            } => {
+                let start = start
+                    .as_deref()
+                    .map(|start| self.evaluate_dynamic_typeof(start));
+                let end = end.as_deref().map(|end| self.evaluate_dynamic_typeof(end));
+                self.ctx.type_registry.intern(TypeKind::Range {
+                    start,
+                    end,
+                    is_inclusive: *is_inclusive,
+                })
             }
             ast::TypeKind::Pointer { is_mut, elem } => {
                 let base = self.evaluate_dynamic_typeof(elem);

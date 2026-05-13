@@ -183,6 +183,16 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
                 self.compute_type_align_inner(elem, request_span)
             }
+            TypeKind::Range { start, end, .. } => {
+                let mut max_align = 1;
+                if let Some(start) = start {
+                    max_align = max_align.max(self.compute_type_align_inner(start, request_span));
+                }
+                if let Some(end) = end {
+                    max_align = max_align.max(self.compute_type_align_inner(end, request_span));
+                }
+                max_align
+            }
 
             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {
                 self.compute_def_align(def_id, &generic_args)
@@ -369,6 +379,18 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     "an array with inferred length `[_]T`",
                 );
                 0
+            }
+            TypeKind::Range { start, end, .. } => {
+                let mut offset = 0;
+                let mut max_align = 1;
+                for ty in [start, end].into_iter().flatten() {
+                    let align = self.compute_type_align_inner(ty, request_span);
+                    let size = self.compute_type_size_inner(ty, request_span);
+                    max_align = max_align.max(align);
+                    offset = Self::align_to(offset, align);
+                    offset += size;
+                }
+                Self::align_to(offset, max_align)
             }
 
             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {

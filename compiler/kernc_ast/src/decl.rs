@@ -101,6 +101,7 @@ pub enum DeclKind {
         where_clauses: Vec<WhereClause>,
         backing_type: Option<Box<TypeNode>>,
         variants: Vec<EnumVariant>,
+        is_extern: bool,
     },
 
     /// `trait Name[T] { ... }`

@@ -91,6 +91,38 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ExprKind::Grouped { expr, .. } => {
                 self.collect_value_pattern_plan(span, expr, target_expr, target_ty, subst_map)
             }
+            ExprKind::Range {
+                start: Some(start),
+                end: Some(end),
+                is_inclusive,
+            } => {
+                let start_expr = self.lower_expr(start, subst_map, Some(target_ty));
+                let end_expr = self.lower_expr(end, subst_map, Some(target_ty));
+                let lower = MastExpr::new(
+                    TypeId::BOOL,
+                    MastExprKind::Binary {
+                        op: ast::BinaryOperator::LessOrEqual,
+                        lhs: Box::new(start_expr),
+                        rhs: Box::new(target_expr.clone()),
+                    },
+                    span,
+                );
+                let upper_op = if *is_inclusive {
+                    ast::BinaryOperator::LessOrEqual
+                } else {
+                    ast::BinaryOperator::LessThan
+                };
+                let upper = MastExpr::new(
+                    TypeId::BOOL,
+                    MastExprKind::Binary {
+                        op: upper_op,
+                        lhs: Box::new(target_expr.clone()),
+                        rhs: Box::new(end_expr),
+                    },
+                    span,
+                );
+                Some(self.and_expr(span, lower, upper))
+            }
             ExprKind::Bool(expected) if norm_target == TypeId::BOOL => Some(MastExpr::new(
                 TypeId::BOOL,
                 MastExprKind::Binary {
@@ -210,6 +242,157 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .all(|variant| variant.payload_ty.is_none()),
             _ => false,
         }
+    }
+
+    fn optional_bind_ty(&mut self, bind_ty: TypeId) -> TypeId {
+        let some = self.ctx.intern("Some");
+        let none = self.ctx.intern("None");
+        self.ctx
+            .type_registry
+            .intern(TypeKind::AnonymousEnum(kernc_sema::ty::AnonymousEnum {
+                backing_ty: None,
+                builtin: Some(kernc_sema::ty::BuiltinAnonymousEnumKind::Optional),
+                variants: vec![
+                    kernc_sema::ty::AnonymousVariant {
+                        name: some,
+                        name_span: Span::default(),
+                        payload_ty: Some(bind_ty),
+                        explicit_value: None,
+                    },
+                    kernc_sema::ty::AnonymousVariant {
+                        name: none,
+                        name_span: Span::default(),
+                        payload_ty: None,
+                        explicit_value: None,
+                    },
+                ],
+            }))
+    }
+
+    fn lower_user_pattern_apply(
+        &mut self,
+        span: Span,
+        value: &Expr,
+        target_expr: &MastExpr,
+        target_ty: TypeId,
+        bind_ty: TypeId,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+    ) -> MastExpr {
+        let pattern_expr = self.lower_expr(value, subst_map, None);
+        let target_ty = self.substitute_type_with_map(target_ty, subst_map);
+        let bind_ty = self.substitute_type_with_map(bind_ty, subst_map);
+        let Some(owner_trait_ty) = self.ctx.builtin_trait_ty_with_assoc(
+            "Pattern",
+            vec![target_ty],
+            vec![("Bind", bind_ty)],
+        ) else {
+            return self.lower_error_expr(bind_ty, span, "missing builtin trait `Pattern`");
+        };
+        let ret_ty = self.optional_bind_ty(bind_ty);
+        let callee_ty = self.ctx.type_registry.intern(TypeKind::Function {
+            params: vec![pattern_expr.ty, target_ty],
+            ret: ret_ty,
+            is_variadic: false,
+        });
+        let apply = self.ctx.intern("apply");
+        self.lower_resolved_trait_method_call(
+            pattern_expr,
+            vec![target_expr.clone()],
+            owner_trait_ty,
+            super::super::call::MethodCallSite {
+                field: apply,
+                norm_callee: callee_ty,
+                expected_self_ty: None,
+                default_ret_ty: ret_ty,
+                span,
+            },
+        )
+    }
+
+    fn bind_struct_fields_from_payload(
+        &mut self,
+        span: Span,
+        payload_expr: &MastExpr,
+        bind_ty: TypeId,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+        bindings: &mut Vec<PatternBindingPlan>,
+    ) {
+        let bind_ty = self.substitute_type_with_map(bind_ty, subst_map);
+        let norm_bind_ty = self.ctx.type_registry.normalize(bind_ty);
+        let TypeKind::AnonymousStruct(is_extern, fields) =
+            self.ctx.type_registry.get(norm_bind_ty).clone()
+        else {
+            return;
+        };
+        let struct_id = self.instantiate_anon_struct(norm_bind_ty);
+        let (ast_to_physical, _) =
+            self.cached_anon_struct_mapping(norm_bind_ty, is_extern, &fields);
+        for (ast_idx, field) in fields.iter().enumerate() {
+            let Some(&field_idx) = ast_to_physical.get(ast_idx) else {
+                continue;
+            };
+            bindings.push(PatternBindingPlan {
+                name: field.name,
+                ty: field.ty,
+                is_mut: false,
+                init: MastExpr::new(
+                    field.ty,
+                    MastExprKind::FieldAccess {
+                        lhs: Box::new(payload_expr.clone()),
+                        struct_id,
+                        field_idx,
+                    },
+                    span,
+                ),
+            });
+        }
+    }
+
+    fn collect_user_pattern_plan(
+        &mut self,
+        span: Span,
+        value: &Expr,
+        target_expr: &MastExpr,
+        target_ty: TypeId,
+        bind_ty: TypeId,
+        subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
+        bindings: &mut Vec<PatternBindingPlan>,
+    ) -> (Vec<MastStmt>, MastExpr) {
+        let apply_result =
+            self.lower_user_pattern_apply(span, value, target_expr, target_ty, bind_ty, subst_map);
+        let (matched_let, matched_expr) =
+            self.build_match_target_binding(apply_result.ty, apply_result, span);
+
+        let some = self.ctx.intern("Some");
+        let (cond, payload_info) =
+            match self.build_enum_variant_condition(span, &matched_expr, matched_expr.ty, some) {
+                Some(value) => value,
+                None => {
+                    return (
+                        Vec::new(),
+                        self.lower_error_expr(
+                            TypeId::BOOL,
+                            span,
+                            "cannot lower `Pattern.apply` result as a builtin optional",
+                        ),
+                    );
+                }
+            };
+
+        if let Some((variant_idx, payload_ty, mono_id)) = payload_info
+            && bind_ty != TypeId::VOID
+            && let Some(payload_expr) = self.build_payload_extract_expr(
+                span,
+                &matched_expr,
+                mono_id,
+                variant_idx,
+                payload_ty,
+            )
+        {
+            self.bind_struct_fields_from_payload(span, &payload_expr, bind_ty, subst_map, bindings);
+        }
+
+        (vec![matched_let], cond)
     }
 
     fn value_pattern_is_qualified_enum_variant(
@@ -744,9 +927,23 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let pattern = &patterns[pattern_index];
-        let (cond, bindings) = match &pattern.kind {
+        let (prelude, cond, bindings) = match &pattern.kind {
             ast::MatchPatternKind::Value(value) => {
                 self.measure_phase("              lower_match_pattern_value", |this| {
+                    if let Some(bind_ty) = this.ctx.match_value_pattern_bind_ty(value.id) {
+                        let mut bindings = Vec::new();
+                        let (prelude, cond) = this.collect_user_pattern_plan(
+                            pattern.span,
+                            value,
+                            match_context.target_var_expr,
+                            match_context.target_ty,
+                            bind_ty,
+                            match_context.subst_map,
+                            &mut bindings,
+                        );
+                        return (prelude, cond, bindings);
+                    }
+
                     let cond = if let Some(cond) = this.collect_value_pattern_plan(
                         pattern.span,
                         value,
@@ -755,75 +952,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         match_context.subst_map,
                     ) {
                         cond
-                    } else if let Some(binary_id) =
-                        this.ctx.match_value_pattern_binary_expr(value.id)
-                    {
-                        MastExpr::new(
-                            TypeId::BOOL,
-                            this.lower_match_value_equality_condition(
-                                binary_id,
-                                value,
-                                match_context,
-                                pattern.span,
-                            ),
-                            pattern.span,
-                        )
                     } else {
-                        let value_expr = this.lower_expr(
-                            value,
-                            match_context.subst_map,
-                            Some(match_context.target_ty),
-                        );
-                        MastExpr::new(
+                        this.lower_error_expr(
                             TypeId::BOOL,
-                            MastExprKind::Binary {
-                                op: ast::BinaryOperator::Equal,
-                                lhs: Box::new(match_context.target_var_expr.clone()),
-                                rhs: Box::new(value_expr),
-                            },
                             pattern.span,
+                            "cannot lower invalid match value pattern",
                         )
                     };
-                    (cond, Vec::new())
+                    (Vec::new(), cond, Vec::new())
                 })
             }
-            ast::MatchPatternKind::Range {
-                start,
-                end,
-                inclusive,
-            } => self.measure_phase("              lower_match_pattern_range", |this| {
-                let start_expr = this.lower_expr(
-                    start,
-                    match_context.subst_map,
-                    Some(match_context.target_ty),
-                );
-                let end_expr =
-                    this.lower_expr(end, match_context.subst_map, Some(match_context.target_ty));
-                let lower = MastExpr::new(
-                    TypeId::BOOL,
-                    MastExprKind::Binary {
-                        op: ast::BinaryOperator::LessOrEqual,
-                        lhs: Box::new(start_expr),
-                        rhs: Box::new(match_context.target_var_expr.clone()),
-                    },
-                    pattern.span,
-                );
-                let upper_op = if *inclusive {
-                    ast::BinaryOperator::LessOrEqual
-                } else {
-                    ast::BinaryOperator::LessThan
-                };
-                let upper = MastExpr::new(
-                    TypeId::BOOL,
-                    MastExprKind::Binary {
-                        op: upper_op,
-                        lhs: Box::new(match_context.target_var_expr.clone()),
-                        rhs: Box::new(end_expr),
-                    },
-                    pattern.span,
-                );
-                (this.and_expr(pattern.span, lower, upper), Vec::new())
-            }),
             ast::MatchPatternKind::Pattern(inner) => {
                 self.measure_phase("              lower_match_pattern_plan", |this| {
                     let mut bindings = Vec::new();
@@ -834,7 +972,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         match_context.target_ty,
                         &mut bindings,
                     );
-                    (cond, bindings)
+                    (Vec::new(), cond, bindings)
                 })
             }
         };
@@ -857,7 +995,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             )
         });
 
-        MastExpr::new(
+        let if_expr = MastExpr::new(
             match_context.exp_ty,
             MastExprKind::If {
                 cond: Box::new(cond),
@@ -869,43 +1007,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }),
             },
             arm.span,
-        )
-    }
+        );
 
-    fn lower_match_value_equality_condition(
-        &mut self,
-        binary_id: kernc_utils::NodeId,
-        value: &Expr,
-        match_context: &MatchLowerContext<'_>,
-        span: Span,
-    ) -> MastExprKind {
-        let rhs_sema_ty = self
-            .ctx
-            .binary_operator_rhs_trait_arg_ty(binary_id)
-            .or_else(|| self.ctx.node_type(value.id))
-            .unwrap_or(match_context.target_ty);
-        let rhs_ty = self.substitute_type_with_map(rhs_sema_ty, match_context.subst_map);
-        let value_expr = self.lower_expr(value, match_context.subst_map, Some(rhs_ty));
-
-        if self.has_builtin_binary_fast_path(
-            ast::BinaryOperator::Equal,
-            match_context.target_var_expr.ty,
-            value_expr.ty,
-        ) {
-            return MastExprKind::Binary {
-                op: ast::BinaryOperator::Equal,
-                lhs: Box::new(match_context.target_var_expr.clone()),
-                rhs: Box::new(value_expr),
-            };
+        if prelude.is_empty() {
+            if_expr
+        } else {
+            MastExpr::new(
+                match_context.exp_ty,
+                MastExprKind::Block(MastBlock {
+                    stmts: prelude,
+                    result: Some(Box::new(if_expr)),
+                    defers: vec![],
+                }),
+                arm.span,
+            )
         }
-
-        self.lower_custom_binary_operator(
-            match_context.target_var_expr.clone(),
-            value_expr,
-            rhs_ty,
-            ast::BinaryOperator::Equal,
-            TypeId::BOOL,
-            span,
-        )
     }
 }

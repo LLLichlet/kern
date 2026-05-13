@@ -599,31 +599,33 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     ) -> ConstEvalResult<Option<HashMap<SymbolId, ConstValue>>> {
         match &pattern.kind {
             ast::MatchPatternKind::Value(expr) => {
+                if let ast::ExprKind::Range {
+                    start: Some(start),
+                    end: Some(end),
+                    is_inclusive,
+                } = &expr.kind
+                {
+                    let start = self.eval_inner(start, depth + 1)?;
+                    let end = self.eval_inner(end, depth + 1)?;
+                    let matches = match (target_value, start, end) {
+                        (ConstValue::Int(target), ConstValue::Int(start), ConstValue::Int(end)) => {
+                            if *is_inclusive {
+                                start <= *target && *target <= end
+                            } else {
+                                start <= *target && *target < end
+                            }
+                        }
+                        _ => false,
+                    };
+                    return if matches {
+                        Ok(Some(HashMap::new()))
+                    } else {
+                        Ok(None)
+                    };
+                }
+
                 let value = self.eval_inner(expr, depth + 1)?;
                 if value == *target_value {
-                    Ok(Some(HashMap::new()))
-                } else {
-                    Ok(None)
-                }
-            }
-            ast::MatchPatternKind::Range {
-                start,
-                end,
-                inclusive,
-            } => {
-                let start = self.eval_inner(start, depth + 1)?;
-                let end = self.eval_inner(end, depth + 1)?;
-                let matches = match (target_value, start, end) {
-                    (ConstValue::Int(target), ConstValue::Int(start), ConstValue::Int(end)) => {
-                        if *inclusive {
-                            start <= *target && *target <= end
-                        } else {
-                            start <= *target && *target < end
-                        }
-                    }
-                    _ => false,
-                };
-                if matches {
                     Ok(Some(HashMap::new()))
                 } else {
                     Ok(None)

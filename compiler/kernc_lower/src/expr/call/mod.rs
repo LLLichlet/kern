@@ -303,6 +303,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     || self.ctx.type_registry.const_generic_contains_params(len)
             }
             TypeKind::ArrayInfer { elem, .. } => self.type_contains_generic_placeholders(elem),
+            TypeKind::Range { start, end, .. } => {
+                start.is_some_and(|ty| self.type_contains_generic_placeholders(ty))
+                    || end.is_some_and(|ty| self.type_contains_generic_placeholders(ty))
+            }
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::EnumPayload(_, args)

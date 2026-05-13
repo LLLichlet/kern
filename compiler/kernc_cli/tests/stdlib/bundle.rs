@@ -37,10 +37,9 @@ fn official_library_bundle_resolves_from_external_kernlib_workspace_root() {
         &source_path,
         r#"
 use std.io;
-use base.coll.range;
 
 fn main() i32 {
-    for (value: range(0usize, 3usize)) {
+    for (value: 0usize...3usize) {
         if (value == 2usize) {
             "external kernlib".println();
         }
@@ -99,7 +98,7 @@ use base.io.Write;
 
 fn main() i32 {
     let mut storage: [32]u8 = undef;
-    let mut fixed = (storage..&[0 .. 32]).writer();
+    let mut fixed = (storage..&[0...32]).writer();
     let writer = (fixed..& as &mut Write);
 
     "base {} {}".fmt(.{ "io", 7usize, }).write_to(writer);

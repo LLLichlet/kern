@@ -151,7 +151,7 @@ impl &[u8] {
                 if (read == 0) {
                     break;
                 }
-                if (output.try_push_str(alloc, chunk.&[0 .. read]).is_err()) {
+                if (output.try_push_str(alloc, chunk.&[0...read]).is_err()) {
                     _ = system_pclose(stream);
                     output.deinit(alloc);
                     return .{ Err: .OutOfMemory };

@@ -1,0 +1,20 @@
+// class: pattern-protocol
+// stderr: pattern binding type must be `void` or `struct { ... }`
+
+struct Bad {};
+
+impl Bad : Pattern[i32] {
+    type Bind = i32;
+
+    fn apply(value: i32) ?Bind {
+        return .{ Some: value };
+    }
+}
+
+fn main() i32 {
+    let bad = Bad.{};
+    return match (1) {
+        bad => 0,
+        _ => 1,
+    };
+}

@@ -14,6 +14,8 @@ impl<'a> Parser<'a> {
                 | TokenType::LParen
                 | TokenType::Identifier
                 | TokenType::DotDot
+                | TokenType::DotDotEqual
+                | TokenType::Ellipsis
                 | TokenType::Slash
                 | TokenType::At
                 | TokenType::Void
@@ -34,6 +36,7 @@ impl<'a> Parser<'a> {
             TokenType::Assign
                 | TokenType::Semicolon
                 | TokenType::Comma
+                | TokenType::LBrace
                 | TokenType::RParen
                 | TokenType::RBrace
                 | TokenType::RBracket
@@ -48,7 +51,56 @@ impl<'a> Parser<'a> {
             return Ok(self.error_type(current.span, "Expected type"));
         }
 
-        self.parse_result_type()
+        self.parse_range_type()
+    }
+
+    fn token_can_end_range_type(tag: TokenType) -> bool {
+        matches!(
+            tag,
+            TokenType::Assign
+                | TokenType::Semicolon
+                | TokenType::Comma
+                | TokenType::LBrace
+                | TokenType::RParen
+                | TokenType::RBrace
+                | TokenType::RBracket
+                | TokenType::Arrow
+                | TokenType::Eof
+        )
+    }
+
+    fn parse_range_type(&mut self) -> ParseResult<TypeNode> {
+        let mut ty = self.parse_result_type()?;
+        if self.match_token(&[TokenType::Ellipsis, TokenType::DotDotEqual]) {
+            let op_span = self.stream.prev_span();
+            let is_inclusive = self.source_slice(op_span) == "..=";
+            let end = if Self::token_can_end_range_type(self.peek().tag) {
+                if is_inclusive {
+                    self.add_error(
+                        op_span,
+                        "inclusive range types require an end bound".to_string(),
+                    );
+                    return Err(ParseError);
+                }
+                None
+            } else {
+                Some(Box::new(self.parse_result_type()?))
+            };
+            let span = end
+                .as_deref()
+                .map_or(ty.span.to(op_span), |end| ty.span.to(end.span));
+            ty = TypeNode {
+                id: self.new_id(),
+                span,
+                kind: TypeKind::Range {
+                    start: Some(Box::new(ty)),
+                    end,
+                    is_inclusive,
+                },
+            };
+        }
+
+        Ok(ty)
     }
 
     fn parse_result_type(&mut self) -> ParseResult<TypeNode> {
@@ -89,6 +141,34 @@ impl<'a> Parser<'a> {
                 span: start_token.span.to(inner.span),
                 kind: TypeKind::Optional {
                     inner: Box::new(inner),
+                },
+            });
+        }
+
+        if start_token.tag == TokenType::Ellipsis || start_token.tag == TokenType::DotDotEqual {
+            let is_inclusive = start_token.tag == TokenType::DotDotEqual;
+            let end = if Self::token_can_end_range_type(self.peek().tag) {
+                if is_inclusive {
+                    self.add_error(
+                        start_token.span,
+                        "inclusive range types require an end bound".to_string(),
+                    );
+                    return Err(ParseError);
+                }
+                None
+            } else {
+                Some(Box::new(self.parse_result_type()?))
+            };
+            let span = end
+                .as_deref()
+                .map_or(start_token.span, |end| start_token.span.to(end.span));
+            return Ok(TypeNode {
+                id: self.new_id(),
+                span,
+                kind: TypeKind::Range {
+                    start: None,
+                    end,
+                    is_inclusive,
                 },
             });
         }

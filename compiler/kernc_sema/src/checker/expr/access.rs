@@ -1586,7 +1586,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.try_find_method_silent(mutable_slice_ty, field, span)?;
 
         Some(
-            "the receiver is an immutable slice produced by `.&[start .. end]`; use `..&[start .. end]` when you need a mutable subslice",
+            "the receiver is an immutable slice produced by `.&[start...end]`; use `..&[start...end]` when you need a mutable subslice",
         )
     }
 
@@ -1622,23 +1622,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> TypeId {
         let lhs_ty = self.check_expr(lhs, None);
 
-        if let Some(s) = start {
-            let s_ty = self.check_expr(s, Some(TypeId::USIZE));
-            let s_ty_id = self.resolve_tv(s_ty);
-            if !self.ctx.type_registry.is_integer(s_ty_id) {
-                self.ctx
-                    .struct_error(s.span, "slice start index must be an integer")
-                    .emit();
-            }
-        }
-        if let Some(e) = end {
-            let e_ty = self.check_expr(e, Some(TypeId::USIZE));
-            let e_ty_id = self.resolve_tv(e_ty);
-            if !self.ctx.type_registry.is_integer(e_ty_id) {
-                self.ctx
-                    .struct_error(e.span, "slice end index must be an integer")
-                    .emit();
-            }
+        let start_ok = self.check_slice_bound_index(start, "start");
+        let end_ok = self.check_slice_bound_index(end, "end");
+        if !start_ok || !end_ok {
+            return TypeId::ERROR;
         }
 
         let norm_lhs = self.resolve_tv(lhs_ty);
@@ -1693,6 +1680,29 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 TypeId::ERROR
             }
         }
+    }
+
+    fn check_slice_bound_index(&mut self, bound: Option<&Expr>, label: &str) -> bool {
+        let Some(bound) = bound else {
+            return true;
+        };
+
+        let bound_ty = self.check_expr(bound, Some(TypeId::USIZE));
+        let bound_ty = self.resolve_tv(bound_ty);
+        if bound_ty != TypeId::USIZE && bound_ty != TypeId::ERROR {
+            self.ctx
+                .struct_error(
+                    bound.span,
+                    format!("slice {label} index must have type `usize`"),
+                )
+                .with_hint(
+                    "slice bounds are memory offsets; cast explicitly or use a `usize` value",
+                )
+                .emit();
+            return false;
+        }
+
+        bound_ty != TypeId::ERROR
     }
 
     /// Auto-deref pointers until the underlying aggregate or module type is reached.

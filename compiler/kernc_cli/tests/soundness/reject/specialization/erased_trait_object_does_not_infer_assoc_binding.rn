@@ -1,4 +1,4 @@
-// stderr: cannot infer generic argument(s) `T` for function `take`
+// stderr: expected `&Base[4, Out = i32]`
 
 trait Base[N: usize] {
     type Out;

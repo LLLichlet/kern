@@ -78,8 +78,8 @@ fn split_var(entry: &[u8]) ?Var {
         }
         return .{
             Some: Var.{
-                name: entry.&[0 .. i],
-                value: entry.&[i + 1 .. #entry],
+                name: entry.&[0...i],
+                value: entry.&[i + 1...#entry],
             },
         };
 
@@ -96,7 +96,7 @@ fn clone_c_value(
     len: usize,
 ) String!AllocError {
     let mut value = String.{};
-    if (value..&.try_push_str(alloc, ptr.&[0 .. len]).is_err()) {
+    if (value..&.try_push_str(alloc, ptr.&[0...len]).is_err()) {
         value..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
     }
@@ -149,7 +149,7 @@ fn visit_posix(visitor: &Fn(Var) bool) usize {
             return total;
         }
 
-        let entry = entry_ptr.&[0 .. entry_ptr.cstr_len()];
+        let entry = entry_ptr.&[0...entry_ptr.cstr_len()];
         let .{ Some: var } = split_var(entry) else {
             envp = envp + 1usize;
             envp = envp + 1usize;
@@ -183,7 +183,7 @@ fn visit_windows(visitor: &Fn(Var) bool) usize {
             return total;
         }
 
-        let entry = cursor.&[0 .. len];
+        let entry = cursor.&[0...len];
         let .{ Some: var } = split_var(entry) else {
             cursor = cursor + len + 1usize;
             cursor = cursor + len + 1usize;

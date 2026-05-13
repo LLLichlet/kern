@@ -498,7 +498,7 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
         if (read == 0) {
             break;
         }
-        if (output.try_push_str(alloc, chunk.&[0 .. read]).is_err()) {
+        if (output.try_push_str(alloc, chunk.&[0...read]).is_err()) {
             _ = close_file(read_end);
             output.deinit(alloc);
             let mut raw_status = 0i32;
@@ -781,7 +781,7 @@ pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool)
                 name_len += 1;
             }
 
-            let name = name_ptr.&[0 .. name_len];
+            let name = name_ptr.&[0...name_len];
             if (!is_dot_entry(name)) {
                 total += 1;
                 if (!visitor(name, dirent_file_type(entry.d_type))) {

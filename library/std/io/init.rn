@@ -127,14 +127,14 @@ impl[N: usize] [N]u8 : Printable {
     pub fn print() void {
         let mut out_file = stdout();
         let writer = (out_file..& as &mut Write);
-        _ = writer.write(self.&[0 .. N]);
+        _ = writer.write(self.&[0...N]);
     }
 
     /// Writes this byte string to standard output followed by a newline.
     pub fn println() void {
         let mut out_file = stdout();
         let writer = (out_file..& as &mut Write);
-        _ = writer.write(self.&[0 .. N]);
+        _ = writer.write(self.&[0...N]);
         _ = writer.write("\n");
     }
 
@@ -142,14 +142,14 @@ impl[N: usize] [N]u8 : Printable {
     pub fn eprint() void {
         let mut err_file = stderr();
         let writer = (err_file..& as &mut Write);
-        _ = writer.write(self.&[0 .. N]);
+        _ = writer.write(self.&[0...N]);
     }
 
     /// Writes this byte string to standard error followed by a newline.
     pub fn eprintln() void {
         let mut err_file = stderr();
         let writer = (err_file..& as &mut Write);
-        _ = writer.write(self.&[0 .. N]);
+        _ = writer.write(self.&[0...N]);
         _ = writer.write("\n");
     }
 }

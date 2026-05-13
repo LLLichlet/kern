@@ -29,6 +29,14 @@ pub enum TypeKind {
         err: Box<TypeNode>,
     },
 
+    /// Builtin range type families such as `T...T`, `T..=T`, `...T`,
+    /// `..=T`, `T...`, and `...`.
+    Range {
+        start: Option<Box<TypeNode>>,
+        end: Option<Box<TypeNode>>,
+        is_inclusive: bool,
+    },
+
     /// Pointer type: `&T` or `&mut T`.
     Pointer { is_mut: bool, elem: Box<TypeNode> },
 

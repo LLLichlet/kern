@@ -2948,8 +2948,8 @@ fn publish_allows_advisory_style_findings() {
         root.join("src/main.rn"),
         r#"
 fn main() i32 {
-    let mut index = usize.{0};
-    while (index < usize.{3}) {
+    let mut index = 0usize;
+    while (index < 3usize) {
         index += 1;
     }
     return 0;

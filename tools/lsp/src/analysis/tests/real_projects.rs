@@ -60,7 +60,7 @@ impl &mut BitWriter {
     }
 
     pub fn write_pair(value: bool) usize!BitIoError {
-        _ = self.write_bit(value).!;
+        _ = self.write_bit(value).?;
         return self.write_bit(false);
     }
 }

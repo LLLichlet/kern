@@ -361,6 +361,14 @@ fn collect_owner_exprs<'a>(
             collect_owner_exprs(lhs, exprs);
             collect_owner_exprs(rhs, exprs);
         }
+        ast::ExprKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                collect_owner_exprs(start, exprs);
+            }
+            if let Some(end) = end {
+                collect_owner_exprs(end, exprs);
+            }
+        }
         ast::ExprKind::Unary { operand, .. } => collect_owner_exprs(operand, exprs),
         ast::ExprKind::FieldAccess { lhs, .. } => collect_owner_exprs(lhs, exprs),
         ast::ExprKind::IndexAccess { lhs, index, .. } => {
@@ -515,6 +523,14 @@ fn collect_simple_binding_let_expr_ids(
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             collect_simple_binding_let_expr_ids(lhs, expr_ids);
             collect_simple_binding_let_expr_ids(rhs, expr_ids);
+        }
+        ast::ExprKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                collect_simple_binding_let_expr_ids(start, expr_ids);
+            }
+            if let Some(end) = end {
+                collect_simple_binding_let_expr_ids(end, expr_ids);
+            }
         }
         ast::ExprKind::Unary { operand, .. } => {
             collect_simple_binding_let_expr_ids(operand, expr_ids);
@@ -678,6 +694,14 @@ fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
         }
         ast::ExprKind::Binary { lhs, rhs, .. } => {
             expr_is_strictly_pure(ctx, lhs) && expr_is_strictly_pure(ctx, rhs)
+        }
+        ast::ExprKind::Range { start, end, .. } => {
+            start
+                .as_deref()
+                .is_none_or(|start| expr_is_strictly_pure(ctx, start))
+                && end
+                    .as_deref()
+                    .is_none_or(|end| expr_is_strictly_pure(ctx, end))
         }
         ast::ExprKind::DataInit { literal, .. } => {
             let ty = ctx.node_type(expr.id).unwrap_or(TypeId::ERROR);

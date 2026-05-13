@@ -28,7 +28,7 @@ impl &mut Allocator {
             else return .{ Err: .CapacityOverflow };
         let .{ Some: raw } = self.alloc(layout)
             else return .{ Err: .OutOfMemory };
-        return .{ Ok: (raw as &mut T)..&[0 .. count] };
+        return .{ Ok: (raw as &mut T)..&[0...count] };
     }
 
     /// Frees storage returned from `try_alloc_array[T]`.

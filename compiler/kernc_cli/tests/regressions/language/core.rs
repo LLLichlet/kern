@@ -777,8 +777,8 @@ use base.coll;
 
 fn main() i32 {
     let mut values = [4]i32.{ 1, 2, 3, 4 };
-    let view = values..&[0 .. 4];
-    view.&[0 .. 2].reverse();
+    let view = values..&[0...4];
+    view.&[0...2].reverse();
     return 0;
 }
 "#,
@@ -798,7 +798,7 @@ fn main() i32 {
         stderr
     );
     assert!(
-        stderr.contains("use `..&[start .. end]` when you need a mutable subslice"),
+        stderr.contains("use `..&[start...end]` when you need a mutable subslice"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -834,7 +834,7 @@ fn bump(ptr: &mut i32) void {
 
 fn main() i32 {
     let mut array = [3]i32.{ 10, 20, 30 };
-    let view = array..&[0 .. 3];
+    let view = array..&[0...3];
     let i = 0i32;
     bump(view.[i + 1]..&);
     return view.[1] - 21;
@@ -888,7 +888,7 @@ fn quick_sort(arr: &mut [i32], low: i32, high: i32) void {
 
 fn main() i32 {
     let mut array = [8]i32.{ 1, 23, 3, 7, 8, 29, 28, 57 };
-    let view = array..&[0 .. 8];
+    let view = array..&[0...8];
     quick_sort(view, 0, 7);
 
     let expected = [8]i32.{ 1, 3, 7, 8, 23, 28, 29, 57 };
@@ -946,8 +946,140 @@ fn infers_usize_for_slice_bounds_from_expected_context() {
 fn main() i32 {
     let data = [4]u8.{ 9, 8, 7, 6 };
     let start = 0;
-    let tail = data.&[start .. #data];
+    let tail = data.&[start...#data];
     return (#tail as i32) - 4;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_all_builtin_slice_range_forms() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let values = [5]i32.{ 1, 2, 3, 4, 5 };
+
+    let middle = values.&[1usize...4usize];
+    let tail = values.&[2usize...];
+    let prefix = values.&[...3usize];
+    let whole = values.&[...];
+    let inclusive = values.&[1usize..=3usize];
+    let inclusive_prefix = values.&[..=2usize];
+
+    return (#middle as i32)
+        + (#tail as i32)
+        + (#prefix as i32)
+        + (#whole as i32)
+        + (#inclusive as i32)
+        + (#inclusive_prefix as i32)
+        - 20;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_signed_slice_range_bounds() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let values = [4]i32.{ 1, 2, 3, 4 };
+    let start: i32 = -1;
+    let _ = values.&[start...2];
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted signed slice bounds:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("slice start index must have type `usize`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn compiles_builtin_range_values_as_ordinary_values() {
+    let output = build_and_run_source(
+        r#"
+fn half_open() i32...i32 {
+    let value: i32...i32 = 0...10;
+    return value;
+}
+
+fn inclusive() i32..=i32 {
+    let value: i32..=i32 = 0..=10;
+    return value;
+}
+
+fn to_bound() ...i32 {
+    let value: ...i32 = ...10;
+    return value;
+}
+
+fn to_bound_inclusive() ..=i32 {
+    let value: ..=i32 = ..=10;
+    return value;
+}
+
+fn from_bound() i32... {
+    let value: i32... = 10...;
+    return value;
+}
+
+fn full_range() ... {
+    let value: ... = ...;
+    return value;
+}
+
+fn take(
+    half: i32...i32,
+    incl: i32..=i32,
+    to: ...i32,
+    to_incl: ..=i32,
+    from: i32...,
+    full: ...,
+) void {
+    _ = half;
+    _ = incl;
+    _ = to;
+    _ = to_incl;
+    _ = from;
+    _ = full;
+}
+
+fn main() i32 {
+    take(
+        half_open(),
+        inclusive(),
+        to_bound(),
+        to_bound_inclusive(),
+        from_bound(),
+        full_range(),
+    );
+    return 0;
 }
 "#,
     );

@@ -51,6 +51,14 @@ fn collect_control_facts_expr(
             collect_control_facts_expr(lhs, regions, summary);
             collect_control_facts_expr(rhs, regions, summary);
         }
+        ast::ExprKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                collect_control_facts_expr(start, regions, summary);
+            }
+            if let Some(end) = end {
+                collect_control_facts_expr(end, regions, summary);
+            }
+        }
         ast::ExprKind::Unary { operand, .. } => {
             collect_control_facts_expr(operand, regions, summary);
         }
@@ -235,10 +243,6 @@ fn collect_control_facts_match_pattern(
 ) {
     match &pattern.kind {
         ast::MatchPatternKind::Value(expr) => collect_control_facts_expr(expr, regions, summary),
-        ast::MatchPatternKind::Range { start, end, .. } => {
-            collect_control_facts_expr(start, regions, summary);
-            collect_control_facts_expr(end, regions, summary);
-        }
         ast::MatchPatternKind::Pattern(_) => {}
     }
 }

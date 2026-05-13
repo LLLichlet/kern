@@ -579,6 +579,7 @@ impl CachedAstRebinder<'_> {
                 where_clauses,
                 backing_type,
                 variants,
+                ..
             } => {
                 for generic in generics {
                     self.rebind_generic_param(generic);
@@ -808,6 +809,14 @@ impl CachedAstRebinder<'_> {
                 self.rebind_expr(lhs);
                 self.rebind_expr(rhs);
             }
+            ast::ExprKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.rebind_expr(start);
+                }
+                if let Some(end) = end {
+                    self.rebind_expr(end);
+                }
+            }
             ast::ExprKind::Unary { operand, .. } => self.rebind_expr(operand),
             ast::ExprKind::Grouped { expr: inner } => self.rebind_expr(inner),
             ast::ExprKind::FieldAccess {
@@ -1024,6 +1033,14 @@ impl CachedAstRebinder<'_> {
                 self.rebind_type_node(ok);
                 self.rebind_type_node(err);
             }
+            ast::TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.rebind_type_node(start);
+                }
+                if let Some(end) = end {
+                    self.rebind_type_node(end);
+                }
+            }
             ast::TypeKind::Pointer { elem, .. }
             | ast::TypeKind::VolatilePtr { elem, .. }
             | ast::TypeKind::ArrayInfer { elem, .. }
@@ -1188,10 +1205,6 @@ impl CachedAstRebinder<'_> {
         self.rebind_span(&mut pattern.span);
         match &mut pattern.kind {
             ast::MatchPatternKind::Value(expr) => self.rebind_expr(expr),
-            ast::MatchPatternKind::Range { start, end, .. } => {
-                self.rebind_expr(start);
-                self.rebind_expr(end);
-            }
             ast::MatchPatternKind::Pattern(pattern) => self.rebind_pattern(pattern),
         }
     }
@@ -1500,6 +1513,14 @@ mod tests {
                 collect_identifier_symbols(lhs, visit);
                 collect_identifier_symbols(rhs, visit);
             }
+            ast::ExprKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    collect_identifier_symbols(start, visit);
+                }
+                if let Some(end) = end {
+                    collect_identifier_symbols(end, visit);
+                }
+            }
             ast::ExprKind::Unary { operand, .. } | ast::ExprKind::Defer { expr: operand } => {
                 collect_identifier_symbols(operand, visit)
             }
@@ -1646,6 +1667,14 @@ mod tests {
             ast::TypeKind::Result { ok, err } => {
                 collect_type_identifier_symbols(ok, visit);
                 collect_type_identifier_symbols(err, visit);
+            }
+            ast::TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    collect_type_identifier_symbols(start, visit);
+                }
+                if let Some(end) = end {
+                    collect_type_identifier_symbols(end, visit);
+                }
             }
             ast::TypeKind::Pointer { elem, .. }
             | ast::TypeKind::VolatilePtr { elem, .. }

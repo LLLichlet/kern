@@ -218,33 +218,19 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_slice_expr(&mut self, left: Expr, is_mut: bool) -> ParseResult<Expr> {
-        let mut start = None;
-        let mut end = None;
-        let mut is_inclusive = false;
-
-        if self.match_token(&[TokenType::DotDot]) {
-            if !self.check(TokenType::RBracket) {
-                end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
-            }
-        } else {
-            start = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
-
-            if self.match_token(&[TokenType::DotDot]) {
-                if !self.check(TokenType::RBracket) {
-                    end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
-                }
-            } else if self.match_token(&[TokenType::DotDotEqual]) {
-                is_inclusive = true;
-                end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
-            } else {
-                let err_span = self.peek().span;
-                self.add_error(
-                    err_span,
-                    "Expected range operator `..` or `..=` in slice expression".to_string(),
-                );
-                return Err(ParseError);
-            }
-        }
+        let range = self.parse_expression(Precedence::Lowest)?;
+        let ExprKind::Range {
+            start,
+            end,
+            is_inclusive,
+        } = range.kind
+        else {
+            self.add_error(
+                range.span,
+                "Expected range expression in slice operation".to_string(),
+            );
+            return Err(ParseError);
+        };
 
         let rbracket = self.expect(TokenType::RBracket)?;
         Ok(Expr {

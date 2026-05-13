@@ -61,7 +61,7 @@ impl Args {
     /// Returns one argument as a borrowed UTF-8 byte slice.
     pub fn get(index: usize) ?&[u8] {
         let arg = self.raw(index).?;
-        return .{ Some: arg.&[0 .. arg.cstr_len()] };
+        return .{ Some: arg.&[0...arg.cstr_len()] };
     }
 
     /// Returns an iterator over borrowed argument slices.

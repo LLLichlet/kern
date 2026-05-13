@@ -620,6 +620,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         .as_deref()
                         .is_some_and(|expr| self.expr_references_const_param(expr, env_scope))
             }
+            ast::ExprKind::Range { start, end, .. } => {
+                start
+                    .as_deref()
+                    .is_some_and(|expr| self.expr_references_const_param(expr, env_scope))
+                    || end
+                        .as_deref()
+                        .is_some_and(|expr| self.expr_references_const_param(expr, env_scope))
+            }
             ast::ExprKind::Assign { lhs, rhs, .. } => {
                 self.expr_references_const_param(lhs, env_scope)
                     || self.expr_references_const_param(rhs, env_scope)

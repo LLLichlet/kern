@@ -307,18 +307,19 @@ fn first_or_error(text: &[u8]) u8!Error {
 }
 ```
 
-`.!` extracts `Ok` in a function that also returns `T!E`; if the value is
-`Err`, it returns that error from the current function:
+`.?` is the direct propagation operator. On `T!E`, it extracts `Ok` in a
+function that also returns `T!E`; if the value is `Err`, it returns that error
+from the current function:
 
 ```kern
 fn first_or_error(text: &[u8]) u8!Error {
-    let byte = first(text).!;
+    let byte = first(text).?;
     return .{ Ok: byte };
 }
 ```
 
-`.?` is the corresponding operator for `?T`: extract `Some`, or return `None`
-from the current function.
+On `?T`, the same operator extracts `Some`, or returns `None` from the current
+function.
 
 ```kern
 fn first_digit_plus_one(text: &[u8]) ?u8 {

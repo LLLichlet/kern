@@ -60,10 +60,10 @@ impl &mut DirEntries {
         entry_count: usize,
         name_bytes: usize,
     ) void!AllocError {
-        self.raw..&.try_reserve_exact(alloc, entry_count).!;
+        self.raw..&.try_reserve_exact(alloc, entry_count).?;
         if (name_bytes > self.names.&.capacity()) {
             let additional = name_bytes - self.names.&.len();
-            self.names..&.try_reserve(alloc, additional).!;
+            self.names..&.try_reserve(alloc, additional).?;
         }
         return .{ Ok: {} };
     }
@@ -80,10 +80,10 @@ impl &mut DirEntries {
             return .{ Err: .CapacityOverflow };
         }
         let start = self.names.&.len();
-        self.names..&.try_push_str(alloc, entry.name).!;
+        self.names..&.try_push_str(alloc, entry.name).?;
         let end = self.names.&.len();
         let name = self.names.&.as_str().&[start .. end];
-        self.raw..&.try_push(alloc, OwnedDirEntry.{ name: name, file_type: entry.file_type() }).!;
+        self.raw..&.try_push(alloc, OwnedDirEntry.{ name: name, file_type: entry.file_type() }).?;
         return .{ Ok: {} };
     }
 }
@@ -124,7 +124,7 @@ fn already_exists_is_false_if_dir(
                 return .{ Err: .{ Os: os_err } };
             }
 
-            if (path.path().is_dir(alloc).!) {
+            if (path.path().is_dir(alloc).?) {
                 return .{ Ok: false };
             }
             return .{ Err: .{ Os: os_err } };
@@ -193,7 +193,7 @@ fn free_dir_search_path(
 
 /// Creates a single directory.
 fn create_dir(alloc: &mut Allocator, path: &[u8]) bool!Error {
-    let c_path = c_path(alloc, path).!..&;
+    let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
     return os.create_dir(c_path.ptr()).map_err(wrap_os_error);
 }
@@ -235,13 +235,13 @@ fn create_dir_all(alloc: &mut Allocator, path: &[u8]) bool!Error {
         }
 
         let partial = trimmed.&[0 .. index];
-        let created = create_dir_if_missing(alloc, partial).!;
+        let created = create_dir_if_missing(alloc, partial).?;
         any_created = any_created or created;
 
         index += 1;
     }
 
-    let created = create_dir_if_missing(alloc, trimmed).!;
+    let created = create_dir_if_missing(alloc, trimmed).?;
     return .{ Ok: any_created or created };
 }
 
@@ -256,7 +256,7 @@ fn read_dir(
     path: &[u8],
     visitor: &Fn(DirEntry) bool,
 ) usize!Error {
-    let c_path = c_path(alloc, path).!..&;
+    let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
     let search_c_path = match (alloc_dir_search_path(alloc, path)) {
         .{ Ok: ptr } => ptr,
@@ -316,7 +316,7 @@ fn read_dir_entries_into(
         return .{ Err: .OutOfMemory };
     }
 
-    entries.try_reserve(alloc, entry_count, name_bytes).map_err(wrap_alloc_error).!;
+    entries.try_reserve(alloc, entry_count, name_bytes).map_err(wrap_alloc_error).?;
 
     let mut copy_err = ?Error.None;
     let copy = [alloc, entries, copy_err = copy_err..&](entry: DirEntry) bool {
@@ -424,7 +424,7 @@ fn walk_dir(
     path: &[u8],
     visitor: &Fn(&[u8], DirEntry, usize) bool,
 ) usize!Error {
-    let meta = path.path().metadata(alloc).!;
+    let meta = path.path().metadata(alloc).?;
 
     if (!meta.is_dir()) {
         return .{ Err: .NotDirectory };
@@ -483,7 +483,7 @@ fn walk_dirs(
 
 /// Removes a single empty directory.
 fn remove_dir(alloc: &mut Allocator, path: &[u8]) bool!Error {
-    let c_path = c_path(alloc, path).!..&;
+    let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
     return os.remove_dir(c_path.ptr()).map_err(wrap_os_error);
 }

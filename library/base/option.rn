@@ -17,6 +17,22 @@ impl[T] ?T {
         return !(self.is_none());
     }
 
+    /// Maps `Some(_)` to process success and `None` to process failure.
+    pub fn success() i32 {
+        match (self) {
+            .{ Some: _ } => 0,
+            .None => 1,
+        }
+    }
+
+    /// Maps `Some(_)` to process failure and `None` to process success.
+    pub fn fail() i32 {
+        match (self) {
+            .{ Some: _ } => 1,
+            .None => 0,
+        }
+    }
+
     /// Returns `true` when the option is empty or the predicate accepts the value.
     pub fn is_none_or(call_back: &Fn(T) bool) bool {
         match (self) {

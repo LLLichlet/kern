@@ -157,7 +157,7 @@ impl[K, V] &mut Map[K, V]
     fn rebuild(alloc: &mut Allocator, requested_capacity: usize) void!AllocError {
         let new_capacity =
             if (requested_capacity < MIN_CAPACITY) MIN_CAPACITY else requested_capacity;
-        let table = self.alloc_table(alloc, new_capacity).!;
+        let table = self.alloc_table(alloc, new_capacity).?;
 
         let mut i = 0usize;
         while (i < self.capacity) {
@@ -310,7 +310,7 @@ impl[K, V] &mut Map[K, V]
             }
         }
 
-        self.reserve_internal(alloc, 1).!;
+        self.reserve_internal(alloc, 1).?;
 
         // Reserve may rebuild, so the insertion slot must be chosen afterwards.
         let .{ Some: slot } = self.find_insert_slot(hash) else return .{ Err: .CapacityOverflow };
@@ -336,7 +336,7 @@ impl[K, V] &mut Map[K, V]
             }
         }
 
-        self.reserve_internal(alloc, 1).!;
+        self.reserve_internal(alloc, 1).?;
 
         // The table shape may have changed during reserve.
         let .{ Some: slot } = self.find_insert_slot(hash) else return .{ Err: .CapacityOverflow };
@@ -360,7 +360,7 @@ impl[K, V] &mut Map[K, V]
             }
         }
 
-        self.reserve_internal(alloc, 1).!;
+        self.reserve_internal(alloc, 1).?;
 
         let value = make_value();
         // The lazily produced value is written only after capacity is secured.

@@ -901,10 +901,10 @@ let ok = i32!&[u8].{ Ok: 7 };
 let err = i32!&[u8].{ Err: "bad" };
 ```
 
-Kern also provides direct propagation operators:
+Kern also provides a direct propagation operator:
 
-  * `value.?` propagates `None`
-  * `value.!` propagates `Err`
+  * on `?T`, `value.?` extracts `Some` or returns `None`
+  * on `T!E`, `value.?` extracts `Ok` or returns `Err`
 
 ### 10.3 Elided Initialization Syntax
 

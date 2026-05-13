@@ -96,7 +96,7 @@ fn runs_builtin_result_propagation_and_preserves_error_payload() {
     let output = build_and_run_source(
         r#"
 fn bump(value: i32!i32) i32!i32 {
-    let inner = value.!;
+    let inner = value.?;
     return i32!i32.{ Ok: inner + 1 };
 }
 
@@ -113,6 +113,25 @@ fn main() i32 {
         output.status.code(),
         Some(7),
         "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_legacy_result_propagation_operator() {
+    let output = compile_source(
+        r#"
+fn bump(value: i32!i32) i32!i32 {
+    let inner = value.!;
+    return i32!i32.{ Ok: inner + 1 };
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

@@ -73,7 +73,7 @@ pub fn len(codepoint: u32) usize!Utf8Error {
 
 /// Writes one Unicode scalar as UTF-8 at `index`.
 pub fn write_at(codepoint: u32, out: &mut [u8], index: usize) usize!Utf8Error {
-    let width = len(codepoint).!;
+    let width = len(codepoint).?;
     if (index > #out) return .{ Err: .ShortOutput };
     if (#out - index < width) return .{ Err: .ShortOutput };
     if (width == 1) {
@@ -186,7 +186,7 @@ pub fn scalar_count(text: &[u8]) usize!Utf8Error {
     let mut i = 0;
     // Scalar counting shares the decoder so validation and counting cannot drift.
     while (i < #text) {
-        let scalar = read_at(text, i).!;
+        let scalar = read_at(text, i).?;
         count += 1;
         i += scalar.len;
     }

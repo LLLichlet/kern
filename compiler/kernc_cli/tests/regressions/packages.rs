@@ -482,7 +482,7 @@ impl &Local : dep.Foreign {
 
 fn main() i32 {
     let local = Local.{ value: 7 };
-    let obj = &dep.Foreign.{ local.& };
+    let obj = (local.& as &dep.Foreign);
     return if (obj.ping() == 7) { 0 } else { 1 };
 }
 "#,

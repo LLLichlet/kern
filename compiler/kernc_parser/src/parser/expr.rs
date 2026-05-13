@@ -33,8 +33,7 @@ impl Precedence {
             | TokenType::DotAmpersand
             | TokenType::DotDotAmpersand
             | TokenType::Bang
-            | TokenType::DotQuestion
-            | TokenType::DotBang => Self::Call,
+            | TokenType::DotQuestion => Self::Call,
             TokenType::As => Self::Cast,
             TokenType::Star | TokenType::Slash | TokenType::Percent => Self::Factor,
             TokenType::Plus
@@ -340,15 +339,6 @@ impl<'a> Parser<'a> {
                 span: left.span.to(token.span),
                 kind: ExprKind::Propagate {
                     operand: Box::new(left),
-                    kind: PropagateKind::Option,
-                },
-            }),
-            TokenType::DotBang => Ok(Expr {
-                id: self.new_id(),
-                span: left.span.to(token.span),
-                kind: ExprKind::Propagate {
-                    operand: Box::new(left),
-                    kind: PropagateKind::Result,
                 },
             }),
             TokenType::Bang => {

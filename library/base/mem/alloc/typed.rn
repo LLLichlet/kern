@@ -45,7 +45,7 @@ impl &mut Allocator {
 
     /// Allocates a mutable copy of `items`.
     pub fn try_clone_array[T](items: &[T]) (&mut [T])!AllocError {
-        let out = self.try_alloc_array[T](#items).!;
+        let out = self.try_alloc_array[T](#items).?;
         let .{ Some: layout } = array_layout_of[T](#items) else {
             self.free_array[T](out);
             return .{ Err: .CapacityOverflow };

@@ -160,7 +160,7 @@ fn open_path(
         return .{ Err: .InvalidOptions };
     }
 
-    let c_path = c_path(alloc, path).!..&;
+    let c_path = c_path(alloc, path).?..&;
     defer c_path.deinit(alloc);
     return open_with_c_path(c_path.ptr(), options);
 }
@@ -190,7 +190,7 @@ fn write_all_atomic_tmp(
     tmp_path: &[u8],
     buf: &[u8],
 ) usize!Error {
-    let mut file = tmp_path.path().create(alloc).!;
+    let mut file = tmp_path.path().create(alloc).?;
 
     let written = match (file..&.write_all(buf)) {
         .{ Ok: count } => count,
@@ -235,7 +235,7 @@ fn write_all_atomic_unique_tmp(
     tmp_path: &[u8],
     buf: &[u8],
 ) usize!Error {
-    let mut file = tmp_path.path().create_new(alloc).!;
+    let mut file = tmp_path.path().create_new(alloc).?;
 
     let written = match (file..&.write_all(buf)) {
         .{ Ok: count } => count,
@@ -284,7 +284,7 @@ fn write_all_atomic(
     let mut last_err = Error.InvalidPath;
 
     while (attempt < MAX_ATOMIC_TMP_ATTEMPTS) {
-        let mut tmp = atomic_tmp_path(alloc, path, attempt).!;
+        let mut tmp = atomic_tmp_path(alloc, path, attempt).?;
         let result = write_all_atomic_unique_tmp(
             alloc,
             path,
@@ -358,9 +358,9 @@ impl Path {
 
     /// Renames or moves this path to `new_path`.
     pub fn rename(alloc: &mut Allocator, new_path: &[u8]) bool!Error {
-        let old_c_path = c_path(alloc, self.raw).!..&;
+        let old_c_path = c_path(alloc, self.raw).?..&;
         defer old_c_path.deinit(alloc);
-        let new_c_path = c_path(alloc, new_path).!..&;
+        let new_c_path = c_path(alloc, new_path).?..&;
         defer new_c_path.deinit(alloc);
 
         return rename_with_c_paths(old_c_path.ptr(), new_c_path.ptr());
@@ -368,14 +368,14 @@ impl Path {
 
     /// Returns metadata for this path.
     pub fn metadata(alloc: &mut Allocator) Metadata!Error {
-        let c_path = c_path(alloc, self.raw).!..&;
+        let c_path = c_path(alloc, self.raw).?..&;
         defer c_path.deinit(alloc);
         return metadata_with_c_path(c_path.ptr());
     }
 
     /// Returns `true` when this path exists.
     pub fn exists(alloc: &mut Allocator) bool!Error {
-        let c_path = c_path(alloc, self.raw).!..&;
+        let c_path = c_path(alloc, self.raw).?..&;
         defer c_path.deinit(alloc);
         return os.metadata(c_path.ptr())
             .map(metadata_exists)
@@ -409,7 +409,7 @@ impl Path {
 
     /// Removes this file.
     pub fn remove_file(alloc: &mut Allocator) bool!Error {
-        let c_path = c_path(alloc, self.raw).!..&;
+        let c_path = c_path(alloc, self.raw).?..&;
         defer c_path.deinit(alloc);
         return os.remove_file(c_path.ptr()).map_err(wrap_os_error);
     }
@@ -421,21 +421,21 @@ impl Path {
 
     /// Reads this entire file into an owned string.
     pub fn read_to_string(alloc: &mut Allocator) String!Error {
-        let file = self.open_read(alloc).!..&;
+        let file = self.open_read(alloc).?..&;
         defer file.deinit();
         return file.read_to_string(alloc);
     }
 
     /// Reads this entire file into an owned byte list.
     pub fn read_all(alloc: &mut Allocator) List[u8]!Error {
-        let file = self.open_read(alloc).!..&;
+        let file = self.open_read(alloc).?..&;
         defer file.deinit();
         return file.read_to_end(alloc);
     }
 
     /// Writes the entire buffer to this file, creating or truncating it first.
     pub fn write_all(alloc: &mut Allocator, buf: &[u8]) usize!Error {
-        let file = self.create(alloc).!..&;
+        let file = self.create(alloc).?..&;
         defer file.deinit();
         return file.write_all(buf);
     }
@@ -461,17 +461,17 @@ impl Path {
 
     /// Appends the entire buffer to this file, creating it when needed.
     pub fn append_all(alloc: &mut Allocator, buf: &[u8]) usize!Error {
-        let file = self.open_append(alloc).!..&;
+        let file = self.open_append(alloc).?..&;
         defer file.deinit();
         return file.write_all(buf);
     }
 
     /// Copies this file into `to_path`.
     pub fn copy_to(alloc: &mut Allocator, to_path: &[u8]) usize!Error {
-        let from = self.open_read(alloc).!..&;
+        let from = self.open_read(alloc).?..&;
         defer from.deinit();
 
-        let to = to_path.path().create(alloc).!..&;
+        let to = to_path.path().create(alloc).?..&;
         defer to.deinit();
 
         return from.copy_to(to);
@@ -514,7 +514,7 @@ impl &mut File {
 
     /// Repositions the file handle and returns the new byte offset.
     pub fn seek(from: SeekFrom) usize!Error {
-        let offset = seek_offset(from).!;
+        let offset = seek_offset(from).?;
         return os.seek_file(self.handle, offset, seek_whence(from))
             .map_err(wrap_os_error);
     }
@@ -544,7 +544,7 @@ impl &mut File {
         let mut total = 0usize;
         while (total < #buf) {
             let chunk = (buf.[0]..& + total)..&[0 .. #buf - total];
-            let read = self.read(chunk).!;
+            let read = self.read(chunk).?;
             if (read == 0) {
                 return .{ Err: .UnexpectedEof };
             }
@@ -568,7 +568,7 @@ impl &mut File {
     pub fn write_all(buf: &[u8]) usize!Error {
         let mut total = 0usize;
                 while (total < #buf) {
-            let written = self.write(buf.&[total .. #buf]).!;
+            let written = self.write(buf.&[total .. #buf]).?;
             if (written == 0) {
                 return .{ Err: .WriteZero };
             }
@@ -583,13 +583,13 @@ impl &mut File {
         let mut total = 0usize;
 
                 while (true) {
-            let read = self.read(chunk..&[0 .. 1024]).!;
+            let read = self.read(chunk..&[0 .. 1024]).?;
 
             if (read == 0) {
                 return .{ Ok: total };
             }
 
-            let written = other.write_all(chunk.&[0 .. read]).!;
+            let written = other.write_all(chunk.&[0 .. read]).?;
             total += written;
         }
     }
@@ -601,7 +601,7 @@ impl &mut File {
         }
 
         _ = os.close_file(self.handle)
-            .map_err(wrap_os_error).!;
+            .map_err(wrap_os_error).?;
         self.handle = os.invalid_handle();
         return .{ Ok: true };
     }

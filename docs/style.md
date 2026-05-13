@@ -50,28 +50,27 @@ let .{ Ok: span } = parse_value_span(text, index)
     };
 ```
 
-Use `.?` and `.!` when the surrounding return type already makes the
-propagation rule obvious and the operator makes the code shorter and clearer:
+Use `.?` when the surrounding return type already makes the propagation rule
+obvious and the operator makes the code shorter and clearer:
 
 ```kern
 let next = iter.next().?;
-let file = open(path).!;
+let file = open(path).?;
 ```
 
 When the only extra work is to lift one error type into another, prefer
-`map_err(...).!` over spelling the same `Err -> Err` bridge by hand:
+`map_err(...).?` over spelling the same `Err -> Err` bridge by hand:
 
 ```kern
 let file = open(path)
     .map_err([](err: fs.Error) Error { return .{ Fs: err }; })
-    .!;
+    .?;
 ```
 
 Use `match` when both branches do substantial work, when you need more than one
 success arm, or when the control flow is no longer a simple unwrap-and-return.
 
-Do not force `.?` or `.!` into places where a visible pattern is clearer than a
-symbol.
+Do not force `.?` into places where a visible pattern is clearer than a symbol.
 
 For dispatch over comparable values, prefer `match` over an `if` chain when the
 scrutinee and arm values have an `Eq` implementation and the arms describe a
@@ -257,8 +256,8 @@ Kern source style should lean on general language features such as enums,
 patterns, traits, impls, visibility, and explicit control flow.
 
 That means the preferred error-propagation style is built on `let else`,
-pattern matching, and `.?` / `.!` first, not on treating `Option` or `Result`
-as privileged language objects.
+pattern matching, and `.?` first, not on treating `Option` or `Result` as
+privileged language objects.
 
 ### 9. Put methods on the weakest useful receiver
 
@@ -343,8 +342,8 @@ let shader = shaders.load_shader("sprite.vs\0", "sprite.fs\0");
 defer shader.unload();
 
 let source = "<root><item/></root>";
-source.validate(gpa).!;
-let index = source.build_index(gpa).!..&;
+source.validate(gpa).?;
+let index = source.build_index(gpa).?..&;
 defer index.deinit(gpa);
 ```
 
@@ -462,10 +461,10 @@ enum AppError {
 fn app(gpa: &mut Allocator) void!AppError {
     read_config()
         .map_err([](err: xml.ExpectError) AppError { return .{ ReadConfig: err }; })
-        .!;
+        .?;
     load_document(gpa)
         .map_err([](err: xml.IndexError) AppError { return .{ LoadDocument: err }; })
-        .!;
+        .?;
     return .{ Ok: {} };
 }
 
@@ -474,8 +473,7 @@ fn main() i32 {
     let gpa = gpa().on(page)..&;
     defer gpa.deinit();
 
-    let .{ Ok: _ } = app(gpa) else return 1;
-    return 0;
+    return app(gpa).success();
 }
 ```
 

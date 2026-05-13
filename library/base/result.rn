@@ -20,6 +20,22 @@ impl[T, E] T!E {
         }
     }
 
+    /// Maps `Ok(_)` to process success and `Err(_)` to process failure.
+    pub fn success() i32 {
+        match (self) {
+            .{ Ok: _ } => 0,
+            .{ Err: _ } => 1,
+        }
+    }
+
+    /// Maps `Ok(_)` to process failure and `Err(_)` to process success.
+    pub fn fail() i32 {
+        match (self) {
+            .{ Ok: _ } => 1,
+            .{ Err: _ } => 0,
+        }
+    }
+
     /// Converts `Ok(T)` into `Some(T)` and drops the error.
     pub fn ok() ?T {
         match (self) {

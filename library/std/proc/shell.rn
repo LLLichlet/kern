@@ -106,32 +106,32 @@ impl &[u8] {
         #[if(os == "linux")]
         {
             let capture = os.shell_capture(alloc, self)
-                .map_err(map_shell_capture_error).!;
+                .map_err(map_shell_capture_error).?;
             return .{ Ok: .{ output: capture.output, status: capture.status } };
         }
 
         #[if(os == "windows")]
         {
             let capture = os.shell_capture(alloc, self)
-                .map_err(map_shell_capture_error).!;
+                .map_err(map_shell_capture_error).?;
             return .{ Ok: .{ output: capture.output, status: capture.status } };
         }
 
         #[if(os == "darwin")]
         {
-            let wrapped = build_shell_command(alloc, self).!..&;
+            let wrapped = build_shell_command(alloc, self).?..&;
             defer wrapped.deinit(alloc);
 
             let wrapped_c = abi.cstr.owned(alloc, wrapped.as_str())
                 .map_err([](_: base.mem.alloc.AllocError) Error {
                     return .OutOfMemory;
-                }).!..&;
+                }).?..&;
             defer wrapped_c.deinit(alloc);
 
             let mode = abi.cstr.owned(alloc, "r")
                 .map_err([](_: base.mem.alloc.AllocError) Error {
                     return .OutOfMemory;
-                }).!..&;
+                }).?..&;
             defer mode.deinit(alloc);
 
             let stream = system_popen(wrapped_c.ptr(), mode.ptr());
@@ -174,7 +174,7 @@ impl &[u8] {
 
     /// Runs this text as one shell command and returns only its normalized exit status.
     pub fn shell_status(alloc: &mut Allocator) i32!Error {
-        let mut capture = self.shell_capture(alloc).!;
+        let mut capture = self.shell_capture(alloc).?;
         let status = capture.status;
         capture.output..&.deinit(alloc);
         return .{ Ok: status };

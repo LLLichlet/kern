@@ -166,10 +166,9 @@ pub enum ExprKind {
         target: Box<TypeNode>,
     },
 
-    /// Builtin propagation operators `.?` and `.!`.
+    /// Builtin propagation operator `.?`.
     Propagate {
         operand: Box<Expr>,
-        kind: PropagateKind,
     },
 
     Undef,
@@ -211,12 +210,6 @@ pub enum NumericLiteralSuffix {
     USize,
     F32,
     F64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PropagateKind {
-    Option,
-    Result,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -94,8 +94,6 @@ impl<'a> Tokenizer<'a> {
                     self.make_token(TokenType::DotAmpersand)
                 } else if self.match_char(b'?') {
                     self.make_token(TokenType::DotQuestion)
-                } else if self.match_char(b'!') {
-                    self.make_token(TokenType::DotBang)
                 } else if self.match_char(b'[') {
                     self.make_token(TokenType::DotLBracket)
                 } else if self.match_char(b'{') {

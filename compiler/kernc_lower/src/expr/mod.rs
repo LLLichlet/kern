@@ -212,10 +212,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     this.apply_implicit_cast(lowered.kind, lowered.ty, exp_ty, expr.span)
                 });
             }
-            ExprKind::Propagate { operand, kind } => {
+            ExprKind::Propagate { operand } => {
                 self.measure_phase("        lower_expr_control", |this| {
                     this.measure_phase("          lower_expr_control_propagate", |this| {
-                        this.lower_propagate(operand, *kind, subst_map, expr.span)
+                        this.lower_propagate(operand, subst_map, expr.span)
                     })
                 })
             }
@@ -342,7 +342,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kernc_ast::{PropagateKind, UnaryOperator};
+    use kernc_ast::UnaryOperator;
     use kernc_mono::MonoId;
     use kernc_sema::SemaContext;
     use kernc_sema::def::{Def, UnionDef};
@@ -623,12 +623,7 @@ mod tests {
             .push(HashMap::from([(value, (TypeId::U8, false))]));
         lowerer.current_return_types.push(TypeId::U8);
 
-        let lowered = lowerer.lower_propagate(
-            &operand,
-            PropagateKind::Option,
-            &HashMap::new(),
-            Span::default(),
-        );
+        let lowered = lowerer.lower_propagate(&operand, &HashMap::new(), Span::default());
 
         assert!(matches!(lowered, MastExprKind::Trap));
         assert_eq!(lowerer.ctx.sess.diagnostics.len(), 1);
@@ -643,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn lowering_propagate_kind_mismatch_emits_error_not_ice() {
+    fn lowering_propagate_non_builtin_enum_operand_emits_error_not_ice() {
         let mut session = Session::new();
         let mut ctx = SemaContext::new(&mut session);
         let some = ctx.intern("Some");
@@ -653,7 +648,7 @@ mod tests {
             .type_registry
             .intern(TypeKind::AnonymousEnum(AnonymousEnum {
                 backing_ty: Some(TypeId::U8),
-                builtin: Some(BuiltinAnonymousEnumKind::Optional),
+                builtin: None,
                 variants: vec![
                     AnonymousVariant {
                         name: some,
@@ -682,12 +677,7 @@ mod tests {
             .push(HashMap::from([(value, (optional_ty, false))]));
         lowerer.current_return_types.push(optional_ty);
 
-        let lowered = lowerer.lower_propagate(
-            &operand,
-            PropagateKind::Result,
-            &HashMap::new(),
-            Span::default(),
-        );
+        let lowered = lowerer.lower_propagate(&operand, &HashMap::new(), Span::default());
 
         assert!(matches!(lowered, MastExprKind::Trap));
         assert_eq!(lowerer.ctx.sess.diagnostics.len(), 1);
@@ -697,7 +687,7 @@ mod tests {
         );
         assert_eq!(
             lowerer.ctx.sess.diagnostics[0].message,
-            "propagation operator does not match the operand enum kind"
+            "propagation operand must be a builtin optional or result value"
         );
     }
 
@@ -741,12 +731,7 @@ mod tests {
             .push(HashMap::from([(value, (broken_optional_ty, false))]));
         lowerer.current_return_types.push(broken_optional_ty);
 
-        let lowered = lowerer.lower_propagate(
-            &operand,
-            PropagateKind::Option,
-            &HashMap::new(),
-            Span::default(),
-        );
+        let lowered = lowerer.lower_propagate(&operand, &HashMap::new(), Span::default());
 
         assert!(matches!(lowered, MastExprKind::Trap));
         assert_eq!(lowerer.ctx.sess.diagnostics.len(), 1);

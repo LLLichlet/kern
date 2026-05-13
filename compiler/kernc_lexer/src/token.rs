@@ -193,11 +193,8 @@ pub enum TokenType {
     /// `.&` immutable address-of.
     DotAmpersand,
 
-    /// `.?` builtin optional propagation.
+    /// `.?` builtin optional/result propagation.
     DotQuestion,
-
-    /// `.!` builtin result propagation.
-    DotBang,
 
     /// `.*` pointer dereference.
     DotStar,

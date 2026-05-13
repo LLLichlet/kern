@@ -600,7 +600,7 @@ fn main(value: ?i32, status: i32!&[u8]) ?i32!&[u8] {
     let a = ?i32.None;
     let b = ?i32.{ Some: 7 };
     let c = value.?;
-    let d = status.!;
+    let d = status.?;
     return ?i32!&[u8].{ Some: i32!&[u8].{ Ok: c + d } };
 }
 "#;
@@ -668,7 +668,7 @@ fn main(value: ?i32, status: i32!&[u8]) ?i32!&[u8] {
     fn parses_builtin_propagation_expressions() {
         let source = r#"
 fn main(value: ?i32, status: i32!&[u8]) i32 {
-    return value.? + status.!;
+    return value.? + status.?;
 }
 "#;
 
@@ -701,20 +701,8 @@ fn main(value: ?i32, status: i32!&[u8]) i32 {
         let ast::ExprKind::Binary { lhs, rhs, .. } = &value.kind else {
             panic!("expected propagated sum");
         };
-        assert!(matches!(
-            lhs.kind,
-            ast::ExprKind::Propagate {
-                kind: ast::PropagateKind::Option,
-                ..
-            }
-        ));
-        assert!(matches!(
-            rhs.kind,
-            ast::ExprKind::Propagate {
-                kind: ast::PropagateKind::Result,
-                ..
-            }
-        ));
+        assert!(matches!(lhs.kind, ast::ExprKind::Propagate { .. }));
+        assert!(matches!(rhs.kind, ast::ExprKind::Propagate { .. }));
     }
 
     #[test]

@@ -105,18 +105,18 @@ fn clone_c_value(
 
 #[if(os == "linux" or os == "darwin")]
 fn get_posix(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
-    let c_name = abi.cstr.owned(alloc, name).!..&;
+    let c_name = abi.cstr.owned(alloc, name).?..&;
     defer c_name.deinit(alloc);
 
     let .{ Some: value_ptr } = os.find_environment_value(c_name.ptr())
         else return .{ Ok: .None };
-    let value = clone_c_value(alloc, value_ptr, value_ptr.cstr_len()).!;
+    let value = clone_c_value(alloc, value_ptr, value_ptr.cstr_len()).?;
     return .{ Ok: .{ Some: value } };
 }
 
 #[if(os == "windows")]
 fn get_windows(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
-    let c_name = abi.cstr.owned(alloc, name).!..&;
+    let c_name = abi.cstr.owned(alloc, name).?..&;
     defer c_name.deinit(alloc);
 
     let required = os.get_environment_variable(c_name.ptr(), null_mut_ptr[u8](), 0) as usize;
@@ -124,8 +124,8 @@ fn get_windows(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
         return .{ Ok: .None };
     }
 
-    let layout = array_layout_of[u8](required).ok_or(.CapacityOverflow).!;
-    let buffer = alloc.alloc(layout).ok_or(.OutOfMemory).!;
+    let layout = array_layout_of[u8](required).ok_or(.CapacityOverflow).?;
+    let buffer = alloc.alloc(layout).ok_or(.OutOfMemory).?;
     defer alloc.free(buffer, layout);
 
     let written = os.get_environment_variable(c_name.ptr(), buffer, required as u32) as usize;
@@ -133,7 +133,7 @@ fn get_windows(alloc: &mut Allocator, name: &[u8]) (?String)!AllocError {
         return .{ Ok: .None };
     }
 
-    let value = clone_c_value(alloc, buffer, written).!;
+    let value = clone_c_value(alloc, buffer, written).?;
     return .{ Ok: .{ Some: value } };
 }
 
@@ -281,7 +281,7 @@ impl Key {
             .{ Some: value } => return .{ Ok: value },
             .None => {
                 let mut value = String.{};
-                value..&.try_push_str(alloc, fallback).!;
+                value..&.try_push_str(alloc, fallback).?;
                 return .{ Ok: value };
             },
         }

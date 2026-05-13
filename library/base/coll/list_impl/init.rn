@@ -192,7 +192,7 @@ impl[T] &mut List[T] {
 
     /// Appends one item or returns a structured allocation error.
     pub fn try_push(alloc: &mut Allocator, item: T) void!AllocError {
-        self.try_reserve(alloc, 1).!;
+        self.try_reserve(alloc, 1).?;
         if (@sizeOf[T]() != 0) {
             let target = self.ptr + self.len;
             target.* = item;
@@ -415,7 +415,7 @@ impl[T] &mut List[T] {
         if (additional == 0) return .{ Ok: {} };
 
         let old_len = self.len;
-        self.try_reserve(alloc, additional).!;
+        self.try_reserve(alloc, additional).?;
         self.append_slice_reserved(slice, old_len, additional);
         return .{ Ok: {} };
     }
@@ -426,7 +426,7 @@ impl[T] &mut List[T] {
         if (additional == 0) return .{ Ok: {} };
 
         let old_len = self.len;
-        self.try_reserve_exact(alloc, additional).!;
+        self.try_reserve_exact(alloc, additional).?;
         self.append_slice_reserved(slice, old_len, additional);
         return .{ Ok: {} };
     }
@@ -442,7 +442,7 @@ impl[T] &mut List[T] {
         }
 
         let old_len = self.len;
-        self.try_reserve(alloc, count).!;
+        self.try_reserve(alloc, count).?;
 
         self.len = old_len + count;
         if (self.is_zst()) {
@@ -458,7 +458,7 @@ impl[T] &mut List[T] {
         }
 
         let old_len = self.len;
-        self.try_reserve_exact(alloc, count).!;
+        self.try_reserve_exact(alloc, count).?;
 
         self.len = old_len + count;
         if (self.is_zst()) {
@@ -469,7 +469,7 @@ impl[T] &mut List[T] {
 
     /// Appends `count` copies of `item`.
     pub fn try_append_repeat(alloc: &mut Allocator, item: T, count: usize) void!AllocError {
-        self.try_reserve(alloc, count).!;
+        self.try_reserve(alloc, count).?;
 
         if (self.is_zst()) {
             self.len += count;

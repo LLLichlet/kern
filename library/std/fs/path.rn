@@ -130,7 +130,7 @@ pub/ fn build_child_path(
 ) String!Error {
     let mut out = String.{};
     let sep = preferred_separator_byte(base);
-    out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).!;
+    out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).?;
 
     if (#base > 0 and !is_path_separator(base.[#base - 1])) {
         if (out..&.try_push_char(alloc, sep).is_err()) {
@@ -258,19 +258,19 @@ pub/ fn join(
 ) String!Error {
     if (root_prefix_len(child) > 0) {
         let mut out = String.{};
-        out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).!;
+        out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
 
     if (#base == 0) {
         let mut out = String.{};
-        out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).!;
+        out..&.try_push_str(alloc, child).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
 
     if (#child == 0) {
         let mut out = String.{};
-        out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).!;
+        out..&.try_push_str(alloc, base).map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
 
@@ -314,24 +314,24 @@ pub/ fn normalize(alloc: &mut Allocator, path: &[u8]) String!Error {
             if (can_pop) {
                 _ = segments.pop();
             } else if (prefix_len == 0) {
-                segments.try_push(alloc, segment).map_err(wrap_alloc_error).!;
+                segments.try_push(alloc, segment).map_err(wrap_alloc_error).?;
             }
             continue;
         }
 
-        segments.try_push(alloc, segment).map_err(wrap_alloc_error).!;
+        segments.try_push(alloc, segment).map_err(wrap_alloc_error).?;
     }
 
     let mut out = String.{};
     if (prefix_len > 0) {
-        out..&.try_push_str(alloc, path.&[0 .. prefix_len]).map_err(wrap_alloc_error).!;
+        out..&.try_push_str(alloc, path.&[0 .. prefix_len]).map_err(wrap_alloc_error).?;
     }
 
     if (segments.is_empty()) {
         if (prefix_len > 0) {
             return .{ Ok: out };
         }
-        out..&.try_push_str(alloc, ".").map_err(wrap_alloc_error).!;
+        out..&.try_push_str(alloc, ".").map_err(wrap_alloc_error).?;
         return .{ Ok: out };
     }
 
@@ -385,10 +385,10 @@ pub/ fn with_extension(
     path: &[u8],
     ext: &[u8],
 ) String!Error {
-    let stem = file_stem(path).ok_or(.InvalidPath).!;
+    let stem = file_stem(path).ok_or(.InvalidPath).?;
 
     let mut new_name = String.{};
-    new_name..&.try_push_str(alloc, stem).map_err(wrap_alloc_error).!;
+    new_name..&.try_push_str(alloc, stem).map_err(wrap_alloc_error).?;
 
     if (#ext > 0) {
         if (new_name..&.try_push_char(alloc, b'.').is_err()) {

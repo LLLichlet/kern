@@ -229,7 +229,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_propagate(
         &mut self,
         operand: &Expr,
-        kind: ast::PropagateKind,
         subst_map: &HashMap<SymbolId, kernc_sema::ty::GenericArg>,
         span: Span,
     ) -> MastExprKind {
@@ -260,78 +259,77 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let ok_name = self.ctx.intern("Ok");
         let err_name = self.ctx.intern("Err");
 
-        let (success_variant, failure_variant, success_payload_info, failure_payload_info) =
-            match (kind, operand_info) {
-                (ast::PropagateKind::Option, MatchAdtInfo::Anonymous { def, .. })
-                    if def.builtin == Some(BuiltinAnonymousEnumKind::Optional) =>
-                {
-                    let success = self.build_enum_variant_condition(
+        let (
+            operand_builtin,
+            success_variant,
+            failure_variant,
+            success_payload_info,
+            failure_payload_info,
+        ) = match operand_info {
+            MatchAdtInfo::Anonymous { def, .. }
+                if def.builtin == Some(BuiltinAnonymousEnumKind::Optional) =>
+            {
+                let success = self.build_enum_variant_condition(
+                    span,
+                    &target_var_expr,
+                    operand_ty,
+                    some_name,
+                );
+                let failure = self.build_enum_variant_condition(
+                    span,
+                    &target_var_expr,
+                    operand_ty,
+                    none_name,
+                );
+                let (success_cond, success_payload_info) = match success {
+                    Some(value) => value,
+                    None => return MastExprKind::Trap,
+                };
+                let (_, failure_payload_info) = match failure {
+                    Some(value) => value,
+                    None => return MastExprKind::Trap,
+                };
+                (
+                    BuiltinAnonymousEnumKind::Optional,
+                    success_cond,
+                    none_name,
+                    success_payload_info,
+                    failure_payload_info,
+                )
+            }
+            MatchAdtInfo::Anonymous { def, .. }
+                if def.builtin == Some(BuiltinAnonymousEnumKind::Result) =>
+            {
+                let success =
+                    self.build_enum_variant_condition(span, &target_var_expr, operand_ty, ok_name);
+                let failure =
+                    self.build_enum_variant_condition(span, &target_var_expr, operand_ty, err_name);
+                let (success_cond, success_payload_info) = match success {
+                    Some(value) => value,
+                    None => return MastExprKind::Trap,
+                };
+                let (_, failure_payload_info) = match failure {
+                    Some(value) => value,
+                    None => return MastExprKind::Trap,
+                };
+                (
+                    BuiltinAnonymousEnumKind::Result,
+                    success_cond,
+                    err_name,
+                    success_payload_info,
+                    failure_payload_info,
+                )
+            }
+            _ => {
+                self.ctx
+                    .struct_error(
                         span,
-                        &target_var_expr,
-                        operand_ty,
-                        some_name,
-                    );
-                    let failure = self.build_enum_variant_condition(
-                        span,
-                        &target_var_expr,
-                        operand_ty,
-                        none_name,
-                    );
-                    let (success_cond, success_payload_info) = match success {
-                        Some(value) => value,
-                        None => return MastExprKind::Trap,
-                    };
-                    let (_, failure_payload_info) = match failure {
-                        Some(value) => value,
-                        None => return MastExprKind::Trap,
-                    };
-                    (
-                        success_cond,
-                        none_name,
-                        success_payload_info,
-                        failure_payload_info,
+                        "propagation operand must be a builtin optional or result value",
                     )
-                }
-                (ast::PropagateKind::Result, MatchAdtInfo::Anonymous { def, .. })
-                    if def.builtin == Some(BuiltinAnonymousEnumKind::Result) =>
-                {
-                    let success = self.build_enum_variant_condition(
-                        span,
-                        &target_var_expr,
-                        operand_ty,
-                        ok_name,
-                    );
-                    let failure = self.build_enum_variant_condition(
-                        span,
-                        &target_var_expr,
-                        operand_ty,
-                        err_name,
-                    );
-                    let (success_cond, success_payload_info) = match success {
-                        Some(value) => value,
-                        None => return MastExprKind::Trap,
-                    };
-                    let (_, failure_payload_info) = match failure {
-                        Some(value) => value,
-                        None => return MastExprKind::Trap,
-                    };
-                    (
-                        success_cond,
-                        err_name,
-                        success_payload_info,
-                        failure_payload_info,
-                    )
-                }
-                _ => {
-                    self.ctx
-                        .struct_error(
-                            span,
-                            "propagation operator does not match the operand enum kind",
-                        )
-                        .emit();
-                    return MastExprKind::Trap;
-                }
-            };
+                    .emit();
+                return MastExprKind::Trap;
+            }
+        };
 
         let Some((success_field_idx, success_payload_ty, success_mono_id)) = success_payload_info
         else {
@@ -353,15 +351,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return MastExprKind::Trap;
         };
 
-        let failure_value = match kind {
-            ast::PropagateKind::Option => {
+        let failure_value = match operand_builtin {
+            BuiltinAnonymousEnumKind::Optional => {
                 match self.build_variant_value_expr(current_return_ty, failure_variant, None, span)
                 {
                     Some(expr) => expr,
                     None => return MastExprKind::Trap,
                 }
             }
-            ast::PropagateKind::Result => {
+            BuiltinAnonymousEnumKind::Result => {
                 let Some((failure_field_idx, failure_payload_ty, failure_mono_id)) =
                     failure_payload_info
                 else {

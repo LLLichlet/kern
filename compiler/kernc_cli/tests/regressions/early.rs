@@ -669,13 +669,13 @@ fn map_error(_: i32) i32!Error {
 }
 
 fn check_ok_or() i32!Error {
-    let _ = maybe().ok_or(.Oops).!;
+    let _ = maybe().ok_or(.Oops).?;
     return .{ Ok: 1 };
 }
 
 fn check_or_else() i32!Error {
     let base = i32!i32.{ Err: 7 };
-    let _ = base.or_else(map_error).!;
+    let _ = base.or_else(map_error).?;
     return .{ Ok: 1 };
 }
 

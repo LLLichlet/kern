@@ -128,7 +128,7 @@ impl[K, V] &Map[K, V]
 
     /// Appends every key into `out`.
     pub fn try_append_keys(alloc: &mut Allocator, out: &mut List[K]) void!AllocError {
-        out.try_reserve(alloc, self.len()).!;
+        out.try_reserve(alloc, self.len()).?;
 
         let mut err = ?AllocError.None;
         let visit = [out, alloc, err = err..&](entry: &mut Entry[K, V]) bool {
@@ -155,7 +155,7 @@ impl[K, V] &Map[K, V]
 
     /// Appends every value into `out`.
     pub fn try_append_values(alloc: &mut Allocator, out: &mut List[V]) void!AllocError {
-        out.try_reserve(alloc, self.len()).!;
+        out.try_reserve(alloc, self.len()).?;
 
         let mut err = ?AllocError.None;
         let visit = [out, alloc, err = err..&](entry: &mut Entry[K, V]) bool {

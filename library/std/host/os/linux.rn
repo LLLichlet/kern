@@ -397,13 +397,13 @@ pub fn restore_terminal_mode(handle: Handle, state: &TerminalState) bool!Error {
 
 /// Captures combined stdout/stderr from `/bin/sh -lc <command>`.
 pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error {
-    let sh_path = abi.cstr.owned(alloc, "/bin/sh").map_err(wrap_alloc_error).!..&;
+    let sh_path = abi.cstr.owned(alloc, "/bin/sh").map_err(wrap_alloc_error).?..&;
     defer sh_path.deinit(alloc);
 
-    let sh_arg = abi.cstr.owned(alloc, "sh").map_err(wrap_alloc_error).!..&;
+    let sh_arg = abi.cstr.owned(alloc, "sh").map_err(wrap_alloc_error).?..&;
     defer sh_arg.deinit(alloc);
 
-    let dash_lc = abi.cstr.owned(alloc, "-lc").map_err(wrap_alloc_error).!..&;
+    let dash_lc = abi.cstr.owned(alloc, "-lc").map_err(wrap_alloc_error).?..&;
     defer dash_lc.deinit(alloc);
 
     let wrapped = String.{}..&;
@@ -415,7 +415,7 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
         return .{ Err: .{ code: 12 } };
     }
 
-    let command_c = abi.cstr.owned(alloc, wrapped.as_str()).map_err(wrap_alloc_error).!..&;
+    let command_c = abi.cstr.owned(alloc, wrapped.as_str()).map_err(wrap_alloc_error).?..&;
     defer command_c.deinit(alloc);
 
     let mut fds: [2]i32 = undef;
@@ -739,7 +739,7 @@ pub fn metadata(path: &u8) Metadata!Error {
 pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool) usize!Error {
     _ = search_path;
     let options = OpenOptions.{ read: true };
-    let handle = open_file(path, options.&).!;
+    let handle = open_file(path, options.&).?;
     defer {
         _ = close_file(handle);
     };

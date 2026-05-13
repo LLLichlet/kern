@@ -1113,7 +1113,8 @@ fn main() i32 {
     assert!(
         stderr.contains("mismatched types")
             || stderr.contains("type does not satisfy trait bounds")
-            || stderr.contains("does not implement the target trait"),
+            || stderr.contains("does not implement the target trait")
+            || stderr.contains("must implement the target trait"),
         "unexpected stderr:\n{}",
         stderr
     );

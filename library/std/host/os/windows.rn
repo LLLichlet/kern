@@ -442,14 +442,14 @@ pub fn shell_capture(alloc: &mut Allocator, command: &[u8]) ProcessCapture!Error
         return .{ Err: last_error() };
     }
 
-    let command_line = build_shell_command_line(alloc, command).!..&;
+    let command_line = build_shell_command_line(alloc, command).?..&;
     defer command_line.deinit(alloc);
 
     let command_line_c = abi.cstr.owned(alloc, command_line.as_str())
-        .map_err(wrap_alloc_error).!..&;
+        .map_err(wrap_alloc_error).?..&;
     defer command_line_c.deinit(alloc);
 
-    let wide_command_line = utf8_z_to_wide(command_line_c.ptr()).!;
+    let wide_command_line = utf8_z_to_wide(command_line_c.ptr()).?;
     defer free_wide_units(wide_command_line);
 
     let mut startup = StartupInfoW.{
@@ -619,7 +619,7 @@ pub fn utf8_z_to_wide(path: &u8) (&mut u16)!Error {
         return .{ Err: last_error() };
     }
 
-    let wide = alloc_wide_units(required as usize + 1).!;
+    let wide = alloc_wide_units(required as usize + 1).?;
 
     let written = MultiByteToWideChar(
         CP_UTF8,
@@ -681,7 +681,7 @@ pub fn wide_to_utf8_into(wide: &[u16], out: &mut [u8]) usize!Error {
 pub fn wide_z_to_utf8_alloc(ptr: &u16) (&mut u8)!Error {
     let len = utf16_z_len(ptr);
     if (len == 0) {
-        let out = alloc_utf8_units(1).!;
+        let out = alloc_utf8_units(1).?;
         out.* = 0;
         return .{ Ok: out };
     }
@@ -700,7 +700,7 @@ pub fn wide_z_to_utf8_alloc(ptr: &u16) (&mut u8)!Error {
         return .{ Err: last_error() };
     }
 
-    let out = alloc_utf8_units(required as usize + 1).!;
+    let out = alloc_utf8_units(required as usize + 1).?;
 
     let written = WideCharToMultiByte(
         CP_UTF8,
@@ -752,12 +752,12 @@ pub fn seek_file(handle: Handle, offset: isize, whence: i32) usize!Error {
 
 /// Changes an open file's length.
 pub fn truncate_file(handle: Handle, size: usize) bool!Error {
-    let current = seek_file(handle, 0, 1).!;
-    _ = seek_file(handle, size as isize, 0).!;
+    let current = seek_file(handle, 0, 1).?;
+    _ = seek_file(handle, size as isize, 0).?;
     if (SetEndOfFile(handle) == 0) {
         return .{ Err: last_error() };
     }
-    _ = seek_file(handle, current as isize, 0).!;
+    _ = seek_file(handle, current as isize, 0).?;
     return .{ Ok: true };
 }
 
@@ -779,7 +779,7 @@ pub fn close_file(handle: Handle) bool!Error {
 
 /// Returns metadata for a filesystem entry.
 pub fn metadata(path: &u8) Metadata!Error {
-    let wide_path = utf8_z_to_wide(path).!;
+    let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
     let mut data: Win32FileAttributeData = undef;
@@ -837,7 +837,7 @@ fn is_dot_entry(name: &[u16]) bool {
 
 pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool) usize!Error {
     _ = path;
-    let wide_search_path = utf8_z_to_wide(search_path).!;
+    let wide_search_path = utf8_z_to_wide(search_path).?;
     defer free_wide_units(wide_search_path);
 
     let mut data: Win32FindDataW = undef;
@@ -855,7 +855,7 @@ pub fn scan_dir(path: &u8, search_path: &u8, visitor: &Fn(&[u8], FileType) bool)
         let name = data.cFileName.&[0 .. name_len];
         if (!is_dot_entry(name)) {
             let mut utf8_name_buf: [1040]u8 = undef;
-            let utf8_name_len = wide_to_utf8_into(name, utf8_name_buf..&[0 .. 1040]).!;
+            let utf8_name_len = wide_to_utf8_into(name, utf8_name_buf..&[0 .. 1040]).?;
             let utf8_name = utf8_name_buf.&[0 .. utf8_name_len];
             total += 1usize;
             if (!visitor(utf8_name, find_data_file_type(data.&))) {
@@ -878,7 +878,7 @@ pub fn open_file(
     path: &u8,
     options: &OpenOptions,
 ) Handle!Error {
-    let wide_path = utf8_z_to_wide(path).!;
+    let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
     let mut access = 0u32;
@@ -916,7 +916,7 @@ pub fn open_file(
 
 /// Creates one directory.
 pub fn create_dir(path: &u8) bool!Error {
-    let wide_path = utf8_z_to_wide(path).!;
+    let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
     if (CreateDirectoryW(wide_path, 0usize as &mut SecurityAttributes) == 0) {
@@ -927,7 +927,7 @@ pub fn create_dir(path: &u8) bool!Error {
 
 /// Removes one empty directory.
 pub fn remove_dir(path: &u8) bool!Error {
-    let wide_path = utf8_z_to_wide(path).!;
+    let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
     if (RemoveDirectoryW(wide_path) == 0) {
@@ -938,7 +938,7 @@ pub fn remove_dir(path: &u8) bool!Error {
 
 /// Removes one file.
 pub fn remove_file(path: &u8) bool!Error {
-    let wide_path = utf8_z_to_wide(path).!;
+    let wide_path = utf8_z_to_wide(path).?;
     defer free_wide_units(wide_path);
 
     if (DeleteFileW(wide_path) == 0) {
@@ -949,10 +949,10 @@ pub fn remove_file(path: &u8) bool!Error {
 
 /// Renames or moves a filesystem entry.
 pub fn rename(old_path: &u8, new_path: &u8) bool!Error {
-    let wide_old_path = utf8_z_to_wide(old_path).!;
+    let wide_old_path = utf8_z_to_wide(old_path).?;
     defer free_wide_units(wide_old_path);
 
-    let wide_new_path = utf8_z_to_wide(new_path).!;
+    let wide_new_path = utf8_z_to_wide(new_path).?;
     defer free_wide_units(wide_new_path);
 
     if (MoveFileExW(wide_old_path, wide_new_path, MOVEFILE_REPLACE_EXISTING) == 0) {

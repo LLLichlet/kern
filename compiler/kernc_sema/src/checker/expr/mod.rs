@@ -1608,9 +1608,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
-            ExprKind::Propagate { operand, kind } => {
+            ExprKind::Propagate { operand } => {
                 let started = self.timing_start();
-                let ty = self.check_propagate(operand, *kind, expr.span);
+                let ty = self.check_propagate(operand, expr.span);
                 self.record_expr_timing(started, |stats, elapsed| stats.ops += elapsed);
                 ty
             }
@@ -2014,12 +2014,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         ty_id
     }
 
-    fn check_propagate(
-        &mut self,
-        operand: &Expr,
-        kind: ast::PropagateKind,
-        span: kernc_utils::Span,
-    ) -> TypeId {
+    fn check_propagate(&mut self, operand: &Expr, span: kernc_utils::Span) -> TypeId {
         let Some(current_return_ty) = self.current_return_type else {
             self.ctx
                 .struct_error(
@@ -2042,20 +2037,55 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .emit();
             return TypeId::ERROR;
         };
+        if !matches!(
+            return_enum.builtin,
+            Some(BuiltinAnonymousEnumKind::Optional | BuiltinAnonymousEnumKind::Result)
+        ) {
+            let ret_str = self.ctx.ty_to_string(current_return_ty);
+            self.ctx
+                .struct_error(
+                    span,
+                    format!(
+                        "propagation target function must return a builtin optional/result, found `{}`",
+                        ret_str
+                    ),
+                )
+                .emit();
+            return TypeId::ERROR;
+        }
 
-        let operand_expected = match kind {
-            ast::PropagateKind::Option => Some(current_return_ty),
-            ast::PropagateKind::Result => {
-                let Some((_, ret_err_ty)) = return_enum.builtin_result_types() else {
-                    let ret_str = self.ctx.ty_to_string(current_return_ty);
+        let operand_expected = match return_enum.builtin {
+            Some(BuiltinAnonymousEnumKind::Optional) => {
+                let payload = self.fresh_type_var();
+                let some_name = self.ctx.intern("Some");
+                let none_name = self.ctx.intern("None");
+                Some(
                     self.ctx
-                        .struct_error(
-                            span,
-                            format!(
-                                "`.!` requires the enclosing function to return a builtin result, found `{}`",
-                                ret_str
-                            ),
-                        )
+                        .type_registry
+                        .intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                            backing_ty: None,
+                            builtin: Some(BuiltinAnonymousEnumKind::Optional),
+                            variants: vec![
+                                AnonymousVariant {
+                                    name: some_name,
+                                    name_span: Span::default(),
+                                    payload_ty: Some(payload),
+                                    explicit_value: None,
+                                },
+                                AnonymousVariant {
+                                    name: none_name,
+                                    name_span: Span::default(),
+                                    payload_ty: None,
+                                    explicit_value: None,
+                                },
+                            ],
+                        })),
+                )
+            }
+            Some(BuiltinAnonymousEnumKind::Result) => {
+                let Some((_, ret_err_ty)) = return_enum.builtin_result_types() else {
+                    self.ctx
+                        .struct_error(span, "`.?` requires a valid builtin result return type")
                         .emit();
                     return TypeId::ERROR;
                 };
@@ -2086,6 +2116,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         })),
                 )
             }
+            None => unreachable!("non-builtin return enum was rejected above"),
         };
 
         let operand_ty = self.check_expr(operand, operand_expected);
@@ -2094,60 +2125,53 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let TypeKind::AnonymousEnum(operand_enum) =
             self.ctx.type_registry.get(norm_operand).clone()
         else {
-            let op = match kind {
-                ast::PropagateKind::Option => ".?",
-                ast::PropagateKind::Result => ".!",
-            };
             let found = self.ctx.ty_to_string(operand_ty);
             self.ctx
-                .struct_error(
-                    span,
-                    format!("`{}` requires a builtin optional or result value", op),
-                )
+                .struct_error(span, "`.?` requires a builtin optional or result value")
                 .with_hint(format!("found `{}`", found))
                 .emit();
             return TypeId::ERROR;
         };
 
-        match kind {
-            ast::PropagateKind::Option => {
-                let Some(inner_ty) = operand_enum.builtin_optional_payload() else {
-                    self.ctx
-                        .struct_error(span, "`.?` requires a builtin optional value")
-                        .emit();
-                    return TypeId::ERROR;
-                };
+        match operand_enum.builtin {
+            Some(BuiltinAnonymousEnumKind::Optional) => {
                 if return_enum.builtin != Some(BuiltinAnonymousEnumKind::Optional) {
                     self.ctx
                         .struct_error(
                             span,
                             format!(
-                                "`.?` requires the enclosing function to return a builtin optional, found `{}`",
+                                "`.?` cannot propagate an optional from a function returning `{}`",
                                 self.ctx.ty_to_string(current_return_ty)
                             ),
                         )
                         .emit();
                     return TypeId::ERROR;
                 }
-                inner_ty
-            }
-            ast::PropagateKind::Result => {
-                let Some((ok_ty, err_ty)) = operand_enum.builtin_result_types() else {
+                let Some(inner_ty) = operand_enum.builtin_optional_payload() else {
                     self.ctx
-                        .struct_error(span, "`.!` requires a builtin result value")
+                        .struct_error(span, "`.?` requires a valid builtin optional value")
                         .emit();
                     return TypeId::ERROR;
                 };
+                inner_ty
+            }
+            Some(BuiltinAnonymousEnumKind::Result) => {
                 let Some((_, ret_err_ty)) = return_enum.builtin_result_types() else {
                     let ret_str = self.ctx.ty_to_string(current_return_ty);
                     self.ctx
                         .struct_error(
                             span,
                             format!(
-                                "`.!` requires the enclosing function to return a builtin result, found `{}`",
+                                "`.?` cannot propagate a result from a function returning `{}`",
                                 ret_str
                             ),
                         )
+                        .emit();
+                    return TypeId::ERROR;
+                };
+                let Some((ok_ty, err_ty)) = operand_enum.builtin_result_types() else {
+                    self.ctx
+                        .struct_error(span, "`.?` requires a valid builtin result value")
                         .emit();
                     return TypeId::ERROR;
                 };
@@ -2156,6 +2180,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::ERROR;
                 }
                 ok_ty
+            }
+            None => {
+                self.ctx
+                    .struct_error(span, "`.?` requires a builtin optional or result value")
+                    .emit();
+                TypeId::ERROR
             }
         }
     }

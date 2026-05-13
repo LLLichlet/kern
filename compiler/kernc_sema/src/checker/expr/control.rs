@@ -3,7 +3,7 @@ use crate::LayoutEngine;
 use crate::checker::{ConstEvaluator, ConstValue};
 use crate::def::{Def, ImportDef};
 use crate::passes::ImportResolver;
-use crate::ty::{PrimitiveType, TypeId, TypeKind};
+use crate::ty::{AnonymousField, PrimitiveType, TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{DiagnosticCode, DiagnosticTag, Span, SymbolId};
 
@@ -73,6 +73,19 @@ struct MatchArmCheckState<'a> {
     scalar_coverage: Option<&'a mut ScalarCoverageState>,
     match_closed: &'a mut bool,
     has_catch_all: &'a mut bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PatternBindField {
+    name: SymbolId,
+    ty: TypeId,
+    is_mut: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PatternBindShape {
+    fields: Vec<PatternBindField>,
+    ty: TypeId,
 }
 
 #[derive(Debug, Clone)]
@@ -1056,6 +1069,123 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         witness.first().map(|witness| witness.format(self))
     }
 
+    fn void_pattern_bind_shape(&self) -> PatternBindShape {
+        PatternBindShape {
+            fields: Vec::new(),
+            ty: TypeId::VOID,
+        }
+    }
+
+    fn pattern_bind_shape_from_fields(
+        &mut self,
+        mut fields: Vec<PatternBindField>,
+    ) -> PatternBindShape {
+        if fields.is_empty() {
+            return self.void_pattern_bind_shape();
+        }
+
+        fields.sort_by_key(|field| field.name);
+        let struct_fields = fields
+            .iter()
+            .map(|field| AnonymousField {
+                name: field.name,
+                ty: field.ty,
+            })
+            .collect();
+        let ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::AnonymousStruct(false, struct_fields));
+        PatternBindShape { fields, ty }
+    }
+
+    fn pattern_bind_shape(
+        &mut self,
+        pattern: &ast::Pattern,
+        actual_ty: TypeId,
+    ) -> PatternBindShape {
+        match &pattern.kind {
+            ast::PatternKind::Binding(binding) => {
+                if self.ctx.resolve(binding.name) == "_" {
+                    self.void_pattern_bind_shape()
+                } else {
+                    self.pattern_bind_shape_from_fields(vec![PatternBindField {
+                        name: binding.name,
+                        ty: actual_ty,
+                        is_mut: binding.is_mut,
+                    }])
+                }
+            }
+            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {
+                self.void_pattern_bind_shape()
+            }
+            ast::PatternKind::Destructure(destructure) => {
+                let norm_target = self.resolve_tv(actual_ty);
+                match self.ctx.type_registry.get(norm_target).clone() {
+                    TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_) => {
+                        let Some(field) = destructure.fields.first() else {
+                            return self.void_pattern_bind_shape();
+                        };
+                        let Some(Some(payload_ty)) =
+                            self.variant_payload_type(norm_target, field.name, field.name_span)
+                        else {
+                            return self.void_pattern_bind_shape();
+                        };
+                        self.pattern_bind_shape(&field.pattern, payload_ty)
+                    }
+                    _ => {
+                        let Some((field_defs, _)) =
+                            self.resolve_struct_pattern_fields(norm_target, pattern.span)
+                        else {
+                            return self.void_pattern_bind_shape();
+                        };
+
+                        let mut fields = Vec::new();
+                        for field in &destructure.fields {
+                            let Some(resolved) = field_defs
+                                .iter()
+                                .find(|candidate| candidate.name == field.name)
+                            else {
+                                continue;
+                            };
+                            let shape = self.pattern_bind_shape(&field.pattern, resolved.ty);
+                            fields.extend(shape.fields);
+                        }
+                        self.pattern_bind_shape_from_fields(fields)
+                    }
+                }
+            }
+        }
+    }
+
+    fn match_pattern_bind_shape(
+        &mut self,
+        pattern: &ast::MatchPattern,
+        target_ty: TypeId,
+    ) -> PatternBindShape {
+        match &pattern.kind {
+            ast::MatchPatternKind::Pattern(pattern) => self.pattern_bind_shape(pattern, target_ty),
+            ast::MatchPatternKind::Value(_) | ast::MatchPatternKind::Range { .. } => {
+                self.void_pattern_bind_shape()
+            }
+        }
+    }
+
+    fn emit_match_arm_bind_shape_error(
+        &mut self,
+        span: Span,
+        expected: &PatternBindShape,
+        found: &PatternBindShape,
+    ) {
+        let expected_ty = self.ctx.ty_to_string(expected.ty);
+        let found_ty = self.ctx.ty_to_string(found.ty);
+        self.ctx
+            .struct_error(span, "match arm patterns must bind the same names")
+            .with_hint(format!("first pattern binds `{}`", expected_ty))
+            .with_hint(format!("this pattern binds `{}`", found_ty))
+            .emit();
+    }
+
     /// Core match-checking logic, including environment extraction and exhaustiveness.
     pub(crate) fn check_match_expr(
         &mut self,
@@ -1159,6 +1289,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.ctx.scopes.enter_scope();
 
         let pattern_started = self.timing_start();
+        let mut arm_bind_shape = None;
         for pat in &arm.patterns {
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
@@ -1238,7 +1369,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                 }
                 ast::MatchPatternKind::Pattern(pattern) => {
-                    self.check_pattern(arm.body.id, pattern, state.norm_target);
+                    self.check_pattern_without_bindings(arm.body.id, pattern, state.norm_target);
 
                     let irrefutable = self.pattern_is_irrefutable(pattern, state.norm_target);
                     if *state.match_closed {
@@ -1279,6 +1410,26 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         *state.match_closed = true;
                     }
                 }
+            }
+
+            let bind_shape = self.match_pattern_bind_shape(pat, state.norm_target);
+            if let Some(expected) = &arm_bind_shape {
+                if expected != &bind_shape {
+                    self.emit_match_arm_bind_shape_error(pat.span, expected, &bind_shape);
+                }
+            } else {
+                arm_bind_shape = Some(bind_shape);
+            }
+        }
+        if let Some(bind_shape) = &arm_bind_shape {
+            for field in &bind_shape.fields {
+                let binding = ast::BindingPattern {
+                    name: field.name,
+                    name_span: arm.span,
+                    is_mut: field.is_mut,
+                    span: arm.span,
+                };
+                self.define_pattern_binding(arm.body.id, &binding, field.ty);
             }
         }
         self.record_expr_timing(pattern_started, |stats, elapsed| {

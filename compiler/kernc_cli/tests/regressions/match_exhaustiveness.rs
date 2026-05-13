@@ -1069,3 +1069,68 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn match_arm_alternative_patterns_share_one_binding_environment() {
+    let output = build_and_run_source(
+        r#"
+enum Token {
+    Int: i32,
+    Float: i32,
+    Text,
+};
+
+fn value(token: Token) i32 {
+    return match (token) {
+        .{ Int: n }, .{ Float: n } => n,
+        .Text => 0,
+    };
+}
+
+fn main() i32 {
+    return value(Token.{ Int: 4 }) + value(Token.{ Float: 5 }) - 9;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "expected compilation success, but kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_match_arm_alternative_patterns_with_different_bindings() {
+    let output = compile_source(
+        r#"
+enum Token {
+    Int: i32,
+    Float: i32,
+    Text,
+};
+
+fn value(token: Token) i32 {
+    return match (token) {
+        .{ Int: n }, .{ Float: other } => n,
+        .Text => 0,
+    };
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("match arm patterns must bind the same names"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}

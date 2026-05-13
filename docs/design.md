@@ -941,6 +941,41 @@ Tree.{ Branch: Node.{ left: Leaf.Empty, right } } => use(right),
 Tree.{ Branch: Node.{ left: Leaf.Empty, right: right } } => use(right),
 ```
 
+Conceptually, every match pattern is checked as a `Pattern[T]` operation over
+the matched value type:
+
+```kern
+trait Pattern[T] {
+    type Bind;
+    fn apply(value: T) ?Bind;
+}
+```
+
+`Bind` is the binding environment produced by a successful pattern. A pattern
+with no bindings has `Bind = void`. A pattern such as `.{ Some: value }`
+produces a structural binding environment equivalent to:
+
+```kern
+struct { value: T }
+```
+
+The compiler derives this environment from pattern syntax. User code does not
+spell it at the match site.
+
+When an arm has multiple alternative patterns, every alternative must produce
+the same `Bind` shape: the same field names, field types, and mutability. Field
+order is canonicalized by name, so the source order of nested bindings does not
+matter. This keeps the arm body in one coherent scope:
+
+```kern
+.{ Int: n }, .{ Float: n } => use(n), // valid: both bind `struct { n: T }`
+.{ Int: n }, .{ Float: other } => bad, // invalid: different binding names
+```
+
+Value patterns and range patterns are no-binding patterns. They participate in
+the same model with `Bind = void`; compiler-known forms also participate in
+exhaustiveness and unreachable-pattern analysis.
+
 ### 10.5 Refutable `let` and `let else`
 
 Kern treats `let else` as a first-class control-flow construct, not as a

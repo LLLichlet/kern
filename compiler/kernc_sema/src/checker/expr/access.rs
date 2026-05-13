@@ -11,9 +11,9 @@ use kernc_ast::{self as ast, Expr, TypeNode, Visibility};
 use kernc_utils::{DiagnosticCode, FastHashSet, NodeId, Span, SymbolId};
 
 #[derive(Clone, Copy)]
-struct ResolvedPatternField {
-    name: SymbolId,
-    ty: TypeId,
+pub(super) struct ResolvedPatternField {
+    pub(super) name: SymbolId,
+    pub(super) ty: TypeId,
     definition_span: Option<Span>,
 }
 
@@ -271,7 +271,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .any(|name| !entered_scope || self.ctx.scopes.resolve(name).is_some())
     }
 
-    fn define_pattern_binding(
+    pub(super) fn define_pattern_binding(
         &mut self,
         node_id: NodeId,
         binding: &ast::BindingPattern,
@@ -321,7 +321,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         )
     }
 
-    fn variant_payload_type(
+    pub(super) fn variant_payload_type(
         &mut self,
         norm_target: TypeId,
         variant_name: SymbolId,
@@ -354,7 +354,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn resolve_struct_pattern_fields(
+    pub(super) fn resolve_struct_pattern_fields(
         &mut self,
         norm_target: TypeId,
         span: Span,
@@ -450,15 +450,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub(super) fn check_pattern(
+    fn check_pattern_impl(
         &mut self,
         node_id: NodeId,
         pattern: &ast::Pattern,
         actual_ty: TypeId,
+        define_bindings: bool,
     ) {
         match &pattern.kind {
             ast::PatternKind::Binding(binding) => {
-                self.define_pattern_binding(node_id, binding, actual_ty);
+                if define_bindings {
+                    self.define_pattern_binding(node_id, binding, actual_ty);
+                }
             }
             ast::PatternKind::Ignore => {}
             ast::PatternKind::Variant(variant) => {
@@ -553,7 +556,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 return;
                             }
 
-                            self.check_pattern(node_id, &field.pattern, payload_ty);
+                            self.check_pattern_impl(
+                                node_id,
+                                &field.pattern,
+                                payload_ty,
+                                define_bindings,
+                            );
                         } else {
                             let field_name = self.ctx.resolve(field.name).to_string();
                             self.ctx
@@ -618,12 +626,35 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                     .record_identifier_reference(field.name_span, definition_span);
                             }
 
-                            self.check_pattern(node_id, &field.pattern, resolved_field.ty);
+                            self.check_pattern_impl(
+                                node_id,
+                                &field.pattern,
+                                resolved_field.ty,
+                                define_bindings,
+                            );
                         }
                     }
                 }
             }
         }
+    }
+
+    pub(super) fn check_pattern(
+        &mut self,
+        node_id: NodeId,
+        pattern: &ast::Pattern,
+        actual_ty: TypeId,
+    ) {
+        self.check_pattern_impl(node_id, pattern, actual_ty, true);
+    }
+
+    pub(super) fn check_pattern_without_bindings(
+        &mut self,
+        node_id: NodeId,
+        pattern: &ast::Pattern,
+        actual_ty: TypeId,
+    ) {
+        self.check_pattern_impl(node_id, pattern, actual_ty, false);
     }
 
     fn let_else_uncovered_witness(

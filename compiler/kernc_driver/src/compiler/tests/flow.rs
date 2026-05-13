@@ -12,7 +12,7 @@ fn analysis_artifact_exposes_flow_owners() {
     ));
     fs::create_dir_all(&root).unwrap();
     let main = root.join("main.rn");
-    let source = "const helper = i32.{1};\nfn main() i32 { return helper; }\n";
+    let source = "const helper = 1i32;\nfn main() i32 { return helper; }\n";
     fs::write(&main, source).unwrap();
 
     let driver = CompilerDriver::new(CompileOptions::default());

@@ -167,16 +167,16 @@ fn lowering_keeps_assignment_in_while_body() {
     let main = root.join("main.rn");
     let source = concat!(
         "fn helper(limit: usize, seed: i32) i32 {\n",
-        "    let mut i = usize.{0};\n",
+        "    let mut i = 0usize;\n",
         "    let mut value = seed;\n",
         "    while (i < limit) {\n",
-        "        i += usize.{1};\n",
+        "        i += 1usize;\n",
         "        value = seed + 1;\n",
         "    }\n",
         "    value = seed + 2;\n",
         "    return value;\n",
         "}\n",
-        "extern fn main() i32 { return helper(usize.{3}, 1); }\n",
+        "extern fn main() i32 { return helper(3usize, 1); }\n",
     );
     fs::write(&main, source).unwrap();
 
@@ -639,7 +639,7 @@ fn lowering_preserves_return_temp_when_scope_has_defer() {
         "    }\n",
         "}\n",
         "fn helper() i32 {\n",
-        "    let mut state = i32.{1};\n",
+        "    let mut state = 1i32;\n",
         "    let mut guard = Guard.{ ptr: state..& };\n",
         "    defer guard..&.deinit();\n",
         "    return state;\n",
@@ -725,7 +725,7 @@ fn mir_lower_preserves_deferred_return_value_snapshot() {
         "    }\n",
         "}\n",
         "fn helper() i32 {\n",
-        "    let mut state = i32.{1};\n",
+        "    let mut state = 1i32;\n",
         "    let mut guard = Guard.{ ptr: state..& };\n",
         "    defer guard..&.deinit();\n",
         "    return state;\n",
@@ -797,7 +797,7 @@ fn mir_passes_preserve_deferred_return_value_snapshot() {
         "    }\n",
         "}\n",
         "fn helper() i32 {\n",
-        "    let mut state = i32.{1};\n",
+        "    let mut state = 1i32;\n",
         "    let mut guard = Guard.{ ptr: state..& };\n",
         "    defer guard..&.deinit();\n",
         "    return state;\n",

@@ -98,13 +98,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             if current_ty.is_none() {
                 let (target_symbol, skipped_hidden_assoc) = if index == 0 {
                     if segments.len() == 1 {
-                        let name_str = self
-                            .ctx
-                            .sess
-                            .source_manager
-                            .slice_source(segment.name_span)
-                            .trim()
-                            .to_string();
+                        let name_str = self.ctx.resolve(segment.name).to_string();
                         if let Some(prim_id) = self.resolve_builtin_primitive(&name_str) {
                             if !segment.args.is_empty() {
                                 self.ctx.emit_error(

@@ -601,7 +601,7 @@ impl CompilerDriver {
         stmts.push(Self::expr_stmt(ctx, span, user_argc_binding));
 
         let argv_expr = Self::ident(ctx, span, symbols.argv);
-        let private_arg_count_expr = Self::typed_int(ctx, span, "usize", private_arg_count as u128);
+        let private_arg_count_expr = Self::usize_int(ctx, span, private_arg_count as u128);
         let user_argv_value = Self::binary(
             ctx,
             span,
@@ -615,7 +615,7 @@ impl CompilerDriver {
 
         for (index, test) in tests.iter().enumerate() {
             let case_index_expr = Self::ident(ctx, test.name_span, symbols.case_index);
-            let expected_index = Self::typed_int(ctx, test.name_span, "usize", index as u128);
+            let expected_index = Self::usize_int(ctx, test.name_span, index as u128);
             let cond = Self::binary(
                 ctx,
                 test.name_span,
@@ -643,7 +643,7 @@ impl CompilerDriver {
     ) -> ast::Expr {
         let mut result = Self::bool_expr(ctx, span, true);
         for (offset, &byte) in expected.iter().enumerate() {
-            let index = Self::typed_int(ctx, span, "usize", offset as u128);
+            let index = Self::usize_int(ctx, span, offset as u128);
             let byte_ptr = Self::binary(ctx, span, ptr.clone(), ast::BinaryOperator::Add, index);
             let actual = Self::deref(ctx, span, byte_ptr);
             let expected_byte = Self::byte(ctx, span, byte);
@@ -651,7 +651,7 @@ impl CompilerDriver {
                 Self::binary(ctx, span, actual, ast::BinaryOperator::Equal, expected_byte);
             result = Self::binary(ctx, span, result, ast::BinaryOperator::LogicalAnd, matches);
         }
-        let index = Self::typed_int(ctx, span, "usize", expected.len() as u128);
+        let index = Self::usize_int(ctx, span, expected.len() as u128);
         let byte_ptr = Self::binary(ctx, span, ptr, ast::BinaryOperator::Add, index);
         let actual = Self::deref(ctx, span, byte_ptr);
         let nul = Self::byte(ctx, span, 0);
@@ -671,11 +671,11 @@ impl CompilerDriver {
         let byte_name = ctx.intern("__kern_test_parse_byte");
 
         let mut stmts = Vec::new();
-        let zero = Self::typed_int(ctx, span, "usize", 0);
+        let zero = Self::usize_int(ctx, span, 0);
         let index_binding = Self::let_binding(ctx, span, index_name, zero, true);
         stmts.push(Self::expr_stmt(ctx, span, index_binding));
 
-        let zero = Self::typed_int(ctx, span, "usize", 0);
+        let zero = Self::usize_int(ctx, span, 0);
         let value_binding = Self::let_binding(ctx, span, value_name, zero, true);
         stmts.push(Self::expr_stmt(ctx, span, value_binding));
 
@@ -728,7 +728,7 @@ impl CompilerDriver {
             loop_stmts.push(Self::expr_stmt(ctx, span, invalid_digit_return));
 
             let current_value = Self::ident(ctx, span, value_name);
-            let ten = Self::typed_int(ctx, span, "usize", 10);
+            let ten = Self::usize_int(ctx, span, 10);
             let scaled_value =
                 Self::binary(ctx, span, current_value, ast::BinaryOperator::Multiply, ten);
             let byte_expr = Self::ident(ctx, span, byte_name);
@@ -740,7 +740,7 @@ impl CompilerDriver {
                 ast::BinaryOperator::Subtract,
                 zero_byte,
             );
-            let usize_ty = Self::path_type_node(ctx, span, "usize");
+            let usize_ty = Self::usize_type_node(ctx, span);
             let digit = Self::as_expr(ctx, span, digit_u8, usize_ty);
             let next_value = Self::binary(ctx, span, scaled_value, ast::BinaryOperator::Add, digit);
             let lhs = Self::ident(ctx, span, value_name);
@@ -749,7 +749,7 @@ impl CompilerDriver {
             loop_stmts.push(Self::expr_stmt(ctx, span, update_value));
 
             let lhs = Self::ident(ctx, span, index_name);
-            let one = Self::typed_int(ctx, span, "usize", 1);
+            let one = Self::usize_int(ctx, span, 1);
             let bump_index = Self::assign(ctx, span, lhs, ast::AssignmentOperator::AddAssign, one);
             loop_stmts.push(Self::expr_stmt(ctx, span, bump_index));
 
@@ -833,15 +833,13 @@ impl CompilerDriver {
         }
     }
 
-    fn typed_int(ctx: &mut SemaContext<'_>, span: Span, ty_name: &str, value: u128) -> ast::Expr {
-        let type_node = Self::path_type_node(ctx, span, ty_name);
-        let value = Self::int(ctx, span, value);
+    fn usize_int(ctx: &mut SemaContext<'_>, span: Span, value: u128) -> ast::Expr {
         ast::Expr {
             id: ctx.next_node_id(),
             span,
-            kind: ast::ExprKind::DataInit {
-                type_node: Some(Box::new(type_node)),
-                literal: ast::DataLiteralKind::Scalar(Box::new(value)),
+            kind: ast::ExprKind::Integer {
+                value,
+                suffix: Some(ast::NumericLiteralSuffix::USize),
             },
         }
     }
@@ -941,7 +939,7 @@ impl CompilerDriver {
         index: u128,
     ) -> ast::Expr {
         let argv = Self::ident(ctx, span, argv_name);
-        let index = Self::typed_int(ctx, span, "usize", index);
+        let index = Self::usize_int(ctx, span, index);
         let ptr = Self::binary(ctx, span, argv, ast::BinaryOperator::Add, index);
         Self::deref(ctx, span, ptr)
     }
@@ -1165,6 +1163,12 @@ impl CompilerDriver {
                 }],
             },
         }
+    }
+
+    fn usize_type_node(ctx: &mut SemaContext<'_>, span: Span) -> ast::TypeNode {
+        let node = Self::path_type_node(ctx, span, "usize");
+        ctx.set_node_type(node.id, TypeId::USIZE);
+        node
     }
 
     fn main_argv_type_node(ctx: &mut SemaContext<'_>, span: Span) -> ast::TypeNode {
